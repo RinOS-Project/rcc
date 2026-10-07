@@ -593,8 +593,9 @@
   - [x] `inline`宣言を実インライン化済みと誤認せず、subprogram DIEへ
         `DW_AT_inline=DW_INL_declared_inlined`を記録し、非inline関数の
         `DW_INL_not_inlined`と両archのdebug-info回帰で検証
-  - [x] C関数の`DW_AT_prototyped`を関数型のprototype状態から出力し、
-        `f(void)`と旧形式`f()`の値をi686/AMD64のdebug-info回帰で検証
+  - [x] C/C++のsource-level関数DIEへ関数型のprototype状態から
+        `DW_AT_prototyped`を出力し、Cの`f(void)`／旧形式`f()`とC++
+        static/non-static member関数の値をi686/AMD64で検証
   - [x] C++非staticメンバー関数の`DW_AT_name`にsource名を出し、mangled
         `DW_AT_linkage_name`を維持しながら、`DW_AT_object_pointer`と
         `DW_AT_containing_type`から人工`this` parameterと所有class DIEを参照し、

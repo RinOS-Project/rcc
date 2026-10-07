@@ -122,7 +122,7 @@ static void verify_object_pointer_parameter(const char* path,
         object_pointer_offset = read_u32(info->data, cursor);
         containing_type_offset = read_u32(info->data, cursor + 4u);
         cursor += 8u;
-        assert(object_pointer_offset == cursor + 1u);
+        assert(object_pointer_offset == cursor + 2u);
         assert(containing_type_offset < info->size);
         assert(info->data[containing_type_offset] == 12u);
         {
@@ -204,6 +204,7 @@ static void verify_static_member_containing_type(const char* path,
             assert(strcmp((const char*)strings->data + containing_name_offset,
                           "DebugMemberObject") == 0);
         }
+        assert(info->data[cursor + 4u] == 1u);
         found = true;
         break;
     }
@@ -346,6 +347,7 @@ static void verify_cxx_method_accessibility(const char* path,
         containing_type_offset = read_u32(info->data, cursor);
         cursor += 4u;
         accessibility = info->data[cursor];
+        assert(info->data[cursor + 1u] == 1u);
         assert(containing_type_offset < info->size);
         assert(info->data[containing_type_offset] == 12u);
         {

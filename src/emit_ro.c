@@ -2744,7 +2744,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     /* Abbreviation 1: compile unit with producer, language, line table, and
      * source name.  Abbreviation 2: a source-level function DIE.  The
      * DW_AT_inline value records the source declaration property; it does
-     * not claim that a call site was actually inlined. */
+     * not claim that a call site was actually inlined. Source-level function
+     * abbreviations also record whether the declaration has a prototype. */
     debug_line_uleb(abbrev, 1u);
     debug_line_uleb(abbrev, 0x11u);    /* DW_TAG_compile_unit */
     section_add_byte(abbrev, 1u);
@@ -3114,6 +3115,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x1du);    /* DW_AT_containing_type */
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x27u);    /* DW_AT_prototyped */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     /* Abbreviation 27 marks the synthetic C++ `this` parameter artificial. */
@@ -3164,6 +3167,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0x1du);    /* DW_AT_containing_type */
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x27u);    /* DW_AT_prototyped */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     /* Member-function variants carry the source access specifier. */
@@ -3198,6 +3203,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x32u);    /* DW_AT_accessibility */
     debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x27u);    /* DW_AT_prototyped */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 30u);
@@ -3229,6 +3236,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x32u);    /* DW_AT_accessibility */
     debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x27u);    /* DW_AT_prototyped */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     /* Optimized verified locals retain their source DIE but do not claim a
@@ -3385,12 +3394,6 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
          * parsed declaration, not on a guessed call-site optimization state. */
         section_add_byte(info, function_decl && function_decl->func_is_inline
                                 ? 3u : 0u);
-        if (function_abbreviation == 2u) {
-            section_add_byte(
-                info, function_decl && function_decl->type &&
-                          function_decl->type->kind == TYPE_FUNC &&
-                          function_decl->type->has_prototype ? 1u : 0u);
-        }
         if (return_type && function_decl &&
             function_decl->func_this_param) {
             if (!containing_type ||
@@ -3399,10 +3402,11 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
             }
             /* The artificial `this` parameter is emitted as the first child;
              * the containing-type reference and access byte follow the
-             * object-pointer ref before that child begins. */
+             * object-pointer ref, followed by prototype status, before that
+             * child begins. */
             debug_line_u32(info,
                            (uint32_t)(info->size + 2u * sizeof(uint32_t) +
-                                      (function_method ? 1u : 0u)));
+                                      (function_method ? 1u : 0u) + 1u));
             debug_line_u32(info, containing_type->offset);
         } else if (return_type && function_decl &&
                    function_decl->func_method_owner) {
@@ -3414,6 +3418,16 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         if (return_type && function_method) {
             section_add_byte(info,
                              debug_function_accessibility(function_method));
+        }
+        if (function_abbreviation == 2u ||
+            function_abbreviation == 26u ||
+            function_abbreviation == 28u ||
+            function_abbreviation == 29u ||
+            function_abbreviation == 30u) {
+            section_add_byte(
+                info, function_decl && function_decl->type &&
+                          function_decl->type->kind == TYPE_FUNC &&
+                          function_decl->type->has_prototype ? 1u : 0u);
         }
         debug_emit_function_locals(
             obj, info, strings, &types, files, file_count, mod, filename,
