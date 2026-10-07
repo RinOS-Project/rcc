@@ -421,6 +421,12 @@
         for them instead of treating them as an implementation feature. Keep
         unsupported valid forms unchecked and explicit; do not substitute
         placeholder lowering.
+  - [x] Preserve member-pointee `const` through same-owner and combined
+        derived-owner conversions, reject qualification removal, and require an
+        lvalue for built-in scalar assignment through an xvalue-selected member.
+        Keep valid class xvalue copy assignment working; verify positive and
+        negative cases on i686/AMD64 with `test-cxx-member-pointer-data` and
+        compare the positive source against GCC C++20.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference

@@ -292,6 +292,11 @@ and ambiguous owner conversion on both targets. Member-function pointers,
 hidden/non-public inherited lookup, and the broader access-context matrix still
 need coverage. Owner conversions across virtual bases are ill-formed in C++.
 
+The regression also checks member-pointee `const` addition (including a
+derived-owner conversion), rejects const removal, requires an lvalue for
+built-in scalar assignment through a selected xvalue, and keeps valid class
+xvalue copy assignment.
+
 公開toolchainとしての完成条件は、C17、主要C++20、typed SSA/MIRと最適化、
 i386/AMD64 ABI、DWARF unwind、PIC/PIE、TLS/exception/RTTI、stage2再現build、
 RinOS上の32/64-bitセルフホストです。進捗は[`TODO.md`](TODO.md)を参照してください。

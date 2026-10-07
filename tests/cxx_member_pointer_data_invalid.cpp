@@ -23,3 +23,18 @@ int read_ambiguous_member_pointer_object(
 
 int MemberPointerAmbiguousDerived::*invalid_ambiguous_owner_conversion =
     &MemberPointerAmbiguousBase::value;
+
+struct MemberPointerConstOwner {
+    int value;
+};
+
+const int MemberPointerConstOwner::*const_member_pointer =
+    &MemberPointerConstOwner::value;
+int MemberPointerConstOwner::*invalid_const_member_pointer_conversion =
+    const_member_pointer;
+
+int invalid_member_pointer_xvalue_assignment(
+    MemberPointerConstOwner& object,
+    int MemberPointerConstOwner::*member) {
+    return (static_cast<MemberPointerConstOwner&&>(object).*member) = 9;
+}

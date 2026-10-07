@@ -17,6 +17,10 @@ struct MemberPointerOwner {
     }
 };
 
+struct MemberPointerAssignmentRecord {
+    int value;
+};
+
 struct MemberPointerPadding {
     int prefix;
 };
@@ -70,11 +74,15 @@ struct MemberPointerPrivateReader {
 int MemberPointerOwner::*global_value_member = &MemberPointerOwner::value;
 double MemberPointerOwner::*global_fraction_member =
     &MemberPointerOwner::fraction;
+const int MemberPointerOwner::*global_const_value_member =
+    &MemberPointerOwner::value;
 int MemberPointerOwner::*global_nullptr_member = nullptr;
 int MemberPointerOwner::*global_zero_member = 0;
 int MemberPointerOwner::*global_default_member;
 int MemberPointerOwner::*global_value_initialized_member{};
 int MemberPointerDerived::*global_inherited_member =
+    &MemberPointerBase::inherited;
+const int MemberPointerDerived::*global_const_inherited_member =
     &MemberPointerBase::inherited;
 int MemberPointerBase::*inherited_member_formed_from_derived =
     &MemberPointerDerived::inherited;
@@ -100,12 +108,19 @@ static int member_pointer_category(int&&) {
     return 2;
 }
 
+static int member_pointer_category(const int&) {
+    return 3;
+}
+
 extern "C" int main() {
     MemberPointerOwner object{1, 2.0};
+    MemberPointerAssignmentRecord assignment_destination{1};
+    MemberPointerAssignmentRecord assignment_source{41};
     int MemberPointerOwner::*value_member = &MemberPointerOwner::value;
     double MemberPointerOwner::*fraction_member =
         &MemberPointerOwner::fraction;
     MemberPointerOwner* pointer = &object;
+    const MemberPointerOwner* const_pointer = &object;
     int MemberPointerOwner::*local_nullptr_member = nullptr;
     int MemberPointerOwner::*local_zero_member = 0;
     int MemberPointerOwner::*local_value_initialized_member{};
@@ -140,6 +155,13 @@ extern "C" int main() {
         member_pointer_category((object.*value_member)) != 1) {
         return 1;
     }
+    static_cast<MemberPointerAssignmentRecord&&>(assignment_destination) =
+        assignment_source;
+    if (assignment_destination.value != 41) return 19;
+    if (member_pointer_category(const_pointer->*value_member) != 3 ||
+        member_pointer_category(object.*global_const_value_member) != 3) {
+        return 18;
+    }
     (object.*value_member) = 11;
     if (&(object.*value_member) != &object.value || object.value != 11) {
         return 2;
@@ -151,7 +173,7 @@ extern "C" int main() {
             static_cast<MemberPointerOwner&&>(object).*value_member) != 2) {
         return 4;
     }
-    (static_cast<MemberPointerOwner&&>(object).*value_member) = 13;
+    (object.*value_member) = 13;
     if (object.value != 13) return 5;
 
     if (derived.*inherited_member != 17) return 10;
@@ -159,6 +181,7 @@ extern "C" int main() {
     if (derived.*implicitly_converted_member != 17 ||
         derived.*explicitly_converted_member != 17 ||
         derived.*global_inherited_member != 17 ||
+        derived.*global_const_inherited_member != 17 ||
         derived.*inherited_member_formed_from_derived != 17) {
         return 13;
     }

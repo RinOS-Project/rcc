@@ -2690,10 +2690,12 @@ test-cxx-member-pointer-data-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
 	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
 	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
+	$(GREP) -F -q "assignment requires modifiable lvalue" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.ro tests/cxx_member_pointer_data_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log)
 	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
+	$(GREP) -F -q "assignment requires modifiable lvalue" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	@echo "C++ data member-pointer operations and static subobject lifetime tests passed"
 
 test-cxx-constraints-posix: $(RCXX_TARGET)
@@ -2939,10 +2941,12 @@ test-cxx-member-pointer-data: $(RCXX_TARGET)
 	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
 	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
 	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
+	$(GREP) -F -q "assignment requires modifiable lvalue" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.ro tests/cxx_member_pointer_data_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log)
 	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
+	$(GREP) -F -q "assignment requires modifiable lvalue" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 
 test-cxx-constraints: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)

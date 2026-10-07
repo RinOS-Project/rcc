@@ -1511,11 +1511,24 @@ static bool sema_cxx_same_glvalue_type(Type* left, Type* right,
 
 static bool is_modifiable_lvalue(Expr* expression) {
     Type* type;
-    if (!expression || (!is_lvalue(expression) &&
-        !(rcc_parser_is_cxx_mode() && is_xvalue(expression)))) return false;
+    if (!expression || !is_lvalue(expression)) return false;
     type = expression->type;
     return type && !type->is_const && type->kind != TYPE_ARRAY &&
            type->kind != TYPE_FUNC;
+}
+
+/* A class xvalue can still be the receiver of an implicit aggregate copy
+ * assignment in the bounded frontend. Built-in scalar assignment requires an
+ * actual lvalue. */
+static bool is_modifiable_class_xvalue(Expr* expression) {
+    Type* type;
+    if (!rcc_parser_is_cxx_mode() || !is_xvalue(expression)) return false;
+    type = expression->type;
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    return type && !type->is_const &&
+           (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
 }
 
 static Type* get_pointer_base(Type* t) {
@@ -1535,6 +1548,13 @@ static Type* generic_selection_type(Type* type) {
     if (!type) return NULL;
     if (type->kind == TYPE_ARRAY) return type_ptr(type->base);
     if (type->kind == TYPE_FUNC) return type_ptr(type);
+    return type;
+}
+
+static Type* sema_cxx_object_type(Type* type) {
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        return type->base;
+    }
     return type;
 }
 
@@ -10179,6 +10199,7 @@ static Type* sema_expr(Expr* expr) {
         expr->kind >= EXPR_ASSIGN && expr->kind <= EXPR_RSHIFT_ASSIGN &&
         expr->binary_lhs && expr->binary_rhs) {
         Type* left_type = sema_expr(expr->binary_lhs);
+        left_type = sema_cxx_object_type(left_type);
         if (sema_rewrite_cxx_assignment_operator(expr, left_type)) {
             return sema_expr(expr);
         }
@@ -11353,6 +11374,9 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_ASSIGN: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt;
+            if (rcc_parser_is_cxx_mode()) {
+                lt = sema_cxx_object_type(lt);
+            }
             Expr* contextual = expr->binary_rhs &&
                     expr->binary_rhs->kind == EXPR_ADDR
                 ? expr->binary_rhs->unary_operand : expr->binary_rhs;
@@ -11366,7 +11390,8 @@ static Type* sema_expr(Expr* expr) {
             } else {
                 rt = sema_expr(expr->binary_rhs);
             }
-            if (!is_modifiable_lvalue(expr->binary_lhs)) {
+            if (!is_modifiable_lvalue(expr->binary_lhs) &&
+                !is_modifiable_class_xvalue(expr->binary_lhs)) {
                 rcc_error(expr->loc,
                           "assignment requires modifiable lvalue");
             } else {
