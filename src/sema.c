@@ -1141,7 +1141,9 @@ static bool atomic_allows_pointer_value(const char* name) {
 
 static bool is_lvalue(Expr* e) {
     if (e && e->kind == EXPR_CAST && e->type && e->type->is_reference &&
+        !e->type->is_rvalue_reference &&
         (e->cxx_cast_kind == CXX_CAST_NONE ||
+         e->cxx_cast_kind == CXX_CAST_STATIC ||
          e->cxx_cast_kind == CXX_CAST_CONST ||
          e->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
         return is_lvalue(e->cast_expr);
@@ -1156,8 +1158,8 @@ static bool is_lvalue(Expr* e) {
         case EXPR_CXX_TYPEID:
             return true;
         case EXPR_CALL:
-            return e->call_method && e->call_method->return_type &&
-                   e->call_method->return_type->is_reference;
+            return e->type && e->type->is_reference &&
+                   !e->type->is_rvalue_reference;
         default:
             return false;
     }

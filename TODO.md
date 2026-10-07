@@ -313,11 +313,11 @@
         conformance
 - [ ] C++20 modules、coroutines
 - [ ] Complete ordinary non-template rvalue-reference binding and value-category
-      semantics. The named xvalue local-binding and mutation case
-      `int&& local = static_cast<int&&>(value);` now has a regression test;
-      conditional/member xvalue classification, broader reference collapsing,
-      temporary lifetime, and call/return interactions still need systematic
-      dual-architecture coverage.
+      semantics. Named xvalue local binding and alias-preserving `int&`/`int&&`
+      function returns now have regressions that compile for both targets and
+      execute on the x64 host. Conditional/member xvalue classification, broader
+      reference collapsing, temporary lifetime, and remaining call/return
+      interactions still need systematic coverage.
 - [x] bounded Itanium ABI mangling、exceptions、RTTI、static initialization
   - [x] Implement the validated C++ empty-base optimization for a leading,
         non-polymorphic direct empty base, preserve the standard same-type
