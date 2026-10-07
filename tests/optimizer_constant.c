@@ -315,6 +315,25 @@ double inlined_parameter_double_compound_call(double value, double delta)
     return inline_parameter_double_compound(value, delta);
 }
 
+static float inline_float_increment_mutations(float value)
+{
+    float adjusted = value;
+    adjusted++;
+    float after_post_increment = adjusted;
+    ++adjusted;
+    float after_pre_increment = adjusted;
+    adjusted--;
+    float after_post_decrement = adjusted;
+    --adjusted;
+    return after_post_increment * 100.0f + after_pre_increment * 10.0f +
+           after_post_decrement + adjusted;
+}
+
+float inlined_float_increment_mutations_call(float value)
+{
+    return inline_float_increment_mutations(value);
+}
+
 static int inline_local_snapshot_before_mutation(int value)
 {
     int original = value;

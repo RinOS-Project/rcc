@@ -923,6 +923,11 @@ static bool inline_scalar_increment_operator(ExprKind unary_operator,
     }
 }
 
+static bool inline_scalar_increment_type_supported(Type* type) {
+    return (type_is_integer(type) && type->size >= 4) ||
+           type_is_floating(type);
+}
+
 /* Keep the multi-statement inline shape deliberately narrow.  A block may
  * contain only scalar, non-volatile automatic declarations with pure
  * initializers, direct side-effect-free assignments to locals, discarded
@@ -999,8 +1004,8 @@ static bool collect_inline_scalar_body(
                 }
                 if (!is_prior_local || !declaration->type ||
                     declaration->type->is_volatile ||
-                    !type_is_integer(declaration->type) ||
-                    declaration->type->size < 4 ||
+                    !inline_scalar_increment_type_supported(
+                        declaration->type) ||
                     !type_is_compatible(
                         declaration->type,
                         statement->expr->unary_operand->type)) {
@@ -1602,8 +1607,8 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                 operation->expression->kind != EXPR_IDENT ||
                 operation->expression->ident_decl !=
                     operation->declaration ||
-                !type_is_integer(operation->declaration->type) ||
-                operation->declaration->type->size < 4 ||
+                !inline_scalar_increment_type_supported(
+                    operation->declaration->type) ||
                 (operation->assignment_operator != EXPR_ADD &&
                  operation->assignment_operator != EXPR_SUB)) {
                 return false;
@@ -1617,7 +1622,9 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             previous_value = clone_inline_pure_scalar_expression(
                 bindings[local_binding].argument);
             if (!previous_value) return false;
-            one = expr_int(1, operation->expression->loc);
+            one = type_is_floating(operation->declaration->type)
+                ? expr_float(1.0, operation->expression->loc)
+                : expr_int(1, operation->expression->loc);
             one->type = operation->declaration->type;
             combined = expr_binary(binary_operator, previous_value, one,
                                    operation->expression->loc);
