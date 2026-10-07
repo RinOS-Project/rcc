@@ -9632,7 +9632,7 @@ static void gen64_function(Module* mod, Decl* decl) {
          parameter = parameter->next) {
         Decl* value = parameter->decl;
         int vla_dimensions = value->param_array_type &&
-            gen64_type_has_vla(value->param_array_type)
+            gen64_type_has_vla_any(value->param_array_type)
             ? gen64_vla_dimension_count(value->param_array_type) : 0;
         int size = value->type && value->type->size > 0
             ? value->type->size : 8;

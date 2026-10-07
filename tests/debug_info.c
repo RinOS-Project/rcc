@@ -72,6 +72,25 @@ int debug_vla_location(int count)
     return debug_vla_values[0];
 }
 
+int debug_vla_matrix(int rows, int columns)
+{
+    int debug_vla_matrix_values[rows][columns];
+    debug_vla_matrix_values[0][0] = rows + columns;
+    return debug_vla_matrix_values[0][0];
+}
+
+int debug_vla_parameter(int rows, int columns,
+                        int debug_vla_parameter_values[rows][columns])
+{
+    return debug_vla_parameter_values[0][0];
+}
+
+int debug_vla_pointer_parameter(
+    int count, int (*debug_vla_pointer_values)[count])
+{
+    return (*debug_vla_pointer_values)[0];
+}
+
 #line 100
 int debug_statement_lines(int value)
 {

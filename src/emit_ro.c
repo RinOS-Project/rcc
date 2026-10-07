@@ -1460,6 +1460,196 @@ static void debug_expr_breg(ObjSection* section, int architecture,
     section_add_bytes(section, expression, size);
 }
 
+static bool debug_type_has_vla_bound(const Type* type) {
+    if (!type) return false;
+    if (type->kind == TYPE_PTR) {
+        return debug_type_has_vla_bound(type->base);
+    }
+    if (type->kind != TYPE_ARRAY) return false;
+    return (type->array_len < 0 && type->array_bound != NULL) ||
+           debug_type_has_vla_bound(type->base);
+}
+
+static int debug_vla_extent_index(const Type* owner, const Type* target) {
+    const Type* cursor = owner;
+    int index;
+    if (cursor && cursor->kind == TYPE_PTR) cursor = cursor->base;
+    for (; cursor && cursor->kind == TYPE_ARRAY; cursor = cursor->base) {
+        if (cursor != target) continue;
+        index = 0;
+        for (cursor = target->base;
+             cursor && cursor->kind == TYPE_ARRAY; cursor = cursor->base) {
+            ++index;
+        }
+        return index;
+    }
+    return -1;
+}
+
+static bool debug_vla_extent_frame_offset(const Decl* declaration,
+                                          const Type* extent_type,
+                                          int architecture,
+                                          int64_t* offset) {
+    const Type* owner;
+    int index;
+    int word_size;
+    int64_t frame_offset;
+    if (!declaration || !extent_type || !offset) return false;
+    owner = declaration->param_array_type
+                ? declaration->param_array_type : declaration->type;
+    index = debug_vla_extent_index(owner, extent_type);
+    word_size = architecture == ARCH_X64 ? 8 : 4;
+    if (index < 0 || index >= declaration->var_vla_extent_count) {
+        return false;
+    }
+    frame_offset = (int64_t)declaration->var_vla_extent_offset +
+                   (int64_t)index * word_size;
+    if (frame_offset < INT_MIN || frame_offset > INT_MAX) return false;
+    *offset = frame_offset;
+    return true;
+}
+
+static void debug_expr_append_sleb(uint8_t* expression, size_t* size,
+                                   int64_t value) {
+    bool more;
+    do {
+        uint8_t byte = (uint8_t)((uint64_t)value & 0x7fu);
+        value >>= 7;
+        more = !((value == 0 && (byte & 0x40u) == 0u) ||
+                 (value == -1 && (byte & 0x40u) != 0u));
+        if (more) byte |= 0x80u;
+        expression[(*size)++] = byte;
+    } while (more);
+}
+
+static bool debug_vla_count_expression(const Decl* declaration,
+                                       const Type* array_type,
+                                       int architecture,
+                                       uint8_t* expression,
+                                       size_t* expression_size) {
+    const Type* element_type;
+    int64_t extent_offset;
+    size_t size = 0u;
+    if (!declaration || !array_type || array_type->kind != TYPE_ARRAY ||
+        array_type->array_len >= 0 || !array_type->array_bound ||
+        !expression || !expression_size ||
+        !debug_vla_extent_frame_offset(declaration, array_type, architecture,
+                                       &extent_offset)) {
+        return false;
+    }
+    expression[size++] = architecture == ARCH_X64 ? 0x76u : 0x75u;
+    debug_expr_append_sleb(expression, &size, extent_offset);
+    expression[size++] = 0x06u; /* DW_OP_deref: load saved byte extent */
+
+    element_type = array_type->base;
+    if (element_type && element_type->kind == TYPE_ARRAY &&
+        debug_type_has_vla_bound(element_type)) {
+        int64_t element_extent_offset;
+        if (!debug_vla_extent_frame_offset(declaration, element_type,
+                                           architecture,
+                                           &element_extent_offset)) {
+            return false;
+        }
+        expression[size++] = architecture == ARCH_X64 ? 0x76u : 0x75u;
+        debug_expr_append_sleb(expression, &size, element_extent_offset);
+        expression[size++] = 0x06u; /* DW_OP_deref */
+    } else {
+        uint64_t element_size = element_type && element_type->size > 0
+                                    ? (uint64_t)element_type->size : 0u;
+        if (element_size == 0u) return false;
+        expression[size++] = 0x10u; /* DW_OP_constu */
+        do {
+            uint8_t byte = (uint8_t)(element_size & 0x7fu);
+            element_size >>= 7u;
+            if (element_size != 0u) byte |= 0x80u;
+            expression[size++] = byte;
+        } while (element_size != 0u);
+    }
+    expression[size++] = 0x1bu; /* DW_OP_div: byte extent / element size */
+    *expression_size = size;
+    return true;
+}
+
+static uint32_t debug_emit_contextual_type_die(
+    ObjSection* info, DebugTypeContext* types, const Type* type,
+    const Decl* declaration, int architecture) {
+    DebugTypeEntry* entry;
+    uint32_t base_offset;
+    uint32_t die_offset;
+    if (!info || !types || !type) return UINT32_MAX;
+    if (!debug_type_has_vla_bound(type)) {
+        entry = debug_type_find(types, type);
+        return entry ? entry->offset : UINT32_MAX;
+    }
+    if (info->size > UINT32_MAX) {
+        rcc_fatal("DWARF contextual type DIE offset exceeds 32-bit range");
+        return UINT32_MAX;
+    }
+    entry = debug_type_find(types, type);
+    if (entry && entry->qualifier_base) {
+        base_offset = debug_emit_contextual_type_die(
+            info, types, entry->qualifier_base, declaration, architecture);
+        if (base_offset == UINT32_MAX) return UINT32_MAX;
+        if (info->size > UINT32_MAX) {
+            rcc_fatal("DWARF contextual type DIE offset exceeds 32-bit range");
+            return UINT32_MAX;
+        }
+        die_offset = (uint32_t)info->size;
+        if (type->is_const) section_add_byte(info, 20u);
+        else if (type->is_volatile) section_add_byte(info, 21u);
+        else if (type->is_restrict) section_add_byte(info, 22u);
+        else section_add_byte(info, 23u);
+        debug_line_u32(info, base_offset);
+        return die_offset;
+    }
+    if (type->kind == TYPE_PTR) {
+        base_offset = debug_emit_contextual_type_die(
+            info, types, type->base, declaration, architecture);
+        if (base_offset == UINT32_MAX) return UINT32_MAX;
+        if (info->size > UINT32_MAX) {
+            rcc_fatal("DWARF contextual type DIE offset exceeds 32-bit range");
+            return UINT32_MAX;
+        }
+        die_offset = (uint32_t)info->size;
+        section_add_byte(info, 6u); /* DW_TAG_pointer_type */
+        section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
+                                         (type->size < 0 ? 0 : type->size)));
+        debug_line_u32(info, base_offset);
+        return die_offset;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        uint8_t expression[64];
+        size_t expression_size = 0u;
+        bool has_dynamic_count = type->array_len < 0 && type->array_bound &&
+            debug_vla_count_expression(declaration, type, architecture,
+                                       expression, &expression_size);
+        base_offset = debug_emit_contextual_type_die(
+            info, types, type->base, declaration, architecture);
+        if (base_offset == UINT32_MAX) return UINT32_MAX;
+        if (info->size > UINT32_MAX) {
+            rcc_fatal("DWARF contextual type DIE offset exceeds 32-bit range");
+            return UINT32_MAX;
+        }
+        die_offset = (uint32_t)info->size;
+        section_add_byte(info, 10u); /* DW_TAG_array_type */
+        debug_line_u32(info, base_offset);
+        if (type->array_len >= 0) {
+            section_add_byte(info, 11u); /* fixed DW_TAG_subrange_type */
+            debug_line_u32(info, type->array_len > 0
+                                     ? (uint32_t)type->array_len - 1u : 0u);
+            section_add_byte(info, 0u);
+        } else if (has_dynamic_count) {
+            section_add_byte(info, 34u); /* DW_AT_count expression */
+            debug_line_uleb(info, expression_size);
+            section_add_bytes(info, expression, expression_size);
+            section_add_byte(info, 0u);
+        }
+        section_add_byte(info, 0u);
+        return die_offset;
+    }
+    return entry ? entry->offset : UINT32_MAX;
+}
+
 static void debug_expr_addr(ObjectFile* obj, ObjSection* info,
                             int info_section, const char* symbol,
                             int architecture) {
@@ -1494,6 +1684,7 @@ static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
                                     const Decl* declaration,
                                     uint8_t abbreviation, int architecture) {
     DebugTypeEntry* type_entry;
+    uint32_t type_offset;
     int file_index;
     int64_t frame_offset;
     bool has_frame_location = true;
@@ -1503,6 +1694,15 @@ static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
     if (!type_entry) {
         rcc_fatal("DWARF variable type was not collected");
         return;
+    }
+    type_offset = type_entry->offset;
+    if (debug_type_has_vla_bound(declaration->type)) {
+        uint32_t contextual_type_offset = debug_emit_contextual_type_die(
+            info, types, declaration->type, declaration,
+            architecture == ARCH_X64 ? ARCH_X64 : ARCH_X86);
+        if (contextual_type_offset != UINT32_MAX) {
+            type_offset = contextual_type_offset;
+        }
     }
     file_index = debug_line_file_index(files, file_count,
                                        declaration->loc.filename);
@@ -1528,7 +1728,7 @@ static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
     }
     section_add_byte(info, abbreviation);
     debug_line_u32(info, debug_str_add(strings, declaration->name));
-    debug_line_u32(info, type_entry->offset);
+    debug_line_u32(info, type_offset);
     debug_line_u32(info, (uint32_t)file_index);
     debug_line_u32(info, declaration->loc.line);
     debug_line_u32(info, declaration->loc.column);
@@ -2667,6 +2867,13 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     section_add_byte(abbrev, 0u);
     debug_line_uleb(abbrev, 0x2fu);     /* DW_AT_upper_bound */
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 34u);
+    debug_line_uleb(abbrev, 0x21u);     /* DW_TAG_subrange_type */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x37u);     /* DW_AT_count */
+    debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 12u);

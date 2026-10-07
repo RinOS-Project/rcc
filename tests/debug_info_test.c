@@ -442,6 +442,46 @@ static int64_t read_sleb(const uint8_t* data, uint64_t size,
     return 0;
 }
 
+static bool try_read_uleb(const uint8_t* data, uint64_t size,
+                          uint64_t* offset, uint64_t* result)
+{
+    uint64_t value = 0u;
+    unsigned shift = 0u;
+    if (!data || !offset || !result) return false;
+    while (*offset < size && shift < 64u) {
+        uint8_t byte = data[(*offset)++];
+        value |= (uint64_t)(byte & 0x7fu) << shift;
+        if ((byte & 0x80u) == 0u) {
+            *result = value;
+            return true;
+        }
+        shift += 7u;
+    }
+    return false;
+}
+
+static bool try_read_sleb(const uint8_t* data, uint64_t size,
+                          uint64_t* offset, int64_t* result)
+{
+    uint64_t value = 0u;
+    unsigned shift = 0u;
+    uint8_t byte = 0u;
+    if (!data || !offset || !result) return false;
+    while (*offset < size && shift < 64u) {
+        byte = data[(*offset)++];
+        value |= (uint64_t)(byte & 0x7fu) << shift;
+        shift += 7u;
+        if ((byte & 0x80u) == 0u) {
+            if ((byte & 0x40u) != 0u && shift < 64u) {
+                value |= UINT64_MAX << shift;
+            }
+            *result = (int64_t)value;
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool find_variable_location(const ObjSection* info,
                                   const ObjSection* strings,
                                   const char* variable_name,
@@ -552,6 +592,144 @@ static void verify_vla_variable_location(const ObjSection* info,
         assert(displacement_offset + 1u ==
                expression_offset + expression_size);
         assert(info->data[displacement_offset] == 0x06u); /* DW_OP_deref */
+        found = true;
+        break;
+    }
+    assert(found);
+}
+
+static void verify_vla_bound_dies(const ObjSection* info,
+                                  const ObjSection* abbrev,
+                                  uint16_t architecture)
+{
+    uint8_t frame_register = architecture == ARCH_X64 ? 0x76u : 0x75u;
+    unsigned constant_element_counts = 0u;
+    unsigned nested_element_counts = 0u;
+    assert(info != NULL && abbrev != NULL);
+    assert(contains_byte_pair(abbrev->data, abbrev->size, 0x37u, 0x18u));
+    for (uint64_t die = 11u; die + 2u < info->size; ++die) {
+        uint64_t cursor;
+        uint64_t expression_end;
+        uint64_t element_size;
+        int64_t frame_offset;
+        uint8_t expression_size;
+        if (info->data[die] != 34u) continue;
+        expression_size = info->data[die + 1u];
+        if (expression_size < 6u || expression_size > 32u ||
+            die + 2u + expression_size > info->size ||
+            info->data[die + 2u] != frame_register) {
+            continue;
+        }
+        cursor = die + 3u;
+        expression_end = die + 2u + expression_size;
+        if (!try_read_sleb(info->data, expression_end, &cursor,
+                           &frame_offset) || frame_offset >= 0 ||
+            cursor >= expression_end || info->data[cursor++] != 0x06u) {
+            continue;
+        }
+        if (cursor < expression_end && info->data[cursor] == 0x10u) {
+            ++cursor; /* DW_OP_constu */
+            if (try_read_uleb(info->data, expression_end, &cursor,
+                              &element_size) && element_size == 4u &&
+                cursor + 1u == expression_end &&
+                info->data[cursor] == 0x1bu) {
+                ++constant_element_counts;
+            }
+            continue;
+        }
+        if (cursor < expression_end &&
+            info->data[cursor++] == frame_register &&
+            try_read_sleb(info->data, expression_end, &cursor,
+                          &frame_offset) && frame_offset < 0 &&
+            cursor + 2u == expression_end &&
+            info->data[cursor] == 0x06u &&
+            info->data[cursor + 1u] == 0x1bu) {
+            ++nested_element_counts;
+        }
+    }
+    assert(constant_element_counts >= 2u);
+    assert(nested_element_counts >= 1u);
+}
+
+static void verify_multidimensional_vla_type(const ObjSection* info,
+                                             const ObjSection* strings)
+{
+    bool found = false;
+    assert(info != NULL && strings != NULL);
+    for (uint64_t die = 11u; die + 9u < info->size; ++die) {
+        uint32_t name_offset;
+        uint32_t type_offset;
+        uint32_t element_type_offset;
+        if (info->data[die] != 4u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_vla_matrix_values") != 0) {
+            continue;
+        }
+        type_offset = read_u32(info->data, die + 5u);
+        assert(type_offset < info->size && info->data[type_offset] == 10u);
+        assert(type_offset + 5u < info->size &&
+               info->data[type_offset + 5u] == 34u);
+        element_type_offset = read_u32(info->data, type_offset + 1u);
+        assert(element_type_offset < info->size &&
+               info->data[element_type_offset] == 10u);
+        assert(element_type_offset + 5u < info->size &&
+               info->data[element_type_offset + 5u] == 34u);
+        found = true;
+        break;
+    }
+    assert(found);
+}
+
+static void verify_vla_parameter_type(const ObjSection* info,
+                                      const ObjSection* strings,
+                                      const char* parameter_name,
+                                      uint16_t architecture)
+{
+    bool found = false;
+    uint8_t frame_register = architecture == ARCH_X64 ? 0x76u : 0x75u;
+    assert(info != NULL && strings != NULL && parameter_name != NULL);
+    for (uint64_t die = 11u; die + 9u < info->size; ++die) {
+        uint32_t name_offset;
+        uint32_t pointer_type_offset;
+        uint32_t array_type_offset;
+        uint64_t expression_cursor;
+        uint64_t expression_end;
+        uint64_t element_size;
+        int64_t frame_offset;
+        uint8_t expression_size;
+        if (info->data[die] != 3u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   parameter_name) != 0) {
+            continue;
+        }
+        pointer_type_offset = read_u32(info->data, die + 5u);
+        assert(pointer_type_offset < info->size &&
+               info->data[pointer_type_offset] == 6u);
+        array_type_offset = read_u32(info->data, pointer_type_offset + 2u);
+        assert(array_type_offset < info->size &&
+               info->data[array_type_offset] == 10u);
+        assert(array_type_offset + 5u < info->size &&
+               info->data[array_type_offset + 5u] == 34u);
+        expression_size = info->data[array_type_offset + 6u];
+        expression_cursor = array_type_offset + 7u;
+        expression_end = expression_cursor + expression_size;
+        assert(expression_size >= 6u && expression_size <= 32u &&
+               expression_end <= info->size &&
+               info->data[expression_cursor++] == frame_register);
+        assert(try_read_sleb(info->data, expression_end, &expression_cursor,
+                             &frame_offset) && frame_offset < 0);
+        assert(expression_cursor < expression_end &&
+               info->data[expression_cursor++] == 0x06u);
+        assert(expression_cursor < expression_end &&
+               info->data[expression_cursor++] == 0x10u);
+        assert(try_read_uleb(info->data, expression_end, &expression_cursor,
+                             &element_size) && element_size == 4u);
+        assert(expression_cursor + 1u == expression_end &&
+               info->data[expression_cursor] == 0x1bu);
         found = true;
         break;
     }
@@ -1201,6 +1379,12 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     assert(contains_bytes(strings->data, strings->size, function_name));
     if (language == 0x000cu) {
         verify_vla_variable_location(info, strings, architecture);
+        verify_vla_bound_dies(info, abbrev, architecture);
+        verify_multidimensional_vla_type(info, strings);
+        verify_vla_parameter_type(info, strings,
+                                  "debug_vla_parameter_values", architecture);
+        verify_vla_parameter_type(info, strings,
+                                  "debug_vla_pointer_values", architecture);
         verify_global_variable(info, strings, "debug_global_data",
                                "debug_global_data",
                                "debug_global_data",
