@@ -32,6 +32,8 @@
 ## 2. C17 frontend
 
 - [x] 基本declaration、function、struct/union/enum/typedef
+  - [x] C17/C++20列挙子値のconditional-expression定数評価、C17列挙子のint範囲検証、
+        先行列挙子参照と非定数／範囲外diagnosticを追加
   - [x] global/local文字配列のstring初期化、未指定長推論、末尾zero-fill
   - [x] 文字列リテラルの埋め込みNULを長さ付きbyte列として保持し、隣接連結、
         static/TLS/local初期化、IR、C++文字列UDLのlength引数へ伝播

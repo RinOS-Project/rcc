@@ -22,6 +22,16 @@ _Static_assert((~0U) == 0xffffffffU,
                "unsigned bitwise complement must retain its type width");
 _Static_assert((1U << 31) == 0x80000000U,
                "unsigned left shift must use the operand width");
+enum ArithmeticEnumerator {
+    ENUM_ARITHMETIC_FIRST = 1 + 2 * 3,
+    ENUM_ARITHMETIC_SECOND = ENUM_ARITHMETIC_FIRST << 1,
+    ENUM_ARITHMETIC_THIRD = ENUM_ARITHMETIC_SECOND == 14
+        ? ENUM_ARITHMETIC_FIRST : 0
+};
+_Static_assert(ENUM_ARITHMETIC_FIRST == 7 &&
+               ENUM_ARITHMETIC_SECOND == 14 &&
+               ENUM_ARITHMETIC_THIRD == 7,
+               "enumerator values must evaluate integer constant expressions");
 
 #if defined(__x86_64__)
 _Static_assert(_Generic(2147483648, long: 1, default: 0),

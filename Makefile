@@ -1376,6 +1376,12 @@ endif
 	$(GREP) -q 'scoped enum' $(TEST_OUT)/cxx-enum-class/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-x64.ro tests/cxx_enum_class_invalid.cpp,$(TEST_OUT)/cxx-enum-class/invalid-x64.log)
 	$(GREP) -q 'scoped enum' $(TEST_OUT)/cxx-enum-class/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-overflow-x86.ro tests/invalid_cxx_enum_constant_expression.cpp,$(TEST_OUT)/cxx-enum-class/invalid-overflow-x86.log)
+	$(GREP) -F -q 'implicit enumerator value exceeds the supported 64-bit range' $(TEST_OUT)/cxx-enum-class/invalid-overflow-x86.log
+	$(GREP) -F -q 'enumerator value exceeds the supported 64-bit range' $(TEST_OUT)/cxx-enum-class/invalid-overflow-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-overflow-x64.ro tests/invalid_cxx_enum_constant_expression.cpp,$(TEST_OUT)/cxx-enum-class/invalid-overflow-x64.log)
+	$(GREP) -F -q 'implicit enumerator value exceeds the supported 64-bit range' $(TEST_OUT)/cxx-enum-class/invalid-overflow-x64.log
+	$(GREP) -F -q 'enumerator value exceeds the supported 64-bit range' $(TEST_OUT)/cxx-enum-class/invalid-overflow-x64.log
 	@echo "RCC++ scoped enum test completed"
 
 test-cxx-cli: $(RCC_TARGET) $(RCXX_TARGET)
@@ -9139,7 +9145,15 @@ endif
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/integer-literals/invalid-suffix.ro \
 		tests/invalid_integer_literal_suffix.c,$(TEST_OUT)/integer-literals/invalid-suffix.log)
-	@echo "C17 integer literal type and value tests completed"
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-literals/invalid-enumerator.ro \
+		tests/invalid_enum_constant_expression.c,$(TEST_OUT)/integer-literals/invalid-enumerator.log)
+	$(call CHECK_COUNT,enumerator value,$(TEST_OUT)/integer-literals/invalid-enumerator.log,3)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/integer-literals/invalid-enumerator-x64.ro \
+		tests/invalid_enum_constant_expression.c,$(TEST_OUT)/integer-literals/invalid-enumerator-x64.log)
+	$(call CHECK_COUNT,enumerator value,$(TEST_OUT)/integer-literals/invalid-enumerator-x64.log,3)
+	@echo "C17 integer literal and enumerator constant-expression tests completed"
 
 test-integer-promotions: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/integer-promotions)

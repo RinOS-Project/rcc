@@ -2255,29 +2255,75 @@ Type* rcc_parser_apply_explicit_alignment(Type* type, int alignment,
 }
 
 static int64_t parse_enum_value(int64_t fallback) {
-    bool negative = match(TOK_MINUS);
-    int64_t value = fallback;
-    if (match(TOK_INT_LIT)) {
-        value = previous()->value.int_val;
-    } else if (match(TOK_IDENT)) {
-        if (!parser_lookup_enum_constant(previous()->value.str_val,
-                                         &value, NULL)) {
-            rcc_error(previous()->loc, "unknown enum constant '%s'",
-                      previous()->value.str_val);
-        }
-    } else {
-        rcc_error(peek()->loc, "expected integer enum value");
+    Expr* expression = parse_conditional();
+    IntegerConstantValue evaluated;
+    int64_t value;
+    uint64_t bits;
+    if (!eval_integer_constant_typed(expression, &evaluated)) {
+        rcc_error(expression ? expression->loc : peek()->loc,
+                  "enumerator value is not an integer constant expression");
+        return fallback;
     }
-    return negative ? -value : value;
+    bits = evaluated.bits & integer_type_mask(evaluated.type);
+    if (!parser_cxx_mode) {
+        unsigned int_bits = type_int && type_int->size > 0
+            ? (unsigned)type_int->size * 8u : 32u;
+        int64_t minimum = -(INT64_C(1) << (int_bits - 1u));
+        int64_t maximum = (INT64_C(1) << (int_bits - 1u)) - 1;
+        if ((evaluated.type && evaluated.type->is_unsigned &&
+             bits > (uint64_t)maximum) ||
+            (evaluated.type && !evaluated.type->is_unsigned &&
+             (integer_constant_signed(evaluated) < minimum ||
+              integer_constant_signed(evaluated) > maximum))) {
+            rcc_error(expression->loc,
+                      "enumerator value is not representable as int");
+            return fallback;
+        }
+        value = evaluated.type && evaluated.type->is_unsigned
+            ? (int64_t)bits : integer_constant_signed(evaluated);
+    } else {
+        if (evaluated.type && evaluated.type->is_unsigned &&
+            bits > (uint64_t)INT64_MAX) {
+            rcc_error(expression->loc,
+                      "enumerator value exceeds the supported 64-bit range");
+            return fallback;
+        }
+        value = evaluated.type && evaluated.type->is_unsigned
+            ? (int64_t)bits : integer_constant_signed(evaluated);
+    }
+    return value;
+}
+
+static bool enum_value_fits_c_int(int64_t value) {
+    unsigned int_bits = type_int && type_int->size > 0
+        ? (unsigned)type_int->size * 8u : 32u;
+    int64_t minimum = -(INT64_C(1) << (int_bits - 1u));
+    int64_t maximum = (INT64_C(1) << (int_bits - 1u)) - 1;
+    return value >= minimum && value <= maximum;
 }
 
 static void parse_enum_body(Type* enum_type, bool scoped,
                             const char* enum_tag) {
     int64_t next_value = 0;
+    bool next_value_valid = true;
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* name = expect(TOK_IDENT, "enumerator name");
-        int64_t value = next_value;
-        if (match(TOK_ASSIGN)) value = parse_enum_value(next_value);
+        int64_t value;
+        bool explicit_value = match(TOK_ASSIGN);
+        if (explicit_value) {
+            value = parse_enum_value(next_value_valid ? next_value : 0);
+            next_value_valid = true;
+        } else if (!next_value_valid) {
+            rcc_error(name ? name->loc : peek()->loc,
+                      "implicit enumerator value exceeds the supported 64-bit range");
+            value = 0;
+        } else {
+            value = next_value;
+            if (!parser_cxx_mode && !enum_value_fits_c_int(value)) {
+                rcc_error(name ? name->loc : peek()->loc,
+                          "enumerator value is not representable as int");
+            }
+        }
         if (name) {
             char qualified[512];
             const char* spelling = name->value.str_val;
@@ -2304,7 +2350,12 @@ static void parse_enum_body(Type* enum_type, bool scoped,
                 enum_type->enum_constant_count].value = value;
             ++enum_type->enum_constant_count;
         }
-        next_value = value + 1;
+        if (value == INT64_MAX) {
+            next_value_valid = false;
+        } else {
+            next_value = value + 1;
+            next_value_valid = true;
+        }
         if (!match(TOK_COMMA)) break;
     }
     expect(TOK_RBRACE, "}");
