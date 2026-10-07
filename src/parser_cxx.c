@@ -7514,6 +7514,11 @@ CxxClass* rcc_parser_cxx_find_class(const char* qualified_name) {
     return find_class(qualified_name);
 }
 
+Type* rcc_parser_cxx_find_class_type(const char* qualified_name) {
+    CxxClass* cls = find_class(qualified_name);
+    return cls ? cls->type : NULL;
+}
+
 /* Complete a previously declared static data member outside its class.  The
  * class parser has already published the declaration and its ABI spelling;
  * this hook only consumes the qualified definition and updates that same
@@ -7535,6 +7540,18 @@ Stmt* rcc_parse_cxx_qualified_data_definition(
 
     (void)is_inline;
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
+    /* Do not consume a data-member pointer declarator such as `int C::*p`
+     * as a qualified static data-member definition.  The shared declarator
+     * parser owns this spelling and retains the class on the pointer type. */
+    {
+        Token* cursor = parser.cur;
+        while (cursor && cursor->type == TOK_IDENT && cursor->next &&
+               cursor->next->type == TOK_SCOPE && cursor->next->next) {
+            if (cursor->next->next->type == TOK_STAR) return NULL;
+            if (cursor->next->next->type != TOK_IDENT) break;
+            cursor = cursor->next->next;
+        }
+    }
     qualified = parse_qualified_name();
     separator = qualified ? strrchr(qualified, ':') : NULL;
     if (!separator || separator <= qualified || separator[-1] != ':') {

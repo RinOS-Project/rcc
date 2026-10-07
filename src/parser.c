@@ -27,6 +27,7 @@ Parser parser;  /* Non-static for C++ parser access */
 #endif
 extern Type* rcc_parse_cxx_direct_list_type(void) RCC_OPTIONAL_CXX;
 extern Type* rcc_parse_cxx_type_name(void) RCC_OPTIONAL_CXX;
+extern Type* rcc_parser_cxx_find_class_type(const char*) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_functional_cast(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_template_call(void) RCC_OPTIONAL_CXX;
@@ -918,12 +919,17 @@ static TypeField* parser_find_field(Type* aggregate, const char* name) {
 Type* rcc_parser_lookup_type(const char* name) {
     Type* type = parser_lookup_type(name);
     ParserTagName* tag;
+    Type* cxx_class_type;
     if (type || !name) return type;
     for (tag = parser_tag_names; tag; tag = tag->next) {
         if (tag->name && strcmp(tag->name, name) == 0 &&
             (tag->kind == TYPE_STRUCT || tag->kind == TYPE_UNION)) {
             return tag->type;
         }
+    }
+    if (rcc_parser_cxx_find_class_type) {
+        cxx_class_type = rcc_parser_cxx_find_class_type(name);
+        if (cxx_class_type) return cxx_class_type;
     }
     return NULL;
 }
