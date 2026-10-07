@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 static uint64_t read_uleb(const uint8_t* data, uint64_t size,
@@ -198,6 +199,84 @@ static void verify_static_member_containing_type(const char* path,
     objfile_free(object);
 }
 
+static void verify_cxx_member_accessibility(const char* path,
+                                            uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    bool found_type = false;
+    bool found_private = false;
+    bool found_protected = false;
+    bool found_public = false;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_byte_pair(abbrev->data, abbrev->size, 0x32u, 0x0bu));
+
+    for (uint64_t type_die = 11u; type_die + 9u <= info->size; ++type_die) {
+        uint32_t type_name_offset;
+        uint64_t cursor;
+        if (info->data[type_die] != 12u) continue;
+        type_name_offset = read_u32(info->data, type_die + 1u);
+        if (type_name_offset >= strings->size ||
+            strcmp((const char*)strings->data + type_name_offset,
+                   "DebugMemberObject") != 0) {
+            continue;
+        }
+        found_type = true;
+        cursor = type_die + 9u;
+        while (cursor < info->size && info->data[cursor] != 0u) {
+            uint8_t member_abbreviation = info->data[cursor++];
+            uint32_t member_name_offset;
+            uint64_t expression_size;
+            uint8_t accessibility;
+            if (member_abbreviation != 14u && member_abbreviation != 17u) {
+                fprintf(stderr,
+                        "unexpected class child abbreviation %u at %llu\n",
+                        (unsigned)member_abbreviation,
+                        (unsigned long long)(cursor - 1u));
+            }
+            assert(member_abbreviation == 14u || member_abbreviation == 17u);
+            assert(cursor + 8u <= info->size);
+            member_name_offset = read_u32(info->data, cursor);
+            assert(member_name_offset < strings->size);
+            cursor += 8u; /* member name and type reference */
+            expression_size = read_uleb(info->data, info->size, &cursor);
+            assert(expression_size <= info->size - cursor);
+            cursor += expression_size;
+            if (member_abbreviation == 17u) {
+                assert(cursor + 8u <= info->size);
+                cursor += 8u; /* bit size and data bit offset */
+            }
+            assert(cursor < info->size);
+            accessibility = info->data[cursor++];
+            if (strcmp((const char*)strings->data + member_name_offset,
+                       "secret") == 0) {
+                assert(accessibility == 3u);
+                found_private = true;
+            } else if (strcmp(
+                           (const char*)strings->data + member_name_offset,
+                           "protected_value") == 0) {
+                assert(accessibility == 2u);
+                found_protected = true;
+            } else if (strcmp(
+                           (const char*)strings->data + member_name_offset,
+                           "value") == 0) {
+                assert(accessibility == 1u);
+                found_public = true;
+            }
+        }
+        break;
+    }
+    assert(found_type && found_private && found_protected && found_public);
+    objfile_free(object);
+}
+
 static bool find_lexical_block_local(const ObjSection* info,
                                      const ObjSection* strings,
                                      const char* variable_name,
@@ -341,8 +420,11 @@ static void verify_recursive_aggregate_type(const ObjSection* info,
             expression_size = read_uleb(
                 info->data, info->size, &expression_offset);
             assert(expression_offset + expression_size <= info->size);
-            child = expression_offset + expression_size +
-                (tag == 17u ? 8u : 0u);
+            expression_offset += expression_size + (tag == 17u ? 8u : 0u);
+            assert(expression_offset < info->size);
+            assert(info->data[expression_offset] >= 1u &&
+                   info->data[expression_offset] <= 3u);
+            child = expression_offset + 1u;
         }
         assert(child < info->size && info->data[child] == 0u);
         assert(found_next && next_type_offset < info->size);
@@ -941,5 +1023,7 @@ int main(int argc, char** argv)
     verify_object_pointer_parameter(argv[15], ARCH_X64);
     verify_static_member_containing_type(argv[14], ARCH_X86);
     verify_static_member_containing_type(argv[15], ARCH_X64);
+    verify_cxx_member_accessibility(argv[14], ARCH_X86);
+    verify_cxx_member_accessibility(argv[15], ARCH_X64);
     return 0;
 }

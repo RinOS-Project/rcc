@@ -1388,6 +1388,13 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                     debug_line_u32(info, field->bit_width);
                     debug_line_u32(info, (uint32_t)data_bit_offset);
                 }
+                if (field->cxx_access > 2u) {
+                    rcc_fatal("DWARF member accessibility is invalid");
+                    return;
+                }
+                /* DW_ACCESS_public/protected/private are 1/2/3, while the
+                 * AST stores these access levels as 0/1/2. */
+                section_add_byte(info, (uint8_t)(field->cxx_access + 1u));
             }
             section_add_byte(info, 0u);
         } else if (type->kind == TYPE_ENUM) {
@@ -2628,6 +2635,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x02u);     /* DW_AT_data_member_location */
     debug_line_uleb(abbrev, 0x18u);     /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0x32u);     /* DW_AT_accessibility */
+    debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 15u);
@@ -2661,6 +2670,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x6bu);     /* DW_AT_data_bit_offset */
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x32u);     /* DW_AT_accessibility */
+    debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 18u);

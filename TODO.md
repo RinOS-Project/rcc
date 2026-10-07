@@ -524,6 +524,8 @@
         i686/x86_64のobject回帰で両方の参照先を検証
   - [x] static C++メンバー関数でもsource/mangled名を保ち、object pointerを
         捏造せず`DW_AT_containing_type`から所有class DIEを参照する両arch回帰を追加
+  - [x] C++ classの通常／bit-field member DIEへ`DW_AT_accessibility`を出し、
+        private/protected/publicの3値をi686/x86_64双方のdebug-info回帰で検証
   - [x] subprogram DIEへ実在する関数戻り型の`DW_AT_type`参照を追加し、
         AST型を持たない生成関数には型を捏造せず型無しabbrevを選択する
         両archのdebug-info回帰を追加
