@@ -659,6 +659,9 @@
 - [ ] GCC専用のfull `test-ci` production gateをClangにも拡張し、C17/C++20、
       IR/MIR、verified backend、optimizer、ABI、image、bootstrap全経路を
       両host compilerで検証する
+  - [x] Makefileが環境変数／command-lineの`CC`を保持し、GNU makeのbuilt-in
+        `cc`だけが選択されている場合にGCCを既定値とする。CI matrixのCC指定が
+        実際のRCC host binary buildへ届くことをMakeの変数解決で回帰検証
 - [x] CI regression gateでC/C++ global initializer/finalizerのhost実行、
       `.init_array`/`.fini_array`伝播、RIN/RLL/DRV/RLD image validationを常時gate
 - [ ] clang/gcc互換の全golden `.ro/.ra/.rin/.rll/.drv` corpusとfuzz corpus

@@ -44,6 +44,9 @@ jobs:
           repository: RinOS-Project/rinvalidate
           path: public-base/toolchain/rinvalidate
 
+      - name: Verify selected host compiler
+        run: test "$(make --no-print-directory print-host-cc)" = "$CC"
+
       - name: Build rcc, rcc++, rld and rar
         run: make -j2 all
 
@@ -109,6 +112,9 @@ jobs:
         with:
           repository: RinOS-Project/rinvalidate
           path: public-base/toolchain/rinvalidate
+
+      - name: Verify selected host compiler
+        run: test "$(make --no-print-directory print-host-cc)" = "$CC"
 
       - name: Build complete host toolchain
         run: make -j2 all
