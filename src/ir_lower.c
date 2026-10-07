@@ -159,6 +159,10 @@ static bool lower_wide_scalar_store(
 static bool lower_copy_scalar_storage(
     RccIrLowerContext* context, RccIrValue destination,
     RccIrValue source, const Type* type);
+static RccIrLowerValue lower_inline_method_address(
+    RccIrLowerContext* context, const Expr* expression);
+static RccIrLowerValue lower_inline_method_call(
+    RccIrLowerContext* context, const Expr* expression);
 static bool lower_zero_scalar_storage(
     RccIrLowerContext* context, RccIrValue address,
     const Type* type);
@@ -379,6 +383,15 @@ static bool lower_wide_ssa_expression_safe(const Expr* expression) {
         case EXPR_NOEXCEPT:
             return expression->cxx_noexcept_value_valid;
         case EXPR_CALL:
+            if (expression->call_method && expression->call_method->field &&
+                expression->call_method->kind == TYPE_METHOD_FIELD &&
+                lower_i686_wide_scalar_type(expression->type) &&
+                lower_i686_wide_scalar_type(
+                    expression->call_method->field->type) &&
+                !expression->call_method->field->type->is_volatile &&
+                !expression->call_args) {
+                return true;
+            }
             return lower_wide_ssa_call_safe(expression);
         case EXPR_ADD:
         case EXPR_SUB:
@@ -1003,6 +1016,11 @@ static RccIrLowerValue lower_lvalue_address_impl(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerLocal* local;
     if (!expression) return lower_invalid_value();
+    if (expression->kind == EXPR_CALL && expression->call_method &&
+        expression->call_method->return_type &&
+        expression->call_method->return_type->is_reference) {
+        return lower_inline_method_address(context, expression);
+    }
     if (expression->kind == EXPR_IDENT) {
         local = lower_find_local(context, expression->ident_decl);
         if (!local) {
@@ -1256,6 +1274,68 @@ static RccIrLowerValue lower_load_lvalue(RccIrLowerContext* context,
                               expression ? expression->type : NULL);
 }
 
+static RccIrLowerValue lower_inline_method_address(
+    RccIrLowerContext* context, const Expr* expression) {
+    const TypeMethod* method = expression ? expression->call_method : NULL;
+    const Expr* member = expression ? expression->call_func : NULL;
+    const Type* aggregate_type = NULL;
+    RccIrLowerValue base;
+    RccIrLowerValue address;
+    if (!method || !method->field || !member || expression->call_args ||
+        (method->kind != TYPE_METHOD_FIELD &&
+         method->kind != TYPE_METHOD_FIELD_RELEASE &&
+         method->kind != TYPE_METHOD_FIELD_EQ_CONSTANT &&
+         method->kind != TYPE_METHOD_FIELD_NE_CONSTANT)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (member->kind == EXPR_PTR_MEMBER) {
+        if (!member->member_base || !member->member_base->type ||
+            member->member_base->type->kind != TYPE_PTR ||
+            !member->member_base->type->base) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        aggregate_type = member->member_base->type->base;
+        base = lower_expression(context, member->member_base);
+        if (aggregate_type->is_volatile) base.volatile_access = true;
+    } else if (member->kind == EXPR_MEMBER) {
+        if (!member->member_base || !member->member_base->type) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        aggregate_type = member->member_base->type;
+        if ((aggregate_type->kind == TYPE_STRUCT ||
+             aggregate_type->kind == TYPE_UNION) &&
+            member->member_base->kind == EXPR_CALL) {
+            base = lower_expression(context, member->member_base);
+        } else {
+            base = lower_lvalue_address(context, member->member_base);
+        }
+    } else {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (!base.valid || base.type.kind != RCC_IR_TYPE_POINTER ||
+        !aggregate_type ||
+        (aggregate_type->kind != TYPE_STRUCT &&
+         aggregate_type->kind != TYPE_UNION) ||
+        aggregate_type->size <= 0 || !method->field->type ||
+        method->field->offset < 0 || method->field->type->size <= 0 ||
+        method->field->offset > aggregate_type->size ||
+        method->field->type->size >
+            aggregate_type->size - method->field->offset) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    address = lower_byte_offset_address(
+        context, base, (uint64_t)method->field->offset);
+    if (address.valid && method->field->type->is_volatile) {
+        address.volatile_access = true;
+    }
+    return address;
+}
+
 static bool lower_store_address(RccIrLowerContext* context,
                                 RccIrLowerValue address,
                                 RccIrLowerValue value) {
@@ -1336,6 +1416,165 @@ static bool lower_wide_scalar_store(
     high_address = lower_byte_offset_address(context, address, 4u);
     return lower_store_address(context, address, value.low) &&
         lower_store_address(context, high_address, value.high);
+}
+
+static bool lower_inline_method_wide_value(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result) {
+    const TypeMethod* method = expression ? expression->call_method : NULL;
+    RccIrLowerValue address;
+    if (!result || !method || !method->field ||
+        !lower_i686_wide_scalar_type(expression->type) ||
+        !lower_i686_wide_scalar_type(method->field->type) ||
+        (method->kind != TYPE_METHOD_FIELD &&
+         method->kind != TYPE_METHOD_FIELD_RELEASE)) {
+        return false;
+    }
+    address = lower_inline_method_address(context, expression);
+    if (!address.valid || !lower_wide_scalar_load(
+            context, address, method->field->type->is_unsigned, result)) {
+        return false;
+    }
+    if (method->kind == TYPE_METHOD_FIELD_RELEASE) {
+        uint64_t bits = (uint64_t)method->constant;
+        RccIrLowerWideValue invalid;
+        invalid.low = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true, (uint32_t)bits);
+        invalid.high = lower_integer_constant(
+            context, rcc_ir_type_integer(32u), true,
+            (uint32_t)(bits >> 32u));
+        invalid.is_unsigned = method->field->type->is_unsigned;
+        invalid.valid = invalid.low.valid && invalid.high.valid;
+        if (!lower_wide_scalar_store(context, address, invalid)) return false;
+    }
+    return true;
+}
+
+static RccIrLowerValue lower_inline_method_call(
+    RccIrLowerContext* context, const Expr* expression) {
+    const TypeMethod* method = expression ? expression->call_method : NULL;
+    RccIrLowerValue address;
+    RccIrLowerValue value;
+    RccIrType compare_type;
+    RccIrValue operands[2];
+    RccIrInstruction* compare;
+    bool is_comparison;
+    if (!method || !method->field || !expression->type) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    address = lower_inline_method_address(context, expression);
+    if (!address.valid) return lower_invalid_value();
+    is_comparison = method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT ||
+        method->kind == TYPE_METHOD_FIELD_NE_CONSTANT;
+    if (method->kind == TYPE_METHOD_FIELD) {
+        if (method->return_type && method->return_type->is_reference) {
+            return address;
+        }
+        if (expression->type->kind == TYPE_ARRAY ||
+            expression->type->kind == TYPE_STRUCT ||
+            expression->type->kind == TYPE_UNION) {
+            return address;
+        }
+        if (lower_i686_wide_scalar_type(expression->type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        value = lower_load_address(context, address, method->field->type);
+        return lower_cast(context, value, expression->type);
+    }
+    if (is_comparison) {
+        if (lower_i686_wide_scalar_type(method->field->type)) {
+            RccIrLowerWideValue field_value;
+            RccIrLowerWideValue constant_value;
+            uint64_t bits = (uint64_t)method->constant;
+            if (!lower_wide_scalar_load(
+                    context, address, method->field->type->is_unsigned,
+                    &field_value)) {
+                return lower_invalid_value();
+            }
+            constant_value.low = lower_integer_constant(
+                context, rcc_ir_type_integer(32u), true, (uint32_t)bits);
+            constant_value.high = lower_integer_constant(
+                context, rcc_ir_type_integer(32u), true,
+                (uint32_t)(bits >> 32u));
+            constant_value.is_unsigned = method->field->type->is_unsigned;
+            constant_value.valid = constant_value.low.valid &&
+                                   constant_value.high.valid;
+            if (!constant_value.valid || !lower_wide_scalar_compare(
+                    context,
+                    method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT
+                        ? EXPR_EQ : EXPR_NE,
+                    field_value, constant_value,
+                    method->field->type->is_unsigned, &value)) {
+                return lower_invalid_value();
+            }
+            return lower_cast(context, value, expression->type);
+        }
+        value = lower_load_address(context, address, method->field->type);
+        if (!value.valid) return lower_invalid_value();
+        if (value.type.kind == RCC_IR_TYPE_POINTER) {
+            compare_type = rcc_ir_type_integer(
+                (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u));
+            value = lower_cast(context, value,
+                               g_opts.target_arch == ARCH_X64
+                                   ? type_ulong : type_uint);
+        } else {
+            compare_type = value.type;
+        }
+        if (!value.valid || value.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        {
+            RccIrLowerValue constant = lower_integer_constant(
+                context, compare_type, true, (uint64_t)method->constant);
+            if (!constant.valid) return lower_invalid_value();
+            operands[0] = value.value;
+            operands[1] = constant.value;
+        }
+        compare = lower_append(context, RCC_IR_ICMP,
+                               rcc_ir_type_integer(1u), operands, 2u,
+                               NULL, 0u);
+        if (!compare) return lower_invalid_value();
+        rcc_ir_set_predicate(
+            compare, method->kind == TYPE_METHOD_FIELD_EQ_CONSTANT
+                ? RCC_IR_ICMP_EQ : RCC_IR_ICMP_NE);
+        value = lower_value(
+            compare->result, rcc_ir_type_integer(1u), true);
+        return lower_cast(context, value, expression->type);
+    }
+    if (method->kind == TYPE_METHOD_FIELD_RELEASE) {
+        if (lower_i686_wide_scalar_type(expression->type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        value = lower_load_address(context, address, method->field->type);
+        if (!value.valid) return lower_invalid_value();
+        if (value.type.kind == RCC_IR_TYPE_POINTER) {
+            RccIrLowerValue invalid = lower_integer_constant(
+                context,
+                rcc_ir_type_integer(
+                    (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u)),
+                true, (uint64_t)method->constant);
+            invalid = lower_cast(context, invalid, method->field->type);
+            if (!invalid.valid ||
+                !lower_store_address(context, address, invalid)) {
+                return lower_invalid_value();
+            }
+        } else {
+            RccIrLowerValue invalid = lower_integer_constant(
+                context, value.type, method->field->type->is_unsigned,
+                (uint64_t)method->constant);
+            if (!invalid.valid ||
+                !lower_store_address(context, address, invalid)) {
+                return lower_invalid_value();
+            }
+        }
+        return lower_cast(context, value, expression->type);
+    }
+    context->unsupported = true;
+    return lower_invalid_value();
 }
 
 static RccIrLowerWideState* lower_capture_wide_states(
@@ -2846,6 +3085,11 @@ static bool lower_wide_scalar_expression_impl(
         !expression->type || !type_is_integer(expression->type) ||
         expression->type->size <= 0) return false;
     if (lower_wide_scalar_constant(context, expression, result)) return true;
+    if (expression->kind == EXPR_CALL && expression->call_method &&
+        lower_i686_wide_scalar_type(expression->type) &&
+        lower_inline_method_wide_value(context, expression, result)) {
+        return true;
+    }
     if (!lower_i686_wide_scalar_type(expression->type)) {
         scalar = lower_expression(context, expression);
         return lower_scalar_to_wide_value(
@@ -3691,6 +3935,9 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     int return_kind = LOWER_ABI_RETURN_SCALAR;
     bool indirect = false;
     RccIrInstruction* call;
+    if (expression && expression->call_method) {
+        return lower_inline_method_call(context, expression);
+    }
     if (expression->cxx_close_call || !expression->call_func) {
         context->unsupported = true;
         return lower_invalid_value();

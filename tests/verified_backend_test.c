@@ -1706,6 +1706,112 @@ static void verify_cxx_object(const char* path)
     objfile_free(object);
 }
 
+static void verify_member_methods_object(const char* path, uint16_t arch,
+                                         bool execute)
+{
+    struct VerifiedMemberMethodObject {
+        int value;
+        unsigned long long wide_value;
+    } instance;
+    struct VerifiedMemberReleaseObject {
+        unsigned int value;
+    } release_instance;
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* read_symbol;
+    ObjSymbol* add_symbol;
+    ObjSymbol* equal_symbol;
+    ObjSymbol* different_symbol;
+    ObjSymbol* reference_symbol;
+    ObjSymbol* wide_symbol;
+    ObjSymbol* wide_equal_symbol;
+    ObjSymbol* release_symbol;
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    read_symbol = objfile_find_symbol(object, "verified_member_method_read");
+    add_symbol = objfile_find_symbol(object, "verified_member_method_add");
+    equal_symbol = objfile_find_symbol(
+        object, "verified_member_method_equals_seven");
+    different_symbol = objfile_find_symbol(
+        object, "verified_member_method_differs_from_seven");
+    reference_symbol = objfile_find_symbol(
+        object, "verified_member_method_reference");
+    wide_symbol = objfile_find_symbol(object, "verified_member_method_wide");
+    wide_equal_symbol = objfile_find_symbol(
+        object, "verified_member_method_wide_equals_expected");
+    release_symbol = objfile_find_symbol(
+        object, "verified_member_method_release");
+    assert(text != NULL && read_symbol != NULL &&
+           read_symbol->binding == BIND_CODE && read_symbol->section == 0 &&
+           add_symbol != NULL && add_symbol->binding == BIND_CODE &&
+           add_symbol->section == 0 && equal_symbol != NULL &&
+           equal_symbol->binding == BIND_CODE && equal_symbol->section == 0 &&
+           different_symbol != NULL &&
+           different_symbol->binding == BIND_CODE &&
+           different_symbol->section == 0 && reference_symbol != NULL &&
+           reference_symbol->binding == BIND_CODE &&
+           reference_symbol->section == 0 && wide_symbol != NULL &&
+           wide_symbol->binding == BIND_CODE && wide_symbol->section == 0 &&
+           wide_equal_symbol != NULL &&
+           wide_equal_symbol->binding == BIND_CODE &&
+           wide_equal_symbol->section == 0 && release_symbol != NULL &&
+           release_symbol->binding == BIND_CODE &&
+           release_symbol->section == 0);
+    if (execute) {
+        size_t mapping_size;
+        void* memory = map_text(object, text, &mapping_size);
+        int (RINOS_ABI *read_function)(struct VerifiedMemberMethodObject*);
+        int (RINOS_ABI *add_function)(struct VerifiedMemberMethodObject*, int);
+        int (RINOS_ABI *equal_function)(struct VerifiedMemberMethodObject*);
+        int (RINOS_ABI *different_function)(
+            struct VerifiedMemberMethodObject*);
+        const int* (RINOS_ABI *reference_function)(
+            struct VerifiedMemberMethodObject*);
+        unsigned long long (RINOS_ABI *wide_function)(
+            struct VerifiedMemberMethodObject*);
+        int (RINOS_ABI *wide_equal_function)(
+            struct VerifiedMemberMethodObject*);
+        unsigned int (RINOS_ABI *release_function)(
+            struct VerifiedMemberReleaseObject*);
+        void* address = symbol_address(memory, read_symbol);
+        memcpy(&read_function, &address, sizeof(read_function));
+        address = symbol_address(memory, add_symbol);
+        memcpy(&add_function, &address, sizeof(add_function));
+        address = symbol_address(memory, equal_symbol);
+        memcpy(&equal_function, &address, sizeof(equal_function));
+        address = symbol_address(memory, different_symbol);
+        memcpy(&different_function, &address, sizeof(different_function));
+        address = symbol_address(memory, reference_symbol);
+        memcpy(&reference_function, &address, sizeof(reference_function));
+        address = symbol_address(memory, wide_symbol);
+        memcpy(&wide_function, &address, sizeof(wide_function));
+        address = symbol_address(memory, wide_equal_symbol);
+        memcpy(&wide_equal_function, &address, sizeof(wide_equal_function));
+        address = symbol_address(memory, release_symbol);
+        memcpy(&release_function, &address, sizeof(release_function));
+        instance.value = 7;
+        instance.wide_value = 0x1122334455667788ULL;
+        assert(read_function(&instance) == 7);
+        assert(add_function(&instance, 5) == 12);
+        assert(equal_function(&instance) == 1);
+        assert(different_function(&instance) == 0);
+        assert(reference_function(&instance) == &instance.value);
+        assert(wide_function(&instance) == 0x1122334455667788ULL);
+        assert(wide_equal_function(&instance) == 1);
+        release_instance.value = 0xabcdef01u;
+        assert(release_function(&release_instance) == 0xabcdef01u);
+        assert(release_instance.value == 0u);
+        instance.value = 8;
+        instance.wide_value = 42ULL;
+        assert(equal_function(&instance) == 0);
+        assert(different_function(&instance) == 1);
+        assert(wide_function(&instance) == 42ULL);
+        assert(wide_equal_function(&instance) == 0);
+        assert(verified_unmap(memory, mapping_size) == 0);
+    }
+    objfile_free(object);
+}
+
 typedef struct {
     void** bases;
     size_t* sizes;
@@ -2045,7 +2151,8 @@ static void verify_wide_variadic_call_object(const char* path, uint16_t arch)
 
 int main(int argc, char** argv)
 {
-    assert(argc == 6 || argc == 8 || argc == 10 || argc == 12);
+    assert(argc == 6 || argc == 8 || argc == 10 || argc == 12 ||
+           argc == 14);
     verify_object(argv[1], ARCH_X86);
     verify_object(argv[2], ARCH_X64);
     if (sizeof(void*) == 8u) {
@@ -2067,6 +2174,14 @@ int main(int argc, char** argv)
     if (argc == 12) {
         verify_wide_variadic_call_object(argv[10], ARCH_X86);
         verify_wide_variadic_call_object(argv[11], ARCH_X64);
+    }
+    if (argc == 14) {
+        verify_wide_variadic_call_object(argv[10], ARCH_X86);
+        verify_wide_variadic_call_object(argv[11], ARCH_X64);
+        verify_member_methods_object(argv[12], ARCH_X86,
+                                     sizeof(void*) == 4u);
+        verify_member_methods_object(argv[13], ARCH_X64,
+                                     sizeof(void*) == 8u);
     }
     puts("Verified typed-SSA production .ro bridge tests passed");
     return 0;
