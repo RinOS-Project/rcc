@@ -7,6 +7,8 @@
 
 #include <stdarg.h>
 
+#define MIR_ALLOC_GRAPH_MAX_BYTES ((size_t)64u * 1024u * 1024u)
+
 typedef struct {
     RccMirVReg reg;
     size_t start;
@@ -459,6 +461,31 @@ static uint16_t mir_alloc_first_register(uint64_t mask) {
     return index;
 }
 
+static size_t mir_alloc_popcount(uint64_t value) {
+    size_t count = 0u;
+    while (value != 0u) {
+        value &= value - 1u;
+        ++count;
+    }
+    return count;
+}
+
+static bool mir_alloc_graph_has_edge(const uint64_t* graph,
+                                    size_t words_per_row,
+                                    size_t left, size_t right) {
+    return (graph[left * words_per_row + right / 64u] &
+            (UINT64_C(1) << (right % 64u))) != 0u;
+}
+
+static void mir_alloc_graph_add_edge(uint64_t* graph,
+                                     size_t words_per_row,
+                                     size_t left, size_t right) {
+    graph[left * words_per_row + right / 64u] |=
+        UINT64_C(1) << (right % 64u);
+    graph[right * words_per_row + left / 64u] |=
+        UINT64_C(1) << (left % 64u);
+}
+
 static bool mir_alloc_assign_spill(
     const RccMirFunction* function, const RccMirRegisterPolicy* policy,
     RccMirAllocation* allocation, RccMirVReg reg,
@@ -568,6 +595,244 @@ static bool mir_alloc_linear_scan(
     }
     rcc_free(active);
     return true;
+}
+
+static bool mir_alloc_graph_within_budget(size_t register_count) {
+    size_t words_per_row;
+    size_t cells;
+    if (register_count > SIZE_MAX - 63u) return false;
+    words_per_row = (register_count + 63u) / 64u;
+    if (words_per_row != 0u &&
+        register_count > SIZE_MAX / words_per_row) {
+        return false;
+    }
+    cells = register_count * words_per_row;
+    return cells <= SIZE_MAX / sizeof(uint64_t) &&
+        cells * sizeof(uint64_t) <= MIR_ALLOC_GRAPH_MAX_BYTES;
+}
+
+static bool mir_alloc_run_linear_scan(
+    const RccMirFunction* function, const RccMirRegisterPolicy* policy,
+    RccMirAllocation* allocation, char* error, size_t error_size) {
+    RccMirIntervalOrder* order;
+    size_t reg;
+    bool ok;
+    if (function->register_count > SIZE_MAX / sizeof(*order)) {
+        return mir_alloc_error(error, error_size,
+                               "MIR interval order table is too large");
+    }
+    order = rcc_alloc(function->register_count * sizeof(*order));
+    for (reg = 0u; reg < function->register_count; ++reg) {
+        order[reg].reg = (RccMirVReg)reg;
+        order[reg].start = allocation->intervals[reg].start;
+        order[reg].end = allocation->intervals[reg].end;
+    }
+    qsort(order, function->register_count, sizeof(*order),
+          mir_alloc_compare_intervals);
+    ok = mir_alloc_linear_scan(
+        function, policy, allocation, order, error, error_size);
+    rcc_free(order);
+    return ok;
+}
+
+static bool mir_alloc_graph_color(
+    const RccMirFunction* function, const RccMirRegisterPolicy* policy,
+    RccMirAllocation* allocation, char* error, size_t error_size) {
+    size_t words_per_row;
+    size_t graph_cells;
+    size_t graph_bytes;
+    uint64_t* graph = NULL;
+    uint64_t* allowed_masks = NULL;
+    size_t* degrees = NULL;
+    size_t* spill_costs = NULL;
+    bool* removed = NULL;
+    RccMirVReg* stack = NULL;
+    size_t stack_count = 0u;
+    size_t reg;
+    bool ok = false;
+
+    if (function->register_count > SIZE_MAX - 63u) {
+        return mir_alloc_error(error, error_size,
+                               "MIR interference graph is too large");
+    }
+    words_per_row = (function->register_count + 63u) / 64u;
+    if (words_per_row != 0u &&
+        function->register_count > SIZE_MAX / words_per_row) {
+        return mir_alloc_error(error, error_size,
+                               "MIR interference graph is too large");
+    }
+    graph_cells = function->register_count * words_per_row;
+    if (graph_cells > SIZE_MAX / sizeof(*graph) ||
+        function->register_count > SIZE_MAX / sizeof(*allowed_masks) ||
+        function->register_count > SIZE_MAX / sizeof(*degrees) ||
+        function->register_count > SIZE_MAX / sizeof(*spill_costs) ||
+        function->register_count > SIZE_MAX / sizeof(*stack)) {
+        return mir_alloc_error(error, error_size,
+                               "MIR interference graph is too large");
+    }
+    graph_bytes = graph_cells * sizeof(*graph);
+    graph = rcc_alloc(graph_bytes);
+    allowed_masks = rcc_alloc(
+        function->register_count * sizeof(*allowed_masks));
+    degrees = rcc_alloc(function->register_count * sizeof(*degrees));
+    spill_costs = rcc_alloc(
+        function->register_count * sizeof(*spill_costs));
+    removed = rcc_alloc(function->register_count * sizeof(*removed));
+    stack = rcc_alloc(function->register_count * sizeof(*stack));
+
+    for (reg = 0u; reg < function->register_count; ++reg) {
+        RccMirLiveInterval interval = allocation->intervals[reg];
+        uint64_t allowed = mir_alloc_class_mask(
+            policy, interval.register_class);
+        allocation->locations[reg].kind = RCC_MIR_LOCATION_SPILL;
+        allocation->locations[reg].register_class = interval.register_class;
+        allocation->locations[reg].physical_register = UINT16_MAX;
+        if (interval.crosses_call) {
+            allowed &= ~mir_alloc_caller_saved_mask(
+                policy, interval.register_class);
+        }
+        allowed &= ~interval.forbidden_physical_mask;
+        allowed_masks[reg] = allowed;
+        spill_costs[reg] = 1u;
+    }
+
+    for (reg = 0u; reg < function->register_count; ++reg) {
+        size_t other;
+        for (other = reg + 1u; other < function->register_count; ++other) {
+            if (allocation->intervals[reg].register_class ==
+                    allocation->intervals[other].register_class &&
+                mir_alloc_intervals_overlap(
+                    allocation->intervals[reg],
+                    allocation->intervals[other])) {
+                mir_alloc_graph_add_edge(graph, words_per_row, reg, other);
+                ++degrees[reg];
+                ++degrees[other];
+            }
+        }
+    }
+
+    /* Use and definition counts approximate the cost of spilling each value. */
+    {
+        const RccMirBlock* block;
+        for (block = function->first_block; block; block = block->next) {
+            const RccMirInstruction* instruction;
+            for (instruction = block->first; instruction;
+                 instruction = instruction->next) {
+                size_t operand;
+                if (instruction->definition != RCC_MIR_VREG_NONE &&
+                    spill_costs[instruction->definition] < SIZE_MAX) {
+                    ++spill_costs[instruction->definition];
+                }
+                for (operand = 0u; operand < instruction->operand_count;
+                     ++operand) {
+                    RccMirVReg value = instruction->operands[operand];
+                    if (spill_costs[value] < SIZE_MAX) {
+                        ++spill_costs[value];
+                    }
+                }
+                if (instruction->opcode == RCC_MIR_CALL &&
+                    instruction->callee_value != RCC_MIR_VREG_NONE &&
+                    spill_costs[instruction->callee_value] < SIZE_MAX) {
+                    ++spill_costs[instruction->callee_value];
+                }
+            }
+        }
+    }
+
+    while (stack_count < function->register_count) {
+        size_t selected = SIZE_MAX;
+        size_t selected_degree = SIZE_MAX;
+        long double lowest_spill_priority = 0.0L;
+
+        for (reg = 0u; reg < function->register_count; ++reg) {
+            size_t palette_size;
+            if (removed[reg]) continue;
+            palette_size = mir_alloc_popcount(allowed_masks[reg]);
+            if (degrees[reg] < palette_size) {
+                if (selected == SIZE_MAX || degrees[reg] < selected_degree ||
+                    (degrees[reg] == selected_degree && reg < selected)) {
+                    selected = reg;
+                    selected_degree = degrees[reg];
+                }
+            }
+        }
+
+        if (selected == SIZE_MAX) {
+            for (reg = 0u; reg < function->register_count; ++reg) {
+                long double priority;
+                if (removed[reg]) continue;
+                priority = (long double)spill_costs[reg] /
+                    (long double)(degrees[reg] + 1u);
+                if (selected == SIZE_MAX ||
+                    priority < lowest_spill_priority ||
+                    (priority == lowest_spill_priority &&
+                     (degrees[reg] > selected_degree ||
+                      (degrees[reg] == selected_degree && reg < selected)))) {
+                    selected = reg;
+                    selected_degree = degrees[reg];
+                    lowest_spill_priority = priority;
+                }
+            }
+        }
+        if (selected == SIZE_MAX) {
+            mir_alloc_error(error, error_size,
+                            "MIR interference graph simplify failed");
+            goto cleanup;
+        }
+        removed[selected] = true;
+        stack[stack_count++] = (RccMirVReg)selected;
+        for (reg = 0u; reg < function->register_count; ++reg) {
+            if (!removed[reg] &&
+                mir_alloc_graph_has_edge(
+                    graph, words_per_row, selected, reg) &&
+                degrees[reg] != 0u) {
+                --degrees[reg];
+            }
+        }
+    }
+
+    while (stack_count != 0u) {
+        RccMirVReg value = stack[--stack_count];
+        RccMirLiveInterval interval = allocation->intervals[value];
+        uint64_t unavailable = 0u;
+        uint64_t available;
+        size_t neighbor;
+        for (neighbor = 0u; neighbor < function->register_count; ++neighbor) {
+            RccMirLocation location;
+            if (!mir_alloc_graph_has_edge(
+                    graph, words_per_row, value, neighbor)) {
+                continue;
+            }
+            location = allocation->locations[neighbor];
+            if (location.kind == RCC_MIR_LOCATION_PHYSICAL &&
+                location.register_class == interval.register_class) {
+                unavailable |= UINT64_C(1) << location.physical_register;
+            }
+        }
+        available = allowed_masks[value] & ~unavailable;
+        if (available != 0u) {
+            RccMirLocation* location = &allocation->locations[value];
+            location->kind = RCC_MIR_LOCATION_PHYSICAL;
+            location->register_class = interval.register_class;
+            location->physical_register = mir_alloc_first_register(available);
+            location->spill_offset = UINT32_MAX;
+            ++allocation->physical_count;
+        } else if (!mir_alloc_assign_spill(
+                       function, policy, allocation, value,
+                       error, error_size)) {
+            goto cleanup;
+        }
+    }
+    ok = true;
+
+cleanup:
+    rcc_free(graph);
+    rcc_free(allowed_masks);
+    rcc_free(degrees);
+    rcc_free(spill_costs);
+    rcc_free(removed);
+    rcc_free(stack);
+    return ok;
 }
 
 void rcc_mir_allocation_release(RccMirAllocation* allocation) {
@@ -729,6 +994,89 @@ bool rcc_mir_linear_scan_allocate(
     result = true;
 cleanup:
     rcc_free(order);
+    rcc_free(block_starts);
+    rcc_free(block_ends);
+    rcc_free(calls);
+    if (!result) rcc_mir_allocation_release(allocation);
+    return result;
+}
+
+bool rcc_mir_graph_color_allocate(
+    const RccMirFunction* function, const RccMirRegisterPolicy* policy,
+    RccMirAllocation* allocation, char* error, size_t error_size) {
+    size_t* block_starts = NULL;
+    size_t* block_ends = NULL;
+    size_t* calls = NULL;
+    size_t call_count = 0u;
+    size_t reg;
+    bool result = false;
+    if (allocation) memset(allocation, 0, sizeof(*allocation));
+    if (error && error_size != 0u) error[0] = '\0';
+    if (!function || !allocation || !mir_alloc_policy_valid(policy) ||
+        !rcc_mir_verify_function(function, error, error_size)) {
+        return false;
+    }
+    allocation->register_count = function->register_count;
+    if (function->register_count == 0u) return true;
+    if (function->register_count > SIZE_MAX / sizeof(*allocation->intervals) ||
+        function->register_count > SIZE_MAX / sizeof(*allocation->locations)) {
+        mir_alloc_error(error, error_size, "MIR register table is too large");
+        goto cleanup;
+    }
+    allocation->intervals = rcc_alloc(
+        function->register_count * sizeof(*allocation->intervals));
+    allocation->locations = rcc_alloc(
+        function->register_count * sizeof(*allocation->locations));
+    for (reg = 0u; reg < function->register_count; ++reg) {
+        allocation->intervals[reg].start = SIZE_MAX;
+        allocation->intervals[reg].register_class =
+            mir_alloc_register_class(function->register_types[reg]);
+    }
+    if (!mir_alloc_collect_positions(
+            function, &block_starts, &block_ends, &calls, &call_count,
+            allocation->intervals, error, error_size) ||
+        !mir_alloc_extend_cfg_liveness(
+            function, block_starts, block_ends, allocation->intervals,
+            error, error_size) ||
+        !mir_alloc_apply_fixed_constraints(
+            function, policy, allocation->intervals,
+            error, error_size)) {
+        goto cleanup;
+    }
+    for (reg = 0u; reg < function->register_count; ++reg) {
+        size_t call;
+        if (allocation->intervals[reg].start == SIZE_MAX) {
+            mir_alloc_error(error, error_size,
+                            "MIR register %zu has no live interval", reg);
+            goto cleanup;
+        }
+        for (call = 0u; call < call_count; ++call) {
+            if (allocation->intervals[reg].start < calls[call] &&
+                calls[call] < allocation->intervals[reg].end) {
+                allocation->intervals[reg].crosses_call = true;
+                break;
+            }
+        }
+    }
+    if (!(mir_alloc_graph_within_budget(function->register_count)
+              ? mir_alloc_graph_color(
+                    function, policy, allocation, error, error_size)
+              : mir_alloc_run_linear_scan(
+                    function, policy, allocation, error, error_size)) ||
+        !mir_alloc_align(allocation->spill_area_size,
+                         policy->stack_alignment,
+                         &allocation->spill_area_size) ||
+        !rcc_mir_verify_allocation(
+            function, policy, allocation, error, error_size)) {
+        if (error && error_size != 0u && error[0] == '\0') {
+            mir_alloc_error(error, error_size,
+                            "MIR spill area alignment overflow");
+        }
+        goto cleanup;
+    }
+    result = true;
+
+cleanup:
     rcc_free(block_starts);
     rcc_free(block_ends);
     rcc_free(calls);

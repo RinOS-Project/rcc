@@ -9512,7 +9512,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         } else {
             rcc_mir_register_policy_i686(&policy);
         }
-        if (!rcc_mir_linear_scan_allocate(
+        if (!rcc_mir_graph_color_allocate(
                 mir, &policy, &allocation, error, error_size)) {
             rcc_mir_function_destroy(mir);
             rcc_ir_module_destroy(module);

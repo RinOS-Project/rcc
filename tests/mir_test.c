@@ -231,6 +231,119 @@ static void verify_call_crossing_pressure(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_graph_coloring_reuses_call_crossing_register(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "graph_color_reassignment", i32, NULL, 0u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrValue early = append_const(entry, i32, 11u);
+    RccIrValue constrained = append_const(entry, i32, 9u);
+    RccIrValue add_operands[] = {early, constrained};
+    RccIrInstruction* sum = rcc_ir_append(
+        entry, RCC_IR_ADD, i32, add_operands, 2u, NULL, 0u);
+    RccIrInstruction* call = rcc_ir_append(
+        entry, RCC_IR_CALL, rcc_ir_type_void(), NULL, 0u, NULL, 0u);
+    RccMirFunction* mir = NULL;
+    RccMirRegisterPolicy policy;
+    RccMirAllocation linear;
+    RccMirAllocation colored;
+    RccMirVReg early_reg;
+    RccMirVReg constrained_reg;
+    RccMirInstruction* instruction;
+    char error[256];
+
+    assert(sum != NULL && call != NULL);
+    rcc_ir_set_callee(call, "allocation_barrier");
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &constrained, 1u, NULL, 0u) != NULL);
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+    memset(&policy, 0, sizeof(policy));
+    policy.allocatable_gpr_mask = UINT64_C(0x7);
+    policy.caller_saved_gpr_mask = UINT64_C(0x6);
+    policy.pointer_size = 4u;
+    policy.stack_alignment = 16u;
+    assert(rcc_mir_linear_scan_allocate(
+        mir, &policy, &linear, error, sizeof(error)));
+    assert(rcc_mir_graph_color_allocate(
+        mir, &policy, &colored, error, sizeof(error)));
+
+    instruction = mir->first_block->first;
+    assert(instruction != NULL && instruction->opcode == RCC_MIR_CONST_INT);
+    early_reg = instruction->definition;
+    instruction = instruction->next;
+    assert(instruction != NULL && instruction->opcode == RCC_MIR_CONST_INT);
+    constrained_reg = instruction->definition;
+    assert(linear.intervals[constrained_reg].crosses_call);
+    assert(colored.intervals[constrained_reg].crosses_call);
+    assert(linear.locations[constrained_reg].kind ==
+           RCC_MIR_LOCATION_SPILL);
+    assert(colored.locations[constrained_reg].kind ==
+           RCC_MIR_LOCATION_PHYSICAL);
+    assert(colored.locations[constrained_reg].physical_register == 0u);
+    assert(colored.locations[early_reg].kind ==
+           RCC_MIR_LOCATION_PHYSICAL);
+    assert(colored.locations[early_reg].physical_register != 0u);
+    assert(colored.spill_count < linear.spill_count);
+    assert(rcc_mir_verify_allocation(
+        mir, &policy, &colored, error, sizeof(error)));
+    rcc_mir_allocation_release(&colored);
+    rcc_mir_allocation_release(&linear);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_graph_coloring_spills_low_use_value(void)
+{
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrType parameters[] = {pointer, pointer};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "graph_color_spill_cost", rcc_ir_type_void(),
+        parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrValue high_use = ir->parameters[0];
+    RccIrValue low_use = ir->parameters[1];
+    RccIrInstruction* instruction;
+    RccMirFunction* mir = NULL;
+    RccMirRegisterPolicy policy;
+    RccMirAllocation allocation;
+    char error[256];
+
+    instruction = rcc_ir_append(
+        entry, RCC_IR_PREFETCH, rcc_ir_type_void(), &high_use, 1u, NULL, 0u);
+    assert(instruction != NULL);
+    instruction = rcc_ir_append(
+        entry, RCC_IR_PREFETCH, rcc_ir_type_void(), &high_use, 1u, NULL, 0u);
+    assert(instruction != NULL);
+    instruction = rcc_ir_append(
+        entry, RCC_IR_PREFETCH, rcc_ir_type_void(), &high_use, 1u, NULL, 0u);
+    assert(instruction != NULL);
+    instruction = rcc_ir_append(
+        entry, RCC_IR_PREFETCH, rcc_ir_type_void(), &low_use, 1u, NULL, 0u);
+    assert(instruction != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         NULL, 0u, NULL, 0u) != NULL);
+    assert(rcc_mir_lower_ir(ir, &mir, error, sizeof(error)));
+    memset(&policy, 0, sizeof(policy));
+    policy.allocatable_gpr_mask = UINT64_C(0x1);
+    policy.pointer_size = 4u;
+    policy.stack_alignment = 16u;
+    assert(rcc_mir_graph_color_allocate(
+        mir, &policy, &allocation, error, sizeof(error)));
+    assert(allocation.locations[mir->parameters[0]].kind ==
+           RCC_MIR_LOCATION_PHYSICAL);
+    assert(allocation.locations[mir->parameters[1]].kind ==
+           RCC_MIR_LOCATION_SPILL);
+    assert(allocation.spill_count == 1u);
+    assert(rcc_mir_verify_allocation(
+        mir, &policy, &allocation, error, sizeof(error)));
+    rcc_mir_allocation_release(&allocation);
+    rcc_mir_function_destroy(mir);
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_cfg_liveness_across_backward_successor(bool x64)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -986,6 +1099,8 @@ int main(void)
     verify_volatile_access_metadata_reaches_mir();
     verify_ir_to_mir_call();
     verify_call_crossing_pressure();
+    verify_graph_coloring_reuses_call_crossing_register();
+    verify_graph_coloring_spills_low_use_value();
     verify_cfg_liveness_across_backward_successor(false);
     verify_cfg_liveness_across_backward_successor(true);
     verify_fixed_register_constraints();

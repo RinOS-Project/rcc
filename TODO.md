@@ -516,11 +516,14 @@
 - [x] `-O0..3`ごとのpass pipeline
   - [x] O0検証のみ、O1 mem2reg/fold/DCE、O2 GVN追加、O3固定点反復
   - [x] rcc/rcc++共通の厳密な`-O0..3` CLI検証と範囲外fail-closed
-- [x] bounded linear-scan register allocation
+- [x] function-wide MIR register allocation
   - [x] phi edge/call crossing対応MIR live intervalとpolicy駆動linear-scan/spill配置
   - [x] 非レイアウト順successor/back-edge対応CFG fixed-point liveness
   - [x] DIV/REMのAX:DXと可変shiftのCXを命令位置だけ予約するfixed-register制約
-  - [ ] graph-coloring allocation and whole-program spill heuristics
+  - [x] function-wide interference-graph list coloring with call/fixed-register
+        constraints and use-count-weighted spill selection; prove a call-crossing
+        value can reclaim its sole callee-saved register without spilling on both
+        architecture test builds
 
 ## 5. backend
 

@@ -59,6 +59,9 @@ void rcc_mir_register_policy_x86_64(RccMirRegisterPolicy* policy);
 bool rcc_mir_linear_scan_allocate(
     const RccMirFunction* function, const RccMirRegisterPolicy* policy,
     RccMirAllocation* allocation, char* error, size_t error_size);
+bool rcc_mir_graph_color_allocate(
+    const RccMirFunction* function, const RccMirRegisterPolicy* policy,
+    RccMirAllocation* allocation, char* error, size_t error_size);
 bool rcc_mir_verify_allocation(
     const RccMirFunction* function, const RccMirRegisterPolicy* policy,
     const RccMirAllocation* allocation, char* error, size_t error_size);

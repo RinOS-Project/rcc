@@ -45,7 +45,7 @@ bool rcc_x86_encode_ir_function(
     } else {
         rcc_mir_register_policy_i686(&policy);
     }
-    if (!rcc_mir_linear_scan_allocate(
+    if (!rcc_mir_graph_color_allocate(
             mir, &policy, &allocation, error, error_size)) goto cleanup;
     allocated = true;
     if (!rcc_mir_build_phi_plan(
