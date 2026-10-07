@@ -1344,6 +1344,14 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                 section_add_byte(info, 23u);  /* DW_TAG_atomic_type */
             }
             debug_type_ref(info, patches, base);
+        } else if (type->kind == TYPE_PTR && type->is_reference) {
+            DebugTypeEntry* base = debug_type_find(context, type->base);
+            if (!base) {
+                rcc_fatal("DWARF reference base type was not collected");
+                return;
+            }
+            section_add_byte(info, type->is_rvalue_reference ? 38u : 37u);
+            debug_type_ref(info, patches, base);
         } else if (type->kind == TYPE_PTR) {
             section_add_byte(info, 6u);        /* DW_TAG_pointer_type */
             section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
@@ -3100,6 +3108,22 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     section_add_byte(abbrev, 0u);
     debug_line_uleb(abbrev, 0x49u);     /* DW_AT_type */
     debug_line_uleb(abbrev, 0x13u);     /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* C++ references are pointer-sized ABI carriers, but debuggers need the
+     * source-level lvalue/rvalue distinction and the referred-to type. */
+    debug_line_uleb(abbrev, 37u);
+    debug_line_uleb(abbrev, 0x10u);    /* DW_TAG_reference_type */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 38u);
+    debug_line_uleb(abbrev, 0x42u);    /* DW_TAG_rvalue_reference_type */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     /* Abbreviation 26 is a source-level member function.  Its explicit

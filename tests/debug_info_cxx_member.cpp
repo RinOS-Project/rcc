@@ -14,3 +14,8 @@ public:
 int debug_member_object_entry(DebugMemberObject* object) {
     return object->read() + DebugMemberObject::create_value(object->value);
 }
+
+int debug_reference_type_entry(int& lvalue, int&& rvalue) {
+    int& local_lvalue = lvalue;
+    return local_lvalue + rvalue;
+}

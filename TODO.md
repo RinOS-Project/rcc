@@ -312,6 +312,12 @@
         unsupported constexpr evaluation required for complete standard
         conformance
 - [ ] C++20 modules、coroutines
+- [ ] Complete ordinary non-template rvalue-reference binding and value-category
+      semantics. The named xvalue local-binding and mutation case
+      `int&& local = static_cast<int&&>(value);` now has a regression test;
+      conditional/member xvalue classification, broader reference collapsing,
+      temporary lifetime, and call/return interactions still need systematic
+      dual-architecture coverage.
 - [x] bounded Itanium ABI mangling、exceptions、RTTI、static initialization
   - [x] Implement the validated C++ empty-base optimization for a leading,
         non-polymorphic direct empty base, preserve the standard same-type
@@ -649,6 +655,10 @@
   - [x] const／volatile／restrict／atomic修飾型を対応するDWARF qualifier
         DIEと実在する基底型参照へlowerし、i686/AMD64のglobal variableと
         linked-image debug-info回帰で検証
+  - [x] C++ reference declaratorsを保持し、`DW_TAG_reference_type`／
+        `DW_TAG_rvalue_reference_type` DIEから参照先型への`DW_AT_type`を
+        出力。lvalue/rvalue reference parameterのDIEと参照先base typeを
+        i686/AMD64の`test-debug-info`で検証
   - [x] nested compound statementへ`DW_TAG_lexical_block`を出力し、実際の
         `DW_AT_decl_file`／`DW_AT_decl_line`／`DW_AT_decl_column`とblock内
         local DIEの親子関係をi686/AMD64のdebug-info回帰で検証。block-to-PC

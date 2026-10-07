@@ -6125,7 +6125,9 @@ static bool gen_expr_is_lvalue(Expr* expression) {
     if (!expression) return false;
     if (expression->kind == EXPR_CAST && expression->type &&
         expression->type->is_reference &&
+        !expression->type->is_rvalue_reference &&
         (expression->cxx_cast_kind == CXX_CAST_NONE ||
+         expression->cxx_cast_kind == CXX_CAST_STATIC ||
          expression->cxx_cast_kind == CXX_CAST_CONST ||
          expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
         return gen_expr_is_lvalue(expression->cast_expr);
@@ -6140,12 +6142,29 @@ static bool gen_expr_is_lvalue(Expr* expression) {
         case EXPR_CXX_TYPEID:
             return true;
         case EXPR_CALL:
-            return expression->call_method &&
-                   expression->call_method->return_type &&
-                   expression->call_method->return_type->is_reference;
+            return expression->type && expression->type->is_reference &&
+                   !expression->type->is_rvalue_reference;
         default:
             return false;
     }
+}
+
+static bool gen_expr_is_xvalue(Expr* expression) {
+    return expression && expression->type &&
+           expression->type->is_reference &&
+           expression->type->is_rvalue_reference &&
+           (expression->kind == EXPR_CAST ||
+            expression->kind == EXPR_CALL);
+}
+
+static bool gen_reference_argument_needs_temporary(Type* passed_type,
+                                                   Expr* argument) {
+    if (!passed_type || !passed_type->is_reference || !argument ||
+        gen_expr_is_lvalue(argument) || gen_expr_is_xvalue(argument)) {
+        return false;
+    }
+    return passed_type->is_rvalue_reference ||
+           (passed_type->base && passed_type->base->is_const);
 }
 
 static void gen_copy_aggregate32(Module* mod, int32_t destination_offset,
@@ -6243,13 +6262,15 @@ static void gen_lvalue(Module* mod, Expr* expr) {
         case EXPR_CAST:
             if (expr->type && expr->type->is_reference &&
                 (expr->cxx_cast_kind == CXX_CAST_NONE ||
+                 expr->cxx_cast_kind == CXX_CAST_STATIC ||
                  expr->cxx_cast_kind == CXX_CAST_CONST ||
                  expr->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
                 gen_lvalue(mod, expr->cast_expr);
                 if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC &&
                     expr->cxx_dynamic_cast_runtime) {
                     gen_cxx_dynamic_cast_runtime32(mod, expr);
-                } else if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC &&
+                } else if ((expr->cxx_cast_kind == CXX_CAST_STATIC ||
+                            expr->cxx_cast_kind == CXX_CAST_DYNAMIC) &&
                     expr->cxx_pointer_adjustment_valid &&
                     expr->cxx_pointer_adjustment != 0) {
                     emit_add_reg_imm(mod, EAX,
@@ -9762,9 +9783,7 @@ static void gen_call(Module* mod, Expr* expr) {
         Type* value_type;
         int value_bytes;
         reference_temp_offsets[i] = -1;
-        if (!passed_type || !passed_type->is_reference ||
-            (!passed_type->is_rvalue_reference &&
-             gen_expr_is_lvalue(argument))) {
+        if (!gen_reference_argument_needs_temporary(passed_type, argument)) {
             continue;
         }
         value_type = passed_type->base;
@@ -9786,8 +9805,8 @@ static void gen_call(Module* mod, Expr* expr) {
         Expr* argument = args[i]->expr;
         Type* passed_type = argument_types[i];
         if (passed_type && passed_type->is_reference) {
-            if (passed_type->is_rvalue_reference ||
-                !gen_expr_is_lvalue(argument)) {
+            if (gen_reference_argument_needs_temporary(passed_type,
+                                                       argument)) {
                 Type* value_type = passed_type->base;
                 int value_offset = reference_temp_offsets[i];
                 if (!value_type || gen_aggregate_type32(value_type)) {

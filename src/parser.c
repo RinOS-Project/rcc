@@ -3444,10 +3444,11 @@ static bool parser_parenthesized_pointer_is_function(void) {
 static ParsedPointerLevel* parse_pointer_levels(void) {
     ParsedPointerLevel* levels = NULL;
     ParsedPointerLevel** tail = &levels;
-    while (match(TOK_STAR) || (parser_cxx_mode && match(TOK_AMP))) {
+    while (match(TOK_STAR) ||
+           (parser_cxx_mode && (match(TOK_AMP) || match(TOK_AND)))) {
         ParsedPointerLevel* level = ast_arena_alloc(sizeof(*level));
-        level->is_reference = previous()->type == TOK_AMP;
-        level->is_rvalue_reference = false;
+        level->is_reference = previous()->type != TOK_STAR;
+        level->is_rvalue_reference = previous()->type == TOK_AND;
         while (check(TOK_CONST) || check(TOK_VOLATILE) ||
                check(TOK_RESTRICT)) {
             if (match(TOK_CONST)) level->is_const = true;

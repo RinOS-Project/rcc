@@ -290,6 +290,48 @@ static void verify_cxx_member_accessibility(const char* path,
     objfile_free(object);
 }
 
+static bool has_reference_type_die(const ObjSection* info,
+                                   uint8_t abbreviation)
+{
+    if (!info || !info->data) return false;
+    for (uint64_t offset = 11u; offset + 5u <= info->size; ++offset) {
+        uint32_t referred_type_offset;
+        if (info->data[offset] != abbreviation) continue;
+        referred_type_offset = read_u32(info->data, offset + 1u);
+        if (referred_type_offset < info->size &&
+            info->data[referred_type_offset] == 5u) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void verify_cxx_reference_type_dies(const char* path,
+                                           uint16_t architecture)
+{
+    static const uint8_t reference_abbrev[] = {
+        37u, 0x10u, 0u, 0x49u, 0x13u, 0u, 0u
+    };
+    static const uint8_t rvalue_reference_abbrev[] = {
+        38u, 0x42u, 0u, 0x49u, 0x13u, 0u, 0u
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    assert(info != NULL && abbrev != NULL);
+    assert(contains_sequence(abbrev->data, abbrev->size,
+                             reference_abbrev, sizeof(reference_abbrev)));
+    assert(contains_sequence(abbrev->data, abbrev->size,
+                             rvalue_reference_abbrev,
+                             sizeof(rvalue_reference_abbrev)));
+    assert(has_reference_type_die(info, 37u));
+    assert(has_reference_type_die(info, 38u));
+    objfile_free(object);
+}
+
 static void verify_cxx_method_accessibility(const char* path,
                                             uint16_t architecture)
 {
@@ -2190,6 +2232,8 @@ int main(int argc, char** argv)
     verify_cxx_member_accessibility(argv[15], ARCH_X64);
     verify_cxx_method_accessibility(argv[14], ARCH_X86);
     verify_cxx_method_accessibility(argv[15], ARCH_X64);
+    verify_cxx_reference_type_dies(argv[14], ARCH_X86);
+    verify_cxx_reference_type_dies(argv[15], ARCH_X64);
     verify_optimized_verified_debug_object(argv[16], ARCH_X86);
     verify_optimized_verified_debug_object(argv[17], ARCH_X64);
     verify_unsigned_enum_dwarf(argv[18], ARCH_X86, "DebugUnsignedEnum",

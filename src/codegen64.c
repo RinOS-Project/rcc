@@ -1050,7 +1050,9 @@ static bool gen64_expr_is_lvalue(Expr* expression) {
     if (!expression) return false;
     if (expression->kind == EXPR_CAST && expression->type &&
         expression->type->is_reference &&
+        !expression->type->is_rvalue_reference &&
         (expression->cxx_cast_kind == CXX_CAST_NONE ||
+         expression->cxx_cast_kind == CXX_CAST_STATIC ||
          expression->cxx_cast_kind == CXX_CAST_CONST ||
          expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
         return gen64_expr_is_lvalue(expression->cast_expr);
@@ -1064,12 +1066,29 @@ static bool gen64_expr_is_lvalue(Expr* expression) {
         case EXPR_COMPOUND:
             return true;
         case EXPR_CALL:
-            return expression->call_method &&
-                   expression->call_method->return_type &&
-                   expression->call_method->return_type->is_reference;
+            return expression->type && expression->type->is_reference &&
+                   !expression->type->is_rvalue_reference;
         default:
             return false;
     }
+}
+
+static bool gen64_expr_is_xvalue(Expr* expression) {
+    return expression && expression->type &&
+           expression->type->is_reference &&
+           expression->type->is_rvalue_reference &&
+           (expression->kind == EXPR_CAST ||
+            expression->kind == EXPR_CALL);
+}
+
+static bool gen64_reference_argument_needs_temporary(Type* passed_type,
+                                                     Expr* argument) {
+    if (!passed_type || !passed_type->is_reference || !argument ||
+        gen64_expr_is_lvalue(argument) || gen64_expr_is_xvalue(argument)) {
+        return false;
+    }
+    return passed_type->is_rvalue_reference ||
+           (passed_type->base && passed_type->base->is_const);
 }
 
 static bool gen64_type_has_vla(const Type* type) {
@@ -4011,13 +4030,15 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
         case EXPR_CAST:
             if (expr->type && expr->type->is_reference &&
                 (expr->cxx_cast_kind == CXX_CAST_NONE ||
+                 expr->cxx_cast_kind == CXX_CAST_STATIC ||
                  expr->cxx_cast_kind == CXX_CAST_CONST ||
                  expr->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
                 gen64_lvalue(mod, expr->cast_expr);
                 if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC &&
                     expr->cxx_dynamic_cast_runtime) {
                     gen64_cxx_dynamic_cast_runtime(mod, expr);
-                } else if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC &&
+                } else if ((expr->cxx_cast_kind == CXX_CAST_STATIC ||
+                            expr->cxx_cast_kind == CXX_CAST_DYNAMIC) &&
                     expr->cxx_pointer_adjustment_valid &&
                     expr->cxx_pointer_adjustment != 0) {
                     emit64_add_reg_imm(mod, RAX,
@@ -6913,12 +6934,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 call_arguments[i - 1].storage = call_arguments[i - 1].is_aggregate
                     ? gen64_aggregate_storage(argument_types[i - 1]) : 8;
                 call_arguments[i - 1].materialize_rvalue_reference =
-                    argument_types[i - 1] &&
-                    argument_types[i - 1]->is_reference &&
-                    (argument_types[i - 1]->is_rvalue_reference ||
-                     (!gen64_expr_is_lvalue(a->expr) &&
-                      argument_types[i - 1]->base &&
-                      argument_types[i - 1]->base->is_const));
+                    gen64_reference_argument_needs_temporary(
+                        argument_types[i - 1], a->expr);
             }
             gp_cursor = register_base;
             fp_cursor = 0;

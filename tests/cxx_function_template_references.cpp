@@ -25,6 +25,12 @@ int double_value(int value) {
     return value + value;
 }
 
+int update_rvalue_reference_local(int&& value) {
+    int&& local = static_cast<int&&>(value);
+    local += 2;
+    return value;
+}
+
 template<typename R, typename A>
 R invoke(R (*function)(A), A value) {
     return function(value);
@@ -46,13 +52,17 @@ int main() {
     const int constant = 7;
     int mutable_value = 4;
     int values[2] = {5, 6};
-    return read_const_reference(constant) == 7 &&
-                   update_lvalue(mutable_value) == 7 &&
-                   mutable_value == 7 &&
-                   read_rvalue(9) == 9 &&
-                   read_rvalue(mutable_value) == 7 &&
-                   invoke(double_value, 6) == 12 &&
-                   copy_from_const_pointer(&constant) == 8 &&
-                   default_type_copy(13) == 13 &&
-                   read_array_element(values) == 6 ? 0 : 1;
+    if (read_const_reference(constant) != 7) return 1;
+    if (update_lvalue(mutable_value) != 7) return 2;
+    if (mutable_value != 7) return 3;
+    if (update_rvalue_reference_local(
+            static_cast<int&&>(mutable_value)) != 9) return 4;
+    if (mutable_value != 9) return 5;
+    if (read_rvalue(9) != 9) return 6;
+    if (read_rvalue(mutable_value) != 9) return 7;
+    if (invoke(double_value, 6) != 12) return 8;
+    if (copy_from_const_pointer(&constant) != 8) return 9;
+    if (default_type_copy(13) != 13) return 10;
+    if (read_array_element(values) != 6) return 11;
+    return 0;
 }
