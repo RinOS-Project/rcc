@@ -289,6 +289,18 @@ static bool lower_type(const Type* type, RccIrType* result) {
             *result = rcc_ir_type_integer((uint16_t)(type->size * 8));
             return true;
         case TYPE_PTR:
+            if (type->cxx_is_member_pointer) {
+                if (type->size <= 0 ||
+                    type->size >
+                        (g_opts.target_arch == ARCH_X64 ? 8 : 4)) {
+                    return false;
+                }
+                *result = rcc_ir_type_integer(
+                    (uint16_t)(type->size * 8));
+                return true;
+            }
+            *result = rcc_ir_type_pointer(0u);
+            return true;
         case TYPE_NULLPTR:
             *result = rcc_ir_type_pointer(0u);
             return true;
@@ -967,6 +979,36 @@ static RccIrLowerValue lower_byte_offset_address(
     }
 }
 
+static RccIrLowerValue lower_dynamic_byte_offset_address(
+    RccIrLowerContext* context, RccIrLowerValue base,
+    RccIrLowerValue byte_offset) {
+    RccIrValue operands[2];
+    RccIrInstruction* address;
+    if (!base.valid || base.type.kind != RCC_IR_TYPE_POINTER ||
+        !byte_offset.valid ||
+        byte_offset.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    byte_offset = lower_cast(
+        context, byte_offset,
+        g_opts.target_arch == ARCH_X64 ? type_ullong : type_uint);
+    if (!byte_offset.valid) return lower_invalid_value();
+    operands[0] = base.value;
+    operands[1] = byte_offset.value;
+    address = lower_append(context, RCC_IR_GEP,
+                           rcc_ir_type_pointer(0u), operands, 2u,
+                           NULL, 0u);
+    if (!address) return lower_invalid_value();
+    rcc_ir_set_immediate(address, 1u);
+    {
+        RccIrLowerValue result = lower_value(
+            address->result, rcc_ir_type_pointer(0u), true);
+        result.volatile_access = base.volatile_access;
+        return result;
+    }
+}
+
 static RccIrLowerValue lower_adjusted_pointer(
     RccIrLowerContext* context, RccIrLowerValue pointer,
     int adjustment) {
@@ -1150,6 +1192,56 @@ static RccIrLowerValue lower_lvalue_address_impl(
         return lower_byte_offset_address(
             context, base, (uint64_t)field->offset);
     }
+    if (expression->kind == EXPR_CXX_MEMBER_PTR_DOT ||
+        expression->kind == EXPR_CXX_MEMBER_PTR_ARROW) {
+        bool arrow = expression->kind == EXPR_CXX_MEMBER_PTR_ARROW;
+        const Type* aggregate_type = NULL;
+        const Type* member_pointer_type = expression->binary_rhs
+            ? expression->binary_rhs->type : NULL;
+        RccIrLowerValue base;
+        RccIrLowerValue offset;
+        if (!member_pointer_type ||
+            member_pointer_type->kind != TYPE_PTR ||
+            !member_pointer_type->cxx_is_member_pointer) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        if (arrow) {
+            const Type* pointer_type = expression->binary_lhs
+                ? expression->binary_lhs->type : NULL;
+            if (!pointer_type || pointer_type->kind != TYPE_PTR ||
+                pointer_type->cxx_is_member_pointer) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            aggregate_type = pointer_type->base;
+            base = lower_expression(context, expression->binary_lhs);
+        } else {
+            aggregate_type = expression->binary_lhs
+                ? expression->binary_lhs->type : NULL;
+            if (expression->binary_lhs &&
+                expression->binary_lhs->kind == EXPR_CALL &&
+                aggregate_type &&
+                (aggregate_type->kind == TYPE_STRUCT ||
+                 aggregate_type->kind == TYPE_UNION)) {
+                base = lower_expression(context, expression->binary_lhs);
+            } else {
+                base = lower_lvalue_address(
+                    context, expression->binary_lhs);
+            }
+        }
+        if (!aggregate_type ||
+            (aggregate_type->kind != TYPE_STRUCT &&
+             aggregate_type->kind != TYPE_UNION) ||
+            !type_is_compatible(
+                (Type*)aggregate_type,
+                member_pointer_type->cxx_member_pointer_owner)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        offset = lower_expression(context, expression->binary_rhs);
+        return lower_dynamic_byte_offset_address(context, base, offset);
+    }
     if (expression->kind == EXPR_COMPOUND) {
         return lower_compound_literal_address(context, expression);
     }
@@ -1171,6 +1263,15 @@ static RccIrLowerValue lower_lvalue_address(
                expression->member_base && expression->member_base->type &&
                expression->member_base->type->kind == TYPE_PTR) {
         object_type = expression->member_base->type->base;
+    } else if (expression->kind == EXPR_CXX_MEMBER_PTR_DOT) {
+        object_type = expression->binary_lhs
+            ? expression->binary_lhs->type : NULL;
+    } else if (expression->kind == EXPR_CXX_MEMBER_PTR_ARROW &&
+               expression->binary_lhs &&
+               expression->binary_lhs->type &&
+               expression->binary_lhs->type->kind == TYPE_PTR &&
+               !expression->binary_lhs->type->cxx_is_member_pointer) {
+        object_type = expression->binary_lhs->type->base;
     }
     if (object_type && object_type->is_volatile) volatile_access = true;
     address.volatile_access = volatile_access;
@@ -6073,6 +6174,15 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
             return lower_load_lvalue(context, expression);
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
+            if (expression->type &&
+                (expression->type->kind == TYPE_ARRAY ||
+                 expression->type->kind == TYPE_STRUCT ||
+                 expression->type->kind == TYPE_UNION)) {
+                return lower_lvalue_address(context, expression);
+            }
+            return lower_load_lvalue(context, expression);
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             if (expression->type &&
                 (expression->type->kind == TYPE_ARRAY ||
                  expression->type->kind == TYPE_STRUCT ||

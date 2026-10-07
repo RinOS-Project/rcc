@@ -273,6 +273,10 @@ static bool driver_validate_expr(Expr* expression)
             }
             return valid;
         }
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return driver_validate_expr(expression->binary_lhs) &&
+                   driver_validate_expr(expression->binary_rhs);
         case EXPR_COND:
             return driver_validate_expr(expression->cond_test) &&
                    driver_validate_expr(expression->cond_then) &&

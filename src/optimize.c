@@ -1897,6 +1897,8 @@ static bool expression_mentions_decl(const Expr* expression,
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN:
         case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             return expression_mentions_decl(expression->binary_lhs,
                                             declaration) ||
                    expression_mentions_decl(expression->binary_rhs,
@@ -2045,6 +2047,12 @@ static bool expression_modifies_decl(const Expr* expression,
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
             return expression_modifies_decl(expression->member_base,
+                                            declaration);
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return expression_modifies_decl(expression->binary_lhs,
+                                            declaration) ||
+                   expression_modifies_decl(expression->binary_rhs,
                                             declaration);
         case EXPR_COMPOUND:
             for (const ExprList* item = expression->compound_init; item;
@@ -2268,7 +2276,10 @@ static bool expression_has_side_effect(const Expr* expression) {
         case EXPR_AND:
         case EXPR_OR:
         case EXPR_COMMA:
-            return expression_has_side_effect(expression->binary_lhs) ||
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return (expression->type && expression->type->is_volatile) ||
+                   expression_has_side_effect(expression->binary_lhs) ||
                    expression_has_side_effect(expression->binary_rhs);
         case EXPR_COND:
             return expression_has_side_effect(expression->cond_test) ||
@@ -2971,6 +2982,8 @@ static Expr* clone_unrolled_expr(const Expr* expression) {
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN:
         case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             copy->binary_lhs = clone_unrolled_expr(expression->binary_lhs);
             copy->binary_rhs = clone_unrolled_expr(expression->binary_rhs);
             break;
@@ -3661,6 +3674,8 @@ static void optimize_expr(Expr** expression) {
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN:
         case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             optimize_expr(&value->binary_lhs);
             if (value->kind == EXPR_AND || value->kind == EXPR_OR) {
                 bool left_truth;
@@ -4353,6 +4368,14 @@ static void propagate_constant_expr(Expr** expression, ConstantState* state) {
             propagate_constant_expr(&value->binary_rhs, state);
             optimize_expr(expression);
             return;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            propagate_constant_lvalue(value->binary_lhs, state);
+            propagate_constant_expr(&value->binary_rhs, state);
+            return;
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            propagate_constant_expr(&value->binary_lhs, state);
+            propagate_constant_expr(&value->binary_rhs, state);
+            return;
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -4744,6 +4767,14 @@ static void mark_address_escapes_expr(const Expr* expression,
         case EXPR_PTR_MEMBER:
             mark_address_escapes_expr(expression->member_base, locals);
             return;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            mark_reference_escape(expression->binary_lhs, locals);
+            mark_address_escapes_expr(expression->binary_rhs, locals);
+            return;
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            mark_address_escapes_expr(expression->binary_lhs, locals);
+            mark_address_escapes_expr(expression->binary_rhs, locals);
+            return;
         case EXPR_COMPOUND:
             mark_address_escapes_expr_list(expression->compound_init, locals);
             return;
@@ -4894,6 +4925,14 @@ static void mark_dead_store_lvalue_reads(const Expr* expression,
         case EXPR_PTR_MEMBER:
             mark_dead_store_reads(expression->member_base, locals);
             return;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            mark_dead_store_lvalue_reads(expression->binary_lhs, locals);
+            mark_dead_store_reads(expression->binary_rhs, locals);
+            return;
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            mark_dead_store_reads(expression->binary_lhs, locals);
+            mark_dead_store_reads(expression->binary_rhs, locals);
+            return;
         default:
             mark_dead_store_reads(expression, locals);
             return;
@@ -4982,6 +5021,8 @@ static void mark_dead_store_reads(const Expr* expression,
         case EXPR_AND:
         case EXPR_OR:
         case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             mark_dead_store_reads(expression->binary_lhs, locals);
             mark_dead_store_reads(expression->binary_rhs, locals);
             return;

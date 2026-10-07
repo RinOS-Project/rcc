@@ -169,6 +169,8 @@ Type* type_ptr(Type* base) {
     t->align = t->size;
     t->has_explicit_alignment = false;
     t->is_atomic = false;
+    t->cxx_is_member_pointer = false;
+    t->cxx_member_pointer_owner = NULL;
     t->base = base;
     t->array_bound = NULL;
     t->array_unspecified_bound = false;
@@ -362,7 +364,7 @@ bool type_is_scalar(Type* t) {
 }
 
 bool type_is_pointer(Type* t) {
-    return t && t->kind == TYPE_PTR;
+    return t && t->kind == TYPE_PTR && !t->cxx_is_member_pointer;
 }
 
 bool type_is_array(Type* t) {
@@ -398,7 +400,11 @@ bool type_is_compatible(Type* a, Type* b) {
     }
     if (type_is_integer(a) && a->is_unsigned != b->is_unsigned) return false;
     if (a->kind == TYPE_PTR) {
-        return type_is_compatible(a->base, b->base);
+        return a->cxx_is_member_pointer == b->cxx_is_member_pointer &&
+               (!a->cxx_is_member_pointer ||
+                type_is_compatible(a->cxx_member_pointer_owner,
+                                   b->cxx_member_pointer_owner)) &&
+               type_is_compatible(a->base, b->base);
     }
     if (a->kind == TYPE_ARRAY) {
         return (a->array_len < 0 || b->array_len < 0 ||

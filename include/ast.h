@@ -150,6 +150,8 @@ struct Type {
     bool is_restrict;
     bool is_reference;        /* C++ lvalue/rvalue reference ABI carrier. */
     bool is_rvalue_reference;
+    bool cxx_is_member_pointer;
+    Type* cxx_member_pointer_owner;
     bool cxx_is_class;
     bool cxx_nontrivial;
     bool cxx_dependent;
@@ -401,6 +403,8 @@ typedef enum {
     EXPR_INDEX,         /* a[i] */
     EXPR_MEMBER,        /* s.m */
     EXPR_PTR_MEMBER,    /* p->m */
+    EXPR_CXX_MEMBER_PTR_DOT,   /* object .* member-pointer */
+    EXPR_CXX_MEMBER_PTR_ARROW, /* pointer ->* member-pointer */
 
     /* Compound literal */
     EXPR_COMPOUND,      /* (type){...} */

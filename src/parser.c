@@ -33,6 +33,7 @@ extern Expr* rcc_parse_cxx_template_call(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_concept_expression(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_dependent_member(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_qualified_template_member(void) RCC_OPTIONAL_CXX;
+extern Expr* rcc_parse_cxx_member_pointer_address(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_auto_local_declaration(void) RCC_OPTIONAL_CXX;
 extern Stmt* rcc_parse_cxx_class_local_declaration(
     Type* base_type, int storage, bool is_inline, bool is_constexpr,
@@ -915,7 +916,16 @@ static TypeField* parser_find_field(Type* aggregate, const char* name) {
 }
 
 Type* rcc_parser_lookup_type(const char* name) {
-    return parser_lookup_type(name);
+    Type* type = parser_lookup_type(name);
+    ParserTagName* tag;
+    if (type || !name) return type;
+    for (tag = parser_tag_names; tag; tag = tag->next) {
+        if (tag->name && strcmp(tag->name, name) == 0 &&
+            (tag->kind == TYPE_STRUCT || tag->kind == TYPE_UNION)) {
+            return tag->type;
+        }
+    }
+    return NULL;
 }
 
 void rcc_parser_define_type(const char* name, Type* type) {
@@ -1788,6 +1798,10 @@ static Expr* parse_unary(void) {
         return expr_unary(EXPR_PREDEC, e, loc);
     }
     if (match(TOK_AMP)) {
+        if (parser_cxx_mode && rcc_parse_cxx_member_pointer_address) {
+            Expr* member_pointer = rcc_parse_cxx_member_pointer_address();
+            if (member_pointer) return member_pointer;
+        }
         Expr* e = parse_unary();
         return expr_unary(EXPR_ADDR, e, loc);
     }
@@ -1814,18 +1828,34 @@ static Expr* parse_unary(void) {
     return parse_postfix();
 }
 
+/* Pointer-to-member operators bind more tightly than multiplication. */
+static Expr* parse_pointer_to_member(void) {
+    Expr* expression = parse_unary();
+    while (parser_cxx_mode &&
+           (check(TOK_DOT_STAR) || check(TOK_ARROW_STAR))) {
+        Token* operation = advance();
+        Expr* member_pointer = parse_unary();
+        expression = expr_binary(
+            operation->type == TOK_DOT_STAR
+                ? EXPR_CXX_MEMBER_PTR_DOT
+                : EXPR_CXX_MEMBER_PTR_ARROW,
+            expression, member_pointer, operation->loc);
+    }
+    return expression;
+}
+
 /* Multiplicative: a * b, a / b, a % b */
 static Expr* parse_multiplicative(void) {
-    Expr* e = parse_unary();
+    Expr* e = parse_pointer_to_member();
 
     while (1) {
         SourceLoc loc = peek()->loc;
         if (match(TOK_STAR)) {
-            e = expr_binary(EXPR_MUL, e, parse_unary(), loc);
+            e = expr_binary(EXPR_MUL, e, parse_pointer_to_member(), loc);
         } else if (match(TOK_SLASH)) {
-            e = expr_binary(EXPR_DIV, e, parse_unary(), loc);
+            e = expr_binary(EXPR_DIV, e, parse_pointer_to_member(), loc);
         } else if (match(TOK_PERCENT)) {
-            e = expr_binary(EXPR_MOD, e, parse_unary(), loc);
+            e = expr_binary(EXPR_MOD, e, parse_pointer_to_member(), loc);
         } else {
             break;
         }
@@ -3525,6 +3555,64 @@ static Type* parse_declarator(Type* base_type, const char** name,
     if (name) *name = NULL;
     if (parameters) *parameters = NULL;
     parser_last_declarator_parameter_pack = false;
+
+    /* Bounded data-member pointer declarator: `T C::*member`.  Retain the
+     * owning class in the type so sema can distinguish it from `T*`. */
+    if (parser_cxx_mode && check(TOK_IDENT)) {
+        Token* cursor = parser.cur;
+        Token* star = NULL;
+        char owner_name[256];
+        size_t owner_length = 0u;
+        owner_name[0] = '\0';
+        while (cursor && cursor->type == TOK_IDENT && cursor->next &&
+               cursor->next->type == TOK_SCOPE && cursor->next->next) {
+            Token* segment = cursor;
+            if (cursor->next->next->type == TOK_STAR) {
+                size_t segment_length = strlen(segment->value.str_val);
+                if (owner_length + segment_length >= sizeof(owner_name)) {
+                    break;
+                }
+                memcpy(owner_name + owner_length, segment->value.str_val,
+                       segment_length);
+                owner_length += segment_length;
+                owner_name[owner_length] = '\0';
+                star = cursor->next->next;
+                break;
+            }
+            if (cursor->next->next->type != TOK_IDENT) break;
+            {
+                size_t segment_length = strlen(segment->value.str_val);
+                if (owner_length + segment_length + 2u >=
+                    sizeof(owner_name)) {
+                    break;
+                }
+                memcpy(owner_name + owner_length, segment->value.str_val,
+                       segment_length);
+                owner_length += segment_length;
+                memcpy(owner_name + owner_length, "::", 2u);
+                owner_length += 2u;
+                owner_name[owner_length] = '\0';
+            }
+            cursor = cursor->next->next;
+        }
+        if (star) {
+            Type* owner = rcc_parser_lookup_type(owner_name);
+            if (owner && (owner->kind == TYPE_STRUCT ||
+                          owner->kind == TYPE_UNION)) {
+                while (parser.cur != star->next) advance();
+                type = type_ptr(type);
+                type->cxx_is_member_pointer = true;
+                type->cxx_member_pointer_owner = owner;
+                while (match(TOK_CONST) || match(TOK_VOLATILE) ||
+                       match(TOK_RESTRICT)) {
+                    if (previous()->type == TOK_CONST) type->is_const = true;
+                    else if (previous()->type == TOK_VOLATILE) {
+                        type->is_volatile = true;
+                    } else type->is_restrict = true;
+                }
+            }
+        }
+    }
 
     leading_pointers = parse_pointer_levels();
 

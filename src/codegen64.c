@@ -1071,6 +1071,10 @@ static bool gen64_expr_is_lvalue(Expr* expression) {
             return rcc_parser_is_cxx_mode();
         case EXPR_MEMBER:
             return !expression->cxx_member_xvalue;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            return !expression->cxx_member_xvalue;
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return true;
         case EXPR_COND:
             return expression->cxx_conditional_lvalue;
         case EXPR_COMMA:
@@ -1093,6 +1097,9 @@ static bool gen64_expr_is_xvalue(Expr* expression) {
         return expression->cxx_conditional_xvalue;
     }
     if (expression && expression->kind == EXPR_MEMBER) {
+        return expression->cxx_member_xvalue;
+    }
+    if (expression && expression->kind == EXPR_CXX_MEMBER_PTR_DOT) {
         return expression->cxx_member_xvalue;
     }
     return expression && expression->type &&
@@ -4178,6 +4185,19 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                        expr->member_field->offset > 0) {
                 emit64_add_reg_imm(mod, RAX, expr->member_field->offset);
             }
+            break;
+
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            if (expr->kind == EXPR_CXX_MEMBER_PTR_ARROW) {
+                gen64_expr(mod, expr->binary_lhs);
+            } else {
+                gen64_lvalue(mod, expr->binary_lhs);
+            }
+            emit64_push_reg(mod, RAX);
+            gen64_expr(mod, expr->binary_rhs);
+            emit64_pop_reg(mod, RCX);
+            emit64_add_reg_reg(mod, RAX, RCX);
             break;
 
         case EXPR_COMPOUND:
@@ -7487,6 +7507,16 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             break;
 
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            gen64_lvalue(mod, expr);
+            if (!expr->type || (expr->type->kind != TYPE_ARRAY &&
+                                expr->type->kind != TYPE_STRUCT &&
+                                expr->type->kind != TYPE_UNION)) {
+                emit64_load_typed(mod, RAX, RAX, 0, expr->type);
+            }
+            break;
+
         case EXPR_COMPOUND:
             gen64_lvalue(mod, expr);
             if (!expr->type || (expr->type->kind != TYPE_ARRAY &&
@@ -8580,6 +8610,15 @@ static Expr* gen64_static_reference_subobject_rebase(
                 expression->member_base, complete_object, owner,
                 &child_replaced);
             if (!copy->member_base || !child_replaced) return expression;
+            *replaced = true;
+            return copy;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            copy = rcc_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->binary_lhs = gen64_static_reference_subobject_rebase(
+                expression->binary_lhs, complete_object, owner,
+                &child_replaced);
+            if (!copy->binary_lhs || !child_replaced) return expression;
             *replaced = true;
             return copy;
         case EXPR_CAST:

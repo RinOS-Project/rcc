@@ -6328,6 +6328,10 @@ static bool gen_expr_is_lvalue(Expr* expression) {
             return rcc_parser_is_cxx_mode();
         case EXPR_MEMBER:
             return !expression->cxx_member_xvalue;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            return !expression->cxx_member_xvalue;
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return true;
         case EXPR_COND:
             return expression->cxx_conditional_lvalue;
         case EXPR_COMMA:
@@ -6350,6 +6354,9 @@ static bool gen_expr_is_xvalue(Expr* expression) {
         return expression->cxx_conditional_xvalue;
     }
     if (expression && expression->kind == EXPR_MEMBER) {
+        return expression->cxx_member_xvalue;
+    }
+    if (expression && expression->kind == EXPR_CXX_MEMBER_PTR_DOT) {
         return expression->cxx_member_xvalue;
     }
     return expression && expression->type &&
@@ -6593,6 +6600,19 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                        expr->member_field->offset > 0) {
                 emit_add_reg_imm(mod, EAX, expr->member_field->offset);
             }
+            break;
+
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            if (expr->kind == EXPR_CXX_MEMBER_PTR_ARROW) {
+                gen_expr(mod, expr->binary_lhs);
+            } else {
+                gen_lvalue(mod, expr->binary_lhs);
+            }
+            emit_push_reg(mod, EAX);
+            gen_expr(mod, expr->binary_rhs);
+            emit_pop_reg(mod, ECX);
+            emit_add_reg_reg(mod, EAX, ECX);
             break;
 
         case EXPR_COMPOUND:
@@ -7031,6 +7051,8 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
         case EXPR_INDEX:
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             gen_lvalue(mod, expr);
             if (expr->type && expr->type->is_atomic) {
                 emit_atomic_load_i686(mod, expr->type);
@@ -11534,6 +11556,20 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             }
             break;
 
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            gen_lvalue(mod, expr);
+            if (!expr->type || (expr->type->kind != TYPE_ARRAY &&
+                                expr->type->kind != TYPE_STRUCT &&
+                                expr->type->kind != TYPE_UNION)) {
+                if (gen_is_floating(expr->type)) {
+                    emit_load_floating_raw(mod, expr->type, EAX, 0);
+                } else {
+                    emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                }
+            }
+            break;
+
         case EXPR_COMPOUND:
             gen_lvalue(mod, expr);
             if (!expr->type || (expr->type->kind != TYPE_ARRAY &&
@@ -14463,6 +14499,15 @@ static Expr* gen_static_reference_subobject_rebase32(
                 expression->member_base, complete_object, owner,
                 &child_replaced);
             if (!copy->member_base || !child_replaced) return expression;
+            *replaced = true;
+            return copy;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            copy = rcc_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->binary_lhs = gen_static_reference_subobject_rebase32(
+                expression->binary_lhs, complete_object, owner,
+                &child_replaced);
+            if (!copy->binary_lhs || !child_replaced) return expression;
             *replaced = true;
             return copy;
         case EXPR_CAST:

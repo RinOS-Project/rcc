@@ -71,11 +71,13 @@ static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
     switch (expression->kind) {
         case EXPR_IDENT:
         case EXPR_PTR_MEMBER:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
         case EXPR_INDEX:
         case EXPR_DEREF:
         case EXPR_STRING_LIT:
             return true;
         case EXPR_MEMBER:
+        case EXPR_CXX_MEMBER_PTR_DOT:
             return !expression->cxx_member_xvalue;
         case EXPR_COMMA:
             return sema_decltype_auto_expression_is_lvalue(
@@ -96,6 +98,8 @@ static bool sema_decltype_auto_expression_is_xvalue(Expr* expression) {
     return (expression->kind == EXPR_COND &&
             expression->cxx_conditional_xvalue) ||
            (expression->kind == EXPR_MEMBER &&
+            expression->cxx_member_xvalue) ||
+           (expression->kind == EXPR_CXX_MEMBER_PTR_DOT &&
             expression->cxx_member_xvalue);
 }
 
@@ -1189,6 +1193,10 @@ static bool is_lvalue(Expr* e) {
             return rcc_parser_is_cxx_mode();
         case EXPR_MEMBER:
             return !e->cxx_member_xvalue;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            return !e->cxx_member_xvalue;
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            return true;
         case EXPR_COND:
             return e->cxx_conditional_lvalue;
         case EXPR_COMMA:
@@ -1211,6 +1219,9 @@ static bool is_xvalue(Expr* expression) {
         return expression->cxx_conditional_xvalue;
     }
     if (expression->kind == EXPR_MEMBER) {
+        return expression->cxx_member_xvalue;
+    }
+    if (expression->kind == EXPR_CXX_MEMBER_PTR_DOT) {
         return expression->cxx_member_xvalue;
     }
     return expression->type && expression->type->is_reference &&
@@ -1260,6 +1271,11 @@ static Expr* sema_cxx_static_reference_temporary_source(Expr* expression) {
         expression->cxx_member_xvalue) {
         return sema_cxx_static_reference_temporary_source(
             expression->member_base);
+    }
+    if (expression->kind == EXPR_CXX_MEMBER_PTR_DOT &&
+        expression->cxx_member_xvalue) {
+        return sema_cxx_static_reference_temporary_source(
+            expression->binary_lhs);
     }
     if (expression->kind == EXPR_COMMA && !is_lvalue(expression)) {
         Expr* right = sema_cxx_static_reference_temporary_source(
@@ -1312,6 +1328,10 @@ static bool sema_cxx_static_reference_has_temporary_source(
             return expression->cxx_member_xvalue &&
                    sema_cxx_static_reference_has_temporary_source(
                        expression->member_base);
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            return expression->cxx_member_xvalue &&
+                   sema_cxx_static_reference_has_temporary_source(
+                       expression->binary_lhs);
         case EXPR_COMMA:
             return is_xvalue(expression) &&
                    sema_cxx_static_reference_has_temporary_source(
@@ -1337,6 +1357,9 @@ static bool sema_cxx_reference_subobject_path(Expr* expression,
             if (expression->member_base == complete_object) return true;
             return sema_cxx_reference_subobject_path(
                 expression->member_base, complete_object);
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            return sema_cxx_reference_subobject_path(
+                expression->binary_lhs, complete_object);
         case EXPR_CAST:
             return sema_cxx_reference_subobject_path(
                 expression->cast_expr, complete_object);
@@ -2505,6 +2528,8 @@ static bool sema_exception_expression_has_call(const Expr* expression) {
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN:
         case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             return sema_exception_expression_has_call(
                        expression->binary_lhs) ||
                 sema_exception_expression_has_call(expression->binary_rhs);
@@ -7827,6 +7852,8 @@ static void sema_bind_cxx_constructor_expression(
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN:
         case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             sema_bind_cxx_constructor_expression(
                 constructor, expression->binary_lhs);
             sema_bind_cxx_constructor_expression(
@@ -9729,6 +9756,8 @@ static bool sema_noexcept_expr(Expr* expression) {
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN:
         case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             return sema_noexcept_expr(expression->binary_lhs) &&
                    sema_noexcept_expr(expression->binary_rhs);
         case EXPR_COND:
@@ -11740,6 +11769,73 @@ static Type* sema_expr(Expr* expr) {
                 }
                 expr->type = base;
             }
+            break;
+        }
+
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW: {
+            bool arrow = expr->kind == EXPR_CXX_MEMBER_PTR_ARROW;
+            Type* object_type = sema_expr(expr->binary_lhs);
+            Type* member_pointer_type = sema_expr(expr->binary_rhs);
+            Type* member_type;
+            if (object_type && object_type->kind == TYPE_PTR &&
+                object_type->is_reference) {
+                object_type = object_type->base;
+            }
+            if (arrow) {
+                if (!object_type || object_type->kind != TYPE_PTR ||
+                    object_type->cxx_is_member_pointer) {
+                    rcc_error(expr->loc,
+                              "pointer-to-member arrow requires an object pointer");
+                    expr->type = type_int;
+                    break;
+                }
+                object_type = object_type->base;
+            }
+            if (!member_pointer_type ||
+                member_pointer_type->kind != TYPE_PTR ||
+                !member_pointer_type->cxx_is_member_pointer) {
+                rcc_error(expr->loc,
+                          "pointer-to-member operator requires a data member pointer");
+                expr->type = type_int;
+                break;
+            }
+            if (!object_type ||
+                (object_type->kind != TYPE_STRUCT &&
+                 object_type->kind != TYPE_UNION)) {
+                rcc_error(expr->loc,
+                          "pointer-to-member operator requires a class object");
+                expr->type = type_int;
+                break;
+            }
+            if (!type_is_compatible(object_type,
+                                    member_pointer_type
+                                        ->cxx_member_pointer_owner)) {
+                rcc_error(expr->loc,
+                          "member-pointer application across a base class is unsupported");
+                expr->type = type_int;
+                break;
+            }
+            member_type = member_pointer_type->base;
+            if (!member_type || member_type->kind == TYPE_FUNC) {
+                rcc_error(expr->loc,
+                          "pointer-to-member function application is unsupported");
+                expr->type = type_int;
+                break;
+            }
+            expr->type = member_type;
+            if (object_type->is_const || object_type->is_volatile) {
+                Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                *qualified = *member_type;
+                qualified->is_const = qualified->is_const ||
+                                      object_type->is_const;
+                qualified->is_volatile = qualified->is_volatile ||
+                                         object_type->is_volatile;
+                expr->type = qualified;
+            }
+            expr->cxx_member_xvalue = !arrow &&
+                !is_lvalue(expr->binary_lhs) &&
+                !member_type->is_reference;
             break;
         }
 

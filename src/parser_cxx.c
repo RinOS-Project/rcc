@@ -52,6 +52,103 @@ static bool cxx_leading_alignas_class_starts(void) {
 
 static const char* cxx_method_source_name(CxxMethod* method);
 
+/* Parse `&Class::data_member` as a bounded data-member pointer constant.
+ * Function members, bit-fields, and virtual-base subobjects require a wider
+ * member-pointer ABI and are left to the ordinary diagnostic path. */
+Expr* rcc_parse_cxx_member_pointer_address(void) {
+    Token* cursor = parser.cur;
+    Token* segments[32];
+    size_t segment_count = 0u;
+    char owner_name[256];
+    size_t owner_length = 0u;
+    Type* owner;
+    TypeField* field;
+    Expr* value;
+    Type* member_pointer_type;
+    SourceLoc loc;
+
+    if (!cursor || cursor->type != TOK_IDENT) return NULL;
+    while (cursor && cursor->type == TOK_IDENT) {
+        if (segment_count >= sizeof(segments) / sizeof(segments[0])) {
+            return NULL;
+        }
+        segments[segment_count++] = cursor;
+        if (!cursor->next || cursor->next->type != TOK_SCOPE ||
+            !cursor->next->next ||
+            cursor->next->next->type != TOK_IDENT) {
+            break;
+        }
+        cursor = cursor->next->next;
+    }
+    if (segment_count < 2u) return NULL;
+
+    for (size_t index = 0u; index + 1u < segment_count; ++index) {
+        size_t length = strlen(segments[index]->value.str_val);
+        size_t separator = index + 2u < segment_count ? 2u : 0u;
+        if (owner_length + length + separator >= sizeof(owner_name)) {
+            return NULL;
+        }
+        memcpy(owner_name + owner_length, segments[index]->value.str_val,
+               length);
+        owner_length += length;
+        if (separator) {
+            memcpy(owner_name + owner_length, "::", 2u);
+            owner_length += 2u;
+        }
+    }
+    owner_name[owner_length] = '\0';
+    owner = rcc_parser_lookup_type(owner_name);
+    if (!owner || (owner->kind != TYPE_STRUCT &&
+                   owner->kind != TYPE_UNION) || !owner->is_complete) {
+        return NULL;
+    }
+
+    field = owner->fields;
+    while (field && strcmp(field->name, segments[segment_count - 1u]
+                                           ->value.str_val) != 0) {
+        field = field->next;
+    }
+    if (!field) {
+        TypeMethod* method = owner->methods;
+        while (method && (!method->name ||
+                          strcmp(method->name,
+                                 segments[segment_count - 1u]->value.str_val) != 0)) {
+            method = method->next;
+        }
+        if (!method) return NULL;
+        loc = segments[segment_count - 1u]->loc;
+        parser.prev = segments[segment_count - 1u];
+        parser.cur = parser.prev->next;
+        rcc_error(loc,
+                  "pointer-to-member functions are unsupported");
+        value = expr_int(0, loc);
+        value->type = type_int;
+        return value;
+    }
+    if (field->is_bitfield || field->from_virtual_base ||
+        field->cxx_access != ACCESS_PUBLIC || !field->type ||
+        field->type->is_reference) {
+        loc = segments[segment_count - 1u]->loc;
+        parser.prev = segments[segment_count - 1u];
+        parser.cur = parser.prev->next;
+        rcc_error(loc,
+                  "this data-member pointer form is unsupported");
+        value = expr_int(0, loc);
+        value->type = type_int;
+        return value;
+    }
+
+    loc = segments[segment_count - 1u]->loc;
+    parser.prev = segments[segment_count - 1u];
+    parser.cur = parser.prev->next;
+    value = expr_int(field->offset, loc);
+    member_pointer_type = type_ptr(field->type);
+    member_pointer_type->cxx_is_member_pointer = true;
+    member_pointer_type->cxx_member_pointer_owner = owner;
+    value->type = member_pointer_type;
+    return value;
+}
+
 void rcc_parser_validate_cxx_object_type(Type* type, SourceLoc loc) {
     Type* object_type = type;
     if (!object_type || object_type->is_reference) return;
@@ -259,6 +356,13 @@ static Type* cxx_lambda_capture_expression_type(Expr* expression) {
             left = cxx_lambda_capture_expression_type(
                 expression->unary_operand);
             return left && left->kind == TYPE_PTR ? left->base : NULL;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            right = cxx_lambda_capture_expression_type(
+                expression->binary_rhs);
+            return right && right->kind == TYPE_PTR &&
+                           right->cxx_is_member_pointer
+                ? right->base : NULL;
         case EXPR_COND:
             left = cxx_lambda_capture_expression_type(expression->cond_then);
             right = cxx_lambda_capture_expression_type(expression->cond_else);
@@ -529,6 +633,13 @@ static Type* cxx_parser_expression_type(Expr* expression) {
                 }
             }
             return NULL;
+
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            right = cxx_parser_expression_type(expression->binary_rhs);
+            return right && right->kind == TYPE_PTR &&
+                           right->cxx_is_member_pointer
+                ? right->base : NULL;
 
         case EXPR_NEG:
         case EXPR_NOT:
@@ -11263,8 +11374,11 @@ static bool cxx_decltype_expression_is_lvalue(Expr* expression) {
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
         case EXPR_INDEX:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
         case EXPR_DEREF:
             return true;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            return !expression->cxx_member_xvalue;
         case EXPR_COMMA:
             return cxx_decltype_expression_is_lvalue(
                 expression->binary_rhs);
@@ -11883,8 +11997,11 @@ static bool cxx_structured_binding_initializer_is_lvalue(Expr* expression) {
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
         case EXPR_INDEX:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
         case EXPR_DEREF:
             return true;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            return !expression->cxx_member_xvalue;
         case EXPR_COMMA:
             return cxx_structured_binding_initializer_is_lvalue(
                 expression->binary_rhs);

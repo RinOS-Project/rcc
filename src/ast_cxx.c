@@ -1868,6 +1868,7 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                       const bool* value_present) {
     Type* replacement;
     Type* base;
+    Type* member_pointer_owner;
     int array_len;
     Expr* array_bound;
     int index;
@@ -2033,6 +2034,11 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
         base = template_substitute_type(
             tmpl, type->base, args, arg_count, value_args, value_present);
+        member_pointer_owner = type->cxx_is_member_pointer
+            ? template_substitute_type(
+                  tmpl, type->cxx_member_pointer_owner, args, arg_count,
+                  value_args, value_present)
+            : type->cxx_member_pointer_owner;
         /* Reference collapsing is part of substitution, not a later ABI
          * repair.  A forwarding-reference pattern such as `T&&` deduces T as
          * `U&` for an lvalue argument, so substituting the placeholder must
@@ -2058,11 +2064,14 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 array_bound = NULL;
             }
         }
-        if (base != type->base || array_len != type->array_len ||
+        if (base != type->base ||
+            member_pointer_owner != type->cxx_member_pointer_owner ||
+            array_len != type->array_len ||
             array_bound != type->array_bound) {
             Type* copy = ast_arena_alloc(sizeof(*copy));
             *copy = *type;
             copy->base = base;
+            copy->cxx_member_pointer_owner = member_pointer_owner;
             if (copy->kind == TYPE_ARRAY) {
                 copy->array_len = array_len;
                 copy->array_bound = array_bound;
@@ -2177,6 +2186,8 @@ static bool template_expr_contains_identifier(Expr* expression,
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
         case EXPR_ASSIGN:
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN:
@@ -2305,6 +2316,8 @@ static void template_replace_pack_identifier(Expr* expression,
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
         case EXPR_ASSIGN:
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN:
@@ -2797,6 +2810,8 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
         case EXPR_ASSIGN:
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN:
