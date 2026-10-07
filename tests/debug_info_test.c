@@ -581,7 +581,14 @@ static void verify_unsigned_enum_dwarf(const char* path,
 }
 
 static void verify_scoped_enum_dwarf(const char* path,
-                                     uint16_t architecture)
+                                     uint16_t architecture,
+                                     const char* type_name,
+                                     const char* underlying_name,
+                                     uint8_t underlying_size,
+                                     uint8_t underlying_encoding,
+                                     uint8_t enumerator_abbrev,
+                                     const char* enumerator_name,
+                                     uint8_t enumerator_value)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
@@ -596,17 +603,19 @@ static void verify_scoped_enum_dwarf(const char* path,
     strings = objfile_get_section(object, ".debug_str");
     assert(info != NULL && abbrev != NULL && strings != NULL);
     enum_offset = verify_enum_type_underlying(
-        info, abbrev, strings, "DebugScopedEnum", "unsigned short", 2u,
-        0x07u, true);
+        info, abbrev, strings, type_name, underlying_name, underlying_size,
+        underlying_encoding, true);
     child = enum_offset + 11u;
-    assert(child < info->size && info->data[child++] == 35u);
+    assert(child < info->size &&
+           info->data[child++] == enumerator_abbrev);
     assert(child + 4u <= info->size);
     enumerator_name_offset = read_u32(info->data, child);
     child += 4u;
     assert(enumerator_name_offset < strings->size);
     assert(strcmp((const char*)strings->data + enumerator_name_offset,
-                  "scoped_value") == 0);
-    assert(read_uleb(info->data, info->size, &child) == 7u);
+                  enumerator_name) == 0);
+    assert(read_uleb(info->data, info->size, &child) ==
+           enumerator_value);
     assert(child < info->size && info->data[child] == 0u);
     objfile_free(object);
 }
@@ -1852,7 +1861,17 @@ int main(int argc, char** argv)
                                  "char", 1u, 0x06u, false);
     verify_enum_underlying_dwarf(argv[19], ARCH_X64, "DebugSignedEnum",
                                  "char", 1u, 0x06u, false);
-    verify_scoped_enum_dwarf(argv[18], ARCH_X86);
-    verify_scoped_enum_dwarf(argv[19], ARCH_X64);
+    verify_scoped_enum_dwarf(argv[18], ARCH_X86, "DebugScopedEnum",
+                             "unsigned short", 2u, 0x07u, 35u,
+                             "scoped_value", 7u);
+    verify_scoped_enum_dwarf(argv[19], ARCH_X64, "DebugScopedEnum",
+                             "unsigned short", 2u, 0x07u, 35u,
+                             "scoped_value", 7u);
+    verify_scoped_enum_dwarf(argv[18], ARCH_X86, "DebugScopedStructEnum",
+                             "char", 1u, 0x06u, 16u,
+                             "struct_scoped_value", 1u);
+    verify_scoped_enum_dwarf(argv[19], ARCH_X64, "DebugScopedStructEnum",
+                             "char", 1u, 0x06u, 16u,
+                             "struct_scoped_value", 1u);
     return 0;
 }

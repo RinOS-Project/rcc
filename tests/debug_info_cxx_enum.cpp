@@ -28,3 +28,9 @@ enum class DebugScopedEnum : unsigned short {
 };
 
 DebugScopedEnum debug_scoped_enum;
+
+enum struct DebugScopedStructEnum : signed char {
+    struct_scoped_value = 1,
+};
+
+DebugScopedStructEnum debug_scoped_struct_enum;
