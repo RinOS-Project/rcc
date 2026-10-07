@@ -7,6 +7,8 @@
 
 static uint64_t read_uleb(const uint8_t* data, uint64_t size,
                           uint64_t* offset);
+static int64_t read_sleb(const uint8_t* data, uint64_t size,
+                         uint64_t* offset);
 
 static bool contains_bytes(const uint8_t* data, uint64_t size,
                            const char* text)
@@ -588,7 +590,7 @@ static void verify_scoped_enum_dwarf(const char* path,
                                      uint8_t underlying_encoding,
                                      uint8_t enumerator_abbrev,
                                      const char* enumerator_name,
-                                     uint8_t enumerator_value)
+                                     int64_t enumerator_value)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
@@ -614,8 +616,15 @@ static void verify_scoped_enum_dwarf(const char* path,
     assert(enumerator_name_offset < strings->size);
     assert(strcmp((const char*)strings->data + enumerator_name_offset,
                   enumerator_name) == 0);
-    assert(read_uleb(info->data, info->size, &child) ==
-           enumerator_value);
+    if (enumerator_abbrev == 35u) {
+        assert(enumerator_value >= 0);
+        assert(read_uleb(info->data, info->size, &child) ==
+               (uint64_t)enumerator_value);
+    } else {
+        assert(enumerator_abbrev == 16u);
+        assert(read_sleb(info->data, info->size, &child) ==
+               enumerator_value);
+    }
     assert(child < info->size && info->data[child] == 0u);
     objfile_free(object);
 }
@@ -640,6 +649,43 @@ static int64_t read_sleb(const uint8_t* data, uint64_t size,
     }
     assert(0 && "invalid SLEB128");
     return 0;
+}
+
+static void verify_signed_enum_dwarf(const char* path,
+                                    uint16_t architecture,
+                                    const char* type_name,
+                                    const char* underlying_name,
+                                    const char* enumerator_name,
+                                    uint8_t expected_size,
+                                    uint8_t expected_encoding,
+                                    int64_t expected_value)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    uint64_t enum_offset;
+    uint64_t child;
+    uint32_t name_offset;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    enum_offset = verify_enum_type_underlying(
+        info, abbrev, strings, type_name, underlying_name, expected_size,
+        expected_encoding, false);
+    child = enum_offset + 10u;
+    assert(child < info->size && info->data[child++] == 16u);
+    assert(child + 4u <= info->size);
+    name_offset = read_u32(info->data, child);
+    child += 4u;
+    assert(name_offset < strings->size);
+    assert(strcmp((const char*)strings->data + name_offset,
+                  enumerator_name) == 0);
+    assert(read_sleb(info->data, info->size, &child) == expected_value);
+    assert(child < info->size && info->data[child] == 16u);
+    objfile_free(object);
 }
 
 static bool try_read_uleb(const uint8_t* data, uint64_t size,
@@ -1809,6 +1855,10 @@ int main(int argc, char** argv)
                         "debug_declared_inline");
     verify_enum_underlying_dwarf(argv[2], ARCH_X64, "debug_enum", "int",
                                  4u, 0x05u, false);
+    verify_signed_enum_dwarf(argv[1], ARCH_X86, "debug_enum", "int",
+                             "DEBUG_ENUM_NEGATIVE", 4u, 0x05u, -2);
+    verify_signed_enum_dwarf(argv[2], ARCH_X64, "debug_enum", "int",
+                             "DEBUG_ENUM_NEGATIVE", 4u, 0x05u, -2);
     verify_legacy_statement_line_rows(argv[2], ARCH_X64);
     verify_debug_object(argv[3], ARCH_X64, 0x002bu,
                         "tests/hello.cpp", "main", NULL);
@@ -1869,9 +1919,9 @@ int main(int argc, char** argv)
                              "scoped_value", 7u);
     verify_scoped_enum_dwarf(argv[18], ARCH_X86, "DebugScopedStructEnum",
                              "char", 1u, 0x06u, 16u,
-                             "struct_scoped_value", 1u);
+                             "struct_scoped_value", -1);
     verify_scoped_enum_dwarf(argv[19], ARCH_X64, "DebugScopedStructEnum",
                              "char", 1u, 0x06u, 16u,
-                             "struct_scoped_value", 1u);
+                             "struct_scoped_value", -1);
     return 0;
 }
