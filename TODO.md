@@ -484,12 +484,13 @@
   - [x] side-effect-free unsigned multiplication by 3／5／6／7を、剰余算術を
         保ったshift/addまたはshift/subへ強度削減し、signed式・副作用式は
         変換対象外のままi686/AMD64の`imul`除去と実行回帰を追加
-  - [x] side-effect-free unsigned multiplication by 9〜15を、各定数のbinary
-        decompositionによる複数shift/addへ強度削減し、C/C++のi686/AMD64
+  - [x] side-effect-free unsigned multiplication by 9〜127をnon-adjacent
+        signed-digit shift/add/subへ強度削減し、C/C++ i686/AMD64の代表係数で
         `imul`除去、生成物検査、実行回帰を追加
-  - [x] side-effect-free unsigned multiplication by 17〜31を同じbinary
-        decompositionへ拡張し、16のpower-of-two経路との重複を避けながら
-        i686/AMD64の`imul`除去と実行回帰を追加
+  - [x] 同じ剰余幅を保つsigned-digit loweringを129〜255へ拡張し、129／255と
+        `UINT32_MAX` wraparoundをC/C++ i686/AMD64で実行検証。255のO1 objectが
+        明示的binary shift/add参照より短いことも比較し、signed式・副作用式・
+        255超の係数は変換対象外
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline

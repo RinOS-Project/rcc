@@ -811,6 +811,25 @@ unsigned int strength_reduce_unsigned_one_hundred_twenty_seven(
     return value * 127U;
 }
 
+unsigned int strength_reduce_unsigned_one_hundred_twenty_nine(
+    unsigned int value)
+{
+    return value * 129U;
+}
+
+unsigned int strength_reduce_unsigned_two_hundred_fifty_five(
+    unsigned int value)
+{
+    return value * 255U;
+}
+
+unsigned int strength_reduce_unsigned_two_hundred_fifty_five_binary_reference(
+    unsigned int value)
+{
+    return (value << 7) + (value << 6) + (value << 5) + (value << 4) +
+        (value << 3) + (value << 2) + (value << 1) + value;
+}
+
 unsigned int strength_reduce_unsigned_div(unsigned int value)
 {
     return value / 8U;
