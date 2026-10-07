@@ -1708,8 +1708,7 @@ static bool sema_pointee_qualification_preserved(const Type* source,
 static bool sema_is_null_pointer_constant(const Expr* expression) {
     int64_t value;
     if (!expression || !expression->type ||
-        (!type_is_integer(expression->type) &&
-         expression->type->kind != TYPE_ENUM)) {
+        !type_is_integer(expression->type)) {
         return false;
     }
     if (rcc_parser_is_cxx_mode()) {

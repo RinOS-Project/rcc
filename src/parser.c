@@ -1510,7 +1510,10 @@ static Expr* parse_primary(void) {
         if (parser_lookup_enum_constant(qualified_name, &enum_value,
                                         &enum_type)) {
             Expr* value = expr_int(enum_value, loc);
-            value->type = enum_type ? enum_type : type_int;
+            /* C enumerator identifiers have type int; C++ keeps the enum
+             * type for the enumerator expression. */
+            value->type = parser_cxx_mode && enum_type
+                ? enum_type : type_int;
             return value;
         }
         return expr_ident(qualified_name, loc);
@@ -1522,7 +1525,9 @@ static Expr* parse_primary(void) {
         if (parser_lookup_enum_constant(previous()->value.str_val,
                                         &enum_value, &enum_type)) {
             Expr* value = expr_int(enum_value, loc);
-            value->type = enum_type ? enum_type : type_int;
+            /* Match the language-specific enumerator expression type. */
+            value->type = parser_cxx_mode && enum_type
+                ? enum_type : type_int;
             return value;
         }
     if (parser_cxx_mode && rcc_parser_cxx_capture_expression) {

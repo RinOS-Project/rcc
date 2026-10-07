@@ -11540,8 +11540,8 @@ test-assignment-constraints: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/invalid_assignment_types.cpp,$(TEST_OUT)/assignment-constraints/invalid-cxx-x64.log)
 	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-c-x86.log,7)
 	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-c-x64.log,7)
-	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-cxx-x86.log,8)
-	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-cxx-x64.log,8)
+	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-cxx-x86.log,9)
+	$(call CHECK_COUNT,incompatible assignment,$(TEST_OUT)/assignment-constraints/invalid-cxx-x64.log,9)
 	@echo "C17/C++20 assignment conversion constraints passed for i686 and AMD64"
 
 test-optimize: $(RCC_TARGET) $(RCXX_TARGET)

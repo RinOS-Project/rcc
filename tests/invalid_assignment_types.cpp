@@ -1,12 +1,14 @@
 struct AssignmentLeft { int value; };
 struct AssignmentRight { int value; };
 typedef int (*AssignmentFunction)(int);
+enum AssignmentNull { AssignmentNullZero = 0 };
 
 int invalid_assignment_types(int* integer_pointer,
                              const int* readonly_pointer,
                              float* floating_pointer,
                              void* erased_pointer,
                              AssignmentFunction function_pointer,
+                             int* nullable,
                              int integer_value,
                              long long wide_value,
                              struct AssignmentLeft* left,
@@ -20,5 +22,6 @@ int invalid_assignment_types(int* integer_pointer,
     erased_pointer = function_pointer;
     function_pointer = erased_pointer;
     integer_pointer = erased_pointer;
+    nullable = (AssignmentNull)0;
     return 0;
 }

@@ -74,7 +74,9 @@
   - [x] built-in assignmentのRHSも初期化・引数・returnと同じ暗黙変換規則で
         検査し、const喪失・非互換pointer・異なるaggregate間の代入を拒否。
         整数／pointerの暗黙変換はCのゼロ整数定数式とC++のゼロ整数literal
-        のみ許可し、pointer→integerはbool以外の暗黙変換を拒否。
+        のみ許可し、C++ enum expressionとpointer→integer（bool以外）の
+        暗黙変換は拒否。
+        C17の列挙定数式を`int`型として扱う。
         `void*` と関数pointer間の暗黙変換、C++の`void*`からobject pointer
         への暗黙変換も拒否し、Cのobject pointer↔`void*`は維持。
         C17/C++20正例・負例をi686/AMD64で回帰検証
