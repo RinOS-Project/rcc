@@ -1926,6 +1926,9 @@ static void verify_virtual_dispatch_object(const char* path, uint16_t arch,
     ObjSymbol* derived_call_symbol;
     ObjSymbol* secondary_dispatch_symbol;
     ObjSymbol* secondary_call_symbol;
+    ObjSymbol* sret_dispatch_symbol;
+    ObjSymbol* sret_base_call_symbol;
+    ObjSymbol* sret_derived_call_symbol;
     assert(object != NULL && object->arch == arch);
     dispatch_symbol = objfile_find_symbol(
         object, "verified_virtual_dispatch");
@@ -1937,6 +1940,12 @@ static void verify_virtual_dispatch_object(const char* path, uint16_t arch,
         object, "verified_virtual_secondary_dispatch");
     secondary_call_symbol = objfile_find_symbol(
         object, "verified_virtual_call_secondary");
+    sret_dispatch_symbol = objfile_find_symbol(
+        object, "verified_virtual_sret_dispatch");
+    sret_base_call_symbol = objfile_find_symbol(
+        object, "verified_virtual_sret_call_base");
+    sret_derived_call_symbol = objfile_find_symbol(
+        object, "verified_virtual_sret_call_derived");
     assert(dispatch_symbol != NULL && dispatch_symbol->type == SYM_GLOBAL &&
            dispatch_symbol->binding == BIND_CODE &&
            dispatch_symbol->section == 0 && base_call_symbol != NULL &&
@@ -1949,12 +1958,23 @@ static void verify_virtual_dispatch_object(const char* path, uint16_t arch,
            secondary_dispatch_symbol->section == 0 &&
            secondary_call_symbol != NULL &&
            secondary_call_symbol->binding == BIND_CODE &&
-           secondary_call_symbol->section == 0);
+           secondary_call_symbol->section == 0 &&
+           sret_dispatch_symbol != NULL &&
+           sret_dispatch_symbol->binding == BIND_CODE &&
+           sret_dispatch_symbol->section == 0 &&
+           sret_base_call_symbol != NULL &&
+           sret_base_call_symbol->binding == BIND_CODE &&
+           sret_base_call_symbol->section == 0 &&
+           sret_derived_call_symbol != NULL &&
+           sret_derived_call_symbol->binding == BIND_CODE &&
+           sret_derived_call_symbol->section == 0);
     if (execute) {
         MappedObject mapping = map_object(object);
         int (RINOS_ABI *base_call)(void);
         int (RINOS_ABI *derived_call)(void);
         int (RINOS_ABI *secondary_call)(void);
+        int (RINOS_ABI *sret_base_call)(void);
+        int (RINOS_ABI *sret_derived_call)(void);
         void* address = symbol_address(
             mapping.bases[0], base_call_symbol);
         memcpy(&base_call, &address, sizeof(base_call));
@@ -1962,9 +1982,16 @@ static void verify_virtual_dispatch_object(const char* path, uint16_t arch,
         memcpy(&derived_call, &address, sizeof(derived_call));
         address = symbol_address(mapping.bases[0], secondary_call_symbol);
         memcpy(&secondary_call, &address, sizeof(secondary_call));
+        address = symbol_address(mapping.bases[0], sret_base_call_symbol);
+        memcpy(&sret_base_call, &address, sizeof(sret_base_call));
+        address = symbol_address(
+            mapping.bases[0], sret_derived_call_symbol);
+        memcpy(&sret_derived_call, &address, sizeof(sret_derived_call));
         assert(base_call() == 17);
         assert(derived_call() == 29);
         assert(secondary_call() == 47);
+        assert(sret_base_call() == 24);
+        assert(sret_derived_call() == 224);
         unmap_object(&mapping);
     }
     objfile_free(object);
