@@ -9025,7 +9025,10 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
 }
 
 static void gen64_stmt(Module* mod, Stmt* stmt) {
+    uint32_t debug_line_start;
     if (!stmt) return;
+    debug_line_start = code_offset(mod);
+    stmt->debug_line_valid = false;
 
     switch (stmt->kind) {
         case STMT_EXPR:
@@ -9502,6 +9505,11 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                       "unsupported statement kind in AMD64 code generation");
             break;
     }
+    if (mod->debug_legacy_statement_lines &&
+        stmt->loc.line > 0 && code_offset(mod) > debug_line_start) {
+        stmt->debug_line_offset = debug_line_start;
+        stmt->debug_line_valid = true;
+    }
 }
 
 /* ═══════════════════════════════════════
@@ -9921,6 +9929,7 @@ Module* rcc_codegen64(AST* ast) {
     Module* mod = codegen_new();
     mod->debug_ast = ast;
     mod->debug_statement_ranges = true;
+    mod->debug_legacy_statement_lines = true;
 
     /* Reset label counter */
     label_counter64 = 0;

@@ -816,6 +816,10 @@ struct Stmt {
      * relocatable DWARF emitter after code generation has completed. */
     uint32_t debug_code_start;
     uint32_t debug_code_end;
+    /* Legacy code generators record the first emitted text offset for each
+     * statement so DWARF line tables can map non-block statements as well. */
+    uint32_t debug_line_offset;
+    bool debug_line_valid;
     /* Exact encoded instruction envelopes for this statement.  The legacy
      * start/end pair remains the enclosing range used by lexical blocks;
      * this list preserves holes introduced by control flow for line tables. */

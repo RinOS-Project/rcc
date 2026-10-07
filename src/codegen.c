@@ -119,6 +119,7 @@ Module* codegen_new(void) {
     mod->compound_literal_count = 0u;
     mod->debug_ast = NULL;
     mod->debug_statement_ranges = false;
+    mod->debug_legacy_statement_lines = false;
 
     return mod;
 }
@@ -13514,7 +13515,10 @@ static void codegen_release_switch_cases(SwitchCaseCodegen* item) {
 }
 
 static void gen_stmt(Module* mod, Stmt* stmt) {
+    uint32_t debug_line_start;
     if (!stmt) return;
+    debug_line_start = code_offset(mod);
+    stmt->debug_line_valid = false;
 
     switch (stmt->kind) {
         case STMT_EXPR:
@@ -13980,6 +13984,11 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                       "unsupported statement kind in i686 code generation");
             break;
     }
+    if (mod->debug_legacy_statement_lines &&
+        stmt->loc.line > 0 && code_offset(mod) > debug_line_start) {
+        stmt->debug_line_offset = debug_line_start;
+        stmt->debug_line_valid = true;
+    }
 }
 
 /* ═══════════════════════════════════════
@@ -14087,6 +14096,7 @@ Module* rcc_codegen(AST* ast) {
     Module* mod = codegen_new();
     mod->debug_ast = ast;
     mod->debug_statement_ranges = true;
+    mod->debug_legacy_statement_lines = true;
 
     /* Reset label counter and function call tracking */
     label_counter = 0;

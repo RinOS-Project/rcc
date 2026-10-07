@@ -570,6 +570,9 @@
         rangeをcodegenのhalf-open code offsetから`DW_AT_low_pc`／
         `DW_AT_high_pc`へrelocation付きで出力し、両arch object回帰で検証。
         完全なinline attribution/CFIは引き続き未実装
+  - [x] legacy i686/AMD64 codegenで命令を出したstatementの開始offsetを
+        source line rowへ対応付け、代入・分岐・returnの`.debug_line`行を
+        objectからデコードして両archで検証
   - [ ] `.debug_info`の型／local variable／inline attributionと完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、

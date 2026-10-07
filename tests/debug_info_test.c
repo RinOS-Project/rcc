@@ -420,6 +420,108 @@ static uint64_t read_uleb(const uint8_t* data, uint64_t size,
     return 0u;
 }
 
+static int64_t read_sleb(const uint8_t* data, uint64_t size,
+                         uint64_t* offset)
+{
+    uint64_t value = 0u;
+    unsigned shift = 0u;
+    uint8_t byte = 0u;
+    assert(data != NULL && offset != NULL);
+    while (*offset < size && shift < 64u) {
+        byte = data[(*offset)++];
+        value |= (uint64_t)(byte & 0x7fu) << shift;
+        shift += 7u;
+        if ((byte & 0x80u) == 0u) {
+            if ((byte & 0x40u) != 0u && shift < 64u) {
+                value |= UINT64_MAX << shift;
+            }
+            return (int64_t)value;
+        }
+    }
+    assert(0 && "invalid SLEB128");
+    return 0;
+}
+
+static bool line_table_has_row(const ObjSection* line,
+                               uint32_t expected_line)
+{
+    uint64_t offset;
+    int64_t current_line = 1;
+    uint8_t line_base;
+    uint8_t line_range;
+    uint8_t opcode_base;
+    assert(line != NULL && line->size >= 16u);
+    offset = 10u + read_u32(line->data, 6u);
+    line_base = line->data[12u];
+    line_range = line->data[13u];
+    opcode_base = line->data[14u];
+    assert(offset <= line->size && line_range != 0u && opcode_base > 1u);
+    while (offset < line->size) {
+        uint8_t opcode = line->data[offset++];
+        if (opcode == 0u) {
+            uint64_t length = read_uleb(line->data, line->size, &offset);
+            uint64_t end = offset + length;
+            uint8_t extended;
+            assert(length > 0u && end <= line->size);
+            extended = line->data[offset++];
+            if (extended == 1u) return false;
+            offset = end;
+            continue;
+        }
+        if (opcode >= opcode_base) {
+            uint8_t adjusted = (uint8_t)(opcode - opcode_base);
+            current_line += (int8_t)line_base +
+                            (int64_t)(adjusted % line_range);
+            if (current_line == (int64_t)expected_line) return true;
+            continue;
+        }
+        switch (opcode) {
+            case 1u:
+                if (current_line == (int64_t)expected_line) return true;
+                break;
+            case 2u:
+            case 4u:
+            case 5u:
+            case 12u:
+                (void)read_uleb(line->data, line->size, &offset);
+                break;
+            case 3u:
+                current_line += read_sleb(line->data, line->size, &offset);
+                break;
+            case 9u:
+                assert(offset + 2u <= line->size);
+                offset += 2u;
+                break;
+            case 6u:
+            case 7u:
+            case 8u:
+            case 10u:
+            case 11u:
+                break;
+            default:
+                assert(0 && "unexpected DWARF line opcode");
+        }
+    }
+    return false;
+}
+
+static void verify_legacy_statement_line_rows(const char* path,
+                                               uint16_t architecture)
+{
+    static const uint32_t expected_lines[] = {102u, 103u, 104u, 106u, 108u};
+    ObjectFile* object = objfile_read(path);
+    ObjSection* line;
+    assert(object != NULL && object->arch == architecture);
+    line = objfile_get_section(object, ".debug_line");
+    assert(line != NULL);
+    for (size_t index = 0u;
+         index < sizeof(expected_lines) / sizeof(expected_lines[0]);
+         ++index) {
+        assert(line_table_has_row(line, expected_lines[index]));
+    }
+    objfile_free(object);
+}
+
 static unsigned count_line_copy_ops(const ObjSection* line)
 {
     uint64_t offset;
@@ -1087,9 +1189,11 @@ int main(int argc, char** argv)
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
+    verify_legacy_statement_line_rows(argv[1], ARCH_X86);
     verify_debug_object(argv[2], ARCH_X64, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
+    verify_legacy_statement_line_rows(argv[2], ARCH_X64);
     verify_debug_object(argv[3], ARCH_X64, 0x002bu,
                         "tests/hello.cpp", "main", NULL);
     verify_without_debug(argv[4]);

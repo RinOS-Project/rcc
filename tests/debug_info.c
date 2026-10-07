@@ -61,3 +61,15 @@ int debug_info_parameters(int left, int right)
                debug_aggregate_data.first + debug_array_data[0];
     }
 }
+
+#line 100
+int debug_statement_lines(int value)
+{
+    value = value + 1;
+    if (value > 3) {
+        value = value + 2;
+    } else {
+        value = value + 4;
+    }
+    return value;
+}

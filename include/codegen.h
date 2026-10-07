@@ -152,6 +152,9 @@ typedef struct Module {
      * verified backend supplies declaration locations first and intentionally
      * leaves local statement ranges out until its MIR locations are exposed. */
     bool debug_statement_ranges;
+    /* Classic codegens provide one source row for each emitted statement.
+     * Kept separate from exact verified-backend statement ranges. */
+    bool debug_legacy_statement_lines;
 } Module;
 
 struct CxxNamespace;

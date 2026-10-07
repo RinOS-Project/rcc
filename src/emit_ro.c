@@ -2067,7 +2067,8 @@ static void debug_line_point_add(
 }
 
 static void debug_collect_line_stmt_points(
-    const Stmt* statement, const ModuleSymbol* function,
+    const Module* mod, const Stmt* statement,
+    const ModuleSymbol* function,
     DebugLinePoint** points, int* point_count, size_t* point_capacity) {
     const StmtDebugRange* debug_range;
     if (!statement) return;
@@ -2081,6 +2082,13 @@ static void debug_collect_line_stmt_points(
                     statement->loc.line, statement->loc.column, false);
             }
         }
+    } else if (mod && mod->debug_legacy_statement_lines &&
+               statement->kind != STMT_BLOCK &&
+               statement->debug_line_valid) {
+        debug_line_point_add(
+            points, point_count, point_capacity, function,
+            statement->loc.filename, statement->debug_line_offset,
+            statement->loc.line, statement->loc.column, false);
     } else if (statement->kind == STMT_BLOCK &&
                !statement->block_no_scope &&
                statement->debug_code_end > statement->debug_code_start) {
@@ -2096,60 +2104,60 @@ static void debug_collect_line_stmt_points(
             for (const StmtList* item = statement->block_stmts; item;
                  item = item->next) {
                 debug_collect_line_stmt_points(
-                    item->stmt, function, points, point_count,
+                    mod, item->stmt, function, points, point_count,
                     point_capacity);
             }
             break;
         case STMT_IF:
             debug_collect_line_stmt_points(
-                statement->if_then, function, points, point_count,
+                mod, statement->if_then, function, points, point_count,
                 point_capacity);
             debug_collect_line_stmt_points(
-                statement->if_else, function, points, point_count,
+                mod, statement->if_else, function, points, point_count,
                 point_capacity);
             break;
         case STMT_WHILE:
         case STMT_DO:
             debug_collect_line_stmt_points(
-                statement->while_body, function, points, point_count,
+                mod, statement->while_body, function, points, point_count,
                 point_capacity);
             break;
         case STMT_FOR:
             debug_collect_line_stmt_points(
-                statement->for_init, function, points, point_count,
+                mod, statement->for_init, function, points, point_count,
                 point_capacity);
             debug_collect_line_stmt_points(
-                statement->for_body, function, points, point_count,
+                mod, statement->for_body, function, points, point_count,
                 point_capacity);
             break;
         case STMT_SWITCH:
             debug_collect_line_stmt_points(
-                statement->switch_body, function, points, point_count,
+                mod, statement->switch_body, function, points, point_count,
                 point_capacity);
             break;
         case STMT_CASE:
             debug_collect_line_stmt_points(
-                statement->case_stmt, function, points, point_count,
+                mod, statement->case_stmt, function, points, point_count,
                 point_capacity);
             break;
         case STMT_DEFAULT:
             debug_collect_line_stmt_points(
-                statement->default_stmt, function, points, point_count,
+                mod, statement->default_stmt, function, points, point_count,
                 point_capacity);
             break;
         case STMT_LABEL:
             debug_collect_line_stmt_points(
-                statement->label_stmt, function, points, point_count,
+                mod, statement->label_stmt, function, points, point_count,
                 point_capacity);
             break;
         case STMT_TRY:
             debug_collect_line_stmt_points(
-                statement->try_body, function, points, point_count,
+                mod, statement->try_body, function, points, point_count,
                 point_capacity);
             for (const CxxCatch* handler = statement->try_catches; handler;
                  handler = handler->next) {
                 debug_collect_line_stmt_points(
-                    handler->body, function, points, point_count,
+                    mod, handler->body, function, points, point_count,
                     point_capacity);
             }
             break;
@@ -2221,7 +2229,8 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
             declaration, &files, &file_count, &file_capacity);
         if (mod->debug_statement_ranges) {
             debug_collect_line_stmt_points(
-                declaration ? declaration->func_body : NULL, functions[index],
+                mod, declaration ? declaration->func_body : NULL,
+                functions[index],
                 &points, &point_count, &point_capacity);
         }
     }
