@@ -3341,6 +3341,12 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
             debug_frame_advance(frame, after_leave - prologue_after_fp);
             section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */
             debug_line_uleb(frame, stack_register);
+            /* `leave` restores ESP to the return-address slot.  The caller's
+             * CFA is therefore ESP + one word, matching the CIE entry rule;
+             * keeping the frame-body two-word offset here mis-unwinds by one
+             * saved-frame-pointer slot. */
+            section_add_byte(frame, 0x0eu); /* DW_CFA_def_cfa_offset */
+            debug_line_uleb(frame, pointer_size);
             section_add_byte(frame, (uint8_t)(0xc0u + frame_register));
         }
 

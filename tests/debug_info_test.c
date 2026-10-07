@@ -872,6 +872,27 @@ static void verify_global_variable(const ObjSection* info,
                           address_size == 8u ? RELOC_ABS64 : RELOC_ABS32U));
 }
 
+static bool has_epilogue_cfa_restore(const ObjSection* frame,
+                                     uint64_t instruction_offset,
+                                     uint64_t instruction_end,
+                                     uint8_t stack_register,
+                                     uint8_t frame_register,
+                                     uint8_t pointer_size)
+{
+    for (uint64_t offset = instruction_offset;
+         offset + 4u < instruction_end; ++offset) {
+        if (frame->data[offset] == 0x0du &&
+            frame->data[offset + 1u] == stack_register &&
+            frame->data[offset + 2u] == 0x0eu &&
+            frame->data[offset + 3u] == pointer_size &&
+            frame->data[offset + 4u] ==
+                (uint8_t)(0xc0u + frame_register)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void verify_first_frame_fde(const ObjSection* frame,
                                    uint16_t architecture)
 {
@@ -912,9 +933,10 @@ static void verify_first_frame_fde(const ObjSection* frame,
                               instruction_end - instruction_offset,
                               0x0du,
                               architecture == ARCH_X64 ? 7u : 4u));
-    assert(contains_byte(frame->data + instruction_offset,
-                         instruction_end - instruction_offset,
-                         (uint8_t)(0xc0u + frame_register)));
+    assert(has_epilogue_cfa_restore(
+        frame, instruction_offset, instruction_end,
+        architecture == ARCH_X64 ? 7u : 4u, frame_register,
+        (uint8_t)pointer_size));
 }
 
 static void verify_i686_aligned_frame_fde(const ObjSection* frame)
@@ -955,8 +977,8 @@ static void verify_i686_aligned_frame_fde(const ObjSection* frame)
     assert(contains_byte_pair(frame->data + instruction_offset,
                               instruction_end - instruction_offset,
                               0x0du, 0x04u));
-    assert(contains_byte(frame->data + instruction_offset,
-                         instruction_end - instruction_offset, 0xc5u));
+    assert(has_epilogue_cfa_restore(
+        frame, instruction_offset, instruction_end, 4u, 5u, 4u));
 }
 
 static void verify_aligned_debug_object(const char* path,
