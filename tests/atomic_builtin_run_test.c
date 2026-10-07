@@ -705,7 +705,7 @@ int main(int argc, char** argv) {
         generic_load(&generic, &output);
         assert(output == 5u);
         generic_store(&generic, &input);
-        assert(generic == 9u);
+        assert(generic == 9u && input == 9u);
         assert(generic_exchange(&generic, &input) == 9u && generic == 9u);
         expected = 9u;
         input = 12u;
@@ -725,7 +725,7 @@ int main(int argc, char** argv) {
         generic_load64(&generic, &output);
         assert(output == UINT64_C(5));
         generic_store64(&generic, &input);
-        assert(generic == UINT64_C(9));
+        assert(generic == UINT64_C(9) && input == UINT64_C(9));
         assert(generic_exchange64(&generic, &input) == UINT64_C(9) &&
                generic == UINT64_C(9));
         expected = UINT64_C(9);
