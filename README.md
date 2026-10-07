@@ -261,9 +261,10 @@ sources, and explicit non-virtual/virtual base xvalue bindings, including
 exactly-once destruction order. A bounded direct public data-member pointer
 path now parses `T C::*`, `&C::member`, `object.*member`, and
 `pointer->*member` and reaches both native backends and typed IR. It has not
-been regression-tested; pointer-to-member-selected static reference lifetime
-remains open, as do thread-local temporaries and the broader member-pointer ABI
-cases in [`TODO.md`](TODO.md).
+been regression-tested. A local regression fixture and Makefile target are
+present in the working tree but are untracked and have not been run. Pointer-
+to-member-selected static reference lifetime remains open, as do thread-local
+temporaries and the broader member-pointer ABI cases in [`TODO.md`](TODO.md).
 
 公開toolchainとしての完成条件は、C17、主要C++20、typed SSA/MIRと最適化、
 i386/AMD64 ABI、DWARF unwind、PIC/PIE、TLS/exception/RTTI、stage2再現build、

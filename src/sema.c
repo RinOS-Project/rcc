@@ -1401,7 +1401,8 @@ static bool sema_cxx_same_glvalue_type(Type* left, Type* right,
 
 static bool is_modifiable_lvalue(Expr* expression) {
     Type* type;
-    if (!expression || !is_lvalue(expression)) return false;
+    if (!expression || (!is_lvalue(expression) &&
+        !(rcc_parser_is_cxx_mode() && is_xvalue(expression)))) return false;
     type = expression->type;
     return type && !type->is_const && type->kind != TYPE_ARRAY &&
            type->kind != TYPE_FUNC;
@@ -2093,6 +2094,23 @@ reference_binding_validated:
 
     /* Same type */
     if (e->type == target) return target;
+
+    /* Data-member pointers are not ordinary object pointers: keep them out
+     * of void-pointer and integer conversions, but allow the standard
+     * same-owner qualification conversion for their member type. */
+    if ((e->type->kind == TYPE_PTR &&
+         e->type->cxx_is_member_pointer) ||
+        (target->kind == TYPE_PTR && target->cxx_is_member_pointer)) {
+        if (e->type->kind == TYPE_PTR && target->kind == TYPE_PTR &&
+            e->type->cxx_is_member_pointer &&
+            target->cxx_is_member_pointer &&
+            type_is_compatible(e->type, target) &&
+            sema_pointee_qualification_preserved(e->type->base,
+                                                 target->base)) {
+            return target;
+        }
+        return NULL;
+    }
 
     /* A scoped enum is a distinct C++ type.  It deliberately does not
      * participate in the C integer-enum conversions; accepting those here

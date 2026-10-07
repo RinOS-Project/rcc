@@ -371,7 +371,9 @@
         pointer-to-member-selected subobjects. The bounded source path now
         represents direct public non-bit-field data-member pointers and lowers
         `.*`/`->*` through both native backends and typed IR; it has not been
-        regression-tested. Keep this open until both-architecture generation,
+        regression-tested. A local fixture and Makefile target are present in
+        the working tree but are untracked and have not been run. Keep this
+        open until both-architecture generation,
         lifetime/destructor execution, and RinOS integration are covered.
         Pointer-to-member functions, private-access contexts, null/member
         pointer conversions, derived-object application, and virtual-base

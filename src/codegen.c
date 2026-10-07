@@ -1056,6 +1056,16 @@ static bool codegen_emit_static_pointer(Module* mod, Type* type,
     if (!initializer || !type || type->size < (int)width) {
         return false;
     }
+    if (type->cxx_is_member_pointer) {
+        uint64_t bits;
+        if (!codegen_static_integer(initializer, &integer)) return false;
+        bits = (uint64_t)integer;
+        for (uint32_t byte = 0u; byte < width; ++byte) {
+            mod->data.data[offset + byte] =
+                (uint8_t)(bits >> (byte * 8u));
+        }
+        return true;
+    }
     if ((initializer->type &&
          initializer->type->kind == TYPE_NULLPTR) ||
         (codegen_static_integer(initializer, &integer) && integer == 0)) {
@@ -12786,6 +12796,8 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
         case EXPR_XOR_ASSIGN:
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             codegen_assign_compound_expr(expression->binary_lhs, bytes,
                                          stack_alignment);
             codegen_assign_compound_expr(expression->binary_rhs, bytes,
