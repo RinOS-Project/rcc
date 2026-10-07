@@ -275,6 +275,17 @@ int preserved_parameter_assignments_side_effect_call(int* value, int* delta)
     return inline_parameter_assignments((*value)++, (*delta)++);
 }
 
+static short inline_narrow_parameter_assignment(short value)
+{
+    value = (short)(value + 2);
+    return value;
+}
+
+short inlined_narrow_parameter_assignment_call(short value)
+{
+    return inline_narrow_parameter_assignment(value);
+}
+
 static int inline_local_snapshot_before_mutation(int value)
 {
     int original = value;

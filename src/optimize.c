@@ -1017,8 +1017,7 @@ static bool collect_inline_scalar_body(
             const Decl* declaration =
                 statement->expr->binary_lhs->ident_decl;
             bool is_prior_local = declaration->kind == DECL_PARAM &&
-                declaration->type && type_is_integer(declaration->type) &&
-                declaration->type->size >= 4;
+                type_is_scalar(declaration->type);
             if (!simple_assignment && !compound_assignment) return false;
             for (size_t index = 0u; index < *operation_count; ++index) {
                 if (operations[index].kind ==

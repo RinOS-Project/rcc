@@ -175,6 +175,10 @@ static void verify_smaller(const char* unoptimized_path,
         optimized, "preserved_parameter_assignments_side_effect_call",
         0xe8u));
     assert(function_contains_byte(
+        unoptimized, "inlined_narrow_parameter_assignment_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_narrow_parameter_assignment_call", 0xe8u));
+    assert(function_contains_byte(
         unoptimized, "inlined_local_snapshot_before_mutation_call", 0xe8u));
     assert(!function_contains_byte(
         optimized, "inlined_local_snapshot_before_mutation_call", 0xe8u));
@@ -696,6 +700,7 @@ int main(int argc, char** argv)
         int (*preserved_parameter_increment_side_effect_call)(int*);
         int (*inlined_parameter_assignments_call)(int, int);
         int (*preserved_parameter_assignments_side_effect_call)(int*, int*);
+        short (*inlined_narrow_parameter_assignment_call)(short);
         int (*inlined_local_snapshot_before_mutation_call)(int);
         int (*inlined_statement_conditional_return_call)(int);
         int (*preserved_nested_conditional_return_call)(int);
@@ -1019,6 +1024,13 @@ int main(int argc, char** argv)
             address = mapping + symbol->value;
             memcpy(&preserved_parameter_assignments_side_effect_call, &address,
                    sizeof(preserved_parameter_assignments_side_effect_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_narrow_parameter_assignment_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_narrow_parameter_assignment_call, &address,
+                   sizeof(inlined_narrow_parameter_assignment_call));
         }
         {
             ObjSymbol* symbol = function_symbol(
@@ -1373,6 +1385,8 @@ int main(int argc, char** argv)
         assert(preserved_narrow_local_increment_call(5) == 6);
         assert(inlined_parameter_increment_mutations_call(3) == 457);
         assert(inlined_parameter_assignments_call(4, 5) == 24);
+        assert(inlined_narrow_parameter_assignment_call(5) == 7);
+        assert(inlined_narrow_parameter_assignment_call(-4) == -2);
         {
             int parameter_side_effect_value = 4;
             assert(preserved_parameter_increment_side_effect_call(
