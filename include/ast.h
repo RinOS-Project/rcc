@@ -89,6 +89,7 @@ typedef struct TypeParam {
 typedef struct EnumConstantInfo {
     const char* name;
     int64_t value;
+    bool is_unsigned;
 } EnumConstantInfo;
 
 typedef enum {

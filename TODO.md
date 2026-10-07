@@ -268,8 +268,12 @@
 - [x] fixed-underlying enumでunsigned 64-bit列挙子を`ULLONG_MAX`まで保持し、暗黙の
       次値／overflowとtyped constant evaluationをi686/AMD64で検証。DWARFにも
       `DW_ATE_unsigned`と`DW_FORM_udata`でunsigned値を出力し両archで検証する
-- [ ] underlying type未指定enumについて標準に沿ったunderlying type選択を行い、
-      constexpr評価とdebug infoまで一貫して伝播する
+- [x] underlying type未指定C++ enumのimplementation-defined選択を、
+      `int`→`unsigned int`→target `long`→`unsigned long`→`long long`→
+      `unsigned long long`の順で全列挙値を表現できる最初の型へ確定し、
+      enum閉じ括弧前の列挙子expression type／暗黙増分の型遷移、閉じ括弧後の
+      enum型、算術昇格、constexpr、DWARF encoding/valueへ反映。i686/AMD64で
+      signed/unsigned/wide境界、ULLONG_MAX、型なしで表せない混合値を検証
 - [x] bounded templates、concepts、constexpr/consteval、lambda
   - [x] bounded type/non-type parameter packs、pack expansion、fold expression、
         empty-pack identity、pack-based static membersの両arch回帰

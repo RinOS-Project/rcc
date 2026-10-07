@@ -1393,9 +1393,13 @@ endif
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-underlying-x86.ro tests/invalid_cxx_enum_underlying_range.cpp,$(TEST_OUT)/cxx-enum-class/invalid-underlying-x86.log)
 	$(GREP) -F -q 'enumerator value is not representable in its fixed underlying type' $(TEST_OUT)/cxx-enum-class/invalid-underlying-x86.log
 	$(GREP) -F -q 'implicit enumerator value is not representable in its fixed underlying type' $(TEST_OUT)/cxx-enum-class/invalid-underlying-x86.log
+	$(GREP) -F -q 'implicit enumerator value exceeds the supported 64-bit range' $(TEST_OUT)/cxx-enum-class/invalid-underlying-x86.log
+	$(GREP) -F -q 'no supported integer type can represent all enumerators' $(TEST_OUT)/cxx-enum-class/invalid-underlying-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-underlying-x64.ro tests/invalid_cxx_enum_underlying_range.cpp,$(TEST_OUT)/cxx-enum-class/invalid-underlying-x64.log)
 	$(GREP) -F -q 'enumerator value is not representable in its fixed underlying type' $(TEST_OUT)/cxx-enum-class/invalid-underlying-x64.log
 	$(GREP) -F -q 'implicit enumerator value is not representable in its fixed underlying type' $(TEST_OUT)/cxx-enum-class/invalid-underlying-x64.log
+	$(GREP) -F -q 'implicit enumerator value exceeds the supported 64-bit range' $(TEST_OUT)/cxx-enum-class/invalid-underlying-x64.log
+	$(GREP) -F -q 'no supported integer type can represent all enumerators' $(TEST_OUT)/cxx-enum-class/invalid-underlying-x64.log
 	@echo "RCC++ scoped enum test completed"
 
 test-cxx-cli: $(RCC_TARGET) $(RCXX_TARGET)

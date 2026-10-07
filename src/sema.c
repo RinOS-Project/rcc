@@ -1551,7 +1551,11 @@ static bool sema_is_cxx_nullptr_expr(const Expr* expression) {
 
 static Type* sema_integer_promotion(Type* type) {
     if (sema_is_scoped_enum(type)) return type;
-    if (!type || type->kind == TYPE_ENUM || type->kind < TYPE_INT) {
+    if (type && type->kind == TYPE_ENUM) {
+        return type->enum_underlying_type
+            ? type->enum_underlying_type : type_int;
+    }
+    if (!type || type->kind < TYPE_INT) {
         return type_int;
     }
     return type;

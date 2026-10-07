@@ -32,3 +32,13 @@ enum class ImplicitUnsignedLongLongOverflow : unsigned long long {
 enum class SignedLongLongTooSmall : long long {
     value = 18446744073709551615ULL,
 };
+
+enum InferredUnsignedLongLongOverflow {
+    inferred_ull_maximum = 18446744073709551615ULL,
+    inferred_ull_overflow,
+};
+
+enum InferredRangeHasNoIntegerType {
+    inferred_negative = -1,
+    inferred_unsigned_maximum = 18446744073709551615ULL,
+};

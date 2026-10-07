@@ -430,8 +430,12 @@ static uint64_t read_uleb(const uint8_t* data, uint64_t size,
     return 0u;
 }
 
-static void verify_full_unsigned_enum_dwarf(const char* path,
-                                            uint16_t architecture)
+static void verify_unsigned_enum_dwarf(const char* path,
+                                       uint16_t architecture,
+                                       const char* type_name,
+                                       const char* enumerator_name,
+                                       uint8_t expected_size,
+                                       uint64_t expected_value)
 {
     static const uint8_t unsigned_enumerator_abbrev[] = {
         35u, 0x28u, 0u, 0x03u, 0x0eu, 0x1cu, 0x0fu, 0u, 0u
@@ -447,9 +451,8 @@ static void verify_full_unsigned_enum_dwarf(const char* path,
     abbrev = objfile_get_section(object, ".debug_abbrev");
     strings = objfile_get_section(object, ".debug_str");
     assert(info != NULL && abbrev != NULL && strings != NULL);
-    assert(contains_bytes(strings->data, strings->size,
-                          "DebugUnsignedEnum"));
-    assert(contains_bytes(strings->data, strings->size, "maximum"));
+    assert(contains_bytes(strings->data, strings->size, type_name));
+    assert(contains_bytes(strings->data, strings->size, enumerator_name));
     assert(contains_sequence(abbrev->data, abbrev->size,
                              unsigned_enumerator_abbrev,
                              sizeof(unsigned_enumerator_abbrev)));
@@ -463,10 +466,10 @@ static void verify_full_unsigned_enum_dwarf(const char* path,
         name_offset = read_u32(info->data, offset + 1u);
         if (name_offset >= strings->size ||
             strcmp((const char*)strings->data + name_offset,
-                   "DebugUnsignedEnum") != 0) {
+                   type_name) != 0) {
             continue;
         }
-        assert(info->data[offset + 5u] == 8u);
+        assert(info->data[offset + 5u] == expected_size);
         assert(info->data[offset + 6u] == 0x07u); /* DW_ATE_unsigned */
         child = offset + 7u;
         assert(child < info->size && info->data[child++] == 35u);
@@ -475,9 +478,9 @@ static void verify_full_unsigned_enum_dwarf(const char* path,
         child += 4u;
         assert(enumerator_name_offset < strings->size);
         assert(strcmp((const char*)strings->data + enumerator_name_offset,
-                      "maximum") == 0);
+                      enumerator_name) == 0);
         value = read_uleb(info->data, info->size, &child);
-        assert(value == UINT64_MAX);
+        assert(value == expected_value);
         assert(child < info->size && info->data[child] == 0u);
         found = true;
         break;
@@ -1697,7 +1700,21 @@ int main(int argc, char** argv)
     verify_cxx_method_accessibility(argv[15], ARCH_X64);
     verify_optimized_verified_debug_object(argv[16], ARCH_X86);
     verify_optimized_verified_debug_object(argv[17], ARCH_X64);
-    verify_full_unsigned_enum_dwarf(argv[18], ARCH_X86);
-    verify_full_unsigned_enum_dwarf(argv[19], ARCH_X64);
+    verify_unsigned_enum_dwarf(argv[18], ARCH_X86, "DebugUnsignedEnum",
+                               "maximum", 8u, UINT64_MAX);
+    verify_unsigned_enum_dwarf(argv[19], ARCH_X64, "DebugUnsignedEnum",
+                               "maximum", 8u, UINT64_MAX);
+    verify_unsigned_enum_dwarf(argv[18], ARCH_X86,
+                               "DebugInferredUnsignedEnum",
+                               "inferred_maximum", 8u, UINT64_MAX);
+    verify_unsigned_enum_dwarf(argv[19], ARCH_X64,
+                               "DebugInferredUnsignedEnum",
+                               "inferred_maximum", 8u, UINT64_MAX);
+    verify_unsigned_enum_dwarf(argv[18], ARCH_X86,
+                               "DebugInferredUnsignedInt",
+                               "inferred_uint_max", 4u, UINT32_MAX);
+    verify_unsigned_enum_dwarf(argv[19], ARCH_X64,
+                               "DebugInferredUnsignedInt",
+                               "inferred_uint_max", 4u, UINT32_MAX);
     return 0;
 }
