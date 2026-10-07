@@ -898,19 +898,25 @@ static bool inline_scalar_compound_operator(ExprKind assignment_operator,
 /* Keep the multi-statement inline shape deliberately narrow.  A block may
  * contain only scalar, non-volatile automatic declarations with pure
  * initializers, direct side-effect-free assignments to those locals, and one
- * final return.  This lets small wrappers such as
- * `int f(int x) { int y = x + 1; y = y * 2; return y; }` be expanded without
- * pretending that arbitrary control flow, cleanup, or lifetime-sensitive
- * objects are safe to clone into the caller. */
+ * final return or a terminal if/else with direct returns.  This lets small
+ * wrappers such as `int f(int x) { int y = x + 1; y = y * 2; return y; }` be
+ * expanded without pretending that arbitrary control flow, cleanup, or
+ * lifetime-sensitive objects are safe to clone into the caller. */
 static bool collect_inline_scalar_body(
     const Stmt* body, InlineScalarOperation* operations,
-    size_t* operation_count, const Expr** returned) {
+    size_t* operation_count, const Expr** returned,
+    const Expr** branch_condition, const Expr** branch_true,
+    const Expr** branch_false) {
     const StmtList* item;
-    if (!operations || !operation_count || !returned || !body) {
+    if (!operations || !operation_count || !returned || !branch_condition ||
+        !branch_true || !branch_false || !body) {
         return false;
     }
     *operation_count = 0u;
     *returned = NULL;
+    *branch_condition = NULL;
+    *branch_true = NULL;
+    *branch_false = NULL;
     if (body->kind == STMT_RETURN) {
         *returned = body->return_val;
         return *returned != NULL;
@@ -918,7 +924,7 @@ static bool collect_inline_scalar_body(
     if (body->kind != STMT_BLOCK) return false;
     for (item = body->block_stmts; item; item = item->next) {
         const Stmt* statement = item->stmt;
-        if (!statement) return false;
+        if (!statement || *branch_condition != NULL) return false;
         if (statement->kind == STMT_DECL) {
             const Decl* declaration = statement->decl;
             if (!declaration || declaration->kind != DECL_VAR ||
@@ -989,6 +995,17 @@ static bool collect_inline_scalar_body(
             ++*operation_count;
             continue;
         }
+        if (statement->kind == STMT_IF && *returned == NULL &&
+            statement->if_cond && statement->if_then &&
+            statement->if_then->kind == STMT_RETURN &&
+            statement->if_then->return_val && statement->if_else &&
+            statement->if_else->kind == STMT_RETURN &&
+            statement->if_else->return_val) {
+            *branch_condition = statement->if_cond;
+            *branch_true = statement->if_then->return_val;
+            *branch_false = statement->if_else->return_val;
+            continue;
+        }
         if (statement->kind == STMT_RETURN) {
             if (*returned != NULL || !statement->return_val) return false;
             *returned = statement->return_val;
@@ -996,7 +1013,7 @@ static bool collect_inline_scalar_body(
         }
         return false;
     }
-    return *returned != NULL;
+    return *returned != NULL || *branch_condition != NULL;
 }
 
 static size_t inline_scalar_binding_index(
@@ -1430,6 +1447,9 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     DeclList* parameters;
     ExprList* arguments;
     const Expr* returned;
+    const Expr* branch_condition;
+    const Expr* branch_true;
+    const Expr* branch_false;
     InlineScalarOperation operations[INLINE_SCALAR_BINDING_LIMIT];
     InlineScalarBinding bindings[INLINE_SCALAR_BINDING_LIMIT];
     size_t binding_count = 0u;
@@ -1455,7 +1475,9 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         return false;
     }
     if (!collect_inline_scalar_body(function->func_body, operations,
-                                    &operation_count, &returned)) {
+                                    &operation_count, &returned,
+                                    &branch_condition, &branch_true,
+                                    &branch_false)) {
         return false;
     }
     parameters = function->func_params;
@@ -1546,10 +1568,42 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         bindings[local_binding].argument = value;
         bindings[local_binding].uses = 0u;
     }
-    if (!returned || !type_is_scalar(returned->type) ||
-        !type_is_compatible(returned->type, expression->type) ||
-        !inline_scalar_expression_shape(returned, bindings, binding_count) ||
-        expression_has_side_effect(returned)) {
+    if (branch_condition) {
+        Expr* condition_value;
+        Expr* true_value;
+        Expr* false_value;
+        Expr* conditional_return;
+        if (returned || !branch_true || !branch_false ||
+            !type_is_scalar(branch_true->type) ||
+            !type_is_compatible(branch_true->type, branch_false->type) ||
+            !type_is_compatible(branch_true->type, expression->type) ||
+            !inline_scalar_expression_shape(
+                branch_condition, bindings, binding_count) ||
+            !inline_scalar_expression_shape(
+                branch_true, bindings, binding_count) ||
+            !inline_scalar_expression_shape(
+                branch_false, bindings, binding_count) ||
+            expression_has_side_effect(branch_condition) ||
+            expression_has_side_effect(branch_true) ||
+            expression_has_side_effect(branch_false)) {
+            return false;
+        }
+        condition_value = clone_inline_scalar_expression(
+            branch_condition, bindings, binding_count);
+        true_value = clone_inline_scalar_expression(
+            branch_true, bindings, binding_count);
+        false_value = clone_inline_scalar_expression(
+            branch_false, bindings, binding_count);
+        if (!condition_value || !true_value || !false_value) return false;
+        conditional_return = expr_cond(
+            condition_value, true_value, false_value, branch_condition->loc);
+        conditional_return->type = branch_true->type;
+        returned = conditional_return;
+    } else if (!returned || !type_is_scalar(returned->type) ||
+               !type_is_compatible(returned->type, expression->type) ||
+               !inline_scalar_expression_shape(
+                   returned, bindings, binding_count) ||
+               expression_has_side_effect(returned)) {
         return false;
     }
     for (index = 0u; index < binding_count; ++index) {

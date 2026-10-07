@@ -216,6 +216,31 @@ int inlined_local_snapshot_before_mutation_call(int value)
     return inline_local_snapshot_before_mutation(value);
 }
 
+static int inline_statement_conditional_return(int value)
+{
+    if (value == 0) return 13;
+    else return 100 / value;
+}
+
+int inlined_statement_conditional_return_call(int value)
+{
+    return inline_statement_conditional_return(value);
+}
+
+static int inline_nested_conditional_return(int value)
+{
+    if (value < 0) {
+        return -value;
+    } else {
+        return value + 2;
+    }
+}
+
+int preserved_nested_conditional_return_call(int value)
+{
+    return inline_nested_conditional_return(value);
+}
+
 static int inline_local_mutation_side_effect(int* value)
 {
     int result = *value;
