@@ -1590,7 +1590,8 @@ static void codegen_defer_static_local_cleanup(Module* mod,
     char* callback_name;
     if (!mod || !declaration || !declaration->var_cleanups ||
         (!declaration->var_reference_temporary_owner &&
-         !declaration->var_is_thread_local)) {
+         !declaration->var_is_thread_local &&
+         !declaration->var_is_static_local)) {
         return;
     }
     for (cleanup = mod->static_local_cleanups; cleanup;
@@ -1655,7 +1656,8 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
         }
     }
     if (!declaration->var_reference_temporary_owner &&
-        declaration->var_is_thread_local) {
+        (declaration->var_is_thread_local ||
+         declaration->var_reference_temporary_guard)) {
         if (!codegen_emit_static_initializer_guard_storage(
                 mod, declaration)) {
             return false;
@@ -1689,7 +1691,7 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
         mod->tls.size = (size_t)aligned + size;
         if (alignment > mod->tls_align) mod->tls_align = alignment;
         declaration->var_offset = offset;
-        declaration->var_tls_initializer_dynamic = false;
+        declaration->var_dynamic_initializer = false;
         if (declaration->var_init &&
             !declaration->var_reference_temporary_owner &&
             !codegen_emit_tls_initializer(
@@ -1699,7 +1701,7 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
                  codegen_runtime_global_constructor(
                      declaration->type, declaration->var_init))) {
                 memset(mod->tls.data + offset, 0, size);
-                declaration->var_tls_initializer_dynamic = true;
+                declaration->var_dynamic_initializer = true;
             } else {
                 rcc_error(declaration->loc,
                           "unsupported static local TLS initializer for '%s'",
@@ -1755,12 +1757,22 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     }
     if (size) emit_data(mod, zero, size);
     declaration->var_offset = offset;
+    declaration->var_dynamic_initializer = false;
     if (!codegen_emit_static_initializer(
             mod, declaration->type, declaration->var_init, offset)) {
-        rcc_error(declaration->loc,
-                  "static local initializer for '%s' is not a constant address or expression",
-                  declaration->name);
-        return false;
+        if (declaration->var_reference_temporary_guard &&
+            (codegen_runtime_global_scalar(declaration->type) ||
+             codegen_runtime_global_constructor(
+                 declaration->type, declaration->var_init))) {
+            size = (uint32_t)declaration->type->size;
+            memset(mod->data.data + offset, 0, size);
+            declaration->var_dynamic_initializer = true;
+        } else {
+            rcc_error(declaration->loc,
+                      "static local initializer for '%s' is not a supported constant or guarded runtime initializer",
+                      declaration->name);
+            return false;
+        }
     }
     codegen_add_vtable_pointer(mod, MODULE_SYMBOL_DATA, offset,
                                declaration->type);
@@ -1890,7 +1902,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             mod->tls.size = (size_t)aligned + size;
             if (alignment > mod->tls_align) mod->tls_align = alignment;
             declaration->var_offset = offset;
-            declaration->var_tls_initializer_dynamic = false;
+            declaration->var_dynamic_initializer = false;
             if (declaration->var_init &&
                 !declaration->var_reference_temporary_owner &&
                 !codegen_emit_tls_initializer(
@@ -1900,7 +1912,7 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
                      codegen_runtime_global_constructor(
                          declaration->type, declaration->var_init))) {
                     memset(mod->tls.data + offset, 0, size);
-                    declaration->var_tls_initializer_dynamic = true;
+                    declaration->var_dynamic_initializer = true;
                 } else {
                     rcc_error(declaration->loc,
                               "unsupported thread-local initializer for '%s'",
@@ -3588,7 +3600,7 @@ static void gen_shift_integer64_from_stack(Module* mod, Expr* lhs,
 static void gen_expr_as_type(Module* mod, Expr* expr, Type* target_type);
 static void gen_call(Module* mod, Expr* expr);
 static void gen_lvalue(Module* mod, Expr* expr);
-static bool gen_static_local_reference_initializer32(
+static bool gen_guarded_static_initializer32(
     Module* mod, Decl* declaration);
 static void gen_cxx_reference_adjustment32(Module* mod, Expr* expression);
 static void codegen_push_call_temporary_cleanup32(
@@ -6687,10 +6699,10 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_VAR &&
                 decl->var_reference_temporary_guard &&
-                decl->var_is_thread_local &&
-                !gen_static_local_reference_initializer32(mod, decl)) {
+                (decl->var_is_thread_local || decl->var_is_static_local) &&
+                !gen_guarded_static_initializer32(mod, decl)) {
                 rcc_error(expr->loc,
-                          "cannot initialize thread-local object for '%s'",
+                          "cannot initialize guarded static object '%s'",
                           decl->name);
             }
             if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
@@ -15095,7 +15107,7 @@ static void codegen_register_static_local_cleanup32(
     }
 }
 
-static bool gen_static_local_reference_initializer32(
+static bool gen_guarded_static_initializer32(
     Module* mod, Decl* declaration) {
     Decl* guard = declaration
         ? declaration->var_reference_temporary_guard : NULL;
@@ -15130,11 +15142,11 @@ static bool gen_static_local_reference_initializer32(
                       declaration->name);
             return false;
         }
-    } else if (declaration->var_tls_initializer_dynamic &&
+    } else if (declaration->var_dynamic_initializer &&
                declaration->var_init &&
                !gen_global_initializer32(mod, declaration)) {
         rcc_error(declaration->loc,
-                  "cannot initialize thread-local object '%s'",
+                  "cannot initialize guarded static-duration object '%s'",
                   declaration->name);
         return false;
     }
@@ -15827,7 +15839,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             Decl* d = stmt->decl;
             if (d->kind == DECL_VAR && d->var_is_static_local &&
                 d->var_reference_temporary_guard) {
-                if (!gen_static_local_reference_initializer32(mod, d)) {
+                if (!gen_guarded_static_initializer32(mod, d)) {
                     rcc_error(d->loc,
                               "cannot initialize static object for '%s'",
                               d->name);

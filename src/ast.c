@@ -1076,7 +1076,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_reference_temporary_owner = NULL;
     d->var_reference_temporary_source = NULL;
     d->var_reference_temporary_guard = NULL;
-    d->var_tls_initializer_dynamic = false;
+    d->var_dynamic_initializer = false;
     d->var_vla_size_offset = 0;
     d->var_vla_extent_offset = 0;
     d->var_vla_extent_count = 0;

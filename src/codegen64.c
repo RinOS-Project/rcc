@@ -879,7 +879,7 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 
 static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_lvalue(Module* mod, Expr* expr);
-static bool gen64_static_local_reference_initializer(
+static bool gen64_guarded_static_initializer(
     Module* mod, Decl* declaration);
 static void gen64_cxx_typeid(Module* mod, Expr* expr);
 static void gen64_cxx_reference_adjustment(Module* mod, Expr* expression);
@@ -4074,10 +4074,10 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             }
             if (decl->kind == DECL_VAR &&
                 decl->var_reference_temporary_guard &&
-                decl->var_is_thread_local &&
-                !gen64_static_local_reference_initializer(mod, decl)) {
+                (decl->var_is_thread_local || decl->var_is_static_local) &&
+                !gen64_guarded_static_initializer(mod, decl)) {
                 rcc_error(expr->loc,
-                          "cannot initialize thread-local object for '%s'",
+                          "cannot initialize guarded static object '%s'",
                           decl->name);
             }
             if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
@@ -8859,7 +8859,7 @@ static void gen64_register_static_local_cleanup(
     emit64_label(mod, registered);
 }
 
-static bool gen64_static_local_reference_initializer(
+static bool gen64_guarded_static_initializer(
     Module* mod, Decl* declaration) {
     Decl* guard = declaration
         ? declaration->var_reference_temporary_guard : NULL;
@@ -8893,11 +8893,11 @@ static bool gen64_static_local_reference_initializer(
                       declaration->name);
             return false;
         }
-    } else if (declaration->var_tls_initializer_dynamic &&
+    } else if (declaration->var_dynamic_initializer &&
                declaration->var_init &&
                !gen64_global_initializer(mod, declaration)) {
         rcc_error(declaration->loc,
-                  "cannot initialize thread-local object '%s'",
+                  "cannot initialize guarded static-duration object '%s'",
                   declaration->name);
         return false;
     }
@@ -10556,7 +10556,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             Decl* d = stmt->decl;
             if (d->kind == DECL_VAR && d->var_is_static_local &&
                 d->var_reference_temporary_guard) {
-                if (!gen64_static_local_reference_initializer(mod, d)) {
+                if (!gen64_guarded_static_initializer(mod, d)) {
                     rcc_error(d->loc,
                               "cannot initialize static object for '%s'",
                               d->name);
