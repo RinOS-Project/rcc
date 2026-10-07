@@ -11956,6 +11956,99 @@ int codegen_required_local_bytes(Stmt* statement) {
     }
 }
 
+static void codegen_assign_local_vla_extent_stmt(Stmt* statement,
+                                                 int* stack_bytes,
+                                                 int word_size) {
+    if (!statement || !stack_bytes || *stack_bytes == INT_MAX) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                codegen_assign_local_vla_extent_stmt(item->stmt, stack_bytes,
+                                                       word_size);
+            }
+            break;
+        case STMT_IF:
+            codegen_assign_local_vla_extent_stmt(statement->if_then,
+                                                  stack_bytes, word_size);
+            codegen_assign_local_vla_extent_stmt(statement->if_else,
+                                                  stack_bytes, word_size);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            codegen_assign_local_vla_extent_stmt(statement->while_body,
+                                                  stack_bytes, word_size);
+            break;
+        case STMT_FOR:
+            codegen_assign_local_vla_extent_stmt(statement->for_init,
+                                                  stack_bytes, word_size);
+            codegen_assign_local_vla_extent_stmt(statement->for_body,
+                                                  stack_bytes, word_size);
+            break;
+        case STMT_SWITCH:
+            codegen_assign_local_vla_extent_stmt(statement->switch_body,
+                                                  stack_bytes, word_size);
+            break;
+        case STMT_CASE:
+            codegen_assign_local_vla_extent_stmt(statement->case_stmt,
+                                                  stack_bytes, word_size);
+            break;
+        case STMT_DEFAULT:
+            codegen_assign_local_vla_extent_stmt(statement->default_stmt,
+                                                  stack_bytes, word_size);
+            break;
+        case STMT_LABEL:
+            codegen_assign_local_vla_extent_stmt(statement->label_stmt,
+                                                  stack_bytes, word_size);
+            break;
+        case STMT_TRY:
+            codegen_assign_local_vla_extent_stmt(statement->try_body,
+                                                  stack_bytes, word_size);
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                codegen_assign_local_vla_extent_stmt(handler->body,
+                                                      stack_bytes, word_size);
+            }
+            break;
+        case STMT_DECL: {
+            Decl* declaration = statement->decl;
+            int dimensions;
+            int64_t aligned_bytes;
+            int64_t extent;
+            if (!declaration || declaration->kind != DECL_VAR ||
+                declaration->var_is_global || declaration->var_is_vla ||
+                declaration->var_vla_extent_count > 0 ||
+                !codegen_type_has_vla_any(declaration->type)) {
+                break;
+            }
+            dimensions = codegen_vla_dimension_count(declaration->type);
+            aligned_bytes = ((int64_t)*stack_bytes + word_size - 1) /
+                            word_size * word_size;
+            extent = aligned_bytes + (int64_t)dimensions * word_size;
+            if (dimensions <= 0 || extent > INT_MAX) {
+                rcc_error(declaration->loc,
+                          "function stack frame exceeds compiler limits");
+                *stack_bytes = INT_MAX;
+                break;
+            }
+            declaration->var_vla_extent_offset = -(int)extent;
+            declaration->var_vla_extent_count = dimensions;
+            *stack_bytes = (int)extent;
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+int codegen_assign_local_vla_extent_slots(Stmt* statement, int initial_bytes,
+                                          int word_size) {
+    int stack_bytes = initial_bytes < 0 ? INT_MAX : initial_bytes;
+    if (word_size != 4 && word_size != 8) return stack_bytes;
+    codegen_assign_local_vla_extent_stmt(statement, &stack_bytes, word_size);
+    return stack_bytes;
+}
+
 static bool codegen_stmt_owns_vla(Stmt* statement) {
     if (!statement) return false;
     if (statement->kind == STMT_BLOCK) {
@@ -13953,6 +14046,11 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
             Decl* d = stmt->decl;
             if (d->kind == DECL_VAR &&
                 (d->var_is_static_local || d->var_is_block_extern)) break;
+            if (d->kind == DECL_VAR && !d->var_is_vla &&
+                d->var_vla_extent_count > 0) {
+                int extent_slot = 0;
+                gen_vla_extents(mod, d->type, d, &extent_slot);
+            }
             if (d->kind == DECL_VAR && d->var_is_vla) {
                 gen_vla_alloc(mod, d);
                 record_vla_scope(d);
@@ -14056,6 +14154,8 @@ static void gen_function(Module* mod, Decl* decl) {
     if (!decl->func_body) return;
 
     stack_size = codegen_required_local_bytes(decl->func_body);
+    stack_size = codegen_assign_local_vla_extent_slots(
+        decl->func_body, stack_size, 4);
     stack_size = codegen_assign_compound_storage(decl->func_body, stack_size,
                                                  4);
     frame_alignment = codegen_required_frame_alignment(decl->func_body);

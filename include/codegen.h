@@ -244,6 +244,8 @@ void codegen_add_fini_array_entry(Module* mod, const char* symbol);
 void codegen_emit_global_data(Module* mod, AST* ast);
 void codegen_emit_cxx_vtables(Module* mod);
 int codegen_required_local_bytes(Stmt* statement);
+int codegen_assign_local_vla_extent_slots(Stmt* statement, int initial_bytes,
+                                          int word_size);
 int codegen_assign_compound_storage(Stmt* statement, int initial_bytes,
                                     int stack_alignment);
 

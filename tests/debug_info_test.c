@@ -682,14 +682,15 @@ static void verify_multidimensional_vla_type(const ObjSection* info,
     assert(found);
 }
 
-static void verify_vla_parameter_type(const ObjSection* info,
-                                      const ObjSection* strings,
-                                      const char* parameter_name,
-                                      uint16_t architecture)
+static void verify_vla_pointer_type(const ObjSection* info,
+                                    const ObjSection* strings,
+                                    const char* variable_name,
+                                    uint8_t variable_abbreviation,
+                                    uint16_t architecture)
 {
     bool found = false;
     uint8_t frame_register = architecture == ARCH_X64 ? 0x76u : 0x75u;
-    assert(info != NULL && strings != NULL && parameter_name != NULL);
+    assert(info != NULL && strings != NULL && variable_name != NULL);
     for (uint64_t die = 11u; die + 9u < info->size; ++die) {
         uint32_t name_offset;
         uint32_t pointer_type_offset;
@@ -699,11 +700,11 @@ static void verify_vla_parameter_type(const ObjSection* info,
         uint64_t element_size;
         int64_t frame_offset;
         uint8_t expression_size;
-        if (info->data[die] != 3u) continue;
+        if (info->data[die] != variable_abbreviation) continue;
         name_offset = read_u32(info->data, die + 1u);
         if (name_offset >= strings->size ||
             strcmp((const char*)strings->data + name_offset,
-                   parameter_name) != 0) {
+                   variable_name) != 0) {
             continue;
         }
         pointer_type_offset = read_u32(info->data, die + 5u);
@@ -1381,10 +1382,15 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         verify_vla_variable_location(info, strings, architecture);
         verify_vla_bound_dies(info, abbrev, architecture);
         verify_multidimensional_vla_type(info, strings);
-        verify_vla_parameter_type(info, strings,
-                                  "debug_vla_parameter_values", architecture);
-        verify_vla_parameter_type(info, strings,
-                                  "debug_vla_pointer_values", architecture);
+        verify_vla_pointer_type(info, strings,
+                                "debug_vla_parameter_values", 3u,
+                                architecture);
+        verify_vla_pointer_type(info, strings,
+                                "debug_vla_pointer_values", 3u,
+                                architecture);
+        verify_vla_pointer_type(info, strings,
+                                "debug_vla_local_pointer_values", 4u,
+                                architecture);
         verify_global_variable(info, strings, "debug_global_data",
                                "debug_global_data",
                                "debug_global_data",

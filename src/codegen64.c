@@ -9426,6 +9426,11 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
             Decl* d = stmt->decl;
             if (d->kind == DECL_VAR &&
                 (d->var_is_static_local || d->var_is_block_extern)) break;
+            if (d->kind == DECL_VAR && !d->var_is_vla &&
+                d->var_vla_extent_count > 0) {
+                int extent_slot = 0;
+                gen64_vla_extents(mod, d->type, d, &extent_slot);
+            }
             if (d->kind == DECL_VAR && d->var_is_vla) {
                 gen64_vla_alloc(mod, d);
                 record64_vla_scope(d);
@@ -9674,6 +9679,8 @@ static void gen64_function(Module* mod, Decl* decl) {
         }
         stack_size = (int)parameter_frame_size;
     }
+    stack_size = codegen_assign_local_vla_extent_slots(
+        decl->func_body, stack_size, 8);
     stack_size = codegen_assign_compound_storage(decl->func_body, stack_size,
                                                  8);
     if (stack_size > INT_MAX - 15) {

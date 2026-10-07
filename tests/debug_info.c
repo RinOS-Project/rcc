@@ -91,6 +91,13 @@ int debug_vla_pointer_parameter(
     return (*debug_vla_pointer_values)[0];
 }
 
+int debug_vla_local_pointer(int count, int values[count])
+{
+    int (*debug_vla_local_pointer_values)[count] =
+        (int (*)[count])values;
+    return (*debug_vla_local_pointer_values)[0];
+}
+
 #line 100
 int debug_statement_lines(int value)
 {
