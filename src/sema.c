@@ -7314,6 +7314,26 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
             ? (declaration->var_init->type
                    ? declaration->var_init->type->base : NULL)
             : declaration->var_init->type;
+        if (materialized_xvalue_source && object_type &&
+            materialized_xvalue_source->type &&
+            (materialized_xvalue_source->type->kind == TYPE_STRUCT ||
+             materialized_xvalue_source->type->kind == TYPE_UNION) &&
+            (object_type->kind == TYPE_STRUCT ||
+             object_type->kind == TYPE_UNION) &&
+            !type_is_compatible(materialized_xvalue_source->type,
+                                object_type)) {
+            int virtual_index;
+            int nested_adjustment;
+            if (sema_cxx_unique_public_base(
+                    materialized_xvalue_source->type, object_type, NULL) ||
+                sema_cxx_virtual_object_conversion(
+                    materialized_xvalue_source->type, object_type,
+                    &virtual_index, &nested_adjustment)) {
+                /* A reference cast to a base subobject does not change the
+                 * complete temporary's type or destructor sequence. */
+                object_type = materialized_xvalue_source->type;
+            }
+        }
         reference_temporary = object_type &&
             !declaration->var_is_global &&
             !declaration->var_is_static_local &&

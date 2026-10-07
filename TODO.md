@@ -327,6 +327,10 @@
         exactly once through local initialization and reference-parameter calls.
         Verify both target codegens and x64 execution, including diamond layout
         and destructor ordering, in `test-cxx-function-template-references`.
+  - [ ] Preserve the complete derived temporary when an explicit
+        `static_cast<Base&&>` binds to a public non-virtual or virtual base;
+        sema now retains the source class and both backends use the recorded
+        base adjustment, but this path has not been regression-tested.
   - [x] Deduce local `auto&&` bindings from both lvalue and xvalue initializers,
         preserve aliasing through reference collapsing, and verify i686/AMD64
         code generation plus x64 execution in `test-cxx-function-template-references`.
