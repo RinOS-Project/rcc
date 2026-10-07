@@ -7857,7 +7857,6 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
             sema_cxx_reference_temporary_source(declaration->var_init);
         if ((declaration->var_is_global ||
              declaration->var_is_static_local) &&
-            !declaration->var_is_thread_local &&
             is_xvalue(declaration->var_init)) {
             static_xvalue_has_temporary =
                 sema_cxx_static_reference_has_temporary_source(
@@ -7878,12 +7877,6 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         }
         prvalue_initializer = !is_lvalue(declaration->var_init) &&
                               !is_xvalue(declaration->var_init);
-        if ((prvalue_initializer || materialized_xvalue_source) &&
-            declaration->var_is_thread_local) {
-            rcc_error(declaration->loc,
-                      "thread-local reference temporary lifetime is unsupported");
-            return;
-        }
         object_type = static_xvalue_source
             ? static_xvalue_source->type
             : materialized_xvalue_source
@@ -7915,6 +7908,12 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
             !declaration->var_is_block_extern &&
             (prvalue_initializer || materialized_xvalue_source ||
              static_xvalue_source);
+        if (declaration->var_is_thread_local && object_type &&
+            !declaration->var_is_block_extern &&
+            (prvalue_initializer || materialized_xvalue_source ||
+             static_xvalue_source)) {
+            static_reference_temporary = true;
+        }
         reference_temporary = object_type &&
             (static_reference_temporary ||
              (!declaration->var_is_global &&
@@ -7942,7 +7941,7 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
           declaration->storage == STORAGE_EXTERN))) {
         return;
     }
-    if (declaration->var_is_thread_local &&
+    if (declaration->var_is_thread_local && !static_reference_temporary &&
         sema_cxx_type_has_destructor_cleanup(object_type, 0)) {
         rcc_error(declaration->loc,
                   "thread-local destructor registration is unsupported");
@@ -7990,7 +7989,9 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
             owner->link_name = owner_name;
             owner->storage = STORAGE_STATIC;
             owner->var_is_global = true;
-            if (declaration->var_is_static_local) {
+            owner->var_is_thread_local = declaration->var_is_thread_local;
+            if (declaration->var_is_static_local ||
+                declaration->var_is_thread_local) {
                 const char* guard_name = sema_reference_temporary_symbol(
                     declaration, "$rcc_reference_guard");
                 if (!guard_name) {
@@ -8008,6 +8009,8 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                     STORAGE_STATIC;
                 declaration->var_reference_temporary_guard->var_is_global =
                     true;
+                declaration->var_reference_temporary_guard->var_is_thread_local =
+                    declaration->var_is_thread_local;
             }
         }
         declaration->var_reference_temporary_owner = owner;

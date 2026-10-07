@@ -18,6 +18,7 @@
 static int label_counter64 = 0;
 static Expr* active_static_reference_result_call64 = NULL;
 static const char* active_static_reference_result_symbol64 = NULL;
+static Decl* active_static_reference_result_decl64 = NULL;
 
 static const char* codegen_cxx_vbase_variant_symbol(CxxClass* owner,
                                                      bool is_virtual_base,
@@ -878,6 +879,8 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 
 static void gen64_expr(Module* mod, Expr* expr);
 static void gen64_lvalue(Module* mod, Expr* expr);
+static bool gen64_static_local_reference_initializer(
+    Module* mod, Decl* declaration);
 static void gen64_cxx_typeid(Module* mod, Expr* expr);
 static void gen64_cxx_reference_adjustment(Module* mod, Expr* expression);
 static void gen64_cxx_dynamic_cast_runtime(Module* mod, Expr* expr);
@@ -4029,6 +4032,15 @@ static void gen64_tls_address(Module* mod, const char* symbol) {
     }
 }
 
+static void gen64_decl_storage_address(
+    Module* mod, const Decl* declaration) {
+    if (declaration && declaration->var_is_thread_local) {
+        gen64_tls_address(mod, decl_link_name(declaration));
+    } else if (declaration) {
+        gen64_symbol_address(mod, decl_link_name(declaration), 0u);
+    }
+}
+
 static bool gen64_inline_method_address(Module* mod, Expr* expr);
 
 /* Generate lvalue address in RAX */
@@ -4059,6 +4071,14 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 rcc_error(expr->loc,
                           "identifier has no semantic declaration in AMD64 code generation");
                 return;
+            }
+            if (decl->kind == DECL_VAR &&
+                decl->var_reference_temporary_guard &&
+                decl->var_is_thread_local &&
+                !gen64_static_local_reference_initializer(mod, decl)) {
+                rcc_error(expr->loc,
+                          "cannot initialize thread-local reference temporary for '%s'",
+                          decl->name);
             }
             if (decl->kind == DECL_VAR && decl->var_is_thread_local) {
                 gen64_tls_address(mod, decl_link_name(decl));
@@ -7380,8 +7400,13 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             if (memory_result) {
                 if (expr == active_static_reference_result_call64 &&
                     active_static_reference_result_symbol64) {
-                    gen64_symbol_address(
-                        mod, active_static_reference_result_symbol64, 0u);
+                    if (active_static_reference_result_decl64) {
+                        gen64_decl_storage_address(
+                            mod, active_static_reference_result_decl64);
+                    } else {
+                        gen64_symbol_address(
+                            mod, active_static_reference_result_symbol64, 0u);
+                    }
                     emit64_mov_reg_reg(mod, RDI, RAX);
                 } else {
                     emit64_lea(mod, RDI, RBP, expr->call_result_offset);
@@ -7832,8 +7857,7 @@ static void gen64_call_temporary_cleanup(
         if (cleanup->exception_registered) {
             gen64_cxx_guard_exception_unregister(mod, cleanup);
         }
-        gen64_symbol_address(mod,
-                             decl_link_name(cleanup->guard_abort), 0u);
+        gen64_decl_storage_address(mod, cleanup->guard_abort);
         emit64_mov_reg_reg(mod, RDI, RAX);
         gen64_cxx_exception_call(mod, "__cxa_guard_abort");
         return;
@@ -7956,7 +7980,7 @@ static void gen64_cxx_guard_exception_register(
         cleanup->exception_frame_offset == INT_MAX) {
         return;
     }
-    gen64_symbol_address(mod, decl_link_name(cleanup->guard_abort), 0u);
+    gen64_decl_storage_address(mod, cleanup->guard_abort);
     emit64_mov_reg_reg(mod, RDX, RAX); /* guard object */
     gen64_symbol_address(mod, "__cxa_guard_abort", 0u);
     emit64_mov_reg_reg(mod, RSI, RAX); /* cleanup callback */
@@ -7972,7 +7996,7 @@ static void gen64_cxx_guard_exception_unregister(
         cleanup->exception_frame_offset == INT_MAX) {
         return;
     }
-    gen64_symbol_address(mod, decl_link_name(cleanup->guard_abort), 0u);
+    gen64_decl_storage_address(mod, cleanup->guard_abort);
     emit64_mov_reg_reg(mod, RDX, RAX); /* guard object */
     gen64_symbol_address(mod, "__cxa_guard_abort", 0u);
     emit64_mov_reg_reg(mod, RSI, RAX); /* cleanup callback */
@@ -8556,7 +8580,7 @@ static bool gen64_global_initializer(Module* mod, Decl* declaration) {
         emit64_normalize_atomic_value(mod, RAX, type);
     }
     emit64_push_reg(mod, RAX);
-    gen64_symbol_address(mod, decl_link_name(declaration), 0u);
+    gen64_decl_storage_address(mod, declaration);
     emit64_mov_reg_reg(mod, RCX, RAX);
     emit64_pop_reg(mod, RAX);
     emit64_store_typed(mod, RCX, 0, RAX, type);
@@ -8598,7 +8622,7 @@ static bool gen64_static_reference_aggregate_into_owner(
     }
     if (expression->kind == EXPR_COMPOUND) {
         if (expression->compound_constructor && type->cxx_class) {
-            gen64_symbol_address(mod, decl_link_name(owner), 0u);
+            gen64_decl_storage_address(mod, owner);
             emit64_mov_reg_reg(mod, RCX, RAX);
             gen64_cxx_initialize_object(
                 mod, type, expression->compound_constructor,
@@ -8624,11 +8648,14 @@ static bool gen64_static_reference_aggregate_into_owner(
                gen64_classify_aggregate(type).memory) {
         Expr* old_call = active_static_reference_result_call64;
         const char* old_symbol = active_static_reference_result_symbol64;
+        Decl* old_decl = active_static_reference_result_decl64;
         active_static_reference_result_call64 = expression;
         active_static_reference_result_symbol64 = decl_link_name(owner);
+        active_static_reference_result_decl64 = owner;
         gen64_expr(mod, expression);
         active_static_reference_result_call64 = old_call;
         active_static_reference_result_symbol64 = old_symbol;
+        active_static_reference_result_decl64 = old_decl;
         return true;
     } else if (gen64_expr_is_lvalue(expression) ||
                gen64_expr_is_xvalue(expression)) {
@@ -8640,7 +8667,7 @@ static bool gen64_static_reference_aggregate_into_owner(
         }
     }
     emit64_mov_reg_reg(mod, RDX, RAX);
-    gen64_symbol_address(mod, decl_link_name(owner), 0u);
+    gen64_decl_storage_address(mod, owner);
     emit64_mov_reg_reg(mod, RCX, RAX);
     gen64_copy_memory(mod, RCX, 0, RDX, 0, type->size);
     return true;
@@ -8736,7 +8763,7 @@ static void gen64_static_reference_owner_vtable_init(
         return;
     }
     emit64_push_reg(mod, RBP);
-    gen64_symbol_address(mod, decl_link_name(owner), 0u);
+    gen64_decl_storage_address(mod, owner);
     emit64_mov_reg_reg(mod, RBP, RAX);
     gen64_local_vtable_init(mod, type, 0);
     emit64_pop_reg(mod, RBP);
@@ -8767,7 +8794,7 @@ static bool gen64_static_reference_temporary_initializer(
             emit64_normalize_atomic_value(mod, RAX, type);
         }
         emit64_push_reg(mod, RAX);
-        gen64_symbol_address(mod, decl_link_name(owner), 0u);
+        gen64_decl_storage_address(mod, owner);
         emit64_mov_reg_reg(mod, RCX, RAX);
         emit64_pop_reg(mod, RAX);
         emit64_store_typed(mod, RCX, 0, RAX, type);
@@ -8788,11 +8815,11 @@ static bool gen64_static_reference_temporary_initializer(
         }
         gen64_lvalue(mod, subobject);
     } else {
-        gen64_symbol_address(mod, decl_link_name(owner), 0u);
+        gen64_decl_storage_address(mod, owner);
         gen64_cxx_reference_adjustment_force(mod, initializer);
     }
     emit64_push_reg(mod, RAX);
-    gen64_symbol_address(mod, decl_link_name(declaration), 0u);
+    gen64_decl_storage_address(mod, declaration);
     emit64_mov_reg_reg(mod, RCX, RAX);
     emit64_pop_reg(mod, RAX);
     emit64_store_typed(mod, RCX, 0, RAX, declaration->type);
@@ -8816,12 +8843,13 @@ static void gen64_register_static_local_cleanup(
     if (!cleanup) return;
     gen64_symbol_address(mod, cleanup->callback_name, 0u);
     emit64_mov_reg_reg(mod, RDI, RAX);
-    gen64_symbol_address(
-        mod, decl_link_name(declaration->var_reference_temporary_owner), 0u);
+    gen64_decl_storage_address(
+        mod, declaration->var_reference_temporary_owner);
     emit64_mov_reg_reg(mod, RSI, RAX);
     gen64_symbol_address(mod, "__dso_handle", 0u);
     emit64_mov_reg_reg(mod, RDX, RAX);
-    gen64_cxx_exception_call(mod, "__cxa_atexit");
+    gen64_cxx_exception_call(mod, declaration->var_is_thread_local
+        ? "__cxa_thread_atexit" : "__cxa_atexit");
     emit64_cmp_reg_imm(mod, RAX, 0);
     registered = new_label64();
     emit64_jcc_label(mod, CC64_E, registered);
@@ -8837,7 +8865,7 @@ static bool gen64_static_local_reference_initializer(
     int done;
     if (!mod || !declaration || !guard) return false;
     done = new_label64();
-    gen64_symbol_address(mod, decl_link_name(guard), 0u);
+    gen64_decl_storage_address(mod, guard);
     emit64_mov_reg_reg(mod, RDI, RAX);
     gen64_cxx_exception_call(mod, "__cxa_guard_acquire");
     emit64_test_reg_reg(mod, RAX, RAX);
@@ -8868,7 +8896,7 @@ static bool gen64_static_local_reference_initializer(
         gen64_cxx_guard_exception_unregister(mod, guard_cleanup);
         guard_cleanup->exception_registered = false;
     }
-    gen64_symbol_address(mod, decl_link_name(guard), 0u);
+    gen64_decl_storage_address(mod, guard);
     emit64_mov_reg_reg(mod, RDI, RAX);
     gen64_cxx_exception_call(mod, "__cxa_guard_release");
     active_cleanups64 = guard_cleanup->previous;
@@ -11099,6 +11127,7 @@ Module* rcc_codegen64(AST* ast) {
     label_counter64 = 0;
     active_static_reference_result_call64 = NULL;
     active_static_reference_result_symbol64 = NULL;
+    active_static_reference_result_decl64 = NULL;
     label_refs64 = NULL;
     label_defs64 = NULL;
     func_call_refs64 = NULL;

@@ -381,8 +381,11 @@
         `__cxa_guard_abort` permits a later successful initialization. The
         regression checks cleanup registration and compiles both target
         objects here, but runtime execution still needs a POSIX host.
-  - [ ] Support thread-local reference temporaries and per-thread destructor
-        registration; sema still rejects these bindings.
+  - [ ] Finish thread-local reference temporary acceptance. The i686/AMD64
+        native backends now allocate per-thread owner/guard storage, initialize
+        on first use, and register cleanup with `__cxa_thread_atexit`; `build-rcc`
+        and `build-rcxx` pass. Keep open until per-thread lifetime regressions
+        and RinOS thread-exit runtime integration are exercised.
   - [x] Extend static-duration lifetime through direct member subobjects and
         explicit derived-to-base xvalue bindings, including virtual bases and
         class-prvalue sources selected by comma/conditional expressions.

@@ -1,3 +1,8 @@
+2026-10-08: Both native backends now lower static reference temporaries in
+thread-local storage with per-thread lazy guards and `__cxa_thread_atexit`
+cleanup registration. `build-rcc` and `build-rcxx` pass. Per-thread lifetime
+regressions and RinOS thread-exit runtime integration remain open in [TODO](TODO.md).
+
 # rcc / rcc++ / aqc
 
 RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・アーカイバです。
