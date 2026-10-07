@@ -345,15 +345,25 @@
         for exceptions in a protected scope. The dedicated regression passed
         i686 PE object generation and x64 host execution, checking scalar
         initialization exactly once and reverse-order exactly-once class
-        destruction. `test-cxx` also passed. Exception retry execution and
-        RinOS runtime integration remain unverified.
-  - [ ] Execute a throwing block-static reference initializer, catch the
-        exception, and verify `__cxa_guard_abort` permits a later successful
-        initialization and exactly-once cleanup.
+        destruction. The earlier `test-cxx` suite passed; after adding the
+        static subobject cases, the three focused static-reference targets
+        pass independently. RinOS runtime integration remains unverified.
+  - [ ] Run `test-cxx-static-reference-retry` to execute a throwing block-static
+        reference initializer, catch the exception, and verify
+        `__cxa_guard_abort` permits a later successful initialization. The
+        regression checks cleanup registration and compiles both target
+        objects here, but runtime execution still needs a POSIX host.
   - [ ] Support thread-local reference temporaries and per-thread destructor
         registration; sema still rejects these bindings.
-  - [ ] Extend static-duration lifetime through converted class xvalues and
-        class subobjects; converted class xvalues still diagnose unsupported.
+  - [x] Extend static-duration lifetime through direct member subobjects and
+        explicit derived-to-base xvalue bindings, including virtual bases and
+        class-prvalue sources selected by comma/conditional expressions.
+        `test-cxx-static-reference-subobjects` verifies full-object destructor
+        order, exactly-once cleanup, and source-expression side effects on
+        i686/AMD64 generation and x64 host execution.
+  - [ ] Extend static-duration reference lifetime to user-defined conversion
+        results and pointer-to-member-selected subobjects; these paths do not
+        yet have complete sema/codegen coverage.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference

@@ -1235,6 +1235,88 @@ static Expr* sema_cxx_reference_temporary_source(Expr* expression) {
     return sema_cxx_reference_temporary_source(source);
 }
 
+/* Find the complete class prvalue whose lifetime is extended through a
+ * static reference binding.  A reference to an xvalue member keeps the
+ * complete temporary alive, and the owner may be wrapped in a direct
+ * rvalue-reference cast, comma expression, or same-type conditional. */
+static Expr* sema_cxx_static_reference_temporary_source(Expr* expression) {
+    Type* type;
+    if (!expression) return NULL;
+    type = expression->type;
+    if (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    if (type && (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        !is_lvalue(expression) && !is_xvalue(expression)) {
+        return expression;
+    }
+    if (expression->kind == EXPR_CAST && expression->cast_type &&
+        expression->cast_type->is_reference &&
+        expression->cast_type->is_rvalue_reference) {
+        return sema_cxx_static_reference_temporary_source(
+            expression->cast_expr);
+    }
+    if (expression->kind == EXPR_MEMBER &&
+        expression->cxx_member_xvalue) {
+        return sema_cxx_static_reference_temporary_source(
+            expression->member_base);
+    }
+    if (expression->kind == EXPR_COMMA && !is_lvalue(expression)) {
+        Expr* right = sema_cxx_static_reference_temporary_source(
+            expression->binary_rhs);
+        return right ? expression : NULL;
+    }
+    if (expression->kind == EXPR_COND &&
+        expression->cxx_conditional_xvalue && type &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION)) {
+        Expr* then_source = sema_cxx_static_reference_temporary_source(
+            expression->cond_then);
+        Expr* else_source = sema_cxx_static_reference_temporary_source(
+            expression->cond_else);
+        Type* then_type = then_source ? then_source->type : NULL;
+        Type* else_type = else_source ? else_source->type : NULL;
+        if (then_type && then_type->kind == TYPE_PTR &&
+            then_type->is_reference) then_type = then_type->base;
+        if (else_type && else_type->kind == TYPE_PTR &&
+            else_type->is_reference) else_type = else_type->base;
+        if (then_source && else_source && then_type && else_type &&
+            type_is_compatible(then_type, else_type) &&
+            then_type->is_const == else_type->is_const &&
+            then_type->is_volatile == else_type->is_volatile) {
+            return expression;
+        }
+    }
+    return NULL;
+}
+
+static bool sema_cxx_reference_subobject_path(Expr* expression,
+                                               Expr* complete_object) {
+    if (!expression || !complete_object || expression == complete_object) {
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_MEMBER:
+            if (expression->member_base == complete_object) return true;
+            return sema_cxx_reference_subobject_path(
+                expression->member_base, complete_object);
+        case EXPR_CAST:
+            return sema_cxx_reference_subobject_path(
+                expression->cast_expr, complete_object);
+        case EXPR_COMMA:
+            return sema_cxx_reference_subobject_path(
+                       expression->binary_lhs, complete_object) ||
+                   sema_cxx_reference_subobject_path(
+                       expression->binary_rhs, complete_object);
+        case EXPR_COND:
+            return sema_cxx_reference_subobject_path(
+                       expression->cond_then, complete_object) ||
+                   sema_cxx_reference_subobject_path(
+                       expression->cond_else, complete_object);
+        default:
+            return false;
+    }
+}
+
 static bool sema_cxx_same_glvalue_type(Type* left, Type* right,
                                        unsigned depth) {
     if (!left || !right || depth > 64u ||
@@ -7432,6 +7514,8 @@ static const char* sema_reference_temporary_symbol(
 static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     Expr* object;
     Expr* materialized_xvalue_source = NULL;
+    Expr* static_xvalue_source = NULL;
+    Expr* static_subobject_source = NULL;
     Type* object_type;
     bool reference_temporary = false;
     bool static_reference_temporary = false;
@@ -7447,6 +7531,19 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         if (!declaration->var_init) return;
         materialized_xvalue_source =
             sema_cxx_reference_temporary_source(declaration->var_init);
+        if ((declaration->var_is_global ||
+             declaration->var_is_static_local) &&
+            !declaration->var_is_thread_local &&
+            is_xvalue(declaration->var_init)) {
+            static_xvalue_source =
+                sema_cxx_static_reference_temporary_source(
+                    declaration->var_init);
+            if (static_xvalue_source &&
+                sema_cxx_reference_subobject_path(
+                    declaration->var_init, static_xvalue_source)) {
+                static_subobject_source = static_xvalue_source;
+            }
+        }
         prvalue_initializer = !is_lvalue(declaration->var_init) &&
                               !is_xvalue(declaration->var_init);
         if ((prvalue_initializer || materialized_xvalue_source) &&
@@ -7455,10 +7552,12 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                       "thread-local reference temporary lifetime is unsupported");
             return;
         }
-        object_type = materialized_xvalue_source
-            ? (declaration->var_init->type
-                   ? declaration->var_init->type->base : NULL)
-            : declaration->var_init->type;
+        object_type = static_xvalue_source
+            ? static_xvalue_source->type
+            : materialized_xvalue_source
+                ? (declaration->var_init->type
+                       ? declaration->var_init->type->base : NULL)
+                : declaration->var_init->type;
         if (materialized_xvalue_source && object_type &&
             materialized_xvalue_source->type &&
             (materialized_xvalue_source->type->kind == TYPE_STRUCT ||
@@ -7482,14 +7581,15 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         static_reference_temporary = object_type &&
             (declaration->var_is_global || declaration->var_is_static_local) &&
             !declaration->var_is_block_extern &&
-            (prvalue_initializer || materialized_xvalue_source);
+            (prvalue_initializer || materialized_xvalue_source ||
+             static_xvalue_source);
         reference_temporary = object_type &&
             (static_reference_temporary ||
              (!declaration->var_is_global &&
               !declaration->var_is_static_local &&
               !declaration->var_is_block_extern &&
               (prvalue_initializer || materialized_xvalue_source)));
-        if (materialized_xvalue_source && object_type &&
+        if (!static_xvalue_source && materialized_xvalue_source && object_type &&
             (object_type->kind == TYPE_STRUCT ||
              object_type->kind == TYPE_UNION) &&
             materialized_xvalue_source->type &&
@@ -7579,6 +7679,8 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
             }
         }
         declaration->var_reference_temporary_owner = owner;
+        declaration->var_reference_temporary_source =
+            static_subobject_source;
         object = expr_ident(owner->name, declaration->loc);
         object->ident_decl = owner;
         object->type = object_type;
@@ -10139,6 +10241,36 @@ static Type* sema_expr(Expr* expr) {
             sema_validate_restrict_type(expr->cast_type, expr->loc);
             expr->type = expr->cast_type;
             expr->cxx_pointer_adjustment_valid = false;
+            if (rcc_parser_is_cxx_mode() && source && expr->cast_type &&
+                expr->cxx_cast_kind == CXX_CAST_STATIC &&
+                expr->cast_type->kind == TYPE_PTR &&
+                expr->cast_type->is_reference &&
+                expr->cast_type->is_rvalue_reference &&
+                expr->cast_type->base) {
+                Type* source_object = source->is_reference
+                    ? source->base : source;
+                Type* target_object = expr->cast_type->base;
+                if (source_object &&
+                    (source_object->kind == TYPE_STRUCT ||
+                     source_object->kind == TYPE_UNION) &&
+                    (target_object->kind == TYPE_STRUCT ||
+                     target_object->kind == TYPE_UNION) &&
+                    !type_is_compatible(source_object, target_object) &&
+                    !sema_cxx_unique_public_base(
+                        source_object, target_object, NULL) &&
+                    !sema_cxx_unique_public_base(
+                        target_object, source_object, NULL)) {
+                    int virtual_index;
+                    int nested_adjustment;
+                    if (!sema_cxx_virtual_object_conversion(
+                            source_object, target_object, &virtual_index,
+                            &nested_adjustment)) {
+                        Type* converted = implicit_cast(
+                            expr->cast_expr, expr->cast_type);
+                        if (converted) source = expr->cast_expr->type;
+                    }
+                }
+            }
             if (expr->cxx_cast_kind == CXX_CAST_DYNAMIC) {
                 int adjustment = 0;
                 bool supported = false;

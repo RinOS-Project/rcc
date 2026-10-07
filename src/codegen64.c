@@ -8558,13 +8558,78 @@ static bool gen64_static_reference_aggregate_into_owner(
     return true;
 }
 
+static Expr* gen64_static_reference_subobject_rebase(
+    Expr* expression, Expr* complete_object, Decl* owner) {
+    Expr* copy;
+    if (!expression || !complete_object || !owner) return NULL;
+    if (expression == complete_object) {
+        Expr* replacement = expr_ident(owner->name, expression->loc);
+        replacement->ident_decl = owner;
+        replacement->type = owner->type;
+        return replacement;
+    }
+    copy = rcc_alloc(sizeof(*copy));
+    *copy = *expression;
+    switch (expression->kind) {
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            copy->member_base = gen64_static_reference_subobject_rebase(
+                expression->member_base, complete_object, owner);
+            if (!copy->member_base) return NULL;
+            return copy;
+        case EXPR_CAST:
+            copy->cast_expr = gen64_static_reference_subobject_rebase(
+                expression->cast_expr, complete_object, owner);
+            if (!copy->cast_expr) return NULL;
+            return copy;
+        case EXPR_COMMA:
+            copy->binary_lhs = gen64_static_reference_subobject_rebase(
+                expression->binary_lhs, complete_object, owner);
+            copy->binary_rhs = gen64_static_reference_subobject_rebase(
+                expression->binary_rhs, complete_object, owner);
+            if (!copy->binary_lhs || !copy->binary_rhs) return NULL;
+            return copy;
+        case EXPR_COND:
+            copy->cond_test = gen64_static_reference_subobject_rebase(
+                expression->cond_test, complete_object, owner);
+            copy->cond_then = gen64_static_reference_subobject_rebase(
+                expression->cond_then, complete_object, owner);
+            copy->cond_else = gen64_static_reference_subobject_rebase(
+                expression->cond_else, complete_object, owner);
+            if (!copy->cond_test || !copy->cond_then || !copy->cond_else) {
+                return NULL;
+            }
+            return copy;
+        default:
+            return NULL;
+    }
+}
+
+static void gen64_static_reference_owner_vtable_init(
+    Module* mod, Type* type, Decl* owner) {
+    if (!mod || !type || !owner ||
+        !(type->cxx_vtable_size > 0 ||
+          (type->cxx_class &&
+           (type->cxx_class->secondary_vtable_count > 0 ||
+            type->cxx_class->virtual_base_count > 0)))) {
+        return;
+    }
+    emit64_push_reg(mod, RBP);
+    gen64_symbol_address(mod, decl_link_name(owner), 0u);
+    emit64_mov_reg_reg(mod, RBP, RAX);
+    gen64_local_vtable_init(mod, type, 0);
+    emit64_pop_reg(mod, RBP);
+}
+
 static bool gen64_static_reference_temporary_initializer(
     Module* mod, Decl* declaration) {
     Decl* owner = declaration
         ? declaration->var_reference_temporary_owner : NULL;
     Expr* initializer = declaration ? declaration->var_init : NULL;
-    Expr* source = gen64_reference_temporary_source(initializer);
+    Expr* source = declaration
+        ? declaration->var_reference_temporary_source : NULL;
     Type* type = owner ? owner->type : NULL;
+    if (!source) source = gen64_reference_temporary_source(initializer);
     if (!source) source = initializer;
     if (!mod || !declaration || !owner || !source || !type) return false;
 
@@ -8587,8 +8652,22 @@ static bool gen64_static_reference_temporary_initializer(
         emit64_store_typed(mod, RCX, 0, RAX, type);
     }
 
-    gen64_symbol_address(mod, decl_link_name(owner), 0u);
-    gen64_cxx_reference_adjustment_force(mod, initializer);
+    gen64_static_reference_owner_vtable_init(mod, type, owner);
+
+    if (declaration->var_reference_temporary_source) {
+        Expr* subobject = gen64_static_reference_subobject_rebase(
+            initializer, declaration->var_reference_temporary_source, owner);
+        if (!subobject) {
+            rcc_error(declaration->loc,
+                      "cannot rebase static reference subobject for '%s'",
+                      declaration->name);
+            return false;
+        }
+        gen64_lvalue(mod, subobject);
+    } else {
+        gen64_symbol_address(mod, decl_link_name(owner), 0u);
+        gen64_cxx_reference_adjustment_force(mod, initializer);
+    }
     emit64_push_reg(mod, RAX);
     gen64_symbol_address(mod, decl_link_name(declaration), 0u);
     emit64_mov_reg_reg(mod, RCX, RAX);

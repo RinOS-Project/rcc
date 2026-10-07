@@ -14441,13 +14441,75 @@ static bool gen_static_reference_aggregate_into_owner32(
     return true;
 }
 
+static Expr* gen_static_reference_subobject_rebase32(
+    Expr* expression, Expr* complete_object, Decl* owner) {
+    Expr* copy;
+    if (!expression || !complete_object || !owner) return NULL;
+    if (expression == complete_object) {
+        Expr* replacement = expr_ident(owner->name, expression->loc);
+        replacement->ident_decl = owner;
+        replacement->type = owner->type;
+        return replacement;
+    }
+    copy = rcc_alloc(sizeof(*copy));
+    *copy = *expression;
+    switch (expression->kind) {
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            copy->member_base = gen_static_reference_subobject_rebase32(
+                expression->member_base, complete_object, owner);
+            if (!copy->member_base) return NULL;
+            return copy;
+        case EXPR_CAST:
+            copy->cast_expr = gen_static_reference_subobject_rebase32(
+                expression->cast_expr, complete_object, owner);
+            if (!copy->cast_expr) return NULL;
+            return copy;
+        case EXPR_COMMA:
+            copy->binary_lhs = gen_static_reference_subobject_rebase32(
+                expression->binary_lhs, complete_object, owner);
+            copy->binary_rhs = gen_static_reference_subobject_rebase32(
+                expression->binary_rhs, complete_object, owner);
+            if (!copy->binary_lhs || !copy->binary_rhs) return NULL;
+            return copy;
+        case EXPR_COND:
+            copy->cond_test = gen_static_reference_subobject_rebase32(
+                expression->cond_test, complete_object, owner);
+            copy->cond_then = gen_static_reference_subobject_rebase32(
+                expression->cond_then, complete_object, owner);
+            copy->cond_else = gen_static_reference_subobject_rebase32(
+                expression->cond_else, complete_object, owner);
+            if (!copy->cond_test || !copy->cond_then || !copy->cond_else) {
+                return NULL;
+            }
+            return copy;
+        default:
+            return NULL;
+    }
+}
+
+static void gen_static_reference_owner_vtable_init32(
+    Module* mod, Type* type, Decl* owner) {
+    if (!mod || !type || !owner ||
+        !codegen_type_has_vtable_storage(type)) {
+        return;
+    }
+    emit_push_reg(mod, EBP);
+    gen_symbol_address(mod, decl_link_name(owner), 0u);
+    emit_mov_reg_reg(mod, EBP, EAX);
+    gen_local_vtable_init(mod, type, 0);
+    emit_pop_reg(mod, EBP);
+}
+
 static bool gen_static_reference_temporary_initializer32(
     Module* mod, Decl* declaration) {
     Decl* owner = declaration
         ? declaration->var_reference_temporary_owner : NULL;
     Expr* initializer = declaration ? declaration->var_init : NULL;
-    Expr* source = gen_reference_temporary_source(initializer);
+    Expr* source = declaration
+        ? declaration->var_reference_temporary_source : NULL;
     Type* type = owner ? owner->type : NULL;
+    if (!source) source = gen_reference_temporary_source(initializer);
     if (!source) source = initializer;
     if (!mod || !declaration || !owner || !source || !type) return false;
 
@@ -14479,8 +14541,22 @@ static bool gen_static_reference_temporary_initializer32(
         emit_store_typed32(mod, EDX, 0, ECX, type);
     }
 
-    gen_symbol_address(mod, decl_link_name(owner), 0u);
-    gen_cxx_reference_adjustment32_force(mod, initializer);
+    gen_static_reference_owner_vtable_init32(mod, type, owner);
+
+    if (declaration->var_reference_temporary_source) {
+        Expr* subobject = gen_static_reference_subobject_rebase32(
+            initializer, declaration->var_reference_temporary_source, owner);
+        if (!subobject) {
+            rcc_error(declaration->loc,
+                      "cannot rebase static reference subobject for '%s'",
+                      declaration->name);
+            return false;
+        }
+        gen_lvalue(mod, subobject);
+    } else {
+        gen_symbol_address(mod, decl_link_name(owner), 0u);
+        gen_cxx_reference_adjustment32_force(mod, initializer);
+    }
     emit_push_reg(mod, EAX);
     gen_symbol_address(mod, decl_link_name(declaration), 0u);
     emit_mov_reg_reg(mod, EDX, EAX);

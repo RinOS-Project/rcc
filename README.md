@@ -251,10 +251,15 @@ reference-bound scalar and class temporaries, guarded initialization, and
 destructor registration on both target backends. Its i686 PE object-generation
 and x64 host execution passed with one-time initialization and reverse-order,
 exactly-once class destruction checks. The implementation also emits guard-
-abort cleanup for exceptions during block-static initialization; exception
-retry execution and RinOS runtime integration remain unverified.
-Thread-local reference temporaries, converted class xvalues, and static
-class-subobject lifetime remain open in [`TODO.md`](TODO.md).
+abort cleanup for exceptions during block-static initialization. The
+`test-cxx-static-reference-retry` regression now checks generated cleanup
+registration on both targets; this Windows host has only compiled the objects,
+so retry execution and RinOS runtime integration remain unverified.
+`test-cxx-static-reference-subobjects` passes i686/AMD64 object generation and
+x64 host execution for direct member subobjects, conditional/comma class
+sources, and explicit non-virtual/virtual base xvalue bindings, including
+exactly-once destruction order. Thread-local temporaries and user-defined
+static-reference conversions remain open in [`TODO.md`](TODO.md).
 
 公開toolchainとしての完成条件は、C17、主要C++20、typed SSA/MIRと最適化、
 i386/AMD64 ABI、DWARF unwind、PIC/PIE、TLS/exception/RTTI、stage2再現build、

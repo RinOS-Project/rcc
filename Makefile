@@ -428,6 +428,10 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-debug-info
 .PHONY: test-cxx-static-reference-temporaries \
 	test-cxx-static-reference-temporaries-posix
+.PHONY: test-cxx-static-reference-retry \
+	test-cxx-static-reference-retry-posix
+.PHONY: test-cxx-static-reference-subobjects \
+	test-cxx-static-reference-subobjects-posix
 .PHONY: test-verified-volatile
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
@@ -501,6 +505,8 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-function-template-overloads \
 	test-cxx-function-template-references \
 	test-cxx-static-reference-temporaries \
+	test-cxx-static-reference-retry \
+	test-cxx-static-reference-subobjects \
 	test-cxx-class-template-methods \
 	test-cxx-class-template-specialization \
 	test-cxx-class-template-specialization-ambiguous \
@@ -2533,6 +2539,85 @@ test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o
 	$(TEST_OUT)/cxx-static-reference-temporaries/x64-host
 
+test-cxx-static-reference-retry-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-retry)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-reference-retry/x86.s \
+		tests/cxx_static_reference_retry.cpp
+	$(GREP) -F -q "__cxa_guard_abort" \
+		$(TEST_OUT)/cxx-static-reference-retry/x86.s
+	$(GREP) -F -q "rin_cpp_exception_register_cleanup" \
+		$(TEST_OUT)/cxx-static-reference-retry/x86.s
+	$(GREP) -F -q "rin_cpp_exception_unregister_cleanup" \
+		$(TEST_OUT)/cxx-static-reference-retry/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-retry/x86.o \
+		$(TEST_OUT)/cxx-static-reference-retry/x86.s
+	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x86.o \
+		> $(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
+	$(GREP) -F -q "elf32-i386" \
+		$(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-retry/x86-start.o \
+		tests/cxx_exceptions_i686_start.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-retry/x86-guard.o \
+		tests/cxx_static_reference_guard_runtime.c
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-static-reference-retry/x86 \
+		$(TEST_OUT)/cxx-static-reference-retry/x86-start.o \
+		$(TEST_OUT)/cxx-static-reference-retry/x86-guard.o \
+		$(TEST_OUT)/cxx-static-reference-retry/x86.o
+	$(TEST_OUT)/cxx-static-reference-retry/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-reference-retry/x64.s \
+		tests/cxx_static_reference_retry.cpp
+	$(GREP) -F -q "__cxa_guard_abort" \
+		$(TEST_OUT)/cxx-static-reference-retry/x64.s
+	$(GREP) -F -q "rin_cpp_exception_register_cleanup" \
+		$(TEST_OUT)/cxx-static-reference-retry/x64.s
+	$(GREP) -F -q "rin_cpp_exception_unregister_cleanup" \
+		$(TEST_OUT)/cxx-static-reference-retry/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-retry/x64.o \
+		$(TEST_OUT)/cxx-static-reference-retry/x64.s
+	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x64.o \
+		> $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
+	$(GREP) -F -q "elf64-x86-64" \
+		$(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
+	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-retry/x64-start.o \
+		tests/cxx_exceptions_x64_start.s
+	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-retry/x64-guard.o \
+		tests/cxx_static_reference_guard_runtime.c
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-static-reference-retry/x64 \
+		$(TEST_OUT)/cxx-static-reference-retry/x64-start.o \
+		$(TEST_OUT)/cxx-static-reference-retry/x64-guard.o \
+		$(TEST_OUT)/cxx-static-reference-retry/x64.o
+	$(TEST_OUT)/cxx-static-reference-retry/x64
+	@echo "C++ static reference guard abort and retry execution passed for i686 and AMD64"
+
+test-cxx-static-reference-subobjects-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-subobjects)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-reference-subobjects/x86.s \
+		tests/cxx_static_reference_subobjects.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-subobjects/x86.o \
+		$(TEST_OUT)/cxx-static-reference-subobjects/x86.s
+	objdump -f $(TEST_OUT)/cxx-static-reference-subobjects/x86.o \
+		> $(TEST_OUT)/cxx-static-reference-subobjects/x86-arch.log
+	$(GREP) -F -q "elf32-i386" \
+		$(TEST_OUT)/cxx-static-reference-subobjects/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-reference-subobjects/x64.s \
+		tests/cxx_static_reference_subobjects.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-subobjects/x64.o \
+		$(TEST_OUT)/cxx-static-reference-subobjects/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-static-reference-subobjects/x64.o
+	$(CC) $(CFLAGS) \
+		-o $(TEST_OUT)/cxx-static-reference-subobjects/x64-host \
+		tests/cxx_static_reference_host.c \
+		$(TEST_OUT)/cxx-static-reference-subobjects/x64.o
+	$(TEST_OUT)/cxx-static-reference-subobjects/x64-host
+	@echo "C++ static reference subobject lifetime tests passed for i686 and AMD64"
+
 test-cxx-constraints-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -2696,6 +2781,36 @@ test-cxx-static-reference-temporaries: $(RCXX_TARGET)
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-reference-temporaries/x64-host tests/cxx_static_reference_host.c $(TEST_OUT)/cxx-static-reference-temporaries/x64.o
 	$(TEST_OUT)/cxx-static-reference-temporaries/x64-host
 
+test-cxx-static-reference-retry: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-retry)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-retry/x86.s tests/cxx_static_reference_retry.cpp
+	$(GREP) -F -q "__cxa_guard_abort" $(TEST_OUT)/cxx-static-reference-retry/x86.s
+	$(GREP) -F -q "rin_cpp_exception_register_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x86.s
+	$(GREP) -F -q "rin_cpp_exception_unregister_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-retry/x86.o $(TEST_OUT)/cxx-static-reference-retry/x86.s
+	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x86.o > $(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-retry/x64.s tests/cxx_static_reference_retry.cpp
+	$(GREP) -F -q "__cxa_guard_abort" $(TEST_OUT)/cxx-static-reference-retry/x64.s
+	$(GREP) -F -q "rin_cpp_exception_register_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x64.s
+	$(GREP) -F -q "rin_cpp_exception_unregister_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-retry/x64.o $(TEST_OUT)/cxx-static-reference-retry/x64.s
+	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x64.o > $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
+	$(CC) $(CFLAGS) -c -o $(TEST_OUT)/cxx-static-reference-retry/guard-runtime.o tests/cxx_static_reference_guard_runtime.c
+
+test-cxx-static-reference-subobjects: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-subobjects)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-subobjects/x86.s tests/cxx_static_reference_subobjects.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-subobjects/x86.o $(TEST_OUT)/cxx-static-reference-subobjects/x86.s
+	objdump -f $(TEST_OUT)/cxx-static-reference-subobjects/x86.o > $(TEST_OUT)/cxx-static-reference-subobjects/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-reference-subobjects/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-subobjects/x64.s tests/cxx_static_reference_subobjects.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-subobjects/x64.o $(TEST_OUT)/cxx-static-reference-subobjects/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-static-reference-subobjects/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-reference-subobjects/x64-host tests/cxx_static_reference_host.c $(TEST_OUT)/cxx-static-reference-subobjects/x64.o
+	$(TEST_OUT)/cxx-static-reference-subobjects/x64-host
+
 test-cxx-constraints: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-constraints,cxx_constraints.cpp)
@@ -2724,6 +2839,8 @@ test-cxx-variable-templates: test-cxx-variable-templates-posix
 test-cxx-function-template-overloads: test-cxx-function-template-overloads-posix
 test-cxx-function-template-references: test-cxx-function-template-references-posix
 test-cxx-static-reference-temporaries: test-cxx-static-reference-temporaries-posix
+test-cxx-static-reference-retry: test-cxx-static-reference-retry-posix
+test-cxx-static-reference-subobjects: test-cxx-static-reference-subobjects-posix
 test-cxx-constraints: test-cxx-constraints-posix
 test-cxx-named-concepts: test-cxx-named-concepts-posix
 test-cxx-alias-templates: test-cxx-alias-templates-posix

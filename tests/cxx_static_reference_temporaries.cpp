@@ -1,5 +1,6 @@
 extern "C" {
 int cxx_static_reference_events = 0;
+int cxx_static_reference_expected_events = 21;
 }
 
 struct StaticReferenceLifetime {

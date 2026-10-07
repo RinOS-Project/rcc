@@ -19,6 +19,7 @@ static CxxExitEntry cxx_exit_entries[16];
 static size_t cxx_exit_count;
 void* __dso_handle;
 extern int cxx_static_reference_events;
+extern int cxx_static_reference_expected_events;
 extern int RIN_SYSV rcc_generated_main(void);
 extern void RIN_SYSV __rcc_global_init(void);
 extern void RIN_SYSV __rcc_global_fini(void);
@@ -89,5 +90,6 @@ int main(void)
     if (result != 0) return result;
     __cxa_finalize(&__dso_handle);
     __rcc_global_fini();
-    return cxx_static_reference_events == 21 ? 0 : 90;
+    return cxx_static_reference_events ==
+            cxx_static_reference_expected_events ? 0 : 90;
 }
