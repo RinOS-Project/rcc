@@ -15036,6 +15036,14 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 sema_is_scoped_enum(type)) {
                 rcc_error(initializer->loc,
                           "cannot implicitly convert scoped enum in initialization");
+            } else if (rcc_parser_is_cxx_mode() &&
+                       ((initializer->type &&
+                         initializer->type->kind == TYPE_PTR &&
+                         initializer->type->cxx_is_member_pointer) ||
+                        (type->kind == TYPE_PTR &&
+                         type->cxx_is_member_pointer))) {
+                rcc_error(initializer->loc,
+                          "invalid pointer-to-member conversion in initialization");
             } else {
                 rcc_warning(initializer->loc,
                             "incompatible types in initialization");

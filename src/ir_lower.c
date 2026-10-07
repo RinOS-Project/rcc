@@ -1286,7 +1286,8 @@ static RccIrLowerValue lower_lvalue_address_impl(
             (!type_is_compatible(
                  (Type*)aggregate_type,
                  member_pointer_type->cxx_member_pointer_owner) &&
-             !expression->cxx_pointer_adjustment_valid)) {
+             !expression->cxx_pointer_adjustment_valid &&
+             !expression->cxx_virtual_base_member_access)) {
             context->unsupported = true;
             return lower_invalid_value();
         }

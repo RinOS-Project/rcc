@@ -49,9 +49,14 @@ debug鍵はRinOSのdebug build profileからpathとして渡し、release鍵はr
   明示的な空initializer付き／initializerなし配列の要素順と宣言順を両targetと
   x64 hostで確認します。
 
-`-O1`以上では安全な整数constant folding、短絡式・定数分岐の除去を行いますが、各levelの
-SSA最適化pipelineと完全なDWARF生成は未完成です。C++ frontendも実験段階で、classの基本構文を
-越えるtemplates、exceptions、RTTI、modules、coroutines等は完成していません。
+`-O1`以上には整数constant folding、短絡式・定数分岐の除去、bounded inline等があり、
+typed SSA/MIR、mem2reg、GVN/DCEを使うverified backendも`-fverified-backend`で選べます。
+ただしverified backendは未対応ASTで既存backendへ戻る部分があり、通常compileの既定経路
+でもありません。DWARFはline/info/frame、stack variable、基本・aggregate type等を出力しますが、
+完全なvariable location list、inline attribution、任意prologueのCFIは未完成です。
+C++ frontendはtemplates、exceptions、bounded RTTI/`dynamic_cast`、static initialization等を
+実装していますが、C++20全体への準拠は未達で、modules/coroutinesやABI・templateの広い
+corner caseが残っています。
 
 ## ビルド
 
@@ -258,28 +263,26 @@ so retry execution and RinOS runtime integration remain unverified.
 `test-cxx-static-reference-subobjects` passes i686/AMD64 object generation and
 x64 host execution for direct member subobjects, conditional/comma class
 sources, and explicit non-virtual/virtual base xvalue bindings, including
-exactly-once destruction order. A bounded direct public data-member pointer
-path now parses `T C::*`, `&C::member`, `object.*member`, and
-`pointer->*member` and reaches both native backends and typed IR. Owner
-conversions and object application follow one unique public non-virtual path,
-even when the class also has unrelated virtual bases. Application through one
-public virtual base followed by fixed non-virtual edges resolves the base
-through the vbtable in both native backends and typed IR. `nullptr`/zero
-initialization and null comparison use the all-ones sentinel. Explicit
-`static_cast` owner conversion works in both directions with null-preserving
-runtime and constant adjustment. `build-rcc` succeeds; a local regression
-fixture and Makefile target are available but remain unrun. Ambiguous path checks
-count inaccessible duplicate subobjects as well, so a public route cannot hide
-a second private or virtual base subobject. Direct private/protected member
-forms now reach sema access checks, including the protected designating-class
-rule. Inherited member forms remain fail-closed, and friend free-function or
-other contexts without method-owner metadata are still open.
-Pointer-to-member-selected static reference lifetime remains open, as do
-thread-local temporaries and the broader member-pointer ABI cases in
+exactly-once destruction order. `test-cxx-member-pointer-data` now parses and
+executes direct data-member pointers, lvalue/xvalue selection, assignment,
+null values, implicit/explicit owner conversion, non-virtual multiple
+inheritance, virtual-base application, and friend-authorized private-member
+formation. It generates i686 and AMD64 objects, executes AMD64 output on the
+host, and verifies all seven typed-IR functions on both targets. The same test
+checks global and block-static reference lifetime extension through a
+pointer-to-member-selected subobject and final destruction. Remaining work
+includes member-function pointers, broader inherited/access-authorized forms,
+virtual-base owner conversions, and further ABI/context coverage; see
 [`TODO.md`](TODO.md).
+
+The same regression now checks `&Derived::member` for a unique public member
+inherited through both non-virtual and virtual bases, and verifies that the
+result retains the declaring class as its pointer-to-member owner. Its negative
+companion checks inaccessible member formation, ambiguous object application,
+and ambiguous owner conversion on both targets. Member-function pointers,
+hidden/non-public inherited lookup, and the broader access-context matrix still
+need coverage. Owner conversions across virtual bases are ill-formed in C++.
 
 公開toolchainとしての完成条件は、C17、主要C++20、typed SSA/MIRと最適化、
 i386/AMD64 ABI、DWARF unwind、PIC/PIE、TLS/exception/RTTI、stage2再現build、
 RinOS上の32/64-bitセルフホストです。進捗は[`TODO.md`](TODO.md)を参照してください。
-
-Current follow-up: RCC++ forms unique public inherited data-member pointers with the actual declaring-class owner, including members reached through public virtual bases. `build-rcxx` succeeds. This extension has no regression coverage yet; ambiguous, hidden, and nonpublic inherited forms remain fail-closed. C++ owner conversions across virtual bases are ill-formed under `[conv.mem]` and remain rejected.

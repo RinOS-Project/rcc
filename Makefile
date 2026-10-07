@@ -434,6 +434,8 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-static-reference-subobjects-posix
 .PHONY: test-cxx-static-reference-conversions \
 	test-cxx-static-reference-conversions-posix
+.PHONY: test-cxx-member-pointer-data \
+	test-cxx-member-pointer-data-posix
 .PHONY: test-verified-volatile
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
@@ -510,6 +512,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-static-reference-retry \
 	test-cxx-static-reference-subobjects \
 	test-cxx-static-reference-conversions \
+	test-cxx-member-pointer-data \
 	test-cxx-class-template-methods \
 	test-cxx-class-template-specialization \
 	test-cxx-class-template-specialization-ambiguous \
@@ -2646,6 +2649,53 @@ test-cxx-static-reference-conversions-posix: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-static-reference-conversions/x64-host
 	@echo "C++ static reference conversion lifetime tests passed for i686 and AMD64"
 
+test-cxx-member-pointer-data-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-data)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-pointer-data/x86.s \
+		tests/cxx_member_pointer_data.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-pointer-data/x86.o \
+		$(TEST_OUT)/cxx-member-pointer-data/x86.s
+	objdump -f $(TEST_OUT)/cxx-member-pointer-data/x86.o \
+		> $(TEST_OUT)/cxx-member-pointer-data/x86-arch.log
+	$(GREP) -F -q "elf32-i386" \
+		$(TEST_OUT)/cxx-member-pointer-data/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-pointer-data/x64.s \
+		tests/cxx_member_pointer_data.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-member-pointer-data/x64.o \
+		$(TEST_OUT)/cxx-member-pointer-data/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-member-pointer-data/x64.o
+	$(CC) $(CFLAGS) \
+		-o $(TEST_OUT)/cxx-member-pointer-data/x64-host \
+		tests/cxx_static_reference_host.c \
+		$(TEST_OUT)/cxx-member-pointer-data/x64.o
+	$(TEST_OUT)/cxx-member-pointer-data/x64-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-member-pointer-data/ir-x86.ro \
+		tests/cxx_member_pointer_ir.cpp \
+		> $(TEST_OUT)/cxx-member-pointer-data/ir-x86.log
+	$(GREP) -F -q "Verified backend: 7 function(s) emitted" \
+		$(TEST_OUT)/cxx-member-pointer-data/ir-x86.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-member-pointer-data/ir-x64.ro \
+		tests/cxx_member_pointer_ir.cpp \
+		> $(TEST_OUT)/cxx-member-pointer-data/ir-x64.log
+	$(GREP) -F -q "Verified backend: 7 function(s) emitted" \
+		$(TEST_OUT)/cxx-member-pointer-data/ir-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.ro tests/cxx_member_pointer_data_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log)
+	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
+	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.ro tests/cxx_member_pointer_data_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log)
+	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
+	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
+	@echo "C++ data member-pointer operations and static subobject lifetime tests passed"
+
 test-cxx-constraints-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -2851,6 +2901,49 @@ test-cxx-static-reference-conversions: $(RCXX_TARGET)
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-reference-conversions/x64-host tests/cxx_static_reference_host.c $(TEST_OUT)/cxx-static-reference-conversions/x64.o
 	$(TEST_OUT)/cxx-static-reference-conversions/x64-host
 
+test-cxx-member-pointer-data: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-data)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-pointer-data/x86.s \
+		tests/cxx_member_pointer_data.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-pointer-data/x86.o \
+		$(TEST_OUT)/cxx-member-pointer-data/x86.s
+	objdump -f $(TEST_OUT)/cxx-member-pointer-data/x86.o \
+		> $(TEST_OUT)/cxx-member-pointer-data/x86-arch.log
+	$(GREP) -F -q "pe-i386" \
+		$(TEST_OUT)/cxx-member-pointer-data/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-pointer-data/x64.s \
+		tests/cxx_member_pointer_data.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-member-pointer-data/x64.o \
+		$(TEST_OUT)/cxx-member-pointer-data/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-member-pointer-data/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-member-pointer-data/lifetime-host \
+		tests/cxx_static_reference_host.c \
+		$(TEST_OUT)/cxx-member-pointer-data/x64.o
+	$(TEST_OUT)/cxx-member-pointer-data/lifetime-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend \
+		-v -c -o $(TEST_OUT)/cxx-member-pointer-data/ir-x86.ro \
+		tests/cxx_member_pointer_ir.cpp \
+		> $(TEST_OUT)/cxx-member-pointer-data/ir-x86.log
+	$(GREP) -F -q "Verified backend: 7 function(s) emitted" \
+		$(TEST_OUT)/cxx-member-pointer-data/ir-x86.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend \
+		-v -c -o $(TEST_OUT)/cxx-member-pointer-data/ir-x64.ro \
+		tests/cxx_member_pointer_ir.cpp \
+		> $(TEST_OUT)/cxx-member-pointer-data/ir-x64.log
+	$(GREP) -F -q "Verified backend: 7 function(s) emitted" \
+		$(TEST_OUT)/cxx-member-pointer-data/ir-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.ro tests/cxx_member_pointer_data_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log)
+	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
+	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.ro tests/cxx_member_pointer_data_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log)
+	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
+	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
+
 test-cxx-constraints: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-constraints,cxx_constraints.cpp)
@@ -2882,6 +2975,7 @@ test-cxx-static-reference-temporaries: test-cxx-static-reference-temporaries-pos
 test-cxx-static-reference-retry: test-cxx-static-reference-retry-posix
 test-cxx-static-reference-subobjects: test-cxx-static-reference-subobjects-posix
 test-cxx-static-reference-conversions: test-cxx-static-reference-conversions-posix
+test-cxx-member-pointer-data: test-cxx-member-pointer-data-posix
 test-cxx-constraints: test-cxx-constraints-posix
 test-cxx-named-concepts: test-cxx-named-concepts-posix
 test-cxx-alias-templates: test-cxx-alias-templates-posix

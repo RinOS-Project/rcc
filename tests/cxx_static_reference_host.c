@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdio.h>
 
 #if defined(_WIN32) && defined(__x86_64__)
 #define RIN_SYSV __attribute__((sysv_abi))
@@ -90,6 +91,11 @@ int main(void)
     if (result != 0) return result;
     __cxa_finalize(&__dso_handle);
     __rcc_global_fini();
-    return cxx_static_reference_events ==
-            cxx_static_reference_expected_events ? 0 : 90;
+    if (cxx_static_reference_events != cxx_static_reference_expected_events) {
+        fprintf(stderr, "static-reference events: expected %d, got %d\n",
+                cxx_static_reference_expected_events,
+                cxx_static_reference_events);
+        return 90;
+    }
+    return 0;
 }

@@ -3,6 +3,34 @@
 この一覧は「CLIが存在する」ことと「言語・ABIが完成している」ことを区別する。
 未完項目が残る間はC17/C++20準拠やセルフホスト完了を宣言しない。
 
+## 実装状況の再監査 (2026-10-08)
+
+以下はsource、regression target、check-in済みCI workflowに基づく分類であり、
+標準準拠率の推定ではない。限定実装のあるsubsystemは、残る意味論・ABI coverageまで
+確認しない限り完了扱いにしない。
+
+- C17はfrontend、ABI、optimizer、host executionの広い範囲が
+  `C17_REGRESSION_TARGETS`にあるが、ISO C17完全準拠を意味しない。
+- C++にはclass、template/concept/lambda、exception、bounded RTTI/`dynamic_cast`、
+  static initializationの実装と専用テストがある。C++20全準拠は未達で、
+  modules/coroutinesおよびABI/template corner caseが残る。
+- `.ro v2`、`.ra v2`、RIN v3、NDRV v3にはproduction emit/link/validation経路がある。
+  PIC/GOT/PLTとlocal-exec TLSも限定modelで実装済みだが、visibility、interposition、
+  TLS model、shared-library互換性は未完了。
+- typed SSA、MIR、register allocation、optimization、verified object backendは
+  実経路として存在する。`-fverified-backend`は明示opt-inで、未対応functionは
+  legacy backendへfallbackする。aggregate/vector/exceptionやtranslation unit全体の
+  coverageは未完了。
+- bounded scalar inlining、LICM、loop unrolling、strength reductionは実装済み。
+  一般のloop transformationとcost-aware/interprocedural optimizationは未完了であり、
+  「inliningやloop optimizationが存在しない」とは分類しない。
+- DWARF line/info/frame、stack location、多数のC/C++ type DIEは実装済みだが、
+  完全なlocation list、inline attribution、任意prologueのCFIは未完了。
+  RinOS-native i686/x86_64 self-hostは、成功済みhost stage2 reproductionとは別項目。
+- `.github/workflows/ci.yml`はGCC/Clangの`test-ci`、full `test-cxx`、独立sanitizer jobを
+  設定済み。workflowの存在だけでは成功を証明しないため、下記CI実行確認項目は
+  成功runを記録するまで未完了のままにする。
+
 ## 1. format / toolchain contract
 
 - [x] `i686-unknown-rinos` / `x86_64-unknown-rinos`
@@ -368,36 +396,28 @@
         `test-cxx-static-reference-conversions` with i686/AMD64 generation and
         x64 host execution.
   - [ ] Extend static-duration reference lifetime through
-        pointer-to-member-selected data subobjects. Public non-bit-field
-        member pointers support `.*`/`->*`, lvalue/xvalue selection, member
-        assignment, floating-member loads, null/member-pointer comparisons,
-        and null initialization. Unique public non-virtual base application,
-        including a class with unrelated virtual bases, base-owner-to-derived
-        implicit conversion, and explicit `static_cast` owner conversion in
-        either direction are wired through native and typed-IR lowering; null
-        is preserved. Application through one public shared virtual base
-        followed by fixed non-virtual edges now uses the vbtable in both native
-        backends and typed IR. `build-rcc` succeeds. The member-pointer path
-        counter now counts inaccessible duplicate base subobjects too, so a
-        public path cannot hide an ambiguous private/virtual subobject. Direct
-        private/protected member forms now reach sema, which checks the enclosing
-        member-function access context and the protected `&Derived::member`
-        designator rule. Unique public inherited data members now retain the
-        actual declaring-class owner, including members reached through public
-        virtual bases. Ambiguous, hidden, nonpublic, and non-modelled access
-        contexts remain fail-closed. `build-rcxx` succeeds; this change did not
-        run the member-pointer fixture. Keep this item open until committed
-        regression coverage and RinOS runtime integration verify lifetime and
-        exactly-once destruction on both native backends and typed IR.
+        pointer-to-member-selected data subobjects. The public non-bit-field
+        data-member-pointer path covers `T C::*`, `&C::member`, `.*`/`->*`,
+        lvalue/xvalue selection, assignment, null values, implicit and explicit
+        non-virtual owner conversion, and application through one public virtual
+        base. `test-cxx-member-pointer-data` generates i686/AMD64 objects,
+        verifies all seven typed-IR functions on both targets, and executes the
+        generated AMD64 program on the host. Global and block-static reference
+        bindings through a member pointer verify retained values, lifetime, and
+        exactly-once destruction through the shared host runtime. Keep this
+        open until RinOS runtime integration is covered.
   - [ ] Complete remaining pointer-to-member conversions and contexts:
-        pointer-to-member function types/calls, ambiguous or hidden inherited
-        lookup, nonpublic inherited forms, and the remaining access-authorized
-        contexts. Owner conversions across virtual bases are ill-formed under
-        C++ `[conv.mem]` and must be rejected; they are not a supported
-        conversion feature. Ambiguous object/owner paths count private and
-        virtual duplicate subobjects before selecting a public fixed or vbtable
-        path. Friend free-function access contexts are not represented by the
-        method-owner metadata.
+        pointer-to-member function types/calls, hidden inherited member lookup,
+        non-public inherited members, and remaining access contexts. Unique
+        public inherited data members now form pointers whose owner is the class
+        that declared the member, including public virtual bases; positive
+        generation/execution coverage and negative checks for private
+        formation, ambiguous object paths, and ambiguous owner conversion run
+        in `test-cxx-member-pointer-data` on both targets. Conversions across
+        virtual bases are ill-formed under C++ `[conv.mem]`; preserve diagnostics
+        for them instead of treating them as an implementation feature. Keep
+        unsupported valid forms unchecked and explicit; do not substitute
+        placeholder lowering.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference
@@ -565,7 +585,7 @@
   - [x] 同一block内でdirect allocaへの直近store値を同じ型のnon-volatile loadへ
         forwardingし、unknown alias store/call/volatile loadでは全事実、
         volatile storeでは対象slotの値事実を失効させるIR verifier regressionを追加
-- [ ] loop optimization、inlining
+- [ ] General loop transformations and cost-aware/interprocedural inlining
   - [x] 同一basic block内の同一direct alloca・同一値型への未観測の上書きstoreを
         除去し、forward済みreadの値を保持する。derived-pointer read/write、
         volatile read、call、型幅違いでは古いstoreを保持し、i686/AMD64のIR
