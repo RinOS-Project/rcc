@@ -6376,7 +6376,11 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     }
     if (target->is_reference) {
         target_base = target->base;
+        if (source && source->kind == TYPE_PTR && source->is_reference) {
+            source = source->base;
+        }
         if (!target_base ||
+            !source ||
             (!target->is_rvalue_reference && !is_lvalue(argument) &&
              !target_base->is_const) ||
             (target->is_rvalue_reference && is_lvalue(argument))) {
@@ -13603,10 +13607,9 @@ static void sema_initializer(Type* type, Expr* initializer) {
         Type* source_type = sema_expr(initializer);
         if (source_type && source_type->kind == TYPE_PTR &&
             source_type->is_reference) {
-            if (!type->base || !source_type->base ||
-                !type_is_compatible(type->base, source_type->base)) {
+            if (!implicit_cast(initializer, type)) {
                 rcc_error(initializer->loc,
-                          "incompatible C++ reference initialization");
+                          "invalid C++ reference binding");
             }
             return;
         }
