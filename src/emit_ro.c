@@ -2783,6 +2783,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0x20u);    /* DW_AT_inline */
     debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x27u);    /* DW_AT_prototyped */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     /* Abbreviation 8: generated/source-less functions without a recoverable
@@ -3383,6 +3385,12 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
          * parsed declaration, not on a guessed call-site optimization state. */
         section_add_byte(info, function_decl && function_decl->func_is_inline
                                 ? 3u : 0u);
+        if (function_abbreviation == 2u) {
+            section_add_byte(
+                info, function_decl && function_decl->type &&
+                          function_decl->type->kind == TYPE_FUNC &&
+                          function_decl->type->has_prototype ? 1u : 0u);
+        }
         if (return_type && function_decl &&
             function_decl->func_this_param) {
             if (!containing_type ||

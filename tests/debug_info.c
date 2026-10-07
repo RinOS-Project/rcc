@@ -54,6 +54,16 @@ int debug_line_entry(void)
            debug_global_data + debug_file_static + debug_line_static;
 }
 
+int debug_prototype_function(void)
+{
+    return 17;
+}
+
+int debug_no_prototype_function()
+{
+    return 19;
+}
+
 int debug_info_parameters(int left, int right)
 {
     int sum = left + right;

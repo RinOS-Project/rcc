@@ -1724,6 +1724,23 @@ static uint8_t read_inline_attribute(const ObjSection* info,
     return info->data[offset];
 }
 
+static uint8_t read_prototyped_attribute(const ObjSection* info,
+                                         const ObjSection* strings,
+                                         const char* function_name,
+                                         uint64_t address_size)
+{
+    uint64_t function_offset = find_function_die(
+        info, strings, function_name, address_size);
+    uint64_t offset;
+    assert(function_offset != UINT64_MAX);
+    offset = function_offset + 1u + 4u + address_size + 4u + 1u + 4u +
+             4u + 1u + 4u + 4u;
+    assert(offset + 4u < info->size);
+    assert(info->data[offset] == 2u); /* DW_AT_frame_base exprloc */
+    offset += 4u; /* frame base expression and DW_AT_inline */
+    return info->data[offset];
+}
+
 static uint32_t read_return_type_ref(const ObjSection* info,
                                      uint64_t function_offset,
                                      uint64_t address_size)
@@ -1765,6 +1782,7 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     assert(info != NULL && info->type == SECT_DEBUG_INFO);
     assert(abbrev != NULL && abbrev->type == SECT_DEBUG_ABBREV);
     assert(strings != NULL && strings->type == SECT_DEBUG_STR);
+    assert(contains_byte_pair(abbrev->data, abbrev->size, 0x27u, 0x0cu));
     assert(frame != NULL && frame->type == SECT_DEBUG_FRAME);
     assert(frame->flags == 0u && frame->size == frame->memory_size);
     assert(frame->size > 24u && frame->relocs != NULL);
@@ -1811,6 +1829,16 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     assert(abbrev->size > 8u && strings->size > 1u && strings->data[0] == 0u);
     assert(contains_bytes(strings->data, strings->size, function_name));
     if (language == 0x000cu) {
+        uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+        assert(read_prototyped_attribute(
+                   info, strings, "debug_prototype_function", address_size) ==
+               1u);
+        assert(read_prototyped_attribute(
+                   info, strings, "debug_no_prototype_function", address_size) ==
+               0u);
+        assert(read_prototyped_attribute(
+                   info, strings, "debug_info_parameters", address_size) ==
+               1u);
         verify_vla_variable_location(info, strings, architecture);
         verify_vla_bound_dies(info, abbrev, architecture);
         verify_multidimensional_vla_type(info, strings);
