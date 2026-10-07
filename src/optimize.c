@@ -867,7 +867,8 @@ typedef struct InlineScalarBinding {
 typedef enum InlineScalarOperationKind {
     INLINE_SCALAR_LOCAL_INITIALIZER,
     INLINE_SCALAR_LOCAL_ASSIGNMENT,
-    INLINE_SCALAR_LOCAL_COMPOUND_ASSIGNMENT
+    INLINE_SCALAR_LOCAL_COMPOUND_ASSIGNMENT,
+    INLINE_SCALAR_LOCAL_INCREMENT
 } InlineScalarOperationKind;
 
 typedef struct InlineScalarOperation {
@@ -895,13 +896,26 @@ static bool inline_scalar_compound_operator(ExprKind assignment_operator,
     }
 }
 
+static bool inline_scalar_increment_operator(ExprKind unary_operator,
+                                             ExprKind* binary_operator) {
+    if (!binary_operator) return false;
+    switch (unary_operator) {
+        case EXPR_PREINC:
+        case EXPR_POSTINC: *binary_operator = EXPR_ADD; return true;
+        case EXPR_PREDEC:
+        case EXPR_POSTDEC: *binary_operator = EXPR_SUB; return true;
+        default: return false;
+    }
+}
+
 /* Keep the multi-statement inline shape deliberately narrow.  A block may
  * contain only scalar, non-volatile automatic declarations with pure
- * initializers, direct side-effect-free assignments to those locals, and one
- * final return or a terminal if/else with direct returns.  This lets small
- * wrappers such as `int f(int x) { int y = x + 1; y = y * 2; return y; }` be
- * expanded without pretending that arbitrary control flow, cleanup, or
- * lifetime-sensitive objects are safe to clone into the caller. */
+ * initializers, direct side-effect-free assignments and discarded increment /
+ * decrement operations on those locals, and one final return or a terminal
+ * if/else with direct returns.  This lets small wrappers such as
+ * `int f(int x) { int y = x + 1; y = y * 2; return y; }` be expanded without
+ * pretending that arbitrary control flow, cleanup, or lifetime-sensitive
+ * objects are safe to clone into the caller. */
 static bool collect_inline_scalar_body(
     const Stmt* body, InlineScalarOperation* operations,
     size_t* operation_count, const Expr** returned,
@@ -947,6 +961,45 @@ static bool collect_inline_scalar_body(
             operations[*operation_count].assignment_operator = EXPR_INT_LIT;
             ++*operation_count;
             continue;
+        }
+        if (statement->kind == STMT_EXPR && statement->expr &&
+            *returned == NULL &&
+            *operation_count < INLINE_SCALAR_BINDING_LIMIT &&
+            statement->expr->unary_operand &&
+            statement->expr->unary_operand->kind == EXPR_IDENT &&
+            statement->expr->unary_operand->ident_decl) {
+            ExprKind binary_operator;
+            const Decl* declaration =
+                statement->expr->unary_operand->ident_decl;
+            bool is_prior_local = false;
+            if (inline_scalar_increment_operator(statement->expr->kind,
+                                                 &binary_operator)) {
+                for (size_t index = 0u; index < *operation_count; ++index) {
+                    if (operations[index].kind ==
+                            INLINE_SCALAR_LOCAL_INITIALIZER &&
+                        operations[index].declaration == declaration) {
+                        is_prior_local = true;
+                    }
+                }
+                if (!is_prior_local || !declaration->type ||
+                    declaration->type->is_volatile ||
+                    !type_is_integer(declaration->type) ||
+                    declaration->type->size < 4 ||
+                    !type_is_compatible(
+                        declaration->type,
+                        statement->expr->unary_operand->type)) {
+                    return false;
+                }
+                operations[*operation_count].kind =
+                    INLINE_SCALAR_LOCAL_INCREMENT;
+                operations[*operation_count].declaration = declaration;
+                operations[*operation_count].expression =
+                    statement->expr->unary_operand;
+                operations[*operation_count].assignment_operator =
+                    binary_operator;
+                ++*operation_count;
+                continue;
+            }
         }
         if (statement->kind == STMT_EXPR && statement->expr &&
             statement->expr->binary_lhs &&
@@ -1523,6 +1576,40 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         const InlineScalarOperation* operation = &operations[index];
         size_t local_binding;
         Expr* value;
+        if (operation->kind == INLINE_SCALAR_LOCAL_INCREMENT) {
+            ExprKind binary_operator;
+            Expr* previous_value;
+            Expr* one;
+            Expr* combined;
+            if (!operation->declaration || !operation->expression ||
+                operation->expression->kind != EXPR_IDENT ||
+                operation->expression->ident_decl !=
+                    operation->declaration ||
+                !type_is_integer(operation->declaration->type) ||
+                operation->declaration->type->size < 4 ||
+                (operation->assignment_operator != EXPR_ADD &&
+                 operation->assignment_operator != EXPR_SUB)) {
+                return false;
+            }
+            binary_operator = operation->assignment_operator;
+            local_binding = inline_scalar_binding_index(
+                operation->declaration, bindings, binding_count);
+            if (local_binding < parameter_count ||
+                local_binding >= binding_count) {
+                return false;
+            }
+            previous_value = clone_inline_pure_scalar_expression(
+                bindings[local_binding].argument);
+            if (!previous_value) return false;
+            one = expr_int(1, operation->expression->loc);
+            one->type = operation->declaration->type;
+            combined = expr_binary(binary_operator, previous_value, one,
+                                   operation->expression->loc);
+            combined->type = operation->declaration->type;
+            bindings[local_binding].argument = combined;
+            bindings[local_binding].uses = 0u;
+            continue;
+        }
         if (!operation->declaration || !operation->expression ||
             !type_is_compatible(operation->declaration->type,
                                 operation->expression->type) ||

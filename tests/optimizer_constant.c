@@ -191,6 +191,25 @@ int inlined_local_compound_operator_coverage_call(int value)
     return inline_local_compound_operator_coverage(value);
 }
 
+static int inline_local_increment_mutations(int value)
+{
+    int adjusted = value;
+    adjusted++;
+    int after_post_increment = adjusted;
+    ++adjusted;
+    int after_pre_increment = adjusted;
+    adjusted--;
+    int after_post_decrement = adjusted;
+    --adjusted;
+    return after_post_increment * 100 + after_pre_increment * 10 +
+           after_post_decrement + adjusted;
+}
+
+int inlined_local_increment_mutations_call(int value)
+{
+    return inline_local_increment_mutations(value);
+}
+
 static short inline_narrow_local_compound(int value)
 {
     short adjusted = (short)value;
@@ -201,6 +220,18 @@ static short inline_narrow_local_compound(int value)
 short preserved_narrow_local_compound_call(int value)
 {
     return inline_narrow_local_compound(value);
+}
+
+static short inline_narrow_local_increment(int value)
+{
+    short adjusted = (short)value;
+    adjusted++;
+    return adjusted;
+}
+
+short preserved_narrow_local_increment_call(int value)
+{
+    return inline_narrow_local_increment(value);
 }
 
 static int inline_local_snapshot_before_mutation(int value)
