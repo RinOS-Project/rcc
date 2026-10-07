@@ -1387,6 +1387,36 @@ else
 		$(TEST_OUT)/cxx-enum-class/enum-x64.o
 	$(TEST_OUT)/cxx-enum-class/enum-x64
 endif
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		--emit-unsigned-v3 -o $(TEST_OUT)/cxx-enum-class/enum-x86.rin \
+		tests/cxx_enum_class.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		--emit-unsigned-v3 -o $(TEST_OUT)/cxx-enum-class/enum-x64.rin \
+		tests/cxx_enum_class.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -shared \
+		--emit-unsigned-v3 -o $(TEST_OUT)/cxx-enum-class/enum-x86.rll \
+		tests/cxx_enum_class.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -shared \
+		--emit-unsigned-v3 -o $(TEST_OUT)/cxx-enum-class/enum-x64.rll \
+		tests/cxx_enum_class.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -driver \
+		--emit-unsigned-v3 -o $(TEST_OUT)/cxx-enum-class/enum-x86.drv \
+		tests/cxx_enum_class.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -driver \
+		--emit-unsigned-v3 -o $(TEST_OUT)/cxx-enum-class/enum-x64.drv \
+		tests/cxx_enum_class.cpp
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-enum-class/enum-x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-enum-class/enum-x64.rin
+	$(RINVALIDATE) --kind library --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-enum-class/enum-x86.rll
+	$(RINVALIDATE) --kind library --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-enum-class/enum-x64.rll
+	$(RINVALIDATE) --kind driver --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-enum-class/enum-x86.drv
+	$(RINVALIDATE) --kind driver --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-enum-class/enum-x64.drv
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-x86.ro tests/cxx_enum_class_invalid.cpp,$(TEST_OUT)/cxx-enum-class/invalid-x86.log)
 	$(GREP) -q 'scoped enum' $(TEST_OUT)/cxx-enum-class/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-enum-class/invalid-x64.ro tests/cxx_enum_class_invalid.cpp,$(TEST_OUT)/cxx-enum-class/invalid-x64.log)

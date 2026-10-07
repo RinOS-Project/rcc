@@ -277,6 +277,8 @@
       enum閉じ括弧前の列挙子expression type／暗黙増分の型遷移、閉じ括弧後の
       enum型、算術昇格、constexpr、DWARF encoding/valueへ反映。i686/AMD64で
       signed/unsigned/wide境界、ULLONG_MAX、型なしで表せない混合値を検証
+- [x] Inferred/unscoped C++ enum coverage emits direct unsigned-v3 `.rin`, `.rll`,
+      and `.drv` images on i686/AMD64 and validates each artifact with rinvalidate.
 - [x] bounded templates、concepts、constexpr/consteval、lambda
   - [x] bounded type/non-type parameter packs、pack expansion、fold expression、
         empty-pack identity、pack-based static membersの両arch回帰
