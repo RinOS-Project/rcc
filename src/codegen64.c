@@ -9584,8 +9584,20 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                                              (size_t)d->type->size);
                 }
                 if (d->var_init &&
-                    !gen64_local_initializer(mod, d->type, d->var_init,
-                                             d->var_offset)) {
+                    d->var_reference_temporary_offset < 0) {
+                    if (!gen64_local_initializer(
+                            mod, d->type->base, d->var_init,
+                            d->var_reference_temporary_offset)) {
+                        rcc_error(d->loc,
+                                  "cannot initialize reference temporary for '%s'",
+                                  d->name);
+                    }
+                    emit64_lea(mod, RAX, RBP,
+                               d->var_reference_temporary_offset);
+                    emit64_store_typed(mod, RBP, d->var_offset, RAX, d->type);
+                } else if (d->var_init &&
+                           !gen64_local_initializer(mod, d->type, d->var_init,
+                                                    d->var_offset)) {
                     rcc_error(d->loc, "unsupported local initializer for '%s'",
                               d->name);
                 }

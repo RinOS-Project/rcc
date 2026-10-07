@@ -12636,8 +12636,39 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
             break;
         case STMT_DECL:
             if (statement->decl && statement->decl->kind == DECL_VAR) {
-                codegen_assign_compound_expr(statement->decl->var_init, bytes,
+                Decl* declaration = statement->decl;
+                Type* type = declaration->type;
+                codegen_assign_compound_expr(declaration->var_init, bytes,
                                              stack_alignment);
+                if (declaration->var_reference_temporary_offset == 0 &&
+                    !declaration->var_is_global &&
+                    !declaration->var_is_static_local &&
+                    !declaration->var_is_block_extern &&
+                    type && type->kind == TYPE_PTR && type->is_reference &&
+                    type->base && declaration->var_init &&
+                    !gen_expr_is_lvalue(declaration->var_init) &&
+                    !gen_expr_is_xvalue(declaration->var_init) &&
+                    (type_is_integer(type->base) ||
+                     type->base->kind == TYPE_ENUM ||
+                     type_is_floating(type->base) ||
+                     type->base->kind == TYPE_PTR ||
+                     type->base->kind == TYPE_NULLPTR)) {
+                    int size = type->base->size;
+                    int alignment = type->base->align;
+                    int64_t extent;
+                    if (size <= 0) size = 1;
+                    if (alignment < stack_alignment) {
+                        alignment = stack_alignment;
+                    }
+                    extent = (int64_t)*bytes + size;
+                    if (extent > INT_MAX) {
+                        *bytes = INT_MAX;
+                    } else {
+                        *bytes = codegen_align_frame_bytes((int)extent,
+                                                           alignment);
+                        declaration->var_reference_temporary_offset = -*bytes;
+                    }
+                }
             }
             break;
         case STMT_ASM:
@@ -14227,8 +14258,22 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                                            (size_t)d->type->size);
                 }
                 if (d->var_init &&
-                    !gen_local_initializer(mod, d->type, d->var_init,
-                                           d->var_offset)) {
+                    d->var_reference_temporary_offset < 0) {
+                    if (!gen_local_initializer(
+                            mod, d->type->base, d->var_init,
+                            d->var_reference_temporary_offset)) {
+                        rcc_error(d->loc,
+                                  "cannot initialize reference temporary for '%s'",
+                                  d->name);
+                    }
+                    emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+                    emit_byte(mod, modrm(2, EAX, EBP));
+                    emit_dword(mod,
+                               (uint32_t)d->var_reference_temporary_offset);
+                    emit_store_typed32(mod, EBP, d->var_offset, EAX, d->type);
+                } else if (d->var_init &&
+                           !gen_local_initializer(mod, d->type, d->var_init,
+                                                  d->var_offset)) {
                     rcc_error(d->loc, "unsupported local initializer for '%s'",
                               d->name);
                 }
