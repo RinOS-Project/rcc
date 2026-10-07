@@ -187,6 +187,20 @@ Type* type_ptr(Type* base) {
     return t;
 }
 
+Type* type_reference(Type* base, bool rvalue_reference) {
+    Type* reference;
+    while (base && base->kind == TYPE_PTR && base->is_reference) {
+        /* `&` dominates `&&`; only && combined with && remains &&. */
+        rvalue_reference = rvalue_reference && base->is_rvalue_reference;
+        base = base->base;
+    }
+    if (base == NULL) return NULL;
+    reference = type_ptr(base);
+    reference->is_reference = true;
+    reference->is_rvalue_reference = rvalue_reference;
+    return reference;
+}
+
 Type* type_array(Type* base, int len) {
     Type* t = rcc_alloc(sizeof(Type));
     t->kind = TYPE_ARRAY;
@@ -1047,6 +1061,7 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->param_default = NULL;
     d->var_init = init;
     d->var_offset = 0;
+    d->var_reference_temporary_offset = 0;
     d->var_vla_size_offset = 0;
     d->var_vla_extent_offset = 0;
     d->var_vla_extent_count = 0;

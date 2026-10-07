@@ -3444,11 +3444,20 @@ static bool parser_parenthesized_pointer_is_function(void) {
 static ParsedPointerLevel* parse_pointer_levels(void) {
     ParsedPointerLevel* levels = NULL;
     ParsedPointerLevel** tail = &levels;
+    bool saw_reference = false;
     while (match(TOK_STAR) ||
            (parser_cxx_mode && (match(TOK_AMP) || match(TOK_AND)))) {
         ParsedPointerLevel* level = ast_arena_alloc(sizeof(*level));
         level->is_reference = previous()->type != TOK_STAR;
         level->is_rvalue_reference = previous()->type == TOK_AND;
+        if (level->is_reference) {
+            if (saw_reference) {
+                rcc_error(previous()->loc,
+                          "a C++ declarator cannot directly bind a reference "
+                          "to a reference");
+            }
+            saw_reference = true;
+        }
         while (check(TOK_CONST) || check(TOK_VOLATILE) ||
                check(TOK_RESTRICT)) {
             if (match(TOK_CONST)) level->is_const = true;
@@ -3464,12 +3473,13 @@ static ParsedPointerLevel* parse_pointer_levels(void) {
 static Type* apply_pointer_levels(Type* type,
                                   ParsedPointerLevel* levels) {
     for (ParsedPointerLevel* level = levels; level; level = level->next) {
-        type = type_ptr(type);
+        type = level->is_reference
+            ? type_reference(type, level->is_rvalue_reference)
+            : type_ptr(type);
+        if (!type) return NULL;
         type->is_const = level->is_const;
         type->is_volatile = level->is_volatile;
         type->is_restrict = level->is_restrict;
-        type->is_reference = level->is_reference;
-        type->is_rvalue_reference = level->is_rvalue_reference;
     }
     return type;
 }

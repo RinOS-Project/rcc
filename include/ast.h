@@ -299,6 +299,9 @@ char* ast_arena_strdup(const char* text);
 
 /* Type constructors */
 Type* type_ptr(Type* base);
+/* Construct a C++ reference type and apply the standard reference-collapse
+ * rule when `base` is already a reference type. */
+Type* type_reference(Type* base, bool rvalue_reference);
 Type* type_array(Type* base, int len);
 Type* type_vector(Type* base, int lanes, int vector_size);
 Type* type_func(Type* ret, TypeParam* params, bool variadic);
@@ -1013,6 +1016,7 @@ struct Decl {
         struct {
             Expr* var_init;
             int var_offset;         /* Stack offset (set during codegen) */
+            int var_reference_temporary_offset; /* Lifetime-extended scalar */
             int var_vla_size_offset; /* Saved runtime VLA byte size */
             int var_vla_extent_offset; /* First saved VLA dimension extent */
             int var_vla_extent_count;  /* Number of saved VLA dimensions */

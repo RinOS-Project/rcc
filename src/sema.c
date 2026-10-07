@@ -8431,10 +8431,7 @@ static Type* sema_cxx_lambda_deduction_type(Expr* argument,
         parameter_pattern->is_reference &&
         parameter_pattern->is_rvalue_reference && argument &&
         is_lvalue(argument)) {
-        Type* reference = type_ptr(type);
-        reference->is_reference = true;
-        reference->is_rvalue_reference = false;
-        return reference;
+        return type_reference(type, false);
     }
     /* Function parameters declared by value apply the standard array/function
      * decay before deduction.  References retain the expression's exact
@@ -13870,11 +13867,9 @@ static Type* sema_deduce_auto_type(Decl* declaration) {
             qualified->is_const = true;
             deduced = qualified;
         }
-        Type* reference = type_ptr(deduced);
-        reference->is_reference = true;
-        reference->is_rvalue_reference =
-            declaration->var_is_auto_rvalue_reference && !binds_lvalue;
-        return reference;
+        return type_reference(
+            deduced,
+            declaration->var_is_auto_rvalue_reference && !binds_lvalue);
     }
     if (deduced && deduced->is_reference && deduced->kind == TYPE_PTR) {
         deduced = deduced->base;
@@ -14473,10 +14468,7 @@ static Type* sema_decltype_auto_return_type(Expr* expression) {
 
     if (sema_decltype_auto_expression_is_xvalue(expression)) {
         if (result->kind == TYPE_PTR && result->is_reference) return result;
-        Type* reference = type_ptr(result);
-        reference->is_reference = true;
-        reference->is_rvalue_reference = true;
-        return reference;
+        return type_reference(result, true);
     }
 
     /* These expression forms are lvalues.  Preserve that category for the
@@ -14495,9 +14487,7 @@ static Type* sema_decltype_auto_return_type(Expr* expression) {
                       "decltype(auto) cannot return an array or function lvalue");
             return type_int;
         }
-        Type* reference = type_ptr(result);
-        reference->is_reference = true;
-        return reference;
+        return type_reference(result, false);
     }
 
     /* A reference-returning call already carries the exact reference type. */

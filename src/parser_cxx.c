@@ -5854,11 +5854,8 @@ static Type* parse_cxx_lambda_auto_type(CxxTemplate* tmpl, int parameter_index,
     placeholder->cxx_dependent = true;
     placeholder->is_const = is_const;
     if (is_pointer) placeholder = type_ptr(placeholder);
-    if (is_reference) {
-        placeholder = type_ptr(placeholder);
-        placeholder->is_reference = true;
-        placeholder->is_rvalue_reference = is_rvalue_reference;
-    }
+    if (is_reference)
+        placeholder = type_reference(placeholder, is_rvalue_reference);
     return placeholder;
 }
 
@@ -7874,7 +7871,9 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             value_args, value_present);
         if (type->kind == TYPE_PTR && type->is_reference && base &&
             base->kind == TYPE_PTR && base->is_reference) {
-            return base;
+            return type_reference(
+                base, type->is_rvalue_reference &&
+                          base->is_rvalue_reference);
         }
         array_len = type->array_len;
         array_bound = type->array_bound;
@@ -9753,8 +9752,7 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
             parameter->decl->type->is_rvalue_reference &&
             cxx_parser_expression_is_lvalue(argument->expr) &&
             !actual->is_reference) {
-            deduction_actual = type_ptr(actual);
-            deduction_actual->is_reference = true;
+            deduction_actual = type_reference(actual, false);
         }
         if (!deduce_function_template_type(
                 tmpl, parameter->decl->type,
@@ -11252,9 +11250,8 @@ static Type* parse_cxx_decltype_type_legacy(SourceLoc loc) {
         if (result->kind == TYPE_PTR && result->is_reference) {
             result = result->base;
         }
-        reference = type_ptr(result);
-        reference->is_reference = true;
-        return reference;
+        reference = type_reference(result, false);
+        return reference ? reference : type_int;
     }
     return result;
 }
@@ -11363,9 +11360,8 @@ static Type* parse_cxx_decltype_type(SourceLoc loc) {
          expression->kind == EXPR_PTR_MEMBER ||
          expression->kind == EXPR_INDEX ||
          expression->kind == EXPR_DEREF) && is_lvalue) {
-        Type* reference = type_ptr(result);
-        reference->is_reference = true;
-        return reference;
+        Type* reference = type_reference(result, false);
+        return reference ? reference : type_int;
     }
     return result;
 }
@@ -11377,6 +11373,7 @@ static Type* parse_cxx_type_spec(void) {
     bool is_const = false;
     bool is_volatile = false;
     bool saw_sign = false;
+    bool saw_reference = false;
     int long_count = 0;
     bool is_short = false;
 
@@ -11595,14 +11592,29 @@ static Type* parse_cxx_type_spec(void) {
             t = type_ptr(t);
             while (match(TOK_CONST)) t->is_const = true;
         } else if (match(TOK_AMP)) {
-            t = type_ptr(t);
-            t->is_reference = true;
+            if (saw_reference) {
+                rcc_error(previous()->loc,
+                          "a C++ type cannot directly bind a reference "
+                          "to a reference");
+                return type_int;
+            }
+            saw_reference = true;
+            t = type_reference(t, false);
         } else if (match(TOK_AND)) {
-            t = type_ptr(t);
-            t->is_reference = true;
-            t->is_rvalue_reference = true;
+            if (saw_reference) {
+                rcc_error(previous()->loc,
+                          "a C++ type cannot directly bind a reference "
+                          "to a reference");
+                return type_int;
+            }
+            saw_reference = true;
+            t = type_reference(t, true);
         } else {
             break;
+        }
+        if (!t) {
+            rcc_error(peek()->loc, "invalid C++ reference type");
+            return type_int;
         }
     }
 
