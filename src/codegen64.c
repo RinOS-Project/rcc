@@ -617,6 +617,7 @@ static void emit64_ret(Module* mod) {
 /* LEAVE */
 static void emit64_leave(Module* mod) {
     emit_byte(mod, 0xC9);
+    module_add_debug_frame_epilogue(mod, code_offset(mod));
 }
 
 /* ═══════════════════════════════════════
@@ -9969,6 +9970,8 @@ Module* rcc_codegen64(AST* ast) {
             module_add_symbol(mod, decl_link_name(d->decl), func_start, true,
                               MODULE_SYMBOL_CODE,
                              d->decl->storage != STORAGE_STATIC);
+            module_set_symbol_size(mod, decl_link_name(d->decl),
+                                   code_offset(mod) - func_start);
             module_set_symbol_source(mod, decl_link_name(d->decl),
                                      d->decl->loc);
             if (d->decl->is_weak || (d->decl->func_is_inline &&

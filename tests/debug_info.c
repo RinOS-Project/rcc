@@ -31,6 +31,9 @@ enum debug_enum debug_enum_data = DEBUG_ENUM_POSITIVE;
 static int debug_aggregate_sum(void)
 {
     struct debug_aggregate local = {3, 4};
+    if (local.first == 0) {
+        return local.second;
+    }
     return local.first + local.second;
 }
 

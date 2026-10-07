@@ -137,6 +137,11 @@ typedef struct Module {
     ModuleSymbol* symbols;
     int symbol_count;
     int symbol_capacity;
+    /* Absolute text offsets of the instruction immediately after each
+     * legacy `leave`; these are the PCs where epilogue CFI becomes active. */
+    uint32_t* debug_frame_epilogue_pcs;
+    size_t debug_frame_epilogue_count;
+    size_t debug_frame_epilogue_capacity;
 
     /* Relocation table for object files */
     ModuleReloc* relocs_arr;
@@ -196,6 +201,8 @@ Module* rcc_codegen64(AST* ast);
 void module_add_symbol(Module* mod, const char* name, uint32_t offset,
                        bool is_defined, ModuleSymbolSection section,
                        bool is_global);
+void module_set_symbol_size(Module* mod, const char* name, uint32_t size);
+void module_add_debug_frame_epilogue(Module* mod, uint32_t return_pc);
 void module_set_symbol_source(Module* mod, const char* name, SourceLoc loc);
 void module_mark_symbol_weak(Module* mod, const char* name);
 void module_mark_symbol_weak_any(Module* mod, const char* name);

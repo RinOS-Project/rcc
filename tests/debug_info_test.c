@@ -893,6 +893,70 @@ static bool has_epilogue_cfa_restore(const ObjSection* frame,
     return false;
 }
 
+static size_t count_epilogue_cfa_restores(const ObjSection* frame,
+                                         uint64_t instruction_offset,
+                                         uint64_t instruction_end,
+                                         uint8_t stack_register,
+                                         uint8_t frame_register,
+                                         uint8_t pointer_size)
+{
+    size_t count = 0u;
+    for (uint64_t offset = instruction_offset;
+         offset + 4u < instruction_end; ++offset) {
+        if (frame->data[offset] == 0x0du &&
+            frame->data[offset + 1u] == stack_register &&
+            frame->data[offset + 2u] == 0x0eu &&
+            frame->data[offset + 3u] == pointer_size &&
+            frame->data[offset + 4u] ==
+                (uint8_t)(0xc0u + frame_register)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+static size_t count_frame_body_restores(const ObjSection* frame,
+                                       uint64_t instruction_offset,
+                                       uint64_t instruction_end,
+                                       uint8_t frame_register,
+                                       uint8_t pointer_size)
+{
+    size_t count = 0u;
+    for (uint64_t offset = instruction_offset;
+         offset + 5u < instruction_end; ++offset) {
+        if (frame->data[offset] == 0x0du &&
+            frame->data[offset + 1u] == frame_register &&
+            frame->data[offset + 2u] == 0x0eu &&
+            frame->data[offset + 3u] == (uint8_t)(pointer_size * 2u) &&
+            frame->data[offset + 4u] ==
+                (uint8_t)(0x80u + frame_register) &&
+            frame->data[offset + 5u] == 1u) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+static void verify_multiple_return_frame_fde(const ObjSection* frame,
+                                             uint16_t architecture)
+{
+    uint32_t cie_length = read_u32(frame->data, 0u);
+    uint64_t fde_offset = 4u + cie_length;
+    uint32_t fde_length = read_u32(frame->data, fde_offset);
+    uint64_t instruction_offset = fde_offset + 8u +
+        (architecture == ARCH_X64 ? 16u : 8u);
+    uint64_t instruction_end = fde_offset + 4u + fde_length;
+    uint8_t frame_register = architecture == ARCH_X64 ? 6u : 5u;
+    uint8_t stack_register = architecture == ARCH_X64 ? 7u : 4u;
+    uint8_t pointer_size = architecture == ARCH_X64 ? 8u : 4u;
+    assert(count_epilogue_cfa_restores(
+               frame, instruction_offset, instruction_end, stack_register,
+               frame_register, pointer_size) == 3u);
+    assert(count_frame_body_restores(
+               frame, instruction_offset, instruction_end, frame_register,
+               pointer_size) == 2u);
+}
+
 static void verify_first_frame_fde(const ObjSection* frame,
                                    uint16_t architecture)
 {
@@ -1092,6 +1156,9 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     assert(contains_byte(frame->data, frame->size, 0x0cu));
     assert(contains_byte(frame->data, frame->size, 0x0du));
     verify_first_frame_fde(frame, architecture);
+    if (strcmp(source_file, "tests/debug_info.c") == 0) {
+        verify_multiple_return_frame_fde(frame, architecture);
+    }
     assert(info->relocs != NULL && info->size > 16u);
     assert(info->data[4] == 4u && info->data[5] == 0u);
     assert(info->data[16] == (uint8_t)language);

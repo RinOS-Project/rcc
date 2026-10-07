@@ -3297,6 +3297,9 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
             : g_opts.target_arch == ARCH_X64 ? 4u : 3u;
         uint64_t after_leave = function_size >= 1u
             ? (uint64_t)function_size - 1u : 0u;
+        uint64_t current_pc;
+        uint64_t function_end = (uint64_t)function->offset + function_size;
+        size_t emitted_epilogues = 0u;
 
         debug_line_u32(frame, 0u);
         debug_line_u32(frame, (uint32_t)cie_offset);
@@ -3337,14 +3340,56 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
         }
         section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */
         debug_line_uleb(frame, frame_register);
-        if (after_leave > prologue_after_fp) {
-            debug_frame_advance(frame, after_leave - prologue_after_fp);
+        current_pc = prologue_after_fp;
+        if (!mod->debug_verified_backend) {
+            for (size_t epilogue_index = 0u;
+                 epilogue_index < mod->debug_frame_epilogue_count;
+                 ++epilogue_index) {
+                uint32_t return_pc =
+                    mod->debug_frame_epilogue_pcs[epilogue_index];
+                uint64_t relative_pc;
+                if (return_pc <= function->offset ||
+                    (uint64_t)return_pc >= function_end ||
+                    (size_t)return_pc >= mod->code.size ||
+                    mod->code.data[return_pc] != 0xc3u) {
+                    continue;
+                }
+                relative_pc = (uint64_t)return_pc - function->offset;
+                if (relative_pc <= current_pc ||
+                    relative_pc >= function_size) {
+                    continue;
+                }
+                debug_frame_advance(frame, relative_pc - current_pc);
+                section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */
+                debug_line_uleb(frame, stack_register);
+                /* `leave` restores ESP to the return-address slot. */
+                section_add_byte(frame, 0x0eu); /* DW_CFA_def_cfa_offset */
+                debug_line_uleb(frame, pointer_size);
+                section_add_byte(frame, (uint8_t)(0xc0u + frame_register));
+                current_pc = relative_pc;
+                ++emitted_epilogues;
+
+                /* A later branch target may resume the function after this
+                 * non-terminal return.  Restore the normal frame-body rules
+                 * at the next instruction boundary for that code range. */
+                if (relative_pc + 1u < function_size) {
+                    debug_frame_advance(frame, 1u);
+                    section_add_byte(frame, 0x0du);
+                    debug_line_uleb(frame, frame_register);
+                    section_add_byte(frame, 0x0eu);
+                    debug_line_uleb(frame, pointer_size * 2u);
+                    section_add_byte(frame,
+                                     (uint8_t)(0x80u + frame_register));
+                    debug_line_uleb(frame, 1u);
+                    current_pc = relative_pc + 1u;
+                }
+            }
+        }
+        if (emitted_epilogues == 0u &&
+            after_leave > prologue_after_fp) {
+            debug_frame_advance(frame, after_leave - current_pc);
             section_add_byte(frame, 0x0du); /* DW_CFA_def_cfa_register */
             debug_line_uleb(frame, stack_register);
-            /* `leave` restores ESP to the return-address slot.  The caller's
-             * CFA is therefore ESP + one word, matching the CIE entry rule;
-             * keeping the frame-body two-word offset here mis-unwinds by one
-             * saved-frame-pointer slot. */
             section_add_byte(frame, 0x0eu); /* DW_CFA_def_cfa_offset */
             debug_line_uleb(frame, pointer_size);
             section_add_byte(frame, (uint8_t)(0xc0u + frame_register));

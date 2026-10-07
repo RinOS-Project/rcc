@@ -107,6 +107,9 @@ Module* codegen_new(void) {
     mod->symbols = NULL;
     mod->symbol_count = 0;
     mod->symbol_capacity = 0;
+    mod->debug_frame_epilogue_pcs = NULL;
+    mod->debug_frame_epilogue_count = 0u;
+    mod->debug_frame_epilogue_capacity = 0u;
     mod->relocs_arr = NULL;
     mod->reloc_count = 0;
     mod->reloc_capacity = 0;
@@ -173,6 +176,7 @@ void codegen_free(Module* mod) {
     rcc_free(mod->data.data);
     rcc_free(mod->tls.data);
     rcc_free(mod->symbols);
+    rcc_free(mod->debug_frame_epilogue_pcs);
     rcc_free(mod->relocs_arr);
     rcc_free(mod);
 }
@@ -266,6 +270,38 @@ void module_set_symbol_source(Module* mod, const char* name, SourceLoc loc) {
         symbol->source_column = loc.column > 0 ? (uint32_t)loc.column : 0u;
         return;
     }
+}
+
+void module_set_symbol_size(Module* mod, const char* name, uint32_t size) {
+    if (!mod || !name || !name[0]) return;
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        ModuleSymbol* symbol = &mod->symbols[index];
+        if (strcmp(symbol->name, name) == 0) {
+            symbol->size = size;
+            return;
+        }
+    }
+}
+
+void module_add_debug_frame_epilogue(Module* mod, uint32_t return_pc) {
+    size_t new_capacity;
+    if (!mod) return;
+    if (mod->debug_frame_epilogue_count >=
+        mod->debug_frame_epilogue_capacity) {
+        new_capacity = mod->debug_frame_epilogue_capacity == 0u
+            ? 8u : mod->debug_frame_epilogue_capacity * 2u;
+        if (new_capacity <= mod->debug_frame_epilogue_capacity ||
+            new_capacity > SIZE_MAX / sizeof(*mod->debug_frame_epilogue_pcs)) {
+            rcc_fatal("debug frame epilogue table is too large");
+            return;
+        }
+        mod->debug_frame_epilogue_pcs = rcc_realloc(
+            mod->debug_frame_epilogue_pcs,
+            new_capacity * sizeof(*mod->debug_frame_epilogue_pcs));
+        mod->debug_frame_epilogue_capacity = new_capacity;
+    }
+    mod->debug_frame_epilogue_pcs[
+        mod->debug_frame_epilogue_count++] = return_pc;
 }
 
 void module_mark_symbol_weak(Module* mod, const char* name) {
@@ -2110,6 +2146,7 @@ static void emit_ret(Module* mod) {
 
 static void emit_leave(Module* mod) {
     emit_byte(mod, 0xC9);
+    module_add_debug_frame_epilogue(mod, code_offset(mod));
 }
 
 /* ═══════════════════════════════════════
@@ -14142,6 +14179,8 @@ Module* rcc_codegen(AST* ast) {
             module_add_symbol(mod, decl_link_name(d->decl), func_start, true,
                               MODULE_SYMBOL_CODE,
                              d->decl->storage != STORAGE_STATIC);
+            module_set_symbol_size(mod, decl_link_name(d->decl),
+                                   code_offset(mod) - func_start);
             module_set_symbol_source(mod, decl_link_name(d->decl),
                                      d->decl->loc);
             if (d->decl->is_weak || (d->decl->func_is_inline &&
