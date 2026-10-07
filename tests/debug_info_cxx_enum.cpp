@@ -16,6 +16,10 @@ enum DebugInferredUnsignedInt {
 
 DebugInferredUnsignedInt debug_inferred_unsigned_int;
 
+extern "C" {
+thread_local int debug_cpp_tls_data = 13;
+}
+
 enum DebugSignedEnum : signed char {
     signed_negative = -2,
     signed_positive = 6,

@@ -1,4 +1,5 @@
 int verified_global_data = 7;
+_Thread_local int verified_debug_tls = 13;
 int verified_global_zero;
 static int verified_static_data = 5;
 extern int verified_external_data;

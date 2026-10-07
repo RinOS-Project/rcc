@@ -1491,6 +1491,87 @@ static void verify_global_variable(const ObjSection* info,
                           address_size == 8u ? RELOC_ABS64 : RELOC_ABS32U));
 }
 
+static void verify_tls_variable_location(ObjectFile* object,
+                                         const ObjSection* info,
+                                         const ObjSection* strings,
+                                         const char* variable_name,
+                                         const char* symbol_name,
+                                         bool external)
+{
+    ObjSection* tls;
+    ObjSection* section_cursor;
+    ObjSymbol* symbol;
+    ObjReloc* tls_relocation = NULL;
+    uint64_t die_offset = find_global_variable_die(
+        info, strings, variable_name);
+    uint64_t offset;
+    uint64_t expression_size;
+    uint64_t tls_offset;
+    int tls_section_index = 0;
+
+    assert(object != NULL && die_offset != UINT64_MAX);
+    assert(count_global_variable_dies(info, strings, variable_name) == 1u);
+    tls = objfile_get_section(object, ".tls");
+    assert(tls != NULL && tls->type == SECT_TLS);
+    for (section_cursor = object->sections;
+         section_cursor && section_cursor != tls;
+         section_cursor = section_cursor->next) {
+        ++tls_section_index;
+    }
+    assert(section_cursor == tls);
+    offset = die_offset + 1u + 5u * sizeof(uint32_t);
+    assert(offset + 5u <= info->size &&
+           info->data[offset] == (external ? 1u : 0u));
+    offset += 1u + sizeof(uint32_t); /* external flag and linkage name */
+    expression_size = read_uleb(info->data, info->size, &offset);
+    assert(expression_size == 6u && offset + expression_size <= info->size);
+    assert(info->data[offset++] == 0x0du); /* DW_OP_const4s */
+    tls_offset = offset;
+    assert(info->data[offset++] == 0u && info->data[offset++] == 0u &&
+           info->data[offset++] == 0u && info->data[offset++] == 0u);
+    assert(info->data[offset] == 0x9bu); /* DW_OP_form_tls_address */
+    for (ObjReloc* relocation = info->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset == tls_offset &&
+            relocation->type == RELOC_TLSOFF32S) {
+            assert(tls_relocation == NULL);
+            tls_relocation = relocation;
+        }
+    }
+    assert(tls_relocation != NULL && tls_relocation->symbol_name != NULL);
+    if (symbol_name) {
+        assert(strcmp(tls_relocation->symbol_name, symbol_name) == 0);
+    }
+    symbol = objfile_find_symbol(object, tls_relocation->symbol_name);
+    assert(symbol != NULL &&
+           symbol->type == (external ? SYM_GLOBAL : SYM_LOCAL) &&
+           symbol->binding == BIND_TLS &&
+           symbol->section == tls_section_index);
+}
+
+static void verify_tls_global_variable(ObjectFile* object,
+                                      const ObjSection* info,
+                                      const ObjSection* strings,
+                                      const char* variable_name)
+{
+    verify_tls_variable_location(object, info, strings, variable_name,
+                                 variable_name, true);
+}
+
+static void verify_tls_global_object(const char* path,
+                                     const char* variable_name)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    assert(object != NULL);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+    verify_tls_global_variable(object, info, strings, variable_name);
+    objfile_free(object);
+}
+
 static bool has_epilogue_cfa_restore(const ObjSection* frame,
                                      uint64_t instruction_offset,
                                      uint64_t instruction_end,
@@ -1875,6 +1956,10 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         verify_global_variable(info, strings, "debug_atomic_data",
                                "debug_atomic_data", "debug_atomic_data",
                                architecture == ARCH_X64 ? 8u : 4u, true);
+        verify_tls_global_variable(object, info, strings, "debug_tls_data");
+        verify_tls_variable_location(
+            object, info, strings, "debug_tls_static_local",
+            NULL, false);
         assert(contains_bytes(strings->data, strings->size,
                               "debug_info_parameters"));
         assert(contains_bytes(strings->data, strings->size, "left"));
@@ -2056,6 +2141,7 @@ static void verify_verified_global_debug_object(const char* path,
                           "verified_global_data"));
     assert(contains_bytes(strings->data, strings->size,
                           "verified_global_read"));
+    verify_tls_global_variable(object, info, strings, "verified_debug_tls");
     assert(line->relocs != NULL && info->relocs != NULL &&
            frame->relocs != NULL);
     verify_first_frame_fde(frame, architecture);
@@ -2146,5 +2232,7 @@ int main(int argc, char** argv)
     verify_scoped_enum_dwarf(argv[19], ARCH_X64, "DebugScopedStructEnum",
                              "char", 1u, 0x06u, 16u,
                              "struct_scoped_value", -1);
+    verify_tls_global_object(argv[18], "debug_cpp_tls_data");
+    verify_tls_global_object(argv[19], "debug_cpp_tls_data");
     return 0;
 }

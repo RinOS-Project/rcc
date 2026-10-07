@@ -5,6 +5,7 @@ const int debug_const_data = 4;
 volatile int debug_volatile_data;
 int * restrict debug_restrict_data;
 _Atomic int debug_atomic_data;
+_Thread_local int debug_tls_data = 11;
 
 struct debug_aggregate {
     int first;
@@ -52,6 +53,12 @@ int debug_line_entry(void)
     static int debug_line_static;
     return debug_line_helper() + debug_declared_inline(1) +
            debug_global_data + debug_file_static + debug_line_static;
+}
+
+int debug_tls_static_local_read(void)
+{
+    static _Thread_local int debug_tls_static_local = 17;
+    return debug_tls_static_local;
 }
 
 int debug_prototype_function(void)

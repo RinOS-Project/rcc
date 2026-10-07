@@ -1695,12 +1695,27 @@ static uint32_t debug_emit_contextual_type_die(
 
 static void debug_expr_addr(ObjectFile* obj, ObjSection* info,
                             int info_section, const char* symbol,
-                            int architecture) {
+                            int architecture, bool is_tls) {
     uint64_t address_offset;
     uint32_t address_size = architecture == ARCH_X64 ? 8u : 4u;
 
     if (!obj || !info || info_section < 0 || !symbol || symbol[0] == '\0') {
         rcc_fatal("DWARF global variable location is missing a symbol");
+        return;
+    }
+    if (is_tls) {
+        /* DW_OP_form_tls_address converts a signed TLS template offset to
+         * the current thread's address; DW_OP_addr would describe a normal
+         * process address and is incorrect for a TLS symbol. */
+        debug_line_uleb(info, 6u);
+        section_add_byte(info, 0x0du); /* DW_OP_const4s */
+        address_offset = info->size;
+        for (uint32_t byte = 0u; byte < sizeof(uint32_t); ++byte) {
+            section_add_byte(info, 0u);
+        }
+        section_add_byte(info, 0x9bu); /* DW_OP_form_tls_address */
+        objfile_add_reloc(obj, info_section, address_offset, symbol,
+                          RELOC_TLSOFF32S, 0);
         return;
     }
     debug_line_uleb(info, (uint64_t)address_size + 1u);
@@ -1816,7 +1831,8 @@ static void debug_emit_global_variable_die(
         scoped_name = module_scoped_symbol(filename, symbol->name);
         symbol_name = scoped_name;
     }
-    debug_expr_addr(obj, info, info_section, symbol_name, architecture);
+    debug_expr_addr(obj, info, info_section, symbol_name, architecture,
+                    declaration->var_is_thread_local);
     rcc_free(scoped_name);
 }
 
@@ -2133,7 +2149,8 @@ static const ModuleSymbol* debug_find_global_symbol(const Module* mod,
         const ModuleSymbol* symbol = &mod->symbols[index];
         if (!symbol->is_defined || strcmp(symbol->name, link_name) != 0 ||
             (symbol->section != MODULE_SYMBOL_DATA &&
-             symbol->section != MODULE_SYMBOL_BSS)) {
+             symbol->section != MODULE_SYMBOL_BSS &&
+             symbol->section != MODULE_SYMBOL_TLS)) {
             continue;
         }
         return symbol;
@@ -2152,7 +2169,8 @@ static const ModuleSymbol* debug_find_static_local_symbol(
         const ModuleSymbol* symbol = &mod->symbols[index];
         if (!symbol->is_defined || strcmp(symbol->name, link_name) != 0 ||
             (symbol->section != MODULE_SYMBOL_DATA &&
-             symbol->section != MODULE_SYMBOL_BSS)) {
+             symbol->section != MODULE_SYMBOL_BSS &&
+             symbol->section != MODULE_SYMBOL_TLS)) {
             continue;
         }
         return symbol;
