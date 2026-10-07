@@ -31,6 +31,13 @@ typedef struct {
 } RccX86CodeSourceRange;
 
 typedef struct {
+    /* Borrowed AST declaration; valid while the originating AST is alive. */
+    const void* declaration;
+    /* DWARF frame-base-relative byte offset after final frame layout. */
+    int64_t frame_offset;
+} RccX86CodeLocalLocation;
+
+typedef struct {
     RccX86Target target;
     uint8_t* code;
     size_t code_size;
@@ -40,6 +47,8 @@ typedef struct {
     size_t relocation_count;
     RccX86CodeSourceRange* source_ranges;
     size_t source_range_count;
+    RccX86CodeLocalLocation* local_locations;
+    size_t local_location_count;
 } RccX86EncodedFunction;
 
 bool rcc_x86_encode_function(

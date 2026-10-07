@@ -21,6 +21,7 @@ typedef struct {
     size_t fixup_capacity;
     size_t relocation_capacity;
     size_t source_range_capacity;
+    size_t local_location_capacity;
     char* error;
     size_t error_size;
 } RccX86Encoder;
@@ -107,6 +108,42 @@ static bool x86_add_source_range(
     ranges[encoder->output.source_range_count].source_statement =
         instruction->source_statement;
     ++encoder->output.source_range_count;
+    return true;
+}
+
+static bool x86_add_local_location(
+    RccX86Encoder* encoder, const RccX86LegalInstruction* instruction) {
+    RccX86CodeLocalLocation* locations;
+    size_t capacity;
+    if (!encoder || !instruction ||
+        instruction->selected_opcode != RCC_X86_STACK_ADDRESS ||
+        !instruction->source_declaration) return true;
+    if (instruction->immediate > encoder->function->stack_adjustment) {
+        return x86_encode_error(
+            encoder, "x86 source local lies outside the final stack frame");
+    }
+    if (encoder->output.local_location_count ==
+            encoder->local_location_capacity) {
+        capacity = encoder->local_location_capacity == 0u
+            ? 8u : encoder->local_location_capacity * 2u;
+        if (capacity < encoder->local_location_capacity ||
+            capacity > SIZE_MAX / sizeof(*locations)) {
+            return x86_encode_error(
+                encoder, "x86 local-location table is too large");
+        }
+        locations = rcc_realloc(
+            encoder->output.local_locations,
+            capacity * sizeof(*locations));
+        encoder->output.local_locations = locations;
+        encoder->local_location_capacity = capacity;
+    }
+    locations = encoder->output.local_locations;
+    locations[encoder->output.local_location_count].declaration =
+        instruction->source_declaration;
+    locations[encoder->output.local_location_count].frame_offset =
+        (int64_t)instruction->immediate -
+        (int64_t)encoder->function->stack_adjustment;
+    ++encoder->output.local_location_count;
     return true;
 }
 
@@ -1652,6 +1689,7 @@ void rcc_x86_encoded_function_release(RccX86EncodedFunction* encoded) {
     }
     rcc_free(encoded->relocations);
     rcc_free(encoded->source_ranges);
+    rcc_free(encoded->local_locations);
     rcc_free(encoded->block_offsets);
     rcc_free(encoded->code);
     memset(encoded, 0, sizeof(*encoded));
@@ -1668,7 +1706,9 @@ bool rcc_x86_verify_encoded_function(
         encoded->code_size > UINT32_MAX ||
         !encoded->block_offsets || encoded->block_count == 0u ||
         (encoded->relocation_count != 0u && !encoded->relocations) ||
-        (encoded->source_range_count != 0u && !encoded->source_ranges)) {
+        (encoded->source_range_count != 0u && !encoded->source_ranges) ||
+        (encoded->local_location_count != 0u &&
+         !encoded->local_locations)) {
         if (error && error_size != 0u) {
             snprintf(error, error_size,
                      "x86 encoded-function header is invalid");
@@ -1740,6 +1780,27 @@ bool rcc_x86_verify_encoded_function(
             }
         }
     }
+    for (size_t index = 0u; index < encoded->local_location_count; ++index) {
+        const RccX86CodeLocalLocation* location =
+            &encoded->local_locations[index];
+        if (!location->declaration || location->frame_offset >= 0) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "x86 encoded local location is invalid");
+            }
+            return false;
+        }
+        for (size_t previous = 0u; previous < index; ++previous) {
+            if (encoded->local_locations[previous].declaration ==
+                location->declaration) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "x86 encoded local location is duplicated");
+                }
+                return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -1773,7 +1834,8 @@ bool rcc_x86_encode_function(
              instruction = instruction->next) {
             uint32_t offset = (uint32_t)encoder.output.code_size;
             if (!x86_emit_instruction(&encoder, instruction) ||
-                !x86_add_source_range(&encoder, instruction, offset)) {
+                !x86_add_source_range(&encoder, instruction, offset) ||
+                !x86_add_local_location(&encoder, instruction)) {
                 goto cleanup;
             }
         }

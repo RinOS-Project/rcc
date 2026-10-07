@@ -118,6 +118,9 @@ Module* codegen_new(void) {
     mod->global_finalizer_count = 0;
     mod->compound_literal_count = 0u;
     mod->debug_ast = NULL;
+    mod->debug_variable_locations = NULL;
+    mod->debug_variable_location_count = 0u;
+    mod->debug_verified_backend = false;
     mod->debug_statement_ranges = false;
     mod->debug_legacy_statement_lines = false;
 

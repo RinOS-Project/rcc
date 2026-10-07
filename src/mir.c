@@ -853,6 +853,8 @@ bool rcc_mir_lower_ir(const RccIrFunction* ir_function,
             if (ir_instruction->callee_value != RCC_IR_VALUE_NONE) {
                 instruction->callee_value = ir_instruction->callee_value;
             }
+            instruction->source_declaration =
+                ir_instruction->source_declaration;
             instruction->source_statement = ir_instruction->source_statement;
             if (ir_instruction->callee) {
                 instruction->callee = rcc_strdup(ir_instruction->callee);

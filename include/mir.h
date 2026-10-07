@@ -80,6 +80,8 @@ struct RccMirInstruction {
     char* callee;
     bool symbol_is_code;
     RccMirVReg callee_value;
+    /* Borrowed AST declaration owning a source stack allocation, if any. */
+    const void* source_declaration;
     /* Borrowed AST statement used only for verified debug-range tracking. */
     const void* source_statement;
     RccMirBlock* block;

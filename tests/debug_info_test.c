@@ -442,6 +442,78 @@ static int64_t read_sleb(const uint8_t* data, uint64_t size,
     return 0;
 }
 
+static bool find_variable_location(const ObjSection* info,
+                                  const ObjSection* strings,
+                                  const char* variable_name,
+                                  uint16_t architecture,
+                                  bool* has_location,
+                                  int64_t* frame_offset)
+{
+    uint8_t frame_register = architecture == ARCH_X64 ? 0x76u : 0x75u;
+    if (!info || !strings || !variable_name || !has_location ||
+        !frame_offset) return false;
+    for (uint64_t die = 11u; die + 21u <= info->size; ++die) {
+        uint8_t abbreviation = info->data[die];
+        uint32_t name_offset;
+        bool has_expression;
+        uint64_t expression_cursor;
+        uint64_t expression_size;
+        uint64_t expression_end;
+        if (abbreviation != 3u && abbreviation != 4u &&
+            abbreviation != 27u && abbreviation != 31u &&
+            abbreviation != 32u && abbreviation != 33u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) != 0) continue;
+        has_expression = abbreviation == 3u || abbreviation == 4u ||
+            abbreviation == 27u;
+        *has_location = has_expression;
+        *frame_offset = 0;
+        if (!has_expression) return true;
+        expression_cursor = die + 1u + 20u;
+        expression_size = read_uleb(
+            info->data, info->size, &expression_cursor);
+        assert(expression_size >= 2u &&
+               expression_size <= info->size - expression_cursor);
+        expression_end = expression_cursor + expression_size;
+        assert(info->data[expression_cursor] == frame_register);
+        expression_cursor++;
+        *frame_offset = read_sleb(
+            info->data, expression_end,
+            &expression_cursor);
+        assert(expression_cursor == expression_end ||
+               (expression_cursor + 1u == expression_end &&
+                info->data[expression_cursor] == 0x06u));
+        return true;
+    }
+    return false;
+}
+
+static void verify_optimized_verified_debug_object(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    bool has_location;
+    int64_t frame_offset;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+    assert(find_variable_location(info, strings, "value", architecture,
+                                  &has_location, &frame_offset));
+    assert(!has_location);
+    assert(find_variable_location(info, strings, "local", architecture,
+                                  &has_location, &frame_offset));
+    assert(!has_location);
+    assert(find_variable_location(info, strings, "nested", architecture,
+                                  &has_location, &frame_offset));
+    assert(!has_location);
+    objfile_free(object);
+}
+
 static void verify_vla_variable_location(const ObjSection* info,
                                          const ObjSection* strings,
                                          uint16_t architecture)
@@ -1150,6 +1222,8 @@ static void verify_verified_debug_object(const char* path,
     ObjSection* strings;
     ObjSection* frame;
     ObjSection* ranges;
+    bool has_location;
+    int64_t frame_offset;
     assert(object != NULL && object->arch == architecture);
     line = objfile_get_section(object, ".debug_line");
     info = objfile_get_section(object, ".debug_info");
@@ -1188,6 +1262,15 @@ static void verify_verified_debug_object(const char* path,
         info, strings, "local", architecture == ARCH_X64 ? 8u : 4u));
     assert(find_lexical_block_local(
         info, strings, "nested", architecture == ARCH_X64 ? 8u : 4u));
+    assert(find_variable_location(info, strings, "value", architecture,
+                                  &has_location, &frame_offset));
+    assert(has_location && frame_offset < 0);
+    assert(find_variable_location(info, strings, "local", architecture,
+                                  &has_location, &frame_offset));
+    assert(has_location && frame_offset < 0 && frame_offset != -4);
+    assert(find_variable_location(info, strings, "nested", architecture,
+                                  &has_location, &frame_offset));
+    assert(has_location && frame_offset < 0 && frame_offset != -8);
     objfile_free(object);
 }
 
@@ -1224,7 +1307,7 @@ static void verify_verified_global_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 16);
+    assert(argc == 18);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -1256,5 +1339,7 @@ int main(int argc, char** argv)
     verify_cxx_member_accessibility(argv[15], ARCH_X64);
     verify_cxx_method_accessibility(argv[14], ARCH_X86);
     verify_cxx_method_accessibility(argv[15], ARCH_X64);
+    verify_optimized_verified_debug_object(argv[16], ARCH_X86);
+    verify_optimized_verified_debug_object(argv[17], ARCH_X64);
     return 0;
 }

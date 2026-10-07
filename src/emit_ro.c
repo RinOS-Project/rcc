@@ -1430,7 +1430,7 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
 }
 
 static void debug_expr_breg(ObjSection* section, int architecture,
-                            int32_t offset, bool dereference) {
+                            int64_t offset, bool dereference) {
     uint8_t expression[16];
     size_t size = 1u;
     int64_t value = offset;
@@ -1490,10 +1490,13 @@ static void debug_expr_member_location(ObjSection* info, int offset) {
 static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
                                     DebugTypeContext* types,
                                     const char* const* files, int file_count,
+                                    const Module* mod,
                                     const Decl* declaration,
                                     uint8_t abbreviation, int architecture) {
     DebugTypeEntry* type_entry;
     int file_index;
+    int64_t frame_offset;
+    bool has_frame_location = true;
     if (!info || !strings || !declaration || !declaration->name ||
         declaration->name[0] == '\0') return;
     type_entry = debug_type_find(types, declaration->type);
@@ -1503,14 +1506,36 @@ static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
     }
     file_index = debug_line_file_index(files, file_count,
                                        declaration->loc.filename);
+    frame_offset = declaration->var_offset;
+    if (mod && mod->debug_verified_backend) {
+        has_frame_location = false;
+        for (size_t index = 0u;
+             index < mod->debug_variable_location_count; ++index) {
+            const DebugVariableLocation* location =
+                &mod->debug_variable_locations[index];
+            if (location->declaration == declaration) {
+                frame_offset = location->frame_offset;
+                has_frame_location = true;
+                break;
+            }
+        }
+        if (!has_frame_location) {
+            if (abbreviation == 3u) abbreviation = 31u;
+            else if (abbreviation == 4u) abbreviation = 32u;
+            else if (abbreviation == 27u) abbreviation = 33u;
+            else return;
+        }
+    }
     section_add_byte(info, abbreviation);
     debug_line_u32(info, debug_str_add(strings, declaration->name));
     debug_line_u32(info, type_entry->offset);
     debug_line_u32(info, (uint32_t)file_index);
     debug_line_u32(info, declaration->loc.line);
     debug_line_u32(info, declaration->loc.column);
-    debug_expr_breg(info, architecture, declaration->var_offset,
-                    declaration->var_is_vla);
+    if (has_frame_location) {
+        debug_expr_breg(info, architecture, frame_offset,
+                        declaration->var_is_vla);
+    }
 }
 
 static void debug_emit_global_variable_die(
@@ -1699,6 +1724,7 @@ static void debug_emit_catch_locals(
         if (handler->parameter && handler->parameter->kind == DECL_PARAM) {
             debug_emit_variable_die(info, strings, types,
                                     files, file_count,
+                                    mod,
                                     handler->parameter, 3u,
                                     architecture);
         }
@@ -1782,6 +1808,7 @@ static void debug_emit_stmt_locals(
                 !statement->decl->var_is_static_local) {
                 debug_emit_variable_die(info, strings, types,
                                         files, file_count,
+                                        mod,
                                         statement->decl, 4u,
                                         architecture);
             }
@@ -2004,14 +2031,14 @@ static void debug_emit_function_locals(
     Decl* function = debug_find_function_decl(mod, symbol);
     if (!function) return;
     if (function->func_this_param) {
-        debug_emit_variable_die(info, strings, types, files, file_count,
+        debug_emit_variable_die(info, strings, types, files, file_count, mod,
                                 function->func_this_param, 27u,
                                 architecture);
         section_add_byte(info, 1u); /* DW_AT_artificial */
     }
     for (DeclList* parameter = function->func_params; parameter;
          parameter = parameter->next) {
-        debug_emit_variable_die(info, strings, types, files, file_count,
+        debug_emit_variable_die(info, strings, types, files, file_count, mod,
                                 parameter->decl, 3u,
                                 architecture);
     }
@@ -2920,6 +2947,55 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x32u);    /* DW_AT_accessibility */
     debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* Optimized verified locals retain their source DIE but do not claim a
+     * stack location after mem2reg removes the backing alloca. */
+    debug_line_uleb(abbrev, 31u);
+    debug_line_uleb(abbrev, 0x05u);    /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 32u);
+    debug_line_uleb(abbrev, 0x34u);    /* DW_TAG_variable */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 33u);
+    debug_line_uleb(abbrev, 0x05u);    /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x34u);    /* DW_AT_artificial */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

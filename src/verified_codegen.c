@@ -649,7 +649,9 @@ static void verified_apply_statement_debug_ranges(
 
 static void verified_emit_debug_sections(
     ObjectFile* object, Module* data_module, const AST* ast,
-    const char* translation_unit) {
+    const char* translation_unit,
+    const DebugVariableLocation* variable_locations,
+    size_t variable_location_count) {
     ObjSection* text;
     Module* debug_module;
     if (!g_opts.debug_info || !object || !data_module || !ast ||
@@ -663,6 +665,9 @@ static void verified_emit_debug_sections(
     debug_module = codegen_new();
     debug_module->debug_ast = (AST*)ast;
     debug_module->debug_statement_ranges = true;
+    debug_module->debug_verified_backend = true;
+    debug_module->debug_variable_locations = variable_locations;
+    debug_module->debug_variable_location_count = variable_location_count;
     if (text->size != 0u) emit_bytes(debug_module, text->data, text->size);
     for (int index = 0; index < data_module->symbol_count; ++index) {
         verified_copy_debug_symbol(debug_module, &data_module->symbols[index]);
@@ -675,6 +680,33 @@ static void verified_emit_debug_sections(
     codegen_free(debug_module);
 }
 
+static void verified_collect_debug_variable_locations(
+    DebugVariableLocation** locations, size_t* count, size_t* capacity,
+    const RccX86EncodedFunction* encoded) {
+    if (!locations || !count || !capacity || !encoded) return;
+    for (size_t index = 0u; index < encoded->local_location_count; ++index) {
+        const RccX86CodeLocalLocation* source =
+            &encoded->local_locations[index];
+        size_t next_capacity;
+        if (!source->declaration) continue;
+        if (*count == *capacity) {
+            next_capacity = *capacity == 0u ? 16u : *capacity * 2u;
+            if (next_capacity < *capacity ||
+                next_capacity > SIZE_MAX / sizeof(**locations)) {
+                rcc_fatal("verified DWARF local-location table is too large");
+                return;
+            }
+            *locations = rcc_realloc(
+                *locations, next_capacity * sizeof(**locations));
+            *capacity = next_capacity;
+        }
+        (*locations)[*count].declaration =
+            (const Decl*)source->declaration;
+        (*locations)[*count].frame_offset = source->frame_offset;
+        ++*count;
+    }
+}
+
 RccVerifiedObjectStatus rcc_emit_verified_object(
     const AST* ast, const char* translation_unit,
     const char* output_path, size_t* function_count,
@@ -682,6 +714,9 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
     const DeclList* item;
     Module* data_module = NULL;
     ObjectFile* object = NULL;
+    DebugVariableLocation* debug_variable_locations = NULL;
+    size_t debug_variable_location_count = 0u;
+    size_t debug_variable_location_capacity = 0u;
     size_t emitted = 0u;
     uint16_t arch = g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86;
     RccX86Target target = g_opts.target_arch == ARCH_X64
@@ -739,6 +774,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             declaration, &module, pipeline_error,
             sizeof(pipeline_error));
         if (lower_status != RCC_IR_LOWER_OK) {
+            rcc_free(debug_variable_locations);
             objfile_free(object);
             if (lower_status == RCC_IR_LOWER_UNSUPPORTED) {
                 return verified_reason(
@@ -756,6 +792,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             !rcc_x86_encode_ir_function(
                 module->first_function, target, &encoded,
                 pipeline_error, sizeof(pipeline_error))) {
+            rcc_free(debug_variable_locations);
             rcc_ir_module_destroy(module);
             objfile_free(object);
             rcc_x86_encoded_function_release(&encoded);
@@ -764,10 +801,15 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
                 "function '%s' is not encoded yet: %s",
                 declaration->name, pipeline_error);
         }
+        verified_collect_debug_variable_locations(
+            &debug_variable_locations,
+            &debug_variable_location_count,
+            &debug_variable_location_capacity, &encoded);
         if (!verified_add_constants(
                 object, module, translation_unit,
                 decl_link_name(declaration), &encoded,
                 pipeline_error, sizeof(pipeline_error))) {
+            rcc_free(debug_variable_locations);
             rcc_x86_encoded_function_release(&encoded);
             rcc_ir_module_destroy(module);
             objfile_free(object);
@@ -793,6 +835,7 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
         if (!rcc_x86_object_add_function(
                 object, object_name, symbol_type, &encoded,
                 pipeline_error, sizeof(pipeline_error))) {
+            rcc_free(debug_variable_locations);
             rcc_free(scoped_name);
             rcc_x86_encoded_function_release(&encoded);
             rcc_ir_module_destroy(module);
@@ -810,13 +853,17 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
         ++emitted;
     }
     if (emitted == 0u) {
+        rcc_free(debug_variable_locations);
         codegen_free(data_module);
         objfile_free(object);
         return verified_reason(
             RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
             "translation unit has no supported function definitions");
     }
-    verified_emit_debug_sections(object, data_module, ast, translation_unit);
+    verified_emit_debug_sections(
+        object, data_module, ast, translation_unit,
+        debug_variable_locations, debug_variable_location_count);
+    rcc_free(debug_variable_locations);
     codegen_free(data_module);
     if (!objfile_write(object, output_path)) {
         objfile_free(object);

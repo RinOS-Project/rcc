@@ -293,10 +293,12 @@ static void x86_legal_tag_source(
     RccX86LegalBlock* block, RccX86LegalInstruction* previous,
     const RccX86Instruction* source) {
     RccX86LegalInstruction* instruction;
-    if (!block || !source || !source->source_statement) return;
+    if (!block || !source ||
+        (!source->source_statement && !source->source_declaration)) return;
     instruction = previous ? previous->next : block->first;
     while (instruction) {
         instruction->source_statement = source->source_statement;
+        instruction->source_declaration = source->source_declaration;
         instruction = instruction->next;
     }
 }

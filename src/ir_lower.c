@@ -8082,6 +8082,7 @@ static bool lower_declaration(RccIrLowerContext* context,
     rcc_ir_set_immediate(allocation,
                          declaration->type->size > 0
                              ? (uint64_t)declaration->type->size : 1u);
+    allocation->source_declaration = declaration;
     if (is_array || is_struct || is_union || wide_scalar) {
         type = rcc_ir_type_pointer(0u);
     }
@@ -8947,6 +8948,7 @@ static bool lower_parameters(RccIrLowerContext* context,
         rcc_ir_set_immediate(
             allocation, item->type->size > 0
                 ? (uint64_t)item->type->size : 1u);
+        allocation->source_declaration = item;
         if (!lower_add_local(context, item, allocation->result, type)) {
             context->unsupported = true;
             return false;
@@ -8991,6 +8993,7 @@ static bool lower_parameters(RccIrLowerContext* context,
                                   NULL, 0u);
         if (!allocation) return false;
         rcc_ir_set_immediate(allocation, (uint64_t)allocation_size);
+        allocation->source_declaration = item;
         if (aggregate || wide_scalar) type = rcc_ir_type_pointer(0u);
         if (!lower_add_local(context, item, allocation->result, type)) {
             context->unsupported = true;

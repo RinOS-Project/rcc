@@ -341,6 +341,7 @@ static bool x86_select_instruction(
         machine->has_callee = true;
         machine->callee = allocation->locations[instruction->callee_value];
     }
+    machine->source_declaration = instruction->source_declaration;
     machine->source_statement = instruction->source_statement;
     ++selected->source_instruction_count;
     return true;

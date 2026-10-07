@@ -64,6 +64,8 @@ struct RccX86Instruction {
     bool symbol_is_code;
     bool has_callee;
     RccMirLocation callee;
+    /* Borrowed AST declaration for a source variable stack allocation. */
+    const void* source_declaration;
     /* Borrowed AST statement used only for verified debug-range tracking. */
     const void* source_statement;
     bool cycle_break;

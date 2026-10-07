@@ -101,6 +101,9 @@ struct RccIrInstruction {
     char* callee;
     bool symbol_is_code;
     RccIrValue callee_value;
+    /* Borrowed AST declaration owning this stack allocation, when it is a
+     * source variable or parameter rather than compiler scratch storage. */
+    const void* source_declaration;
     /* Borrowed AST statement used only for verified debug-range tracking. */
     const void* source_statement;
     RccIrBlock* block;

@@ -113,6 +113,11 @@ typedef struct GlobalFinalizer {
     struct GlobalFinalizer* next;
 } GlobalFinalizer;
 
+typedef struct {
+    const Decl* declaration;
+    int64_t frame_offset;
+} DebugVariableLocation;
+
 /* Compiled module */
 typedef struct Module {
     CodeSection code;
@@ -148,9 +153,13 @@ typedef struct Module {
     /* Translation-unit AST retained only while emitting relocatable debug
      * information.  The AST is owned by the frontend and is not freed here. */
     AST* debug_ast;
-    /* Statement ranges are populated by the classic code generators.  The
-     * verified backend supplies declaration locations first and intentionally
-     * leaves local statement ranges out until its MIR locations are exposed. */
+    /* Borrowed verified-backend locations collected from final machine
+     * frames; declarations without an entry have no stable stack location. */
+    const DebugVariableLocation* debug_variable_locations;
+    size_t debug_variable_location_count;
+    bool debug_verified_backend;
+    /* Statement ranges are populated by the classic generators and by the
+     * verified backend's encoded source envelopes. */
     bool debug_statement_ranges;
     /* Classic codegens provide one source row for each emitted statement.
      * Kept separate from exact verified-backend statement ranges. */

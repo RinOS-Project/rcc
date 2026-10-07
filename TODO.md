@@ -527,6 +527,10 @@
   - [x] VLAのstack slotには動的配列のaddressではなくaddressを保持する
         pointerが格納されるため、VLA localのlocation式だけ`DW_OP_deref`を
         追加し、対象DIEのregister／負offset／opcodeを両archで検証
+  - [x] verified IRのsource allocaから宣言を最終x86 frame layoutまで追跡し、
+        EBP/RBP基準の実stack offsetをvariable/parameter DIEへ出力。mem2regで
+        allocaが消えた最適化変数は位置属性を省き、誤った`Decl.var_offset`を
+        出さないことをi686/AMD64のO0/O2 object regressionで検証
   - [x] stack declarationへ`DW_AT_type`を付与し、基本型・ポインタ型の
         v4 type DIEと、未対応の複合型をscalarと偽らないopaque DIEとして
         i686/AMD64 object回帰で検証
