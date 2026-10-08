@@ -1,6 +1,7 @@
 #include "objfile.h"
 
 #include <assert.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -13,6 +14,8 @@ struct OptimizerPair {
     (defined(__x86_64__) || defined(__i386__))
 #include <sys/mman.h>
 #include <unistd.h>
+#elif defined(_WIN32) && defined(__x86_64__)
+#include <windows.h>
 #endif
 
 static bool is_internal_label(const char* name)
@@ -728,6 +731,80 @@ static void verify_smaller(const char* unoptimized_path,
     objfile_free(unoptimized);
     objfile_free(optimized);
 }
+
+#if defined(_WIN32) && defined(__x86_64__)
+static void execute_signed_negative_power_of_two_cases(const char* path) {
+    typedef int (__attribute__((sysv_abi)) *SysvIntUnary)(int);
+    typedef int (__attribute__((sysv_abi)) *SysvIntUnaryPointer)(int*);
+    ObjectFile* object = objfile_read(path);
+    ObjSection* code;
+    ObjSymbol* division_symbol;
+    ObjSymbol* remainder_symbol;
+    ObjSymbol* side_effect_symbol;
+    uint8_t* mapping;
+    DWORD previous_protection;
+    SysvIntUnary division;
+    SysvIntUnary remainder;
+    SysvIntUnaryPointer side_effect_division;
+    uintptr_t address;
+    uint32_t random_bits = UINT32_C(0x7f4a7c15);
+    static const int32_t edge_inputs[] = {
+        INT32_MIN, INT32_MIN + 1, -257, -17, -9, -8, -7, -1,
+        0, 1, 7, 8, 9, 17, 257, INT32_MAX
+    };
+
+    assert(object != NULL && object->arch == ARCH_X64);
+    code = code_section(object);
+    division_symbol = function_symbol(
+        object, "strength_reduce_signed_div_negative_eight");
+    remainder_symbol = function_symbol(
+        object, "strength_reduce_signed_mod_negative_eight");
+    side_effect_symbol = function_symbol(
+        object, "preserved_signed_div_negative_eight_side_effect");
+    assert(code != NULL && code->data != NULL && code->size != 0u);
+    assert(division_symbol != NULL && remainder_symbol != NULL &&
+           side_effect_symbol != NULL);
+
+    mapping = VirtualAlloc(NULL, code->size, MEM_RESERVE | MEM_COMMIT,
+                           PAGE_READWRITE);
+    assert(mapping != NULL);
+    memcpy(mapping, code->data, code->size);
+    assert(VirtualProtect(mapping, code->size, PAGE_EXECUTE_READ,
+                          &previous_protection));
+    assert(FlushInstructionCache(GetCurrentProcess(), mapping, code->size));
+
+    address = (uintptr_t)mapping + division_symbol->value;
+    memcpy(&division, &address, sizeof(division));
+    address = (uintptr_t)mapping + remainder_symbol->value;
+    memcpy(&remainder, &address, sizeof(remainder));
+    address = (uintptr_t)mapping + side_effect_symbol->value;
+    memcpy(&side_effect_division, &address, sizeof(side_effect_division));
+
+    for (size_t index = 0u;
+         index < sizeof(edge_inputs) / sizeof(edge_inputs[0]); ++index) {
+        int32_t input = edge_inputs[index];
+        assert(division(input) == input / -8);
+        assert(remainder(input) == input % -8);
+    }
+    for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
+        int32_t input;
+        random_bits = random_bits * UINT32_C(1664525) +
+            UINT32_C(1013904223);
+        memcpy(&input, &random_bits, sizeof(input));
+        assert(division(input) == input / -8);
+        assert(remainder(input) == input % -8);
+    }
+    {
+        int value = -17;
+        assert(side_effect_division(&value) == 2);
+        assert(value == -16);
+    }
+
+    assert(VirtualFree(mapping, 0u, MEM_RELEASE));
+    objfile_free(object);
+    puts("Windows AMD64 SysV signed negative-power execution passed");
+}
+#endif
 
 int main(int argc, char** argv)
 {
@@ -2263,6 +2340,8 @@ int main(int argc, char** argv)
         assert(munmap(mapping, mapping_size) == 0);
         objfile_free(object);
     }
+#elif defined(_WIN32) && defined(__x86_64__)
+    execute_signed_negative_power_of_two_cases(argv[4]);
 #endif
     return 0;
 }
