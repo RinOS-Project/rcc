@@ -3379,7 +3379,14 @@ static Type* parse_type_spec(void) {
         if (check(TOK_IDENT)) {
             tag = advance();
         }
-        t = parser_tag_type(TYPE_STRUCT, tag ? tag->value.str_val : NULL);
+        t = NULL;
+        if (parser_cxx_mode && tag && rcc_parser_cxx_find_class_type) {
+            t = rcc_parser_cxx_find_class_type(tag->value.str_val);
+        }
+        if (!t) {
+            t = parser_tag_type(TYPE_STRUCT,
+                                tag ? tag->value.str_val : NULL);
+        }
         if (match(TOK_LBRACE)) parse_aggregate_body(t);
     } else if (match(TOK_UNION)) {
         Token* tag = NULL;

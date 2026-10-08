@@ -279,6 +279,10 @@
   - [x] primary vptr、class vtable、local/global vptr初期化、virtual
         callの間接分岐を実装し、overrideを含むi686/AMD64実行を検証
   - [ ] 標準C++の全class layout、特殊メンバー、virtual ABI互換性
+- [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
+      C++ class declarations, and resolve elaborated `struct T` type specifiers
+      back to the registered C++ class type; verify member access in both target
+      widths and the verified SysV aggregate `va_arg` C++ translation unit.
 - [x] bounded overload resolution、namespace、ADL、two-phase lookup
   - [x] target幅`nullptr_t`、`auto`保持、null-pointer conversion、条件式・overload
   - [x] 宣言側default argument、再宣言累積、overload viability、call-site補完

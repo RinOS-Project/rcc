@@ -1,6 +1,12 @@
 extern "C" {
 typedef unsigned long linkage_size_t;
 int linkage_import(int value);
+struct linkage_aggregate { int value; };
+int linkage_aggregate_member(int value) {
+    struct linkage_aggregate aggregate;
+    aggregate.value = value;
+    return aggregate.value;
+}
 }
 
 extern "C" int second_linkage_import(linkage_size_t value);

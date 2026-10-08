@@ -13574,7 +13574,22 @@ static void parse_cxx_language_linkage(AST* ast) {
     if (match(TOK_LBRACE)) {
         while (!check(TOK_RBRACE) && !at_end()) {
             Token* start = parser.cur;
-            if ((check(TOK_AUTO) && parser.cur->next &&
+            if (match(TOK_CLASS) || match(TOK_STRUCT)) {
+                CxxClass* cls = parse_cxx_class();
+                (void)take_cxx_nodiscard();
+                if (take_cxx_weak()) {
+                    rcc_error(loc,
+                              "[[gnu::weak]] requires a file-scope declaration");
+                }
+                (void)take_cxx_deprecated(NULL);
+                if (take_cxx_no_unique_address()) {
+                    rcc_error(loc,
+                              "[[no_unique_address]] requires a class data member");
+                }
+                if (g_global_namespace) {
+                    cxx_namespace_add_class(g_global_namespace, cls);
+                }
+            } else if ((check(TOK_AUTO) && parser.cur->next &&
                  parser.cur->next->type == TOK_IDENT &&
                  parser.cur->next->next &&
                  parser.cur->next->next->type == TOK_LPAREN) ||
