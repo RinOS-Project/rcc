@@ -1127,6 +1127,7 @@ static Type* parse_cxx_lambda_auto_type(CxxTemplate* tmpl,
                                         SourceLoc loc);
 static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
 static void validate_class_virtual_specifiers(CxxClass* cls, SourceLoc loc);
+static bool cxx_class_has_unresolved_dependent_base(const CxxClass* cls);
 static CxxClass* find_class(const char* qualified_name);
 static CxxTemplate* find_class_template(const char* qualified_name);
 static CxxTemplate* find_alias_template(const char* qualified_name);
@@ -2167,6 +2168,7 @@ static bool lowerable_constructor_body(CxxClass* cls,
         item->is_virtual_base_initializer = false;
         item->is_delegating_constructor = false;
         item->is_default_member_initializer = false;
+        item->is_pack_expansion = false;
         item->next = NULL;
         *tail = item;
         tail = &item->next;
@@ -2448,6 +2450,7 @@ static CxxConstructorInitializer* cxx_copy_constructor_initializer(
         copy->constructor = NULL;
         copy->is_delegating_constructor = false;
         copy->is_virtual_base_initializer = false;
+        copy->is_pack_expansion = false;
     }
     copy->constructor = base_constructor;
     copy->is_base_initializer = is_base;
@@ -2553,6 +2556,7 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     initializer->is_virtual_base_initializer = false;
     initializer->is_delegating_constructor = false;
     initializer->is_default_member_initializer = false;
+    initializer->is_pack_expansion = false;
     initializer->next = NULL;
     for (parameter = source->method->decl->func_params;
          parameter; parameter = parameter->next) {
@@ -3010,6 +3014,7 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
         Expr* value = NULL;
         ExprList* arguments = NULL;
         bool current_supported = true;
+        bool is_pack_expansion = false;
         CxxConstructorInitializer* item;
         if (check(TOK_IDENT) || check(TOK_SCOPE)) {
             field = parse_qualified_name();
@@ -3026,8 +3031,10 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
                 value = arguments ? arguments->expr : NULL;
             }
             expect(TOK_RPAREN, ")");
+            is_pack_expansion = match(TOK_ELLIPSIS);
         } else if (check(TOK_LBRACE)) {
             skip_balanced(TOK_LBRACE, TOK_RBRACE);
+            is_pack_expansion = match(TOK_ELLIPSIS);
             current_supported = false;
         } else {
             rcc_error(peek()->loc, "expected constructor initializer");
@@ -3042,6 +3049,7 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
         item->is_virtual_base_initializer = false;
         item->is_delegating_constructor = false;
         item->is_default_member_initializer = false;
+        item->is_pack_expansion = is_pack_expansion;
         item->next = NULL;
         *tail = item;
         tail = &item->next;
@@ -5410,10 +5418,23 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
             else if (match(TOK_PRIVATE)) inherit_access = ACCESS_PRIVATE;
             if (match(TOK_VIRTUAL)) is_virtual = true;
 
-            const char* base_name = parse_qualified_name();
-            cxx_class_add_base(cls, base_name, inherit_access);
-            if (is_virtual) {
-                cls->bases[cls->base_count - 1].is_virtual = true;
+            if (active_template && active_template->is_local_class_template) {
+                Type* base_type = parse_cxx_type_spec();
+                bool is_pack_expansion = match(TOK_ELLIPSIS);
+                if (!base_type || base_type->kind != TYPE_STRUCT) {
+                    rcc_error(loc,
+                              "local class base must name a class type");
+                } else {
+                    cxx_class_add_base_pattern(
+                        cls, base_type, base_type->tag, inherit_access,
+                        is_virtual, is_pack_expansion);
+                }
+            } else {
+                const char* base_name = parse_qualified_name();
+                cxx_class_add_base(cls, base_name, inherit_access);
+                if (is_virtual) {
+                    cls->bases[cls->base_count - 1].is_virtual = true;
+                }
             }
         } while (match(TOK_COMMA));
     }
@@ -5498,9 +5519,13 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
      * routine returns, but vtable names/layout metadata are built here. */
     cls->ns = active_namespace ? active_namespace : g_global_namespace;
     resolve_class_bases(cls, loc);
-    validate_class_virtual_specifiers(cls, loc);
+    if (!cxx_class_has_unresolved_dependent_base(cls)) {
+        validate_class_virtual_specifiers(cls, loc);
+    }
     cxx_class_compute_layout(cls);
-    complete_cxx_default_member_initializers(cls);
+    if (!active_template || !active_template->is_local_class_template) {
+        complete_cxx_default_member_initializers(cls);
+    }
     cxx_class_build_vtable(cls);
     register_inline_class_accessors(cls);
     register_inline_class_bool_delegates(cls);
@@ -6154,8 +6179,10 @@ static DeclList* parse_cxx_parameter_declarations(void) {
         }
         parameter = decl_param(name, type, param_idx++, peek()->loc);
         parameter->param_is_pack = parameter_pack;
-        if (parameter_pack && (!active_template ||
-                               active_template->kind != TMPL_FUNCTION)) {
+        if (parameter_pack &&
+            (!active_template ||
+             (active_template->kind != TMPL_FUNCTION &&
+              !active_template->is_local_class_template))) {
             rcc_error(parameter->loc,
                       "function parameter packs require a function template");
         }
@@ -7899,6 +7926,10 @@ static void resolve_class_bases(CxxClass* cls, SourceLoc loc) {
         const char* base_name = cls->bases[index].base_name;
         CxxClass* base;
         if (cls->bases[index].base || !base_name) continue;
+        if (cls->bases[index].type_pattern &&
+            cls->bases[index].type_pattern->cxx_dependent) {
+            continue;
+        }
         base = find_class(base_name);
         if (!base) {
             rcc_error(loc, "unknown base class '%s'", base_name);
@@ -7913,6 +7944,17 @@ static void resolve_class_bases(CxxClass* cls, SourceLoc loc) {
         }
         cls->bases[index].base = base;
     }
+}
+
+static bool cxx_class_has_unresolved_dependent_base(const CxxClass* cls) {
+    if (!cls) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (!cls->bases[index].base && cls->bases[index].type_pattern &&
+            cls->bases[index].type_pattern->cxx_dependent) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /* Return the virtual base declaration whose source signature is inherited by
@@ -8340,22 +8382,90 @@ static TypeParam* substitute_template_parameters(CxxTemplate* tmpl,
     return result;
 }
 
+static int cxx_template_pack_index_in_type(CxxTemplate* tmpl, Type* type);
+
 static DeclList* substitute_template_decl_parameters(
     CxxTemplate* tmpl, DeclList* parameters, Type** arguments,
     int argument_count, const int64_t* value_args,
     const bool* value_present) {
     DeclList* result = NULL;
+    int next_parameter_index = 0;
     for (; parameters; parameters = parameters->next) {
         Decl* parameter = parameters->decl;
-        Decl* copy;
-        copy = decl_param(parameter->name,
-                          substitute_template_type(
-                              tmpl, parameter->type, arguments,
-                              argument_count, value_args, value_present),
-                          parameter->param_index, parameter->loc);
-        copy->param_default = parameter->param_default;
-        decllist_append(
-            &result, copy);
+        if (!parameter) continue;
+        if (parameter->param_is_pack) {
+            int pack_index = cxx_template_pack_index_in_type(
+                tmpl, parameter->type);
+            if (pack_index < 0 || !tmpl || tmpl->pending_pack_count < 0 ||
+                tmpl->params[pack_index].kind != TPARAM_TYPE ||
+                (tmpl->pending_pack_count > 0 && !tmpl->pending_pack_args)) {
+                rcc_error(parameter->loc,
+                          "local member parameter pack has no matching type pack");
+                continue;
+            }
+            for (int pack_value = 0;
+                 pack_value < tmpl->pending_pack_count; ++pack_value) {
+                Type* expanded_arguments[32] = { NULL };
+                int64_t expanded_values[32] = { 0 };
+                bool expanded_value_present[32] = { false };
+                Type* expanded_type;
+                Decl* copy;
+                char generated_name[64];
+                int written;
+                if (argument_count > (int)(sizeof(expanded_arguments) /
+                                           sizeof(expanded_arguments[0]))) {
+                    rcc_error(parameter->loc,
+                              "local member parameter pack exceeds compiler limits");
+                    break;
+                }
+                memcpy(expanded_arguments, arguments,
+                       sizeof(Type*) * (size_t)argument_count);
+                if (value_args && value_present) {
+                    memcpy(expanded_values, value_args,
+                           sizeof(int64_t) * (size_t)argument_count);
+                    memcpy(expanded_value_present, value_present,
+                           sizeof(bool) * (size_t)argument_count);
+                }
+                expanded_arguments[pack_index] =
+                    tmpl->pending_pack_args[pack_value];
+                expanded_type = substitute_template_type(
+                    tmpl, parameter->type, expanded_arguments,
+                    argument_count, expanded_values,
+                    expanded_value_present);
+                if (!expanded_type) {
+                    rcc_error(parameter->loc,
+                              "local member parameter pack substitution failed");
+                    break;
+                }
+                written = snprintf(generated_name, sizeof(generated_name),
+                                   "__rcc_pack_arg_%d", pack_value);
+                if (written < 0 || (size_t)written >= sizeof(generated_name)) {
+                    rcc_error(parameter->loc,
+                              "local member parameter name exceeds compiler limits");
+                    break;
+                }
+                copy = decl_param(parameter->name
+                                      ? rcc_intern(generated_name) : NULL,
+                                  expanded_type, next_parameter_index++,
+                                  parameter->loc);
+                decllist_append(&result, copy);
+            }
+            continue;
+        }
+        {
+            Type* parameter_type = substitute_template_type(
+                tmpl, parameter->type, arguments, argument_count,
+                value_args, value_present);
+            Decl* copy = decl_param(parameter->name, parameter_type,
+                                    next_parameter_index++, parameter->loc);
+            copy->param_array_type = substitute_template_type(
+                tmpl, parameter->param_array_type, arguments,
+                argument_count, value_args, value_present);
+            copy->param_default = cxx_template_clone_expr_with_values(
+                tmpl, parameter->param_default, arguments, argument_count,
+                value_args, value_present);
+            decllist_append(&result, copy);
+        }
     }
     return result;
 }
@@ -8368,6 +8478,7 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
                                              const bool* value_present) {
     CxxMethod* copy;
     DeclList* parameters;
+    DeclList* saved_pack_parameters;
     Type* return_type;
     if (!method || !method->decl || !method->decl->type) return NULL;
     parameters = substitute_template_decl_parameters(
@@ -8404,9 +8515,12 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
         tmpl, method->decl->func_noexcept_expr, arguments, argument_count,
         value_args, value_present);
     copy->vtable_index = method->vtable_index;
+    saved_pack_parameters = tmpl->active_pack_parameters;
+    tmpl->active_pack_parameters = method->decl->func_params;
     copy->decl->func_body = cxx_template_clone_stmt_with_values(
         tmpl, method->decl->func_body, arguments, argument_count,
         value_args, value_present);
+    tmpl->active_pack_parameters = saved_pack_parameters;
     return copy;
 }
 
@@ -8421,6 +8535,29 @@ static CxxMethod* instantiated_constructor_method(CxxClass* instance,
     return NULL;
 }
 
+static TypeParam* constructor_parameters_from_method(DeclList* parameters,
+                                                     int* parameter_count) {
+    TypeParam* result = NULL;
+    TypeParam** tail = &result;
+    int count = 0;
+    for (; parameters; parameters = parameters->next) {
+        Decl* declaration = parameters->decl;
+        TypeParam* copy;
+        if (!declaration) continue;
+        copy = ast_arena_alloc(sizeof(*copy));
+        memset(copy, 0, sizeof(*copy));
+        copy->name = declaration->name;
+        copy->type = declaration->type;
+        copy->initializer = declaration->param_default;
+        copy->cxx_access = ACCESS_PUBLIC;
+        *tail = copy;
+        tail = &copy->next;
+        ++count;
+    }
+    if (parameter_count) *parameter_count = count;
+    return result;
+}
+
 /* Expand one trailing class-template parameter pack while preserving any
  * fixed parameters declared before it.  A pack in any other position remains
  * diagnosed by the parser because its explicit argument boundary is not
@@ -8430,10 +8567,199 @@ static int cxx_class_pack_index(CxxTemplate* tmpl) {
     if (!tmpl || tmpl->kind != TMPL_CLASS) return -1;
     for (int index = 0; index < tmpl->param_count; ++index) {
         if (!tmpl->params[index].is_pack) continue;
-        if (pack_index >= 0 || index != tmpl->param_count - 1) return -1;
+        if (pack_index >= 0 ||
+            (!tmpl->is_local_class_template &&
+             index != tmpl->param_count - 1)) {
+            return -1;
+        }
         pack_index = index;
     }
     return pack_index;
+}
+
+static int cxx_template_pack_index_in_type(CxxTemplate* tmpl, Type* type) {
+    if (!tmpl || !type) return -1;
+    if (type->kind == TYPE_STRUCT && type->tag) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_TYPE && parameter->is_pack &&
+                parameter->name && strcmp(parameter->name, type->tag) == 0) {
+                return index;
+            }
+        }
+    }
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+        return cxx_template_pack_index_in_type(tmpl, type->base);
+    }
+    if (type->cxx_is_member_pointer) {
+        return cxx_template_pack_index_in_type(
+            tmpl, type->cxx_member_pointer_owner);
+    }
+    if (type->kind == TYPE_FUNC) {
+        int index = cxx_template_pack_index_in_type(tmpl, type->ret_type);
+        if (index >= 0) return index;
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            index = cxx_template_pack_index_in_type(tmpl, parameter->type);
+            if (index >= 0) return index;
+        }
+    }
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        int pack_index = cxx_template_pack_index_in_type(
+            tmpl, type->cxx_template_args ? type->cxx_template_args[index]
+                                         : NULL);
+        if (pack_index >= 0) return pack_index;
+    }
+    return -1;
+}
+
+static bool class_template_instance_matches(
+    CxxTemplate* tmpl, int instance_index, Type** arguments,
+    const int64_t* value_args, const bool* value_present, int argument_count,
+    int pack_index) {
+    int expected_pack_count;
+    if (!tmpl || instance_index < 0 || instance_index >= tmpl->instance_count ||
+        tmpl->instances[instance_index].arg_count != argument_count) {
+        return false;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->is_pack) continue;
+        if (parameter->kind == TPARAM_NONTYPE) {
+            if (!value_args || !value_present || !value_present[index] ||
+                !tmpl->instances[instance_index].value_args ||
+                !tmpl->instances[instance_index].value_present ||
+                !tmpl->instances[instance_index].value_present[index] ||
+                tmpl->instances[instance_index].value_args[index] !=
+                    value_args[index]) {
+                return false;
+            }
+        } else if (parameter->kind == TPARAM_TEMPLATE) {
+            if (!arguments || !arguments[index] ||
+                !tmpl->instances[instance_index].args ||
+                !tmpl->instances[instance_index].args[index] ||
+                tmpl->instances[instance_index].args[index]->cxx_template !=
+                    arguments[index]->cxx_template) {
+                return false;
+            }
+        } else if (!arguments || !arguments[index] ||
+                   !tmpl->instances[instance_index].args ||
+                   !tmpl->instances[instance_index].args[index] ||
+                   !type_is_compatible(
+                       tmpl->instances[instance_index].args[index],
+                       arguments[index])) {
+            return false;
+        }
+    }
+    if (pack_index < 0) return true;
+    expected_pack_count = tmpl->is_local_class_template &&
+            tmpl->pending_pack_count >= 0
+        ? tmpl->pending_pack_count : argument_count - pack_index;
+    if (tmpl->instances[instance_index].pack_count != expected_pack_count) {
+        return false;
+    }
+    if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
+        for (int index = 0; index < expected_pack_count; ++index) {
+            Type* expected = tmpl->is_local_class_template &&
+                    tmpl->pending_pack_count >= 0
+                ? tmpl->pending_pack_args[index]
+                : arguments[pack_index + index];
+            if (!expected || !tmpl->instances[instance_index].pack_args ||
+                !type_is_compatible(
+                    tmpl->instances[instance_index].pack_args[index],
+                    expected)) {
+                return false;
+            }
+        }
+    } else {
+        for (int index = 0; index < expected_pack_count; ++index) {
+            int64_t expected = tmpl->is_local_class_template &&
+                    tmpl->pending_pack_count >= 0
+                ? tmpl->pending_pack_values[index]
+                : value_args[pack_index + index];
+            bool expected_present = tmpl->is_local_class_template &&
+                    tmpl->pending_pack_count >= 0
+                ? tmpl->pending_pack_value_present[index]
+                : value_present[pack_index + index];
+            if (!expected_present ||
+                !tmpl->instances[instance_index].pack_values ||
+                !tmpl->instances[instance_index].pack_value_present ||
+                !tmpl->instances[instance_index].pack_value_present[index] ||
+                tmpl->instances[instance_index].pack_values[index] != expected) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static int cxx_local_base_pack_pattern(CxxTemplate* tmpl,
+                                       CxxClass* definition,
+                                       const char* initializer_name,
+                                       int* pack_index) {
+    int matched_base = -1;
+    int matched_pack = -1;
+    if (pack_index) *pack_index = -1;
+    for (int index = 0; definition && index < definition->base_count;
+         ++index) {
+        int candidate;
+        if (!definition->bases[index].is_pack_expansion ||
+            !definition->bases[index].type_pattern ||
+            !cxx_constructor_base_name_matches(definition, index,
+                                               initializer_name)) {
+            continue;
+        }
+        candidate = cxx_template_pack_index_in_type(
+            tmpl, definition->bases[index].type_pattern);
+        if (candidate < 0 || matched_base >= 0) {
+            return -1;
+        }
+        matched_base = index;
+        matched_pack = candidate;
+    }
+    if (pack_index) *pack_index = matched_pack;
+    return matched_base;
+}
+
+static void cxx_local_class_add_resolved_base(
+    CxxClass* instance, Type* resolved, const char* base_name,
+    AccessSpec access, bool is_virtual, SourceLoc loc) {
+    CxxClass* base = resolved ? resolved->cxx_class : NULL;
+    if (!resolved || resolved->kind != TYPE_STRUCT ||
+        resolved->cxx_dependent || !base) {
+        rcc_error(loc,
+                  "dependent local class base did not resolve to a class type");
+        return;
+    }
+    if (base == instance || base->is_final) {
+        rcc_error(loc, base == instance
+                           ? "a class cannot derive from itself"
+                           : "cannot derive from a final class");
+        return;
+    }
+    for (int index = 0; instance && index < instance->base_count; ++index) {
+        if (instance->bases[index].base == base) {
+            rcc_error(loc,
+                      "a local class cannot name the same direct base twice");
+            return;
+        }
+    }
+    cxx_class_add_base_pattern(instance, resolved, base_name, access,
+                               is_virtual, false);
+}
+
+static const char* cxx_local_method_pack_name(DeclList* parameters,
+                                               CxxTemplate* tmpl,
+                                               int pack_index) {
+    for (; parameters; parameters = parameters->next) {
+        Decl* parameter = parameters->decl;
+        if (parameter && parameter->param_is_pack && parameter->name &&
+            cxx_template_pack_index_in_type(tmpl, parameter->type) ==
+                pack_index) {
+            return parameter->name;
+        }
+    }
+    return NULL;
 }
 
 static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
@@ -8450,6 +8776,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     int pack_index = cxx_class_pack_index(tmpl);
 
     if (!tmpl || tmpl->kind != TMPL_CLASS || !tmpl->templated_class ||
+        (tmpl->is_local_class_template &&
+         argument_count != tmpl->param_count) ||
         (pack_index < 0 && argument_count != tmpl->param_count) ||
         (pack_index >= 0 &&
          (argument_count < pack_index || argument_count > 32))) {
@@ -8457,9 +8785,27 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         return type_struct(tmpl && tmpl->name ? tmpl->name : "template");
     }
     for (index = 0; index < argument_count; ++index) {
-        int parameter_index = pack_index >= 0 && index >= pack_index
+        int parameter_index = !tmpl->is_local_class_template &&
+                pack_index >= 0 && index >= pack_index
             ? pack_index : index;
         TemplateParam* parameter = &tmpl->params[parameter_index];
+        if (tmpl->is_local_class_template && parameter->is_pack) {
+            if (tmpl->pending_pack_count < 0 ||
+                (parameter->kind == TPARAM_TYPE &&
+                 tmpl->pending_pack_count > 0 && !tmpl->pending_pack_args) ||
+                (parameter->kind == TPARAM_NONTYPE &&
+                 tmpl->pending_pack_count > 0 &&
+                 (!tmpl->pending_pack_values ||
+                  !tmpl->pending_pack_value_present))) {
+                rcc_error(loc,
+                          "local class template pack arguments are missing");
+                return NULL;
+            }
+            if (parameter->kind == TPARAM_NONTYPE) {
+                has_value_parameters = true;
+            }
+            continue;
+        }
         if (parameter->kind == TPARAM_NONTYPE) {
             has_value_parameters = true;
         }
@@ -8492,33 +8838,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         return type_int;
     }
     for (index = 0; index < tmpl->instance_count; ++index) {
-        int argument_index;
-        bool matches = tmpl->instances[index].arg_count == argument_count;
-        for (argument_index = 0; matches &&
-             argument_index < argument_count; ++argument_index) {
-        int parameter_index = pack_index >= 0 &&
-                argument_index >= pack_index
-            ? pack_index : argument_index;
-            if (tmpl->params[parameter_index].kind == TPARAM_NONTYPE) {
-                matches = tmpl->instances[index].value_present &&
-                    tmpl->instances[index].value_present[argument_index] &&
-                    value_present[argument_index] &&
-                    tmpl->instances[index].value_args[argument_index] ==
-                        value_args[argument_index];
-            } else if (tmpl->params[parameter_index].kind == TPARAM_TEMPLATE) {
-                matches = tmpl->instances[index].args &&
-                    tmpl->instances[index].args[argument_index] &&
-                    arguments && arguments[argument_index] &&
-                    tmpl->instances[index].args[argument_index]->cxx_template ==
-                        arguments[argument_index]->cxx_template;
-            } else {
-                matches = tmpl->instances[index].args && arguments &&
-                    type_is_compatible(
-                        tmpl->instances[index].args[argument_index],
-                        arguments[argument_index]);
-            }
-        }
-        if (matches) {
+        if (class_template_instance_matches(
+                tmpl, index, arguments, value_args, value_present,
+                argument_count, pack_index)) {
             return ((CxxClass*)tmpl->instances[index].instantiated)->type;
         }
     }
@@ -8610,23 +8932,38 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         }
     }
     if (pack_index >= 0) {
-        instance->template_pack_count = argument_count - pack_index;
+        int actual_pack_count = tmpl->is_local_class_template &&
+                tmpl->pending_pack_count >= 0
+            ? tmpl->pending_pack_count : argument_count - pack_index;
+        instance->template_pack_count = actual_pack_count;
         if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
-            if (argument_count > 0) {
+            if (!tmpl->is_local_class_template && argument_count > 0) {
                 instance->template_args = ast_arena_alloc(
                     sizeof(Type*) * (size_t)argument_count);
                 memcpy(instance->template_args, arguments,
                        sizeof(Type*) * (size_t)argument_count);
             }
-        } else if (argument_count > 0) {
+        } else if (actual_pack_count > 0) {
             instance->template_pack_values = ast_arena_alloc(
-                sizeof(int64_t) * (size_t)argument_count);
+                sizeof(int64_t) * (size_t)actual_pack_count);
             instance->template_pack_value_present = ast_arena_alloc(
-                sizeof(bool) * (size_t)argument_count);
-            memcpy(instance->template_pack_values, value_args,
-                   sizeof(int64_t) * (size_t)argument_count);
-            memcpy(instance->template_pack_value_present, value_present,
-                   sizeof(bool) * (size_t)argument_count);
+                sizeof(bool) * (size_t)actual_pack_count);
+            if (tmpl->is_local_class_template &&
+                tmpl->pending_pack_count >= 0) {
+                memcpy(instance->template_pack_values,
+                       tmpl->pending_pack_values,
+                       sizeof(int64_t) * (size_t)actual_pack_count);
+                memcpy(instance->template_pack_value_present,
+                       tmpl->pending_pack_value_present,
+                       sizeof(bool) * (size_t)actual_pack_count);
+            } else {
+                memcpy(instance->template_pack_values,
+                       value_args + pack_index,
+                       sizeof(int64_t) * (size_t)actual_pack_count);
+                memcpy(instance->template_pack_value_present,
+                       value_present + pack_index,
+                       sizeof(bool) * (size_t)actual_pack_count);
+            }
         }
     }
     if (tmpl->primary_template &&
@@ -8681,12 +9018,51 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             return NULL;
         }
         identity_length = (size_t)written;
-        for (int identity_index = 0; identity_index < argument_count;
-             ++identity_index) {
+        for (int identity_index = 0;
+             identity_index < tmpl->param_count; ++identity_index) {
             char argument_identity[384];
-            int parameter_index = pack_index >= 0 && identity_index >= pack_index
-                ? pack_index : identity_index;
-            TemplateParam* parameter = &tmpl->params[parameter_index];
+            TemplateParam* parameter = &tmpl->params[identity_index];
+            if (parameter->is_pack && tmpl->pending_pack_count >= 0) {
+                written = snprintf(argument_identity,
+                                   sizeof(argument_identity), "_P%d",
+                                   tmpl->pending_pack_count);
+                if (written < 0 ||
+                    (size_t)written >= sizeof(argument_identity) ||
+                    (size_t)written >= sizeof(identity) - identity_length) {
+                    rcc_error(loc,
+                              "local class specialization identity exceeds compiler limits");
+                    return NULL;
+                }
+                memcpy(identity + identity_length, argument_identity,
+                       (size_t)written + 1u);
+                identity_length += (size_t)written;
+                for (int pack_value = 0;
+                     pack_value < tmpl->pending_pack_count; ++pack_value) {
+                    if (parameter->kind == TPARAM_NONTYPE) {
+                        written = snprintf(argument_identity,
+                                           sizeof(argument_identity), "_V%lld",
+                                           (long long)tmpl->pending_pack_values[
+                                               pack_value]);
+                    } else {
+                        char* mangled = cxx_mangle_type(
+                            tmpl->pending_pack_args[pack_value]);
+                        written = snprintf(argument_identity,
+                                           sizeof(argument_identity), "_T%s",
+                                           mangled ? mangled : "unknown");
+                    }
+                    if (written < 0 ||
+                        (size_t)written >= sizeof(argument_identity) ||
+                        (size_t)written >= sizeof(identity) - identity_length) {
+                        rcc_error(loc,
+                                  "local class specialization identity exceeds compiler limits");
+                        return NULL;
+                    }
+                    memcpy(identity + identity_length, argument_identity,
+                           (size_t)written + 1u);
+                    identity_length += (size_t)written;
+                }
+                continue;
+            }
             if (parameter->kind == TPARAM_NONTYPE) {
                 written = snprintf(argument_identity,
                                    sizeof(argument_identity), "_V%lld",
@@ -8718,7 +9094,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     if (tmpl->is_local_class_template) {
         tmpl->local_class_instance = instance;
     }
-    if (pack_index >= 0) {
+    if (pack_index >= 0 &&
+        !(tmpl->is_local_class_template &&
+          tmpl->pending_pack_count >= 0)) {
         tmpl->pending_pack_args = tmpl->params[pack_index].kind == TPARAM_TYPE
             ? arguments + pack_index : NULL;
         tmpl->pending_pack_values = tmpl->params[pack_index].kind == TPARAM_NONTYPE
@@ -8727,6 +9105,84 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             tmpl->params[pack_index].kind == TPARAM_NONTYPE
                 ? (bool*)value_present + pack_index : NULL;
         tmpl->pending_pack_count = argument_count - pack_index;
+    }
+    for (int base_index = 0; base_index < definition->base_count;
+         ++base_index) {
+        Type* pattern = definition->bases[base_index].type_pattern;
+        if (!pattern) {
+            CxxClass* base = definition->bases[base_index].base;
+            if (!base) {
+                rcc_error(loc,
+                          "local class base was not resolved before specialization");
+                continue;
+            }
+            cxx_local_class_add_resolved_base(
+                instance, base->type, definition->bases[base_index].base_name,
+                definition->bases[base_index].access,
+                definition->bases[base_index].is_virtual, loc);
+            continue;
+        }
+        if (definition->bases[base_index].is_pack_expansion) {
+            int base_pack_index = cxx_template_pack_index_in_type(tmpl,
+                                                                  pattern);
+            if (base_pack_index < 0 ||
+                tmpl->params[base_pack_index].kind != TPARAM_TYPE ||
+                tmpl->pending_pack_count < 0 ||
+                (tmpl->pending_pack_count > 0 &&
+                 !tmpl->pending_pack_args)) {
+                rcc_error(loc,
+                          "local base pack expansion requires one type parameter pack");
+                continue;
+            }
+            for (int pack_value = 0;
+                 pack_value < tmpl->pending_pack_count; ++pack_value) {
+                Type* expanded_arguments[32] = { NULL };
+                int64_t expanded_values[32] = { 0 };
+                bool expanded_value_present[32] = { false };
+                Type* resolved;
+                if (argument_count >
+                    (int)(sizeof(expanded_arguments) /
+                          sizeof(expanded_arguments[0]))) {
+                    rcc_error(loc,
+                              "local base pack substitution exceeds compiler limits");
+                    break;
+                }
+                memcpy(expanded_arguments, arguments,
+                       sizeof(Type*) * (size_t)argument_count);
+                if (value_args && value_present) {
+                    memcpy(expanded_values, value_args,
+                           sizeof(int64_t) * (size_t)argument_count);
+                    memcpy(expanded_value_present, value_present,
+                           sizeof(bool) * (size_t)argument_count);
+                }
+                expanded_arguments[base_pack_index] =
+                    tmpl->pending_pack_args[pack_value];
+                resolved = substitute_template_type(
+                    tmpl, pattern, expanded_arguments, argument_count,
+                    expanded_values, expanded_value_present);
+                cxx_local_class_add_resolved_base(
+                    instance, resolved,
+                    definition->bases[base_index].base_name,
+                    definition->bases[base_index].access,
+                    definition->bases[base_index].is_virtual, loc);
+            }
+            continue;
+        }
+        if (cxx_template_pack_index_in_type(tmpl, pattern) >= 0) {
+            rcc_error(loc,
+                      "a base type parameter pack requires an ellipsis");
+            continue;
+        }
+        {
+            Type* resolved = substitute_template_type(
+                tmpl, pattern, arguments, argument_count,
+                value_args, value_present);
+            cxx_local_class_add_resolved_base(
+                instance, resolved,
+                definition->bases[base_index].base_name,
+                definition->bases[base_index].access,
+                definition->bases[base_index].is_virtual, loc);
+        }
     }
     for (CxxTypeAlias* alias = definition->type_aliases; alias;
          alias = alias->next) {
@@ -8771,32 +9227,151 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         *copy = *constructor;
         copy->method = instantiated_constructor_method(instance,
                                                        constructor_ordinal++);
-        copy->parameters = substitute_template_parameters(
-            tmpl, constructor->parameters, arguments, argument_count,
-            value_args, value_present);
+        if (copy->method && copy->method->decl) {
+            copy->parameters = constructor_parameters_from_method(
+                copy->method->decl->func_params, &copy->parameter_count);
+        } else {
+            copy->parameters = substitute_template_parameters(
+                tmpl, constructor->parameters, arguments, argument_count,
+                value_args, value_present);
+        }
         copy->initializers = NULL;
+        copy->initializer_count = 0;
         initializer_tail = &copy->initializers;
         for (CxxConstructorInitializer* initializer = constructor->initializers;
              initializer; initializer = initializer->next) {
-            CxxConstructorInitializer* initializer_copy =
-                ast_arena_alloc(sizeof(*initializer_copy));
-            *initializer_copy = *initializer;
-            initializer_copy->value = cxx_template_clone_expr_with_values(
-                tmpl, initializer->value, arguments, argument_count,
-                value_args, value_present);
-            initializer_copy->arguments = NULL;
-            for (ExprList* argument = initializer->arguments; argument;
-                 argument = argument->next) {
-                exprlist_append(
-                    &initializer_copy->arguments,
-                    cxx_template_clone_expr_with_values(
-                        tmpl, argument->expr, arguments, argument_count,
-                        value_args, value_present));
+            int base_pack_index = -1;
+            int base_pattern_index = initializer->is_pack_expansion
+                ? cxx_local_base_pack_pattern(
+                      tmpl, definition, initializer->field,
+                      &base_pack_index)
+                : -1;
+            int expansion_count = initializer->is_pack_expansion
+                ? tmpl->pending_pack_count : 1;
+            const char* parameter_pack_name = NULL;
+            if (initializer->is_pack_expansion) {
+                if (base_pattern_index < 0 || base_pack_index < 0 ||
+                    base_pack_index >= tmpl->param_count ||
+                    tmpl->params[base_pack_index].kind != TPARAM_TYPE ||
+                    expansion_count < 0 ||
+                    (expansion_count > 0 && !tmpl->pending_pack_args)) {
+                    rcc_error(loc,
+                              "constructor initializer pack must expand one local class base type pack");
+                    copy->initializers_are_supported = false;
+                    continue;
+                }
+                parameter_pack_name = cxx_local_method_pack_name(
+                    constructor->method && constructor->method->decl
+                        ? constructor->method->decl->func_params : NULL,
+                    tmpl, base_pack_index);
             }
-            initializer_copy->constructor = NULL;
-            initializer_copy->next = NULL;
-            *initializer_tail = initializer_copy;
-            initializer_tail = &initializer_copy->next;
+            for (int pack_value = 0; pack_value < expansion_count;
+                 ++pack_value) {
+                CxxConstructorInitializer* initializer_copy =
+                    ast_arena_alloc(sizeof(*initializer_copy));
+                *initializer_copy = *initializer;
+                initializer_copy->arguments = NULL;
+                initializer_copy->is_pack_expansion = false;
+                if (initializer->is_pack_expansion) {
+                    Type* expanded_arguments[32] = { NULL };
+                    int64_t expanded_values[32] = { 0 };
+                    bool expanded_value_present[32] = { false };
+                    Type* resolved_base;
+                    Type** substitution_arguments = arguments;
+                    DeclList* saved_pack_parameters =
+                        tmpl->active_pack_parameters;
+                    if (argument_count >
+                        (int)(sizeof(expanded_arguments) /
+                              sizeof(expanded_arguments[0]))) {
+                        rcc_error(loc,
+                                  "constructor base pack exceeds compiler limits");
+                        copy->initializers_are_supported = false;
+                        break;
+                    }
+                    if (argument_count > 0) {
+                        memcpy(expanded_arguments, arguments,
+                               sizeof(Type*) * (size_t)argument_count);
+                        if (value_args && value_present) {
+                            memcpy(expanded_values, value_args,
+                                   sizeof(int64_t) * (size_t)argument_count);
+                            memcpy(expanded_value_present, value_present,
+                                   sizeof(bool) * (size_t)argument_count);
+                        }
+                        expanded_arguments[base_pack_index] =
+                            tmpl->pending_pack_args[pack_value];
+                        substitution_arguments = expanded_arguments;
+                    }
+                    resolved_base = substitute_template_type(
+                        tmpl,
+                        definition->bases[base_pattern_index].type_pattern,
+                        substitution_arguments, argument_count,
+                        value_args && value_present
+                            ? expanded_values : value_args,
+                        value_args && value_present
+                            ? expanded_value_present : value_present);
+                    if (!resolved_base || resolved_base->cxx_dependent ||
+                        !resolved_base->cxx_class) {
+                        rcc_error(loc,
+                                  "constructor base pack did not resolve to a class type");
+                        copy->initializers_are_supported = false;
+                        continue;
+                    }
+                    initializer_copy->field =
+                        rcc_intern(resolved_base->cxx_class->name);
+                    if (parameter_pack_name) {
+                        tmpl->active_pack_parameters =
+                            constructor->method->decl->func_params;
+                    }
+                    for (ExprList* argument = initializer->arguments;
+                         argument; argument = argument->next) {
+                        Expr* cloned_argument = parameter_pack_name
+                            ? cxx_template_clone_pack_expansion(
+                                  tmpl, argument->expr, parameter_pack_name,
+                                  pack_value, substitution_arguments,
+                                  argument_count,
+                                  value_args && value_present
+                                      ? expanded_values : value_args,
+                                  value_args && value_present
+                                      ? expanded_value_present : value_present)
+                            : cxx_template_clone_expr_with_values(
+                                  tmpl, argument->expr,
+                                  substitution_arguments, argument_count,
+                                  value_args, value_present);
+                        exprlist_append(&initializer_copy->arguments,
+                                        cloned_argument);
+                    }
+                    if (parameter_pack_name) {
+                        tmpl->active_pack_parameters = saved_pack_parameters;
+                    }
+                    initializer_copy->value = initializer_copy->arguments
+                        ? initializer_copy->arguments->expr : NULL;
+                } else {
+                    initializer_copy->value =
+                        cxx_template_clone_expr_with_values(
+                            tmpl, initializer->value, arguments,
+                            argument_count, value_args, value_present);
+                    for (ExprList* argument = initializer->arguments;
+                         argument; argument = argument->next) {
+                        exprlist_append(
+                            &initializer_copy->arguments,
+                            cxx_template_clone_expr_with_values(
+                                tmpl, argument->expr, arguments,
+                                argument_count, value_args, value_present));
+                    }
+                }
+                /* The cloned initializer is re-resolved against the concrete
+                 * bases and constructors after the specialized class layout
+                 * is complete; the pattern's constructor belongs to the
+                 * unspecialized class. */
+                initializer_copy->constructor = NULL;
+                initializer_copy->next = NULL;
+                *initializer_tail = initializer_copy;
+                initializer_tail = &initializer_copy->next;
+                ++copy->initializer_count;
+            }
+        }
+        if (copy->method && !copy->body_is_empty && !copy->initializers) {
+            (void)lowerable_constructor_body(instance, copy);
         }
         copy->next = NULL;
         while (*tail) tail = &(*tail)->next;
@@ -8809,6 +9384,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     tmpl->pending_pack_value_present = saved_pending_pack_value_present;
     tmpl->pending_pack_count = saved_pending_pack_count;
 
+    validate_class_virtual_specifiers(instance, loc);
     cxx_class_compute_layout(instance);
     if (instance->explicit_alignment > 0) {
         cxx_class_apply_explicit_alignment(
@@ -8854,22 +9430,37 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         memcpy(tmpl->instances[tmpl->instance_count].value_present,
                value_present, sizeof(bool) * (size_t)argument_count);
     }
-    if (pack_index >= 0 && argument_count > 0) {
-        tmpl->instances[tmpl->instance_count].pack_count = argument_count;
-        if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
+    if (pack_index >= 0) {
+        int actual_pack_count = tmpl->is_local_class_template &&
+                tmpl->pending_pack_count >= 0
+            ? tmpl->pending_pack_count : argument_count - pack_index;
+        tmpl->instances[tmpl->instance_count].pack_count = actual_pack_count;
+        if (actual_pack_count > 0 &&
+            tmpl->params[pack_index].kind == TPARAM_TYPE) {
+            Type** pack_args = tmpl->is_local_class_template &&
+                    tmpl->pending_pack_count >= 0
+                ? tmpl->pending_pack_args : arguments + pack_index;
             tmpl->instances[tmpl->instance_count].pack_args =
-                ast_arena_alloc(sizeof(Type*) * (size_t)argument_count);
+                ast_arena_alloc(sizeof(Type*) * (size_t)actual_pack_count);
             memcpy(tmpl->instances[tmpl->instance_count].pack_args,
-                   arguments, sizeof(Type*) * (size_t)argument_count);
-        } else {
+                   pack_args, sizeof(Type*) * (size_t)actual_pack_count);
+        } else if (actual_pack_count > 0) {
+            int64_t* pack_values = tmpl->is_local_class_template &&
+                    tmpl->pending_pack_count >= 0
+                ? tmpl->pending_pack_values : (int64_t*)value_args + pack_index;
+            bool* pack_value_present = tmpl->is_local_class_template &&
+                    tmpl->pending_pack_count >= 0
+                ? tmpl->pending_pack_value_present
+                : (bool*)value_present + pack_index;
             tmpl->instances[tmpl->instance_count].pack_values = ast_arena_alloc(
-                sizeof(int64_t) * (size_t)argument_count);
+                sizeof(int64_t) * (size_t)actual_pack_count);
             tmpl->instances[tmpl->instance_count].pack_value_present =
-                ast_arena_alloc(sizeof(bool) * (size_t)argument_count);
-            memcpy(tmpl->instances[tmpl->instance_count].pack_values, value_args,
-                   sizeof(int64_t) * (size_t)argument_count);
+                ast_arena_alloc(sizeof(bool) * (size_t)actual_pack_count);
+            memcpy(tmpl->instances[tmpl->instance_count].pack_values,
+                   pack_values, sizeof(int64_t) * (size_t)actual_pack_count);
             memcpy(tmpl->instances[tmpl->instance_count].pack_value_present,
-                   value_present, sizeof(bool) * (size_t)argument_count);
+                   pack_value_present,
+                   sizeof(bool) * (size_t)actual_pack_count);
         }
     }
     tmpl->instances[tmpl->instance_count].arg_count = argument_count;
@@ -9043,46 +9634,7 @@ CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
     Type* type = instantiate_class_template(tmpl, arguments, value_args,
                                              value_present, argument_count,
                                              loc);
-    int pack_index = cxx_class_pack_index(tmpl);
-    if (!type || !tmpl) return NULL;
-    for (int index = 0; index < tmpl->instance_count; ++index) {
-        if (tmpl->instances[index].arg_count != argument_count) continue;
-        bool matches = true;
-        for (int argument_index = 0; argument_index < argument_count;
-             ++argument_index) {
-        int parameter_index = pack_index >= 0 &&
-                argument_index >= pack_index
-            ? pack_index : argument_index;
-            if (tmpl->params[parameter_index].kind == TPARAM_NONTYPE) {
-                if (!tmpl->instances[index].value_present ||
-                    !value_present ||
-                    !tmpl->instances[index].value_present[argument_index] ||
-                    !value_present[argument_index] ||
-                    tmpl->instances[index].value_args[argument_index] !=
-                        value_args[argument_index]) {
-                    matches = false;
-                    break;
-                }
-            } else if (tmpl->params[parameter_index].kind == TPARAM_TEMPLATE) {
-                if (!tmpl->instances[index].args[argument_index] ||
-                    !arguments[argument_index] ||
-                    tmpl->instances[index].args[argument_index]->cxx_template !=
-                        arguments[argument_index]->cxx_template) {
-                    matches = false;
-                    break;
-                }
-            } else if (!type_is_compatible(
-                           tmpl->instances[index].args[argument_index],
-                           arguments[argument_index])) {
-                matches = false;
-                break;
-            }
-        }
-        if (matches) {
-            return (CxxClass*)tmpl->instances[index].instantiated;
-        }
-    }
-    return NULL;
+    return type ? type->cxx_class : NULL;
 }
 
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,

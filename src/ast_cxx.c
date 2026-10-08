@@ -920,8 +920,10 @@ void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bo
         sizeof(cls->bases[0]) * (size_t)(cls->base_count + 1));
     cls->bases[cls->base_count].base = base;
     cls->bases[cls->base_count].base_name = NULL;
+    cls->bases[cls->base_count].type_pattern = NULL;
     cls->bases[cls->base_count].access = access;
     cls->bases[cls->base_count].is_virtual = is_virtual;
+    cls->bases[cls->base_count].is_pack_expansion = false;
     cls->base_count++;
 }
 
@@ -2203,6 +2205,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->pending_pack_values = NULL;
     tmpl->pending_pack_value_present = NULL;
     tmpl->pending_pack_count = -1;
+    tmpl->active_pack_parameters = NULL;
     return tmpl;
 }
 
@@ -2726,6 +2729,12 @@ static bool template_expr_contains_identifier(Expr* expression,
     }
 }
 
+static DeclList* template_pack_parameter_list(CxxTemplate* tmpl) {
+    if (!tmpl) return NULL;
+    if (tmpl->active_pack_parameters) return tmpl->active_pack_parameters;
+    return tmpl->func_def ? tmpl->func_def->func_params : NULL;
+}
+
 static void template_replace_pack_identifier(Expr* expression,
                                               const char* pack_name,
                                               const char* argument_name) {
@@ -2866,11 +2875,47 @@ static Expr* template_clone_pack_pattern(
     Expr* copy;
     const int64_t* clone_value_args = value_args;
     const bool* clone_value_present = value_present;
+    Type** clone_args = args;
     int64_t* expanded_value_args = NULL;
     bool* expanded_value_present = NULL;
+    Type** expanded_type_args = NULL;
+    DeclList* pack_parameters;
+    int type_pack_index = -1;
     if (!pattern || !pack_name) return NULL;
     written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
     if (written < 0 || (size_t)written >= sizeof(name)) return NULL;
+    pack_parameters = template_pack_parameter_list(tmpl);
+    for (DeclList* parameter = pack_parameters; parameter;
+         parameter = parameter->next) {
+        int candidate;
+        if (!parameter->decl || !parameter->decl->param_is_pack ||
+            !parameter->decl->name ||
+            strcmp(parameter->decl->name, pack_name) != 0) {
+            continue;
+        }
+        candidate = template_parameter_index_nested(
+            tmpl, parameter->decl->type);
+        if (candidate >= 0 && candidate < tmpl->param_count &&
+            tmpl->params[candidate].kind == TPARAM_TYPE &&
+            tmpl->params[candidate].is_pack) {
+            type_pack_index = candidate;
+        }
+        break;
+    }
+    if (type_pack_index >= 0) {
+        if (!tmpl->pending_pack_args || index < 0 ||
+            index >= tmpl->pending_pack_count || arg_count <= 0 || !args) {
+            rcc_error(pattern->loc,
+                      "C++ type parameter pack value is missing");
+            return NULL;
+        }
+        expanded_type_args = ast_arena_alloc(
+            sizeof(*expanded_type_args) * (size_t)arg_count);
+        memcpy(expanded_type_args, args,
+               sizeof(*expanded_type_args) * (size_t)arg_count);
+        expanded_type_args[type_pack_index] = tmpl->pending_pack_args[index];
+        clone_args = expanded_type_args;
+    }
     if (value_pack) {
         int parameter_index;
         if (!tmpl || !tmpl->params || arg_count <= 0 || !value_args ||
@@ -2901,7 +2946,7 @@ static Expr* template_clone_pack_pattern(
         clone_value_args = expanded_value_args;
         clone_value_present = expanded_value_present;
     }
-    copy = template_clone_expr(tmpl, pattern, args, arg_count,
+    copy = template_clone_expr(tmpl, pattern, clone_args, arg_count,
                                clone_value_args, clone_value_present);
     if (!copy) return NULL;
     if (!value_pack) {
@@ -2913,6 +2958,15 @@ static Expr* template_clone_pack_pattern(
     return copy;
 }
 
+Expr* cxx_template_clone_pack_expansion(
+    CxxTemplate* tmpl, Expr* pattern, const char* pack_name, int pack_index,
+    Type** args, int arg_count, const int64_t* value_args,
+    const bool* value_present) {
+    return template_clone_pack_pattern(tmpl, pattern, pack_name, pack_index,
+                                       args, arg_count, value_args,
+                                       value_present, NULL);
+}
+
 static Expr* template_clone_pack_fold(
     CxxTemplate* tmpl, Expr* expression, Type** args, int arg_count,
     const int64_t* value_args, const bool* value_present) {
@@ -2921,9 +2975,10 @@ static Expr* template_clone_pack_fold(
     TemplateParam* value_pack = NULL;
     const char* pack_name = expression ? expression->cxx_fold_pack_name : NULL;
     int pattern_pack_matches = 0;
+    DeclList* pack_parameters = template_pack_parameter_list(tmpl);
     if (tmpl && expression && !pack_name && expression->cxx_fold_pattern &&
-        tmpl->func_def) {
-        for (DeclList* parameter = tmpl->func_def->func_params;
+        pack_parameters) {
+        for (DeclList* parameter = pack_parameters;
              parameter; parameter = parameter->next) {
             if (parameter->decl && parameter->decl->param_is_pack &&
                 parameter->decl->name &&
@@ -3078,14 +3133,15 @@ static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
                           "C++ pack expansion cannot carry an initializer designator");
                 continue;
             }
-            if (!tmpl || tmpl->kind != TMPL_FUNCTION ||
-                tmpl->pending_pack_count < 0 || !tmpl->func_def) {
+            DeclList* pack_parameters = template_pack_parameter_list(tmpl);
+            if (!tmpl || tmpl->pending_pack_count < 0 ||
+                !pack_parameters) {
                 rcc_error(list->expr->loc,
                           "C++ pack expansion requires a function-template specialization");
                 continue;
             }
             if (!pack_name && list->expr->cxx_pack_expansion_pattern) {
-                for (DeclList* parameter = tmpl->func_def->func_params;
+                for (DeclList* parameter = pack_parameters;
                      parameter; parameter = parameter->next) {
                     if (parameter->decl && parameter->decl->param_is_pack &&
                         parameter->decl->name &&
@@ -3106,7 +3162,7 @@ static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
             }
             {
                 bool found = false;
-                for (DeclList* parameter = tmpl->func_def->func_params;
+                for (DeclList* parameter = pack_parameters;
                      parameter; parameter = parameter->next) {
                     if (parameter->decl && parameter->decl->param_is_pack &&
                         parameter->decl->name &&
@@ -4284,9 +4340,31 @@ void cxx_class_add_base(CxxClass* cls, const char* base_name, AccessSpec access)
     cls->bases[cls->base_count].base = NULL;  /* Will be resolved later */
     cls->bases[cls->base_count].base_name =
         base_name ? rcc_intern(base_name) : NULL;
+    cls->bases[cls->base_count].type_pattern = NULL;
     cls->bases[cls->base_count].access = access;
     cls->bases[cls->base_count].is_virtual = false;
+    cls->bases[cls->base_count].is_pack_expansion = false;
     cls->base_count++;
+}
+
+void cxx_class_add_base_pattern(CxxClass* cls, Type* type_pattern,
+                                const char* base_name, AccessSpec access,
+                                bool is_virtual, bool is_pack_expansion) {
+    int index;
+    if (!cls || !type_pattern) return;
+    index = cls->base_count++;
+    cls->bases = ast_arena_grow(
+        cls->bases, sizeof(cls->bases[0]) * (size_t)index,
+        sizeof(cls->bases[0]) * (size_t)(index + 1));
+    cls->bases[index].base = type_pattern->cxx_dependent
+        ? NULL : type_pattern->cxx_class;
+    cls->bases[index].base_name = base_name
+        ? rcc_intern(base_name)
+        : type_pattern->tag ? rcc_intern(type_pattern->tag) : NULL;
+    cls->bases[index].type_pattern = type_pattern;
+    cls->bases[index].access = access;
+    cls->bases[index].is_virtual = is_virtual;
+    cls->bases[index].is_pack_expansion = is_pack_expansion;
 }
 
 void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,

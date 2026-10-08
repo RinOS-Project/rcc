@@ -300,3 +300,10 @@ xvalue copy assignment.
 公開toolchainとしての完成条件は、C17、主要C++20、typed SSA/MIRと最適化、
 i386/AMD64 ABI、DWARF unwind、PIC/PIE、TLS/exception/RTTI、stage2再現build、
 RinOS上の32/64-bitセルフホストです。進捗は[`TODO.md`](TODO.md)を参照してください。
+
+2026-10-09: Function-template local classes now retain dependent base type
+patterns until specialization, expand a type pack into concrete bases before
+layout and virtual checks, and substitute packed member parameters and
+pack-expanded base constructor initializers. `make build-rcxx` passed. The
+focused fixture and target objects were not run; the broader local-class
+constructor/member ABI item remains open in [`TODO.md`](TODO.md).

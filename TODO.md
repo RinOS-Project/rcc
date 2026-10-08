@@ -614,6 +614,13 @@
       - [x] Discard unselected `if constexpr` local-class definitions during
             template substitution; execute the selected specialization and
             verify the discarded method is absent from generated assembly.
+      Dependent base type patterns now remain attached to the local class until
+      specialization, where type-pack bases are expanded before layout and
+      virtual validation. Local member signatures/bodies and pack-expanded
+      constructor base initializers are substituted against those elements.
+      `make build-rcxx` passes. Keep this parent unchecked: no fixture or
+      target-object execution was run for this extension, and constructor/member
+      ABI coverage beyond the implemented bounded forms remains open.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

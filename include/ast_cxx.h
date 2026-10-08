@@ -55,6 +55,7 @@ struct CxxConstructorInitializer {
     bool is_virtual_base_initializer;
     bool is_delegating_constructor;
     bool is_default_member_initializer;
+    bool is_pack_expansion;
     CxxConstructorInitializer* next;
 };
 
@@ -100,8 +101,10 @@ struct CxxClass {
     struct {
         CxxClass* base;
         const char* base_name; /* Deferred source spelling, if unresolved. */
+        Type* type_pattern; /* Dependent base type retained until substitution. */
         AccessSpec access;
         bool is_virtual;
+        bool is_pack_expansion;
     } *bases;
     int base_count;
     /* Explicit `using Base::member` declarations restore a hidden base
@@ -353,6 +356,9 @@ struct CxxTemplate {
     int64_t* pending_pack_values;
     bool* pending_pack_value_present;
     int pending_pack_count;
+    /* While cloning a local class method, this names the method's own
+     * parameter list so pack expressions bind to that method's parameter pack. */
+    DeclList* active_pack_parameters;
 };
 
 struct CxxLocalClassTemplate {
@@ -441,6 +447,10 @@ Expr* cxx_template_clone_expr(CxxTemplate* tmpl, Expr* expression,
 Expr* cxx_template_clone_expr_with_values(
     CxxTemplate* tmpl, Expr* expression, Type** args, int arg_count,
     const int64_t* value_args, const bool* value_present);
+Expr* cxx_template_clone_pack_expansion(
+    CxxTemplate* tmpl, Expr* pattern, const char* pack_name, int pack_index,
+    Type** args, int arg_count, const int64_t* value_args,
+    const bool* value_present);
 Stmt* cxx_template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
                               Type** args, int arg_count);
 Stmt* cxx_template_clone_stmt_with_values(
@@ -471,6 +481,9 @@ CxxClass* cxx_class_new(const char* name, SourceLoc loc);
 
 /* Add base class by name (deferred resolution) */
 void cxx_class_add_base(CxxClass* cls, const char* base_name, AccessSpec access);
+void cxx_class_add_base_pattern(CxxClass* cls, Type* type_pattern,
+                                const char* base_name, AccessSpec access,
+                                bool is_virtual, bool is_pack_expansion);
 
 /* Add field to class */
 void cxx_class_add_field(CxxClass* cls, const char* name, Type* type, AccessSpec access);
