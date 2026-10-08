@@ -619,7 +619,9 @@
       virtual validation. Local member signatures/bodies and pack-expanded
       constructor base initializers are substituted against those elements;
       templated base initializer names retain their type pattern so overloads
-      bind to the matching concrete base specialization.
+      bind to the matching concrete base specialization. Specialized methods
+      also preserve declaration attributes such as `constexpr`, `consteval`,
+      `nodiscard`, deprecation, and their resolved owning class type.
       `make build-rcxx` passes. Keep this parent unchecked: no fixture or
       target-object execution was run for this extension, and constructor/member
       ABI coverage beyond the implemented bounded forms remains open.

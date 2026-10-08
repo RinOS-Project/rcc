@@ -8517,6 +8517,26 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
         value_args, value_present);
     copy = cxx_method_new(cxx_method_source_name(method), return_type, parameters,
                           method->decl->func_body, method->decl->loc);
+    copy->decl->is_weak = method->decl->is_weak;
+    copy->decl->func_is_inline = method->decl->func_is_inline;
+    copy->decl->func_is_defined = method->decl->func_is_defined;
+    copy->decl->func_is_template_instance =
+        method->decl->func_is_template_instance;
+    copy->decl->func_has_cxx_linkage =
+        method->decl->func_has_cxx_linkage;
+    copy->decl->func_has_local_linkage =
+        method->decl->func_has_local_linkage;
+    copy->decl->func_is_cxx_method = method->decl->func_is_cxx_method;
+    copy->decl->func_is_constexpr = method->decl->func_is_constexpr;
+    copy->decl->func_is_consteval = method->decl->func_is_consteval;
+    copy->decl->func_is_noreturn = method->decl->func_is_noreturn;
+    copy->decl->func_is_nodiscard = method->decl->func_is_nodiscard;
+    copy->decl->func_is_deprecated = method->decl->func_is_deprecated;
+    copy->decl->func_deprecated_message =
+        method->decl->func_deprecated_message;
+    copy->decl->func_cxx_namespace = method->decl->func_cxx_namespace;
+    copy->decl->func_cxx_namespace_scope =
+        method->decl->func_cxx_namespace_scope;
     copy->access = method->access;
     copy->is_static = method->is_static;
     copy->is_virtual = method->is_virtual;
@@ -9242,6 +9262,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             value_args, value_present);
         if (method) {
             method->owner = instance;
+            method->decl->func_method_owner = instance->type;
             cxx_class_add_method(instance, method);
         }
     }

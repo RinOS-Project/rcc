@@ -307,5 +307,6 @@ layout and virtual checks, and substitute packed member parameters and
 pack-expanded base constructor initializers. Templated base initializer names
 retain their type pattern so same-named base templates bind to the matching
 specialization. `make build-rcxx` passed. The focused fixture and target objects
-were not run; the broader local-class constructor/member ABI item remains open
-in [`TODO.md`](TODO.md).
+were not run. Specialized member declarations retain their source attributes
+and resolve their owning class type before publication. The broader local-class
+constructor/member ABI item remains open in [`TODO.md`](TODO.md).
