@@ -58,6 +58,28 @@ struct DependentVirtualClassTemplateDerived
     }
 };
 
+template <typename T>
+struct DependentVirtualDispatchBase {
+    explicit DependentVirtualDispatchBase(T initial) : value(initial) {}
+
+    virtual T read() const {
+        return value;
+    }
+
+    T value;
+};
+
+template <typename T>
+struct DependentVirtualDispatchDerived
+    : virtual DependentVirtualDispatchBase<T> {
+    explicit DependentVirtualDispatchDerived(T initial)
+        : DependentVirtualDispatchBase<T>(initial) {}
+
+    T read() const override {
+        return this->value + 1;
+    }
+};
+
 int main() {
     dependent_base_pack_order = 0;
     DependentClassTemplateBasePack<> empty_pack;
@@ -78,13 +100,21 @@ int main() {
     DependentVirtualClassTemplateDerived<long long> virtual_wide(31);
     DependentClassTemplateBase<int>* virtual_integer_base = &virtual_integer;
     DependentClassTemplateBase<long long>* virtual_wide_base = &virtual_wide;
+    DependentVirtualDispatchDerived<int> virtual_dispatch_integer{37};
+    DependentVirtualDispatchDerived<long long> virtual_dispatch_wide{41};
+    DependentVirtualDispatchBase<int>* virtual_dispatch_integer_base =
+        &virtual_dispatch_integer;
+    DependentVirtualDispatchBase<long long>* virtual_dispatch_wide_base =
+        &virtual_dispatch_wide;
     return integer.read_twice() == 41 && wide.read_twice() == 45 &&
                    integer.read_unsigned_biases() == 0x100000002ULL &&
                    wide.read_unsigned_biases() == 0x100000002ULL &&
                    virtual_integer.read_virtual_base() == 29 &&
                    virtual_wide.read_virtual_base() == 31 &&
                    virtual_integer_base->read() == 29 &&
-                   virtual_wide_base->read() == 31
+                   virtual_wide_base->read() == 31 &&
+                   virtual_dispatch_integer_base->read() == 38 &&
+                   virtual_dispatch_wide_base->read() == 42
                ? 0
-               : 6;
+               : 7;
 }

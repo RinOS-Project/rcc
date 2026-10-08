@@ -2298,8 +2298,7 @@ static bool cxx_constructor_base_layout_supported(CxxClass* cls, int index) {
         return false;
     }
     base = cls->bases[index].base;
-    if (!base || !base->type || !type_is_complete(base->type) ||
-        base->vtable_size != 0) {
+    if (!base || !base->type || !type_is_complete(base->type)) {
         return false;
     }
     /* A class without a user constructor is only safe to zero here when it
@@ -2882,10 +2881,10 @@ static CxxConstructorInitializer* cxx_find_constructor_initializer(
 }
 
 /* Complete a constructor's effective base/member-initializer sequence in
- * declaration order.  Base initialization is limited to public,
- * non-polymorphic bases whose constructor overload and concrete subobject
- * offset are known.  Virtual bases use the most-derived fixed layout offset;
- * their pointer conversions use the runtime vbtable after construction. */
+ * declaration order.  Base initialization is limited to public bases whose
+ * constructor overload and concrete subobject offset are known.  Virtual
+ * bases use the most-derived fixed layout offset; their pointer conversions
+ * use the runtime vbtable after construction. */
 static void complete_cxx_default_member_initializers(CxxClass* cls) {
     if (!cls || (!cls->has_field_initializer && cls->base_count == 0 &&
                  !cls->constructors)) return;
@@ -3516,16 +3515,31 @@ static bool cxx_base_initializer_is_lowerable(
     return !argument && !parameter;
 }
 
+static bool cxx_class_has_polymorphic_layout(CxxClass* cls) {
+    if (!cls) return false;
+    if (cls->vtable_size > 0 || cls->secondary_vtable_count > 0 ||
+        class_has_virtual_member(cls)) {
+        return true;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (cxx_class_has_polymorphic_layout(cls->bases[index].base)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Recognize constructors whose observable object representation is exactly
  * declaration-order initialization of their data fields.  This covers the
  * SDK status/outcome wrappers without executing arbitrary constructor code. */
 static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
     CxxConstructorInfo* constructor;
-    uint32_t mask = cls && cls->type && cls->type->move_constructor_method
+    bool polymorphic_layout = cxx_class_has_polymorphic_layout(cls);
+    uint32_t mask = cls && cls->type && cls->type->move_constructor_method &&
+            !polymorphic_layout
         ? UINT32_C(1) << 1 : 0u;
     if (!cls || !cls->type->is_complete ||
         cls->has_static_field ||
-        class_has_virtual_member(cls) ||
         (class_has_destructor(cls) && !cls->type->cleanup_function &&
          (!cls->destructor_method || !cls->destructor_method->decl ||
          !cls->destructor_method->decl->func_body))) {
@@ -3555,7 +3569,8 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             continue;
         }
         if (!constructor->body_is_empty) {
-            if ((cls->base_count == 0 ||
+            if (!polymorphic_layout &&
+                (cls->base_count == 0 ||
                  constructor->initializers_are_supported) &&
                 constructor->method && constructor->method->decl &&
                 constructor->method->decl->func_is_cxx_method &&
