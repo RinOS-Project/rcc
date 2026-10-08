@@ -654,6 +654,12 @@
         execution in `test-verified-cxx-temporary-cleanup`. Member-inline calls,
         conversions, nested conditional arms, potentially throwing expressions,
         and array-loop cleanup remain outside this verified subset.
+  - [x] Validate noexcept fixed-member cleanup plans recursively for class
+        prvalue reference arguments of a selected conditional branch call;
+        emit the inner temporary cleanup immediately after that call and the
+        conditional result cleanup after its consumer. Verify both branch
+        choices, inner/outer cleanup order, fallback-free i686/AMD64 objects,
+        and x64 execution in `test-verified-cxx-temporary-cleanup`.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering

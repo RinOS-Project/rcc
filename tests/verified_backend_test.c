@@ -1862,6 +1862,7 @@ static void verify_cxx_reference_local_object(const char* path,
     void* memory;
     void* address;
     int (RINOS_ABI *entry)(void);
+    int result;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     entry_symbol = objfile_find_symbol(object, "main");
@@ -1876,7 +1877,12 @@ static void verify_cxx_reference_local_object(const char* path,
     memory = map_text(object, text, &mapping_size);
     address = symbol_address(memory, entry_symbol);
     memcpy(&entry, &address, sizeof(entry));
-    assert(entry() == 0);
+    result = entry();
+    if (result != 0) {
+        fprintf(stderr, "verified C++ reference object returned %d\n",
+                result);
+    }
+    assert(result == 0);
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }

@@ -4096,11 +4096,14 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
 }
 
 static bool lower_noexcept_expression(const Expr* expression);
+static bool lower_temporary_cleanup_plan_supported(
+    const ExprList* argument);
 
 static bool lower_noexcept_expression_list(const ExprList* arguments) {
     for (; arguments; arguments = arguments->next) {
-        if (arguments->cxx_temporary_owner ||
-            !lower_noexcept_expression(arguments->expr)) {
+        if (!lower_noexcept_expression(arguments->expr) ||
+            (arguments->cxx_temporary_owner &&
+             !lower_temporary_cleanup_plan_supported(arguments))) {
             return false;
         }
     }

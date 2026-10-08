@@ -71,6 +71,12 @@ int consume_verified_word_temporary(
     return *value.cleanup_count;
 }
 
+VerifiedWordTemporary make_word_from_temporary(
+        int* cleanup_count, const VerifiedTemporary& source) noexcept {
+    *cleanup_count += source.value;
+    return {cleanup_count};
+}
+
 int note_verified_comma(int* comma_order, int comma_id) noexcept {
     *comma_order = *comma_order * 10 + comma_id;
     return 0;
@@ -154,5 +160,35 @@ int main() {
         return 15;
     }
     if (left_cleanup_count != 31 || right_cleanup_count != 1057) return 16;
+
+    int nested_cleanup_order = 0;
+    int nested_result = 20;
+    if (consume_verified_word_temporary(
+            true ? make_word_from_temporary(
+                       &nested_result,
+                       make_verified_temporary(&nested_cleanup_order, 5, 32))
+                 : make_word_from_temporary(
+                       &nested_result,
+                       make_verified_temporary(&nested_cleanup_order, 7, 43)))
+            != 52) {
+        return 17;
+    }
+    if (nested_cleanup_order != 56) return 18;
+    if (nested_result != 1052) return 21;
+
+    nested_cleanup_order = 0;
+    nested_result = 20;
+    if (consume_verified_word_temporary(
+            false ? make_word_from_temporary(
+                        &nested_result,
+                        make_verified_temporary(&nested_cleanup_order, 5, 32))
+                  : make_word_from_temporary(
+                        &nested_result,
+                        make_verified_temporary(&nested_cleanup_order, 7, 43)))
+            != 63) {
+        return 19;
+    }
+    if (nested_cleanup_order != 78) return 20;
+    if (nested_result != 1063) return 22;
     return 0;
 }
