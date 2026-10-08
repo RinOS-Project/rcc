@@ -148,6 +148,53 @@ double verified_sysv_named_mixed_aggregate_sse_straddle_call(
         a, b, c, d, e, f, g, last, value);
 }
 
+int verified_sysv_va_named_mixed_aggregate_after_gp_full(
+    int a, int b, int c, int d, int e, int last,
+    struct VerifiedSysvMixedAggregate value, ...)
+{
+    va_list arguments;
+    int tail;
+    va_start(arguments, value);
+    tail = va_arg(arguments, int);
+    va_end(arguments);
+    return value.integer * 100 + tail;
+}
+
+int verified_sysv_va_named_mixed_aggregate_gp_straddle_call(
+    int integer, double floating, int tail)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_va_named_mixed_aggregate_after_gp_full(
+        1, 2, 3, 4, 5, 6, value, tail);
+}
+
+double verified_sysv_va_named_mixed_aggregate_after_sse_full(
+    double a, double b, double c, double d,
+    double e, double f, double g, double last,
+    struct VerifiedSysvMixedAggregate value, ...)
+{
+    va_list arguments;
+    double tail;
+    va_start(arguments, value);
+    tail = va_arg(arguments, double);
+    va_end(arguments);
+    return tail;
+}
+
+double verified_sysv_va_named_mixed_aggregate_sse_straddle_call(
+    double a, double b, double c, double d,
+    double e, double f, double g, double last,
+    int integer, double floating, double tail)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_va_named_mixed_aggregate_after_sse_full(
+        a, b, c, d, e, f, g, last, value, tail);
+}
+
 #ifdef __cplusplus
 }
 #endif

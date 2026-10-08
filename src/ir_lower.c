@@ -1807,12 +1807,37 @@ static RccIrLowerValue lower_sysv_va_start(
     while (parameter) {
         const Decl* item = parameter->decl;
         const Type* type = item ? item->type : NULL;
-        if (!item || item->kind != DECL_PARAM || !type ||
-            type->size <= 0 || type->size > 8) {
+        if (!item || item->kind != DECL_PARAM || !type || type->size <= 0) {
             context->unsupported = true;
             return lower_invalid_value();
         }
-        if (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) {
+        if (lower_abi_is_aggregate(type)) {
+            LowerSysvAggregateClass classification;
+            size_t integer_units;
+            size_t sse_units;
+            bool in_registers;
+            if (!lower_sysv_register_aggregate(
+                    type, &classification, &integer_units, &sse_units) ||
+                !lower_sysv_aggregate_assignment(
+                    integer_units, sse_units, &gp_count, &fp_count,
+                    &in_registers)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (!in_registers) {
+                size_t stack_units = (size_t)classification.count;
+                if (stack_units >
+                    ((size_t)INT32_MAX - 16u) / 8u -
+                        stack_argument_count) {
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                stack_argument_count += stack_units;
+            }
+        } else if (type->size > 8) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        } else if (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) {
             if ((type->kind == TYPE_FLOAT && type->size != 4) ||
                 (type->kind == TYPE_DOUBLE && type->size != 8)) {
                 context->unsupported = true;
@@ -5449,13 +5474,6 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         TypeParam* variadic_parameter = function_type->params;
         for (const ExprList* variadic_argument = expression->call_args;
              variadic_argument; variadic_argument = variadic_argument->next) {
-            if (variadic_parameter && variadic_parameter->type &&
-                lower_abi_is_aggregate(variadic_parameter->type)) {
-                /* Aggregate fixed arguments in variadic functions need the
-                 * full SysV aggregate register-class algorithm. */
-                context->unsupported = true;
-                return lower_invalid_value();
-            }
             if (!variadic_parameter && variadic_argument->expr &&
                 variadic_argument->expr->type &&
                 variadic_argument->expr->type->kind == TYPE_FLOAT &&

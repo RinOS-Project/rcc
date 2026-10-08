@@ -9,6 +9,72 @@ struct VerifiedSysvMixedAggregate {
     double floating;
 };
 
+int verified_sysv_va_named_mixed_aggregate_gp_offset(
+    struct VerifiedSysvMixedAggregate value, ...)
+{
+    va_list arguments;
+    int tail;
+    va_start(arguments, value);
+    tail = va_arg(arguments, int);
+    va_end(arguments);
+    return value.integer * 100 + tail;
+}
+
+double verified_sysv_va_named_mixed_aggregate_sse_offset(
+    struct VerifiedSysvMixedAggregate value, ...)
+{
+    va_list arguments;
+    double tail;
+    va_start(arguments, value);
+    tail = va_arg(arguments, double);
+    va_end(arguments);
+    return value.floating + tail;
+}
+
+int verified_sysv_va_named_mixed_aggregate_stack_offset(
+    int a, int b, int c, int d, int e, int f,
+    double fa, double fb, double fc, double fd,
+    double fe, double ff, double fg, double fh,
+    struct VerifiedSysvMixedAggregate value, ...)
+{
+    va_list arguments;
+    int tail;
+    va_start(arguments, value);
+    tail = va_arg(arguments, int);
+    va_end(arguments);
+    return value.integer * 100 + tail;
+}
+
+int verified_sysv_va_named_mixed_aggregate_gp_offset_call(
+    int integer, double floating, int tail)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_va_named_mixed_aggregate_gp_offset(value, tail);
+}
+
+double verified_sysv_va_named_mixed_aggregate_sse_offset_call(
+    int integer, double floating, double tail)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_va_named_mixed_aggregate_sse_offset(value, tail);
+}
+
+int verified_sysv_va_named_mixed_aggregate_stack_offset_call(
+    double fill, int integer, double floating, int tail)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_va_named_mixed_aggregate_stack_offset(
+        1, 2, 3, 4, 5, 6,
+        fill, fill, fill, fill, fill, fill, fill, fill,
+        value, tail);
+}
+
 double verified_sysv_named_mixed_aggregate_value(
     struct VerifiedSysvMixedAggregate value)
 {
