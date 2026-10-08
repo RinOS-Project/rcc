@@ -121,6 +121,7 @@ static void verify_smaller(const char* unoptimized_path,
         0xFFu, 0x7Fu, 0x48u, 0x21u, 0xC8u
     };
     static const uint8_t hardware_div[] = {0xF7u, 0xF1u};
+    static const uint8_t signed_div_ecx[] = {0xF7u, 0xF9u};
     assert(unoptimized != NULL && optimized != NULL);
     assert(unoptimized->arch == architecture && optimized->arch == architecture);
     unoptimized_code = code_section(unoptimized);
@@ -655,6 +656,21 @@ static void verify_smaller(const char* unoptimized_path,
         unoptimized, "strength_reduce_signed_mod_eight", 0xf7u));
     assert(!function_contains_byte(
         optimized, "strength_reduce_signed_mod_eight", 0xf7u));
+    assert(function_contains_sequence(
+        unoptimized, "strength_reduce_signed_div_negative_eight",
+        signed_div_ecx, sizeof(signed_div_ecx)));
+    assert(!function_contains_sequence(
+        optimized, "strength_reduce_signed_div_negative_eight",
+        signed_div_ecx, sizeof(signed_div_ecx)));
+    assert(function_contains_sequence(
+        unoptimized, "strength_reduce_signed_mod_negative_eight",
+        signed_div_ecx, sizeof(signed_div_ecx)));
+    assert(!function_contains_sequence(
+        optimized, "strength_reduce_signed_mod_negative_eight",
+        signed_div_ecx, sizeof(signed_div_ecx)));
+    assert(function_contains_sequence(
+        optimized, "preserved_signed_div_negative_eight_side_effect",
+        signed_div_ecx, sizeof(signed_div_ecx)));
     assert(function_contains_byte(
         unoptimized, "preserved_signed_div_negative_power", 0xf7u));
     assert(function_contains_byte(
@@ -849,6 +865,15 @@ int main(int argc, char** argv)
             object, "strength_reduce_signed_mod_two");
         ObjSymbol* strength_reduce_signed_mod_eight_symbol = function_symbol(
             object, "strength_reduce_signed_mod_eight");
+        ObjSymbol* strength_reduce_signed_div_negative_eight_symbol =
+            function_symbol(object,
+                            "strength_reduce_signed_div_negative_eight");
+        ObjSymbol* strength_reduce_signed_mod_negative_eight_symbol =
+            function_symbol(object,
+                            "strength_reduce_signed_mod_negative_eight");
+        ObjSymbol* preserved_signed_div_negative_eight_side_effect_symbol =
+            function_symbol(object,
+                            "preserved_signed_div_negative_eight_side_effect");
         ObjSymbol* inlined_argument_call_symbol = function_symbol(
             object, "inlined_argument_call");
         ObjSymbol* inlined_local_temporary_call_symbol = function_symbol(
@@ -1016,6 +1041,9 @@ int main(int argc, char** argv)
         int (*strength_reduce_signed_div_eight)(int);
         int (*strength_reduce_signed_mod_two)(int);
         int (*strength_reduce_signed_mod_eight)(int);
+        int (*strength_reduce_signed_div_negative_eight)(int);
+        int (*strength_reduce_signed_mod_negative_eight)(int);
+        int (*preserved_signed_div_negative_eight_side_effect)(int*);
         int (*inlined_argument_call)(int);
         int (*inlined_local_temporary_call)(int);
         int (*inlined_two_local_temporaries_call)(int, int);
@@ -1373,6 +1401,18 @@ int main(int argc, char** argv)
         address = mapping + strength_reduce_signed_mod_eight_symbol->value;
         memcpy(&strength_reduce_signed_mod_eight, &address,
                sizeof(strength_reduce_signed_mod_eight));
+        address = mapping +
+            strength_reduce_signed_div_negative_eight_symbol->value;
+        memcpy(&strength_reduce_signed_div_negative_eight, &address,
+               sizeof(strength_reduce_signed_div_negative_eight));
+        address = mapping +
+            strength_reduce_signed_mod_negative_eight_symbol->value;
+        memcpy(&strength_reduce_signed_mod_negative_eight, &address,
+               sizeof(strength_reduce_signed_mod_negative_eight));
+        address = mapping +
+            preserved_signed_div_negative_eight_side_effect_symbol->value;
+        memcpy(&preserved_signed_div_negative_eight_side_effect, &address,
+               sizeof(preserved_signed_div_negative_eight_side_effect));
         address = mapping + inlined_argument_call_symbol->value;
         memcpy(&inlined_argument_call, &address,
                sizeof(inlined_argument_call));
@@ -2005,6 +2045,39 @@ int main(int argc, char** argv)
         assert(strength_reduce_signed_mod_eight(-17) == -1);
         assert(strength_reduce_signed_mod_eight(17) == 1);
         assert(strength_reduce_signed_mod_eight(INT32_MIN) == 0);
+        {
+            static const int32_t signed_division_inputs[] = {
+                INT32_MIN, INT32_MIN + 1, -257, -17, -9, -8, -7, -1,
+                0, 1, 7, 8, 9, 17, 257, INT32_MAX
+            };
+            uint32_t random_bits = UINT32_C(0x7f4a7c15);
+            for (size_t index = 0u;
+                 index < sizeof(signed_division_inputs) /
+                     sizeof(signed_division_inputs[0]);
+                 ++index) {
+                int32_t input = signed_division_inputs[index];
+                assert(strength_reduce_signed_div_negative_eight(input) ==
+                       input / -8);
+                assert(strength_reduce_signed_mod_negative_eight(input) ==
+                       input % -8);
+            }
+            for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
+                int32_t input;
+                random_bits = random_bits * UINT32_C(1664525) +
+                    UINT32_C(1013904223);
+                memcpy(&input, &random_bits, sizeof(input));
+                assert(strength_reduce_signed_div_negative_eight(input) ==
+                       input / -8);
+                assert(strength_reduce_signed_mod_negative_eight(input) ==
+                       input % -8);
+            }
+        }
+        {
+            int side_effect_value = -17;
+            assert(preserved_signed_div_negative_eight_side_effect(
+                       &side_effect_value) == 2);
+            assert(side_effect_value == -16);
+        }
         assert(inlined_argument_call(-8) == -7);
         assert(inlined_local_temporary_call(-8) == -10);
         assert(inlined_two_local_temporaries_call(-8, 13) == 11);

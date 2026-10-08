@@ -354,6 +354,39 @@ static Expr* make_signed_power_of_two_div(
     return expr_binary(EXPR_ADD, shifted, replacement, loc);
 }
 
+/* Return the signed value of a literal divisor.  The parser represents a
+ * negative literal as unary negation of its positive literal, so recognize
+ * that form only when the negation itself is representable in its signed
+ * operand type. */
+static bool signed_power_of_two_factor(const Expr* expression,
+                                       int64_t* factor_value,
+                                       uint64_t* factor_magnitude) {
+    int64_t literal;
+    int64_t minimum;
+    int64_t maximum;
+
+    if (!expression || !factor_value || !factor_magnitude ||
+        !expression->type || !type_is_integer(expression->type) ||
+        expression->type->is_unsigned) {
+        return false;
+    }
+    if (integer_literal(expression, &literal)) {
+        *factor_value = literal;
+    } else if (expression->kind == EXPR_NEG && expression->unary_operand &&
+               integer_literal(expression->unary_operand, &literal) &&
+               literal > 0 &&
+               signed_type_limits(expression->type, &minimum, &maximum) &&
+               literal <= maximum) {
+        *factor_value = -literal;
+    } else {
+        return false;
+    }
+    if (*factor_value == 0 || *factor_value == INT64_MIN) return false;
+    *factor_magnitude = *factor_value < 0
+        ? (uint64_t)(-*factor_value) : (uint64_t)*factor_value;
+    return true;
+}
+
 static bool simplify_signed_power_of_two(Expr** expression) {
     Expr* value;
     Expr* operand;
@@ -371,15 +404,15 @@ static bool simplify_signed_power_of_two(Expr** expression) {
         !value->binary_rhs ||
         !integer_expression_type_matches(value->binary_lhs, value->type) ||
         !integer_expression_type_matches(value->binary_rhs, value->type) ||
-        !integer_literal(value->binary_rhs, &factor_value)) {
+        !signed_power_of_two_factor(value->binary_rhs, &factor_value,
+                                    &factor_bits)) {
         return false;
     }
     operand = value->binary_lhs;
     if (expression_has_side_effect(operand)) return false;
     width = integer_width(value->type);
     if (width <= 1) return false;
-    factor_bits = integer_unsigned_value(factor_value, value->type);
-    if (factor_value <= 0 || factor_bits < 2u ||
+    if (factor_bits < 2u ||
         factor_bits > (uint64_t)INT64_MAX ||
         (factor_bits & (factor_bits - 1u)) != 0u) return false;
     while ((factor_bits >> shift_count) > 1u) ++shift_count;
@@ -389,6 +422,13 @@ static bool simplify_signed_power_of_two(Expr** expression) {
     replacement = make_signed_power_of_two_div(
         operand, shift_count, value->loc, value->type);
     if (!replacement || !replacement->binary_lhs) return false;
+    replacement->type = value->type;
+    if (factor_value < 0) {
+        Expr* negated = expr_unary(EXPR_NEG, replacement, value->loc);
+        if (!negated) return false;
+        negated->type = value->type;
+        replacement = negated;
+    }
     replacement->type = value->type;
     *expression = replacement;
     return true;
@@ -490,13 +530,13 @@ static bool simplify_signed_power_of_two_remainder(Expr** expression) {
         !value->binary_rhs ||
         !integer_expression_type_matches(value->binary_lhs, value->type) ||
         !integer_expression_type_matches(value->binary_rhs, value->type) ||
-        !integer_literal(value->binary_rhs, &factor_value) ||
-        factor_value <= 0 || expression_has_side_effect(value->binary_lhs)) {
+        expression_has_side_effect(value->binary_lhs) ||
+        !signed_power_of_two_factor(value->binary_rhs, &factor_value,
+                                    &factor_bits)) {
         return false;
     }
     width = integer_width(value->type);
     if (width <= 1) return false;
-    factor_bits = integer_unsigned_value(factor_value, value->type);
     if (factor_bits < 2u || factor_bits > (uint64_t)INT64_MAX ||
         (factor_bits & (factor_bits - 1u)) != 0u) return false;
     while ((factor_bits >> shift_count) > 1u) ++shift_count;

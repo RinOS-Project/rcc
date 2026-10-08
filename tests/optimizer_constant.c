@@ -978,6 +978,21 @@ int strength_reduce_signed_mod_eight(int value)
     return value % 8;
 }
 
+int strength_reduce_signed_div_negative_eight(int value)
+{
+    return value / -8;
+}
+
+int strength_reduce_signed_mod_negative_eight(int value)
+{
+    return value % -8;
+}
+
+int preserved_signed_div_negative_eight_side_effect(int* value)
+{
+    return (*value += 1) / -8;
+}
+
 int preserved_signed_div_negative_power(int value)
 {
     return value / -2147483648;

@@ -860,6 +860,10 @@
         `UINT32_MAX` wraparoundをC/C++ i686/AMD64で実行検証。255のO1 objectが
         明示的binary shift/add参照より短いことも比較し、signed式・副作用式・
         255超の係数は変換対象外
+  - [x] C17/C++20のside-effect-free signed `/ -2^k`／`% -2^k`を、除算の
+        ゼロ方向丸め・剰余符号を保つ算術shift/maskへ削減。i686/AMD64のO0/O1で
+        境界値と4,096 deterministic inputsを実行し、side-effect dividendの一回評価と
+        optimized `idiv` removalを`test-optimize`で検証
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline
