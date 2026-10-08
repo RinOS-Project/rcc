@@ -2161,6 +2161,7 @@ static bool lowerable_constructor_body(CxxClass* cls,
         }
         item = ast_arena_alloc(sizeof(*item));
         item->field = field->name;
+        item->base_type_pattern = NULL;
         item->value = value;
         item->arguments = NULL;
         item->constructor = NULL;
@@ -2445,6 +2446,7 @@ static CxxConstructorInitializer* cxx_copy_constructor_initializer(
         *copy = *source;
     } else {
         copy->field = field;
+        copy->base_type_pattern = NULL;
         copy->value = NULL;
         copy->arguments = NULL;
         copy->constructor = NULL;
@@ -2551,6 +2553,7 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     initializer = ast_arena_alloc(sizeof(*initializer));
     initializer->arguments = NULL;
     initializer->field = rcc_intern(base->name);
+    initializer->base_type_pattern = NULL;
     initializer->constructor = source;
     initializer->is_base_initializer = true;
     initializer->is_virtual_base_initializer = false;
@@ -2973,6 +2976,7 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 }
                 item = ast_arena_alloc(sizeof(*item));
                 item->field = field->name;
+                item->base_type_pattern = NULL;
                 item->value = field->initializer;
                 item->arguments = NULL;
                 item->constructor = NULL;
@@ -2980,6 +2984,7 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item->is_virtual_base_initializer = false;
                 item->is_delegating_constructor = false;
                 item->is_default_member_initializer = true;
+                item->is_pack_expansion = false;
                 item->next = NULL;
             }
             if (item) {
@@ -3011,16 +3016,38 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
     if (!match(TOK_COLON)) return result;
     do {
         const char* field = NULL;
+        Type* base_type_pattern = NULL;
         Expr* value = NULL;
         ExprList* arguments = NULL;
         bool current_supported = true;
         bool is_pack_expansion = false;
         CxxConstructorInitializer* item;
-        if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+        if (check(TOK_TYPENAME)) {
+            base_type_pattern = parse_cxx_type_spec();
+            field = base_type_pattern ? base_type_pattern->tag : NULL;
+        } else if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+            Token* name_start = peek();
+            Token* previous_before_name = parser.prev;
             field = parse_qualified_name();
+            if (check(TOK_LT)) {
+                parser.cur = name_start;
+                parser.prev = previous_before_name;
+                base_type_pattern = parse_cxx_type_spec();
+                field = base_type_pattern ? base_type_pattern->tag : field;
+            }
         } else {
             rcc_error(peek()->loc, "expected constructor initializer name");
             return result;
+        }
+        if (!field) {
+            rcc_error(peek()->loc,
+                      "constructor initializer type has no class name");
+            return result;
+        }
+        if (base_type_pattern && base_type_pattern->kind != TYPE_STRUCT) {
+            rcc_error(peek()->loc,
+                      "constructor base initializer must name a class type");
+            current_supported = false;
         }
         if (match(TOK_LPAREN)) {
             if (!check(TOK_RPAREN)) {
@@ -3042,6 +3069,7 @@ static ParsedConstructorInitializer parse_ctor_initializer(void) {
         }
         item = ast_arena_alloc(sizeof(*item));
         item->field = field;
+        item->base_type_pattern = base_type_pattern;
         item->value = value;
         item->arguments = arguments;
         item->constructor = NULL;
@@ -9346,6 +9374,22 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                     initializer_copy->value = initializer_copy->arguments
                         ? initializer_copy->arguments->expr : NULL;
                 } else {
+                    if (initializer->base_type_pattern) {
+                        Type* resolved_base = substitute_template_type(
+                            tmpl, initializer->base_type_pattern, arguments,
+                            argument_count, value_args, value_present);
+                        if (!resolved_base ||
+                            resolved_base->kind != TYPE_STRUCT ||
+                            resolved_base->cxx_dependent ||
+                            !resolved_base->cxx_class) {
+                            rcc_error(loc,
+                                      "constructor base initializer type did not resolve to a class");
+                            copy->initializers_are_supported = false;
+                            continue;
+                        }
+                        initializer_copy->field =
+                            rcc_intern(resolved_base->cxx_class->name);
+                    }
                     initializer_copy->value =
                         cxx_template_clone_expr_with_values(
                             tmpl, initializer->value, arguments,
@@ -9363,6 +9407,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                  * bases and constructors after the specialized class layout
                  * is complete; the pattern's constructor belongs to the
                  * unspecialized class. */
+                initializer_copy->base_type_pattern = NULL;
                 initializer_copy->constructor = NULL;
                 initializer_copy->next = NULL;
                 *initializer_tail = initializer_copy;

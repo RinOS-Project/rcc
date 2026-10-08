@@ -304,6 +304,8 @@ RinOS上の32/64-bitセルフホストです。進捗は[`TODO.md`](TODO.md)を�
 2026-10-09: Function-template local classes now retain dependent base type
 patterns until specialization, expand a type pack into concrete bases before
 layout and virtual checks, and substitute packed member parameters and
-pack-expanded base constructor initializers. `make build-rcxx` passed. The
-focused fixture and target objects were not run; the broader local-class
-constructor/member ABI item remains open in [`TODO.md`](TODO.md).
+pack-expanded base constructor initializers. Templated base initializer names
+retain their type pattern so same-named base templates bind to the matching
+specialization. `make build-rcxx` passed. The focused fixture and target objects
+were not run; the broader local-class constructor/member ABI item remains open
+in [`TODO.md`](TODO.md).

@@ -46,6 +46,7 @@ struct CxxTypeAlias {
  * lowered through the common aggregate backend. */
 struct CxxConstructorInitializer {
     const char* field;
+    Type* base_type_pattern;
     Expr* value;
     /* Parenthesized mem-initializers retain their complete argument list.
      * `value` remains the first argument for the scalar aggregate verifier. */
