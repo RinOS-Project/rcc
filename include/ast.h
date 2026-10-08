@@ -265,6 +265,8 @@ extern Type* type_nullptr;
  * before lexing/parsing a translation unit. */
 void type_configure_target(TargetArch architecture);
 void rcc_parser_set_cxx_mode(bool enabled);
+void rcc_parser_initialize_builtin_va_list_type(void);
+Type* rcc_parser_builtin_va_list_type(void);
 bool rcc_parser_is_cxx_mode(void);
 void rcc_parser_set_cxx_standard(int standard);
 bool rcc_parser_cxx_standard_at_least(int standard);

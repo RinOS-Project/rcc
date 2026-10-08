@@ -378,6 +378,7 @@ static bool cxx_paren_looks_like_function_parameters(void) {
         case TOK_UNSIGNED:
         case TOK_FLOAT:
         case TOK_DOUBLE:
+        case TOK___BUILTIN_VA_LIST:
         case TOK_STRUCT:
         case TOK_CLASS:
         case TOK_ENUM:
@@ -10893,6 +10894,7 @@ Expr* rcc_parse_cxx_functional_cast(void) {
         case TOK_UNSIGNED:
         case TOK_FLOAT:
         case TOK_DOUBLE:
+        case TOK___BUILTIN_VA_LIST:
         case TOK_CONST:
         case TOK_VOLATILE:
         case TOK_DECLTYPE:
@@ -11821,6 +11823,8 @@ static Type* parse_cxx_type_spec(void) {
         t = type_uchar;
     } else if (match(TOK_CHAR)) {
         t = is_unsigned ? type_uchar : type_char;
+    } else if (match(TOK___BUILTIN_VA_LIST)) {
+        t = rcc_parser_builtin_va_list_type();
     } else if (match(TOK_INT) || long_count > 0 || is_short || saw_sign) {
         if (is_short) {
             t = is_unsigned ? type_ushort : type_short;
@@ -13587,6 +13591,7 @@ static bool cxx_abbreviated_function_starts(void) {
 /* Parse C++ translation unit */
 AST* rcc_parse_cxx(TokenList* tokens) {
     rcc_parser_set_cxx_mode(true);
+    rcc_parser_initialize_builtin_va_list_type();
     parser.cur = tokens->head;
     parser.prev = NULL;
     pending_cxx_nodiscard = false;

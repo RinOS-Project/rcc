@@ -115,6 +115,22 @@ bool rcc_parser_is_cxx_mode(void) {
     return parser_cxx_mode;
 }
 
+void rcc_parser_initialize_builtin_va_list_type(void) {
+    if (g_opts.target_arch == ARCH_X64) {
+        Type* record = type_struct("__rcc_sysv_va_list");
+        record->size = 24;
+        record->align = 8;
+        record->is_complete = true;
+        parser_builtin_va_list_type = type_array(record, 1);
+    } else {
+        parser_builtin_va_list_type = type_ptr(type_char);
+    }
+}
+
+Type* rcc_parser_builtin_va_list_type(void) {
+    return parser_builtin_va_list_type;
+}
+
 void rcc_parser_set_cxx_standard(int standard) {
     parser_cxx_standard = standard;
 }
@@ -4713,6 +4729,7 @@ static Stmt* parse_toplevel(void) {
 /* Main parser function */
 AST* rcc_parse(TokenList* tokens) {
     rcc_parser_set_cxx_mode(false);
+    rcc_parser_initialize_builtin_va_list_type();
     pending_weak_attribute = false;
     parser.cur = tokens->head;
     parser.prev = NULL;
@@ -4721,15 +4738,6 @@ AST* rcc_parse(TokenList* tokens) {
     parser_enum_constants = NULL;
     parser_function_name = NULL;
     parser_function_scope_depth = 0;
-    if (g_opts.target_arch == ARCH_X64) {
-        Type* record = type_struct("__rcc_sysv_va_list");
-        record->size = 24;
-        record->align = 8;
-        record->is_complete = true;
-        parser_builtin_va_list_type = type_array(record, 1);
-    } else {
-        parser_builtin_va_list_type = type_ptr(type_char);
-    }
     parser_pack_alignment = 0;
     parser_pack_depth = 0;
 

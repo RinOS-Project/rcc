@@ -876,6 +876,9 @@
         `va_copy(local, *p)`をtyped SSAへlowerし、copy側の消費がsource cursorを
         動かさず、pointer側の消費がcaller cursorを共有することを、i686/AMD64
         object生成とAMD64実行、O0/O2 verified-backend gateで検証
+  - [x] C++20 frontendでもtarget別`__builtin_va_list`を初期化して標準
+        `stdarg.h`の`va_list` typedefを解析し、`va_list*` helperをi686/AMD64の
+        verified objectとx64 O0/O2実行で検証
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路

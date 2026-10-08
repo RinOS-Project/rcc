@@ -157,6 +157,33 @@ static void* symbol_address(void* text_memory, const ObjSymbol* symbol)
     return (uint8_t*)text_memory + symbol->value;
 }
 
+static void verify_va_list_pointer_cxx_object(
+    const char* path, uint16_t arch, bool execute)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* symbol;
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    symbol = objfile_find_symbol(
+        object, "verified_cpp_va_list_pointer_forward_call");
+    assert(symbol != NULL && symbol->type == SYM_GLOBAL &&
+           symbol->binding == BIND_CODE && symbol->section == 0);
+    if (execute) {
+        size_t mapping_size;
+        void* memory;
+        void* address;
+        int (RINOS_ABI *function)(void);
+        assert(arch == ARCH_X64 && sizeof(void*) == 8u);
+        memory = map_text(object, text, &mapping_size);
+        address = symbol_address(memory, symbol);
+        memcpy(&function, &address, sizeof(function));
+        assert(function() == 40);
+        assert(verified_unmap(memory, mapping_size) == 0);
+    }
+    objfile_free(object);
+}
+
 static void verify_wide_scalar_object(const char* path, uint16_t arch)
 {
     ObjectFile* object = objfile_read(path);
@@ -2680,6 +2707,22 @@ static void verify_tls_object(const char* path, uint16_t arch,
 
 int main(int argc, char** argv)
 {
+    if (argc == 4 &&
+        strcmp(argv[1], "--va-list-pointer-cxx-object") == 0) {
+        uint16_t arch;
+        bool execute;
+        if (strcmp(argv[3], "x86") == 0) {
+            arch = ARCH_X86;
+            execute = false;
+        } else {
+            assert(strcmp(argv[3], "x64") == 0);
+            arch = ARCH_X64;
+            execute = true;
+        }
+        verify_va_list_pointer_cxx_object(argv[2], arch, execute);
+        puts("Verified C++ pointer-based va_list object passed");
+        return 0;
+    }
     if (argc == 4 && strcmp(argv[1], "--cxx-reference-object") == 0) {
         uint16_t arch;
         if (strcmp(argv[3], "x86") == 0) {
