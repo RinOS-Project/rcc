@@ -18,6 +18,24 @@ struct VerifiedTemporary {
     }
 };
 
+struct VerifiedPairTemporary {
+    int* cleanup_order;
+    int cleanup_id;
+    int value;
+
+    ~VerifiedPairTemporary() noexcept {
+        *cleanup_order = *cleanup_order * 10 + cleanup_id;
+    }
+};
+
+struct VerifiedWordTemporary {
+    int* cleanup_count;
+
+    ~VerifiedWordTemporary() noexcept {
+        *cleanup_count += 1000;
+    }
+};
+
 VerifiedTemporary make_verified_temporary(
         int* cleanup_order, int cleanup_id, int value) noexcept {
     return {cleanup_order, cleanup_id, value,
@@ -31,6 +49,26 @@ int consume_verified_temporary(const VerifiedTemporary& value) noexcept {
 int consume_verified_pair(const VerifiedTemporary& first,
                           const VerifiedTemporary& second) noexcept {
     return first.value + second.value;
+}
+
+VerifiedPairTemporary make_verified_pair_temporary(
+        int* cleanup_order, int cleanup_id, int value) noexcept {
+    return {cleanup_order, cleanup_id, value};
+}
+
+int consume_verified_pair_temporary(
+        const VerifiedPairTemporary& value) noexcept {
+    return value.value;
+}
+
+VerifiedWordTemporary make_verified_word_temporary(
+        int* cleanup_count) noexcept {
+    return {cleanup_count};
+}
+
+int consume_verified_word_temporary(
+        const VerifiedWordTemporary& value) noexcept {
+    return *value.cleanup_count;
 }
 
 int note_verified_comma(int* comma_order, int comma_id) noexcept {
@@ -82,5 +120,39 @@ int main() {
         return 7;
     }
     if (cleanup_order != 78) return 8;
+
+    cleanup_order = 0;
+    if (consume_verified_pair_temporary(
+            true ? make_verified_pair_temporary(&cleanup_order, 9, 92)
+                 : make_verified_pair_temporary(&cleanup_order, 7, 74)) != 92) {
+        return 9;
+    }
+    if (cleanup_order != 9) return 10;
+
+    cleanup_order = 0;
+    if (consume_verified_pair_temporary(
+            false ? make_verified_pair_temporary(&cleanup_order, 9, 92)
+                  : make_verified_pair_temporary(&cleanup_order, 7, 74)) != 74) {
+        return 11;
+    }
+    if (cleanup_order != 7) return 12;
+
+    int left_cleanup_count = 31;
+    int right_cleanup_count = 57;
+    if (consume_verified_word_temporary(
+            true ? make_verified_word_temporary(&left_cleanup_count)
+                 : make_verified_word_temporary(&right_cleanup_count)) != 31) {
+        return 13;
+    }
+    if (left_cleanup_count != 1031 || right_cleanup_count != 57) return 14;
+
+    left_cleanup_count = 31;
+    right_cleanup_count = 57;
+    if (consume_verified_word_temporary(
+            false ? make_verified_word_temporary(&left_cleanup_count)
+                  : make_verified_word_temporary(&right_cleanup_count)) != 57) {
+        return 15;
+    }
+    if (left_cleanup_count != 31 || right_cleanup_count != 1057) return 16;
     return 0;
 }

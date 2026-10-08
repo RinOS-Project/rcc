@@ -4199,6 +4199,8 @@ static bool lower_nontrivial_temporary_conditional_supported(
     const Expr* else_expression;
     RccIrType then_return_type;
     RccIrType else_return_type;
+    int then_return_kind;
+    int else_return_kind;
     if (!context || !context->allow_nontrivial_temporary_conditional ||
         !expression || expression->kind != EXPR_COND ||
         !expression->type || expression->type->kind != TYPE_STRUCT ||
@@ -4216,24 +4218,28 @@ static bool lower_nontrivial_temporary_conditional_supported(
      * proved its complete cleanup plan; member-inline calls, constructors,
      * conversions, nested conditionals, and glvalue arms still use the
      * complete backend. */
-    return then_expression && else_expression &&
-        then_expression->kind == EXPR_CALL &&
-        else_expression->kind == EXPR_CALL &&
-        !then_expression->call_method && !else_expression->call_method &&
-        then_expression->type && else_expression->type &&
-        type_is_compatible((Type*)expression->type,
-                           (Type*)then_expression->type) &&
-        type_is_compatible((Type*)expression->type,
-                           (Type*)else_expression->type) &&
-        lower_abi_return_layout(then_expression->type,
-                                &then_return_type) ==
-            LOWER_ABI_RETURN_SRET &&
-        lower_abi_return_layout(else_expression->type,
-                                &else_return_type) ==
-            LOWER_ABI_RETURN_SRET &&
-        lower_noexcept_expression(expression->cond_test) &&
-        lower_noexcept_expression(then_expression) &&
-        lower_noexcept_expression(else_expression);
+    if (!then_expression || !else_expression ||
+        then_expression->kind != EXPR_CALL ||
+        else_expression->kind != EXPR_CALL ||
+        then_expression->call_method || else_expression->call_method ||
+        !then_expression->type || !else_expression->type ||
+        !type_is_compatible((Type*)expression->type,
+                            (Type*)then_expression->type) ||
+        !type_is_compatible((Type*)expression->type,
+                            (Type*)else_expression->type) ||
+        !lower_noexcept_expression(expression->cond_test) ||
+        !lower_noexcept_expression(then_expression) ||
+        !lower_noexcept_expression(else_expression)) {
+        return false;
+    }
+    then_return_kind = lower_abi_return_layout(
+        then_expression->type, &then_return_type);
+    else_return_kind = lower_abi_return_layout(
+        else_expression->type, &else_return_type);
+    return then_return_kind == else_return_kind &&
+        (then_return_kind == LOWER_ABI_RETURN_REGISTER_AGGREGATE ||
+         then_return_kind == LOWER_ABI_RETURN_REGISTER_PAIR ||
+         then_return_kind == LOWER_ABI_RETURN_SRET);
 }
 
 static bool lower_cleanup_object_is_owner_subobject(
@@ -4475,7 +4481,9 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         use_aggregate_result_destination =
             context->aggregate_result_destination_call == expression;
         if (use_aggregate_result_destination) {
-            if (return_kind != LOWER_ABI_RETURN_SRET ||
+            if ((return_kind != LOWER_ABI_RETURN_SRET &&
+                 return_kind != LOWER_ABI_RETURN_REGISTER_AGGREGATE &&
+                 return_kind != LOWER_ABI_RETURN_REGISTER_PAIR) ||
                 !context->aggregate_result_destination.valid ||
                 context->aggregate_result_destination.type.kind !=
                     RCC_IR_TYPE_POINTER) {
@@ -6727,6 +6735,8 @@ static RccIrLowerValue lower_conditional_expression(
     aggregate_result = lower_abi_is_aggregate(expression->type);
     if (aggregate_result) {
         RccIrInstruction* allocation;
+        size_t allocation_size;
+        size_t chunk_size = lower_abi_chunk_size();
         /* Ordinary aggregate conditionals still require trivial lifetime
          * semantics. A narrowly validated same-type noexcept call conditional
          * may use caller-owned storage when it is itself a reference temporary
@@ -6746,8 +6756,9 @@ static RccIrLowerValue lower_conditional_expression(
             context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
             NULL, 0u, NULL, 0u);
         if (!allocation) return lower_invalid_value();
-        rcc_ir_set_immediate(
-            allocation, (uint64_t)expression->type->size);
+        allocation_size = ((size_t)expression->type->size +
+                           chunk_size - 1u) / chunk_size * chunk_size;
+        rcc_ir_set_immediate(allocation, (uint64_t)allocation_size);
         allocation->alignment = expression->type->align > 0
             ? (uint32_t)expression->type->align : 0u;
         aggregate_storage = lower_value(
