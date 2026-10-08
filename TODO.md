@@ -872,6 +872,11 @@
   - [ ] x86_64 SysV FP/XMM `va_arg` register-save経路、aggregate `va_arg`分類、
         FP/aggregate named parameterの分類、その他の未対応adjusted-`va_list`形態のSSA化
         （現在は関数単位でlegacy backendへ明示fallback）
+        現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
+        INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
+        16-byteを超えるMEMORY aggregateを実装した。aggregateを渡すvariadic call、
+        FP/aggregate named parameter分類、残るadjusted-`va_list`形態は未実装であり、
+        このparent checkboxは未完了のままにする。
   - [x] x86_64 SysVで`va_list*`を受け取るhelperの`va_arg(*p, T)`／
         `va_copy(local, *p)`をtyped SSAへlowerし、copy側の消費がsource cursorを
         動かさず、pointer側の消費がcaller cursorを共有することを、i686/AMD64
