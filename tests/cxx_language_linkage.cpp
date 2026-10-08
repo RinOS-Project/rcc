@@ -22,6 +22,29 @@ int call_language_linkage(int value) {
            c_linkage_counter;
 }
 
+namespace scoped_linkage {
+extern "C" {
+struct scoped_aggregate { int value; };
+int scoped_linkage_function(int value) {
+    struct scoped_aggregate aggregate;
+    aggregate.value = value;
+    return aggregate.value;
+}
+}
+
+extern "C++" {
+int scoped_cpp_import(int value);
+}
+
+int call_scoped_linkage(int value) {
+    return scoped_linkage_function(value) + scoped_cpp_import(value);
+}
+}
+
+int call_qualified_scoped_linkage(int value) {
+    return scoped_linkage::scoped_linkage_function(value);
+}
+
 class final_class_probe final {
 public:
     int value;

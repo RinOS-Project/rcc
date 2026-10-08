@@ -1136,6 +1136,7 @@ static Type* parse_template_template_default(SourceLoc loc);
 static bool is_active_template_type(const char* name);
 static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
                                       Decl* declaration);
+static void parse_cxx_language_linkage(AST* ast, CxxNamespace* ns);
 static int active_template_type_index(const char* name);
 static int active_template_template_parameter_index(const char* name);
 static bool eval_template_integer_expression(Expr* expression,
@@ -1150,7 +1151,8 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
 CxxTemplate* parse_cxx_template(void);
 bool rcc_parse_cxx_deduction_guide(void);
 static void add_cxx_declaration(AST* ast, Stmt* statement,
-                                bool c_language_linkage);
+                                bool c_language_linkage,
+                                CxxNamespace* ns);
 
 static bool cxx_template_variable_starts(void) {
     Token* token = parser.cur;
@@ -5962,6 +5964,9 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
             (void)parse_cxx_namespace(ast, ns, false);
         } else if (match(TOK_USING)) {
             parse_cxx_using(ns);
+        } else if (check(TOK_EXTERN) && parser.cur->next &&
+                   parser.cur->next->type == TOK_STRING_LIT) {
+            parse_cxx_language_linkage(ast, ns);
         } else if ((check(TOK_CONSTEXPR) || check(TOK_CONSTEVAL)) &&
                    !cxx_constexpr_starts_function()) {
             Stmt* statement = parse_cxx_statement();
@@ -13511,26 +13516,50 @@ static void add_cxx_declaration_one(AST* ast, Stmt* statement,
                                     bool nodiscard,
                                     bool weak,
                                     bool deprecated,
-                                    const char* deprecated_message) {
+                                    const char* deprecated_message,
+                                    CxxNamespace* ns) {
     if (statement && statement->kind == STMT_DECL) {
-        if (statement->decl->kind == DECL_FUNC && nodiscard) {
-            statement->decl->func_is_nodiscard = true;
+        Decl* declaration = statement->decl;
+        if (declaration->kind == DECL_FUNC && nodiscard) {
+            declaration->func_is_nodiscard = true;
         }
-        if (weak) statement->decl->is_weak = true;
-        if (deprecated && statement->decl->kind == DECL_FUNC) {
-            statement->decl->func_is_deprecated = true;
-            statement->decl->func_deprecated_message = deprecated_message;
-        } else if (deprecated && statement->decl->kind == DECL_VAR) {
-            statement->decl->var_is_deprecated = true;
-            statement->decl->var_deprecated_message = deprecated_message;
+        if (weak) declaration->is_weak = true;
+        if (deprecated && declaration->kind == DECL_FUNC) {
+            declaration->func_is_deprecated = true;
+            declaration->func_deprecated_message = deprecated_message;
+        } else if (deprecated && declaration->kind == DECL_VAR) {
+            declaration->var_is_deprecated = true;
+            declaration->var_deprecated_message = deprecated_message;
         }
-        set_cxx_link_name(statement->decl, NULL, c_language_linkage);
-        ast_add_decl(ast, statement->decl);
+        if (ns && ns != g_global_namespace &&
+            declaration->kind != DECL_STATIC_ASSERT && declaration->name) {
+            const char* source_name = declaration->name;
+            set_cxx_link_name(declaration, ns, c_language_linkage);
+            if (c_language_linkage &&
+                (declaration->kind == DECL_FUNC ||
+                 declaration->kind == DECL_VAR) &&
+                !declaration->link_name) {
+                declaration->link_name = rcc_intern(source_name);
+            }
+            if (declaration->kind == DECL_FUNC) {
+                declaration->func_cxx_namespace =
+                    cxx_namespace_qualified_name(ns);
+                declaration->func_cxx_namespace_scope = ns;
+            }
+            declaration->name = namespace_qualified_decl_name(
+                ns, source_name, declaration->loc);
+            cxx_namespace_add_decl(ns, declaration);
+        } else {
+            /* Keep the established global-scope linkage behavior unchanged. */
+            set_cxx_link_name(declaration, NULL, c_language_linkage);
+        }
+        ast_add_decl(ast, declaration);
     }
 }
 
 static void add_cxx_declaration(AST* ast, Stmt* statement,
-                                bool c_language_linkage) {
+                                bool c_language_linkage,
+                                CxxNamespace* ns) {
     bool nodiscard = take_cxx_nodiscard();
     bool weak = take_cxx_weak();
     bool no_unique_address = take_cxx_no_unique_address();
@@ -13548,17 +13577,17 @@ static void add_cxx_declaration(AST* ast, Stmt* statement,
         for (StmtList* item = statement->block_stmts; item; item = item->next) {
             add_cxx_declaration_one(ast, item->stmt, c_language_linkage,
                                     nodiscard, weak, deprecated,
-                                    deprecated_message);
+                                    deprecated_message, ns);
         }
         return;
     }
     add_cxx_declaration_one(ast, statement, c_language_linkage, nodiscard,
-                            weak, deprecated, deprecated_message);
+                            weak, deprecated, deprecated_message, ns);
 }
 
 /* Preserve C ABI symbol spelling inside extern "C" while extern "C++" and
  * ordinary declarations use Itanium ABI link names. */
-static void parse_cxx_language_linkage(AST* ast) {
+static void parse_cxx_language_linkage(AST* ast, CxxNamespace* ns) {
     SourceLoc loc = peek()->loc;
     Token* language;
     bool c_language_linkage;
@@ -13586,8 +13615,8 @@ static void parse_cxx_language_linkage(AST* ast) {
                     rcc_error(loc,
                               "[[no_unique_address]] requires a class data member");
                 }
-                if (g_global_namespace) {
-                    cxx_namespace_add_class(g_global_namespace, cls);
+                if (ns) {
+                    cxx_namespace_add_class(ns, cls);
                 }
             } else if ((check(TOK_AUTO) && parser.cur->next &&
                  parser.cur->next->type == TOK_IDENT &&
@@ -13600,12 +13629,13 @@ static void parse_cxx_language_linkage(AST* ast) {
                 Decl* declaration = parse_cxx_function_declaration(
                     true, &is_constexpr, &is_noexcept, &is_consteval);
                 if (declaration) {
-                    set_cxx_link_name(declaration, NULL, c_language_linkage);
-                    ast_add_decl(ast, declaration);
+                    add_cxx_declaration(
+                        ast, stmt_decl(declaration, declaration->loc),
+                        c_language_linkage, ns);
                 }
             } else {
                 add_cxx_declaration(ast, parse_cxx_statement(),
-                                    c_language_linkage);
+                                    c_language_linkage, ns);
             }
             if (parser.cur == start && !at_end()) advance();
         }
@@ -13622,11 +13652,13 @@ static void parse_cxx_language_linkage(AST* ast) {
         Decl* declaration = parse_cxx_function_declaration(
             true, &is_constexpr, &is_noexcept, &is_consteval);
         if (declaration) {
-            set_cxx_link_name(declaration, NULL, c_language_linkage);
-            ast_add_decl(ast, declaration);
+            add_cxx_declaration(
+                ast, stmt_decl(declaration, declaration->loc),
+                c_language_linkage, ns);
         }
     } else {
-        add_cxx_declaration(ast, parse_cxx_statement(), c_language_linkage);
+        add_cxx_declaration(ast, parse_cxx_statement(), c_language_linkage,
+                            ns);
     }
 }
 
@@ -13734,7 +13766,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
             rcc_parser_apply_pragma_pack(previous());
         } else if (check(TOK_EXTERN) && parser.cur->next &&
                parser.cur->next->type == TOK_STRING_LIT) {
-            parse_cxx_language_linkage(ast);
+            parse_cxx_language_linkage(ast, g_global_namespace);
         } else if (check(TOK_INLINE) && check_next(TOK_NAMESPACE)) {
             advance();
             advance();
@@ -13789,7 +13821,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                    !cxx_constexpr_starts_function()) {
             Stmt* statement = parse_cxx_statement();
             if (statement && statement->kind == STMT_DECL) {
-                add_cxx_declaration(ast, statement, false);
+                add_cxx_declaration(ast, statement, false, NULL);
             }
         } else if ((check(TOK_AUTO) && parser.cur->next &&
                    parser.cur->next->type == TOK_IDENT &&
@@ -13826,7 +13858,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         } else {
             /* Regular C declaration */
             Stmt* s = parse_cxx_statement();
-            add_cxx_declaration(ast, s, false);
+            add_cxx_declaration(ast, s, false, NULL);
         }
 
         /* Individual declaration and scope parsers synchronize at their own

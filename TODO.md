@@ -283,6 +283,10 @@
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target
       widths and the verified SysV aggregate `va_arg` C++ translation unit.
+- [x] Parse language-linkage specifications at namespace scope, register their
+      declarations for namespace lookup, retain unmangled C ABI names, and emit
+      namespace-qualified C++ ABI names; verify in-namespace and qualified
+      out-of-namespace calls plus class member access on i686/AMD64.
 - [x] bounded overload resolution、namespace、ADL、two-phase lookup
   - [x] target幅`nullptr_t`、`auto`保持、null-pointer conversion、条件式・overload
   - [x] 宣言側default argument、再宣言累積、overload viability、call-site補完
