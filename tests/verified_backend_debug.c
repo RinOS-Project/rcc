@@ -29,6 +29,21 @@ int verified_debug_for_scope(int limit)
     return verified_outer_value;
 }
 
+int verified_debug_branch_scope(int selector)
+{
+    int result = 0;
+    {
+        int branch_value = selector + 1;
+        if (selector < 0) {
+            result = branch_value + 2;
+        } else {
+            result = branch_value + 3;
+        }
+        result += branch_value;
+    }
+    return result;
+}
+
 static int verified_debug_call(int value)
 {
     return value * 3 + 1;

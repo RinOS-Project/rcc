@@ -901,14 +901,15 @@ static bool find_variable_location(const ObjSection* info,
             uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
             uint64_t cursor;
             bool saw_entry = false;
+            bool has_previous_range = false;
+            int64_t previous_range_end = 0;
             if (!locations || die + 25u > info->size) return false;
             list_offset = read_u32(info->data, die + 21u);
             if (list_offset > locations->size) return false;
             cursor = list_offset;
             for (;;) {
-                bool has_start_reloc = false;
-                bool has_end_reloc = false;
-                ObjReloc* reloc;
+                const ObjReloc* start_reloc = NULL;
+                const ObjReloc* end_reloc = NULL;
                 uint16_t expression_length;
                 uint64_t expression_limit;
                 uint64_t expression_cursor;
@@ -917,22 +918,22 @@ static bool find_variable_location(const ObjSection* info,
                     address_size * 2u > locations->size - cursor) {
                     return false;
                 }
-                for (reloc = locations->relocs; reloc;
+                for (const ObjReloc* reloc = locations->relocs; reloc;
                      reloc = reloc->next) {
                     if (reloc->offset == cursor) {
                         assert(reloc->type == (architecture == ARCH_X64
                                                    ? RELOC_ABS64
                                                    : RELOC_ABS32U));
-                        has_start_reloc = true;
+                        start_reloc = reloc;
                     }
                     if (reloc->offset == cursor + address_size) {
                         assert(reloc->type == (architecture == ARCH_X64
                                                    ? RELOC_ABS64
                                                    : RELOC_ABS32U));
-                        has_end_reloc = true;
+                        end_reloc = reloc;
                     }
                 }
-                if (!has_start_reloc && !has_end_reloc) {
+                if (!start_reloc && !end_reloc) {
                     assert(saw_entry);
                     for (uint64_t byte = cursor;
                          byte < cursor + address_size * 2u; ++byte) {
@@ -940,7 +941,12 @@ static bool find_variable_location(const ObjSection* info,
                     }
                     return true;
                 }
-                assert(has_start_reloc && has_end_reloc);
+                assert(start_reloc && end_reloc &&
+                       start_reloc->addend < end_reloc->addend);
+                assert(!has_previous_range ||
+                       start_reloc->addend >= previous_range_end);
+                previous_range_end = end_reloc->addend;
+                has_previous_range = true;
                 cursor += address_size * 2u;
                 if (cursor + 2u > locations->size) return false;
                 expression_length = (uint16_t)locations->data[cursor] |
@@ -1107,6 +1113,7 @@ static void verify_optimized_verified_debug_object(
     int64_t local_offset;
     int64_t nested_offset;
     int64_t aligned_offset;
+    int64_t branch_offset;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -1135,6 +1142,10 @@ static void verify_optimized_verified_debug_object(
                                   architecture, &has_location,
                                   &is_location_list, &aligned_offset));
     assert(has_location && aligned_offset < 0 && is_location_list);
+    assert(find_variable_location(info, strings, locations, "branch_value",
+                                  architecture, &has_location,
+                                  &is_location_list, &branch_offset));
+    assert(has_location && branch_offset < 0 && is_location_list);
     {
         int64_t loop_start;
         int64_t loop_end;
@@ -2521,6 +2532,7 @@ static void verify_verified_debug_object(const char* path,
     int64_t local_offset;
     int64_t nested_offset;
     int64_t aligned_offset;
+    int64_t branch_offset;
     assert(object != NULL && object->arch == architecture);
     line = objfile_get_section(object, ".debug_line");
     info = objfile_get_section(object, ".debug_info");
@@ -2586,6 +2598,10 @@ static void verify_verified_debug_object(const char* path,
                                   architecture, &has_location,
                                   &is_location_list, &aligned_offset));
     assert(has_location && aligned_offset < 0 && is_location_list);
+    assert(find_variable_location(info, strings, locations, "branch_value",
+                                  architecture, &has_location,
+                                  &is_location_list, &branch_offset));
+    assert(has_location && branch_offset < 0 && is_location_list);
     {
         int64_t loop_start;
         int64_t loop_end;

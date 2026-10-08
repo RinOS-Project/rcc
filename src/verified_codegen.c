@@ -587,23 +587,27 @@ static bool verified_record_debug_frame_saves(
 
 static void verified_append_statement_debug_range(
     Stmt* statement, uint32_t start, uint32_t end) {
-    StmtDebugRange* debug_range;
+    StmtDebugRange** insertion;
     if (!statement || end <= start) return;
-    debug_range = statement->debug_code_ranges;
-    if (!debug_range) {
-        debug_range = rcc_alloc(sizeof(*debug_range));
-        debug_range->start = start;
-        debug_range->end = end;
-        statement->debug_code_ranges = debug_range;
+    insertion = &statement->debug_code_ranges;
+    while (*insertion && (*insertion)->end < start) {
+        insertion = &(*insertion)->next;
+    }
+    if (!*insertion || (*insertion)->start > end) {
+        StmtDebugRange* added = rcc_alloc(sizeof(*added));
+        added->start = start;
+        added->end = end;
+        added->next = *insertion;
+        *insertion = added;
     } else {
-        while (debug_range->next) debug_range = debug_range->next;
-        if (start <= debug_range->end) {
-            if (end > debug_range->end) debug_range->end = end;
-        } else {
-            StmtDebugRange* next = rcc_alloc(sizeof(*next));
-            next->start = start;
-            next->end = end;
-            debug_range->next = next;
+        StmtDebugRange* merged = *insertion;
+        if (start < merged->start) merged->start = start;
+        if (end > merged->end) merged->end = end;
+        while (merged->next && merged->next->start <= merged->end) {
+            StmtDebugRange* next = merged->next;
+            if (next->end > merged->end) merged->end = next->end;
+            merged->next = next->next;
+            rcc_free(next);
         }
     }
     if (statement->debug_code_end <= statement->debug_code_start) {

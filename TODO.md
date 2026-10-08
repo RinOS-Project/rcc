@@ -1156,6 +1156,9 @@
         C++ verified O2の`.ro`回帰と、RLDがdebug-only sectionをloadable image
         から除外する回帰を`test-debug-info`へ接続。命令rangeを持たない宣言、
         全制御フローでの正確なlifetime、register/piece locationsは未完
+  - [x] verified statement PC rangeを挿入時に昇順・disjoint unionへ正規化し、
+        overlapと隣接rangeを統合。branch scope localのlocation listを
+        i686/AMD64のO0/O2で検証
   - [x] `for`文を独立したDWARF lexical blockとして出力し、for-init localの
         `.debug_loc`をループ終了PCで閉じる。C legacy、C verified O0/O2、
         C++ legacy/verified O2のi686/AMD64 object回帰で、外側localより短い
