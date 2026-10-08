@@ -286,8 +286,9 @@
 - [x] Parse language-linkage specifications at namespace scope, register their
       declarations for namespace lookup, retain unmangled C function/data ABI
       names, and emit namespace-qualified C++ function/data ABI names; verify
-      in-namespace and qualified out-of-namespace use plus class member access
-      on i686/AMD64.
+      both target object symbols, in-namespace and qualified out-of-namespace
+      calls, and class member access; link and execute the complete C/C++ symbol
+      interaction on the x64 host.
 - [x] bounded overload resolution、namespace、ADL、two-phase lookup
   - [x] target幅`nullptr_t`、`auto`保持、null-pointer conversion、条件式・overload
   - [x] 宣言側default argument、再宣言累積、overload viability、call-site補完

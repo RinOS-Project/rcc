@@ -2420,6 +2420,7 @@ else
 	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | $(GREP) -x -q '_ZN14scoped_linkage23scoped_linkage_functionEi'
 	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | $(GREP) -x -q '_ZN14scoped_linkage16scoped_c_counterE'
 endif
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-language-linkage,cxx_language_linkage.cpp)
 	@echo "RCC++ C/C++ language-linkage tests completed"
 
 test-cxx-member-specifiers: $(RCXX_TARGET)
