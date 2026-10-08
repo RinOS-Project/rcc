@@ -88,16 +88,16 @@
       "flags": ["-O1"],
       "sha256": {
         "i686-unknown-rinos": {
-          "ro": "42b1f7407e366cc906674762d02b4d4e4054b89bc85c7b91bd9286e8b20cedbb",
-          "rin": "8255da65225449c27db81bf75b3a0f42f2b50105ec05a1429cadfcb5022950d4",
-          "rll": "a16c88fd102ede664e8a0e4ff6fd426dd9e45e3ae70105be47654a4c1a5cdea6",
-          "drv": "bdc5b5b3126f4852d69047ad144f73379157c5b7094dffc165a6183090e1a272"
+          "ro": "622377b81d4565ce12e8977589a2a28477e0e807b7c558662ecae4da7776d176",
+          "rin": "2b70b7364320f57898ee8de5f64ae8eeeab2bd26bad5f37d26c45fcf1ac4e7f1",
+          "rll": "d7bc49683ac52c7cab19348b9bf235d488f654d1a35d5bebd65dbe5461bb601a",
+          "drv": "a75bc5686dbfbb204bef9bffd9d0b68f0ad6be7e7b6a7617a4827dc082040c70"
         },
         "x86_64-unknown-rinos": {
-          "ro": "8390cec4a1af6a10d4b0a8bd11b3ba316476286d36246c551a95aa637af4c2e4",
-          "rin": "a9b10eff6dc38a4860a38106a65afa2582f1fac100fd4a3fb8e202fe45dd1173",
-          "rll": "94c02288ecab7eecdb6710567f206cd17d2fed139b8f585df0559ebede8d98f2",
-          "drv": "b0290a42ae33b476284ec722ca003ca4f833e8349aa484ecc2618e022df55031"
+          "ro": "8b607843edca05a799fe00c59b699a4ba9959eaa5b007e41965a7222dbc2c8a2",
+          "rin": "fb40db04c875c70abeccd5d5fc67c22ba3e363e38e3fa68c8a95d01400660bbd",
+          "rll": "0d8398e1eb7f84b618c7c1d0c4c103c3e5c6be963cfdb637ab2145ac29beb555",
+          "drv": "326a88eae5c2ca2efb8da38e42cda9868151e7729e9251ed851e1510b2f1fd6a"
         }
       }
     },
