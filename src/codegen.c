@@ -7774,6 +7774,15 @@ static void gen_expr_as_integer64(Module* mod, Expr* expr) {
     }
 }
 
+static void gen_expr_as_scalar_field32(Module* mod, Expr* expr,
+                                       Type* field_type) {
+    if (gen_is_integer64(field_type)) {
+        gen_expr_as_integer64(mod, expr);
+    } else {
+        gen_expr_as_type(mod, expr, field_type);
+    }
+}
+
 static Type* codegen_comparison_type(Expr* expr);
 
 static void gen_spaceship_integer32(Module* mod, Expr* expr) {
@@ -8770,9 +8779,10 @@ static void gen_cxx_initialize_member_initializers32(
             return;
         }
         emit_push_reg(mod, ECX);
-        gen_expr_as_type(mod, gen_cxx_bind_constructor_expression32(
-                             constructor, initializer->value, arguments),
-                         field->type);
+        gen_expr_as_scalar_field32(
+            mod, gen_cxx_bind_constructor_expression32(
+                     constructor, initializer->value, arguments),
+            field->type);
         emit_pop_reg(mod, ECX);
         if (type_is_integer(field->type) || field->type->kind == TYPE_ENUM) {
             emit_convert_integer_value(
@@ -8974,7 +8984,7 @@ static void gen_cxx_initialize_object32_mode(
                     return;
                 }
                 emit_push_reg(mod, address_reg);
-                gen_expr_as_type(mod, value, field->type);
+                gen_expr_as_scalar_field32(mod, value, field->type);
                 emit_pop_reg(mod, address_reg);
                 if (type_is_integer(field->type) ||
                     field->type->kind == TYPE_ENUM) {
@@ -8996,7 +9006,8 @@ static void gen_cxx_initialize_object32_mode(
                 rcc_fatal("validated C++ constructor field is missing");
             }
             emit_push_reg(mod, address_reg);
-            gen_expr_as_type(mod, initializer->value, field->type);
+            gen_expr_as_scalar_field32(
+                mod, initializer->value, field->type);
             emit_pop_reg(mod, address_reg);
             if (type_is_integer(field->type) ||
                 field->type->kind == TYPE_ENUM) {
@@ -9012,7 +9023,7 @@ static void gen_cxx_initialize_object32_mode(
     for (argument = arguments; argument && field;
          argument = argument->next, field = field->next) {
         emit_push_reg(mod, address_reg);
-        gen_expr_as_type(mod, argument->expr, field->type);
+        gen_expr_as_scalar_field32(mod, argument->expr, field->type);
         emit_pop_reg(mod, address_reg);
         if (type_is_integer(field->type) || field->type->kind == TYPE_ENUM) {
             emit_convert_integer_value(mod, EAX, argument->expr->type,

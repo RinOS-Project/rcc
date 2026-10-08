@@ -361,3 +361,10 @@ the nested TODO records its x64 run and both target-width emissions. The full
 compiler rebuild passed in this integration, but the target was not rerun.
 Dependent base packs, virtual-base/override rules, access and ambiguity, and
 wide dependent member initializers remain unchecked in the parent item.
+
+2026-10-09 follow-up: i686 constructor member initialization now accepts
+8-byte integer default member initializers. Narrow integer expressions are
+extended into `EDX:EAX` according to their source signedness before the field
+store; full-width integer expressions retain both words. The forced compiler
+build passed. No runtime tests or target objects were run, so signed/unsigned
+dependent initializers remain an unchecked regression item.

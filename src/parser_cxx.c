@@ -2636,7 +2636,7 @@ static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
                type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR ||
                type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) ||
              !cxx_constructor_scalar_constant(field->initializer) ||
-             (g_opts.target_arch == ARCH_X86 && type->size > 4) ||
+             (g_opts.target_arch == ARCH_X86 && type->size > 8) ||
              (g_opts.target_arch == ARCH_X64 && type->size > 8))) {
             return false;
         }
@@ -3133,7 +3133,7 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                       type->kind == TYPE_FLOAT ||
                       type->kind == TYPE_DOUBLE) ||
                     !cxx_constructor_scalar_constant(field->initializer) ||
-                    (g_opts.target_arch == ARCH_X86 && type->size > 4) ||
+                    (g_opts.target_arch == ARCH_X86 && type->size > 8) ||
                     (g_opts.target_arch == ARCH_X64 && type->size > 8)) {
                     valid = false;
                     break;
@@ -3691,7 +3691,7 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                       field->type->kind == TYPE_DOUBLE) ||
                     field->type->size <= 0 ||
                     (g_opts.target_arch == ARCH_X86 &&
-                     field->type->size > 4) ||
+                     field->type->size > 8) ||
                     (g_opts.target_arch == ARCH_X64 &&
                      field->type->size > 8)) {
                     supported = false;
