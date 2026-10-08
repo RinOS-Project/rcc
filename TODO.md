@@ -901,10 +901,13 @@
         register配置と全体stack配置を実行検証し、typed ABIで未対応のregister straddleは
         complete legacy-object fallbackで実行確認。mixed GP/SSEのregister配置と両bank
         exhaustion後のstack配置をfallbackなしで実行し、片bankだけの境界はlegacy objectで確認。
-      - [ ] variadic functionのnamed trivial aggregate parameterについて、GP/XMM
+      - [x] variadic functionのnamed trivial aggregate parameterについて、GP/XMM
         register配置と両bank exhaustion時のwhole-stack配置をfunction entry、call-site、
         `va_start` overflow位置まで接続。C/C++の`-O0`/`-O2`でregister／stack後の
         `va_arg(int/double)`をruntime検証し、fallbackなしで実行。
+      - [x] 24-byte MEMORY-class aggregateをvariadic call-siteから渡すケースで、
+        complete legacy-object fallbackを明示し、C/C++の`-O0`/`-O2`でcalleeの
+        `va_arg`結果までruntime検証する。typed SSA marshallingは別の未完了課題。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
         16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER

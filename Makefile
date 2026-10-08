@@ -12428,7 +12428,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		tests/verified_backend_sysv_va_aggregate_fallback.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
+	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_large_memory_aggregate_call' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-O2 -fverified-backend -v -c \
@@ -12436,7 +12436,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		tests/verified_backend_sysv_va_aggregate_fallback.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64-o2.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
+	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_large_memory_aggregate_call' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64-o2.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-std=c++20 -fverified-backend -v -c \
@@ -12444,7 +12444,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		tests/verified_backend_sysv_va_aggregate_fallback.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
+	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_large_memory_aggregate_call' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-std=c++20 -O2 -fverified-backend -v -c \
@@ -12452,7 +12452,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		tests/verified_backend_sysv_va_aggregate_fallback.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64-o2.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
+	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_large_memory_aggregate_call' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64-o2.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-fverified-backend -v -c \

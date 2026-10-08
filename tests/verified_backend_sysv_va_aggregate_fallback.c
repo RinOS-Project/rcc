@@ -19,6 +19,32 @@ struct VerifiedSysvMixedAggregate {
     double floating;
 };
 
+struct VerifiedSysvVaLargeMemoryAggregate {
+    long long first;
+    long long second;
+    long long third;
+};
+
+long long verified_sysv_va_read_large_memory_aggregate(int marker, ...)
+{
+    va_list arguments;
+    struct VerifiedSysvVaLargeMemoryAggregate value;
+    va_start(arguments, marker);
+    value = va_arg(arguments, struct VerifiedSysvVaLargeMemoryAggregate);
+    va_end(arguments);
+    return value.third;
+}
+
+long long verified_sysv_va_large_memory_aggregate_call(
+    long long first, long long second, long long third)
+{
+    struct VerifiedSysvVaLargeMemoryAggregate value;
+    value.first = first;
+    value.second = second;
+    value.third = third;
+    return verified_sysv_va_read_large_memory_aggregate(7, value);
+}
+
 long long verified_sysv_va_read_two_integer_aggregate_after_five(
     int a, int b, int c, int d, int last, ...)
 {
