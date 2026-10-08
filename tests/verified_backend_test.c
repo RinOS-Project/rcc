@@ -191,6 +191,11 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
     ObjSymbol* first_symbol;
     ObjSymbol* second_symbol;
     ObjSymbol* ninth_symbol;
+    ObjSymbol* named_first_symbol;
+    ObjSymbol* named_mixed_symbol;
+    ObjSymbol* named_float_symbol;
+    ObjSymbol* named_ninth_symbol;
+    ObjSymbol* named_mixed_stack_symbol;
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
     first_symbol = objfile_find_symbol(
@@ -199,12 +204,42 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         object, "verified_sysv_va_double_second");
     ninth_symbol = objfile_find_symbol(
         object, "verified_sysv_va_double_ninth");
+    named_first_symbol = objfile_find_symbol(
+        object, "verified_sysv_named_double_first");
+    named_mixed_symbol = objfile_find_symbol(
+        object, "verified_sysv_named_double_after_int");
+    named_float_symbol = objfile_find_symbol(
+        object, "verified_sysv_named_float_first");
+    named_ninth_symbol = objfile_find_symbol(
+        object, "verified_sysv_named_double_ninth");
+    named_mixed_stack_symbol = objfile_find_symbol(
+        object, "verified_sysv_named_mixed_stack");
     assert(first_symbol != NULL && first_symbol->type == SYM_GLOBAL &&
            first_symbol->binding == BIND_CODE && first_symbol->section == 0);
     assert(second_symbol != NULL && second_symbol->type == SYM_GLOBAL &&
            second_symbol->binding == BIND_CODE && second_symbol->section == 0);
     assert(ninth_symbol != NULL && ninth_symbol->type == SYM_GLOBAL &&
            ninth_symbol->binding == BIND_CODE && ninth_symbol->section == 0);
+    assert(named_first_symbol != NULL &&
+           named_first_symbol->type == SYM_GLOBAL &&
+           named_first_symbol->binding == BIND_CODE &&
+           named_first_symbol->section == 0);
+    assert(named_mixed_symbol != NULL &&
+           named_mixed_symbol->type == SYM_GLOBAL &&
+           named_mixed_symbol->binding == BIND_CODE &&
+           named_mixed_symbol->section == 0);
+    assert(named_float_symbol != NULL &&
+           named_float_symbol->type == SYM_GLOBAL &&
+           named_float_symbol->binding == BIND_CODE &&
+           named_float_symbol->section == 0);
+    assert(named_ninth_symbol != NULL &&
+           named_ninth_symbol->type == SYM_GLOBAL &&
+           named_ninth_symbol->binding == BIND_CODE &&
+           named_ninth_symbol->section == 0);
+    assert(named_mixed_stack_symbol != NULL &&
+           named_mixed_stack_symbol->type == SYM_GLOBAL &&
+           named_mixed_stack_symbol->binding == BIND_CODE &&
+           named_mixed_stack_symbol->section == 0);
     if (execute) {
         size_t mapping_size;
         void* memory = map_text(object, text, &mapping_size);
@@ -212,15 +247,44 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         double (RINOS_ABI *first)(int, ...);
         double (RINOS_ABI *second)(int, ...);
         double (RINOS_ABI *ninth)(int, ...);
+        double (RINOS_ABI *named_first)(double);
+        double (RINOS_ABI *named_after_int)(int, double);
+        float (RINOS_ABI *named_float)(float);
+        double (RINOS_ABI *named_ninth)(
+            double, double, double, double, double,
+            double, double, double, double);
+        double (RINOS_ABI *named_mixed_stack)(
+            int, int, int, int, int, int, int,
+            double, double, double, double, double,
+            double, double, double, double);
         memcpy(&first, &address, sizeof(first));
         address = symbol_address(memory, second_symbol);
         memcpy(&second, &address, sizeof(second));
         address = symbol_address(memory, ninth_symbol);
         memcpy(&ninth, &address, sizeof(ninth));
+        address = symbol_address(memory, named_first_symbol);
+        memcpy(&named_first, &address, sizeof(named_first));
+        address = symbol_address(memory, named_mixed_symbol);
+        memcpy(&named_after_int, &address, sizeof(named_after_int));
+        address = symbol_address(memory, named_float_symbol);
+        memcpy(&named_float, &address, sizeof(named_float));
+        address = symbol_address(memory, named_ninth_symbol);
+        memcpy(&named_ninth, &address, sizeof(named_ninth));
+        address = symbol_address(memory, named_mixed_stack_symbol);
+        memcpy(&named_mixed_stack, &address, sizeof(named_mixed_stack));
         assert(first(7, 3.25) == 3.25);
         assert(second(7, 1.25, 2.5) == 2.5);
         assert(ninth(7, 1.0, 2.0, 3.0, 4.0, 5.0,
                     6.0, 7.0, 8.0, 9.0) == 9.0);
+        assert(named_first(3.75) == 3.75);
+        assert(named_after_int(17, 6.5) == 6.5);
+        assert(named_float(4.5f) == 4.5f);
+        assert(named_ninth(1.0, 2.0, 3.0, 4.0, 5.0,
+                           6.0, 7.0, 8.0, 9.0) == 9.0);
+        assert(named_mixed_stack(
+                   1, 2, 3, 4, 5, 6, 7,
+                   1.0, 2.0, 3.0, 4.0, 5.0,
+                   6.0, 7.0, 8.0, 9.0) == 9.0);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

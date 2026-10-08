@@ -55,6 +55,9 @@ void rcc_x86_abi_x86_64(RccX86Abi* abi) {
         RCC_X86_GPR_DI, RCC_X86_GPR_SI, RCC_X86_GPR_DX,
         RCC_X86_GPR_CX, RCC_X86_GPR_R8, RCC_X86_GPR_R9,
     };
+    static const uint16_t floating_arguments[] = {
+        0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u,
+    };
     if (!abi) return;
     memset(abi, 0, sizeof(*abi));
     abi->target = RCC_X86_TARGET_X86_64;
@@ -71,6 +74,10 @@ void rcc_x86_abi_x86_64(RccX86Abi* abi) {
     memcpy(abi->integer_arguments, arguments, sizeof(arguments));
     abi->integer_argument_count =
         sizeof(arguments) / sizeof(arguments[0]);
+    memcpy(abi->floating_arguments, floating_arguments,
+           sizeof(floating_arguments));
+    abi->floating_argument_count =
+        sizeof(floating_arguments) / sizeof(floating_arguments[0]);
     abi->return_low = RCC_X86_GPR_AX;
     abi->return_high = RCC_X86_GPR_DX;
     abi->shift_count = RCC_X86_GPR_CX;
@@ -144,6 +151,29 @@ bool rcc_x86_abi_verify_policy(
             if (abi->gpr_map[index] == abi->gpr_map[other]) {
                 return x86_abi_error(error, error_size,
                                      "x86 ABI register map is not unique");
+            }
+        }
+    }
+    if (abi->integer_argument_count >
+            sizeof(abi->integer_arguments) /
+                sizeof(abi->integer_arguments[0]) ||
+        abi->floating_argument_count >
+            sizeof(abi->floating_arguments) /
+                sizeof(abi->floating_arguments[0])) {
+        return x86_abi_error(error, error_size,
+                             "x86 ABI argument-register count is invalid");
+    }
+    for (index = 0u; index < abi->floating_argument_count; ++index) {
+        size_t other;
+        if (abi->floating_arguments[index] >= abi->fpr_count) {
+            return x86_abi_error(error, error_size,
+                                 "x86 ABI floating argument register is invalid");
+        }
+        for (other = 0u; other < index; ++other) {
+            if (abi->floating_arguments[index] ==
+                abi->floating_arguments[other]) {
+                return x86_abi_error(error, error_size,
+                                     "x86 ABI floating argument registers are not unique");
             }
         }
     }

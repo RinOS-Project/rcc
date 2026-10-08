@@ -44,6 +44,14 @@ static bool x86_legal_native_scalar(
         type.bit_width <= (uint16_t)(abi->pointer_size * 8u);
 }
 
+static bool x86_legal_abi_scalar_parameter(
+    RccMirType type, const RccX86Abi* abi) {
+    return x86_legal_native_scalar(type, abi) ||
+        (abi->target == RCC_X86_TARGET_X86_64 &&
+         type.kind == RCC_MIR_TYPE_FLOAT &&
+         (type.bit_width == 32u || type.bit_width == 64u));
+}
+
 static bool x86_legal_type_supported(
     RccMirType type, const RccX86Abi* abi) {
     if (type.kind == RCC_MIR_TYPE_VOID) return type.bit_width == 0u;
@@ -728,13 +736,15 @@ static bool x86_legalize_parameters(
     RccX86Value* sources = NULL;
     RccX86Value* destinations = NULL;
     uint32_t incoming_offset = 0u;
+    size_t integer_index = 0u;
+    size_t floating_index = 0u;
     size_t index;
     if (selected->parameter_count == 0u) {
         legal->parameter_ingress_complete = true;
         return true;
     }
     for (index = 0u; index < selected->parameter_count; ++index) {
-        if (!x86_legal_native_scalar(
+        if (!x86_legal_abi_scalar_parameter(
                 selected->parameter_types[index], abi)) {
             return true;
         }
@@ -749,10 +759,24 @@ static bool x86_legalize_parameters(
         selected->parameter_count * sizeof(*destinations));
     for (index = 0u; index < selected->parameter_count; ++index) {
         RccMirType type = selected->parameter_types[index];
-        if (index < abi->integer_argument_count) {
-            sources[index] = x86_legal_fixed_gpr(
-                abi->integer_arguments[index], type, abi);
+        bool floating = type.kind == RCC_MIR_TYPE_FLOAT;
+        bool in_register = floating
+            ? floating_index < abi->floating_argument_count
+            : integer_index < abi->integer_argument_count;
+        if (floating) {
+            if (in_register) {
+                sources[index] = x86_legal_fixed_fpr(
+                    abi->floating_arguments[floating_index], type, abi);
+            }
+            ++floating_index;
         } else {
+            if (in_register) {
+                sources[index] = x86_legal_fixed_gpr(
+                    abi->integer_arguments[integer_index], type, abi);
+            }
+            ++integer_index;
+        }
+        if (!in_register) {
             if (incoming_offset > UINT32_MAX - abi->pointer_size) {
                 rcc_free(sources);
                 rcc_free(destinations);

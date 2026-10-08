@@ -30,3 +30,35 @@ extern "C" double verified_sysv_va_double_ninth(int marker, ...)
     va_end(arguments);
     return value;
 }
+
+extern "C" double verified_sysv_named_double_first(double value)
+{
+    return value;
+}
+
+extern "C" double verified_sysv_named_double_after_int(
+    int marker, double value)
+{
+    return value;
+}
+
+extern "C" float verified_sysv_named_float_first(float value)
+{
+    return value;
+}
+
+extern "C" double verified_sysv_named_double_ninth(
+    double first, double second, double third, double fourth,
+    double fifth, double sixth, double seventh, double eighth,
+    double ninth)
+{
+    return ninth;
+}
+
+extern "C" double verified_sysv_named_mixed_stack(
+    int i0, int i1, int i2, int i3, int i4, int i5, int i6,
+    double d0, double d1, double d2, double d3, double d4,
+    double d5, double d6, double d7, double d8)
+{
+    return d8;
+}

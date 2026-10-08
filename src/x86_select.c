@@ -544,8 +544,6 @@ bool rcc_x86_verify_function(
         if (!x86_type_supported_for_target(
                 function->parameter_types[parameter], function->target) ||
             function->parameter_types[parameter].kind ==
-                RCC_MIR_TYPE_FLOAT ||
-            function->parameter_types[parameter].kind ==
                 RCC_MIR_TYPE_VOID ||
             !x86_location_valid(function->parameters[parameter], policy,
                                 function->frame_size)) {

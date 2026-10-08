@@ -9141,6 +9141,10 @@ static bool lower_abi_native_scalar_type(
     if (!lower_type(type, ir_type) ||
         ir_type->kind == RCC_IR_TYPE_VOID) return false;
     if (ir_type->kind == RCC_IR_TYPE_POINTER) return true;
+    if (ir_type->kind == RCC_IR_TYPE_FLOAT) {
+        return g_opts.target_arch == ARCH_X64 &&
+            (ir_type->bit_width == 32u || ir_type->bit_width == 64u);
+    }
     return ir_type->kind == RCC_IR_TYPE_INTEGER &&
         ir_type->bit_width <=
             (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u);

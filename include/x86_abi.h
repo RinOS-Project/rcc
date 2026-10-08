@@ -47,6 +47,8 @@ typedef struct {
     uint64_t shift_count_fixed_abstract_mask;
     RccX86HardwareGpr integer_arguments[6];
     size_t integer_argument_count;
+    uint16_t floating_arguments[8];
+    size_t floating_argument_count;
     RccX86HardwareGpr return_low;
     RccX86HardwareGpr return_high;
     RccX86HardwareGpr shift_count;
