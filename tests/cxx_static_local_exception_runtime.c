@@ -37,6 +37,7 @@ int cxx_thread_local_destructors;
 int cxx_thread_local_registrations;
 int cxx_thread_local_dso_mismatches;
 int cxx_thread_local_destruction_order;
+int cxx_global_tls_attempts;
 
 static uintptr_t rin_test_tls_anchor;
 static unsigned char rin_test_tls_storage[65536]

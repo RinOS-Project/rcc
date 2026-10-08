@@ -15,6 +15,7 @@ extern int cxx_thread_local_destructors;
 extern int cxx_thread_local_registrations;
 extern int cxx_thread_local_dso_mismatches;
 extern int cxx_thread_local_destruction_order;
+extern int cxx_global_tls_attempts;
 }
 
 class RetryStatic final {
@@ -91,6 +92,26 @@ public:
             cxx_thread_local_destruction_order * 10 + 5;
     }
 };
+
+class RetryGlobalThreadLocal final {
+public:
+    int value;
+
+    RetryGlobalThreadLocal() : value(91) {
+        ++cxx_global_tls_attempts;
+        if (cxx_global_tls_attempts == 1) {
+            throw 47;
+        }
+    }
+
+    ~RetryGlobalThreadLocal() {
+        ++cxx_thread_local_destructors;
+        cxx_thread_local_destruction_order =
+            cxx_thread_local_destruction_order * 10 + 6;
+    }
+};
+
+thread_local RetryGlobalThreadLocal retry_global_thread_local;
 
 static RetryStatic& retry_static() {
     static RetryStatic value;
@@ -187,11 +208,29 @@ extern "C" int main() {
         cxx_thread_local_registrations != 3 ||
         cxx_thread_local_destructors != 0 ||
         cxx_thread_local_dso_mismatches != 0) return 71;
+    caught = 0;
+    try {
+        (void)retry_global_thread_local.value;
+    } catch (int value) {
+        caught = value;
+    }
+    if (caught != 47 || cxx_global_tls_attempts != 1 ||
+        cxx_static_local_guard_aborts != 3 ||
+        cxx_static_local_guard_releases != 5 ||
+        cxx_thread_local_registrations != 3 ||
+        cxx_thread_local_destructors != 0) return 72;
+    if (retry_global_thread_local.value != 91 ||
+        cxx_global_tls_attempts != 2 ||
+        cxx_static_local_guard_aborts != 3 ||
+        cxx_static_local_guard_releases != 6 ||
+        cxx_thread_local_registrations != 4 ||
+        cxx_thread_local_destructors != 0 ||
+        cxx_thread_local_dso_mismatches != 0) return 73;
     cxx_static_local_thread_finalize();
-    if (cxx_thread_local_destructors != 3 ||
-        cxx_thread_local_destruction_order != 543) return 80;
+    if (cxx_thread_local_destructors != 4 ||
+        cxx_thread_local_destruction_order != 6543) return 80;
     cxx_static_local_thread_finalize();
-    if (cxx_thread_local_destructors != 3 ||
-        cxx_thread_local_destruction_order != 543) return 90;
+    if (cxx_thread_local_destructors != 4 ||
+        cxx_thread_local_destruction_order != 6543) return 90;
     return 0;
 }

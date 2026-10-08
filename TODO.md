@@ -544,6 +544,11 @@
         function-local `thread_local` class, verify its constructor runs,
         `__cxa_thread_atexit` receives registrations, and three TLS destructors
         run once in reverse order on the i686/AMD64 POSIX host harness.
+  - [x] Apply throw/retry and per-thread destructor registration to a
+        namespace-scope `thread_local` class with a dynamic constructor; verify
+        its first-use guard aborts on throw, its next access initializes once,
+        and its destructor joins reverse-order exactly-once TLS finalization on
+        the i686/AMD64 POSIX host harness.
   - [x] Emit local-exec TLS data and relocation records from `-S`, assemble
         both target variants, and verify `R_386_TLS_LE` / `R_X86_64_TPOFF32`
         records with the host object inspector before executing the generated
