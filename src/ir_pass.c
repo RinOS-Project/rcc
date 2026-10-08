@@ -2287,6 +2287,114 @@ static bool ir_pass_licm_candidate(
     return ir_pass_cse_candidate(instruction);
 }
 
+static bool ir_pass_loop_has_hoistable_invariant(
+    const RccIrFunction* function, RccIrBlock** blocks,
+    size_t block_count, const bool* dominators, const size_t* definitions,
+    const bool* loop, size_t header, const bool* predecessors,
+    size_t value_count) {
+    size_t outside_predecessors = 0u;
+    size_t predecessor;
+    if (!function || !blocks || !dominators || !definitions || !loop ||
+        !predecessors || header >= block_count) {
+        return false;
+    }
+    for (predecessor = 0u; predecessor < block_count; ++predecessor) {
+        if (predecessors[header * block_count + predecessor] &&
+            !loop[predecessor]) {
+            ++outside_predecessors;
+        }
+    }
+    if (outside_predecessors < 2u) return false;
+    for (RccIrInstruction* instruction = blocks[header]->first;
+         instruction; instruction = instruction->next) {
+        if (instruction->opcode == RCC_IR_PHI) return false;
+    }
+    for (size_t block_index = 0u; block_index < block_count; ++block_index) {
+        if (!loop[block_index]) continue;
+        for (RccIrInstruction* instruction = blocks[block_index]->first;
+             instruction; instruction = instruction->next) {
+            bool invariant = true;
+            if (!ir_pass_licm_candidate(function, instruction)) continue;
+            for (size_t operand = 0u;
+                 operand < instruction->operand_count; ++operand) {
+                RccIrValue value = instruction->operands[operand];
+                size_t definition;
+                if (value >= value_count) {
+                    invariant = false;
+                    break;
+                }
+                definition = definitions[value];
+                if (definition == SIZE_MAX) continue;
+                if (loop[definition]) {
+                    invariant = false;
+                    break;
+                }
+                for (predecessor = 0u; predecessor < block_count;
+                     ++predecessor) {
+                    if (predecessors[header * block_count + predecessor] &&
+                        !loop[predecessor] &&
+                        !dominators[predecessor * block_count + definition]) {
+                        invariant = false;
+                        break;
+                    }
+                }
+                if (!invariant) break;
+            }
+            if (invariant) return true;
+        }
+    }
+    return false;
+}
+
+static bool ir_pass_split_loop_preheader(
+    RccIrFunction* function, RccIrBlock** blocks, size_t block_count,
+    const bool* dominators, const size_t* definitions, const bool* loop,
+    size_t header, const bool* predecessors, size_t value_count,
+    bool* created_out, char* error, size_t error_size) {
+    RccIrBlock* preheader;
+    RccIrInstruction* branch;
+    RccIrBlockId header_id;
+    if (created_out) *created_out = false;
+    if (!function || !blocks || !predecessors || header >= block_count) {
+        return ir_pass_error(error, error_size,
+                             "SSA LICM cannot split an invalid loop header");
+    }
+    if (function->block_count >= UINT32_MAX ||
+        !ir_pass_loop_has_hoistable_invariant(
+            function, blocks, block_count, dominators, definitions, loop,
+            header, predecessors, value_count)) {
+        return true;
+    }
+    header_id = blocks[header]->id;
+    preheader = rcc_ir_block_add(function, "licm.preheader");
+    if (!preheader) {
+        return ir_pass_error(error, error_size,
+                             "SSA LICM could not allocate a loop preheader");
+    }
+    branch = rcc_ir_append(preheader, RCC_IR_BRANCH, rcc_ir_type_void(),
+                           NULL, 0u, &header_id, 1u);
+    if (!branch) {
+        rcc_fatal("SSA LICM failed to terminate its new preheader");
+        return false;
+    }
+    for (size_t predecessor = 0u; predecessor < block_count; ++predecessor) {
+        RccIrInstruction* terminator;
+        if (!predecessors[header * block_count + predecessor] ||
+            loop[predecessor]) {
+            continue;
+        }
+        terminator = blocks[predecessor]->last;
+        for (size_t target = 0u;
+             terminator && target < terminator->target_count; ++target) {
+            if (terminator->targets[target] == header_id) {
+                terminator->targets[target] = preheader->id;
+            }
+        }
+    }
+    if (created_out) *created_out = true;
+    return true;
+}
+
 static bool ir_pass_licm(
     RccIrFunction* function, size_t* hoisted_out,
     char* error, size_t error_size) {
@@ -2302,9 +2410,21 @@ static bool ir_pass_licm(
     size_t value_count;
     size_t source;
     size_t index;
+    bool restart_requested;
     bool result = false;
 
     if (hoisted_out) *hoisted_out = 0u;
+restart:
+    blocks = NULL;
+    predecessors = NULL;
+    dominators = NULL;
+    immediate = NULL;
+    children = NULL;
+    definition_blocks = NULL;
+    loop = NULL;
+    stack = NULL;
+    restart_requested = false;
+    result = false;
     if (!function || function->block_count < 2u) return true;
     block_count = function->block_count;
     value_count = function->value_count;
@@ -2393,6 +2513,20 @@ static bool ir_pass_licm(
                     ++outside_predecessors;
                 }
             }
+            if (outside_predecessors > 1u) {
+                bool created = false;
+                if (!ir_pass_split_loop_preheader(
+                        function, blocks, block_count, dominators,
+                        definition_blocks, loop, header, predecessors,
+                        value_count, &created, error, error_size)) {
+                    goto cleanup;
+                }
+                if (created) {
+                    restart_requested = true;
+                    goto cleanup;
+                }
+                continue;
+            }
             if (outside_predecessors != 1u) continue;
             do {
                 changed = false;
@@ -2447,6 +2581,7 @@ cleanup:
     rcc_free(dominators);
     rcc_free(predecessors);
     rcc_free(blocks);
+    if (restart_requested) goto restart;
     return result;
 }
 

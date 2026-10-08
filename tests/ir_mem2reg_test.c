@@ -1746,6 +1746,57 @@ static void verify_loop_invariant_code_motion(void)
     rcc_ir_module_destroy(module);
 }
 
+static void verify_loop_invariant_code_motion_with_multiple_entries(void)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i32, i32, i1, i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "loop_licm_multiple_entries", i32, parameters, 4u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* alternate = rcc_ir_block_add(function, "alternate");
+    RccIrBlock* header = rcc_ir_block_add(function, "header");
+    RccIrBlock* body = rcc_ir_block_add(function, "body");
+    RccIrBlock* exit = rcc_ir_block_add(function, "exit");
+    RccIrValue initial = append_const(entry, i32, 0u);
+    RccIrValue incoming[] = {initial, RCC_IR_VALUE_NONE};
+    RccIrBlockId incoming_blocks[] = {header->id, body->id};
+    RccIrInstruction* invariant;
+    RccIrInstruction* result_phi;
+    RccIrOptimizationStats stats;
+    char error[256];
+
+    append_cond_branch(entry, function->parameters[2], header->id,
+                       alternate->id);
+    append_branch(alternate, header->id);
+    append_cond_branch(header, function->parameters[3], body->id, exit->id);
+    invariant = rcc_ir_append(
+        body, RCC_IR_ADD, i32, function->parameters, 2u, NULL, 0u);
+    assert(invariant != NULL);
+    append_cond_branch(body, function->parameters[2], header->id, exit->id);
+    incoming[1] = invariant->result;
+    result_phi = rcc_ir_append(exit, RCC_IR_PHI, i32, incoming, 2u,
+                               incoming_blocks, 2u);
+    assert(result_phi != NULL);
+    append_return(exit, result_phi->result);
+
+    assert(rcc_ir_optimize_function(function, 2u, &stats,
+                                    error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.hoisted_instructions == 1u);
+    assert(function->block_count == 6u);
+    assert(function->last_block != NULL &&
+           strcmp(function->last_block->name, "licm.preheader") == 0);
+    assert(invariant->block == function->last_block);
+    assert(function->last_block->last->opcode == RCC_IR_BRANCH &&
+           function->last_block->last->targets[0] == header->id);
+    assert(entry->last->targets[0] == function->last_block->id);
+    assert(alternate->last->targets[0] == function->last_block->id);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 int main(void)
 {
     verify_optimization_level_pipeline();
@@ -1779,6 +1830,7 @@ int main(void)
     verify_dominator_scoped_gvn();
     verify_sibling_values_are_not_commoned();
     verify_loop_invariant_code_motion();
+    verify_loop_invariant_code_motion_with_multiple_entries();
     puts("Typed SSA mem2reg and simplification tests passed");
     return 0;
 }
