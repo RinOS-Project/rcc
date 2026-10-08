@@ -40,6 +40,28 @@ extern "C" int verified_sysv_va_int_first(int marker, ...)
     return value;
 }
 
+extern "C" double verified_sysv_va_named_double(double named, ...)
+{
+    va_list arguments;
+    va_start(arguments, named);
+    double value = va_arg(arguments, double);
+    va_end(arguments);
+    return value;
+}
+
+extern "C" double verified_sysv_va_mixed_overflow(
+    int i0, int i1, int i2, int i3, int i4, int i5,
+    double d0, double d1, double d2, double d3,
+    double d4, double d5, double d6, double d7, ...)
+{
+    va_list arguments;
+    va_start(arguments, d7);
+    int ignored = va_arg(arguments, int);
+    double value = va_arg(arguments, double);
+    va_end(arguments);
+    return value;
+}
+
 extern "C" double verified_sysv_named_double_first(double value)
 {
     return value;
@@ -110,6 +132,24 @@ extern "C" double verified_sysv_fp_call_mixed_stack(
 extern "C" double verified_sysv_fp_call_variadic_double(double value)
 {
     return verified_sysv_va_double_first(31, value);
+}
+
+extern "C" double verified_sysv_fp_call_variadic_named_double(
+    double named, double value)
+{
+    return verified_sysv_va_named_double(named, value);
+}
+
+extern "C" double verified_sysv_fp_call_mixed_variadic_overflow(
+    int i0, int i1, int i2, int i3, int i4, int i5,
+    double d0, double d1, double d2, double d3,
+    double d4, double d5, double d6, double d7,
+    int extra_integer, double extra_double)
+{
+    return verified_sysv_va_mixed_overflow(
+        i0, i1, i2, i3, i4, i5,
+        d0, d1, d2, d3, d4, d5, d6, d7,
+        extra_integer, extra_double);
 }
 
 extern "C" int verified_sysv_fp_call_variadic_int(int value)

@@ -12387,7 +12387,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/sysv-va-fp-x64.ro \
 		tests/verified_backend_sysv_va_fp.cpp \
 		>$(TEST_OUT)/verified-backend/sysv-va-fp-x64.log
-	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 21 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/sysv-va-fp-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-fp-x64.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
@@ -12395,7 +12395,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/sysv-va-fp-x64-o2.ro \
 		tests/verified_backend_sysv_va_fp.cpp \
 		>$(TEST_OUT)/verified-backend/sysv-va-fp-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 21 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/sysv-va-fp-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-fp-x64-o2.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \

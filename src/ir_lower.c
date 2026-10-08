@@ -1689,7 +1689,8 @@ static RccIrLowerValue lower_sysv_va_start(
     const DeclList* parameter;
     const Decl* final_parameter = NULL;
     size_t gp_count = 0u;
-    size_t stack_argument_count;
+    size_t fp_count = 0u;
+    size_t stack_argument_count = 0u;
     uint64_t overflow_offset;
     RccIrLowerValue list_slot;
     RccIrLowerValue field;
@@ -1720,21 +1721,53 @@ static RccIrLowerValue lower_sysv_va_start(
         const Decl* item = parameter->decl;
         const Type* type = item ? item->type : NULL;
         if (!item || item->kind != DECL_PARAM || !type ||
-            type->size <= 0 || type->size > 8 ||
-            (!type_is_integer((Type*)type) && type->kind != TYPE_PTR) ||
-            (type->kind == TYPE_PTR && type->size != 8)) {
+            type->size <= 0 || type->size > 8) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        if (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) {
+            if ((type->kind == TYPE_FLOAT && type->size != 4) ||
+                (type->kind == TYPE_DOUBLE && type->size != 8)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (fp_count < 8u) {
+                ++fp_count;
+            } else {
+                if (stack_argument_count >=
+                    ((size_t)INT32_MAX - 16u) / 8u) {
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                ++stack_argument_count;
+            }
+        } else if (type_is_integer((Type*)type) ||
+                   type->kind == TYPE_ENUM || type->kind == TYPE_PTR) {
+            if (type->kind == TYPE_PTR && type->size != 8) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (gp_count < 6u) {
+                ++gp_count;
+            } else {
+                if (stack_argument_count >=
+                    ((size_t)INT32_MAX - 16u) / 8u) {
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                ++stack_argument_count;
+            }
+        } else {
             context->unsupported = true;
             return lower_invalid_value();
         }
         final_parameter = item;
-        ++gp_count;
         parameter = parameter->next;
     }
     if (final_parameter != last_parameter) {
         context->unsupported = true;
         return lower_invalid_value();
     }
-    stack_argument_count = gp_count > 6u ? gp_count - 6u : 0u;
     if (stack_argument_count >
         ((uint64_t)INT32_MAX - 16u) / 8u) {
         context->unsupported = true;
@@ -1769,7 +1802,8 @@ static RccIrLowerValue lower_sysv_va_start(
     field = lower_byte_offset_address(context, list_slot, 4u);
     value = lower_integer_constant(
         context, rcc_ir_type_integer(32u), true,
-        RCC_X86_SYSV_VA_GP_SAVE_SIZE);
+        RCC_X86_SYSV_VA_GP_SAVE_SIZE +
+            (fp_count < 8u ? fp_count : 8u) * 16u);
     if (!field.valid || !value.valid ||
         !lower_store_address(context, field, value)) {
         return lower_invalid_value();

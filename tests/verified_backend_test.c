@@ -227,6 +227,8 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
     ObjSymbol* fp_call_variadic_double_symbol;
     ObjSymbol* fp_call_variadic_int_symbol;
     ObjSymbol* fp_call_variadic_ninth_symbol;
+    ObjSymbol* fp_call_variadic_named_double_symbol;
+    ObjSymbol* fp_call_mixed_variadic_overflow_symbol;
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
     first_symbol = objfile_find_symbol(
@@ -259,6 +261,10 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         object, "verified_sysv_fp_call_variadic_int");
     fp_call_variadic_ninth_symbol = objfile_find_symbol(
         object, "verified_sysv_fp_call_variadic_ninth");
+    fp_call_variadic_named_double_symbol = objfile_find_symbol(
+        object, "verified_sysv_fp_call_variadic_named_double");
+    fp_call_mixed_variadic_overflow_symbol = objfile_find_symbol(
+        object, "verified_sysv_fp_call_mixed_variadic_overflow");
     assert(first_symbol != NULL && first_symbol->type == SYM_GLOBAL &&
            first_symbol->binding == BIND_CODE && first_symbol->section == 0);
     assert(second_symbol != NULL && second_symbol->type == SYM_GLOBAL &&
@@ -313,12 +319,24 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
            fp_call_variadic_ninth_symbol->type == SYM_GLOBAL &&
            fp_call_variadic_ninth_symbol->binding == BIND_CODE &&
            fp_call_variadic_ninth_symbol->section == 0);
+    assert(fp_call_variadic_named_double_symbol != NULL &&
+           fp_call_variadic_named_double_symbol->type == SYM_GLOBAL &&
+           fp_call_variadic_named_double_symbol->binding == BIND_CODE &&
+           fp_call_variadic_named_double_symbol->section == 0);
+    assert(fp_call_mixed_variadic_overflow_symbol != NULL &&
+           fp_call_mixed_variadic_overflow_symbol->type == SYM_GLOBAL &&
+           fp_call_mixed_variadic_overflow_symbol->binding == BIND_CODE &&
+           fp_call_mixed_variadic_overflow_symbol->section == 0);
     assert(symbol_has_sysv_variadic_call_setup(
         object, text, fp_call_variadic_double_symbol, 1u));
     assert(symbol_has_sysv_variadic_call_setup(
         object, text, fp_call_variadic_int_symbol, 0u));
     assert(symbol_has_sysv_variadic_call_setup(
         object, text, fp_call_variadic_ninth_symbol, 8u));
+    assert(symbol_has_sysv_variadic_call_setup(
+        object, text, fp_call_variadic_named_double_symbol, 2u));
+    assert(symbol_has_sysv_variadic_call_setup(
+        object, text, fp_call_mixed_variadic_overflow_symbol, 8u));
     if (execute) {
         size_t mapping_size;
         void* memory = map_text(object, text, &mapping_size);
@@ -350,6 +368,11 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         double (RINOS_ABI *fp_call_variadic_ninth)(
             double, double, double, double, double,
             double, double, double, double);
+        double (RINOS_ABI *fp_call_variadic_named_double)(double, double);
+        double (RINOS_ABI *fp_call_mixed_variadic_overflow)(
+            int, int, int, int, int, int,
+            double, double, double, double, double, double, double, double,
+            int, double);
         memcpy(&first, &address, sizeof(first));
         address = symbol_address(memory, second_symbol);
         memcpy(&second, &address, sizeof(second));
@@ -382,6 +405,12 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         address = symbol_address(memory, fp_call_variadic_ninth_symbol);
         memcpy(&fp_call_variadic_ninth, &address,
                sizeof(fp_call_variadic_ninth));
+        address = symbol_address(memory, fp_call_variadic_named_double_symbol);
+        memcpy(&fp_call_variadic_named_double, &address,
+               sizeof(fp_call_variadic_named_double));
+        address = symbol_address(memory, fp_call_mixed_variadic_overflow_symbol);
+        memcpy(&fp_call_mixed_variadic_overflow, &address,
+               sizeof(fp_call_mixed_variadic_overflow));
         assert(first(7, 3.25) == 3.25);
         assert(second(7, 1.25, 2.5) == 2.5);
         assert(ninth(7, 1.0, 2.0, 3.0, 4.0, 5.0,
@@ -409,6 +438,11 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         assert(fp_call_variadic_ninth(
                    1.0, 2.0, 3.0, 4.0, 5.0,
                    6.0, 7.0, 8.0, 9.0) == 9.0);
+        assert(fp_call_variadic_named_double(7.5, 23.125) == 23.125);
+        assert(fp_call_mixed_variadic_overflow(
+                   1, 2, 3, 4, 5, 6,
+                   1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
+                   91, 9.75) == 9.75);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);
