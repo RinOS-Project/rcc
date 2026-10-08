@@ -12403,17 +12403,17 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-x64.ro \
 		tests/verified_backend_sysv_va_aggregate.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64.log,1)
+	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-x64-o2.ro \
 		tests/verified_backend_sysv_va_aggregate.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64-o2.log,1)
+	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64-o2.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64-o2.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/sysv-fp-variadic-promotion-x64.ro \

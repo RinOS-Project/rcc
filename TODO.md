@@ -879,10 +879,15 @@
       - [x] 1 INTEGER eightbyteに収まるtrivial C aggregateのvariadic callを
         typed SSAへmarshalし、同じobject内の`va_arg` calleeまで接続。C callerから
         `{13, 7}`を渡した結果137を、`-O0`/`-O2`かつfallbackなしで検証。
+      - [x] trivial C aggregateのvariadic callを最大2個のINTEGER eightbyteまで
+        拡張し、両wordがregisterに入る場合と両wordがstackへ送られる場合を実行検証。
+        1 GPRだけ空いた境界では分割せず、実際のlegacy backendへfallbackしたcallも
+        `-O0`/`-O2`で実行して正しい値を確認。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
-        16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは1 INTEGER
-        eightbyteのtrivial aggregateに限定され、複数eightbyte／SSE／MEMORY aggregate、
+        16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER
+        eightbyte、alignment 8以下のtrivial aggregateに限定され、SSE／MEMORY aggregate、
+        3個以上のeightbyte、
         FP/aggregate named parameter分類、残るadjusted-`va_list`形態は未実装であり、
         このparent checkboxは未完了のままにする。
   - [x] x86_64 SysVで`va_list*`を受け取るhelperの`va_arg(*p, T)`／
