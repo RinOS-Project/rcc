@@ -4703,6 +4703,8 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         }
         declaration->link_name = link_name;
         declaration->func_has_cxx_linkage = true;
+        declaration->func_has_local_linkage =
+            cls->type->cxx_scope_identity != NULL;
         declaration->func_is_cxx_method = true;
         declaration->func_method_owner = cls->type;
 
@@ -13351,27 +13353,17 @@ static Stmt* parse_cxx_local_class_definition(void) {
     SourceLoc loc = peek()->loc;
     bool is_struct = match(TOK_STRUCT);
     Token* name;
-    CxxClass* cls;
     if (!is_struct) expect(TOK_CLASS, "class");
     name = expect(TOK_IDENT, "local class name");
     if (!name) {
         return stmt_null(loc);
     }
-    cls = parse_cxx_class_named(
+    (void)parse_cxx_class_named(
         loc, is_struct, name->value.str_val,
         rcc_parser_new_local_type_identity());
     if (active_template) {
         rcc_error(loc,
                   "local class identities in function templates are not supported");
-    }
-    for (struct CxxMember* member = cls ? cls->members : NULL;
-         member; member = member->next) {
-        if (member->method ||
-            (member->decl && member->decl->kind == DECL_FUNC)) {
-            rcc_error(member->decl ? member->decl->loc : loc,
-                      "local class member functions are not supported");
-            break;
-        }
     }
     return stmt_null(loc);
 }

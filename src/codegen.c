@@ -16371,13 +16371,15 @@ Module* rcc_codegen(AST* ast) {
             /* Add symbol for function */
             module_add_symbol(mod, decl_link_name(d->decl), func_start, true,
                               MODULE_SYMBOL_CODE,
-                             d->decl->storage != STORAGE_STATIC);
+                             d->decl->storage != STORAGE_STATIC &&
+                             !d->decl->func_has_local_linkage);
             module_set_symbol_size(mod, decl_link_name(d->decl),
                                    code_offset(mod) - func_start);
             module_set_symbol_source(mod, decl_link_name(d->decl),
                                      d->decl->loc);
-            if (d->decl->is_weak || (d->decl->func_is_inline &&
-                                     d->decl->func_has_cxx_linkage)) {
+            if (!d->decl->func_has_local_linkage &&
+                (d->decl->is_weak || (d->decl->func_is_inline &&
+                                      d->decl->func_has_cxx_linkage))) {
                 module_mark_symbol_weak(mod, decl_link_name(d->decl));
             }
         }

@@ -187,6 +187,11 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         ? cls->template_identity_value_args : cls->template_value_args;
     template_value_present = cls->template_identity_tmpl
         ? cls->template_identity_value_present : cls->template_value_present;
+    if (cls->type && cls->type->cxx_scope_identity) {
+        mangle_name(buf, pos, cls->type->cxx_scope_identity);
+        mangle_name(buf, pos, cls->name);
+        return;
+    }
     if (tmpl) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             if (!tmpl->params[index].is_pack) continue;

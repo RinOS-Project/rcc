@@ -583,11 +583,16 @@
           enum identity with host execution and both target widths.
     - [x] Include the translation-unit path in anonymous-namespace class and
           enum typeinfo identities; compare same-named types with global types.
-    - [x] Give named data-only local C++ classes per-scope identities and
+    - [x] Give function-local C++ classes per-scope identities and
           translation-unit-local typeinfo linkage; test repeat use, nested
           shadowing, same-name functions and cross-translation-unit distinction.
-    - [ ] Local class member functions and local classes in function-template
-          scopes remain unsupported and are explicitly diagnosed.
+    - [x] Lower ordinary local-class member functions and basic explicit
+          constructors with scope-distinct mangling and local symbol linkage;
+          execute sibling and cross-translation-unit cases and validate both
+          target-width RIN images.
+    - [ ] Local classes inside function-template instantiations still need
+          specialization-bound identities; the parser currently diagnoses
+          this case instead of lowering it.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

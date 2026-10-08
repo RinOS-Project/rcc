@@ -1,5 +1,28 @@
 extern "C" const void* peer_local_enum_typeinfo();
 extern "C" const void* peer_local_class_typeinfo();
+extern "C" int peer_local_class_method_call();
+
+static int local_class_member_call() {
+    class LocalMethod { public: int get() const { return 9; } };
+    LocalMethod value;
+    return value.get();
+}
+
+static int local_class_member_call_sibling() {
+    class LocalMethod { public: int get() const { return 13; } };
+    LocalMethod value;
+    return value.get();
+}
+
+static int local_class_constructor_call() {
+    class LocalConstructor {
+    public:
+        int value;
+        LocalConstructor(int initial) : value(initial) {}
+    };
+    LocalConstructor value(27);
+    return value.value;
+}
 
 static const void* local_class_typeinfo_a() {
     class LocalClass { public: int value; };
@@ -55,5 +78,9 @@ extern "C" int main() {
            local_class_typeinfo_a() != 0 &&
            local_class_typeinfo_a() != local_class_typeinfo_b() &&
            local_class_typeinfo_a() != peer_local_class_typeinfo() &&
+           local_class_member_call() == 9 &&
+           local_class_member_call_sibling() == 13 &&
+           local_class_constructor_call() == 27 &&
+           peer_local_class_method_call() == 21 &&
            nested_local_class_scope_identity() == 0 ? 0 : 1;
 }
