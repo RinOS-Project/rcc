@@ -277,7 +277,8 @@
   - [x] class-templateの型引数、complete classのdirect/indirect base、
         pointer-to-memberのowner class、およびglobal-scope classから
         associated namespace/classを集め、型集合・overload集合を動的拡張。
-        template-argument/base/global-scope由来のADLをi686/AMD64で実行検証
+        template-argument/base/member-pointer/global-scope由来のADLを
+        i686/AMD64で実行検証
   - [x] integer user-defined literal operatorをItanium `li`名修飾へ接続し、
         built-in integer suffixを含むi686/AMD64の生成・実行を検証
   - [x] C++17 floating、character、string user-defined literal operatorを
