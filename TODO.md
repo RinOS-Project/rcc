@@ -766,6 +766,9 @@
   - [x] 一意なpreheaderを持つ自然ループに対して、純粋typed-SSA命令の
         ループ不変性を支配関係とuse-defで検証してpreheaderへ移動する限定LICMを
         O2/O3へ接続し、移動後のverifierとIR回帰を追加
+  - [x] O3の各simplify反復後にLICMを再実行し、trivial header PHIの簡約で
+        新たに不変となる式を次の固定点でhoistする。direct IR regressionでO2は
+        loop内に保持しO3だけhoistすることを検証し、`test-ir`／`test-optimize`を実行
   - [x] 外部入口が複数ある自然ループで、安全なinvariantと入口を支配するoperandが
         ある場合にLICM preheaderを合成する。header phiの入口値が異なるときは
         preheader phiへ集約し、loop backedgeを保持してCFGを再解析する。phiなし／ありの

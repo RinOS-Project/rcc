@@ -2796,11 +2796,21 @@ static bool ir_pass_optimize_function(
     round_limit = level == 3u ? 8u : 1u;
     for (round = 0u; round < round_limit; ++round) {
         RccIrSimplifyStats current;
+        size_t round_hoisted = 0u;
         bool changed;
         if (!ir_pass_simplify(function, level >= 2u, &current,
                               error, error_size)) {
             return false;
         }
+        /* O3 is a fixed-point pipeline, not only a repeated simplifier. A
+         * simplification round can remove a loop-local PHI and expose a
+         * previously non-invariant expression, so rerun LICM before deciding
+         * that the pipeline has converged. */
+        if (level == 3u &&
+            !ir_pass_licm(function, &round_hoisted, error, error_size)) {
+            return false;
+        }
+        local_stats.hoisted_instructions += round_hoisted;
         local_stats.simplify.folded_instructions +=
             current.folded_instructions;
         local_stats.simplify.commoned_instructions +=
@@ -2812,7 +2822,7 @@ static bool ir_pass_optimize_function(
         changed = current.folded_instructions != 0u ||
             current.commoned_instructions != 0u ||
             current.removed_instructions != 0u ||
-            current.removed_blocks != 0u;
+            current.removed_blocks != 0u || round_hoisted != 0u;
         if (level != 3u || changed == 0u) break;
     }
     if (!rcc_ir_verify_function(function, error, error_size)) return false;

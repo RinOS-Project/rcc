@@ -1765,6 +1765,111 @@ static void verify_loop_invariant_code_motion(void)
     rcc_ir_module_destroy(module);
 }
 
+static RccIrModule* build_loop_licm_fixed_point_fixture(
+    RccIrFunction** function_out, RccIrBlock** entry_out,
+    RccIrBlock** body_out, RccIrInstruction** candidate_out)
+{
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType parameters[] = {i32, i32, i32, i1};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "loop_licm_fixed_point", i32, parameters, 4u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    RccIrBlock* header = rcc_ir_block_add(function, "header");
+    RccIrBlock* body = rcc_ir_block_add(function, "body");
+    RccIrBlock* exit = rcc_ir_block_add(function, "exit");
+    RccIrValue zero = append_const(entry, i32, 0u);
+    RccIrValue index_inputs[] = {zero, RCC_IR_VALUE_NONE};
+    RccIrValue invariant_inputs[] = {
+        function->parameters[0], function->parameters[0],
+    };
+    RccIrBlockId header_inputs[] = {entry->id, body->id};
+    RccIrValue compare_operands[2];
+    RccIrValue condition[1];
+    RccIrValue candidate_operands[2];
+    RccIrBlockId header_targets[] = {body->id, exit->id};
+    RccIrInstruction* index_phi;
+    RccIrInstruction* invariant_phi;
+    RccIrInstruction* compare;
+    RccIrInstruction* candidate;
+    RccIrValue next_index;
+    RccIrValue exit_values[2];
+    RccIrBlockId exit_sources[] = {header->id, body->id};
+    RccIrInstruction* exit_phi;
+
+    append_branch(entry, header->id);
+    index_phi = rcc_ir_append(header, RCC_IR_PHI, i32,
+                              index_inputs, 2u, header_inputs, 2u);
+    invariant_phi = rcc_ir_append(header, RCC_IR_PHI, i32,
+                                  invariant_inputs, 2u, header_inputs, 2u);
+    assert(index_phi != NULL && invariant_phi != NULL);
+    compare_operands[0] = index_phi->result;
+    compare_operands[1] = function->parameters[2];
+    compare = rcc_ir_append(header, RCC_IR_ICMP, i1,
+                            compare_operands, 2u, NULL, 0u);
+    assert(compare != NULL);
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_SLT);
+    condition[0] = compare->result;
+    assert(rcc_ir_append(header, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
+                         condition, 1u, header_targets, 2u) != NULL);
+
+    candidate_operands[0] = invariant_phi->result;
+    candidate_operands[1] = function->parameters[1];
+    candidate = rcc_ir_append(body, RCC_IR_ADD, i32,
+                              candidate_operands, 2u, NULL, 0u);
+    assert(candidate != NULL);
+    next_index = append_binary(body, RCC_IR_ADD, i32, index_phi->result,
+                               append_const(body, i32, 1u));
+    assert(rcc_ir_append(body, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
+                         &function->parameters[3], 1u,
+                         (RccIrBlockId[]){exit->id, header->id}, 2u) != NULL);
+    index_phi->operands[1] = next_index;
+    exit_values[0] = function->parameters[0];
+    exit_values[1] = candidate->result;
+    exit_phi = rcc_ir_append(exit, RCC_IR_PHI, i32, exit_values, 2u,
+                             exit_sources, 2u);
+    assert(exit_phi != NULL);
+    append_return(exit, exit_phi->result);
+
+    *function_out = function;
+    *entry_out = entry;
+    *body_out = body;
+    *candidate_out = candidate;
+    return module;
+}
+
+static void verify_o3_repeats_licm_after_simplification(void)
+{
+    RccIrModule* module;
+    RccIrFunction* function;
+    RccIrBlock* entry;
+    RccIrBlock* body;
+    RccIrInstruction* candidate;
+    RccIrOptimizationStats stats;
+    char error[256];
+
+    module = build_loop_licm_fixed_point_fixture(
+        &function, &entry, &body, &candidate);
+    assert(rcc_ir_optimize_function(function, 2u, &stats,
+                                    error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.hoisted_instructions == 0u);
+    assert(candidate->block == body);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+
+    module = build_loop_licm_fixed_point_fixture(
+        &function, &entry, &body, &candidate);
+    assert(rcc_ir_optimize_function(function, 3u, &stats,
+                                    error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(stats.hoisted_instructions == 1u);
+    assert(candidate->block == entry);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
 static void verify_loop_invariant_code_motion_with_multiple_entries(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -1918,6 +2023,7 @@ int main(void)
     verify_dominator_scoped_gvn();
     verify_sibling_values_are_not_commoned();
     verify_loop_invariant_code_motion();
+    verify_o3_repeats_licm_after_simplification();
     verify_loop_invariant_code_motion_with_multiple_entries();
     verify_loop_invariant_code_motion_preserves_entry_phi_values();
     puts("Typed SSA mem2reg and simplification tests passed");
