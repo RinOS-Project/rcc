@@ -629,6 +629,10 @@
         invariant、符号／ゼロ拡張、narrow integer／pointer cast、64-bit shift
         count、演算、conditional phi、cdecl引数とEDX:EAX戻り値を一貫して接続。
         scalar i64を32-bit MIRへ漏らす経路は明示的に拒否する
+  - [x] Keep aggregate reference casts and reference-returning calls as object
+        addresses in SSA; verify a user-defined `T&&` conversion return has no
+        fallback on i686/AMD64 and execute the generated x64 `.ro` alias test
+        in `test-verified-cxx-reference-return`.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering

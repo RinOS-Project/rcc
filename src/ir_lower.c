@@ -1107,6 +1107,11 @@ static RccIrLowerValue lower_lvalue_address_impl(
         expression->call_method->return_type->is_reference) {
         return lower_inline_method_address(context, expression);
     }
+    if (expression->kind == EXPR_CALL && expression->type &&
+        expression->type->kind == TYPE_PTR &&
+        expression->type->is_reference) {
+        return lower_expression(context, expression);
+    }
     if (expression->kind == EXPR_IDENT) {
         local = lower_find_local(context, expression->ident_decl);
         if (!local) {
@@ -6022,6 +6027,12 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                  expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
                 RccIrLowerValue address = lower_lvalue_address(
                     context, expression);
+                if (expression->type->base &&
+                    (expression->type->base->kind == TYPE_ARRAY ||
+                     expression->type->base->kind == TYPE_STRUCT ||
+                     expression->type->base->kind == TYPE_UNION)) {
+                    return address;
+                }
                 return lower_load_address(context, address,
                                           expression->type->base);
             }
