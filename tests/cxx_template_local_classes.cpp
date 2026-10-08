@@ -34,6 +34,23 @@ T local_class_template_constructor_member(T value) {
 }
 
 template <typename T>
+T local_class_template_virtual_member(T value) {
+    struct Local {
+        T item;
+
+        explicit Local(T initial_item) : item(initial_item) {}
+
+        virtual T doubled() const {
+            return item + item;
+        }
+    };
+
+    Local local(value);
+    const Local* object = &local;
+    return object->doubled();
+}
+
+template <typename T>
 int local_class_template_size(T value) {
     struct Local {
         char prefix;
@@ -209,6 +226,8 @@ int main() {
     if (local_class_template_value(19LL) != 38) return 2;
     if (local_class_template_constructor_member(13) != 52) return 24;
     if (local_class_template_constructor_member(19LL) != 76) return 25;
+    if (local_class_template_virtual_member(17) != 34) return 26;
+    if (local_class_template_virtual_member(23LL) != 46) return 27;
     if (local_class_template_size(1) != 8) return 3;
     if (local_class_template_size(1LL) != 16) return 4;
     if (local_class_template_dependent_base_size(1) != 8) return 5;
