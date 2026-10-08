@@ -668,12 +668,13 @@
         `test-cxx-class-template-dependent-base`.
   - [ ] Complete ordinary class-template dependent inheritance coverage for
         base packs, dependent virtual bases/overrides, access and ambiguity
-        rules, and dependent default-member initializers whose substituted
-        scalar width exceeds the i686 register width.
-    - [ ] Run the ordinary dependent-base regression with signed and unsigned
+        rules, and remaining dependent default-member initializer forms.
+    - [x] Run the ordinary dependent-base regression with signed and unsigned
           64-bit scalar default member initializers on i686 and AMD64, checking
-          high-word preservation and narrow-to-wide sign/zero extension. The
-          i686 lowering now builds, but this runtime path remains unverified.
+          high-word preservation and narrow-to-wide sign/zero extension.
+          `make SHELL=cmd.exe test-cxx-class-template-dependent-base` passes
+          freestanding i686 execution, x64 host execution, and both target object
+          generations.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

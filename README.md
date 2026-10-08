@@ -360,11 +360,12 @@ and inherited constructors, and lower `this->` field/method lookup. The new
 the nested TODO records its x64 run and both target-width emissions. The full
 compiler rebuild passed in this integration, but the target was not rerun.
 Dependent base packs, virtual-base/override rules, access and ambiguity, and
-wide dependent member initializers remain unchecked in the parent item.
+remaining dependent member initializer forms stay unchecked in the parent.
 
-2026-10-09 follow-up: i686 constructor member initialization now accepts
-8-byte integer default member initializers. Narrow integer expressions are
-extended into `EDX:EAX` according to their source signedness before the field
-store; full-width integer expressions retain both words. The forced compiler
-build passed. No runtime tests or target objects were run, so signed/unsigned
-dependent initializers remain an unchecked regression item.
+2026-10-09 verification follow-up: the dependent-base fixture now checks
+`T bias = -1`, an unsigned 32-to-64-bit initializer, and the full-width value
+`0x100000001ULL`. `make SHELL=cmd.exe test-cxx-class-template-dependent-base`
+passes freestanding i686 execution, x64 host execution, and both target object
+generations. This verifies i686 sign/zero extension and high-word storage for
+these forms; dependent base packs, virtual/access/ambiguity rules, and other
+initializer forms remain unchecked.

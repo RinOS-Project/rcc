@@ -200,6 +200,13 @@ $(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TE
 $(TEST_OUT)/$(1)/x64-host
 endef
 
+define CXX_I686_WIDE_MEMBER_INITIALIZER_CHECK
+objdump -d -M att $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-disassembly.log
+$(GREP) -F -q "cltd" $(TEST_OUT)/$(1)/x86-disassembly.log
+$(GREP) -F -q "ba 00 00 00 00" $(TEST_OUT)/$(1)/x86-disassembly.log
+$(GREP) -F -q "ba 01 00 00 00" $(TEST_OUT)/$(1)/x86-disassembly.log
+endef
+
 # MinGW represents .weak definitions using synthetic fallback symbols whose
 # names include the host entry.  The peer TU's two shared type_info fallbacks
 # get distinct names so the native COFF test can exercise weak merging.
@@ -3305,13 +3312,19 @@ test-cxx-class-template-specialization: $(RCXX_TARGET)
 
 test-cxx-class-template-dependent-base: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-base)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s tests/cxx_class_template_dependent_base.cpp
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-dependent-base,cxx_class_template_dependent_base.cpp)
+	$(call CXX_I686_WIDE_MEMBER_INITIALIZER_CHECK,cxx-class-template-dependent-base)
 else
 test-cxx-class-template-methods: test-cxx-class-template-methods-posix
 test-cxx-class-template-specialization: test-cxx-class-template-specialization-posix
 test-cxx-class-template-dependent-base: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-base)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s tests/cxx_class_template_dependent_base.cpp
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-class-template-dependent-base,cxx_class_template_dependent_base.cpp)
+	$(call CXX_I686_WIDE_MEMBER_INITIALIZER_CHECK,cxx-class-template-dependent-base)
 endif
 
 test-cxx-class-template-specialization-ambiguous-posix: $(RCXX_TARGET)
