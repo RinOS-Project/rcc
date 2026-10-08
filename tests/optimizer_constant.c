@@ -998,6 +998,36 @@ long long strength_reduce_signed_64_mod_negative_eight(long long value)
     return value % -8LL;
 }
 
+long long strength_reduce_signed_64_div_eight(long long value)
+{
+    return value / 8LL;
+}
+
+long long strength_reduce_signed_64_mod_eight(long long value)
+{
+    return value % 8LL;
+}
+
+long long strength_reduce_signed_64_div_high_power(long long value)
+{
+    return value / 4611686018427387904LL;
+}
+
+long long strength_reduce_signed_64_mod_high_power(long long value)
+{
+    return value % 4611686018427387904LL;
+}
+
+long long strength_reduce_signed_64_div_negative_high_power(long long value)
+{
+    return value / -4611686018427387904LL;
+}
+
+long long strength_reduce_signed_64_mod_negative_high_power(long long value)
+{
+    return value % -4611686018427387904LL;
+}
+
 int preserved_signed_div_negative_eight_side_effect(int* value)
 {
     return (*value += 1) / -8;

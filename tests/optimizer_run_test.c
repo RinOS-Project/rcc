@@ -126,6 +126,12 @@ static void verify_smaller(const char* unoptimized_path,
     static const uint8_t hardware_div[] = {0xF7u, 0xF1u};
     static const uint8_t signed_div_ecx[] = {0xF7u, 0xF9u};
     static const uint8_t signed64_div_ecx[] = {0x48u, 0xF7u, 0xF9u};
+    static const char* const signed64_high_power_functions[] = {
+        "strength_reduce_signed_64_div_high_power",
+        "strength_reduce_signed_64_mod_high_power",
+        "strength_reduce_signed_64_div_negative_high_power",
+        "strength_reduce_signed_64_mod_negative_high_power"
+    };
     assert(unoptimized != NULL && optimized != NULL);
     assert(unoptimized->arch == architecture && optimized->arch == architecture);
     unoptimized_code = code_section(unoptimized);
@@ -676,15 +682,60 @@ static void verify_smaller(const char* unoptimized_path,
         assert(function_contains_sequence(
             unoptimized, "strength_reduce_signed_64_div_negative_eight",
             signed64_div_ecx, sizeof(signed64_div_ecx)));
-        assert(function_contains_sequence(
+        assert(!function_contains_sequence(
             optimized, "strength_reduce_signed_64_div_negative_eight",
             signed64_div_ecx, sizeof(signed64_div_ecx)));
+        assert(function_extent(
+                   optimized,
+                   "strength_reduce_signed_64_div_negative_eight") <=
+               function_extent(
+                   unoptimized,
+                   "strength_reduce_signed_64_div_negative_eight") + 64u);
         assert(function_contains_sequence(
             unoptimized, "strength_reduce_signed_64_mod_negative_eight",
             signed64_div_ecx, sizeof(signed64_div_ecx)));
-        assert(function_contains_sequence(
+        assert(!function_contains_sequence(
             optimized, "strength_reduce_signed_64_mod_negative_eight",
             signed64_div_ecx, sizeof(signed64_div_ecx)));
+        assert(function_extent(
+                   optimized,
+                   "strength_reduce_signed_64_mod_negative_eight") <=
+               function_extent(
+                   unoptimized,
+                   "strength_reduce_signed_64_mod_negative_eight") + 64u);
+        assert(function_contains_sequence(
+            unoptimized, "strength_reduce_signed_64_div_eight",
+            signed64_div_ecx, sizeof(signed64_div_ecx)));
+        assert(!function_contains_sequence(
+            optimized, "strength_reduce_signed_64_div_eight",
+            signed64_div_ecx, sizeof(signed64_div_ecx)));
+        assert(function_extent(
+                   optimized, "strength_reduce_signed_64_div_eight") <=
+               function_extent(
+                   unoptimized, "strength_reduce_signed_64_div_eight") + 64u);
+        assert(function_contains_sequence(
+            unoptimized, "strength_reduce_signed_64_mod_eight",
+            signed64_div_ecx, sizeof(signed64_div_ecx)));
+        assert(!function_contains_sequence(
+            optimized, "strength_reduce_signed_64_mod_eight",
+            signed64_div_ecx, sizeof(signed64_div_ecx)));
+        assert(function_extent(
+                   optimized, "strength_reduce_signed_64_mod_eight") <=
+               function_extent(
+                   unoptimized, "strength_reduce_signed_64_mod_eight") + 64u);
+        for (size_t index = 0u;
+             index < sizeof(signed64_high_power_functions) /
+                 sizeof(signed64_high_power_functions[0]); ++index) {
+            const char* name = signed64_high_power_functions[index];
+            assert(function_contains_sequence(
+                unoptimized, name, signed64_div_ecx,
+                sizeof(signed64_div_ecx)));
+            assert(!function_contains_sequence(
+                optimized, name, signed64_div_ecx,
+                sizeof(signed64_div_ecx)));
+            assert(function_extent(optimized, name) <=
+                   function_extent(unoptimized, name) + 64u);
+        }
     }
     assert(function_contains_sequence(
         optimized, "preserved_signed_div_negative_eight_side_effect",
@@ -759,6 +810,9 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
     ObjSymbol* side_effect_symbol;
     ObjSymbol* division64_symbol;
     ObjSymbol* remainder64_symbol;
+    ObjSymbol* division64_positive_symbol;
+    ObjSymbol* remainder64_positive_symbol;
+    ObjSymbol* high_power_symbols[4];
     uint8_t* mapping;
     DWORD previous_protection;
     SysvIntUnary division;
@@ -766,6 +820,9 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
     SysvIntUnaryPointer side_effect_division;
     SysvInt64Unary division64;
     SysvInt64Unary remainder64;
+    SysvInt64Unary division64_positive;
+    SysvInt64Unary remainder64_positive;
+    SysvInt64Unary high_power_functions[4];
     uintptr_t address;
     uint32_t random_bits = UINT32_C(0x7f4a7c15);
     uint64_t random_bits64 = UINT64_C(0x7f4a7c159e3779b9);
@@ -774,10 +831,21 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
         0, 1, 7, 8, 9, 17, 257, INT32_MAX
     };
     static const int64_t edge_inputs64[] = {
-        INT64_MIN, INT64_MIN + 1, INT64_C(-257), INT64_C(-17),
+        INT64_MIN, INT64_MIN + 1,
+        -INT64_C(4611686018427387905),
+        -INT64_C(4611686018427387904),
+        -INT64_C(4611686018427387903), INT64_C(-257), INT64_C(-17),
         INT64_C(-9), INT64_C(-8), INT64_C(-7), INT64_C(-1), INT64_C(0),
         INT64_C(1), INT64_C(7), INT64_C(8), INT64_C(9), INT64_C(17),
-        INT64_C(257), INT64_MAX
+        INT64_C(257), INT64_C(4611686018427387903),
+        INT64_C(4611686018427387904),
+        INT64_C(4611686018427387905), INT64_MAX
+    };
+    static const char* const high_power_names[] = {
+        "strength_reduce_signed_64_div_high_power",
+        "strength_reduce_signed_64_mod_high_power",
+        "strength_reduce_signed_64_div_negative_high_power",
+        "strength_reduce_signed_64_mod_negative_high_power"
     };
 
     assert(object != NULL && object->arch == ARCH_X64);
@@ -792,10 +860,22 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
         object, "strength_reduce_signed_64_div_negative_eight");
     remainder64_symbol = function_symbol(
         object, "strength_reduce_signed_64_mod_negative_eight");
+    division64_positive_symbol = function_symbol(
+        object, "strength_reduce_signed_64_div_eight");
+    remainder64_positive_symbol = function_symbol(
+        object, "strength_reduce_signed_64_mod_eight");
+    for (size_t index = 0u;
+         index < sizeof(high_power_names) / sizeof(high_power_names[0]);
+         ++index) {
+        high_power_symbols[index] = function_symbol(
+            object, high_power_names[index]);
+    }
     assert(code != NULL && code->data != NULL && code->size != 0u);
     assert(division_symbol != NULL && remainder_symbol != NULL &&
            side_effect_symbol != NULL && division64_symbol != NULL &&
-           remainder64_symbol != NULL);
+           remainder64_symbol != NULL &&
+           division64_positive_symbol != NULL &&
+           remainder64_positive_symbol != NULL);
 
     mapping = VirtualAlloc(NULL, code->size, MEM_RESERVE | MEM_COMMIT,
                            PAGE_READWRITE);
@@ -815,6 +895,17 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
     memcpy(&division64, &address, sizeof(division64));
     address = (uintptr_t)mapping + remainder64_symbol->value;
     memcpy(&remainder64, &address, sizeof(remainder64));
+    address = (uintptr_t)mapping + division64_positive_symbol->value;
+    memcpy(&division64_positive, &address, sizeof(division64_positive));
+    address = (uintptr_t)mapping + remainder64_positive_symbol->value;
+    memcpy(&remainder64_positive, &address, sizeof(remainder64_positive));
+    for (size_t index = 0u;
+         index < sizeof(high_power_functions) /
+             sizeof(high_power_functions[0]); ++index) {
+        address = (uintptr_t)mapping + high_power_symbols[index]->value;
+        memcpy(&high_power_functions[index], &address,
+               sizeof(high_power_functions[index]));
+    }
 
     for (size_t index = 0u;
          index < sizeof(edge_inputs) / sizeof(edge_inputs[0]); ++index) {
@@ -835,6 +926,16 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
         int64_t input = edge_inputs64[index];
         assert(division64(input) == input / -8LL);
         assert(remainder64(input) == input % -8LL);
+        assert(division64_positive(input) == input / 8LL);
+        assert(remainder64_positive(input) == input % 8LL);
+        assert(high_power_functions[0](input) ==
+               input / 4611686018427387904LL);
+        assert(high_power_functions[1](input) ==
+               input % 4611686018427387904LL);
+        assert(high_power_functions[2](input) ==
+               input / -4611686018427387904LL);
+        assert(high_power_functions[3](input) ==
+               input % -4611686018427387904LL);
     }
     for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
         int64_t input;
@@ -843,6 +944,16 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
         memcpy(&input, &random_bits64, sizeof(input));
         assert(division64(input) == input / -8LL);
         assert(remainder64(input) == input % -8LL);
+        assert(division64_positive(input) == input / 8LL);
+        assert(remainder64_positive(input) == input % 8LL);
+        assert(high_power_functions[0](input) ==
+               input / 4611686018427387904LL);
+        assert(high_power_functions[1](input) ==
+               input % 4611686018427387904LL);
+        assert(high_power_functions[2](input) ==
+               input / -4611686018427387904LL);
+        assert(high_power_functions[3](input) ==
+               input % -4611686018427387904LL);
     }
     {
         int value = -17;
@@ -852,7 +963,7 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
 
     assert(VirtualFree(mapping, 0u, MEM_RELEASE));
     objfile_free(object);
-    puts("Windows AMD64 SysV signed 32/64-bit negative-power execution passed");
+    puts("Windows AMD64 SysV signed power-of-two execution passed");
 }
 #endif
 
@@ -862,16 +973,33 @@ static void execute_signed_negative_power_of_two_64_cases(const char* path) {
     ObjSection* code;
     ObjSymbol* division_symbol;
     ObjSymbol* remainder_symbol;
+    ObjSymbol* division_positive_symbol;
+    ObjSymbol* remainder_positive_symbol;
+    ObjSymbol* high_power_symbols[4];
     uint8_t* mapping;
     long long (*division)(long long);
     long long (*remainder)(long long);
+    long long (*division_positive)(long long);
+    long long (*remainder_positive)(long long);
+    long long (*high_power_functions[4])(long long);
     uintptr_t address;
     uint64_t random_bits = UINT64_C(0x7f4a7c159e3779b9);
     static const int64_t edge_inputs[] = {
-        INT64_MIN, INT64_MIN + 1, INT64_C(-257), INT64_C(-17),
+        INT64_MIN, INT64_MIN + 1,
+        -INT64_C(4611686018427387905),
+        -INT64_C(4611686018427387904),
+        -INT64_C(4611686018427387903), INT64_C(-257), INT64_C(-17),
         INT64_C(-9), INT64_C(-8), INT64_C(-7), INT64_C(-1), INT64_C(0),
         INT64_C(1), INT64_C(7), INT64_C(8), INT64_C(9), INT64_C(17),
-        INT64_C(257), INT64_MAX
+        INT64_C(257), INT64_C(4611686018427387903),
+        INT64_C(4611686018427387904),
+        INT64_C(4611686018427387905), INT64_MAX
+    };
+    static const char* const high_power_names[] = {
+        "strength_reduce_signed_64_div_high_power",
+        "strength_reduce_signed_64_mod_high_power",
+        "strength_reduce_signed_64_div_negative_high_power",
+        "strength_reduce_signed_64_mod_negative_high_power"
     };
 
     assert(object != NULL && object->arch == ARCH_X64);
@@ -880,8 +1008,20 @@ static void execute_signed_negative_power_of_two_64_cases(const char* path) {
         object, "strength_reduce_signed_64_div_negative_eight");
     remainder_symbol = function_symbol(
         object, "strength_reduce_signed_64_mod_negative_eight");
+    division_positive_symbol = function_symbol(
+        object, "strength_reduce_signed_64_div_eight");
+    remainder_positive_symbol = function_symbol(
+        object, "strength_reduce_signed_64_mod_eight");
+    for (size_t index = 0u;
+         index < sizeof(high_power_names) / sizeof(high_power_names[0]);
+         ++index) {
+        high_power_symbols[index] = function_symbol(
+            object, high_power_names[index]);
+    }
     assert(code != NULL && code->data != NULL && code->size != 0u);
-    assert(division_symbol != NULL && remainder_symbol != NULL);
+    assert(division_symbol != NULL && remainder_symbol != NULL &&
+           division_positive_symbol != NULL &&
+           remainder_positive_symbol != NULL);
 
     mapping = mmap(NULL, code->size, PROT_READ | PROT_WRITE,
                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -893,12 +1033,33 @@ static void execute_signed_negative_power_of_two_64_cases(const char* path) {
     memcpy(&division, &address, sizeof(division));
     address = (uintptr_t)mapping + remainder_symbol->value;
     memcpy(&remainder, &address, sizeof(remainder));
+    address = (uintptr_t)mapping + division_positive_symbol->value;
+    memcpy(&division_positive, &address, sizeof(division_positive));
+    address = (uintptr_t)mapping + remainder_positive_symbol->value;
+    memcpy(&remainder_positive, &address, sizeof(remainder_positive));
+    for (size_t index = 0u;
+         index < sizeof(high_power_functions) /
+             sizeof(high_power_functions[0]); ++index) {
+        address = (uintptr_t)mapping + high_power_symbols[index]->value;
+        memcpy(&high_power_functions[index], &address,
+               sizeof(high_power_functions[index]));
+    }
 
     for (size_t index = 0u;
          index < sizeof(edge_inputs) / sizeof(edge_inputs[0]); ++index) {
         int64_t input = edge_inputs[index];
         assert(division(input) == input / -8LL);
         assert(remainder(input) == input % -8LL);
+        assert(division_positive(input) == input / 8LL);
+        assert(remainder_positive(input) == input % 8LL);
+        assert(high_power_functions[0](input) ==
+               input / 4611686018427387904LL);
+        assert(high_power_functions[1](input) ==
+               input % 4611686018427387904LL);
+        assert(high_power_functions[2](input) ==
+               input / -4611686018427387904LL);
+        assert(high_power_functions[3](input) ==
+               input % -4611686018427387904LL);
     }
     for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
         int64_t input;
@@ -907,6 +1068,16 @@ static void execute_signed_negative_power_of_two_64_cases(const char* path) {
         memcpy(&input, &random_bits, sizeof(input));
         assert(division(input) == input / -8LL);
         assert(remainder(input) == input % -8LL);
+        assert(division_positive(input) == input / 8LL);
+        assert(remainder_positive(input) == input % 8LL);
+        assert(high_power_functions[0](input) ==
+               input / 4611686018427387904LL);
+        assert(high_power_functions[1](input) ==
+               input % 4611686018427387904LL);
+        assert(high_power_functions[2](input) ==
+               input / -4611686018427387904LL);
+        assert(high_power_functions[3](input) ==
+               input % -4611686018427387904LL);
     }
 
     assert(munmap(mapping, code->size) == 0);

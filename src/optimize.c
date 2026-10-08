@@ -296,62 +296,47 @@ static bool simplify_unsigned_power_of_two(Expr** expression) {
 static Expr* make_signed_power_of_two_div(
     const Expr* operand, unsigned shift, SourceLoc loc, Type* type) {
     Expr* count;
-    Expr* shifted;
-    Expr* negative_zero;
-    Expr* negative;
+    Expr* sign_count;
+    Expr* sign_source;
+    Expr* sign_mask;
     Expr* mask;
-    Expr* remainder;
-    Expr* remainder_zero;
-    Expr* has_remainder;
-    Expr* correction;
-    Expr* one;
-    Expr* zero;
-    Expr* replacement;
+    Expr* bias;
+    Expr* value_source;
+    Expr* adjusted;
+    Expr* shifted;
     uint64_t mask_value;
+    int width;
 
+    /* q = (x + ((x >> (width - 1)) & ((1 << shift) - 1))) >> shift.
+     * The sign-fill bias implements C's truncation toward zero without a
+     * compare, conditional expression, or duplicated remainder test. */
     if (!operand || !type || shift == 0u || shift >= 63u) return NULL;
+    width = integer_width(type);
+    if (width <= 1 || width > 64) return NULL;
     mask_value = (UINT64_C(1) << shift) - 1u;
     count = expr_int((int64_t)shift, loc);
     count->type = type_int;
-    shifted = expr_binary(
-        EXPR_RSHIFT, clone_inline_pure_scalar_expression(operand), count,
-        loc);
+    sign_count = expr_int((int64_t)(width - 1), loc);
+    sign_count->type = type_int;
+    sign_source = clone_inline_pure_scalar_expression(operand);
+    value_source = clone_inline_pure_scalar_expression(operand);
+    if (!count || !sign_count || !sign_source || !value_source) return NULL;
+    sign_mask = expr_binary(EXPR_RSHIFT, sign_source, sign_count, loc);
+    if (!sign_mask || !sign_mask->binary_lhs) return NULL;
+    sign_mask->type = type;
+    mask = expr_int((int64_t)mask_value, loc);
+    if (!mask) return NULL;
+    mask->type = type;
+    bias = expr_binary(EXPR_BITAND, sign_mask, mask, loc);
+    if (!bias || !bias->binary_lhs) return NULL;
+    bias->type = type;
+    adjusted = expr_binary(EXPR_ADD, value_source, bias, loc);
+    if (!adjusted || !adjusted->binary_lhs) return NULL;
+    adjusted->type = type;
+    shifted = expr_binary(EXPR_RSHIFT, adjusted, count, loc);
     if (!shifted || !shifted->binary_lhs) return NULL;
     shifted->type = type;
-
-    negative_zero = expr_int(0, loc);
-    negative_zero->type = type;
-    negative = expr_binary(
-        EXPR_LT, clone_inline_pure_scalar_expression(operand),
-        negative_zero, loc);
-    if (!negative || !negative->binary_lhs) return NULL;
-    negative->type = type_int;
-
-    mask = expr_int((int64_t)mask_value, loc);
-    mask->type = type;
-    remainder = expr_binary(
-        EXPR_BITAND, clone_inline_pure_scalar_expression(operand), mask,
-        loc);
-    if (!remainder || !remainder->binary_lhs) return NULL;
-    remainder->type = type;
-    remainder_zero = expr_int(0, loc);
-    remainder_zero->type = type;
-    has_remainder = expr_binary(
-        EXPR_NE, remainder, remainder_zero, loc);
-    if (!has_remainder || !has_remainder->binary_lhs) return NULL;
-    has_remainder->type = type_int;
-
-    correction = expr_binary(EXPR_AND, negative, has_remainder, loc);
-    if (!correction || !correction->binary_lhs) return NULL;
-    correction->type = type_int;
-    one = expr_int(1, loc);
-    one->type = type;
-    zero = expr_int(0, loc);
-    zero->type = type;
-    replacement = expr_cond(correction, one, zero, loc);
-    if (!replacement) return NULL;
-    replacement->type = type;
-    return expr_binary(EXPR_ADD, shifted, replacement, loc);
+    return shifted;
 }
 
 /* Return the signed value of a literal divisor.  The parser represents a
@@ -411,11 +396,7 @@ static bool simplify_signed_power_of_two(Expr** expression) {
     operand = value->binary_lhs;
     if (expression_has_side_effect(operand)) return false;
     width = integer_width(value->type);
-    /* Expanding a 64-bit divide into this target-independent expression tree
-     * currently costs substantially more code than the x64 IDIV sequence.
-     * Keep the original operation until the backend can lower the correction
-     * tree efficiently for wide scalar values. */
-    if (width <= 1 || width > 32) return false;
+    if (width <= 1 || width > 64) return false;
     if (factor_bits < 2u ||
         factor_bits > (uint64_t)INT64_MAX ||
         (factor_bits & (factor_bits - 1u)) != 0u) return false;
@@ -440,80 +421,26 @@ static bool simplify_signed_power_of_two(Expr** expression) {
 
 static Expr* make_signed_power_of_two_mod(
     const Expr* operand, unsigned shift, SourceLoc loc, Type* type) {
-    Expr* mask_for_check;
-    Expr* remainder_for_check;
-    Expr* zero_for_check;
-    Expr* has_remainder;
-    Expr* negative_zero;
-    Expr* negative;
-    Expr* correction;
-    Expr* mask_for_adjust;
-    Expr* remainder_for_adjust;
     Expr* divisor;
-    Expr* adjusted;
-    Expr* mask_for_result;
-    Expr* positive_remainder;
+    Expr* quotient;
+    Expr* scaled_quotient;
+    Expr* value_source;
     Expr* replacement;
-    uint64_t mask_value;
 
+    /* The truncated quotient times 2^shift is representable for every
+     * representable dividend and supported divisor. */
     if (!operand || !type || shift == 0u || shift >= 63u) return NULL;
-    mask_value = (UINT64_C(1) << shift) - 1u;
-
-    mask_for_check = expr_int((int64_t)mask_value, loc);
-    mask_for_check->type = type;
-    remainder_for_check = expr_binary(
-        EXPR_BITAND, clone_inline_pure_scalar_expression(operand),
-        mask_for_check, loc);
-    if (!remainder_for_check || !remainder_for_check->binary_lhs) {
-        return NULL;
-    }
-    remainder_for_check->type = type;
-    zero_for_check = expr_int(0, loc);
-    zero_for_check->type = type;
-    has_remainder = expr_binary(
-        EXPR_NE, remainder_for_check, zero_for_check, loc);
-    if (!has_remainder || !has_remainder->binary_lhs) return NULL;
-    has_remainder->type = type_int;
-
-    negative_zero = expr_int(0, loc);
-    negative_zero->type = type;
-    negative = expr_binary(
-        EXPR_LT, clone_inline_pure_scalar_expression(operand),
-        negative_zero, loc);
-    if (!negative || !negative->binary_lhs) return NULL;
-    negative->type = type_int;
-    correction = expr_binary(EXPR_AND, negative, has_remainder, loc);
-    if (!correction || !correction->binary_lhs) return NULL;
-    correction->type = type_int;
-
-    mask_for_adjust = expr_int((int64_t)mask_value, loc);
-    mask_for_adjust->type = type;
-    remainder_for_adjust = expr_binary(
-        EXPR_BITAND, clone_inline_pure_scalar_expression(operand),
-        mask_for_adjust, loc);
-    if (!remainder_for_adjust || !remainder_for_adjust->binary_lhs) {
-        return NULL;
-    }
-    remainder_for_adjust->type = type;
-    divisor = expr_int((int64_t)(mask_value + 1u), loc);
+    divisor = expr_int((int64_t)(UINT64_C(1) << shift), loc);
+    if (!divisor) return NULL;
     divisor->type = type;
-    adjusted = expr_binary(
-        EXPR_SUB, remainder_for_adjust, divisor, loc);
-    if (!adjusted || !adjusted->binary_lhs) return NULL;
-    adjusted->type = type;
-
-    mask_for_result = expr_int((int64_t)mask_value, loc);
-    mask_for_result->type = type;
-    positive_remainder = expr_binary(
-        EXPR_BITAND, clone_inline_pure_scalar_expression(operand),
-        mask_for_result, loc);
-    if (!positive_remainder || !positive_remainder->binary_lhs) {
-        return NULL;
-    }
-    positive_remainder->type = type;
-    replacement = expr_cond(
-        correction, adjusted, positive_remainder, loc);
-    if (!replacement) return NULL;
+    quotient = make_signed_power_of_two_div(operand, shift, loc, type);
+    value_source = clone_inline_pure_scalar_expression(operand);
+    if (!quotient || !value_source) return NULL;
+    scaled_quotient = expr_binary(EXPR_MUL, quotient, divisor, loc);
+    if (!scaled_quotient || !scaled_quotient->binary_lhs) return NULL;
+    scaled_quotient->type = type;
+    replacement = expr_binary(EXPR_SUB, value_source, scaled_quotient, loc);
+    if (!replacement || !replacement->binary_lhs) return NULL;
     replacement->type = type;
     return replacement;
 }
@@ -540,10 +467,7 @@ static bool simplify_signed_power_of_two_remainder(Expr** expression) {
         return false;
     }
     width = integer_width(value->type);
-    /* The generic signed-remainder correction tree is not profitable for
-     * 64-bit operands on the current backend.  Leave those to normal lowering
-     * rather than inflating the generated code. */
-    if (width <= 1 || width > 32) return false;
+    if (width <= 1 || width > 64) return false;
     if (factor_bits < 2u || factor_bits > (uint64_t)INT64_MAX ||
         (factor_bits & (factor_bits - 1u)) != 0u) return false;
     while ((factor_bits >> shift_count) > 1u) ++shift_count;
