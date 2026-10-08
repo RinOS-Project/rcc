@@ -558,6 +558,11 @@
         classを区別し、32段を超えるpointer型も末端まで識別する。
         const/non-const pointee、function signature、member owner、reference、
         deep pointerのidentityを実行テストし、両archの`.ro`/`.rin`を検証。
+  - [ ] Non-class static typeinfo symbols must use a collision-safe canonical
+        identity across translation units. The current 64-bit structural hash
+        can collide, which would incorrectly merge distinct `type_info` objects;
+        cover collision handling and local/anonymous class identity where
+        supported.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の
