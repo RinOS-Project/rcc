@@ -121,21 +121,23 @@ long long verified_sysv_va_read_two_integer_aggregate_after_five(
 {
     va_list arguments;
     struct VerifiedSysvVaTwoIntegerAggregate value;
+    int tail;
     va_start(arguments, last);
     value = va_arg(arguments, struct VerifiedSysvVaTwoIntegerAggregate);
+    tail = va_arg(arguments, int);
     va_end(arguments);
-    return value.second;
+    return value.second + tail;
 }
 
 long long verified_sysv_va_two_integer_aggregate_straddle_call(
     int a, int b, int c, int d, int last,
-    long long first, long long second)
+    long long first, long long second, int tail)
 {
     struct VerifiedSysvVaTwoIntegerAggregate value;
     value.first = first;
     value.second = second;
     return verified_sysv_va_read_two_integer_aggregate_after_five(
-        a, b, c, d, last, value);
+        a, b, c, d, last, value, tail);
 }
 
 double verified_sysv_va_read_two_double_aggregate_after_seven(

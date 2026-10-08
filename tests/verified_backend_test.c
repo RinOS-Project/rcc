@@ -1050,7 +1050,7 @@ static void verify_sysv_va_aggregate_object(const char* path)
     objfile_free(object);
 }
 
-static void verify_sysv_va_aggregate_fallback_object(const char* path)
+static void verify_sysv_va_aggregate_straddle_object(const char* path)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* text;
@@ -1069,7 +1069,7 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
     void* memory;
     void* address;
     long long (RINOS_ABI *integer_call)(
-        int, int, int, int, int, long long, long long);
+        int, int, int, int, int, long long, long long, int);
     double (RINOS_ABI *sse_call)(
         double, double, double, double, double, double, double,
         double, double);
@@ -1188,7 +1188,7 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
         memcpy(&aligned_memory_aggregate_call, &address,
                sizeof(aligned_memory_aggregate_call));
     }
-    assert(integer_call(1, 2, 3, 4, 5, 11, 47) == 47);
+    assert(integer_call(1, 2, 3, 4, 5, 11, 47, 13) == 60);
     assert(sse_call(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.5, 9.5) == 9.5);
     assert(mixed_gp_call(1, 2, 3, 4, 5, 6, 19, 4.125) == 23.125);
     assert(mixed_sse_call(
@@ -4021,9 +4021,9 @@ int main(int argc, char** argv)
         return 0;
     }
     if (argc == 3 &&
-        strcmp(argv[1], "--sysv-va-aggregate-fallback-object") == 0) {
-        verify_sysv_va_aggregate_fallback_object(argv[2]);
-        puts("Verified x86-64 SysV aggregate legacy fallback object passed");
+        strcmp(argv[1], "--sysv-va-aggregate-straddle-object") == 0) {
+        verify_sysv_va_aggregate_straddle_object(argv[2]);
+        puts("Verified x86-64 SysV aggregate straddle object passed");
         return 0;
     }
     if (argc == 4 && strcmp(argv[1], "--cxx-reference-object") == 0) {
