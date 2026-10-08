@@ -4211,13 +4211,15 @@ static bool lower_nontrivial_temporary_conditional_supported(
     }
     then_expression = expression->cond_then;
     else_expression = expression->cond_else;
-    /* Only same-type, direct noexcept prvalue calls are accepted here. The
+    /* Only same-type noexcept prvalue function calls are accepted here. The
      * enclosing reference argument owns the selected result and has already
-     * proved its complete cleanup plan; constructors, conversions, nested
-     * conditionals, and glvalue arms still use the complete backend. */
+     * proved its complete cleanup plan; member-inline calls, constructors,
+     * conversions, nested conditionals, and glvalue arms still use the
+     * complete backend. */
     return then_expression && else_expression &&
         then_expression->kind == EXPR_CALL &&
         else_expression->kind == EXPR_CALL &&
+        !then_expression->call_method && !else_expression->call_method &&
         then_expression->type && else_expression->type &&
         type_is_compatible((Type*)expression->type,
                            (Type*)then_expression->type) &&

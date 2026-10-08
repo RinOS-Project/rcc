@@ -651,9 +651,9 @@
         the validated fixed-member destructor plan once after the outer call;
         verify both branch choices, cleanup order, fallback-free i686/AMD64
         objects, and x64 execution in `test-verified-cxx-temporary-cleanup`.
-        Register-return conditionals, conversions, nested conditional arms,
-        potentially throwing expressions, and array-loop cleanup remain outside
-        this verified subset.
+        Register-return conditionals, member-inline calls, conversions, nested
+        conditional arms, potentially throwing expressions, and array-loop
+        cleanup remain outside this verified subset.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering
