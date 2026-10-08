@@ -932,21 +932,20 @@ static bool gen64_unsigned_magic_divisor32(
 }
 
 static bool gen64_unsigned_power_of_two_divisor(
-    const Expr* expression, uint8_t* shift) {
+    Type* operation_type, Expr* divisor_expression,
+    uint8_t* shift) {
     int64_t constant;
     uint64_t divisor;
     uint8_t amount = 0u;
-    if (!expression || !shift ||
-        (expression->kind != EXPR_DIV && expression->kind != EXPR_MOD) ||
-        !expression->type || !type_is_integer(expression->type) ||
-        !expression->type->is_unsigned ||
-        (expression->type->size != 4 && expression->type->size != 8) ||
-        !expression->binary_lhs || !expression->binary_rhs ||
-        !expr_eval_integer_constant(expression->binary_rhs, &constant)) {
+    if (!operation_type || !shift || !type_is_integer(operation_type) ||
+        !operation_type->is_unsigned ||
+        (operation_type->size != 4 && operation_type->size != 8) ||
+        !divisor_expression ||
+        !expr_eval_integer_constant(divisor_expression, &constant)) {
         return false;
     }
     divisor = (uint64_t)constant;
-    if (expression->type->size == 4) divisor = (uint32_t)divisor;
+    if (operation_type->size == 4) divisor = (uint32_t)divisor;
     if (divisor == 0u) return false;
     if ((divisor & (divisor - 1u)) != 0u) return false;
     while (divisor > 1u) {
@@ -6614,7 +6613,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             {
                 uint8_t shift;
-                if (gen64_unsigned_power_of_two_divisor(expr, &shift)) {
+                if (gen64_unsigned_power_of_two_divisor(
+                        expr->type, expr->binary_rhs, &shift)) {
                     gen64_expr(mod, expr->binary_lhs);
                     if (expr->kind == EXPR_DIV) {
                         if (shift != 0u) {
@@ -7116,6 +7116,45 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_store_typed(mod, RCX, 0, RAX,
                                    expr->binary_lhs->type);
                 break;
+            }
+            if ((expr->kind == EXPR_DIV_ASSIGN ||
+                 expr->kind == EXPR_MOD_ASSIGN) &&
+                expr->binary_lhs->type &&
+                expr->binary_lhs->type->is_unsigned &&
+                (expr->binary_lhs->type->size == 4 ||
+                 expr->binary_lhs->type->size == 8)) {
+                uint8_t shift;
+                if (gen64_unsigned_power_of_two_divisor(
+                        operation_type, expr->binary_rhs, &shift)) {
+                    gen64_lvalue(mod, expr->binary_lhs);
+                    emit64_push_reg(mod, RAX);
+                    emit64_load_typed(mod, RAX, RAX, 0,
+                                      expr->binary_lhs->type);
+                    if (expr->kind == EXPR_DIV_ASSIGN) {
+                        if (shift != 0u) {
+                            if (expr->binary_lhs->type->size == 4) {
+                                emit64_shr_reg_imm32(mod, RAX, shift);
+                            } else {
+                                emit64_shr_reg_imm(mod, RAX, shift);
+                            }
+                        }
+                    } else if (shift == 0u) {
+                        emit64_xor_reg_reg(mod, RAX, RAX);
+                    } else if (expr->binary_lhs->type->size == 8) {
+                        emit64_mov_reg_imm64(
+                            mod, RCX, (UINT64_C(1) << shift) - 1u);
+                        emit64_and_reg_reg(mod, RAX, RCX);
+                    } else {
+                        emit64_and_reg_imm32(
+                            mod, RAX, (UINT32_C(1) << shift) - 1u);
+                    }
+                    emit64_normalize_atomic_value(
+                        mod, RAX, expr->binary_lhs->type);
+                    emit64_pop_reg(mod, RCX);
+                    emit64_store_typed(mod, RCX, 0, RAX,
+                                       expr->binary_lhs->type);
+                    break;
+                }
             }
             gen64_lvalue(mod, expr->binary_lhs);
             emit64_push_reg(mod, RAX);

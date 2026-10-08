@@ -879,6 +879,45 @@ unsigned long long strength_reduce_unsigned_64_mod_high_bit(
     return value % 0x8000000000000000ULL;
 }
 
+unsigned int strength_reduce_unsigned_div_assign_eight(unsigned int* value)
+{
+    *value /= 8U;
+    return *value;
+}
+
+unsigned int strength_reduce_unsigned_mod_assign_high_bit(
+    unsigned int* value)
+{
+    *value %= 0x80000000U;
+    return *value;
+}
+
+unsigned int strength_reduce_unsigned_div_assign_eight_side_effect(
+    unsigned int* values, unsigned int* index)
+{
+    return values[(*index)++] /= 8U;
+}
+
+unsigned long long strength_reduce_unsigned_64_div_assign_eight(
+    unsigned long long* value)
+{
+    *value /= 8ULL;
+    return *value;
+}
+
+unsigned long long strength_reduce_unsigned_64_mod_assign_high_bit(
+    unsigned long long* value)
+{
+    *value %= 0x8000000000000000ULL;
+    return *value;
+}
+
+unsigned long long strength_reduce_unsigned_64_mod_assign_high_bit_side_effect(
+    unsigned long long* values, unsigned int* index)
+{
+    return values[(*index)++] %= 0x8000000000000000ULL;
+}
+
 unsigned int strength_reduce_unsigned_div_three(unsigned int value)
 {
     return value / 3U;

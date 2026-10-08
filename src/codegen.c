@@ -3731,20 +3731,19 @@ static bool gen_unsigned_magic_divisor32(
 }
 
 static bool gen_unsigned_power_of_two_divisor32(
-    const Expr* expression, uint8_t* shift) {
+    Type* operation_type, Expr* divisor_expression,
+    uint8_t* shift) {
     int64_t constant;
     uint32_t divisor;
     uint8_t amount = 0u;
-    if (!expression || !shift ||
-        (expression->kind != EXPR_DIV && expression->kind != EXPR_MOD) ||
-        !expression->type || !type_is_integer(expression->type) ||
-        !expression->type->is_unsigned || expression->type->size != 4 ||
-        !expression->binary_lhs || !expression->binary_rhs ||
-        !expr_eval_integer_constant(expression->binary_rhs, &constant) ||
-        constant <= 0 || (uint64_t)constant > UINT32_MAX) {
+    if (!operation_type || !shift || !type_is_integer(operation_type) ||
+        !operation_type->is_unsigned || operation_type->size != 4 ||
+        !divisor_expression ||
+        !expr_eval_integer_constant(divisor_expression, &constant)) {
         return false;
     }
-    divisor = (uint32_t)constant;
+    divisor = (uint32_t)(uint64_t)constant;
+    if (divisor == 0u) return false;
     if ((divisor & (divisor - 1u)) != 0u) return false;
     while (divisor > 1u) {
         divisor >>= 1u;
@@ -11229,7 +11228,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             }
             {
                 uint8_t shift;
-                if (gen_unsigned_power_of_two_divisor32(expr, &shift)) {
+                if (gen_unsigned_power_of_two_divisor32(
+                        expr->type, expr->binary_rhs, &shift)) {
                     gen_expr(mod, expr->binary_lhs);
                     if (expr->kind == EXPR_DIV) {
                         if (shift != 0u) emit_shr_reg_imm(mod, EAX, shift);
@@ -11767,6 +11767,33 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                               "invalid floating compound assignment");
                 }
                 break;
+            }
+            if ((expr->kind == EXPR_DIV_ASSIGN ||
+                 expr->kind == EXPR_MOD_ASSIGN) &&
+                expr->binary_lhs->type &&
+                expr->binary_lhs->type->is_unsigned &&
+                expr->binary_lhs->type->size == 4) {
+                uint8_t shift;
+                if (gen_unsigned_power_of_two_divisor32(
+                        operation_type, expr->binary_rhs, &shift)) {
+                    gen_lvalue(mod, expr->binary_lhs);
+                    emit_push_reg(mod, EAX);
+                    emit_load_typed32(mod, EAX, EAX, 0,
+                                      expr->binary_lhs->type);
+                    if (expr->kind == EXPR_DIV_ASSIGN) {
+                        if (shift != 0u) emit_shr_reg_imm(mod, EAX, shift);
+                    } else {
+                        uint32_t mask = shift == 0u
+                            ? 0u : (UINT32_C(1) << shift) - 1u;
+                        emit_and_reg_imm(mod, EAX, mask);
+                    }
+                    emit_normalize_atomic_value(mod, EAX,
+                                                expr->binary_lhs->type);
+                    emit_pop_reg(mod, ECX);
+                    emit_store_typed32(mod, ECX, 0, EAX,
+                                       expr->binary_lhs->type);
+                    break;
+                }
             }
             if ((expr->kind == EXPR_DIV_ASSIGN ||
                  expr->kind == EXPR_MOD_ASSIGN) &&

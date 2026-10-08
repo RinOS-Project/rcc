@@ -106,7 +106,8 @@ def resolve_tool(argument: str | None, default_name: str) -> Path:
 
 
 def run_case(case: dict[str, object], tools: dict[str, Path], timeout: int,
-             temporary: Path) -> None:
+             temporary: Path, update: bool = False
+             ) -> dict[str, dict[str, str]]:
     language = str(case["language"])
     tool = tools[LANGUAGES[language][1]]
     source = case["source"]
@@ -114,9 +115,11 @@ def run_case(case: dict[str, object], tools: dict[str, Path], timeout: int,
     hashes = case["sha256"]
     assert isinstance(source, Path) and isinstance(hashes, dict)
     source_argument = source.relative_to(ROOT).as_posix()
+    updated_hashes: dict[str, dict[str, str]] = {}
     for target in TARGETS:
         expected = hashes[target]
         assert isinstance(expected, dict)
+        updated_hashes[target] = {}
         for kind in KINDS:
             observed: list[str] = []
             for run_index in (1, 2):
@@ -146,11 +149,14 @@ def run_case(case: dict[str, object], tools: dict[str, Path], timeout: int,
             if observed[0] != observed[1]:
                 raise GoldenError(
                     f"{case['id']}/{target}/{kind}: repeated output differs")
-            if observed[0] != expected[kind]:
+            if observed[0] != expected[kind] and not update:
                 raise GoldenError(
                     f"{case['id']}/{target}/{kind}: golden mismatch "
                     f"expected {expected[kind]}, observed {observed[0]}")
-            print(f"PASS {case['id']} [{target}] {kind} {observed[0]}")
+            updated_hashes[target][kind] = observed[0]
+            action = "UPDATE" if update and observed[0] != expected[kind] else "PASS"
+            print(f"{action} {case['id']} [{target}] {kind} {observed[0]}")
+    return updated_hashes
 
 
 def main() -> int:
@@ -158,6 +164,8 @@ def main() -> int:
     parser.add_argument("--rcc")
     parser.add_argument("--rccxx")
     parser.add_argument("--timeout", type=int, default=60)
+    parser.add_argument("--update", action="store_true",
+                        help="regenerate hashes after deterministic double builds")
     args = parser.parse_args()
     if not 1 <= args.timeout <= 300:
         print("ERROR: timeout must be in 1..300")
@@ -169,14 +177,39 @@ def main() -> int:
             "rcc++": resolve_tool(args.rccxx, "rcc++"),
         }
         (ROOT / "build").mkdir(parents=True, exist_ok=True)
+        updated_hashes: dict[str, dict[str, dict[str, str]]] = {}
         with tempfile.TemporaryDirectory(prefix="rcc-golden-",
                                           dir=ROOT / "build") as directory:
             for case in cases:
-                run_case(case, tools, args.timeout, Path(directory))
+                updated_hashes[str(case["id"])] = run_case(
+                    case, tools, args.timeout, Path(directory), args.update)
+        if args.update:
+            document = json.loads(MANIFEST.read_text(encoding="utf-8"))
+            for case in document["cases"]:
+                case["sha256"] = updated_hashes[case["id"]]
+            rendered = json.dumps(document, indent=2)
+            for case in document["cases"]:
+                flags = case["flags"]
+                if not flags:
+                    continue
+                expanded_flags = (
+                    '      "flags": [\n' +
+                    ",\n".join(
+                        f"        {json.dumps(flag)}" for flag in flags) +
+                    "\n      ]")
+                compact_flags = (
+                    '      "flags": [' +
+                    ", ".join(json.dumps(flag) for flag in flags) + "]")
+                if expanded_flags not in rendered:
+                    raise GoldenError(
+                        f"cannot preserve manifest formatting: {case['id']}")
+                rendered = rendered.replace(expanded_flags, compact_flags, 1)
+            MANIFEST.write_text(rendered + "\n", encoding="utf-8")
     except (GoldenError, OSError, subprocess.SubprocessError) as error:
         print(f"ERROR: {error}")
         return 1
-    print(f"RCC golden artifacts: {len(cases)} case(s) passed")
+    result = "regenerated" if args.update else "passed"
+    print(f"RCC golden artifacts: {len(cases)} case(s) {result}")
     return 0
 
 
