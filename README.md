@@ -332,3 +332,10 @@ metadata from their base declaration. Variadic and prototype-less source
 constructors are rejected instead of being emitted with a narrowed signature.
 `gcc -Wall -Wextra -std=c11 -fsyntax-only` passed for `src/parser_cxx.c`; no
 tests or full relink were run for this metadata correction.
+
+2026-10-09 follow-up: inherited constructors now default-construct a derived
+class-type field when its zero-argument constructor is lowerable and the field
+has no destructor/cleanup obligation. Both target backends accept and emit this
+empty-argument member-constructor call. Arrays, class-field default member
+initializers, and destructor-bearing fields remain outside the bounded path.
+`make SHELL=cmd.exe -B build-rcxx` passed; no tests or target objects were run.

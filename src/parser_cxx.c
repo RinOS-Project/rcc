@@ -2539,13 +2539,24 @@ static bool cxx_constructor_parameter_lists_match(
     return !left_parameter && !right_parameter;
 }
 
+static uint32_t lowerable_constructor_arity_mask(CxxClass* cls);
+
 static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
     if (!cls) return false;
     for (TypeParam* field = cls->fields; field; field = field->next) {
         Type* type = field->type;
         if (field->is_static) continue;
-        if (field->type && (field->type->cxx_class ||
-                            field->type->kind == TYPE_ARRAY)) {
+        if (type && type->cxx_class) {
+            CxxClass* member_class = type->cxx_class;
+            if (field->initializer || !member_class->type ||
+                member_class->destructor_method ||
+                member_class->type->cleanup_function ||
+                (lowerable_constructor_arity_mask(member_class) & 1u) == 0u) {
+                return false;
+            }
+            continue;
+        }
+        if (type && type->kind == TYPE_ARRAY) {
             return false;
         }
         if (field->initializer &&
@@ -3065,6 +3076,30 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item->is_default_member_initializer = true;
                 item->is_pack_expansion = false;
                 item->next = NULL;
+            } else if (!item && field->type && field->type->cxx_class &&
+                       !field->initializer) {
+                CxxClass* member_class = field->type->cxx_class;
+                CxxConstructorInfo* member_constructor =
+                    cxx_find_base_constructor(member_class, 0);
+                if (!member_constructor || !member_class->type ||
+                    member_class->destructor_method ||
+                    member_class->type->cleanup_function ||
+                    (lowerable_constructor_arity_mask(member_class) & 1u) == 0u) {
+                    valid = false;
+                    break;
+                }
+                item = ast_arena_alloc(sizeof(*item));
+                item->field = field->name;
+                item->base_type_pattern = NULL;
+                item->value = NULL;
+                item->arguments = NULL;
+                item->constructor = member_constructor;
+                item->is_base_initializer = false;
+                item->is_virtual_base_initializer = false;
+                item->is_delegating_constructor = false;
+                item->is_default_member_initializer = false;
+                item->is_pack_expansion = false;
+                item->next = NULL;
             }
             if (item) {
                 item = cxx_copy_constructor_initializer(
@@ -3485,6 +3520,16 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
              * symbol table.  The parser can nevertheless preserve the
              * one-to-one parameter shape needed by this storage lowering. */
             if (field->type && field->type->cxx_class) {
+                if (!initializer->arguments && initializer->constructor) {
+                    if ((lowerable_constructor_arity_mask(
+                             field->type->cxx_class) & 1u) == 0u) {
+                        supported = false;
+                        break;
+                    }
+                    field = field->next;
+                    initializer = initializer->next;
+                    continue;
+                }
                 if (arity != 0u) {
                     ExprList* argument = initializer->arguments;
                     int used_index = argument && argument->expr &&
