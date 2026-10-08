@@ -3589,9 +3589,48 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             }
             /* A class-valued member initializer is resolved by semantic
              * overload selection after all class declarations are in the
-             * symbol table.  The parser can nevertheless preserve the
-             * one-to-one parameter shape needed by this storage lowering. */
+             * symbol table.  Default member initializers keep their own
+             * argument list; explicit constructor initializers are restricted
+             * to the bounded parameter-forwarding form below. */
             if (field->type && field->type->cxx_class) {
+                if (initializer->is_default_member_initializer) {
+                    CxxConstructorInfo* member_constructor =
+                        initializer->constructor;
+                    TypeParam* member_parameter = member_constructor
+                        ? member_constructor->parameters : NULL;
+                    ExprList* member_argument = initializer->arguments;
+                    int member_argument_count =
+                        cxx_constructor_argument_count(member_argument);
+                    if (!member_constructor ||
+                        member_argument_count < 0 ||
+                        !cxx_constructor_arity_has_defaults(
+                            member_constructor, member_argument_count) ||
+                        (lowerable_constructor_arity_mask(
+                             field->type->cxx_class) &
+                         (UINT32_C(1) << (unsigned)member_argument_count)) ==
+                            0u) {
+                        supported = false;
+                        break;
+                    }
+                    while (member_argument && member_parameter) {
+                        if (!cxx_constructor_expression_is_lowerable(
+                                constructor, member_argument->expr,
+                                member_parameter->type, parameter_used,
+                                arity)) {
+                            supported = false;
+                            break;
+                        }
+                        member_argument = member_argument->next;
+                        member_parameter = member_parameter->next;
+                    }
+                    if (!supported || member_argument) {
+                        supported = false;
+                        break;
+                    }
+                    field = field->next;
+                    initializer = initializer->next;
+                    continue;
+                }
                 if (!initializer->arguments && initializer->constructor) {
                     if ((lowerable_constructor_arity_mask(
                              field->type->cxx_class) & 1u) == 0u) {
