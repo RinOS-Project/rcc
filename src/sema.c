@@ -8856,9 +8856,14 @@ static void sema_resolve_cxx_constructor_initializers(
                           "default member initializer is incompatible with its field");
             }
         }
-        if (field->type->cxx_class) {
+        Type* member_type = field->type;
+        if (member_type->kind == TYPE_ARRAY && member_type->base &&
+            member_type->base->cxx_class) {
+            member_type = member_type->base;
+        }
+        if (member_type->cxx_class) {
             initializer->constructor = sema_select_cxx_new_constructor(
-                field->type, &initializer->arguments, initializer->value
+                member_type, &initializer->arguments, initializer->value
                     ? initializer->value->loc : loc);
             if (!initializer->constructor) {
                 rcc_error(initializer->value ? initializer->value->loc : loc,

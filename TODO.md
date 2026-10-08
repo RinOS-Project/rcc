@@ -655,6 +655,11 @@
       the full native-Windows `test-cxx` aggregate passes on the current checkout,
       including class-typed default-member initialization through an inherited
       constructor.
+      - [ ] Add i686/AMD64 runtime coverage for fixed-size class-array members
+            initialized through inherited constructors and ordinary constructor
+            prologues; assert per-element construction order and retain negative
+            coverage for unsupported nested arrays, member initializers, and
+            inherited element cleanup. The current change has build evidence only.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

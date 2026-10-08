@@ -2589,6 +2589,24 @@ static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
     for (TypeParam* field = cls->fields; field; field = field->next) {
         Type* type = field->type;
         if (field->is_static) continue;
+        if (type && type->kind == TYPE_ARRAY) {
+            Type* element_type = type->base;
+            if (field->initializer || !element_type ||
+                type->array_len <= 0 || element_type->kind == TYPE_ARRAY) {
+                return false;
+            }
+            if (element_type->cxx_class) {
+                CxxClass* member_class = element_type->cxx_class;
+                uint32_t constructor_mask =
+                    lowerable_constructor_arity_mask(member_class);
+                if (!member_class->type || member_class->destructor_method ||
+                    member_class->type->cleanup_function ||
+                    (constructor_mask & UINT32_C(1)) == 0u) {
+                    return false;
+                }
+            }
+            continue;
+        }
         if (type && type->cxx_class) {
             CxxClass* member_class = type->cxx_class;
             ExprList* initializer_arguments = NULL;
@@ -2611,9 +2629,6 @@ static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
                 return false;
             }
             continue;
-        }
-        if (type && type->kind == TYPE_ARRAY) {
-            return false;
         }
         if (field->initializer &&
             (!type || type->size <= 0 ||
@@ -3135,8 +3150,14 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item->is_default_member_initializer = true;
                 item->is_pack_expansion = false;
                 item->next = NULL;
-            } else if (!item && field->type && field->type->cxx_class) {
-                CxxClass* member_class = field->type->cxx_class;
+            } else if (!item && field->type &&
+                       ((field->type->cxx_class != NULL) ||
+                        (field->type->kind == TYPE_ARRAY &&
+                         field->type->base &&
+                         field->type->base->cxx_class))) {
+                Type* member_type = field->type->kind == TYPE_ARRAY
+                    ? field->type->base : field->type;
+                CxxClass* member_class = member_type->cxx_class;
                 ExprList* member_arguments = NULL;
                 unsigned member_argument_count = 0u;
                 CxxConstructorInfo* member_constructor =

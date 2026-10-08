@@ -343,3 +343,12 @@ outside the bounded path.
 The inherited-constructor and local-class targets and full native-Windows
 `test-cxx` aggregate pass, covering i686/x86_64 object generation and x64 host
 execution for class-member defaults and dependent-base lookup.
+
+2026-10-09 follow-up: fixed-size arrays of class members with lowerable
+zero-argument element constructors now default-construct each element in order
+through both x86 backends. The same loop is used from inherited-constructor
+lowering and the ordinary constructor member-initializer prologue. Inherited
+constructors still reject array DMIs, nested or incomplete arrays, and elements
+that require cleanup. The forced compiler build passed; no runtime tests or
+target objects were run, so the local-class constructor/member ABI TODO remains
+open pending per-element runtime coverage.

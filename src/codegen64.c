@@ -5191,12 +5191,51 @@ static void gen64_cxx_initialize_member_initializers(
         }
         TypeField* field = gen64_cxx_constructor_field(
             object_type, initializer->field);
+        bool class_array_member = field && field->type &&
+            field->type->kind == TYPE_ARRAY && field->type->base &&
+            field->type->base->cxx_class;
         if (!field || (!initializer->value && !initializer->arguments &&
-                       !(field->type && field->type->cxx_class &&
+                       !(((field->type && field->type->cxx_class) ||
+                          class_array_member) &&
                          initializer->constructor))) {
             rcc_error((SourceLoc){"<constructor>", 0, 0},
                       "validated C++ member initializer is incomplete");
             return;
+        }
+        if (class_array_member) {
+            Type* element_type = field->type->base;
+            int loop_label;
+            int done_label;
+            if (field->type->array_len <= 0 || element_type->size <= 0 ||
+                !initializer->constructor || initializer->value ||
+                initializer->arguments) {
+                rcc_error((SourceLoc){"<constructor>", 0, 0},
+                          "validated C++ class-array member initializer is incomplete");
+                return;
+            }
+            loop_label = new_label64();
+            done_label = new_label64();
+            emit64_push_reg(mod, RCX);
+            if (field->offset != 0) {
+                emit64_add_reg_imm(mod, RCX, (uint32_t)field->offset);
+            }
+            emit64_mov_reg_imm32(mod, RDX,
+                                 (uint32_t)field->type->array_len);
+            emit64_label(mod, loop_label);
+            emit64_cmp_reg_imm(mod, RDX, 0);
+            emit64_jcc_label(mod, CC64_E, done_label);
+            emit64_push_reg(mod, RDX);
+            emit64_push_reg(mod, RCX);
+            gen64_cxx_initialize_object_mode(
+                mod, element_type, initializer->constructor, NULL, true);
+            emit64_pop_reg(mod, RCX);
+            emit64_pop_reg(mod, RDX);
+            emit64_add_reg_imm(mod, RCX, element_type->size);
+            emit64_sub_reg_imm(mod, RDX, 1);
+            emit64_jmp_label(mod, loop_label);
+            emit64_label(mod, done_label);
+            emit64_pop_reg(mod, RCX);
+            continue;
         }
         if (field->type && field->type->cxx_class) {
             if (!initializer->constructor) {
@@ -5346,12 +5385,51 @@ static void gen64_cxx_initialize_object_mode(
             }
             field = gen64_cxx_constructor_field(
                 object_type, initializer->field);
+            bool class_array_member = field && field->type &&
+                field->type->kind == TYPE_ARRAY && field->type->base &&
+                field->type->base->cxx_class;
             if (!field || (!initializer->value && !initializer->arguments &&
-                           !(field->type && field->type->cxx_class &&
+                           !(((field->type && field->type->cxx_class) ||
+                              class_array_member) &&
                              initializer->constructor))) {
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
                           "validated C++ member initializer is incomplete");
                 return;
+            }
+            if (class_array_member) {
+                Type* element_type = field->type->base;
+                int loop_label;
+                int done_label;
+                if (field->type->array_len <= 0 ||
+                    !initializer->constructor || initializer->value ||
+                    initializer->arguments || !element_type->cxx_class) {
+                    rcc_error((SourceLoc){"<constructor>", 0, 0},
+                              "validated C++ class-array member initializer is incomplete");
+                    return;
+                }
+                loop_label = new_label64();
+                done_label = new_label64();
+                emit64_push_reg(mod, address_reg);
+                if (field->offset != 0) {
+                    emit64_add_reg_imm(mod, address_reg, field->offset);
+                }
+                emit64_mov_reg_imm32(mod, RDX,
+                                     (uint32_t)field->type->array_len);
+                emit64_label(mod, loop_label);
+                emit64_cmp_reg_imm(mod, RDX, 0);
+                emit64_jcc_label(mod, CC64_E, done_label);
+                emit64_push_reg(mod, RDX);
+                emit64_push_reg(mod, address_reg);
+                gen64_cxx_initialize_object_mode(
+                    mod, element_type, initializer->constructor, NULL, true);
+                emit64_pop_reg(mod, address_reg);
+                emit64_pop_reg(mod, RDX);
+                emit64_add_reg_imm(mod, address_reg, element_type->size);
+                emit64_sub_reg_imm(mod, RDX, 1);
+                emit64_jmp_label(mod, loop_label);
+                emit64_label(mod, done_label);
+                emit64_pop_reg(mod, address_reg);
+                continue;
             }
             if (field->type && field->type->cxx_class) {
                 if (!initializer->constructor) {
