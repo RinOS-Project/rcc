@@ -260,6 +260,34 @@ int verified_wide_scalar_variadic_named_overflow_call(void)
         1, 2, 3, 4, 5, 6, 7, 99);
 }
 
+static int verified_wide_scalar_va_list_parameter(va_list source)
+{
+    va_list copy;
+    int first;
+    int second;
+    va_copy(copy, source);
+    first = va_arg(copy, int);
+    va_end(copy);
+    second = va_arg(source, int);
+    return first + second;
+}
+
+int verified_wide_scalar_va_list_forward_target(int marker, ...)
+{
+    va_list arguments;
+    int result;
+    va_start(arguments, marker);
+    result = verified_wide_scalar_va_list_parameter(arguments);
+    result += va_arg(arguments, int);
+    va_end(arguments);
+    return result;
+}
+
+int verified_wide_scalar_va_list_forward_call(void)
+{
+    return verified_wide_scalar_va_list_forward_target(1, 10, 20, 30);
+}
+
 long long verified_wide_scalar_expect(long long value)
 {
     return __builtin_expect(value, 1LL);

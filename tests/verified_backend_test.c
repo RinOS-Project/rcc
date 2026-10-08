@@ -197,6 +197,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* variadic_scalar_target_symbol;
     ObjSymbol* variadic_overflow_call_symbol;
     ObjSymbol* variadic_named_overflow_call_symbol;
+    ObjSymbol* va_list_forward_call_symbol;
     ObjSymbol* expect_symbol;
     ObjSymbol* assignment_symbol;
     ObjSymbol* compound_symbol;
@@ -299,6 +300,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_variadic_overflow_call");
     variadic_named_overflow_call_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_variadic_named_overflow_call");
+    va_list_forward_call_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_va_list_forward_call");
     expect_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_expect");
     assignment_symbol = objfile_find_symbol(
@@ -484,6 +487,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            variadic_named_overflow_call_symbol->type == SYM_GLOBAL &&
            variadic_named_overflow_call_symbol->binding == BIND_CODE &&
            variadic_named_overflow_call_symbol->section == 0);
+    assert(va_list_forward_call_symbol != NULL &&
+           va_list_forward_call_symbol->type == SYM_GLOBAL &&
+           va_list_forward_call_symbol->binding == BIND_CODE &&
+           va_list_forward_call_symbol->section == 0);
     assert(expect_symbol != NULL && expect_symbol->type == SYM_GLOBAL &&
            expect_symbol->binding == BIND_CODE && expect_symbol->section == 0);
     assert(assignment_symbol != NULL &&
@@ -647,6 +654,7 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
             unsigned int, const void*);
         int RINOS_ABI (*variadic_overflow_call_function)(void);
         int RINOS_ABI (*variadic_named_overflow_call_function)(void);
+        int RINOS_ABI (*va_list_forward_call_function)(void);
         long long RINOS_ABI (*expect_function)(long long);
         unsigned long long RINOS_ABI (*assignment_function)(unsigned long long);
         unsigned long long RINOS_ABI (*compound_function)(unsigned long long);
@@ -738,6 +746,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&variadic_named_overflow_call_function, &address,
                sizeof(variadic_named_overflow_call_function));
         assert(variadic_named_overflow_call_function() == 99);
+        address = symbol_address(memory, va_list_forward_call_symbol);
+        memcpy(&va_list_forward_call_function, &address,
+               sizeof(va_list_forward_call_function));
+        assert(va_list_forward_call_function() == 40);
         address = symbol_address(memory, carry_symbol);
         memcpy(&carry_function, &address, sizeof(carry_function));
         assert(carry_function(1ULL) == 0x0000000100000000ULL);

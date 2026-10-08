@@ -866,8 +866,12 @@
         register・stack両経路、および7個目のnamed parameter後のoverflow開始位置を
         `-O0`/`-O2` runtime bridgeで検証。variadic callにおけるdefault integer
         promotionも検証
+  - [x] 配列型`va_list`を引数調整して受け取る非variadic helper内で、pointer経由の
+        `va_arg`、`va_copy`、`va_end`をlowerし、copy側の読み取りがsource cursorを
+        変えず、helper側の消費がcallerへ反映されることをx64 runtimeで検証
   - [ ] x86_64 SysV FP/XMM `va_arg` register-save経路、aggregate `va_arg`分類、
-        FP/aggregate named parameterの分類、pointer-adjusted `va_list`のSSA化
+        FP/aggregate named parameterの分類、明示的なpointer-to-`va_list`やその他の
+        adjusted-`va_list`形態のSSA化
         （現在は関数単位でlegacy backendへ明示fallback）
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store

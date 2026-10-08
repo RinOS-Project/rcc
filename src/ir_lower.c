@@ -1606,11 +1606,29 @@ static bool lower_wide_scalar_store(
 
 static bool lower_sysv_va_list_type(const Expr* list_expression) {
     const Type* type = list_expression ? list_expression->type : NULL;
-    return g_opts.target_arch == ARCH_X64 && type &&
-        type->kind == TYPE_ARRAY && type->array_len == 1 &&
-        type->size == 24 && type->base &&
-        type->base->kind == TYPE_STRUCT && type->base->size == 24 &&
-        type->base->align == 8;
+    const Type* record;
+    if (g_opts.target_arch != ARCH_X64 || !type) return false;
+    if (type->kind == TYPE_ARRAY && type->array_len == 1) {
+        record = type->base;
+    } else if (type->kind == TYPE_PTR && type->size == 8) {
+        record = type->base;
+    } else {
+        return false;
+    }
+    return record && record->kind == TYPE_STRUCT &&
+        record->size == 24 && record->align == 8;
+}
+
+static RccIrLowerValue lower_sysv_va_list_address(
+    RccIrLowerContext* context, const Expr* list_expression) {
+    if (!lower_sysv_va_list_type(list_expression)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (list_expression->type->kind == TYPE_ARRAY) {
+        return lower_lvalue_address(context, list_expression);
+    }
+    return lower_expression(context, list_expression);
 }
 
 static RccIrLowerValue lower_sysv_va_pointer_load(
@@ -1717,7 +1735,8 @@ static RccIrLowerValue lower_sysv_va_start(
         return lower_invalid_value();
     }
     overflow_offset = 16u + (uint64_t)stack_argument_count * 8u;
-    list_slot = lower_lvalue_address(context, expression->va_list_operand);
+    list_slot = lower_sysv_va_list_address(
+        context, expression->va_list_operand);
     if (!list_slot.valid || list_slot.type.kind != RCC_IR_TYPE_POINTER) {
         context->unsupported = true;
         return lower_invalid_value();
@@ -1780,8 +1799,10 @@ static RccIrLowerValue lower_sysv_va_copy(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    destination = lower_lvalue_address(context, expression->va_list_operand);
-    source = lower_lvalue_address(context, expression->va_second_operand);
+    destination = lower_sysv_va_list_address(
+        context, expression->va_list_operand);
+    source = lower_sysv_va_list_address(
+        context, expression->va_second_operand);
     if (!destination.valid || !source.valid) return lower_invalid_value();
     for (size_t index = 0u;
          index < sizeof(field_offsets) / sizeof(field_offsets[0]); ++index) {
@@ -1834,8 +1855,6 @@ static RccIrLowerValue lower_sysv_va_arg(
     RccIrInstruction* add;
     const Type* type = expression ? expression->va_arg_type : NULL;
     if (!context || !expression || !type ||
-        !context->declaration || !context->declaration->type ||
-        !context->declaration->type->variadic ||
         !lower_sysv_va_list_type(expression->va_list_operand) ||
         type->size <= 0 || type->size > 8 ||
         (!type_is_integer((Type*)type) && type->kind != TYPE_PTR) ||
@@ -1843,7 +1862,8 @@ static RccIrLowerValue lower_sysv_va_arg(
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
-    list_slot = lower_lvalue_address(context, expression->va_list_operand);
+    list_slot = lower_sysv_va_list_address(
+        context, expression->va_list_operand);
     gp_field = lower_byte_offset_address(context, list_slot, 0u);
     gp_offset = lower_load_address(context, gp_field, type_uint);
     limit = lower_integer_constant(
@@ -1898,21 +1918,19 @@ static RccIrLowerValue lower_sysv_va_arg(
 
 static RccIrLowerValue lower_sysv_va_builtin(
     RccIrLowerContext* context, const Expr* expression) {
-    RccIrLowerValue list_slot;
     if (!context || !expression ||
         !lower_sysv_va_list_type(expression->va_list_operand)) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
-    list_slot = lower_lvalue_address(context, expression->va_list_operand);
-    if (!list_slot.valid) return lower_invalid_value();
     switch (expression->kind) {
         case EXPR_VA_START:
             return lower_sysv_va_start(context, expression);
         case EXPR_VA_COPY:
             return lower_sysv_va_copy(context, expression);
         case EXPR_VA_END:
-            return list_slot;
+            return lower_sysv_va_list_address(
+                context, expression->va_list_operand);
         default:
             context->unsupported = true;
             return lower_invalid_value();
