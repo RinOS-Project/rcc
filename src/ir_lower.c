@@ -231,7 +231,9 @@ static int lower_abi_return_layout(const Type* type,
 static size_t lower_abi_chunk_size(void);
 static bool lower_abi_parameter_layout(
     const TypeParam* parameters, const RccIrType* prefix_types,
-    size_t prefix_count, RccIrType** types_out, size_t* count_out);
+    size_t prefix_count, RccIrType** types_out, size_t* count_out,
+    RccSysvMemoryArgument** memory_parameters_out,
+    size_t* memory_parameter_count_out);
 static RccIrLowerValue lower_load_aggregate_chunk(
     RccIrLowerContext* context, RccIrLowerValue base,
     const Type* aggregate_type, size_t offset);
@@ -270,6 +272,10 @@ typedef struct {
 
 static bool lower_sysv_classify_aggregate(
     const Type* type, LowerSysvAggregateClass* result);
+static bool lower_sysv_call_aggregate_assignment(
+    const Type* type, size_t* gp_arguments_used,
+    size_t* sse_arguments_used,
+    LowerSysvAggregateClass* classification_out, bool* stack_out);
 
 static bool lower_sysv_register_aggregate(
     const Type* type,
@@ -2059,7 +2065,7 @@ static RccIrLowerValue lower_sysv_va_start(
     const Decl* final_parameter = NULL;
     size_t gp_count = 0u;
     size_t fp_count = 0u;
-    size_t stack_argument_count = 0u;
+    size_t stack_argument_bytes = 0u;
     uint64_t overflow_offset;
     RccIrLowerValue list_slot;
     RccIrLowerValue field;
@@ -2095,26 +2101,31 @@ static RccIrLowerValue lower_sysv_va_start(
         }
         if (lower_abi_is_aggregate(type)) {
             LowerSysvAggregateClass classification;
-            size_t integer_units;
-            size_t sse_units;
-            bool in_registers;
-            if (!lower_sysv_register_aggregate(
-                    type, &classification, &integer_units, &sse_units) ||
-                !lower_sysv_aggregate_assignment(
-                    integer_units, sse_units, &gp_count, &fp_count,
-                    &in_registers)) {
+            bool stack_argument;
+            if (!lower_sysv_call_aggregate_assignment(
+                    type, &gp_count, &fp_count, &classification,
+                    &stack_argument)) {
                 context->unsupported = true;
                 return lower_invalid_value();
             }
-            if (!in_registers) {
+            if (stack_argument) {
                 size_t stack_units = (size_t)classification.count;
-                if (stack_units >
-                    ((size_t)INT32_MAX - 16u) / 8u -
-                        stack_argument_count) {
+                size_t alignment = type->align > 8
+                    ? (size_t)type->align : 8u;
+                size_t remainder = stack_argument_bytes % alignment;
+                size_t padding = remainder == 0u
+                    ? 0u : alignment - remainder;
+                size_t maximum_stack_bytes =
+                    (size_t)INT32_MAX - 16u;
+                if (padding > maximum_stack_bytes -
+                        stack_argument_bytes ||
+                    stack_units >
+                        (maximum_stack_bytes - stack_argument_bytes -
+                         padding) / 8u) {
                     context->unsupported = true;
                     return lower_invalid_value();
                 }
-                stack_argument_count += stack_units;
+                stack_argument_bytes += padding + stack_units * 8u;
             }
         } else if (type->size > 8) {
             context->unsupported = true;
@@ -2128,12 +2139,12 @@ static RccIrLowerValue lower_sysv_va_start(
             if (fp_count < 8u) {
                 ++fp_count;
             } else {
-                if (stack_argument_count >=
-                    ((size_t)INT32_MAX - 16u) / 8u) {
+                if (stack_argument_bytes >
+                    (size_t)INT32_MAX - 24u) {
                     context->unsupported = true;
                     return lower_invalid_value();
                 }
-                ++stack_argument_count;
+                stack_argument_bytes += 8u;
             }
         } else if (type_is_integer((Type*)type) ||
                    type->kind == TYPE_ENUM || type->kind == TYPE_PTR) {
@@ -2144,12 +2155,12 @@ static RccIrLowerValue lower_sysv_va_start(
             if (gp_count < 6u) {
                 ++gp_count;
             } else {
-                if (stack_argument_count >=
-                    ((size_t)INT32_MAX - 16u) / 8u) {
+                if (stack_argument_bytes >
+                    (size_t)INT32_MAX - 24u) {
                     context->unsupported = true;
                     return lower_invalid_value();
                 }
-                ++stack_argument_count;
+                stack_argument_bytes += 8u;
             }
         } else {
             context->unsupported = true;
@@ -2162,12 +2173,11 @@ static RccIrLowerValue lower_sysv_va_start(
         context->unsupported = true;
         return lower_invalid_value();
     }
-    if (stack_argument_count >
-        ((uint64_t)INT32_MAX - 16u) / 8u) {
+    if (stack_argument_bytes > (size_t)INT32_MAX - 16u) {
         context->unsupported = true;
         return lower_invalid_value();
     }
-    overflow_offset = 16u + (uint64_t)stack_argument_count * 8u;
+    overflow_offset = 16u + (uint64_t)stack_argument_bytes;
     list_slot = lower_sysv_va_list_address(
         context, expression->va_list_operand);
     if (!list_slot.valid || list_slot.type.kind != RCC_IR_TYPE_POINTER) {
@@ -5832,8 +5842,8 @@ static bool lower_emit_call_temporary_cleanups(
 }
 
 static bool lower_sysv_call_aggregate_assignment(
-    const Type* type, bool variadic_argument,
-    size_t* gp_arguments_used, size_t* sse_arguments_used,
+    const Type* type, size_t* gp_arguments_used,
+    size_t* sse_arguments_used,
     LowerSysvAggregateClass* classification_out, bool* stack_out) {
     LowerSysvAggregateClass classification;
     size_t integer_units;
@@ -5847,7 +5857,6 @@ static bool lower_sysv_call_aggregate_assignment(
         if (!lower_sysv_aggregate_assignment(
                 integer_units, sse_units, gp_arguments_used,
                 sse_arguments_used, &in_registers)) {
-            if (!variadic_argument) return false;
             /* SysV rolls back the whole aggregate when either register bank
              * cannot hold every eightbyte.  Do not consume the remaining
              * registers with a partial aggregate. */
@@ -5855,8 +5864,7 @@ static bool lower_sysv_call_aggregate_assignment(
         } else {
             *stack_out = !in_registers;
         }
-    } else if (variadic_argument &&
-               lower_sysv_memory_aggregate(
+    } else if (lower_sysv_memory_aggregate(
                    type, &classification, &ignored_alignment)) {
         *stack_out = true;
     } else {
@@ -5889,7 +5897,7 @@ static bool lower_sysv_call_memory_arguments(
             LowerSysvAggregateClass classification;
             bool stack_argument;
             if (!lower_sysv_call_aggregate_assignment(
-                    type, parameter == NULL, &gp_arguments_used,
+                    type, &gp_arguments_used,
                     &sse_arguments_used, &classification,
                     &stack_argument)) return false;
             units = (size_t)classification.count;
@@ -5930,7 +5938,7 @@ static bool lower_sysv_call_memory_arguments(
             LowerSysvAggregateClass classification;
             bool stack_argument;
             if (!lower_sysv_call_aggregate_assignment(
-                    type, parameter == NULL, &gp_arguments_used,
+                    type, &gp_arguments_used,
                     &sse_arguments_used, &classification,
                     &stack_argument)) {
                 rcc_free(memory_arguments);
@@ -6126,7 +6134,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             function_type->params,
             return_kind == LOWER_ABI_RETURN_SRET ? &hidden_type : NULL,
             return_kind == LOWER_ABI_RETURN_SRET ? 1u : 0u,
-            &fixed_types, &fixed_count)) {
+            &fixed_types, &fixed_count, NULL, NULL)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -6151,16 +6159,11 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             }
             if (g_opts.target_arch == ARCH_X64) {
                 LowerSysvAggregateClass classification;
-                size_t integer_units;
-                size_t sse_units;
-                bool in_registers;
-                if (!lower_sysv_register_aggregate(
-                        parameter->type, &classification,
-                        &integer_units, &sse_units) ||
-                    !lower_sysv_aggregate_assignment(
-                        integer_units, sse_units,
-                        &sysv_gp_arguments_used,
-                        &sysv_sse_arguments_used, &in_registers)) {
+                bool stack_argument;
+                if (!lower_sysv_call_aggregate_assignment(
+                        parameter->type, &sysv_gp_arguments_used,
+                        &sysv_sse_arguments_used, &classification,
+                        &stack_argument)) {
                     context->unsupported = true;
                     return lower_invalid_value();
                 }
@@ -6179,8 +6182,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             bool stack_argument;
             if (!function_type->variadic ||
                 !lower_sysv_call_aggregate_assignment(
-                    argument->expr->type, true,
-                    &sysv_gp_arguments_used,
+                    argument->expr->type, &sysv_gp_arguments_used,
                     &sysv_sse_arguments_used, &classification,
                     &stack_argument)) {
                 context->unsupported = true;
@@ -6239,7 +6241,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         if (g_opts.target_arch == ARCH_X64 && argument_type &&
             lower_abi_is_aggregate(argument_type)) {
             if (!lower_sysv_call_aggregate_assignment(
-                    argument_type, parameter == NULL,
+                    argument_type,
                     &sysv_flatten_gp_arguments_used,
                     &sysv_flatten_sse_arguments_used,
                     &sysv_aggregate_classification,
@@ -6298,18 +6300,10 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         }
         if (parameter && lower_abi_is_aggregate(parameter->type)) {
             LowerSysvAggregateClass classification;
-            size_t integer_units = 0u;
-            size_t sse_units = 0u;
             size_t units;
             bool sysv_aggregate = g_opts.target_arch == ARCH_X64;
             if (sysv_aggregate) {
-                if (!lower_sysv_register_aggregate(
-                        parameter->type, &classification,
-                        &integer_units, &sse_units)) {
-                    rcc_free(operands);
-                    context->unsupported = true;
-                    return lower_invalid_value();
-                }
+                classification = sysv_aggregate_classification;
                 units = (size_t)classification.count;
             } else {
                 units = ((size_t)parameter->type->size +
@@ -6322,8 +6316,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             }
             for (size_t unit = 0u; unit < units; ++unit) {
                 RccIrLowerValue chunk;
-                if (sysv_aggregate && function_type->variadic &&
-                    sysv_aggregate_on_stack) {
+                if (sysv_aggregate && sysv_aggregate_on_stack) {
                     chunk = lower_load_aggregate_chunk(
                         context, value, parameter->type,
                         unit * chunk_size);
@@ -6500,7 +6493,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         context->unsupported = true;
         return lower_invalid_value();
     }
-    if (function_type->variadic && g_opts.target_arch == ARCH_X64 &&
+    if (g_opts.target_arch == ARCH_X64 &&
         !lower_sysv_call_memory_arguments(
             expression->call_args, function_type->params,
             return_kind == LOWER_ABI_RETURN_SRET ? 1u : 0u,
@@ -10469,7 +10462,7 @@ static bool lower_sysv_classify_aggregate(
         type->size <= 0 || type->cxx_nontrivial ||
         !lower_storage_type_supported_internal(type, 0u)) return false;
     memset(result, 0, sizeof(*result));
-    result->count = (type->size + 7) / 8;
+    result->count = (type->size - 1) / 8 + 1;
     if (type->size > 16) {
         result->memory = true;
         return true;
@@ -10535,10 +10528,15 @@ static size_t lower_abi_chunk_size(void) {
 
 static bool lower_abi_parameter_layout(
     const TypeParam* parameters, const RccIrType* prefix_types,
-    size_t prefix_count, RccIrType** types_out, size_t* count_out) {
+    size_t prefix_count, RccIrType** types_out, size_t* count_out,
+    RccSysvMemoryArgument** memory_parameters_out,
+    size_t* memory_parameter_count_out) {
     const TypeParam* parameter;
     RccIrType* types = NULL;
+    RccSysvMemoryArgument* memory_parameters = NULL;
     size_t count = prefix_count;
+    size_t memory_parameter_count = 0u;
+    size_t memory_parameter_capacity = 0u;
     size_t cursor = 0u;
     size_t chunk_size = lower_abi_chunk_size();
     size_t gp_arguments_used = g_opts.target_arch == ARCH_X64
@@ -10546,6 +10544,8 @@ static bool lower_abi_parameter_layout(
     size_t sse_arguments_used = 0u;
     if (types_out) *types_out = NULL;
     if (count_out) *count_out = 0u;
+    if (memory_parameters_out) *memory_parameters_out = NULL;
+    if (memory_parameter_count_out) *memory_parameter_count_out = 0u;
     if (!count_out || (prefix_count != 0u && !prefix_types)) return false;
     for (parameter = parameters; parameter; parameter = parameter->next) {
         size_t units = 1u;
@@ -10553,17 +10553,16 @@ static bool lower_abi_parameter_layout(
         if (lower_abi_is_aggregate(parameter->type)) {
             if (g_opts.target_arch == ARCH_X64) {
                 LowerSysvAggregateClass classification;
-                size_t integer_units;
-                size_t sse_units;
-                bool in_registers;
-                if (!lower_sysv_register_aggregate(
-                        parameter->type, &classification,
-                        &integer_units, &sse_units) ||
-                    !lower_sysv_aggregate_assignment(
-                        integer_units, sse_units,
-                        &gp_arguments_used, &sse_arguments_used,
-                        &in_registers)) return false;
+                bool stack_argument;
+                if (!lower_sysv_call_aggregate_assignment(
+                        parameter->type, &gp_arguments_used,
+                        &sse_arguments_used, &classification,
+                        &stack_argument)) return false;
                 units = (size_t)classification.count;
+                if (stack_argument) {
+                    if (memory_parameter_count == SIZE_MAX) return false;
+                    ++memory_parameter_count;
+                }
             } else {
                 if (!lower_abi_aggregate_supported(parameter->type)) {
                     return false;
@@ -10596,31 +10595,70 @@ static bool lower_abi_parameter_layout(
                    prefix_count * sizeof(*types));
         }
     }
+    memory_parameter_capacity = memory_parameter_count;
+    if (memory_parameters_out && memory_parameter_count != 0u) {
+        if (memory_parameter_count >
+            SIZE_MAX / sizeof(*memory_parameters)) {
+            rcc_free(types);
+            return false;
+        }
+        memory_parameters = rcc_alloc(
+            memory_parameter_count * sizeof(*memory_parameters));
+    }
     cursor = prefix_count;
+    gp_arguments_used = g_opts.target_arch == ARCH_X64
+        ? prefix_count : 0u;
+    sse_arguments_used = 0u;
+    memory_parameter_count = 0u;
     for (parameter = parameters; parameter; parameter = parameter->next) {
         if (lower_abi_is_aggregate(parameter->type)) {
             if (g_opts.target_arch == ARCH_X64) {
                 LowerSysvAggregateClass classification;
-                size_t integer_units;
-                size_t sse_units;
-                if (!lower_sysv_register_aggregate(
-                        parameter->type, &classification,
-                        &integer_units, &sse_units)) {
+                bool stack_argument;
+                if (!lower_sysv_call_aggregate_assignment(
+                        parameter->type, &gp_arguments_used,
+                        &sse_arguments_used, &classification,
+                        &stack_argument)) {
                     rcc_free(types);
+                    rcc_free(memory_parameters);
                     return false;
                 }
-                for (int unit = 0; unit < classification.count; ++unit) {
-                    RccIrType chunk_type;
-                    if (classification.classes[unit] ==
-                        LOWER_SYSV_CLASS_SSE) {
-                        size_t offset = (size_t)unit * 8u;
-                        size_t remaining =
-                            (size_t)parameter->type->size - offset;
-                        chunk_type = rcc_ir_type_float(
-                            (uint16_t)(remaining >= 8u ? 64u : 32u));
-                    } else {
-                        chunk_type = rcc_ir_type_integer(64u);
+                if (stack_argument) {
+                    uint32_t alignment;
+                    if (parameter->type->size <= 0 ||
+                        (uint64_t)parameter->type->size > UINT32_MAX ||
+                        parameter->type->align <= 0 ||
+                        parameter->type->align > 4096 ||
+                        (parameter->type->align &
+                         (parameter->type->align - 1)) != 0) {
+                        rcc_free(types);
+                        rcc_free(memory_parameters);
+                        return false;
                     }
+                    alignment = parameter->type->align > 8
+                        ? (uint32_t)parameter->type->align : 8u;
+                    if (memory_parameters) {
+                        memory_parameters[memory_parameter_count].first_operand =
+                            cursor;
+                        memory_parameters[memory_parameter_count].operand_count =
+                            (size_t)classification.count;
+                        memory_parameters[memory_parameter_count].size =
+                            (uint32_t)parameter->type->size;
+                        memory_parameters[memory_parameter_count].alignment =
+                            alignment;
+                    }
+                    ++memory_parameter_count;
+                }
+                for (int unit = 0; unit < classification.count; ++unit) {
+                    RccIrType chunk_type =
+                        stack_argument
+                        ? rcc_ir_type_integer(64u)
+                        : classification.classes[unit] ==
+                              LOWER_SYSV_CLASS_SSE
+                        ? rcc_ir_type_float((uint16_t)(
+                              (size_t)parameter->type->size -
+                                  (size_t)unit * 8u >= 8u ? 64u : 32u))
+                        : rcc_ir_type_integer(64u);
                     if (types) types[cursor] = chunk_type;
                     ++cursor;
                 }
@@ -10647,18 +10685,36 @@ static bool lower_abi_parameter_layout(
             if (!lower_abi_native_scalar_type(
                     parameter->type, &scalar_type)) {
                 rcc_free(types);
+                rcc_free(memory_parameters);
                 return false;
+            }
+            if (g_opts.target_arch == ARCH_X64) {
+                if (scalar_type.kind == RCC_IR_TYPE_FLOAT) {
+                    if (sse_arguments_used < 8u) ++sse_arguments_used;
+                } else if (gp_arguments_used < 6u) {
+                    ++gp_arguments_used;
+                }
             }
             if (types) types[cursor] = scalar_type;
             ++cursor;
         }
     }
-    if (cursor != count) {
+    if (cursor != count ||
+        memory_parameter_count != memory_parameter_capacity) {
         rcc_free(types);
+        rcc_free(memory_parameters);
         return false;
     }
     if (types_out) *types_out = types;
     *count_out = count;
+    if (memory_parameters_out) {
+        *memory_parameters_out = memory_parameters;
+    } else {
+        rcc_free(memory_parameters);
+    }
+    if (memory_parameter_count_out) {
+        *memory_parameter_count_out = memory_parameter_count;
+    }
     return true;
 }
 
@@ -12102,6 +12158,16 @@ static bool lower_statement(RccIrLowerContext* context,
     return result;
 }
 
+static bool lower_sysv_parameter_aggregate(
+    const Type* type, LowerSysvAggregateClass* classification) {
+    size_t integer_units;
+    size_t sse_units;
+    uint32_t alignment;
+    return lower_sysv_register_aggregate(
+               type, classification, &integer_units, &sse_units) ||
+        lower_sysv_memory_aggregate(type, classification, &alignment);
+}
+
 static bool lower_parameters(RccIrLowerContext* context,
                              const Decl* declaration) {
     const DeclList* parameter = declaration->func_params;
@@ -12148,13 +12214,10 @@ static bool lower_parameters(RccIrLowerContext* context,
         bool sysv_aggregate = aggregate &&
             g_opts.target_arch == ARCH_X64;
         LowerSysvAggregateClass sysv_classification;
-        size_t sysv_integer_units = 0u;
-        size_t sysv_sse_units = 0u;
         bool aggregate_supported = !aggregate ||
             (sysv_aggregate
-                 ? lower_sysv_register_aggregate(
-                       item->type, &sysv_classification,
-                       &sysv_integer_units, &sysv_sse_units)
+                 ? lower_sysv_parameter_aggregate(
+                       item->type, &sysv_classification)
                  : lower_abi_aggregate_supported(item->type));
         bool wide_scalar = item && lower_i686_wide_scalar_type(item->type);
         size_t units = aggregate
@@ -12259,6 +12322,8 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     RccIrType hidden_type = rcc_ir_type_pointer(0u);
     RccIrType* parameter_types = NULL;
     size_t parameter_count = 0u;
+    RccSysvMemoryArgument* memory_parameters = NULL;
+    size_t memory_parameter_count = 0u;
     int aggregate_return_kind = LOWER_ABI_RETURN_SCALAR;
     RccIrModule* module;
     RccIrFunction* function;
@@ -12289,7 +12354,10 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
             aggregate_return_kind == LOWER_ABI_RETURN_SRET
                 ? &hidden_type : NULL,
             aggregate_return_kind == LOWER_ABI_RETURN_SRET ? 1u : 0u,
-            &parameter_types, &parameter_count)) {
+            &parameter_types, &parameter_count,
+            &memory_parameters, &memory_parameter_count)) {
+        rcc_free(memory_parameters);
+        rcc_free(parameter_types);
         return RCC_IR_LOWER_UNSUPPORTED;
     }
     module = rcc_ir_module_create();
@@ -12297,6 +12365,12 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
                                    return_type, parameter_types,
                                    parameter_count);
     rcc_free(parameter_types);
+    if (function) {
+        function->sysv_memory_parameters = memory_parameters;
+        function->sysv_memory_parameter_count = memory_parameter_count;
+        memory_parameters = NULL;
+    }
+    rcc_free(memory_parameters);
     entry = function ? rcc_ir_block_add(function, "entry") : NULL;
     if (!function || !entry) {
         rcc_ir_module_destroy(module);

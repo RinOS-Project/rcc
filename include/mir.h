@@ -121,6 +121,8 @@ struct RccMirFunction {
     RccMirType* parameter_types;
     RccMirVReg* parameters;
     size_t parameter_count;
+    RccSysvMemoryArgument* sysv_memory_parameters;
+    size_t sysv_memory_parameter_count;
     RccMirType* register_types;
     size_t register_count;
     RccMirBlock* first_block;

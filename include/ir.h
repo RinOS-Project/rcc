@@ -128,7 +128,7 @@ struct RccIrInstruction {
     bool sysv_varargs_gpr_save_area;
     /* Emit the x86-64 SysV %al vector-register count before this call. */
     bool sysv_variadic_call;
-    /* Variadic MEMORY-class aggregate words that must remain stack-by-value. */
+    /* SysV aggregate words assigned as stack-by-value (MEMORY or straddle). */
     RccSysvMemoryArgument* sysv_memory_arguments;
     size_t sysv_memory_argument_count;
     char* callee;
@@ -160,6 +160,9 @@ struct RccIrFunction {
     RccIrType* parameter_types;
     RccIrValue* parameters;
     size_t parameter_count;
+    /* Whole SysV aggregate parameters assigned to the incoming stack area. */
+    RccSysvMemoryArgument* sysv_memory_parameters;
+    size_t sysv_memory_parameter_count;
     RccIrType* value_types;
     size_t value_count;
     size_t value_capacity;

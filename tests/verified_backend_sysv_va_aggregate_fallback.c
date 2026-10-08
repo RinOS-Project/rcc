@@ -54,6 +54,22 @@ long long verified_sysv_va_large_memory_aggregate_call(
     return verified_sysv_va_read_large_memory_aggregate(7, value);
 }
 
+long long verified_sysv_read_named_large_memory_aggregate(
+    struct VerifiedSysvVaLargeMemoryAggregate value)
+{
+    return value.third;
+}
+
+long long verified_sysv_named_large_memory_aggregate_call(
+    long long first, long long second, long long third)
+{
+    struct VerifiedSysvVaLargeMemoryAggregate value;
+    value.first = first;
+    value.second = second;
+    value.third = third;
+    return verified_sysv_read_named_large_memory_aggregate(value);
+}
+
 #ifdef __cplusplus
 long long verified_sysv_va_read_aligned_memory_aggregate(int marker, ...)
 {
@@ -113,6 +129,63 @@ long long verified_sysv_va_aligned_memory_aggregate_call(
     return verified_sysv_va_read_aligned_memory_aggregate_after_nine_doubles(
         7, first, second, third, fourth, fifth, sixth, seventh, eighth,
         ninth, value, trailing);
+}
+
+long long verified_sysv_va_read_named_aligned_memory_aggregate_after_gp_full(
+    int a, int b, int c, int d, int e, int f,
+    struct VerifiedSysvVaAlignedMemoryAggregate value, ...)
+{
+    va_list arguments;
+    long long tail;
+    va_start(arguments, value);
+    tail = va_arg(arguments, long long);
+    va_end(arguments);
+    return value.fourth + tail;
+}
+
+long long verified_sysv_va_named_aligned_memory_aggregate_call(
+    long long first, long long second, long long third, long long fourth,
+    long long tail)
+{
+    struct VerifiedSysvVaAlignedMemoryAggregate value;
+    value.first = first;
+    value.second = second;
+    value.third = third;
+    value.fourth = fourth;
+    return verified_sysv_va_read_named_aligned_memory_aggregate_after_gp_full(
+        1, 2, 3, 4, 5, 6, value, tail);
+}
+
+alignas(32) struct VerifiedSysvVaAligned32MemoryAggregate {
+    long long first;
+    long long second;
+    long long third;
+    long long fourth;
+};
+
+long long verified_sysv_va_read_named_aligned32_memory_aggregate_after_gp_full(
+    int a, int b, int c, int d, int e, int f,
+    struct VerifiedSysvVaAligned32MemoryAggregate value, ...)
+{
+    va_list arguments;
+    long long tail;
+    va_start(arguments, value);
+    tail = va_arg(arguments, long long);
+    va_end(arguments);
+    return value.fourth + tail;
+}
+
+long long verified_sysv_va_named_aligned32_memory_aggregate_call(
+    long long first, long long second, long long third, long long fourth,
+    long long tail)
+{
+    struct VerifiedSysvVaAligned32MemoryAggregate value;
+    value.first = first;
+    value.second = second;
+    value.third = third;
+    value.fourth = fourth;
+    return verified_sysv_va_read_named_aligned32_memory_aggregate_after_gp_full(
+        1, 2, 3, 4, 5, 6, value, tail);
 }
 #endif
 

@@ -591,6 +591,12 @@ bool rcc_x86_verify_function(
             function->return_type, function->target) ||
         (function->parameter_count != 0u &&
          (!function->parameter_types || !function->parameters)) ||
+        !rcc_sysv_memory_arguments_valid(
+            function->sysv_memory_parameters,
+            function->sysv_memory_parameter_count,
+            function->parameter_count) ||
+        (function->sysv_memory_parameter_count != 0u &&
+         function->target != RCC_X86_TARGET_X86_64) ||
         function->original_block_count == 0u ||
         function->block_count < function->original_block_count) {
         return x86_select_error(error, error_size,
@@ -606,6 +612,22 @@ bool rcc_x86_verify_function(
                                 function->frame_size)) {
             return x86_select_error(error, error_size,
                                     "x86 parameter location is invalid");
+        }
+    }
+    for (size_t group = 0u;
+         group < function->sysv_memory_parameter_count; ++group) {
+        const RccSysvMemoryArgument* memory_parameter =
+            &function->sysv_memory_parameters[group];
+        for (size_t unit = 0u; unit < memory_parameter->operand_count;
+             ++unit) {
+            RccMirType type = function->parameter_types[
+                memory_parameter->first_operand + unit];
+            if (type.kind != RCC_MIR_TYPE_INTEGER ||
+                type.bit_width != 64u) {
+                return x86_select_error(
+                    error, error_size,
+                    "SysV stack aggregate parameter must use 64-bit words");
+            }
         }
     }
     for (block = function->first_block; block; block = block->next) {
@@ -636,8 +658,7 @@ bool rcc_x86_verify_function(
                     instruction->sysv_memory_argument_count,
                     instruction->operand_count) ||
                 (instruction->sysv_memory_argument_count != 0u &&
-                 (!instruction->sysv_variadic_call ||
-                  instruction->opcode != RCC_X86_CALL ||
+                 (instruction->opcode != RCC_X86_CALL ||
                   function->target != RCC_X86_TARGET_X86_64)) ||
                 (instruction->type.kind == RCC_MIR_TYPE_FLOAT &&
                  instruction->opcode != RCC_X86_LOAD &&
@@ -847,6 +868,7 @@ void rcc_x86_function_destroy(RccX86Function* function) {
     }
     rcc_free(function->parameter_types);
     rcc_free(function->parameters);
+    rcc_free(function->sysv_memory_parameters);
     rcc_free(function);
 }
 
@@ -888,6 +910,17 @@ bool rcc_x86_select_function(
     selected->frame_size = phi_plan->frame_size;
     selected->return_type = function->return_type;
     selected->parameter_count = function->parameter_count;
+    selected->sysv_memory_parameter_count =
+        function->sysv_memory_parameter_count;
+    if (selected->sysv_memory_parameter_count != 0u) {
+        selected->sysv_memory_parameters = rcc_alloc(
+            selected->sysv_memory_parameter_count *
+            sizeof(*selected->sysv_memory_parameters));
+        memcpy(selected->sysv_memory_parameters,
+               function->sysv_memory_parameters,
+               selected->sysv_memory_parameter_count *
+                   sizeof(*selected->sysv_memory_parameters));
+    }
     if (function->parameter_count != 0u) {
         selected->parameter_types = rcc_alloc(
             function->parameter_count *

@@ -600,6 +600,21 @@ static const RccSysvMemoryArgument* x86_memory_argument_for_operand(
     return NULL;
 }
 
+static const RccSysvMemoryArgument* x86_memory_parameter_for_operand(
+    const RccX86Function* function, size_t parameter_index) {
+    for (size_t index = 0u;
+         index < function->sysv_memory_parameter_count; ++index) {
+        const RccSysvMemoryArgument* parameter =
+            &function->sysv_memory_parameters[index];
+        if (parameter_index >= parameter->first_operand &&
+            parameter_index - parameter->first_operand <
+                parameter->operand_count) {
+            return parameter;
+        }
+    }
+    return NULL;
+}
+
 static bool x86_legal_call_supported(
     const RccX86Instruction* instruction, const RccX86Abi* abi) {
     size_t index;
@@ -616,8 +631,7 @@ static bool x86_legal_call_supported(
             instruction->sysv_memory_argument_count,
             instruction->operand_count) ||
         (instruction->sysv_memory_argument_count != 0u &&
-         (!instruction->sysv_variadic_call ||
-          abi->target != RCC_X86_TARGET_X86_64))) {
+         abi->target != RCC_X86_TARGET_X86_64)) {
         return false;
     }
     for (index = 0u; index < instruction->operand_count; ++index) {
@@ -848,11 +862,49 @@ static bool x86_legalize_parameters(
         selected->parameter_count * sizeof(*destinations));
     for (index = 0u; index < selected->parameter_count; ++index) {
         RccMirType type = selected->parameter_types[index];
+        const RccSysvMemoryArgument* memory_parameter =
+            x86_memory_parameter_for_operand(selected, index);
         bool floating = type.kind == RCC_MIR_TYPE_FLOAT;
         bool in_register = floating
             ? floating_index < abi->floating_argument_count
             : integer_index < abi->integer_argument_count;
-        if (floating) {
+        if (memory_parameter) {
+            if (index == memory_parameter->first_operand) {
+                uint32_t alignment = memory_parameter->alignment;
+                uint32_t remainder;
+                if (alignment < abi->pointer_size ||
+                    alignment % abi->pointer_size != 0u) {
+                    rcc_free(sources);
+                    rcc_free(destinations);
+                    return x86_legal_error(
+                        error, error_size,
+                        "x86 incoming aggregate alignment is invalid");
+                }
+                remainder = incoming_offset % alignment;
+                if (remainder != 0u) {
+                    uint32_t padding = alignment - remainder;
+                    if (padding > UINT32_MAX - incoming_offset) {
+                        rcc_free(sources);
+                        rcc_free(destinations);
+                        return x86_legal_error(
+                            error, error_size,
+                            "x86 incoming aggregate area exceeds 32 bits");
+                    }
+                    incoming_offset += padding;
+                }
+            }
+            if (incoming_offset > UINT32_MAX - abi->pointer_size) {
+                rcc_free(sources);
+                rcc_free(destinations);
+                return x86_legal_error(
+                    error, error_size,
+                    "x86 incoming argument area exceeds 32 bits");
+            }
+            sources[index] = x86_legal_argument_value(
+                RCC_X86_VALUE_INCOMING_ARGUMENT,
+                incoming_offset, type, abi);
+            incoming_offset += abi->pointer_size;
+        } else if (floating) {
             if (in_register) {
                 sources[index] = x86_legal_fixed_fpr(
                     abi->floating_arguments[floating_index], type, abi);
@@ -865,7 +917,7 @@ static bool x86_legalize_parameters(
             }
             ++integer_index;
         }
-        if (!in_register) {
+        if (!in_register && !memory_parameter) {
             if (incoming_offset > UINT32_MAX - abi->pointer_size) {
                 rcc_free(sources);
                 rcc_free(destinations);

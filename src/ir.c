@@ -148,6 +148,7 @@ void rcc_ir_module_destroy(RccIrModule* module) {
         rcc_free(function->name);
         rcc_free(function->parameter_types);
         rcc_free(function->parameters);
+        rcc_free(function->sysv_memory_parameters);
         rcc_free(function->value_types);
         rcc_free(function);
         function = next_function;
@@ -493,8 +494,7 @@ static bool ir_verify_instruction_types(
             instruction->sysv_memory_argument_count,
             instruction->operand_count) ||
         (instruction->sysv_memory_argument_count != 0u &&
-         (instruction->opcode != RCC_IR_CALL ||
-          !instruction->sysv_variadic_call))) {
+         instruction->opcode != RCC_IR_CALL)) {
         return ir_verify_error(
             verifier, "SysV MEMORY argument metadata is invalid");
     }
@@ -983,7 +983,11 @@ static bool ir_collect_values(RccIrVerifier* verifier) {
     }
     if (function->parameter_count > value_count ||
         (function->parameter_count != 0u &&
-         (!function->parameters || !function->parameter_types))) {
+         (!function->parameters || !function->parameter_types)) ||
+        !rcc_sysv_memory_arguments_valid(
+            function->sysv_memory_parameters,
+            function->sysv_memory_parameter_count,
+            function->parameter_count)) {
         return ir_verify_error(verifier, "parameter table is inconsistent");
     }
     for (size_t index = 0u; index < function->parameter_count; ++index) {

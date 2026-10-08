@@ -12345,12 +12345,14 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/aggregate-straddle-fallback.ro \
 		tests/verified_backend_aggregate_straddle_fallback.c \
 		>$(TEST_OUT)/verified-backend/aggregate-straddle-fallback.log
-	$(GREP) -F -q "Verified backend fallback: function 'verified_aggregate_register_straddle_fallback' is outside the typed SSA subset" $(TEST_OUT)/verified-backend/aggregate-straddle-fallback.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' $(TEST_OUT)/verified-backend/aggregate-straddle-fallback.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/aggregate-straddle-fallback.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/packed-argument-fallback.ro \
 		tests/verified_backend_packed_argument_fallback.c \
 		>$(TEST_OUT)/verified-backend/packed-argument-fallback.log
-	$(GREP) -F -q "Verified backend fallback: function 'verified_packed_argument_fallback' is outside the typed SSA subset" $(TEST_OUT)/verified-backend/packed-argument-fallback.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' $(TEST_OUT)/verified-backend/packed-argument-fallback.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/packed-argument-fallback.log,0)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-scalar-x86.ro \
 		tests/verified_backend_wide_scalar_fallback.c \
@@ -12455,33 +12457,33 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-x64.ro \
 		tests/verified_backend_sysv_va_aggregate_fallback.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-x64.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-x64.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_named_mixed_aggregate_after_gp_full' is outside the typed SSA subset" \
+	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-x64.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-x64-o2.ro \
 		tests/verified_backend_sysv_va_aggregate_fallback.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-x64-o2.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-x64-o2.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_named_mixed_aggregate_after_gp_full' is outside the typed SSA subset" \
+	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-x64-o2.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-cxx-x64.ro \
 		tests/verified_backend_sysv_va_aggregate_fallback.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-cxx-x64.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-cxx-x64.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_named_mixed_aggregate_after_gp_full' is outside the typed SSA subset" \
+	$(GREP) -F -q 'Verified backend: 28 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-cxx-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-cxx-x64.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-std=c++20 -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-cxx-x64-o2.ro \
 		tests/verified_backend_sysv_va_aggregate_fallback.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-cxx-x64-o2.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-cxx-x64-o2.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_named_mixed_aggregate_after_gp_full' is outside the typed SSA subset" \
+	$(GREP) -F -q 'Verified backend: 28 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-cxx-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-straddle-cxx-x64-o2.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/sysv-fp-variadic-promotion-x64.ro \

@@ -102,6 +102,7 @@ void rcc_mir_function_destroy(RccMirFunction* function) {
     rcc_free(function->name);
     rcc_free(function->parameter_types);
     rcc_free(function->parameters);
+    rcc_free(function->sysv_memory_parameters);
     rcc_free(function->register_types);
     rcc_free(function);
 }
@@ -232,8 +233,7 @@ static bool mir_verify_instruction_type(
             instruction->sysv_memory_argument_count,
             instruction->operand_count) ||
         (instruction->sysv_memory_argument_count != 0u &&
-         (instruction->opcode != RCC_MIR_CALL ||
-          !instruction->sysv_variadic_call))) {
+         instruction->opcode != RCC_MIR_CALL)) {
         return mir_error(verifier, "SysV MEMORY argument metadata is invalid");
     }
     if (mir_is_binary(instruction->opcode)) {
@@ -835,7 +835,11 @@ bool rcc_mir_verify_function(const RccMirFunction* function, char* error,
         !function->last_block ||
         (function->register_count != 0u && !function->register_types) ||
         (function->parameter_count != 0u &&
-         (!function->parameters || !function->parameter_types))) {
+         (!function->parameters || !function->parameter_types)) ||
+        !rcc_sysv_memory_arguments_valid(
+            function->sysv_memory_parameters,
+            function->sysv_memory_parameter_count,
+            function->parameter_count)) {
         mir_error(&verifier, "MIR function header is invalid");
         goto cleanup;
     }
@@ -901,6 +905,17 @@ bool rcc_mir_lower_ir(const RccIrFunction* ir_function,
         return false;
     }
     function->parameter_count = ir_function->parameter_count;
+    function->sysv_memory_parameter_count =
+        ir_function->sysv_memory_parameter_count;
+    if (function->sysv_memory_parameter_count != 0u) {
+        function->sysv_memory_parameters = rcc_alloc(
+            function->sysv_memory_parameter_count *
+            sizeof(*function->sysv_memory_parameters));
+        memcpy(function->sysv_memory_parameters,
+               ir_function->sysv_memory_parameters,
+               function->sysv_memory_parameter_count *
+                   sizeof(*function->sysv_memory_parameters));
+    }
     if (function->parameter_count != 0u) {
         function->parameter_types = rcc_alloc(
             function->parameter_count * sizeof(*function->parameter_types));

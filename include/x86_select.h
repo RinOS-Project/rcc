@@ -109,6 +109,8 @@ typedef struct {
     RccMirType* parameter_types;
     RccMirLocation* parameters;
     size_t parameter_count;
+    RccSysvMemoryArgument* sysv_memory_parameters;
+    size_t sysv_memory_parameter_count;
     size_t original_block_count;
     size_t block_count;
     size_t source_instruction_count;
