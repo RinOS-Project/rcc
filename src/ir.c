@@ -358,6 +358,7 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_TRUNC: return "trunc";
         case RCC_IR_ZEXT: return "zext";
         case RCC_IR_SEXT: return "sext";
+        case RCC_IR_FPEXT: return "fpext";
         case RCC_IR_PTR_TO_INT: return "ptrtoint";
         case RCC_IR_INT_TO_PTR: return "inttoptr";
         case RCC_IR_BITCAST: return "bitcast";
@@ -512,6 +513,19 @@ static bool ir_verify_instruction_types(
                 return ir_verify_error(verifier,
                                        "%s has invalid integer widths",
                                        ir_opcode_name(instruction->opcode));
+            }
+            return true;
+        case RCC_IR_FPEXT:
+            if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
+                !ir_value_type(verifier, instruction->operands[0], &first)) {
+                return false;
+            }
+            if (first.kind != RCC_IR_TYPE_FLOAT ||
+                first.bit_width != 32u ||
+                instruction->type.kind != RCC_IR_TYPE_FLOAT ||
+                instruction->type.bit_width != 64u) {
+                return ir_verify_error(
+                    verifier, "fpext requires a float32-to-float64 conversion");
             }
             return true;
         case RCC_IR_PTR_TO_INT:

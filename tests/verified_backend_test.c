@@ -225,6 +225,8 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
     ObjSymbol* fp_call_ninth_symbol;
     ObjSymbol* fp_call_mixed_stack_symbol;
     ObjSymbol* fp_call_variadic_double_symbol;
+    ObjSymbol* fp_call_variadic_float_symbol;
+    ObjSymbol* fp_call_variadic_ninth_float_symbol;
     ObjSymbol* fp_call_variadic_int_symbol;
     ObjSymbol* fp_call_variadic_ninth_symbol;
     ObjSymbol* fp_call_variadic_named_double_symbol;
@@ -257,6 +259,10 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         object, "verified_sysv_fp_call_mixed_stack");
     fp_call_variadic_double_symbol = objfile_find_symbol(
         object, "verified_sysv_fp_call_variadic_double");
+    fp_call_variadic_float_symbol = objfile_find_symbol(
+        object, "verified_sysv_fp_call_variadic_float");
+    fp_call_variadic_ninth_float_symbol = objfile_find_symbol(
+        object, "verified_sysv_fp_call_variadic_ninth_float");
     fp_call_variadic_int_symbol = objfile_find_symbol(
         object, "verified_sysv_fp_call_variadic_int");
     fp_call_variadic_ninth_symbol = objfile_find_symbol(
@@ -311,6 +317,14 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
            fp_call_variadic_double_symbol->type == SYM_GLOBAL &&
            fp_call_variadic_double_symbol->binding == BIND_CODE &&
            fp_call_variadic_double_symbol->section == 0);
+    assert(fp_call_variadic_float_symbol != NULL &&
+           fp_call_variadic_float_symbol->type == SYM_GLOBAL &&
+           fp_call_variadic_float_symbol->binding == BIND_CODE &&
+           fp_call_variadic_float_symbol->section == 0);
+    assert(fp_call_variadic_ninth_float_symbol != NULL &&
+           fp_call_variadic_ninth_float_symbol->type == SYM_GLOBAL &&
+           fp_call_variadic_ninth_float_symbol->binding == BIND_CODE &&
+           fp_call_variadic_ninth_float_symbol->section == 0);
     assert(fp_call_variadic_int_symbol != NULL &&
            fp_call_variadic_int_symbol->type == SYM_GLOBAL &&
            fp_call_variadic_int_symbol->binding == BIND_CODE &&
@@ -329,6 +343,10 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
            fp_call_mixed_variadic_overflow_symbol->section == 0);
     assert(symbol_has_sysv_variadic_call_setup(
         object, text, fp_call_variadic_double_symbol, 1u));
+    assert(symbol_has_sysv_variadic_call_setup(
+        object, text, fp_call_variadic_float_symbol, 1u));
+    assert(symbol_has_sysv_variadic_call_setup(
+        object, text, fp_call_variadic_ninth_float_symbol, 8u));
     assert(symbol_has_sysv_variadic_call_setup(
         object, text, fp_call_variadic_int_symbol, 0u));
     assert(symbol_has_sysv_variadic_call_setup(
@@ -364,6 +382,11 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
             double, double, double, double, double,
             double, double, double, double);
         double (RINOS_ABI *fp_call_variadic_double)(double);
+        double (RINOS_ABI *fp_call_variadic_float)(float);
+        double (RINOS_ABI *fp_call_variadic_ninth_float)(
+            float, float, float, float, float, float,
+            float, float, float, float, float, float,
+            float, float, float, float, float);
         int (RINOS_ABI *fp_call_variadic_int)(int);
         double (RINOS_ABI *fp_call_variadic_ninth)(
             double, double, double, double, double,
@@ -399,6 +422,13 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         address = symbol_address(memory, fp_call_variadic_double_symbol);
         memcpy(&fp_call_variadic_double, &address,
                sizeof(fp_call_variadic_double));
+        address = symbol_address(memory, fp_call_variadic_float_symbol);
+        memcpy(&fp_call_variadic_float, &address,
+               sizeof(fp_call_variadic_float));
+        address = symbol_address(
+            memory, fp_call_variadic_ninth_float_symbol);
+        memcpy(&fp_call_variadic_ninth_float, &address,
+               sizeof(fp_call_variadic_ninth_float));
         address = symbol_address(memory, fp_call_variadic_int_symbol);
         memcpy(&fp_call_variadic_int, &address,
                sizeof(fp_call_variadic_int));
@@ -434,6 +464,11 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
                    1.0, 2.0, 3.0, 4.0, 5.0,
                    6.0, 7.0, 8.0, 9.0) == 9.0);
         assert(fp_call_variadic_double(21.25) == 21.25);
+        assert(fp_call_variadic_float(5.75f) == 5.75);
+        assert(fp_call_variadic_ninth_float(
+                   1.0f, 2.0f, 3.0f, 4.0f, 5.0f,
+                   6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f,
+                   12.0f, 13.0f, 14.0f, 15.0f, 16.0f, 17.0f) == 9.0);
         assert(fp_call_variadic_int(52) == 52);
         assert(fp_call_variadic_ninth(
                    1.0, 2.0, 3.0, 4.0, 5.0,

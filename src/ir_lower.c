@@ -684,6 +684,12 @@ static RccIrLowerValue lower_cast(RccIrLowerContext* context,
                target.kind == RCC_IR_TYPE_POINTER) {
         instruction = lower_append(context, RCC_IR_INT_TO_PTR, target,
                                    &operand, 1u, NULL, 0u);
+    } else if (source.type.kind == RCC_IR_TYPE_FLOAT &&
+               source.type.bit_width == 32u &&
+               target.kind == RCC_IR_TYPE_FLOAT &&
+               target.bit_width == 64u) {
+        instruction = lower_append(context, RCC_IR_FPEXT, target,
+                                   &operand, 1u, NULL, 0u);
     } else if (source.type.kind == RCC_IR_TYPE_POINTER &&
                target.kind == RCC_IR_TYPE_POINTER) {
         return lower_value(source.value, target, true);
@@ -5116,9 +5122,10 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             }
             if (!variadic_parameter && variadic_argument->expr &&
                 variadic_argument->expr->type &&
-                variadic_argument->expr->type->kind == TYPE_FLOAT) {
-                /* The default float-to-double promotion needs FP extension in
-                 * typed SSA; keep this call on the established backend. */
+                variadic_argument->expr->type->kind == TYPE_FLOAT &&
+                g_opts.target_arch != ARCH_X64) {
+                /* i686 variadic FP promotion remains on its complete ABI
+                 * lowering path; this FPEXT currently targets SysV AMD64. */
                 context->unsupported = true;
                 return lower_invalid_value();
             }
@@ -5301,6 +5308,11 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             operands[index++] = value.value;
         } else {
             if (argument->expr && argument->expr->type &&
+                argument->expr->type->kind == TYPE_FLOAT) {
+                /* C and C++ default argument promotions pass float as double
+                 * through a variadic call, including the SysV XMM class. */
+                value = lower_cast(context, value, type_double);
+            } else if (argument->expr && argument->expr->type &&
                 (type_is_integer(argument->expr->type) ||
                  argument->expr->type->kind == TYPE_ENUM) &&
                 argument->expr->type->size < 4) {

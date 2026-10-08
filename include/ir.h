@@ -51,6 +51,7 @@ typedef enum {
     RCC_IR_TRUNC,
     RCC_IR_ZEXT,
     RCC_IR_SEXT,
+    RCC_IR_FPEXT,
     RCC_IR_PTR_TO_INT,
     RCC_IR_INT_TO_PTR,
     RCC_IR_BITCAST,

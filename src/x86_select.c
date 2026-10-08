@@ -227,6 +227,7 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_TRUNC: return RCC_X86_TRUNCATE;
         case RCC_MIR_ZEXT: return RCC_X86_ZERO_EXTEND;
         case RCC_MIR_SEXT: return RCC_X86_SIGN_EXTEND;
+        case RCC_MIR_FPEXT: return RCC_X86_FLOAT_EXTEND;
         case RCC_MIR_PTR_TO_INT:
         case RCC_MIR_INT_TO_PTR:
         case RCC_MIR_BITCAST: return RCC_X86_REINTERPRET;
@@ -454,7 +455,8 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
                 instruction->operand_count == 2u &&
                 instruction->target_count == 0u;
         case RCC_X86_TRUNCATE: case RCC_X86_ZERO_EXTEND:
-        case RCC_X86_SIGN_EXTEND: case RCC_X86_REINTERPRET:
+        case RCC_X86_SIGN_EXTEND: case RCC_X86_FLOAT_EXTEND:
+        case RCC_X86_REINTERPRET:
         case RCC_X86_LOAD:
             return instruction->has_destination &&
                 instruction->operand_count == 1u &&
@@ -581,7 +583,16 @@ bool rcc_x86_verify_function(
                  instruction->opcode != RCC_X86_CALL &&
                  instruction->opcode != RCC_X86_RETURN &&
                  instruction->opcode != RCC_X86_COPY &&
+                 instruction->opcode != RCC_X86_FLOAT_EXTEND &&
                  instruction->opcode != RCC_X86_REINTERPRET) ||
+                (instruction->opcode == RCC_X86_FLOAT_EXTEND &&
+                 (function->target != RCC_X86_TARGET_X86_64 ||
+                  instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
+                  instruction->type.bit_width != 64u ||
+                  instruction->operand_count != 1u ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_FLOAT ||
+                  instruction->operand_types[0].bit_width != 32u)) ||
                 (instruction->opcode == RCC_X86_CAPTURE_RETURN_PAIR &&
                  ((function->target == RCC_X86_TARGET_I686 &&
                    instruction->immediate != 8u) ||
@@ -641,6 +652,7 @@ bool rcc_x86_verify_function(
                      instruction->opcode != RCC_X86_RETURN &&
                      instruction->opcode != RCC_X86_CALL &&
                      instruction->opcode != RCC_X86_COPY &&
+                     instruction->opcode != RCC_X86_FLOAT_EXTEND &&
                      instruction->opcode != RCC_X86_REINTERPRET)) {
                     return x86_select_error(error, error_size,
                                             "x86 operand type is invalid");

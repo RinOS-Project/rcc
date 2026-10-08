@@ -44,6 +44,7 @@ typedef enum {
     RCC_MIR_TRUNC,
     RCC_MIR_ZEXT,
     RCC_MIR_SEXT,
+    RCC_MIR_FPEXT,
     RCC_MIR_PTR_TO_INT,
     RCC_MIR_INT_TO_PTR,
     RCC_MIR_BITCAST,

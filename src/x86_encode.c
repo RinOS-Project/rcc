@@ -1811,6 +1811,84 @@ static bool x86_emit_stack_subtract(RccX86Encoder* encoder,
         x86_emit_u32(encoder, bytes);
 }
 
+static bool x86_emit_stack_add(RccX86Encoder* encoder, uint32_t bytes) {
+    if (bytes == 0u) return true;
+    return x86_emit_prefix(encoder, encoder->function->pointer_size,
+                           RCC_X86_GPR_BP, RCC_X86_GPR_SP, false) &&
+        x86_emit_u8(encoder, 0x81u) &&
+        x86_emit_u8(encoder, x86_modrm(
+            3u, 0u, RCC_X86_GPR_SP)) &&
+        x86_emit_u32(encoder, bytes);
+}
+
+static bool x86_emit_float_extend_register(
+    RccX86Encoder* encoder, unsigned destination,
+    RccX86Value source) {
+    int32_t displacement = 0;
+    bool register_source = source.kind == RCC_X86_VALUE_FPR;
+    if (destination >= 16u ||
+        (register_source && source.fpr >= 16u) ||
+        (!register_source &&
+         source.kind != RCC_X86_VALUE_FRAME &&
+         source.kind != RCC_X86_VALUE_OUTGOING_ARGUMENT &&
+         source.kind != RCC_X86_VALUE_INCOMING_ARGUMENT) ||
+        (!register_source &&
+         !x86_value_displacement(encoder, source, &displacement)) ||
+        !x86_emit_u8(encoder, 0xf3u) ||
+        !x86_emit_rex(
+            encoder, false, (RccX86HardwareGpr)destination,
+            register_source
+                ? (RccX86HardwareGpr)source.fpr : RCC_X86_GPR_BP,
+            false) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, 0x5au)) {
+        return x86_encode_error(
+            encoder, "x86 float32-to-float64 conversion operand is invalid");
+    }
+    if (register_source) {
+        return x86_emit_u8(
+            encoder, x86_modrm(3u, destination, source.fpr));
+    }
+    return x86_emit_memory_modrm(encoder, destination, displacement);
+}
+
+static bool x86_emit_float_extend(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value destination = instruction->destination;
+    RccX86Value source = instruction->operands[0];
+    bool destination_register = destination.kind == RCC_X86_VALUE_FPR;
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        destination.size != 8u || source.size != 4u ||
+        (!destination_register &&
+         destination.kind != RCC_X86_VALUE_FRAME &&
+         destination.kind != RCC_X86_VALUE_OUTGOING_ARGUMENT &&
+         destination.kind != RCC_X86_VALUE_INCOMING_ARGUMENT) ||
+        (source.kind != RCC_X86_VALUE_FPR &&
+         source.kind != RCC_X86_VALUE_FRAME &&
+         source.kind != RCC_X86_VALUE_OUTGOING_ARGUMENT &&
+         source.kind != RCC_X86_VALUE_INCOMING_ARGUMENT)) {
+        return x86_encode_error(
+            encoder, "x86 float32-to-float64 conversion is invalid");
+    }
+    if (destination_register) {
+        return x86_emit_float_extend_register(
+            encoder, destination.fpr, source);
+    }
+
+    /* A spilled result needs a temporary XMM register. Preserve its existing
+     * scalar value and keep RSP 16-byte aligned while using the ABI scratch. */
+    return x86_emit_stack_subtract(encoder, 16u) &&
+        x86_emit_scalar_xmm_indirect(
+            encoder, 0u, RCC_X86_GPR_SP, 8u, false) &&
+        x86_emit_float_extend_register(encoder, 0u, source) &&
+        x86_emit_scalar_xmm_memory(
+            encoder, 0u, destination, 8u, false) &&
+        x86_emit_scalar_xmm_indirect(
+            encoder, 0u, RCC_X86_GPR_SP, 8u, true) &&
+        x86_emit_stack_add(encoder, 16u);
+}
+
 static bool x86_emit_epilogue(RccX86Encoder* encoder,
                               uint16_t stack_pop) {
     const RccX86LegalFunction* function = encoder->function;
@@ -1928,6 +2006,8 @@ static bool x86_emit_instruction(
         case RCC_X86_SIGN_EXTEND:
         case RCC_X86_REINTERPRET:
             return x86_emit_conversion(encoder, instruction);
+        case RCC_X86_FLOAT_EXTEND:
+            return x86_emit_float_extend(encoder, instruction);
         case RCC_X86_STACK_ADDRESS:
             return x86_emit_stack_address(encoder, instruction);
         case RCC_X86_FRAME_ADDRESS:
