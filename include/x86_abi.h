@@ -7,6 +7,8 @@
 
 #include "mir_alloc.h"
 
+#define RCC_X86_SYSV_VA_GP_SAVE_SIZE 48u
+
 typedef enum {
     RCC_X86_TARGET_I686,
     RCC_X86_TARGET_X86_64,

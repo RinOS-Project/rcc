@@ -856,6 +856,16 @@
         promotion後のinteger、pointer、two-word 64-bit `va_arg` loadをtyped SSAへ
         接続。i686 verified backendでfallbackなしのobject生成を検証し、x64では
         完全なlegacy backendへの明示fallbackを保持
+  - [x] x86_64 SysV variadic calleeのtyped-SSA経路で、整数／pointerのnamed GP
+        scalar parameter（6個超を含む）に対する`gp_offset`、176-byte GPR/XMM
+        save area、named parameter数に応じたoverflow stack cursorを実装。
+        local array `va_list`の`va_copy`／`va_end`、integer/pointer `va_arg`の
+        register・stack両経路、および7個目のnamed parameter後のoverflow開始位置を
+        `-O0`/`-O2` runtime bridgeで検証。variadic callにおけるdefault integer
+        promotionも検証
+  - [ ] x86_64 SysV FP/XMM `va_arg` register-save経路、aggregate `va_arg`分類、
+        FP/aggregate named parameterの分類、pointer-adjusted `va_list`のSSA化
+        （現在は関数単位でlegacy backendへ明示fallback）
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路

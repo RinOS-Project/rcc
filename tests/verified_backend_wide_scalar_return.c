@@ -221,6 +221,47 @@ unsigned long long verified_wide_scalar_variadic_scalar_call(
         5, (unsigned char)value, pointer);
 }
 
+int verified_wide_scalar_variadic_overflow_target(int marker, ...)
+{
+    va_list arguments;
+    int total = marker;
+    va_start(arguments, marker);
+    total += va_arg(arguments, int);
+    total += va_arg(arguments, int);
+    total += va_arg(arguments, int);
+    total += va_arg(arguments, int);
+    total += va_arg(arguments, int);
+    total += va_arg(arguments, int);
+    total += va_arg(arguments, int);
+    va_end(arguments);
+    return total;
+}
+
+int verified_wide_scalar_variadic_overflow_call(void)
+{
+    return verified_wide_scalar_variadic_overflow_target(
+        1, 2, 3, 4, 5, 6, 7, 8);
+}
+
+#if defined(__x86_64__)
+int verified_wide_scalar_variadic_named_overflow_target(
+    int a, int b, int c, int d, int e, int f, int g, ...)
+{
+    va_list arguments;
+    int result;
+    va_start(arguments, g);
+    result = va_arg(arguments, int);
+    va_end(arguments);
+    return result;
+}
+
+int verified_wide_scalar_variadic_named_overflow_call(void)
+{
+    return verified_wide_scalar_variadic_named_overflow_target(
+        1, 2, 3, 4, 5, 6, 7, 99);
+}
+#endif
+
 long long verified_wide_scalar_expect(long long value)
 {
     return __builtin_expect(value, 1LL);

@@ -98,6 +98,8 @@ typedef struct RccIrLowerLabel {
 typedef struct {
     RccIrModule* module;
     RccIrFunction* function;
+    const Decl* declaration;
+    RccIrValue sysv_varargs_gpr_save_area;
     const Type* ast_return_type;
     RccIrBlock* current;
     RccIrLowerLocal* locals;
@@ -128,6 +130,10 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
 static RccIrLowerValue lower_expression_impl(
     RccIrLowerContext* context, const Expr* expression);
 static bool lower_i686_wide_scalar_type(const Type* type);
+static RccIrLowerValue lower_sysv_va_builtin(
+    RccIrLowerContext* context, const Expr* expression);
+static RccIrLowerValue lower_sysv_va_arg(
+    RccIrLowerContext* context, const Expr* expression);
 static ExprKind lower_compound_binary_kind(ExprKind kind);
 static bool lower_wide_scalar_expression(
     RccIrLowerContext* context, const Expr* expression,
@@ -1596,6 +1602,321 @@ static bool lower_wide_scalar_store(
     high_address = lower_byte_offset_address(context, address, 4u);
     return lower_store_address(context, address, value.low) &&
         lower_store_address(context, high_address, value.high);
+}
+
+static bool lower_sysv_va_list_type(const Expr* list_expression) {
+    const Type* type = list_expression ? list_expression->type : NULL;
+    return g_opts.target_arch == ARCH_X64 && type &&
+        type->kind == TYPE_ARRAY && type->array_len == 1 &&
+        type->size == 24 && type->base &&
+        type->base->kind == TYPE_STRUCT && type->base->size == 24 &&
+        type->base->align == 8;
+}
+
+static RccIrLowerValue lower_sysv_va_pointer_load(
+    RccIrLowerContext* context, RccIrLowerValue address) {
+    RccIrInstruction* load;
+    if (!address.valid || address.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    load = lower_append(context, RCC_IR_LOAD, rcc_ir_type_pointer(0u),
+                        &address.value, 1u, NULL, 0u);
+    return load
+        ? lower_value(load->result, rcc_ir_type_pointer(0u), true)
+        : lower_invalid_value();
+}
+
+static bool lower_sysv_va_pointer_store(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    RccIrLowerValue value) {
+    return address.valid && value.valid &&
+        address.type.kind == RCC_IR_TYPE_POINTER &&
+        value.type.kind == RCC_IR_TYPE_POINTER &&
+        lower_store_address(context, address, value);
+}
+
+static RccIrLowerValue lower_sysv_va_select(
+    RccIrLowerContext* context, RccIrLowerValue condition,
+    RccIrLowerValue when_true, RccIrLowerValue when_false) {
+    RccIrValue operands[3];
+    RccIrInstruction* select;
+    if (!condition.valid || !when_true.valid || !when_false.valid ||
+        !rcc_ir_type_equal(when_true.type, when_false.type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operands[0] = condition.value;
+    operands[1] = when_true.value;
+    operands[2] = when_false.value;
+    select = lower_append(context, RCC_IR_SELECT, when_true.type,
+                          operands, 3u, NULL, 0u);
+    return select
+        ? lower_value(select->result, when_true.type, when_true.is_unsigned)
+        : lower_invalid_value();
+}
+
+static RccIrLowerValue lower_sysv_va_start(
+    RccIrLowerContext* context, const Expr* expression) {
+    const Decl* last_parameter = expression &&
+            expression->va_second_operand &&
+            expression->va_second_operand->kind == EXPR_IDENT
+        ? expression->va_second_operand->ident_decl : NULL;
+    const DeclList* parameter;
+    const Decl* final_parameter = NULL;
+    size_t gp_count = 0u;
+    size_t stack_argument_count;
+    uint64_t overflow_offset;
+    RccIrLowerValue list_slot;
+    RccIrLowerValue field;
+    RccIrLowerValue value;
+    RccIrInstruction* frame_address;
+    RccIrInstruction* allocation;
+    if (!context || !expression || !last_parameter ||
+        last_parameter->kind != DECL_PARAM || !context->declaration ||
+        !context->declaration->type ||
+        context->declaration->type->kind != TYPE_FUNC ||
+        !context->declaration->type->variadic ||
+        context->aggregate_return_kind != LOWER_ABI_RETURN_SCALAR ||
+        !lower_sysv_va_list_type(expression->va_list_operand)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (context->declaration->func_this_param) {
+        const Type* this_type = context->declaration->func_this_param->type;
+        if (!this_type || this_type->kind != TYPE_PTR ||
+            this_type->size != 8) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        ++gp_count;
+    }
+    parameter = context->declaration->func_params;
+    while (parameter) {
+        const Decl* item = parameter->decl;
+        const Type* type = item ? item->type : NULL;
+        if (!item || item->kind != DECL_PARAM || !type ||
+            type->size <= 0 || type->size > 8 ||
+            (!type_is_integer((Type*)type) && type->kind != TYPE_PTR) ||
+            (type->kind == TYPE_PTR && type->size != 8)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        final_parameter = item;
+        ++gp_count;
+        parameter = parameter->next;
+    }
+    if (final_parameter != last_parameter) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    stack_argument_count = gp_count > 6u ? gp_count - 6u : 0u;
+    if (stack_argument_count >
+        ((uint64_t)INT32_MAX - 16u) / 8u) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    overflow_offset = 16u + (uint64_t)stack_argument_count * 8u;
+    list_slot = lower_lvalue_address(context, expression->va_list_operand);
+    if (!list_slot.valid || list_slot.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (context->sysv_varargs_gpr_save_area == RCC_IR_VALUE_NONE) {
+        allocation = lower_append(
+            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!allocation) return lower_invalid_value();
+        rcc_ir_set_immediate(
+            allocation, RCC_IR_SYSV_VA_SAVE_AREA_SIZE);
+        allocation->alignment = 16u;
+        allocation->sysv_varargs_gpr_save_area = true;
+        context->sysv_varargs_gpr_save_area = allocation->result;
+    }
+    field = lower_byte_offset_address(context, list_slot, 0u);
+    value = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true,
+        (uint64_t)(gp_count < 6u ? gp_count : 6u) * 8u);
+    if (!field.valid || !value.valid ||
+        !lower_store_address(context, field, value)) {
+        return lower_invalid_value();
+    }
+    field = lower_byte_offset_address(context, list_slot, 4u);
+    value = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true,
+        RCC_X86_SYSV_VA_GP_SAVE_SIZE);
+    if (!field.valid || !value.valid ||
+        !lower_store_address(context, field, value)) {
+        return lower_invalid_value();
+    }
+    frame_address = lower_append(
+        context, RCC_IR_FRAME_ADDRESS, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!frame_address) return lower_invalid_value();
+    rcc_ir_set_immediate(frame_address, overflow_offset);
+    field = lower_byte_offset_address(context, list_slot, 8u);
+    value = lower_value(
+        frame_address->result, rcc_ir_type_pointer(0u), true);
+    if (!field.valid || !lower_sysv_va_pointer_store(context, field, value)) {
+        return lower_invalid_value();
+    }
+    field = lower_byte_offset_address(context, list_slot, 16u);
+    value = lower_value(
+        context->sysv_varargs_gpr_save_area,
+        rcc_ir_type_pointer(0u), true);
+    if (!field.valid || !lower_sysv_va_pointer_store(context, field, value)) {
+        return lower_invalid_value();
+    }
+    return list_slot;
+}
+
+static RccIrLowerValue lower_sysv_va_copy(
+    RccIrLowerContext* context, const Expr* expression) {
+    static const uint64_t field_offsets[] = { 0u, 4u, 8u, 16u };
+    RccIrLowerValue destination;
+    RccIrLowerValue source;
+    if (!expression || !lower_sysv_va_list_type(expression->va_list_operand) ||
+        !lower_sysv_va_list_type(expression->va_second_operand)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    destination = lower_lvalue_address(context, expression->va_list_operand);
+    source = lower_lvalue_address(context, expression->va_second_operand);
+    if (!destination.valid || !source.valid) return lower_invalid_value();
+    for (size_t index = 0u;
+         index < sizeof(field_offsets) / sizeof(field_offsets[0]); ++index) {
+        RccIrLowerValue destination_field = lower_byte_offset_address(
+            context, destination, field_offsets[index]);
+        RccIrLowerValue source_field = lower_byte_offset_address(
+            context, source, field_offsets[index]);
+        RccIrLowerValue field_value;
+        if (field_offsets[index] < 8u) {
+            field_value = lower_load_address(
+                context, source_field, type_uint);
+            if (!field_value.valid ||
+                !lower_store_address(context, destination_field,
+                                     field_value)) {
+                return lower_invalid_value();
+            }
+        } else {
+            field_value = lower_sysv_va_pointer_load(context, source_field);
+            if (!field_value.valid ||
+                !lower_sysv_va_pointer_store(
+                    context, destination_field, field_value)) {
+                return lower_invalid_value();
+            }
+        }
+    }
+    return destination;
+}
+
+static RccIrLowerValue lower_sysv_va_arg(
+    RccIrLowerContext* context, const Expr* expression) {
+    RccIrLowerValue list_slot;
+    RccIrLowerValue gp_field;
+    RccIrLowerValue gp_offset;
+    RccIrLowerValue limit;
+    RccIrLowerValue in_registers;
+    RccIrLowerValue save_field;
+    RccIrLowerValue save_area;
+    RccIrLowerValue register_address;
+    RccIrLowerValue overflow_field;
+    RccIrLowerValue overflow_address;
+    RccIrLowerValue selected_address;
+    RccIrLowerValue loaded;
+    RccIrLowerValue increment;
+    RccIrLowerValue next_gp_register;
+    RccIrLowerValue next_gp;
+    RccIrLowerValue next_overflow;
+    RccIrLowerValue stored_overflow;
+    RccIrValue operands[2];
+    RccIrInstruction* compare;
+    RccIrInstruction* add;
+    const Type* type = expression ? expression->va_arg_type : NULL;
+    if (!context || !expression || !type ||
+        !context->declaration || !context->declaration->type ||
+        !context->declaration->type->variadic ||
+        !lower_sysv_va_list_type(expression->va_list_operand) ||
+        type->size <= 0 || type->size > 8 ||
+        (!type_is_integer((Type*)type) && type->kind != TYPE_PTR) ||
+        (type->kind == TYPE_PTR && type->size != 8)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    list_slot = lower_lvalue_address(context, expression->va_list_operand);
+    gp_field = lower_byte_offset_address(context, list_slot, 0u);
+    gp_offset = lower_load_address(context, gp_field, type_uint);
+    limit = lower_integer_constant(
+        context, gp_offset.type, true, RCC_X86_SYSV_VA_GP_SAVE_SIZE);
+    if (!list_slot.valid || !gp_field.valid || !gp_offset.valid ||
+        !limit.valid) return lower_invalid_value();
+    operands[0] = gp_offset.value;
+    operands[1] = limit.value;
+    compare = lower_append(
+        context, RCC_IR_ICMP, rcc_ir_type_integer(1u), operands, 2u,
+        NULL, 0u);
+    if (!compare) return lower_invalid_value();
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_ULT);
+    in_registers = lower_value(
+        compare->result, rcc_ir_type_integer(1u), true);
+    save_field = lower_byte_offset_address(context, list_slot, 16u);
+    save_area = lower_sysv_va_pointer_load(context, save_field);
+    register_address = lower_dynamic_byte_offset_address(
+        context, save_area, gp_offset);
+    overflow_field = lower_byte_offset_address(context, list_slot, 8u);
+    overflow_address = lower_sysv_va_pointer_load(context, overflow_field);
+    selected_address = lower_sysv_va_select(
+        context, in_registers, register_address, overflow_address);
+    loaded = lower_load_address(context, selected_address, type);
+    if (!save_field.valid || !save_area.valid ||
+        !register_address.valid || !overflow_field.valid ||
+        !overflow_address.valid || !selected_address.valid || !loaded.valid) {
+        return lower_invalid_value();
+    }
+    increment = lower_integer_constant(context, gp_offset.type, true, 8u);
+    if (!increment.valid) return lower_invalid_value();
+    operands[0] = gp_offset.value;
+    operands[1] = increment.value;
+    add = lower_append(context, RCC_IR_ADD, gp_offset.type, operands, 2u,
+                       NULL, 0u);
+    if (!add) return lower_invalid_value();
+    next_gp_register = lower_value(add->result, gp_offset.type, true);
+    next_gp = lower_sysv_va_select(
+        context, in_registers, next_gp_register, gp_offset);
+    next_overflow = lower_byte_offset_address(
+        context, overflow_address, 8u);
+    stored_overflow = lower_sysv_va_select(
+        context, in_registers, overflow_address, next_overflow);
+    if (!next_gp.valid || !next_overflow.valid || !stored_overflow.valid ||
+        !lower_store_address(context, gp_field, next_gp) ||
+        !lower_sysv_va_pointer_store(
+            context, overflow_field, stored_overflow)) {
+        return lower_invalid_value();
+    }
+    return loaded;
+}
+
+static RccIrLowerValue lower_sysv_va_builtin(
+    RccIrLowerContext* context, const Expr* expression) {
+    RccIrLowerValue list_slot;
+    if (!context || !expression ||
+        !lower_sysv_va_list_type(expression->va_list_operand)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    list_slot = lower_lvalue_address(context, expression->va_list_operand);
+    if (!list_slot.valid) return lower_invalid_value();
+    switch (expression->kind) {
+        case EXPR_VA_START:
+            return lower_sysv_va_start(context, expression);
+        case EXPR_VA_COPY:
+            return lower_sysv_va_copy(context, expression);
+        case EXPR_VA_END:
+            return list_slot;
+        default:
+            context->unsupported = true;
+            return lower_invalid_value();
+    }
 }
 
 static bool lower_i686_va_list_type(const Expr* list_expression) {
@@ -4803,6 +5124,17 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             }
             operands[index++] = value.value;
         } else {
+            if (argument->expr && argument->expr->type &&
+                (type_is_integer(argument->expr->type) ||
+                 argument->expr->type->kind == TYPE_ENUM) &&
+                argument->expr->type->size < 4) {
+                /* Default argument promotions apply to every variadic call,
+                 * not just the i686 wide-return lowering path.  In
+                 * particular, passing a narrow value in a 64-bit argument
+                 * register without this conversion leaves its upper bits
+                 * dependent on the register's previous contents. */
+                value = lower_cast(context, value, type_int);
+            }
             if (!value.valid ||
                 (value.type.kind != RCC_IR_TYPE_POINTER &&
                  (value.type.kind != RCC_IR_TYPE_INTEGER ||
@@ -6811,8 +7143,13 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
         case EXPR_VA_START:
         case EXPR_VA_END:
         case EXPR_VA_COPY:
-            return lower_i686_va_builtin(context, expression);
+            return g_opts.target_arch == ARCH_X64
+                ? lower_sysv_va_builtin(context, expression)
+                : lower_i686_va_builtin(context, expression);
         case EXPR_VA_ARG:
+            if (g_opts.target_arch == ARCH_X64) {
+                return lower_sysv_va_arg(context, expression);
+            }
             if (expression->va_arg_type &&
                 lower_i686_va_argument_address(
                     context, expression->va_list_operand,
@@ -10401,6 +10738,8 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     memset(&context, 0, sizeof(context));
     context.module = module;
     context.function = function;
+    context.declaration = declaration;
+    context.sysv_varargs_gpr_save_area = RCC_IR_VALUE_NONE;
     context.ast_return_type = declaration->type->ret_type;
     context.aggregate_return_kind = aggregate_return_kind;
     context.aggregate_return_address =

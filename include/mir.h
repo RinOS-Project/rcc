@@ -80,6 +80,7 @@ struct RccMirInstruction {
     uint32_t alignment;
     RccIrIntPredicate predicate;
     bool volatile_access;
+    bool sysv_varargs_gpr_save_area;
     char* callee;
     bool symbol_is_code;
     bool symbol_is_tls;

@@ -320,6 +320,17 @@ static bool x86_select_instruction(
         uint32_t offset;
         uint32_t alignment = instruction->alignment != 0u
             ? instruction->alignment : policy->pointer_size;
+        if (instruction->sysv_varargs_gpr_save_area &&
+            (selected->target != RCC_X86_TARGET_X86_64 ||
+             selected->has_sysv_varargs_gpr_save_area ||
+             instruction->immediate != RCC_IR_SYSV_VA_SAVE_AREA_SIZE ||
+             alignment != 16u)) {
+            rcc_free(operands);
+            rcc_free(operand_types);
+            return x86_select_error(
+                error, error_size,
+                "x86-64 SysV variadic save-area metadata is invalid");
+        }
         if (instruction->immediate > UINT32_MAX ||
             !x86_align_frame_for_object(
                 selected->frame_size, alignment, policy, &offset) ||
@@ -328,6 +339,10 @@ static bool x86_select_instruction(
             rcc_free(operand_types);
             return x86_select_error(error, error_size,
                                     "x86 alloca frame exceeds 32 bits");
+        }
+        if (instruction->sysv_varargs_gpr_save_area) {
+            selected->has_sysv_varargs_gpr_save_area = true;
+            selected->sysv_varargs_gpr_save_area_offset = offset;
         }
         selected->frame_size = offset + (uint32_t)instruction->immediate;
     }
@@ -505,6 +520,12 @@ bool rcc_x86_verify_function(
         function->stack_alignment != policy->stack_alignment ||
         function->stack_alignment == 0u ||
         function->frame_size % function->stack_alignment != 0u ||
+        (function->has_sysv_varargs_gpr_save_area &&
+         (function->target != RCC_X86_TARGET_X86_64 ||
+          function->sysv_varargs_gpr_save_area_offset > function->frame_size ||
+          RCC_IR_SYSV_VA_SAVE_AREA_SIZE > function->frame_size -
+              function->sysv_varargs_gpr_save_area_offset ||
+          function->sysv_varargs_gpr_save_area_offset % 16u != 0u)) ||
         !x86_function_return_supported(
             function->return_type, function->target) ||
         (function->parameter_count != 0u &&

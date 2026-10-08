@@ -446,6 +446,14 @@ static bool ir_verify_instruction_types(
         return ir_verify_error(verifier,
                                "volatile access flag requires load or store");
     }
+    if (instruction->sysv_varargs_gpr_save_area &&
+        (instruction->opcode != RCC_IR_ALLOCA ||
+         instruction->immediate != RCC_IR_SYSV_VA_SAVE_AREA_SIZE ||
+         instruction->alignment != 16u)) {
+        return ir_verify_error(
+            verifier,
+            "SysV variadic register-save area requires a 176-byte, 16-byte-aligned alloca");
+    }
     if (ir_is_binary_integer(instruction->opcode)) {
         if (!ir_require_shape(verifier, instruction, 2u, 0u)) return false;
         if (instruction->type.kind != RCC_IR_TYPE_INTEGER) {

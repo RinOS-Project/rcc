@@ -11,6 +11,7 @@
 
 #define RCC_IR_VALUE_NONE UINT32_MAX
 #define RCC_IR_BLOCK_NONE UINT32_MAX
+#define RCC_IR_SYSV_VA_SAVE_AREA_SIZE 176u
 
 typedef uint32_t RccIrValue;
 typedef uint32_t RccIrBlockId;
@@ -103,6 +104,8 @@ struct RccIrInstruction {
     RccIrIntPredicate predicate;
     /* Preserve observable C/C++ volatile memory accesses through lowering. */
     bool volatile_access;
+    /* Mark the base of an x86-64 SysV variadic callee's register-save area. */
+    bool sysv_varargs_gpr_save_area;
     char* callee;
     bool symbol_is_code;
     bool symbol_is_tls;

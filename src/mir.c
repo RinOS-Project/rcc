@@ -213,6 +213,14 @@ static bool mir_verify_instruction_type(
     if (!mir_type_valid(instruction->type)) {
         return mir_error(verifier, "MIR instruction has invalid type");
     }
+    if (instruction->sysv_varargs_gpr_save_area &&
+        (instruction->opcode != RCC_MIR_ALLOCA ||
+         instruction->immediate != RCC_IR_SYSV_VA_SAVE_AREA_SIZE ||
+         instruction->alignment != 16u)) {
+        return mir_error(
+            verifier,
+            "SysV variadic register-save area requires a 176-byte, 16-byte-aligned alloca");
+    }
     if (mir_is_binary(instruction->opcode)) {
         return mir_shape(verifier, instruction, 2u, 0u) &&
             instruction->type.kind == RCC_MIR_TYPE_INTEGER &&
@@ -859,6 +867,8 @@ bool rcc_mir_lower_ir(const RccIrFunction* ir_function,
             instruction->predicate = ir_instruction->predicate;
             instruction->volatile_access =
                 ir_instruction->volatile_access;
+            instruction->sysv_varargs_gpr_save_area =
+                ir_instruction->sysv_varargs_gpr_save_area;
             instruction->symbol_is_code = ir_instruction->symbol_is_code;
             instruction->symbol_is_tls = ir_instruction->symbol_is_tls;
             if (ir_instruction->callee_value != RCC_IR_VALUE_NONE) {

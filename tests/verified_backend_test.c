@@ -195,6 +195,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* variadic_target_symbol;
     ObjSymbol* variadic_scalar_call_symbol;
     ObjSymbol* variadic_scalar_target_symbol;
+    ObjSymbol* variadic_overflow_call_symbol;
+    ObjSymbol* variadic_named_overflow_call_symbol;
     ObjSymbol* expect_symbol;
     ObjSymbol* assignment_symbol;
     ObjSymbol* compound_symbol;
@@ -293,6 +295,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_variadic_scalar_call");
     variadic_scalar_target_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_variadic_scalar_target");
+    variadic_overflow_call_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_variadic_overflow_call");
+    variadic_named_overflow_call_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_variadic_named_overflow_call");
     expect_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_expect");
     assignment_symbol = objfile_find_symbol(
@@ -470,6 +476,18 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            variadic_scalar_call_symbol->type == SYM_GLOBAL &&
            variadic_scalar_call_symbol->binding == BIND_CODE &&
            variadic_scalar_call_symbol->section == 0);
+    assert(variadic_overflow_call_symbol != NULL &&
+           variadic_overflow_call_symbol->type == SYM_GLOBAL &&
+           variadic_overflow_call_symbol->binding == BIND_CODE &&
+           variadic_overflow_call_symbol->section == 0);
+    if (arch == ARCH_X64) {
+        assert(variadic_named_overflow_call_symbol != NULL &&
+               variadic_named_overflow_call_symbol->type == SYM_GLOBAL &&
+               variadic_named_overflow_call_symbol->binding == BIND_CODE &&
+               variadic_named_overflow_call_symbol->section == 0);
+    } else {
+        assert(variadic_named_overflow_call_symbol == NULL);
+    }
     assert(expect_symbol != NULL && expect_symbol->type == SYM_GLOBAL &&
            expect_symbol->binding == BIND_CODE && expect_symbol->section == 0);
     assert(assignment_symbol != NULL &&
@@ -631,6 +649,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
             unsigned long long);
         unsigned long long RINOS_ABI (*variadic_scalar_call_function)(
             unsigned int, const void*);
+        int RINOS_ABI (*variadic_overflow_call_function)(void);
+        int RINOS_ABI (*variadic_named_overflow_call_function)(void);
         long long RINOS_ABI (*expect_function)(long long);
         unsigned long long RINOS_ABI (*assignment_function)(unsigned long long);
         unsigned long long RINOS_ABI (*compound_function)(unsigned long long);
@@ -713,6 +733,17 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&variadic_scalar_call_function, &address,
                sizeof(variadic_scalar_call_function));
         assert(variadic_scalar_call_function(0x1234u, object) == 60ULL);
+        address = symbol_address(memory, variadic_overflow_call_symbol);
+        memcpy(&variadic_overflow_call_function, &address,
+               sizeof(variadic_overflow_call_function));
+        assert(variadic_overflow_call_function() == 36);
+        if (arch == ARCH_X64) {
+            address = symbol_address(
+                memory, variadic_named_overflow_call_symbol);
+            memcpy(&variadic_named_overflow_call_function, &address,
+                   sizeof(variadic_named_overflow_call_function));
+            assert(variadic_named_overflow_call_function() == 99);
+        }
         address = symbol_address(memory, carry_symbol);
         memcpy(&carry_function, &address, sizeof(carry_function));
         assert(carry_function(1ULL) == 0x0000000100000000ULL);
@@ -2641,6 +2672,18 @@ int main(int argc, char** argv)
         verify_cxx_reference_local_object(
             argv[2], arch, arch == ARCH_X64 && sizeof(void*) == 8u);
         puts("Verified C++ local reference object passed");
+        return 0;
+    }
+    if (argc == 4 && strcmp(argv[1], "--wide-scalar-object") == 0) {
+        uint16_t arch;
+        if (strcmp(argv[3], "x86") == 0) {
+            arch = ARCH_X86;
+        } else {
+            assert(strcmp(argv[3], "x64") == 0);
+            arch = ARCH_X64;
+        }
+        verify_wide_scalar_object(argv[2], arch);
+        puts("Verified wide-scalar object passed");
         return 0;
     }
     if (argc == 4 &&

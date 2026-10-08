@@ -321,6 +321,22 @@ static bool x86_emit_store(RccX86Encoder* encoder,
     return x86_emit_memory_modrm(encoder, source, displacement);
 }
 
+static bool x86_emit_store_xmm(RccX86Encoder* encoder,
+                               RccX86Value destination,
+                               unsigned xmm_register) {
+    int32_t displacement;
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        xmm_register >= 16u ||
+        !x86_value_displacement(encoder, destination, &displacement) ||
+        !x86_emit_u8(encoder, 0xf3u) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, 0x7fu)) {
+        return x86_encode_error(
+            encoder, "x86-64 SysV variadic XMM save slot is invalid");
+    }
+    return x86_emit_memory_modrm(encoder, xmm_register, displacement);
+}
+
 static bool x86_emit_copy(RccX86Encoder* encoder,
                           RccX86Value source,
                           RccX86Value destination, uint16_t size) {
@@ -1553,6 +1569,10 @@ static bool x86_emit_compare_zero(RccX86Encoder* encoder,
 
 static bool x86_emit_prologue(RccX86Encoder* encoder) {
     const RccX86LegalFunction* function = encoder->function;
+    static const RccX86HardwareGpr sysv_integer_arguments[6] = {
+        RCC_X86_GPR_DI, RCC_X86_GPR_SI, RCC_X86_GPR_DX,
+        RCC_X86_GPR_CX, RCC_X86_GPR_R8, RCC_X86_GPR_R9
+    };
     if (!x86_emit_push(encoder, RCC_X86_GPR_BP) ||
         !x86_emit_prefix(encoder, function->pointer_size,
                          RCC_X86_GPR_SP, RCC_X86_GPR_BP, false) ||
@@ -1567,6 +1587,36 @@ static bool x86_emit_prologue(RccX86Encoder* encoder) {
                 3u, 5u, RCC_X86_GPR_SP)) ||
             !x86_emit_u32(encoder, function->stack_adjustment)) {
             return false;
+        }
+    }
+    if (function->has_sysv_varargs_gpr_save_area) {
+        for (size_t index = 0u; index < 6u; ++index) {
+            RccX86Value slot;
+            memset(&slot, 0, sizeof(slot));
+            slot.kind = RCC_X86_VALUE_FRAME;
+            slot.frame_offset =
+                function->sysv_varargs_gpr_save_area_offset +
+                (uint32_t)index * 8u;
+            slot.size = 8u;
+            slot.alignment = 8u;
+            if (!x86_emit_store(
+                    encoder, slot, sysv_integer_arguments[index], 8u)) {
+                return false;
+            }
+        }
+        for (size_t index = 0u; index < 8u; ++index) {
+            RccX86Value slot;
+            memset(&slot, 0, sizeof(slot));
+            slot.kind = RCC_X86_VALUE_FRAME;
+            slot.frame_offset =
+                function->sysv_varargs_gpr_save_area_offset +
+                RCC_X86_SYSV_VA_GP_SAVE_SIZE +
+                (uint32_t)index * 16u;
+            slot.size = 16u;
+            slot.alignment = 16u;
+            if (!x86_emit_store_xmm(encoder, slot, (unsigned)index)) {
+                return false;
+            }
         }
     }
     if (function->callee_save_count != 0u) {

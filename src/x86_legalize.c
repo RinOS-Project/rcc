@@ -1409,6 +1409,15 @@ static bool x86_legal_verify_frame_plan(
     if (!function->frame_plan_complete ||
         function->source_frame_size % function->stack_alignment != 0u ||
         function->source_frame_size > function->frame_size ||
+        (function->has_sysv_varargs_gpr_save_area
+             ? function->target != RCC_X86_TARGET_X86_64 ||
+                   function->sysv_varargs_gpr_save_area_offset % 16u != 0u ||
+                   function->sysv_varargs_gpr_save_area_offset >
+                       function->source_frame_size ||
+                   RCC_IR_SYSV_VA_SAVE_AREA_SIZE >
+                       function->source_frame_size -
+                       function->sysv_varargs_gpr_save_area_offset
+             : function->sysv_varargs_gpr_save_area_offset != 0u) ||
         function->callee_save_area_offset !=
             function->source_frame_size ||
         function->callee_save_count >
@@ -1702,6 +1711,10 @@ bool rcc_x86_legalize_function(
     legal->stack_alignment = selected->stack_alignment;
     legal->source_frame_size = selected->frame_size;
     legal->frame_size = selected->frame_size;
+    legal->has_sysv_varargs_gpr_save_area =
+        selected->has_sysv_varargs_gpr_save_area;
+    legal->sysv_varargs_gpr_save_area_offset =
+        selected->sysv_varargs_gpr_save_area_offset;
     legal->return_type = selected->return_type;
     legal->original_block_count = selected->original_block_count;
     legal->source_instruction_count = selected->source_instruction_count;

@@ -91,6 +91,9 @@ typedef struct {
     uint16_t pointer_size;
     uint16_t stack_alignment;
     uint32_t frame_size;
+    /* Base of the 176-byte SysV GPR/XMM variadic register-save area. */
+    bool has_sysv_varargs_gpr_save_area;
+    uint32_t sysv_varargs_gpr_save_area_offset;
     RccMirType return_type;
     RccMirType* parameter_types;
     RccMirLocation* parameters;
