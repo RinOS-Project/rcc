@@ -614,6 +614,14 @@
       - [x] Discard unselected `if constexpr` local-class definitions during
             template substitution; execute the selected specialization and
             verify the discarded method is absent from generated assembly.
+      - [x] Expand dependent base packs for zero, one, and two concrete bases;
+            verify target-width layouts and host execution.
+      - [x] Substitute dependent base constructor initializers and expand
+            `Bases()...`; verify constructor side effects and declaration order
+            for zero, one, and two pack elements.
+      - [x] Preserve expression-shaped direct initialization of a local class
+            in a function-template pattern until specialization resolves its
+            incomplete class layout and constructor set.
       Dependent base type patterns now remain attached to the local class until
       specialization, where type-pack bases are expanded before layout and
       virtual validation. Local member signatures/bodies and pack-expanded
@@ -626,9 +634,14 @@
       Dependent `using Base<T>::member` declarations retain and substitute
       their base type, and public direct `using Base<T>::Base` resolves the
       inherited constructor set against the exact specialized base. The
-      compiler build passes. Keep this parent unchecked: no fixture or
-      target-object execution was run for this extension, and constructor/member
-      ABI coverage beyond the implemented bounded forms remains open.
+      compiler build and focused local-class target pass for the
+      dependent-base/layout/constructor forms checked above. The full `test-cxx`
+      rerun after adding direct initialization reached a host link step but
+      stopped because the E: volume had no free space; it must be rerun. The
+      `using Base<T>` and inherited-constructor extension still lacks a
+      dedicated host-execution and target-object fixture. Keep this parent
+      unchecked until those checks and the broader constructor/member ABI and
+      dependent member lookup are verified.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

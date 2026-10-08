@@ -13966,6 +13966,8 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     bool aggregate_type;
     bool paren_form;
     bool paren_has_arguments;
+    bool expression_paren_initializer;
+    bool deferred_template_class_initializer;
     bool is_ctad_placeholder = base_type && base_type->cxx_dependent &&
         base_type->cxx_template && base_type->cxx_template_param_index < 0 &&
         base_type->cxx_template_arg_count == 0;
@@ -13977,16 +13979,21 @@ Stmt* rcc_parse_cxx_class_local_declaration(Type* base_type,
     paren_form = check_next(TOK_LPAREN);
     paren_has_arguments = paren_form && parser.cur->next->next &&
         parser.cur->next->next->type != TOK_RPAREN;
+    expression_paren_initializer = paren_form && paren_has_arguments &&
+        !cxx_paren_looks_like_function_parameters();
+    deferred_template_class_initializer =
+        active_template && active_template->kind == TMPL_FUNCTION &&
+        base_type && base_type->cxx_class && expression_paren_initializer;
 
-    /* Only consume the spelling that the common C parser would misinterpret
-     * as a function declarator.  Constructor arity was registered only after
-     * the C++ class verifier proved its storage representation is ABI-safe.
-     * A constructor-free aggregate additionally accepts a non-empty
-     * parenthesized initializer starting in C++20; `T value();` remains the
-     * usual most-vexing-parse function declaration. */
+    /* Preserve expression-shaped initialization of a local class while its
+     * function-template body is still a pattern.  Its concrete layout and
+     * constructor set do not exist yet, so arity verification must happen
+     * after specialization.  Outside that deferred case, only constructors
+     * already proven ABI-safe and C++20 aggregate paren initialization are
+     * consumed here; `T value();` remains a function declaration. */
     if (!base_type || (base_type->kind != TYPE_STRUCT &&
                        base_type->kind != TYPE_UNION) ||
-        (!is_ctad_placeholder &&
+        (!is_ctad_placeholder && !deferred_template_class_initializer &&
          (!type_is_complete(base_type) ||
           (constructor_mask == 0u &&
            !(aggregate_type && (check_next(TOK_LBRACE) ||
