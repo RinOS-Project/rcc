@@ -2408,14 +2408,17 @@ test-cxx-language-linkage: $(RCXX_TARGET)
 	$(call CHECK_TEXT,second_linkage_import,$(TEST_OUT)/cxx-language-linkage/x86.ro)
 	$(call CHECK_TEXT,c_linkage_counter,$(TEST_OUT)/cxx-language-linkage/x64.ro)
 	$(call CHECK_TEXT,scoped_linkage_function,$(TEST_OUT)/cxx-language-linkage/x86.ro)
+	$(call CHECK_TEXT,scoped_c_counter,$(TEST_OUT)/cxx-language-linkage/x64.ro)
+	$(call CHECK_TEXT,_ZN14scoped_linkage18scoped_cpp_counterE,$(TEST_OUT)/cxx-language-linkage/x64.ro)
 	$(call CHECK_TEXT,_ZN14scoped_linkage19call_scoped_linkageEi,$(TEST_OUT)/cxx-language-linkage/x64.ro)
 	$(call CHECK_TEXT,_ZN14scoped_linkage17scoped_cpp_importEi,$(TEST_OUT)/cxx-language-linkage/x64.ro)
 	$(call CHECK_TEXT,_Z29call_qualified_scoped_linkagei,$(TEST_OUT)/cxx-language-linkage/x64.ro)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch '_Z14linkage_importi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }; if (Select-String -Quiet -SimpleMatch '_ZN14scoped_linkage23scoped_linkage_functionEi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }"
+	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch '_Z14linkage_importi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }; if (Select-String -Quiet -SimpleMatch '_ZN14scoped_linkage23scoped_linkage_functionEi' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }; if (Select-String -Quiet -SimpleMatch '_ZN14scoped_linkage16scoped_c_counterE' '$(TEST_OUT)/cxx-language-linkage/x64.ro') { exit 1 }"
 else
 	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | $(GREP) -x -q '_Z14linkage_importi'
 	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | $(GREP) -x -q '_ZN14scoped_linkage23scoped_linkage_functionEi'
+	! strings $(TEST_OUT)/cxx-language-linkage/x64.ro | $(GREP) -x -q '_ZN14scoped_linkage16scoped_c_counterE'
 endif
 	@echo "RCC++ C/C++ language-linkage tests completed"
 
