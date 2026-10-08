@@ -108,8 +108,11 @@ typedef struct {
     RccIrLowerLoopFrame* wide_loop;
     const Stmt* current_statement;
     RccIrValue aggregate_return_address;
+    const Expr* aggregate_result_destination_call;
+    RccIrLowerValue aggregate_result_destination;
     RccIrValue active_exception_frame;
     int aggregate_return_kind;
+    bool allow_nontrivial_temporary_conditional;
     bool terminated;
     bool unsupported;
 } RccIrLowerContext;
@@ -4190,6 +4193,47 @@ static bool lower_noexcept_expression(const Expr* expression) {
     }
 }
 
+static bool lower_nontrivial_temporary_conditional_supported(
+    const RccIrLowerContext* context, const Expr* expression) {
+    const Expr* then_expression;
+    const Expr* else_expression;
+    RccIrType then_return_type;
+    RccIrType else_return_type;
+    if (!context || !context->allow_nontrivial_temporary_conditional ||
+        !expression || expression->kind != EXPR_COND ||
+        !expression->type || expression->type->kind != TYPE_STRUCT ||
+        !expression->type->cxx_nontrivial ||
+        expression->type->cleanup_function ||
+        expression->type->cleanup_field ||
+        expression->cxx_conditional_lvalue ||
+        expression->cxx_conditional_xvalue) {
+        return false;
+    }
+    then_expression = expression->cond_then;
+    else_expression = expression->cond_else;
+    /* Only same-type, direct noexcept prvalue calls are accepted here. The
+     * enclosing reference argument owns the selected result and has already
+     * proved its complete cleanup plan; constructors, conversions, nested
+     * conditionals, and glvalue arms still use the complete backend. */
+    return then_expression && else_expression &&
+        then_expression->kind == EXPR_CALL &&
+        else_expression->kind == EXPR_CALL &&
+        then_expression->type && else_expression->type &&
+        type_is_compatible((Type*)expression->type,
+                           (Type*)then_expression->type) &&
+        type_is_compatible((Type*)expression->type,
+                           (Type*)else_expression->type) &&
+        lower_abi_return_layout(then_expression->type,
+                                &then_return_type) ==
+            LOWER_ABI_RETURN_SRET &&
+        lower_abi_return_layout(else_expression->type,
+                                &else_return_type) ==
+            LOWER_ABI_RETURN_SRET &&
+        lower_noexcept_expression(expression->cond_test) &&
+        lower_noexcept_expression(then_expression) &&
+        lower_noexcept_expression(else_expression);
+}
+
 static bool lower_cleanup_object_is_owner_subobject(
     const Expr* object, const Decl* owner) {
     if (!object || !owner) return false;
@@ -4359,6 +4403,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     RccIrLowerValue callee_value = lower_invalid_value();
     int return_kind = LOWER_ABI_RETURN_SCALAR;
     bool indirect = false;
+    bool use_aggregate_result_destination = false;
     RccIrInstruction* call;
     if (expression && expression->call_method) {
         return lower_inline_method_call(context, expression);
@@ -4425,15 +4470,29 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             context->unsupported = true;
             return lower_invalid_value();
         }
-        allocation_size = ((size_t)expression->type->size +
-                           chunk_size - 1u) / chunk_size * chunk_size;
-        allocation = lower_append(
-            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
-            NULL, 0u, NULL, 0u);
-        if (!allocation) return lower_invalid_value();
-        rcc_ir_set_immediate(allocation, (uint64_t)allocation_size);
-        aggregate_address = lower_value(
-            allocation->result, rcc_ir_type_pointer(0u), true);
+        use_aggregate_result_destination =
+            context->aggregate_result_destination_call == expression;
+        if (use_aggregate_result_destination) {
+            if (return_kind != LOWER_ABI_RETURN_SRET ||
+                !context->aggregate_result_destination.valid ||
+                context->aggregate_result_destination.type.kind !=
+                    RCC_IR_TYPE_POINTER) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            aggregate_address =
+                context->aggregate_result_destination;
+        } else {
+            allocation_size = ((size_t)expression->type->size +
+                               chunk_size - 1u) / chunk_size * chunk_size;
+            allocation = lower_append(
+                context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+                NULL, 0u, NULL, 0u);
+            if (!allocation) return lower_invalid_value();
+            rcc_ir_set_immediate(allocation, (uint64_t)allocation_size);
+            aggregate_address = lower_value(
+                allocation->result, rcc_ir_type_pointer(0u), true);
+        }
         if (return_kind == LOWER_ABI_RETURN_SRET) argument_count = 1u;
     } else if (!lower_type(expression->type, &return_type)) {
         context->unsupported = true;
@@ -4500,7 +4559,12 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
              * the argument as an lvalue address so a reference local is not
              * accidentally loaded as its pointee value. */
             if (argument->cxx_temporary_owner) {
+                bool previous_conditional_permission =
+                    context->allow_nontrivial_temporary_conditional;
+                context->allow_nontrivial_temporary_conditional = true;
                 value = lower_expression(context, argument->expr);
+                context->allow_nontrivial_temporary_conditional =
+                    previous_conditional_permission;
                 if (!value.valid || value.type.kind !=
                         RCC_IR_TYPE_POINTER ||
                     !lower_bind_temporary_owner(
@@ -6653,6 +6717,7 @@ static RccIrLowerValue lower_conditional_expression(
     RccIrInstruction* phi;
     RccIrLowerValue aggregate_storage = lower_invalid_value();
     bool aggregate_result;
+    bool supported_temporary_conditional = false;
     if (!expression || !expression->type) {
         context->unsupported = true;
         return lower_invalid_value();
@@ -6660,11 +6725,15 @@ static RccIrLowerValue lower_conditional_expression(
     aggregate_result = lower_abi_is_aggregate(expression->type);
     if (aggregate_result) {
         RccIrInstruction* allocation;
-        /* This path copies the selected branch into caller-owned storage but
-         * does not yet schedule branch-specific constructor/destructor
-         * cleanup.  Keep non-trivial class lifetime semantics on the complete
-         * backend until that cleanup is represented explicitly in SSA. */
-        if (expression->type->cxx_nontrivial ||
+        /* Ordinary aggregate conditionals still require trivial lifetime
+         * semantics. A narrowly validated same-type noexcept call conditional
+         * may use caller-owned storage when it is itself a reference temporary
+         * whose destructor plan is emitted by the enclosing call. */
+        supported_temporary_conditional =
+            lower_nontrivial_temporary_conditional_supported(context,
+                                                             expression);
+        if ((expression->type->cxx_nontrivial &&
+             !supported_temporary_conditional) ||
             expression->type->cleanup_function ||
             expression->type->cleanup_field ||
             !lower_abi_aggregate_supported(expression->type)) {
@@ -6699,20 +6768,38 @@ static RccIrLowerValue lower_conditional_expression(
 
     context->current = then_block;
     context->terminated = false;
-    then_value = lower_expression(context, expression->cond_then);
+    {
+        const Expr* previous_destination_call =
+            context->aggregate_result_destination_call;
+        RccIrLowerValue previous_destination =
+            context->aggregate_result_destination;
+        if (supported_temporary_conditional) {
+            context->aggregate_result_destination_call =
+                expression->cond_then;
+            context->aggregate_result_destination = aggregate_storage;
+        }
+        then_value = lower_expression(context, expression->cond_then);
+        context->aggregate_result_destination_call =
+            previous_destination_call;
+        context->aggregate_result_destination = previous_destination;
+    }
     if (aggregate_result) {
         const Type* then_type = expression->cond_then
             ? expression->cond_then->type : NULL;
+        bool already_in_destination = supported_temporary_conditional &&
+            then_value.valid &&
+            then_value.value == aggregate_storage.value;
         bool copied = then_value.valid &&
             then_value.type.kind == RCC_IR_TYPE_POINTER && then_type &&
             type_is_compatible((Type*)expression->type, (Type*)then_type) &&
-            (expression->type->kind == TYPE_STRUCT
+            (already_in_destination ||
+             (expression->type->kind == TYPE_STRUCT
                  ? lower_copy_struct_storage(
                        context, aggregate_storage.value,
                        then_value.value, expression->type)
                  : lower_copy_union_storage(
                        context, aggregate_storage.value,
-                       then_value.value, expression->type));
+                       then_value.value, expression->type)));
         if (!copied) {
             context->unsupported = true;
             return lower_invalid_value();
@@ -6728,20 +6815,38 @@ static RccIrLowerValue lower_conditional_expression(
 
     context->current = else_block;
     context->terminated = false;
-    else_value = lower_expression(context, expression->cond_else);
+    {
+        const Expr* previous_destination_call =
+            context->aggregate_result_destination_call;
+        RccIrLowerValue previous_destination =
+            context->aggregate_result_destination;
+        if (supported_temporary_conditional) {
+            context->aggregate_result_destination_call =
+                expression->cond_else;
+            context->aggregate_result_destination = aggregate_storage;
+        }
+        else_value = lower_expression(context, expression->cond_else);
+        context->aggregate_result_destination_call =
+            previous_destination_call;
+        context->aggregate_result_destination = previous_destination;
+    }
     if (aggregate_result) {
         const Type* else_type = expression->cond_else
             ? expression->cond_else->type : NULL;
+        bool already_in_destination = supported_temporary_conditional &&
+            else_value.valid &&
+            else_value.value == aggregate_storage.value;
         bool copied = else_value.valid &&
             else_value.type.kind == RCC_IR_TYPE_POINTER && else_type &&
             type_is_compatible((Type*)expression->type, (Type*)else_type) &&
-            (expression->type->kind == TYPE_STRUCT
+            (already_in_destination ||
+             (expression->type->kind == TYPE_STRUCT
                  ? lower_copy_struct_storage(
                        context, aggregate_storage.value,
                        else_value.value, expression->type)
                  : lower_copy_union_storage(
                        context, aggregate_storage.value,
-                       else_value.value, expression->type));
+                       else_value.value, expression->type)));
         if (!copied) {
             context->unsupported = true;
             return lower_invalid_value();

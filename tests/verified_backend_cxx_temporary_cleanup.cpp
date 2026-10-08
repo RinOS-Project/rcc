@@ -58,7 +58,29 @@ int main() {
              make_verified_temporary(&cleanup_order, 3, 20))) != 30) {
         return 3;
     }
-    if (comma_order == 12) return cleanup_order != 3412;
-    if (comma_order == 21) return cleanup_order != 1234;
-    return 4;
+    if (comma_order == 12) {
+        if (cleanup_order != 3412) return 4;
+    } else if (comma_order == 21) {
+        if (cleanup_order != 1234) return 4;
+    } else {
+        return 4;
+    }
+
+    comma_order = 0;
+    cleanup_order = 0;
+    if (consume_verified_temporary(
+            true ? make_verified_temporary(&cleanup_order, 5, 52)
+                 : make_verified_temporary(&cleanup_order, 7, 74)) != 52) {
+        return 5;
+    }
+    if (cleanup_order != 56) return 6;
+
+    cleanup_order = 0;
+    if (consume_verified_temporary(
+            false ? make_verified_temporary(&cleanup_order, 5, 52)
+                  : make_verified_temporary(&cleanup_order, 7, 74)) != 74) {
+        return 7;
+    }
+    if (cleanup_order != 78) return 8;
+    return 0;
 }
