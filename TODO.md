@@ -639,12 +639,12 @@
         then execute the generated x64 `.ro` in
         `test-verified-cxx-conditional-aggregate`.
   - [x] Lower non-throwing class-prvalue comma expressions bound to reference
-        parameters through typed SSA and run each single-object destructor after
-        the containing call in reverse construction order; verify single and
-        paired temporaries, exactly-once destructor/comma side effects,
-        fallback-free i686/AMD64 objects, and x64 execution in
-        `test-verified-cxx-temporary-cleanup`. Potentially throwing calls and
-        multi-action/array cleanup plans remain on the complete backend.
+        parameters through typed SSA, execute fixed-member destructor plans
+        after the containing call in reverse construction order, and verify
+        nested parent/member cleanup, single and paired temporaries, exactly-once
+        cleanup/comma side effects, fallback-free i686/AMD64 objects, and x64
+        execution in `test-verified-cxx-temporary-cleanup`. Potentially throwing
+        calls and array-loop cleanup plans remain on the complete backend.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering

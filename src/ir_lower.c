@@ -4190,7 +4190,25 @@ static bool lower_noexcept_expression(const Expr* expression) {
     }
 }
 
-static bool lower_single_temporary_cleanup_supported(
+static bool lower_cleanup_object_is_owner_subobject(
+    const Expr* object, const Decl* owner) {
+    if (!object || !owner) return false;
+    if (object->kind == EXPR_IDENT) {
+        return object->ident_decl == owner;
+    }
+    if (object->kind == EXPR_MEMBER && object->member_field) {
+        return lower_cleanup_object_is_owner_subobject(
+            object->member_base, owner);
+    }
+    if (object->kind == EXPR_CAST && object->type &&
+        object->type->is_reference) {
+        return lower_cleanup_object_is_owner_subobject(
+            object->cast_expr, owner);
+    }
+    return false;
+}
+
+static bool lower_temporary_cleanup_plan_supported(
     const ExprList* argument) {
     const CxxCleanupPlan* plan;
     const Expr* cleanup;
@@ -4198,30 +4216,34 @@ static bool lower_single_temporary_cleanup_supported(
     const ExprList* cleanup_argument;
     const Expr* address;
     const Decl* destructor;
+    size_t count = 0u;
     if (!argument || !argument->cxx_temporary_owner ||
         !argument->cxx_temporary_cleanups ||
         !argument->cxx_temporary_owner->type ||
         !argument->cxx_temporary_owner->type->is_reference) {
         return false;
     }
-    plan = argument->cxx_temporary_cleanups;
-    if (plan->kind != CXX_CLEANUP_EXPRESSION || plan->next ||
-        !(cleanup = plan->expression) || cleanup->kind != EXPR_CALL ||
-        !(function = cleanup->call_func) ||
-        function->kind != EXPR_IDENT ||
-        !(destructor = function->ident_decl) ||
-        destructor->kind != DECL_FUNC ||
-        !destructor->func_is_cxx_destructor ||
-        !destructor->func_is_noexcept ||
-        !(cleanup_argument = cleanup->call_args) ||
-        cleanup_argument->next || !(address = cleanup_argument->expr) ||
-        address->kind != EXPR_ADDR || !address->unary_operand ||
-        address->unary_operand->kind != EXPR_IDENT ||
-        address->unary_operand->ident_decl !=
-            argument->cxx_temporary_owner) {
-        return false;
+    for (plan = argument->cxx_temporary_cleanups; plan;
+         plan = plan->next) {
+        if (plan->kind != CXX_CLEANUP_EXPRESSION ||
+            !(cleanup = plan->expression) || cleanup->kind != EXPR_CALL ||
+            !(function = cleanup->call_func) ||
+            function->kind != EXPR_IDENT ||
+            !(destructor = function->ident_decl) ||
+            destructor->kind != DECL_FUNC ||
+            !destructor->func_is_cxx_destructor ||
+            !destructor->func_is_noexcept ||
+            !(cleanup_argument = cleanup->call_args) ||
+            cleanup_argument->next || !(address = cleanup_argument->expr) ||
+            address->kind != EXPR_ADDR || !address->unary_operand ||
+            !lower_cleanup_object_is_owner_subobject(
+                address->unary_operand,
+                argument->cxx_temporary_owner)) {
+            return false;
+        }
+        if (++count > 4096u) return false;
     }
-    return true;
+    return count != 0u;
 }
 
 static bool lower_call_temporary_cleanups_supported(
@@ -4237,7 +4259,7 @@ static bool lower_call_temporary_cleanups_supported(
         if (!lower_noexcept_expression(argument->expr)) return false;
         if (!argument->cxx_temporary_owner) continue;
         has_temporary = true;
-        if (!lower_single_temporary_cleanup_supported(argument)) {
+        if (!lower_temporary_cleanup_plan_supported(argument)) {
             return false;
         }
     }
@@ -4270,22 +4292,48 @@ static bool lower_bind_temporary_owner(RccIrLowerContext* context,
     return lower_store_address(context, slot, object_address);
 }
 
+static bool lower_emit_temporary_cleanup_plan(
+    RccIrLowerContext* context, const ExprList* argument) {
+    const CxxCleanupPlan* plan;
+    const CxxCleanupPlan** actions;
+    size_t count = 0u;
+    size_t index = 0u;
+    for (plan = argument->cxx_temporary_cleanups; plan;
+         plan = plan->next) {
+        ++count;
+    }
+    if (!count || count > 4096u ||
+        count > SIZE_MAX / sizeof(*actions)) {
+        context->unsupported = true;
+        return false;
+    }
+    actions = rcc_alloc(count * sizeof(*actions));
+    for (plan = argument->cxx_temporary_cleanups; plan;
+         plan = plan->next) {
+        actions[index++] = plan;
+    }
+    while (index > 0u) {
+        RccIrLowerValue cleanup;
+        plan = actions[--index];
+        cleanup = lower_expression(context, plan->expression);
+        if (!cleanup.valid || cleanup.type.kind != RCC_IR_TYPE_VOID) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool lower_emit_call_temporary_cleanups(
     RccIrLowerContext* context, const ExprList* const* arguments,
     size_t count) {
     while (count > 0u) {
         const ExprList* argument = arguments[--count];
-        RccIrLowerValue cleanup;
-        if (!lower_single_temporary_cleanup_supported(argument)) {
+        if (!lower_temporary_cleanup_plan_supported(argument)) {
             context->unsupported = true;
             return false;
         }
-        cleanup = lower_expression(
-            context, argument->cxx_temporary_cleanups->expression);
-        if (!cleanup.valid || cleanup.type.kind != RCC_IR_TYPE_VOID) {
-            context->unsupported = true;
-            return false;
-        }
+        if (!lower_emit_temporary_cleanup_plan(context, argument)) return false;
     }
     return true;
 }
