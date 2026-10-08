@@ -872,9 +872,13 @@
   - [ ] x86_64 SysV FP/XMM `va_arg` register-save経路、aggregate `va_arg`分類、
         FP/aggregate named parameterの分類、その他の未対応adjusted-`va_list`形態のSSA化
         （現在は関数単位でlegacy backendへ明示fallback）
+      - [x] MEMORY-class aggregate `va_arg`の24-byte C/C++構造体と、
+        16-byte alignasを持つ32-byte C++構造体を実装に接続し、stack spill後の
+        overflow cursor／alignmentを含むSysV host ABI実行を`-O0`/`-O2`で検証。
+        全対象関数がfallbackなしでtyped SSAから生成されることも確認。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
-        16-byteを超えるMEMORY aggregateを実装した。aggregateを渡すvariadic call、
+        16-byteを超えるMEMORY aggregateを実装・実行検証した。aggregateを渡すvariadic call、
         FP/aggregate named parameter分類、残るadjusted-`va_list`形態は未実装であり、
         このparent checkboxは未完了のままにする。
   - [x] x86_64 SysVで`va_list*`を受け取るhelperの`va_arg(*p, T)`／

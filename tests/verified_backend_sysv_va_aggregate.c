@@ -10,6 +10,12 @@ struct VerifiedSysvIntegerAggregate {
     int second;
 };
 
+struct VerifiedSysvVaLargeAggregate {
+    long long first;
+    long long second;
+    long long third;
+};
+
 int verified_sysv_va_mixed_aggregate_integer(int marker, ...)
 {
     va_list arguments;
@@ -60,6 +66,16 @@ double verified_sysv_va_mixed_aggregate_sse_overflow(
     double value;
     va_start(arguments, last);
     value = va_arg(arguments, struct VerifiedSysvMixedAggregate).floating;
+    va_end(arguments);
+    return value;
+}
+
+long long verified_sysv_va_large_aggregate(int marker, ...)
+{
+    va_list arguments;
+    long long value;
+    va_start(arguments, marker);
+    value = va_arg(arguments, struct VerifiedSysvVaLargeAggregate).third;
     va_end(arguments);
     return value;
 }

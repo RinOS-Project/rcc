@@ -191,6 +191,23 @@ struct VerifiedSysvVaIntegerAggregate {
     int second;
 };
 
+struct VerifiedSysvVaLargeAggregate {
+    long long first;
+    long long second;
+    long long third;
+};
+
+alignas(16) struct VerifiedSysvVaAlignedLargeAggregate {
+    long long first;
+    long long second;
+    long long third;
+    long long fourth;
+};
+
+static_assert(
+    alignof(VerifiedSysvVaAlignedLargeAggregate) == 16,
+    "large SysV variadic aggregate requires 16-byte alignment");
+
 extern "C" int verified_sysv_va_mixed_aggregate_integer(int marker, ...)
 {
     va_list arguments;
@@ -239,4 +256,25 @@ extern "C" double verified_sysv_va_mixed_aggregate_sse_overflow(
     double value = va_arg(arguments, VerifiedSysvVaMixedAggregate).floating;
     va_end(arguments);
     return value;
+}
+
+extern "C" long long verified_sysv_va_large_aggregate(int marker, ...)
+{
+    va_list arguments;
+    va_start(arguments, marker);
+    long long value = va_arg(arguments, VerifiedSysvVaLargeAggregate).third;
+    va_end(arguments);
+    return value;
+}
+
+extern "C" long long verified_sysv_va_aligned_large_after_stack(
+    int a, int b, int c, int d, int e, int last, ...)
+{
+    va_list arguments;
+    va_start(arguments, last);
+    int prefix = va_arg(arguments, int);
+    long long value =
+        va_arg(arguments, VerifiedSysvVaAlignedLargeAggregate).fourth;
+    va_end(arguments);
+    return value + prefix;
 }
