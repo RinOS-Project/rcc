@@ -532,10 +532,19 @@
 - [ ] static/TLS destructor and exception cleanup interaction. Both native
       backends now use guarded first-use initialization for supported
       function-local static and destructible TLS objects, connect guard-abort
-      callbacks to exception cleanup, and register cleanup through
-      `__cxa_atexit`/`__cxa_thread_atexit`; `build-rcc` and `build-rcxx` pass.
-      Exception retry, reverse destruction order, and RinOS runtime acceptance
-      remain required.
+      callbacks against the dynamically active exception frame, and register
+      cleanup through `__cxa_atexit`/`__cxa_thread_atexit`; `build-rcc` and
+      `build-rcxx` pass.
+  - [x] Throw from a function-local class-static constructor on its first
+        attempt, verify current-frame guard abort and successful retry, then
+        verify DSO-matched reverse `__cxa_atexit` destruction and idempotent
+        finalization under the i686/AMD64 POSIX host exception harness.
+  - [x] Correct i686 cdecl argument order for function-local static
+        `__cxa_atexit`; verified generated callback/object/DSO values and
+        successful destructor execution.
+  - [ ] Run the same regression against the shipped RinOS `rincrt` on target
+        systems; host harness coverage does not replace hardware/runtime
+        acceptance.
 
 ## 4. IR / optimization
 
@@ -906,8 +915,12 @@
       C17/C++20、IR/MIR、verified backend、optimizer、ABI、image、bootstrapを
       matrix実行。Makefileの環境変数／command-line `CC`保持と、built-in `cc`
       のみの場合のGCC defaultを回帰検証
-- [ ] GCC/Clang双方のfull `test-ci` production gate成功を確認し、C17/C++20、
-      IR/MIR、verified backend、optimizer、ABI、image、bootstrap全経路を記録する
+- [x] GCC full `test-ci` production gateでC17/C++20、IR/MIR、verified backend、
+      optimizer、ABI、image、bootstrap全経路の成功を確認し記録する
+  - [x] GCC: `make -j1 OBJDIR=build/wsl-gcc/obj
+        BINDIR=build/wsl-gcc/bin TEST_OUT=build/wsl-gcc/tests CC=gcc test-ci`
+        passed on the Linux/WSL host, including both target architectures.
+- [ ] Clang full `test-ci` production gateを実行し、同じ全経路の成功を記録する
 - [x] ASan/UBSan regression gateもGCC/Clang双方の独立matrix jobで実行し、
       各jobが要求したhost compilerを実際に選択していることを検証
 - [x] CI regression gateでC/C++ global initializer/finalizerのhost実行、

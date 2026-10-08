@@ -430,6 +430,8 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-static-reference-temporaries-posix
 .PHONY: test-cxx-static-reference-retry \
 	test-cxx-static-reference-retry-posix
+.PHONY: test-cxx-static-local-exception \
+	test-cxx-static-local-exception-posix
 .PHONY: test-cxx-static-reference-subobjects \
 	test-cxx-static-reference-subobjects-posix
 .PHONY: test-cxx-static-reference-conversions \
@@ -510,6 +512,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-function-template-references \
 	test-cxx-static-reference-temporaries \
 	test-cxx-static-reference-retry \
+	test-cxx-static-local-exception \
 	test-cxx-static-reference-subobjects \
 	test-cxx-static-reference-conversions \
 	test-cxx-member-pointer-data \
@@ -2553,9 +2556,9 @@ test-cxx-static-reference-retry-posix: $(RCXX_TARGET)
 		tests/cxx_static_reference_retry.cpp
 	$(GREP) -F -q "__cxa_guard_abort" \
 		$(TEST_OUT)/cxx-static-reference-retry/x86.s
-	$(GREP) -F -q "rin_cpp_exception_register_cleanup" \
+	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" \
 		$(TEST_OUT)/cxx-static-reference-retry/x86.s
-	$(GREP) -F -q "rin_cpp_exception_unregister_cleanup" \
+	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" \
 		$(TEST_OUT)/cxx-static-reference-retry/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-retry/x86.o \
 		$(TEST_OUT)/cxx-static-reference-retry/x86.s
@@ -2578,9 +2581,9 @@ test-cxx-static-reference-retry-posix: $(RCXX_TARGET)
 		tests/cxx_static_reference_retry.cpp
 	$(GREP) -F -q "__cxa_guard_abort" \
 		$(TEST_OUT)/cxx-static-reference-retry/x64.s
-	$(GREP) -F -q "rin_cpp_exception_register_cleanup" \
+	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" \
 		$(TEST_OUT)/cxx-static-reference-retry/x64.s
-	$(GREP) -F -q "rin_cpp_exception_unregister_cleanup" \
+	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" \
 		$(TEST_OUT)/cxx-static-reference-retry/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-retry/x64.o \
 		$(TEST_OUT)/cxx-static-reference-retry/x64.s
@@ -2599,6 +2602,68 @@ test-cxx-static-reference-retry-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-reference-retry/x64.o
 	$(TEST_OUT)/cxx-static-reference-retry/x64
 	@echo "C++ static reference guard abort and retry execution passed for i686 and AMD64"
+
+test-cxx-static-local-exception-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-local-exception)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-local-exception/x86.s \
+		tests/cxx_static_local_exception.cpp
+	$(GREP) -F -q "__cxa_guard_abort" \
+		$(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(GREP) -F -q "__cxa_atexit" \
+		$(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" \
+		$(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" \
+		$(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-local-exception/x86.o \
+		$(TEST_OUT)/cxx-static-local-exception/x86.s
+	objdump -f $(TEST_OUT)/cxx-static-local-exception/x86.o \
+		> $(TEST_OUT)/cxx-static-local-exception/x86-arch.log
+	$(GREP) -F -q "elf32-i386" \
+		$(TEST_OUT)/cxx-static-local-exception/x86-arch.log
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-static-local-exception/x86-start.o \
+		tests/cxx_exceptions_i686_start.s
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-static-local-exception/x86-runtime.o \
+		tests/cxx_static_local_exception_runtime.c
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-static-local-exception/x86 \
+		$(TEST_OUT)/cxx-static-local-exception/x86-start.o \
+		$(TEST_OUT)/cxx-static-local-exception/x86-runtime.o \
+		$(TEST_OUT)/cxx-static-local-exception/x86.o
+	$(TEST_OUT)/cxx-static-local-exception/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-static-local-exception/x64.s \
+		tests/cxx_static_local_exception.cpp
+	$(GREP) -F -q "__cxa_guard_abort" \
+		$(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(GREP) -F -q "__cxa_atexit" \
+		$(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" \
+		$(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" \
+		$(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-static-local-exception/x64.o \
+		$(TEST_OUT)/cxx-static-local-exception/x64.s
+	objdump -f $(TEST_OUT)/cxx-static-local-exception/x64.o \
+		> $(TEST_OUT)/cxx-static-local-exception/x64-arch.log
+	$(GREP) -F -q "elf64-x86-64" \
+		$(TEST_OUT)/cxx-static-local-exception/x64-arch.log
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-static-local-exception/x64-start.o \
+		tests/cxx_exceptions_x64_start.s
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-static-local-exception/x64-runtime.o \
+		tests/cxx_static_local_exception_runtime.c
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-static-local-exception/x64 \
+		$(TEST_OUT)/cxx-static-local-exception/x64-start.o \
+		$(TEST_OUT)/cxx-static-local-exception/x64-runtime.o \
+		$(TEST_OUT)/cxx-static-local-exception/x64.o
+	$(TEST_OUT)/cxx-static-local-exception/x64
+	@echo "C++ function-local static throw/retry and finalization passed for i686 and AMD64"
 
 test-cxx-static-reference-subobjects-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-subobjects)
@@ -2866,19 +2931,38 @@ test-cxx-static-reference-retry: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-retry)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-retry/x86.s tests/cxx_static_reference_retry.cpp
 	$(GREP) -F -q "__cxa_guard_abort" $(TEST_OUT)/cxx-static-reference-retry/x86.s
-	$(GREP) -F -q "rin_cpp_exception_register_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x86.s
-	$(GREP) -F -q "rin_cpp_exception_unregister_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x86.s
+	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x86.s
+	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-retry/x86.o $(TEST_OUT)/cxx-static-reference-retry/x86.s
 	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x86.o > $(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-reference-retry/x64.s tests/cxx_static_reference_retry.cpp
 	$(GREP) -F -q "__cxa_guard_abort" $(TEST_OUT)/cxx-static-reference-retry/x64.s
-	$(GREP) -F -q "rin_cpp_exception_register_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x64.s
-	$(GREP) -F -q "rin_cpp_exception_unregister_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x64.s
+	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x64.s
+	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-retry/x64.o $(TEST_OUT)/cxx-static-reference-retry/x64.s
 	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x64.o > $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
 	$(CC) $(CFLAGS) -c -o $(TEST_OUT)/cxx-static-reference-retry/guard-runtime.o tests/cxx_static_reference_guard_runtime.c
+
+test-cxx-static-local-exception: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-static-local-exception)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-local-exception/x86.s tests/cxx_static_local_exception.cpp
+	$(GREP) -F -q "__cxa_guard_abort" $(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(GREP) -F -q "__cxa_atexit" $(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-local-exception/x86.o $(TEST_OUT)/cxx-static-local-exception/x86.s
+	objdump -f $(TEST_OUT)/cxx-static-local-exception/x86.o > $(TEST_OUT)/cxx-static-local-exception/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-local-exception/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-local-exception/x64.s tests/cxx_static_local_exception.cpp
+	$(GREP) -F -q "__cxa_guard_abort" $(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(GREP) -F -q "__cxa_atexit" $(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-static-local-exception/x64.o $(TEST_OUT)/cxx-static-local-exception/x64.s
+	objdump -f $(TEST_OUT)/cxx-static-local-exception/x64.o > $(TEST_OUT)/cxx-static-local-exception/x64-arch.log
+	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-static-local-exception/x64-arch.log
 
 test-cxx-static-reference-subobjects: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-subobjects)
@@ -2978,6 +3062,7 @@ test-cxx-function-template-overloads: test-cxx-function-template-overloads-posix
 test-cxx-function-template-references: test-cxx-function-template-references-posix
 test-cxx-static-reference-temporaries: test-cxx-static-reference-temporaries-posix
 test-cxx-static-reference-retry: test-cxx-static-reference-retry-posix
+test-cxx-static-local-exception: test-cxx-static-local-exception-posix
 test-cxx-static-reference-subobjects: test-cxx-static-reference-subobjects-posix
 test-cxx-static-reference-conversions: test-cxx-static-reference-conversions-posix
 test-cxx-member-pointer-data: test-cxx-member-pointer-data-posix

@@ -12,9 +12,12 @@
 .globl rin_cpp_exception_release_frame
 .globl rin_cpp_exception_register_cleanup
 .globl rin_cpp_exception_unregister_cleanup
+.globl rin_cpp_exception_register_current_cleanup
+.globl rin_cpp_exception_unregister_current_cleanup
 .globl rin_cpp_exception_unwind_cleanups
 .globl rin_malloc
 .globl rin_free
+.globl abort
 .extern _rcc_entry
 
 .bss
@@ -125,6 +128,28 @@ rin_cpp_exception_unregister_cleanup:
     ret
 10:
     mov %rcx, 16(%r8)
+    ret
+
+rin_cpp_exception_register_current_cleanup:
+    mov rin_cpp_exception_top(%rip), %rax
+    test %rax, %rax
+    jz 13f
+    mov %rsi, %rdx
+    mov %rdi, %rsi
+    mov %rax, %rdi
+    jmp rin_cpp_exception_register_cleanup
+13:
+    ret
+
+rin_cpp_exception_unregister_current_cleanup:
+    mov rin_cpp_exception_top(%rip), %rax
+    test %rax, %rax
+    jz 14f
+    mov %rsi, %rdx
+    mov %rdi, %rsi
+    mov %rax, %rdi
+    jmp rin_cpp_exception_unregister_cleanup
+14:
     ret
 
 rin_cpp_exception_unwind_cleanups:
@@ -302,6 +327,12 @@ rin_malloc:
 rin_free:
     ret
 
+abort:
+    mov $134, %edi
+    mov $60, %eax
+    syscall
+    ud2
+
 _start:
     call _rcc_entry
     test %eax, %eax
@@ -310,6 +341,6 @@ _start:
     mov $60, %eax
     syscall
 4:
-    mov $1, %edi
+    mov %eax, %edi
     mov $60, %eax
     syscall

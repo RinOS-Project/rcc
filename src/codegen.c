@@ -14142,37 +14142,31 @@ static void gen_cxx_exception_call32(Module* mod, const char* name) {
 
 static void gen_cxx_guard_exception_register32(
     Module* mod, CleanupCodegen* cleanup) {
-    if (!mod || !cleanup || !cleanup->guard_abort ||
-        cleanup->exception_frame_offset == INT_MAX) {
+    if (!mod || !cleanup || !cleanup->guard_abort) {
         return;
     }
     gen_decl_storage_address32(mod, cleanup->guard_abort);
     emit_push_reg(mod, EAX); /* guard object */
     gen_symbol_address(mod, "__cxa_guard_abort", 0u);
     emit_push_reg(mod, EAX); /* cleanup callback */
-    gen_cxx_exception_frame_address32(mod,
-                                      cleanup->exception_frame_offset);
-    emit_push_reg(mod, EAX); /* exception frame */
-    gen_cxx_exception_call32(mod, "rin_cpp_exception_register_cleanup");
-    emit_add_reg_imm(mod, ESP, 12);
+    gen_cxx_exception_call32(
+        mod, "rin_cpp_exception_register_current_cleanup");
+    emit_add_reg_imm(mod, ESP, 8);
     cleanup->exception_registered = true;
 }
 
 static void gen_cxx_guard_exception_unregister32(
     Module* mod, const CleanupCodegen* cleanup) {
-    if (!mod || !cleanup || !cleanup->guard_abort ||
-        cleanup->exception_frame_offset == INT_MAX) {
+    if (!mod || !cleanup || !cleanup->guard_abort) {
         return;
     }
     gen_decl_storage_address32(mod, cleanup->guard_abort);
     emit_push_reg(mod, EAX); /* guard object */
     gen_symbol_address(mod, "__cxa_guard_abort", 0u);
     emit_push_reg(mod, EAX); /* cleanup callback */
-    gen_cxx_exception_frame_address32(mod,
-                                      cleanup->exception_frame_offset);
-    emit_push_reg(mod, EAX); /* exception frame */
-    gen_cxx_exception_call32(mod, "rin_cpp_exception_unregister_cleanup");
-    emit_add_reg_imm(mod, ESP, 12);
+    gen_cxx_exception_call32(
+        mod, "rin_cpp_exception_unregister_current_cleanup");
+    emit_add_reg_imm(mod, ESP, 8);
 }
 
 static Decl* gen_cxx_cleanup_destructor(const CleanupCodegen* cleanup) {
@@ -15084,11 +15078,12 @@ static void codegen_register_static_local_cleanup32(
             declaration->var_reference_temporary_owner
         ? declaration->var_reference_temporary_owner : declaration;
     if (!cleanup) return;
-    gen_symbol_address(mod, cleanup->callback_name, 0u);
+    /* cdecl pushes arguments right-to-left: dso, object, then callback. */
+    gen_symbol_address(mod, "__dso_handle", 0u);
     emit_push_reg(mod, EAX);
     gen_decl_storage_address32(mod, cleanup_object);
     emit_push_reg(mod, EAX);
-    gen_symbol_address(mod, "__dso_handle", 0u);
+    gen_symbol_address(mod, cleanup->callback_name, 0u);
     emit_push_reg(mod, EAX);
     gen_cxx_exception_call32(mod, declaration->var_is_thread_local
         ? "__cxa_thread_atexit" : "__cxa_atexit");
@@ -15129,10 +15124,7 @@ static bool gen_guarded_static_initializer32(
     guard_cleanup->exception_frame_offset =
         active_cxx_exception_cleanup_frame_offset;
     active_cleanups = guard_cleanup;
-    if (cxx_exception_cleanup_registration_enabled &&
-        active_cxx_exception_cleanup_frame_offset != INT_MAX) {
-        gen_cxx_guard_exception_register32(mod, guard_cleanup);
-    }
+    gen_cxx_guard_exception_register32(mod, guard_cleanup);
 
     if (declaration->var_reference_temporary_owner) {
         if (!gen_static_reference_temporary_initializer32(

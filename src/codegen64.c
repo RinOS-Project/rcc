@@ -7976,33 +7976,29 @@ static void gen64_cxx_exception_call(Module* mod, const char* name) {
 
 static void gen64_cxx_guard_exception_register(
     Module* mod, CleanupCodegen64* cleanup) {
-    if (!mod || !cleanup || !cleanup->guard_abort ||
-        cleanup->exception_frame_offset == INT_MAX) {
+    if (!mod || !cleanup || !cleanup->guard_abort) {
         return;
     }
-    gen64_decl_storage_address(mod, cleanup->guard_abort);
-    emit64_mov_reg_reg(mod, RDX, RAX); /* guard object */
     gen64_symbol_address(mod, "__cxa_guard_abort", 0u);
-    emit64_mov_reg_reg(mod, RSI, RAX); /* cleanup callback */
-    gen64_cxx_exception_frame_address(
-        mod, cleanup->exception_frame_offset);
-    gen64_cxx_exception_call(mod, "rin_cpp_exception_register_cleanup");
+    emit64_mov_reg_reg(mod, RDI, RAX); /* cleanup callback */
+    gen64_decl_storage_address(mod, cleanup->guard_abort);
+    emit64_mov_reg_reg(mod, RSI, RAX); /* guard object */
+    gen64_cxx_exception_call(
+        mod, "rin_cpp_exception_register_current_cleanup");
     cleanup->exception_registered = true;
 }
 
 static void gen64_cxx_guard_exception_unregister(
     Module* mod, const CleanupCodegen64* cleanup) {
-    if (!mod || !cleanup || !cleanup->guard_abort ||
-        cleanup->exception_frame_offset == INT_MAX) {
+    if (!mod || !cleanup || !cleanup->guard_abort) {
         return;
     }
-    gen64_decl_storage_address(mod, cleanup->guard_abort);
-    emit64_mov_reg_reg(mod, RDX, RAX); /* guard object */
     gen64_symbol_address(mod, "__cxa_guard_abort", 0u);
-    emit64_mov_reg_reg(mod, RSI, RAX); /* cleanup callback */
-    gen64_cxx_exception_frame_address(
-        mod, cleanup->exception_frame_offset);
-    gen64_cxx_exception_call(mod, "rin_cpp_exception_unregister_cleanup");
+    emit64_mov_reg_reg(mod, RDI, RAX); /* cleanup callback */
+    gen64_decl_storage_address(mod, cleanup->guard_abort);
+    emit64_mov_reg_reg(mod, RSI, RAX); /* guard object */
+    gen64_cxx_exception_call(
+        mod, "rin_cpp_exception_unregister_current_cleanup");
 }
 
 static Decl* gen64_cxx_cleanup_destructor(
@@ -8880,10 +8876,7 @@ static bool gen64_guarded_static_initializer(
     guard_cleanup->exception_frame_offset =
         active_cxx_exception_cleanup_frame_offset64;
     active_cleanups64 = guard_cleanup;
-    if (cxx_exception_cleanup_registration_enabled64 &&
-        active_cxx_exception_cleanup_frame_offset64 != INT_MAX) {
-        gen64_cxx_guard_exception_register(mod, guard_cleanup);
-    }
+    gen64_cxx_guard_exception_register(mod, guard_cleanup);
 
     if (declaration->var_reference_temporary_owner) {
         if (!gen64_static_reference_temporary_initializer(

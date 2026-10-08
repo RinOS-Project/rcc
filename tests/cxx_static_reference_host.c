@@ -16,8 +16,17 @@ typedef struct CxxExitEntry {
     int active;
 } CxxExitEntry;
 
+typedef struct CxxExceptionCleanupEntry {
+    CxxExitCallback callback;
+    void* object;
+    int active;
+} CxxExceptionCleanupEntry;
+
 static CxxExitEntry cxx_exit_entries[16];
 static size_t cxx_exit_count;
+static CxxExceptionCleanupEntry cxx_exception_cleanups[16];
+static size_t cxx_exception_cleanup_count;
+static int cxx_exception_cleanup_error;
 #if defined(__ELF__)
 extern void* __dso_handle;
 #else
@@ -87,6 +96,49 @@ void RIN_SYSV __cxa_finalize(void* dso)
     }
 }
 
+void RIN_SYSV rin_cpp_exception_register_current_cleanup(
+    CxxExitCallback callback, void* object)
+{
+    size_t index;
+    if (!callback || !object) {
+        cxx_exception_cleanup_error = 1;
+        return;
+    }
+    for (index = 0u;
+         index < sizeof(cxx_exception_cleanups) /
+                     sizeof(cxx_exception_cleanups[0]);
+         ++index) {
+        CxxExceptionCleanupEntry* entry = &cxx_exception_cleanups[index];
+        if (entry->active) continue;
+        entry->callback = callback;
+        entry->object = object;
+        entry->active = 1;
+        ++cxx_exception_cleanup_count;
+        return;
+    }
+    cxx_exception_cleanup_error = 2;
+}
+
+void RIN_SYSV rin_cpp_exception_unregister_current_cleanup(
+    CxxExitCallback callback, void* object)
+{
+    size_t index = sizeof(cxx_exception_cleanups) /
+        sizeof(cxx_exception_cleanups[0]);
+    while (index > 0u) {
+        CxxExceptionCleanupEntry* entry = &cxx_exception_cleanups[--index];
+        if (!entry->active || entry->callback != callback ||
+            entry->object != object) {
+            continue;
+        }
+        entry->active = 0;
+        entry->callback = NULL;
+        entry->object = NULL;
+        --cxx_exception_cleanup_count;
+        return;
+    }
+    cxx_exception_cleanup_error = 3;
+}
+
 int main(void)
 {
     int result;
@@ -98,6 +150,12 @@ int main(void)
         fprintf(stderr, "generated static-reference test failed: status %d\n",
                 result);
         return result;
+    }
+    if (cxx_exception_cleanup_error || cxx_exception_cleanup_count != 0u) {
+        fprintf(stderr,
+                "static-reference exception cleanup state: error %d, active %zu\n",
+                cxx_exception_cleanup_error, cxx_exception_cleanup_count);
+        return 91;
     }
     __cxa_finalize(&__dso_handle);
     __rcc_global_fini();
