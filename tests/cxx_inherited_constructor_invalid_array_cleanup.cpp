@@ -9,12 +9,17 @@ struct CleanupArrayBase {
     int value;
 };
 
-struct CleanupArrayDerived : CleanupArrayBase {
-    using CleanupArrayBase::CleanupArrayBase;
-    CleanupArrayElement elements[2];
-};
+template <typename T>
+int cleanup_array_probe(T value) {
+    struct CleanupArrayDerived : CleanupArrayBase {
+        using CleanupArrayBase::CleanupArrayBase;
+        CleanupArrayElement elements[2];
+    };
+
+    CleanupArrayDerived object(1);
+    return object.value + static_cast<int>(value);
+}
 
 int main() {
-    CleanupArrayDerived value(1);
-    return value.value;
+    return cleanup_array_probe(0);
 }

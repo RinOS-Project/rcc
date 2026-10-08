@@ -9,12 +9,17 @@ struct NestedArrayBase {
     int value;
 };
 
-struct NestedArrayDerived : NestedArrayBase {
-    using NestedArrayBase::NestedArrayBase;
-    NestedArrayRow elements[2];
-};
+template <typename T>
+int nested_array_probe(T value) {
+    struct NestedArrayDerived : NestedArrayBase {
+        using NestedArrayBase::NestedArrayBase;
+        NestedArrayRow elements[2];
+    };
+
+    NestedArrayDerived object(1);
+    return object.value + static_cast<int>(value);
+}
 
 int main() {
-    NestedArrayDerived value(1);
-    return value.value;
+    return nested_array_probe(0);
 }

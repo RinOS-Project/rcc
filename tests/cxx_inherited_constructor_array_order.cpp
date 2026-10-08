@@ -1,27 +1,27 @@
 static int construction_count;
 
+struct ArrayOrderElement {
+    int order;
+
+    ArrayOrderElement() {
+        construction_count = construction_count + 1;
+        order = construction_count;
+    }
+};
+
+struct ArrayOrderBase {
+    explicit ArrayOrderBase(int value) : base_value(value) {}
+
+    int base_value;
+};
+
 template <typename T>
 int array_order_probe(T marker_value) {
-    struct ArrayOrderElement {
-        int order;
-
-        ArrayOrderElement() {
-            construction_count = construction_count + 1;
-            order = construction_count;
-        }
-    };
-
     struct OrdinaryArrayOwner {
         T marker;
         ArrayOrderElement elements[3];
 
         explicit OrdinaryArrayOwner(T value) : marker(value) {}
-    };
-
-    struct ArrayOrderBase {
-        explicit ArrayOrderBase(T value) : base_value(value) {}
-
-        T base_value;
     };
 
     struct InheritedArrayOwner : ArrayOrderBase {
@@ -30,6 +30,7 @@ int array_order_probe(T marker_value) {
         ArrayOrderElement elements[3];
     };
 
+    construction_count = 0;
     OrdinaryArrayOwner ordinary(marker_value);
     if (construction_count != 3 || ordinary.marker != marker_value ||
         ordinary.elements[0].order != 1 ||
@@ -39,18 +40,21 @@ int array_order_probe(T marker_value) {
     }
 
     construction_count = 0;
-    InheritedArrayOwner via_base(marker_value);
-    if (construction_count != 3 || via_base.base_value != marker_value ||
-        via_base.elements[0].order != 1 ||
+    InheritedArrayOwner via_base(29);
+    if (construction_count != 3) return 2;
+    if (via_base.base_value != 29) return 3;
+    if (via_base.elements[0].order != 1 ||
         via_base.elements[1].order != 2 ||
         via_base.elements[2].order != 3) {
-        return 2;
+        return 4;
     }
     return 0;
 }
 
 int main() {
-    if (array_order_probe(17) != 0) return 1;
-    if (array_order_probe(29LL) != 0) return 2;
+    int result = array_order_probe(17);
+    if (result != 0) return result;
+    result = array_order_probe(29LL);
+    if (result != 0) return result + 10;
     return 0;
 }

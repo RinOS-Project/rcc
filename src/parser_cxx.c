@@ -5658,7 +5658,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         /* Initializer? */
         Expr* init = NULL;
         if (match(TOK_ASSIGN)) {
-            init = parse_cxx_expression();
+            init = rcc_parser_parse_initializer();
         } else if (check(TOK_LBRACE)) {
             init = rcc_parser_parse_initializer();
         }
