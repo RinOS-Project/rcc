@@ -271,41 +271,40 @@ typedef struct {
 static bool lower_sysv_classify_aggregate(
     const Type* type, LowerSysvAggregateClass* result);
 
-static bool lower_sysv_variadic_sse_aggregate(
-    const Type* type, size_t* units_out) {
+static bool lower_sysv_variadic_register_aggregate(
+    const Type* type,
+    LowerSysvAggregateClass* classification_out,
+    size_t* integer_units_out,
+    size_t* sse_units_out) {
     LowerSysvAggregateClass classification;
-    if (units_out) *units_out = 0u;
+    if (classification_out) {
+        classification_out->classes[0] = LOWER_SYSV_CLASS_NONE;
+        classification_out->classes[1] = LOWER_SYSV_CLASS_NONE;
+        classification_out->count = 0;
+        classification_out->memory = false;
+    }
+    if (integer_units_out) *integer_units_out = 0u;
+    if (sse_units_out) *sse_units_out = 0u;
     if (g_opts.target_arch != ARCH_X64 || !type ||
         type->kind != TYPE_STRUCT || type->size <= 0 || type->size > 16 ||
-        type->align <= 0 || type->align > 8 || !units_out ||
+        type->align <= 0 || type->align > 8 || !classification_out ||
+        !integer_units_out || !sse_units_out ||
         !lower_sysv_classify_aggregate(type, &classification) ||
         classification.memory || classification.count < 1 ||
         classification.count > 2) return false;
     for (int index = 0; index < classification.count; ++index) {
-        size_t offset = (size_t)index * 8u;
-        size_t remaining = (size_t)type->size - offset;
-        if (classification.classes[index] != LOWER_SYSV_CLASS_SSE ||
-            (remaining < 8u && remaining != 4u)) return false;
-    }
-    *units_out = (size_t)classification.count;
-    return true;
-}
-
-static bool lower_sysv_variadic_integer_aggregate(
-    const Type* type, size_t* units_out) {
-    LowerSysvAggregateClass classification;
-    if (units_out) *units_out = 0u;
-    if (g_opts.target_arch != ARCH_X64 || !type || type->size <= 0 ||
-        type->size > 16 || type->align <= 0 || type->align > 8 || !units_out ||
-        !lower_sysv_classify_aggregate(type, &classification) ||
-        classification.memory || classification.count < 1 ||
-        classification.count > 2) return false;
-    for (int index = 0; index < classification.count; ++index) {
-        if (classification.classes[index] != LOWER_SYSV_CLASS_INTEGER) {
+        if (classification.classes[index] == LOWER_SYSV_CLASS_INTEGER) {
+            ++*integer_units_out;
+        } else if (classification.classes[index] == LOWER_SYSV_CLASS_SSE) {
+            size_t offset = (size_t)index * 8u;
+            size_t remaining = (size_t)type->size - offset;
+            if (remaining < 8u && remaining != 4u) return false;
+            ++*sse_units_out;
+        } else {
             return false;
         }
     }
-    *units_out = (size_t)classification.count;
+    *classification_out = classification;
     return true;
 }
 
@@ -5530,27 +5529,34 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                      chunk_size - 1u) / chunk_size;
         } else if (!parameter && argument->expr &&
                    lower_abi_is_aggregate(argument->expr->type)) {
-            if (lower_sysv_variadic_sse_aggregate(
-                    argument->expr->type, &units)) {
-                if (sysv_sse_arguments_used < 8u &&
-                    units > 8u - sysv_sse_arguments_used) {
-                    context->unsupported = true;
-                    return lower_invalid_value();
-                }
-                if (sysv_sse_arguments_used < 8u) {
-                    sysv_sse_arguments_used += units;
-                }
-            } else {
-                if (!lower_sysv_variadic_integer_aggregate(
-                        argument->expr->type, &units) ||
-                    (sysv_gp_arguments_used < 6u &&
-                     units > 6u - sysv_gp_arguments_used)) {
-                    context->unsupported = true;
-                    return lower_invalid_value();
-                }
-                if (sysv_gp_arguments_used < 6u) {
-                    sysv_gp_arguments_used += units;
-                }
+            LowerSysvAggregateClass classification;
+            size_t integer_units;
+            size_t sse_units;
+            size_t gp_available = sysv_gp_arguments_used < 6u
+                ? 6u - sysv_gp_arguments_used : 0u;
+            size_t sse_available = sysv_sse_arguments_used < 8u
+                ? 8u - sysv_sse_arguments_used : 0u;
+            bool register_assignment;
+            bool stack_assignment;
+            if (!lower_sysv_variadic_register_aggregate(
+                    argument->expr->type, &classification,
+                    &integer_units, &sse_units)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            units = (size_t)classification.count;
+            register_assignment = integer_units <= gp_available &&
+                sse_units <= sse_available;
+            stack_assignment =
+                (integer_units == 0u || gp_available == 0u) &&
+                (sse_units == 0u || sse_available == 0u);
+            if (!register_assignment && !stack_assignment) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (register_assignment) {
+                sysv_gp_arguments_used += integer_units;
+                sysv_sse_arguments_used += sse_units;
             }
         }
         if (units > SIZE_MAX - argument_count) {
@@ -5656,10 +5662,20 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                 return lower_invalid_value();
             }
             {
+                LowerSysvAggregateClass classification;
+                size_t integer_units;
                 size_t sse_units;
-                if (lower_sysv_variadic_sse_aggregate(
-                        argument->expr->type, &sse_units)) {
-                    for (size_t unit = 0u; unit < sse_units; ++unit) {
+                if (!lower_sysv_variadic_register_aggregate(
+                        argument->expr->type, &classification,
+                        &integer_units, &sse_units)) {
+                    rcc_free(operands);
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                for (size_t unit = 0u;
+                     unit < (size_t)classification.count; ++unit) {
+                    if (classification.classes[unit] ==
+                        LOWER_SYSV_CLASS_SSE) {
                         size_t offset = unit * 8u;
                         size_t remaining =
                             (size_t)argument->expr->type->size - offset;
@@ -5675,16 +5691,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                             return lower_invalid_value();
                         }
                         operands[index++] = chunk.value;
-                    }
-                } else {
-                    size_t units;
-                    if (!lower_sysv_variadic_integer_aggregate(
-                            argument->expr->type, &units)) {
-                        rcc_free(operands);
-                        context->unsupported = true;
-                        return lower_invalid_value();
-                    }
-                    for (size_t unit = 0u; unit < units; ++unit) {
+                    } else {
                         RccIrLowerValue chunk = lower_load_aggregate_chunk(
                             context, value, argument->expr->type,
                             unit * chunk_size);
@@ -5695,6 +5702,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                         operands[index++] = chunk.value;
                     }
                 }
+                (void)integer_units;
+                (void)sse_units;
             }
         } else if (parameter) {
             value = lower_cast(context, value, parameter->type);

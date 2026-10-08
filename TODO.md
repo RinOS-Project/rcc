@@ -891,11 +891,15 @@
         分割せず専用legacy-object fixtureへ分離し、`-O0`/`-O2`で実行確認する。
         source／fixtureは実装済みだが、現在の生成済みlogはこのsource commitより古く、
         新経路の実行証跡として使えないため未完了。
+      - [ ] 最大2個のINTEGER/SSE eightbyteで構成されるmixed GP/SSE aggregateを、
+        必要な両register bankに余裕がある場合と両bank枯渇後のstack配置でmarshalする。
+        一方のbankだけが不足する境界ではaggregate全体を分割せずcomplete legacy objectへ
+        fallbackするsource pathは追加済みだが、C/C++の`-O0`/`-O2` runtime gateは未確認。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
         16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER
-        eightbyteまたは最大2個のhomogeneous SSE eightbyteを持つtrivial aggregateに限定される。
-        Mixed GP/SSE aggregate、MEMORY aggregate、
+        eightbyte、最大2個のhomogeneous SSE eightbyte、または最大2個のmixed INTEGER/SSE
+        eightbyteを持つtrivial aggregateに限定される。MEMORY aggregate、
         3個以上のeightbyte、
         FP/aggregate named parameter分類、残るadjusted-`va_list`形態は未実装であり、
         このparent checkboxは未完了のままにする。
