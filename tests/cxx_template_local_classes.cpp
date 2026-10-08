@@ -50,6 +50,28 @@ T local_class_template_virtual_member(T value) {
     return object->doubled();
 }
 
+int local_class_template_destructor_calls;
+
+template <typename T>
+T local_class_template_destructor(T value) {
+    struct Local {
+        T item;
+
+        explicit Local(T initial_item) : item(initial_item) {}
+
+        ~Local() {
+            ++local_class_template_destructor_calls;
+        }
+
+        T read() const {
+            return item;
+        }
+    };
+
+    Local local(value);
+    return local.read();
+}
+
 template <typename T>
 int local_class_template_size(T value) {
     struct Local {
@@ -228,6 +250,11 @@ int main() {
     if (local_class_template_constructor_member(19LL) != 76) return 25;
     if (local_class_template_virtual_member(17) != 34) return 26;
     if (local_class_template_virtual_member(23LL) != 46) return 27;
+    if (local_class_template_destructor_calls != 0) return 28;
+    if (local_class_template_destructor(29) != 29 ||
+        local_class_template_destructor_calls != 1) return 28;
+    if (local_class_template_destructor(31LL) != 31LL ||
+        local_class_template_destructor_calls != 2) return 29;
     if (local_class_template_size(1) != 8) return 3;
     if (local_class_template_size(1LL) != 16) return 4;
     if (local_class_template_dependent_base_size(1) != 8) return 5;
