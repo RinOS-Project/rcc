@@ -856,6 +856,9 @@
         promotion後のinteger、pointer、two-word 64-bit `va_arg` loadをtyped SSAへ
         接続。i686 verified backendでfallbackなしのobject生成を検証し、x64では
         完全なlegacy backendへの明示fallbackを保持
+  - [x] i686 cdecl／x86_64 SysVの両方で、7個のnamed GP parameterに続く可変引数の
+        `va_start` cursorを生成し、両architectureのverified objectでfallbackなしを確認。
+        x64 host runtimeで最初のstack overflow variadic argumentが読めることも確認
   - [x] x86_64 SysV variadic calleeのtyped-SSA経路で、整数／pointerのnamed GP
         scalar parameter（6個超を含む）に対する`gp_offset`、176-byte GPR/XMM
         save area、named parameter数に応じたoverflow stack cursorを実装。

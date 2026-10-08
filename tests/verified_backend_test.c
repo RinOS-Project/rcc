@@ -480,14 +480,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            variadic_overflow_call_symbol->type == SYM_GLOBAL &&
            variadic_overflow_call_symbol->binding == BIND_CODE &&
            variadic_overflow_call_symbol->section == 0);
-    if (arch == ARCH_X64) {
-        assert(variadic_named_overflow_call_symbol != NULL &&
-               variadic_named_overflow_call_symbol->type == SYM_GLOBAL &&
-               variadic_named_overflow_call_symbol->binding == BIND_CODE &&
-               variadic_named_overflow_call_symbol->section == 0);
-    } else {
-        assert(variadic_named_overflow_call_symbol == NULL);
-    }
+    assert(variadic_named_overflow_call_symbol != NULL &&
+           variadic_named_overflow_call_symbol->type == SYM_GLOBAL &&
+           variadic_named_overflow_call_symbol->binding == BIND_CODE &&
+           variadic_named_overflow_call_symbol->section == 0);
     assert(expect_symbol != NULL && expect_symbol->type == SYM_GLOBAL &&
            expect_symbol->binding == BIND_CODE && expect_symbol->section == 0);
     assert(assignment_symbol != NULL &&
@@ -737,13 +733,11 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         memcpy(&variadic_overflow_call_function, &address,
                sizeof(variadic_overflow_call_function));
         assert(variadic_overflow_call_function() == 36);
-        if (arch == ARCH_X64) {
-            address = symbol_address(
-                memory, variadic_named_overflow_call_symbol);
-            memcpy(&variadic_named_overflow_call_function, &address,
-                   sizeof(variadic_named_overflow_call_function));
-            assert(variadic_named_overflow_call_function() == 99);
-        }
+        address = symbol_address(
+            memory, variadic_named_overflow_call_symbol);
+        memcpy(&variadic_named_overflow_call_function, &address,
+               sizeof(variadic_named_overflow_call_function));
+        assert(variadic_named_overflow_call_function() == 99);
         address = symbol_address(memory, carry_symbol);
         memcpy(&carry_function, &address, sizeof(carry_function));
         assert(carry_function(1ULL) == 0x0000000100000000ULL);
