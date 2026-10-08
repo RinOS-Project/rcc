@@ -9055,10 +9055,10 @@ static bool class_template_instance_matches(
     return true;
 }
 
-static int cxx_local_base_pack_pattern(CxxTemplate* tmpl,
-                                       CxxClass* definition,
-                                       const char* initializer_name,
-                                       int* pack_index) {
+static int cxx_template_base_pack_pattern(CxxTemplate* tmpl,
+                                         CxxClass* definition,
+                                         const char* initializer_name,
+                                         int* pack_index) {
     int matched_base = -1;
     int matched_pack = -1;
     if (pack_index) *pack_index = -1;
@@ -9110,9 +9110,9 @@ static void cxx_template_class_add_resolved_base(
                                is_virtual, false);
 }
 
-static const char* cxx_local_method_pack_name(DeclList* parameters,
-                                               CxxTemplate* tmpl,
-                                               int pack_index) {
+static const char* cxx_method_pack_name(DeclList* parameters,
+                                        CxxTemplate* tmpl,
+                                        int pack_index) {
     for (; parameters; parameters = parameters->next) {
         Decl* parameter = parameters->decl;
         if (parameter && parameter->param_is_pack && parameter->name &&
@@ -9653,7 +9653,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
              initializer; initializer = initializer->next) {
             int base_pack_index = -1;
             int base_pattern_index = initializer->is_pack_expansion
-                ? cxx_local_base_pack_pattern(
+                ? cxx_template_base_pack_pattern(
                       tmpl, definition, initializer->field,
                       &base_pack_index)
                 : -1;
@@ -9667,11 +9667,11 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                     expansion_count < 0 ||
                     (expansion_count > 0 && !tmpl->pending_pack_args)) {
                     rcc_error(loc,
-                              "constructor initializer pack must expand one local class base type pack");
+                              "constructor initializer pack must expand one class base type pack");
                     copy->initializers_are_supported = false;
                     continue;
                 }
-                parameter_pack_name = cxx_local_method_pack_name(
+                parameter_pack_name = cxx_method_pack_name(
                     constructor->method && constructor->method->decl
                         ? constructor->method->decl->func_params : NULL,
                     tmpl, base_pack_index);

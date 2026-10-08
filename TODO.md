@@ -677,6 +677,11 @@
           `make SHELL=cmd.exe test-cxx-class-template-dependent-base` passes
           freestanding i686 execution, x64 host execution, and both target object
           generations.
+    - [x] Expand ordinary class-template dependent base packs and matching
+          `Bases()...` constructor initializers for zero, one, and two bases;
+          verify construction order on freestanding i686 and x64 host execution
+          and emit both target objects with
+          `make SHELL=cmd.exe test-cxx-class-template-dependent-base`.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

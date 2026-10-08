@@ -367,8 +367,11 @@ remaining dependent member initializer forms stay unchecked in the parent.
 `0x100000001ULL`. `make SHELL=cmd.exe test-cxx-class-template-dependent-base`
 passes freestanding i686 execution, x64 host execution, and both target object
 generations. This verifies i686 sign/zero extension and high-word storage for
-these forms; dependent base packs, virtual/access/ambiguity rules, and other
-initializer forms remain unchecked.
+these forms. Ordinary class-template dependent base packs and matching
+`Bases()...` constructor initializers now cover zero, one, and two bases with
+construction-order checks on freestanding i686 and x64 host execution. Dependent
+virtual bases/overrides, access and ambiguity rules, and other initializer forms
+remain unchecked.
 
 2026-10-09 array-member verification: the inherited-constructor regression now
 executes fixed-size class-array initialization through both inherited
