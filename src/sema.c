@@ -1561,6 +1561,7 @@ static bool sema_cxx_reference_subobject_path(Expr* expression,
             return sema_cxx_reference_subobject_path(
                 expression->binary_lhs, complete_object);
         case EXPR_CAST:
+            if (expression->cast_expr == complete_object) return true;
             return sema_cxx_reference_subobject_path(
                 expression->cast_expr, complete_object);
         case EXPR_COMMA:

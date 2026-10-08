@@ -1,6 +1,6 @@
 extern "C" {
 int cxx_static_reference_events = 0;
-int cxx_static_reference_expected_events = 65;
+int cxx_static_reference_expected_events = 675;
 }
 
 static void record_pointer_reference_event(int value) {
@@ -26,6 +26,9 @@ PointerReferenceChild PointerReferenceOwner::*pointer_reference_child =
 
 const PointerReferenceChild& pointer_reference_global =
     PointerReferenceOwner{5, {47}}.*pointer_reference_child;
+const PointerReferenceChild& pointer_reference_cast_global =
+    static_cast<PointerReferenceOwner&&>(
+        PointerReferenceOwner{7, {61}}).*pointer_reference_child;
 
 static const PointerReferenceChild& pointer_reference_local() {
     static const PointerReferenceChild& value =
@@ -35,6 +38,7 @@ static const PointerReferenceChild& pointer_reference_local() {
 
 int main() {
     if (pointer_reference_global.value != 47) return 1;
+    if (pointer_reference_cast_global.value != 61) return 3;
     const PointerReferenceChild& first = pointer_reference_local();
     const PointerReferenceChild& second = pointer_reference_local();
     if (first.value != 53 || second.value != 53 || &first != &second ||
