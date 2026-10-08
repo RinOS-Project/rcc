@@ -97,6 +97,43 @@ int local_class_template_base_pack_ctor() {
 }
 
 template <typename T>
+struct LocalClassTemplateInheritedCtorBase {
+    T value;
+
+    LocalClassTemplateInheritedCtorBase(T input) : value(input) {}
+};
+
+template <typename T>
+T local_class_template_dependent_using_base(T input) {
+    struct Local : LocalClassTemplateInheritedCtorBase<T> {
+        using LocalClassTemplateInheritedCtorBase<T>::
+            LocalClassTemplateInheritedCtorBase;
+        using LocalClassTemplateInheritedCtorBase<T>::value;
+    };
+    Local local(input);
+    return local.value;
+}
+
+template <typename T>
+struct LocalClassTemplateDependentLookupBase {
+    T value;
+
+    T read_base_value() { return value; }
+};
+
+template <typename T>
+T local_class_template_dependent_base_lookup(T input) {
+    struct Local : LocalClassTemplateDependentLookupBase<T> {
+        T probe(T value) {
+            this->value = value;
+            return this->read_base_value() + this->value;
+        }
+    };
+    Local local;
+    return local.probe(input);
+}
+
+template <typename T>
 T nested_local_class_template_value(T value) {
     struct Outer {
         T item;
@@ -171,12 +208,16 @@ int main() {
     if (local_class_template_base_pack_ctor<LocalClassTemplatePackCtorBaseA,
                                              LocalClassTemplatePackCtorBaseB>()
         != 12) return 14;
-    if (nested_local_class_template_value(11) != 22) return 15;
-    if (nested_local_class_template_value(23LL) != 46) return 16;
-    if (discarded_local_class_template_branch(23LL) != 17) return 17;
+    if (local_class_template_dependent_using_base(41) != 41) return 15;
+    if (local_class_template_dependent_using_base(43LL) != 43) return 16;
+    if (nested_local_class_template_value(11) != 22) return 17;
+    if (nested_local_class_template_value(23LL) != 46) return 18;
+    if (discarded_local_class_template_branch(23LL) != 17) return 19;
     if (local_class_template_typeinfo<int>() !=
-        local_class_template_typeinfo<int>()) return 18;
+        local_class_template_typeinfo<int>()) return 20;
     if (local_class_template_typeinfo<int>() ==
-        local_class_template_typeinfo<long long>()) return 19;
+        local_class_template_typeinfo<long long>()) return 21;
+    if (local_class_template_dependent_base_lookup(47) != 94) return 22;
+    if (local_class_template_dependent_base_lookup(53LL) != 106LL) return 23;
     return 0;
 }

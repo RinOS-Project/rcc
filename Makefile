@@ -8263,9 +8263,9 @@ test-cxx-inherited-constructor: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/access-x64.ro tests/cxx_inherited_constructor_invalid_access.cpp,$(TEST_OUT)/cxx-inherited-constructor/access-x64.log)
 	$(GREP) -F -q "using-base constructor requires a public direct base" $(TEST_OUT)/cxx-inherited-constructor/access-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/member-x86.ro tests/cxx_inherited_constructor_invalid_member.cpp,$(TEST_OUT)/cxx-inherited-constructor/member-x86.log)
-	$(GREP) -F -q "using-base constructors require scalar derived fields" $(TEST_OUT)/cxx-inherited-constructor/member-x86.log
+	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/member-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/member-x64.ro tests/cxx_inherited_constructor_invalid_member.cpp,$(TEST_OUT)/cxx-inherited-constructor/member-x64.log)
-	$(GREP) -F -q "using-base constructors require scalar derived fields" $(TEST_OUT)/cxx-inherited-constructor/member-x64.log
+	$(GREP) -F -q "using-base constructors require safely lowerable derived members" $(TEST_OUT)/cxx-inherited-constructor/member-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/unknown-x86.ro tests/cxx_inherited_constructor_invalid_unknown.cpp,$(TEST_OUT)/cxx-inherited-constructor/unknown-x86.log)
 	$(GREP) -F -q "using-base constructor names an unknown direct base" $(TEST_OUT)/cxx-inherited-constructor/unknown-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inherited-constructor/unknown-x64.ro tests/cxx_inherited_constructor_invalid_unknown.cpp,$(TEST_OUT)/cxx-inherited-constructor/unknown-x64.log)

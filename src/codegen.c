@@ -8862,7 +8862,9 @@ static void gen_cxx_initialize_object32_mode(
             }
             field = gen_cxx_constructor_field32(
                 object_type, initializer->field);
-            if (!field || (!initializer->value && !initializer->arguments)) {
+            if (!field || (!initializer->value && !initializer->arguments &&
+                           !(field->type && field->type->cxx_class &&
+                             initializer->constructor))) {
                 rcc_error((SourceLoc){"<constructor>", 0, 0},
                           "validated C++ member initializer is incomplete");
                 return;

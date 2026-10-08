@@ -622,6 +622,9 @@
       - [x] Preserve expression-shaped direct initialization of a local class
             in a function-template pattern until specialization resolves its
             incomplete class layout and constructor set.
+      - [x] Substitute dependent `using Base<T>::member` and
+            `using Base<T>::Base` declarations; execute inherited-constructor
+            cases for `int` and `long long` and validate both target objects.
       Dependent base type patterns now remain attached to the local class until
       specialization, where type-pack bases are expanded before layout and
       virtual validation. Local member signatures/bodies and pack-expanded
@@ -634,19 +637,20 @@
       Dependent `using Base<T>::member` declarations retain and substitute
       their base type, and public direct `using Base<T>::Base` resolves the
       inherited constructor set against the exact specialized base. The
-      compiler build and focused local-class target pass for the
-      dependent-base/layout/constructor forms checked above. The full `test-cxx`
-      rerun after adding direct initialization reached a host link step but
-      stopped because the E: volume had no free space; it must be rerun. The
-      `using Base<T>` and inherited-constructor extension still lacks a
-      dedicated host-execution and target-object fixture. Keep this parent
-      unchecked until those checks and the broader constructor/member ABI and
-      dependent member lookup are verified.
-      Synthesized inherited constructors now retain source constexpr/consteval,
-      nodiscard/deprecation, noreturn/inline, and function-type prototype
-      metadata; variadic and prototype-less sources are rejected. The parser
-      translation unit passes `gcc -Wall -Wextra -std=c11 -fsyntax-only`, but
-      no behavior fixture or full relink was run for this metadata correction.
+      focused local-class and inherited-constructor targets pass for the
+      dependent-base/layout/constructor forms checked above. The complete
+      native-Windows `test-cxx` aggregate also passes after updating the stale
+      array-member diagnostic expectation and covering class-typed empty-brace
+      default member initialization through an inherited constructor. Keep this
+      parent unchecked until the broader constructor/member ABI and dependent
+      member lookup are verified.
+      Synthesized inherited constructors retain source constexpr/consteval,
+      nodiscard/deprecation, noreturn/inline, and function-type prototype metadata;
+      variadic and prototype-less source constructors are rejected. The parser
+      translation unit passes `gcc -Wall -Wextra -std=c11 -fsyntax-only`, and
+      the full native-Windows `test-cxx` aggregate passes on the current checkout,
+      including class-typed default-member initialization through an inherited
+      constructor.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の
