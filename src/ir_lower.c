@@ -1145,10 +1145,13 @@ static RccIrLowerValue lower_lvalue_address_impl(
         }
         if (expression->ident_decl && expression->ident_decl->type &&
             expression->ident_decl->type->is_reference) {
-            return lower_load_address(
-                context,
-                lower_value(local->address, rcc_ir_type_pointer(0u), true),
-                expression->ident_decl->type);
+            RccIrValue slot = local->address;
+            RccIrInstruction* reference = lower_append(
+                context, RCC_IR_LOAD, rcc_ir_type_pointer(0u),
+                &slot, 1u, NULL, 0u);
+            if (!reference) return lower_invalid_value();
+            return lower_value(
+                reference->result, rcc_ir_type_pointer(0u), true);
         }
         if (local->wide_ssa && lower_i686_wide_scalar_type(
                 expression->ident_decl ? expression->ident_decl->type : NULL)) {
@@ -1170,6 +1173,7 @@ static RccIrLowerValue lower_lvalue_address_impl(
     if (expression->kind == EXPR_CAST && expression->type &&
         expression->type->is_reference &&
         (expression->cxx_cast_kind == CXX_CAST_NONE ||
+         expression->cxx_cast_kind == CXX_CAST_STATIC ||
          expression->cxx_cast_kind == CXX_CAST_CONST ||
          expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
         RccIrLowerValue address = lower_lvalue_address(
@@ -6013,6 +6017,7 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
         case EXPR_CAST:
             if (expression->type && expression->type->is_reference &&
                 (expression->cxx_cast_kind == CXX_CAST_NONE ||
+                 expression->cxx_cast_kind == CXX_CAST_STATIC ||
                  expression->cxx_cast_kind == CXX_CAST_CONST ||
                  expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
                 RccIrLowerValue address = lower_lvalue_address(

@@ -482,6 +482,10 @@
   - [x] Deduce local `auto&&` bindings from both lvalue and xvalue initializers,
         preserve aliasing through reference collapsing, and verify i686/AMD64
         code generation plus x64 execution in `test-cxx-function-template-references`.
+  - [x] Lower scalar local reference aliases as pointer-backed locals in typed
+        SSA, preserving read/write aliasing for `T&&`; assert zero fallback on
+        i686/AMD64 and execute the mutation test on the host in
+        `test-verified-backend`.
   - [x] Materialize scalar prvalues bound to local references in stable
         function-frame storage, including lifetime extension for `const T&`;
         verify the value survives a subsequent call on i686/AMD64 codegen and
