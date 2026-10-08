@@ -559,10 +559,11 @@
         classを区別し、32段を超えるpointer型も末端まで識別する。
         const/non-const pointee、function signature、member owner、reference、
         deep pointerのidentityを実行テストし、両archの`.ro`/`.rin`を検証。
-  - [ ] Give static typeinfo symbols collision-safe, cross-translation-unit
-        identities for every supported type; supported-type regressions and
-        golden outputs pass, while local-class member/template forms remain
-        unsupported.
+  - [x] Give static typeinfo symbols collision-safe, cross-translation-unit
+        identities for every type form currently represented by the frontend;
+        the supported-type regressions and golden outputs pass. Local classes
+        with member functions and local classes in function-template scopes
+        remain explicitly unsupported in the separate unchecked item below.
     - [x] Replace the non-class 64-bit structural hash with a length-prefixed
           canonical encoding for represented structural types, including
           distinct plain `char`, `signed char`, and `char8_t` identities.
