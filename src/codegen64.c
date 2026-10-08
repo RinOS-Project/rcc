@@ -10079,6 +10079,8 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
     if (!stmt) return;
     debug_line_start = code_offset(mod);
     stmt->debug_line_valid = false;
+    stmt->debug_code_start = debug_line_start;
+    stmt->debug_code_end = debug_line_start;
 
     switch (stmt->kind) {
         case STMT_EXPR:
@@ -10699,6 +10701,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                       "unsupported statement kind in AMD64 code generation");
             break;
     }
+    stmt->debug_code_end = code_offset(mod);
     if (mod->debug_legacy_statement_lines &&
         stmt->loc.line > 0 && code_offset(mod) > debug_line_start) {
         stmt->debug_line_offset = debug_line_start;

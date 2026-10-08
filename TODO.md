@@ -907,9 +907,12 @@
   - [x] nested lexical block内のframe-backed localへDWARF v4 `.debug_loc`
         location listを出力し、blockのdiscontiguous PC ranges、各rangeの
         function-symbol relocation、frame-relative expression、VLA address
-        dereferenceを検証。C legacy、C verified O0/O2、C++ verified O2のi686/AMD64
-        `.ro`回帰と、RLDがdebug-only sectionをloadable imageから除外する
-        回帰を`test-debug-info`へ接続
+        dereferenceを検証。宣言statementのcode rangeが得られる場合はlocation
+        list開始を初期化完了PCまでclipし、C legacyでscope開始PCより後になることを
+        i686/AMD64のrelocation addend比較で検証。C legacy、C verified O0/O2、
+        C++ verified O2の`.ro`回帰と、RLDがdebug-only sectionをloadable image
+        から除外する回帰を`test-debug-info`へ接続。命令rangeを持たない宣言、
+        全制御フローでの正確なlifetime、register/piece locationsは未完
   - [x] legacy i686/AMD64 codegenで命令を出したstatementの開始offsetを
         source line rowへ対応付け、代入・分岐・returnの`.debug_line`行を
         objectからデコードして両archで検証

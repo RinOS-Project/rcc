@@ -464,6 +464,76 @@ static bool find_lexical_block_local(const ObjSection* info,
     return false;
 }
 
+static bool find_relocation_addend(const ObjSection* section,
+                                   uint64_t offset, int64_t* addend)
+{
+    if (!section || !addend) return false;
+    for (const ObjReloc* relocation = section->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->offset != offset) continue;
+        *addend = relocation->addend;
+        return true;
+    }
+    return false;
+}
+
+static bool verify_location_starts_after_simple_scope(
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* locations, const char* variable_name,
+    uint64_t address_size)
+{
+    int64_t scope_start;
+    int64_t location_start;
+    bool found_scope = false;
+    bool found_location = false;
+
+    if (!info || !strings || !locations || !variable_name) return false;
+    for (uint64_t offset = 11u; offset + 5u < info->size; ++offset) {
+        uint64_t range_offset;
+        uint64_t child_offset;
+        uint32_t name_offset;
+        if (info->data[offset] != 24u) continue;
+        range_offset = offset + 1u + address_size;
+        child_offset = range_offset + 4u + 1u + 4u + 4u;
+        if (child_offset + 5u > info->size ||
+            (info->data[child_offset] != 4u &&
+             info->data[child_offset] != 39u)) {
+            continue;
+        }
+        name_offset = read_u32(info->data, child_offset + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) != 0) {
+            continue;
+        }
+        if (!find_relocation_addend(info, offset + 1u, &scope_start)) {
+            return false;
+        }
+        found_scope = true;
+        break;
+    }
+    for (uint64_t die = 11u; die + 25u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint32_t list_offset;
+        if (info->data[die] != 39u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) != 0) {
+            continue;
+        }
+        list_offset = read_u32(info->data, die + 21u);
+        if (list_offset >= locations->size ||
+            !find_relocation_addend(locations, list_offset,
+                                    &location_start)) {
+            return false;
+        }
+        found_location = true;
+        break;
+    }
+    return found_scope && found_location && location_start > scope_start;
+}
+
 static uint64_t read_uleb(const uint8_t* data, uint64_t size,
                           uint64_t* offset)
 {
@@ -2104,6 +2174,9 @@ static void verify_debug_object(const char* path, uint16_t architecture,
                 info, strings, locations, "nested", architecture,
                 &has_location, &is_location_list, &frame_offset));
             assert(has_location && is_location_list && frame_offset < 0);
+            assert(verify_location_starts_after_simple_scope(
+                info, strings, locations, "nested",
+                architecture == ARCH_X64 ? 8u : 4u));
         }
         verify_vla_bound_dies(info, abbrev, architecture);
         verify_multidimensional_vla_type(info, strings);

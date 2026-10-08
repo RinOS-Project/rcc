@@ -886,9 +886,10 @@ struct Stmt {
     SourceLoc loc;
     /* Fixed-frame slot used to restore RSP when a VLA-owning scope ends. */
     int vla_stack_offset;
-    /* Codegen-populated half-open range for a real lexical block.  These
-     * offsets are module .text offsets and are consumed only by the
-     * relocatable DWARF emitter after code generation has completed. */
+    /* Codegen-populated half-open statement range.  Lexical blocks use it
+     * for their scope DIE; local declarations also use the end PC as the
+     * point where initialization has completed.  Offsets are module .text
+     * positions consumed only by the relocatable DWARF emitter. */
     uint32_t debug_code_start;
     uint32_t debug_code_end;
     /* Legacy code generators record the first emitted text offset for each
