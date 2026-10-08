@@ -256,6 +256,21 @@ enum {
     LOWER_ABI_RETURN_UNSUPPORTED,
 };
 
+enum {
+    LOWER_SYSV_CLASS_NONE = 0,
+    LOWER_SYSV_CLASS_INTEGER,
+    LOWER_SYSV_CLASS_SSE,
+};
+
+typedef struct {
+    int classes[2];
+    int count;
+    bool memory;
+} LowerSysvAggregateClass;
+
+static bool lower_sysv_classify_aggregate(
+    const Type* type, LowerSysvAggregateClass* result);
+
 static RccIrLowerValue lower_invalid_value(void) {
     RccIrLowerValue value;
     value.value = RCC_IR_VALUE_NONE;
@@ -1251,7 +1266,8 @@ static RccIrLowerValue lower_lvalue_address_impl(
                 expression->member_base->type &&
                 (expression->member_base->type->kind == TYPE_STRUCT ||
                  expression->member_base->type->kind == TYPE_UNION) &&
-                expression->member_base->kind == EXPR_CALL) {
+                (expression->member_base->kind == EXPR_CALL ||
+                 expression->member_base->kind == EXPR_VA_ARG)) {
                 base = lower_expression(context, expression->member_base);
             } else {
                 base = lower_lvalue_address(context, expression->member_base);
@@ -1877,6 +1893,256 @@ static RccIrLowerValue lower_sysv_va_copy(
     return destination;
 }
 
+static RccIrLowerValue lower_sysv_va_add_offset(
+    RccIrLowerContext* context, RccIrLowerValue value, uint64_t amount) {
+    RccIrLowerValue increment;
+    RccIrValue operands[2];
+    RccIrInstruction* add;
+    if (!context || !value.valid ||
+        value.type.kind != RCC_IR_TYPE_INTEGER) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    increment = lower_integer_constant(
+        context, value.type, true, amount);
+    if (!increment.valid) return lower_invalid_value();
+    operands[0] = value.value;
+    operands[1] = increment.value;
+    add = lower_append(
+        context, RCC_IR_ADD, value.type, operands, 2u, NULL, 0u);
+    return add ? lower_value(add->result, value.type, true)
+               : lower_invalid_value();
+}
+
+static RccIrLowerValue lower_sysv_va_align_pointer(
+    RccIrLowerContext* context, RccIrLowerValue value,
+    uint64_t alignment) {
+    RccIrType integer_type = rcc_ir_type_integer(64u);
+    RccIrLowerValue bias;
+    RccIrLowerValue mask;
+    RccIrValue operands[2];
+    RccIrInstruction* as_integer;
+    RccIrInstruction* add;
+    RccIrInstruction* aligned;
+    RccIrInstruction* as_pointer;
+    if (!context || !value.valid ||
+        value.type.kind != RCC_IR_TYPE_POINTER || alignment < 2u ||
+        (alignment & (alignment - 1u)) != 0u) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    bias = lower_integer_constant(
+        context, integer_type, true, alignment - 1u);
+    mask = lower_integer_constant(
+        context, integer_type, true, ~(alignment - 1u));
+    if (!bias.valid || !mask.valid) return lower_invalid_value();
+    as_integer = lower_append(
+        context, RCC_IR_PTR_TO_INT, integer_type,
+        &value.value, 1u, NULL, 0u);
+    if (!as_integer) return lower_invalid_value();
+    operands[0] = as_integer->result;
+    operands[1] = bias.value;
+    add = lower_append(
+        context, RCC_IR_ADD, integer_type, operands, 2u, NULL, 0u);
+    if (!add) return lower_invalid_value();
+    operands[0] = add->result;
+    operands[1] = mask.value;
+    aligned = lower_append(
+        context, RCC_IR_AND, integer_type, operands, 2u, NULL, 0u);
+    if (!aligned) return lower_invalid_value();
+    as_pointer = lower_append(
+        context, RCC_IR_INT_TO_PTR, rcc_ir_type_pointer(0u),
+        &aligned->result, 1u, NULL, 0u);
+    return as_pointer
+        ? lower_value(as_pointer->result, rcc_ir_type_pointer(0u), true)
+        : lower_invalid_value();
+}
+
+static RccIrLowerValue lower_sysv_va_arg_aggregate(
+    RccIrLowerContext* context, const Expr* expression) {
+    const Type* type = expression ? expression->va_arg_type : NULL;
+    LowerSysvAggregateClass classification;
+    RccIrLowerValue result_address;
+    RccIrLowerValue list_slot;
+    RccIrLowerValue gp_field;
+    RccIrLowerValue gp_offset;
+    RccIrLowerValue fp_field;
+    RccIrLowerValue fp_offset;
+    RccIrLowerValue overflow_field;
+    RccIrLowerValue overflow_address;
+    RccIrLowerValue stack_overflow_address;
+    RccIrLowerValue save_field;
+    RccIrLowerValue save_area;
+    RccIrLowerValue in_registers;
+    RccIrLowerValue next_gp;
+    RccIrLowerValue next_fp;
+    RccIrLowerValue next_overflow;
+    RccIrLowerValue stored_gp;
+    RccIrLowerValue stored_fp;
+    RccIrLowerValue stored_overflow;
+    RccIrInstruction* allocation;
+    size_t rounded_size;
+    unsigned gp_count = 0u;
+    unsigned fp_count = 0u;
+    if (!context || !expression ||
+        !lower_sysv_classify_aggregate(type, &classification) ||
+        !lower_sysv_va_list_type(expression->va_list_operand)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (!classification.memory) {
+        for (int index = 0; index < classification.count; ++index) {
+            if (classification.classes[index] ==
+                LOWER_SYSV_CLASS_INTEGER) {
+                ++gp_count;
+            } else if (classification.classes[index] ==
+                       LOWER_SYSV_CLASS_SSE) {
+                ++fp_count;
+            } else {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+        }
+    }
+    rounded_size = ((size_t)type->size + 7u) & ~(size_t)7u;
+    allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!allocation) return lower_invalid_value();
+    rcc_ir_set_immediate(allocation, (uint64_t)rounded_size);
+    allocation->alignment = type->align > 8 ? (uint32_t)type->align : 8u;
+    result_address = lower_value(
+        allocation->result, rcc_ir_type_pointer(0u), true);
+
+    list_slot = lower_sysv_va_list_address(
+        context, expression->va_list_operand);
+    gp_field = lower_byte_offset_address(context, list_slot, 0u);
+    gp_offset = lower_load_address(context, gp_field, type_uint);
+    fp_field = lower_byte_offset_address(context, list_slot, 4u);
+    fp_offset = lower_load_address(context, fp_field, type_uint);
+    overflow_field = lower_byte_offset_address(context, list_slot, 8u);
+    overflow_address = lower_sysv_va_pointer_load(context, overflow_field);
+    stack_overflow_address = type->align > 8
+        ? lower_sysv_va_align_pointer(context, overflow_address, 16u)
+        : overflow_address;
+    save_field = lower_byte_offset_address(context, list_slot, 16u);
+    save_area = lower_sysv_va_pointer_load(context, save_field);
+    if (!result_address.valid || !list_slot.valid || !gp_field.valid ||
+        !gp_offset.valid || !fp_field.valid || !fp_offset.valid ||
+        !overflow_field.valid || !overflow_address.valid ||
+        !stack_overflow_address.valid ||
+        !save_field.valid || !save_area.valid) {
+        return lower_invalid_value();
+    }
+
+    if (classification.memory) {
+        in_registers = lower_integer_constant(
+            context, rcc_ir_type_integer(1u), true, 0u);
+    } else {
+        RccIrLowerValue gp_limit = lower_integer_constant(
+            context, gp_offset.type, true,
+            RCC_X86_SYSV_VA_GP_SAVE_SIZE - gp_count * 8u);
+        RccIrLowerValue fp_limit = lower_integer_constant(
+            context, fp_offset.type, true,
+            RCC_IR_SYSV_VA_SAVE_AREA_SIZE - fp_count * 16u);
+        RccIrValue compare_operands[2];
+        RccIrInstruction* gp_compare;
+        RccIrInstruction* fp_compare;
+        RccIrValue and_operands[2];
+        RccIrInstruction* both_available;
+        if (!gp_limit.valid || !fp_limit.valid) {
+            return lower_invalid_value();
+        }
+        compare_operands[0] = gp_offset.value;
+        compare_operands[1] = gp_limit.value;
+        gp_compare = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            compare_operands, 2u, NULL, 0u);
+        if (!gp_compare) return lower_invalid_value();
+        rcc_ir_set_predicate(gp_compare, RCC_IR_ICMP_ULE);
+        compare_operands[0] = fp_offset.value;
+        compare_operands[1] = fp_limit.value;
+        fp_compare = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            compare_operands, 2u, NULL, 0u);
+        if (!fp_compare) return lower_invalid_value();
+        rcc_ir_set_predicate(fp_compare, RCC_IR_ICMP_ULE);
+        and_operands[0] = gp_compare->result;
+        and_operands[1] = fp_compare->result;
+        both_available = lower_append(
+            context, RCC_IR_AND, rcc_ir_type_integer(1u),
+            and_operands, 2u, NULL, 0u);
+        if (!both_available) return lower_invalid_value();
+        in_registers = lower_value(
+            both_available->result, rcc_ir_type_integer(1u), true);
+    }
+
+    {
+        RccIrLowerValue gp_cursor = gp_offset;
+        RccIrLowerValue fp_cursor = fp_offset;
+        RccIrType slot_type;
+        if (!lower_type(type_ulong, &slot_type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        for (int index = 0; index < classification.count; ++index) {
+            RccIrLowerValue overflow_chunk = lower_byte_offset_address(
+                context, stack_overflow_address, (uint64_t)index * 8u);
+            RccIrLowerValue source_address = overflow_chunk;
+            RccIrLowerValue loaded;
+            RccIrLowerValue destination = lower_byte_offset_address(
+                context, result_address, (uint64_t)index * 8u);
+            if (!classification.memory) {
+                RccIrLowerValue register_address;
+                if (classification.classes[index] ==
+                    LOWER_SYSV_CLASS_INTEGER) {
+                    register_address = lower_dynamic_byte_offset_address(
+                        context, save_area, gp_cursor);
+                    gp_cursor = lower_sysv_va_add_offset(
+                        context, gp_cursor, 8u);
+                } else {
+                    register_address = lower_dynamic_byte_offset_address(
+                        context, save_area, fp_cursor);
+                    fp_cursor = lower_sysv_va_add_offset(
+                        context, fp_cursor, 16u);
+                }
+                source_address = lower_sysv_va_select(
+                    context, in_registers, register_address, overflow_chunk);
+                if (!register_address.valid || !source_address.valid) {
+                    return lower_invalid_value();
+                }
+            }
+            loaded = lower_load_address(context, source_address, type_ulong);
+            if (!overflow_chunk.valid || !destination.valid ||
+                !loaded.valid || !rcc_ir_type_equal(loaded.type, slot_type) ||
+                !lower_store_address(context, destination, loaded)) {
+                return lower_invalid_value();
+            }
+        }
+        next_gp = lower_sysv_va_add_offset(
+            context, gp_offset, (uint64_t)gp_count * 8u);
+        next_fp = lower_sysv_va_add_offset(
+            context, fp_offset, (uint64_t)fp_count * 16u);
+    }
+    next_overflow = lower_byte_offset_address(
+        context, stack_overflow_address, (uint64_t)rounded_size);
+    stored_gp = lower_sysv_va_select(
+        context, in_registers, next_gp, gp_offset);
+    stored_fp = lower_sysv_va_select(
+        context, in_registers, next_fp, fp_offset);
+    stored_overflow = lower_sysv_va_select(
+        context, in_registers, overflow_address, next_overflow);
+    if (!next_gp.valid || !next_fp.valid || !next_overflow.valid ||
+        !stored_gp.valid || !stored_fp.valid || !stored_overflow.valid ||
+        !lower_store_address(context, gp_field, stored_gp) ||
+        !lower_store_address(context, fp_field, stored_fp) ||
+        !lower_sysv_va_pointer_store(
+            context, overflow_field, stored_overflow)) {
+        return lower_invalid_value();
+    }
+    return result_address;
+}
+
 static RccIrLowerValue lower_sysv_va_arg_fp(
     RccIrLowerContext* context, const Expr* expression) {
     const Type* type = expression ? expression->va_arg_type : NULL;
@@ -1991,6 +2257,9 @@ static RccIrLowerValue lower_sysv_va_arg(
     RccIrInstruction* compare;
     RccIrInstruction* add;
     const Type* type = expression ? expression->va_arg_type : NULL;
+    if (type && lower_abi_is_aggregate(type)) {
+        return lower_sysv_va_arg_aggregate(context, expression);
+    }
     if (type &&
         (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE)) {
         return lower_sysv_va_arg_fp(context, expression);
@@ -9176,6 +9445,104 @@ static bool lower_abi_aggregate_supported(const Type* type) {
     return type->size <= 16 &&
         lower_abi_naturally_aligned_internal(type, 0u, 0u) &&
         lower_abi_integer_class_internal(type, 0u);
+}
+
+static int lower_sysv_merge_class(int left, int right) {
+    if (left == LOWER_SYSV_CLASS_NONE) return right;
+    if (right == LOWER_SYSV_CLASS_NONE || left == right) return left;
+    return LOWER_SYSV_CLASS_INTEGER;
+}
+
+static bool lower_sysv_classify_type_at(
+    const Type* type, uint64_t base_offset, unsigned depth,
+    LowerSysvAggregateClass* result) {
+    const TypeField* field;
+    uint64_t first;
+    uint64_t last;
+    if (!type || !result || depth >= 32u || type->size <= 0) return false;
+    if (type->size > 16 || base_offset > 16u - (uint64_t)type->size ||
+        (type->align > 1 && base_offset % (uint64_t)type->align != 0u)) {
+        result->memory = true;
+        return true;
+    }
+    if (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) {
+        if ((type->kind == TYPE_FLOAT && type->size != 4) ||
+            (type->kind == TYPE_DOUBLE && type->size != 8)) return false;
+        first = base_offset / 8u;
+        if (first >= 2u) {
+            result->memory = true;
+            return true;
+        }
+        result->classes[first] = lower_sysv_merge_class(
+            result->classes[first], LOWER_SYSV_CLASS_SSE);
+        return true;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        if (!type->base || type->array_len <= 0) return false;
+        for (int index = 0; index < type->array_len; ++index) {
+            uint64_t offset = base_offset +
+                (uint64_t)index * (uint64_t)type->base->size;
+            if (!lower_sysv_classify_type_at(
+                    type->base, offset, depth + 1u, result)) return false;
+            if (result->memory) return true;
+        }
+        return true;
+    }
+    if (lower_abi_is_aggregate(type)) {
+        if (!type->is_complete || type->cxx_nontrivial) return false;
+        for (field = type->fields; field; field = field->next) {
+            if (field->type && field->type->kind == TYPE_ARRAY &&
+                field->type->array_len == -1 &&
+                !field->type->array_bound &&
+                !field->type->array_unspecified_bound) continue;
+            if (!field->type || field->offset < 0 ||
+                field->offset > type->size ||
+                field->type->size > type->size - field->offset ||
+                !lower_sysv_classify_type_at(
+                    field->type,
+                    base_offset + (uint64_t)field->offset,
+                    depth + 1u, result)) return false;
+            if (result->memory) return true;
+        }
+        return true;
+    }
+    if (type_is_integer((Type*)type) || type->kind == TYPE_ENUM ||
+        type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR) {
+        first = base_offset / 8u;
+        last = (base_offset + (uint64_t)type->size - 1u) / 8u;
+        if (last >= 2u) {
+            result->memory = true;
+            return true;
+        }
+        for (uint64_t index = first; index <= last; ++index) {
+            result->classes[index] = lower_sysv_merge_class(
+                result->classes[index], LOWER_SYSV_CLASS_INTEGER);
+        }
+        return true;
+    }
+    return false;
+}
+
+static bool lower_sysv_classify_aggregate(
+    const Type* type, LowerSysvAggregateClass* result) {
+    if (!type || !result || !lower_abi_is_aggregate(type) ||
+        type->size <= 0 || type->cxx_nontrivial ||
+        !lower_storage_type_supported_internal(type, 0u)) return false;
+    memset(result, 0, sizeof(*result));
+    result->count = (type->size + 7) / 8;
+    if (type->size > 16) {
+        result->memory = true;
+        return true;
+    }
+    if (!lower_sysv_classify_type_at(type, 0u, 0u, result)) return false;
+    if (!result->memory) {
+        for (int index = 0; index < result->count; ++index) {
+            if (result->classes[index] == LOWER_SYSV_CLASS_NONE) {
+                result->classes[index] = LOWER_SYSV_CLASS_INTEGER;
+            }
+        }
+    }
+    return true;
 }
 
 static int lower_abi_return_layout(const Type* type,

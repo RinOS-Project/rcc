@@ -180,3 +180,63 @@ extern "C" double verified_sysv_fp_call_variadic_ninth(
     return verified_sysv_va_double_ninth(
         41, d0, d1, d2, d3, d4, d5, d6, d7, d8);
 }
+
+struct VerifiedSysvVaMixedAggregate {
+    int integer;
+    double floating;
+};
+
+struct VerifiedSysvVaIntegerAggregate {
+    int first;
+    int second;
+};
+
+extern "C" int verified_sysv_va_mixed_aggregate_integer(int marker, ...)
+{
+    va_list arguments;
+    va_start(arguments, marker);
+    int value = va_arg(arguments, VerifiedSysvVaMixedAggregate).integer;
+    va_end(arguments);
+    return value;
+}
+
+extern "C" double verified_sysv_va_mixed_aggregate_floating(int marker, ...)
+{
+    va_list arguments;
+    va_start(arguments, marker);
+    double value = va_arg(arguments, VerifiedSysvVaMixedAggregate).floating;
+    va_end(arguments);
+    return value;
+}
+
+extern "C" int verified_sysv_va_integer_aggregate_overflow(
+    int a, int b, int c, int d, int e, int last, ...)
+{
+    va_list arguments;
+    va_start(arguments, last);
+    VerifiedSysvVaIntegerAggregate value =
+        va_arg(arguments, VerifiedSysvVaIntegerAggregate);
+    va_end(arguments);
+    return value.first * 10 + value.second;
+}
+
+extern "C" double verified_sysv_va_mixed_aggregate_overflow(
+    int a, int b, int c, int d, int e, int last, ...)
+{
+    va_list arguments;
+    va_start(arguments, last);
+    double value = va_arg(arguments, VerifiedSysvVaMixedAggregate).floating;
+    va_end(arguments);
+    return value;
+}
+
+extern "C" double verified_sysv_va_mixed_aggregate_sse_overflow(
+    double a, double b, double c, double d,
+    double e, double f, double g, double last, ...)
+{
+    va_list arguments;
+    va_start(arguments, last);
+    double value = va_arg(arguments, VerifiedSysvVaMixedAggregate).floating;
+    va_end(arguments);
+    return value;
+}

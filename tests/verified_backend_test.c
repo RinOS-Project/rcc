@@ -22,6 +22,16 @@
 #define RINOS_ABI
 #endif
 
+struct VerifiedSysvMixedAggregate {
+    int integer;
+    double floating;
+};
+
+struct VerifiedSysvIntegerAggregate {
+    int first;
+    int second;
+};
+
 static size_t verified_page_size(void)
 {
 #ifdef _WIN32
@@ -231,6 +241,11 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
     ObjSymbol* fp_call_variadic_ninth_symbol;
     ObjSymbol* fp_call_variadic_named_double_symbol;
     ObjSymbol* fp_call_mixed_variadic_overflow_symbol;
+    ObjSymbol* va_mixed_aggregate_integer_symbol;
+    ObjSymbol* va_mixed_aggregate_floating_symbol;
+    ObjSymbol* va_integer_aggregate_overflow_symbol;
+    ObjSymbol* va_mixed_aggregate_overflow_symbol;
+    ObjSymbol* va_mixed_aggregate_sse_overflow_symbol;
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
     first_symbol = objfile_find_symbol(
@@ -271,6 +286,16 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         object, "verified_sysv_fp_call_variadic_named_double");
     fp_call_mixed_variadic_overflow_symbol = objfile_find_symbol(
         object, "verified_sysv_fp_call_mixed_variadic_overflow");
+    va_mixed_aggregate_integer_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_mixed_aggregate_integer");
+    va_mixed_aggregate_floating_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_mixed_aggregate_floating");
+    va_integer_aggregate_overflow_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_integer_aggregate_overflow");
+    va_mixed_aggregate_overflow_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_mixed_aggregate_overflow");
+    va_mixed_aggregate_sse_overflow_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_mixed_aggregate_sse_overflow");
     assert(first_symbol != NULL && first_symbol->type == SYM_GLOBAL &&
            first_symbol->binding == BIND_CODE && first_symbol->section == 0);
     assert(second_symbol != NULL && second_symbol->type == SYM_GLOBAL &&
@@ -341,6 +366,26 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
            fp_call_mixed_variadic_overflow_symbol->type == SYM_GLOBAL &&
            fp_call_mixed_variadic_overflow_symbol->binding == BIND_CODE &&
            fp_call_mixed_variadic_overflow_symbol->section == 0);
+    assert(va_mixed_aggregate_integer_symbol != NULL &&
+           va_mixed_aggregate_integer_symbol->type == SYM_GLOBAL &&
+           va_mixed_aggregate_integer_symbol->binding == BIND_CODE &&
+           va_mixed_aggregate_integer_symbol->section == 0);
+    assert(va_mixed_aggregate_floating_symbol != NULL &&
+           va_mixed_aggregate_floating_symbol->type == SYM_GLOBAL &&
+           va_mixed_aggregate_floating_symbol->binding == BIND_CODE &&
+           va_mixed_aggregate_floating_symbol->section == 0);
+    assert(va_integer_aggregate_overflow_symbol != NULL &&
+           va_integer_aggregate_overflow_symbol->type == SYM_GLOBAL &&
+           va_integer_aggregate_overflow_symbol->binding == BIND_CODE &&
+           va_integer_aggregate_overflow_symbol->section == 0);
+    assert(va_mixed_aggregate_overflow_symbol != NULL &&
+           va_mixed_aggregate_overflow_symbol->type == SYM_GLOBAL &&
+           va_mixed_aggregate_overflow_symbol->binding == BIND_CODE &&
+           va_mixed_aggregate_overflow_symbol->section == 0);
+    assert(va_mixed_aggregate_sse_overflow_symbol != NULL &&
+           va_mixed_aggregate_sse_overflow_symbol->type == SYM_GLOBAL &&
+           va_mixed_aggregate_sse_overflow_symbol->binding == BIND_CODE &&
+           va_mixed_aggregate_sse_overflow_symbol->section == 0);
     assert(symbol_has_sysv_variadic_call_setup(
         object, text, fp_call_variadic_double_symbol, 1u));
     assert(symbol_has_sysv_variadic_call_setup(
@@ -396,6 +441,17 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
             int, int, int, int, int, int,
             double, double, double, double, double, double, double, double,
             int, double);
+        int (RINOS_ABI *va_mixed_aggregate_integer)(int, ...);
+        double (RINOS_ABI *va_mixed_aggregate_floating)(int, ...);
+        int (RINOS_ABI *va_integer_aggregate_overflow)(
+            int, int, int, int, int, int, ...);
+        double (RINOS_ABI *va_mixed_aggregate_overflow)(
+            int, int, int, int, int, int, ...);
+        double (RINOS_ABI *va_mixed_aggregate_sse_overflow)(
+            double, double, double, double,
+            double, double, double, double, ...);
+        struct VerifiedSysvMixedAggregate mixed_aggregate = { 19, 4.125 };
+        struct VerifiedSysvIntegerAggregate integer_aggregate = { 13, 7 };
         memcpy(&first, &address, sizeof(first));
         address = symbol_address(memory, second_symbol);
         memcpy(&second, &address, sizeof(second));
@@ -441,6 +497,22 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         address = symbol_address(memory, fp_call_mixed_variadic_overflow_symbol);
         memcpy(&fp_call_mixed_variadic_overflow, &address,
                sizeof(fp_call_mixed_variadic_overflow));
+        address = symbol_address(memory, va_mixed_aggregate_integer_symbol);
+        memcpy(&va_mixed_aggregate_integer, &address,
+               sizeof(va_mixed_aggregate_integer));
+        address = symbol_address(memory, va_mixed_aggregate_floating_symbol);
+        memcpy(&va_mixed_aggregate_floating, &address,
+               sizeof(va_mixed_aggregate_floating));
+        address = symbol_address(memory, va_integer_aggregate_overflow_symbol);
+        memcpy(&va_integer_aggregate_overflow, &address,
+               sizeof(va_integer_aggregate_overflow));
+        address = symbol_address(memory, va_mixed_aggregate_overflow_symbol);
+        memcpy(&va_mixed_aggregate_overflow, &address,
+               sizeof(va_mixed_aggregate_overflow));
+        address = symbol_address(
+            memory, va_mixed_aggregate_sse_overflow_symbol);
+        memcpy(&va_mixed_aggregate_sse_overflow, &address,
+               sizeof(va_mixed_aggregate_sse_overflow));
         assert(first(7, 3.25) == 3.25);
         assert(second(7, 1.25, 2.5) == 2.5);
         assert(ninth(7, 1.0, 2.0, 3.0, 4.0, 5.0,
@@ -478,8 +550,92 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
                    1, 2, 3, 4, 5, 6,
                    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
                    91, 9.75) == 9.75);
+        assert(va_mixed_aggregate_integer(7, mixed_aggregate) == 19);
+        assert(va_mixed_aggregate_floating(7, mixed_aggregate) == 4.125);
+        assert(va_integer_aggregate_overflow(
+                   1, 2, 3, 4, 5, 6, integer_aggregate) == 137);
+        assert(va_mixed_aggregate_overflow(
+                   1, 2, 3, 4, 5, 6, mixed_aggregate) == 4.125);
+        assert(va_mixed_aggregate_sse_overflow(
+                   1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
+                   mixed_aggregate) == 4.125);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
+    objfile_free(object);
+}
+
+static void verify_sysv_va_aggregate_object(const char* path)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* mixed_integer_symbol;
+    ObjSymbol* mixed_floating_symbol;
+    ObjSymbol* integer_overflow_symbol;
+    ObjSymbol* mixed_overflow_symbol;
+    ObjSymbol* mixed_sse_overflow_symbol;
+    size_t mapping_size;
+    void* memory;
+    void* address;
+    int (RINOS_ABI *mixed_integer)(int, ...);
+    double (RINOS_ABI *mixed_floating)(int, ...);
+    int (RINOS_ABI *integer_overflow)(int, int, int, int, int, int, ...);
+    double (RINOS_ABI *mixed_overflow)(int, int, int, int, int, int, ...);
+    double (RINOS_ABI *mixed_sse_overflow)(
+        double, double, double, double,
+        double, double, double, double, ...);
+    struct VerifiedSysvMixedAggregate mixed = { 19, 4.125 };
+    struct VerifiedSysvIntegerAggregate integer = { 13, 7 };
+    assert(object != NULL && object->arch == ARCH_X64 && sizeof(void*) == 8u);
+    text = objfile_get_section(object, ".text");
+    mixed_integer_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_mixed_aggregate_integer");
+    mixed_floating_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_mixed_aggregate_floating");
+    integer_overflow_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_integer_aggregate_overflow");
+    mixed_overflow_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_mixed_aggregate_overflow");
+    mixed_sse_overflow_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_mixed_aggregate_sse_overflow");
+    assert(mixed_integer_symbol != NULL &&
+           mixed_integer_symbol->type == SYM_GLOBAL &&
+           mixed_integer_symbol->binding == BIND_CODE &&
+           mixed_integer_symbol->section == 0);
+    assert(mixed_floating_symbol != NULL &&
+           mixed_floating_symbol->type == SYM_GLOBAL &&
+           mixed_floating_symbol->binding == BIND_CODE &&
+           mixed_floating_symbol->section == 0);
+    assert(integer_overflow_symbol != NULL &&
+           integer_overflow_symbol->type == SYM_GLOBAL &&
+           integer_overflow_symbol->binding == BIND_CODE &&
+           integer_overflow_symbol->section == 0);
+    assert(mixed_overflow_symbol != NULL &&
+           mixed_overflow_symbol->type == SYM_GLOBAL &&
+           mixed_overflow_symbol->binding == BIND_CODE &&
+           mixed_overflow_symbol->section == 0);
+    assert(mixed_sse_overflow_symbol != NULL &&
+           mixed_sse_overflow_symbol->type == SYM_GLOBAL &&
+           mixed_sse_overflow_symbol->binding == BIND_CODE &&
+           mixed_sse_overflow_symbol->section == 0);
+    memory = map_text(object, text, &mapping_size);
+    address = symbol_address(memory, mixed_integer_symbol);
+    memcpy(&mixed_integer, &address, sizeof(mixed_integer));
+    address = symbol_address(memory, mixed_floating_symbol);
+    memcpy(&mixed_floating, &address, sizeof(mixed_floating));
+    address = symbol_address(memory, integer_overflow_symbol);
+    memcpy(&integer_overflow, &address, sizeof(integer_overflow));
+    address = symbol_address(memory, mixed_overflow_symbol);
+    memcpy(&mixed_overflow, &address, sizeof(mixed_overflow));
+    address = symbol_address(memory, mixed_sse_overflow_symbol);
+    memcpy(&mixed_sse_overflow, &address, sizeof(mixed_sse_overflow));
+    assert(mixed_integer(7, mixed) == 19);
+    assert(mixed_floating(7, mixed) == 4.125);
+    assert(integer_overflow(1, 2, 3, 4, 5, 6, integer) == 137);
+    assert(mixed_overflow(1, 2, 3, 4, 5, 6, mixed) == 4.125);
+    assert(mixed_sse_overflow(
+               1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
+               mixed) == 4.125);
+    assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }
 
@@ -3025,6 +3181,11 @@ int main(int argc, char** argv)
     if (argc == 3 && strcmp(argv[1], "--sysv-va-fp-object") == 0) {
         verify_sysv_va_fp_object(argv[2], sizeof(void*) == 8u);
         puts("Verified x86-64 SysV floating va_arg object passed");
+        return 0;
+    }
+    if (argc == 3 && strcmp(argv[1], "--sysv-va-aggregate-object") == 0) {
+        verify_sysv_va_aggregate_object(argv[2]);
+        puts("Verified x86-64 SysV aggregate va_arg object passed");
         return 0;
     }
     if (argc == 4 && strcmp(argv[1], "--cxx-reference-object") == 0) {
