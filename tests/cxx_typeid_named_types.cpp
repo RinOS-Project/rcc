@@ -12,5 +12,7 @@ TypeIdBox<TypeIdScopeA::Payload> type_id_box_a;
 TypeIdBox<TypeIdScopeB::Payload> type_id_box_b;
 
 extern "C" int main() {
-    return &typeid(type_id_box_a) != &typeid(type_id_box_b) ? 0 : 1;
+    return (&typeid(type_id_box_a) != &typeid(type_id_box_b) &&
+            &typeid(TypeIdScopeA::Value) != &typeid(TypeIdScopeB::Value))
+        ? 0 : 1;
 }

@@ -950,6 +950,30 @@ Type* rcc_parser_lookup_type(const char* name) {
     ParserTagName* tag;
     Type* cxx_class_type;
     if (type || !name) return type;
+    {
+        const char* qualified_name = name;
+        const char* final_separator;
+        while (qualified_name[0] == ':' && qualified_name[1] == ':') {
+            qualified_name += 2;
+        }
+        final_separator = strrchr(qualified_name, ':');
+        if (final_separator && final_separator > qualified_name &&
+            final_separator[-1] == ':') {
+            size_t namespace_length =
+                (size_t)(final_separator - qualified_name - 1);
+            const char* type_name = final_separator + 1;
+            for (tag = parser_tag_names; tag; tag = tag->next) {
+                if (tag->kind == TYPE_ENUM && tag->name &&
+                    tag->cxx_namespace &&
+                    strlen(tag->cxx_namespace) == namespace_length &&
+                    memcmp(tag->cxx_namespace, qualified_name,
+                           namespace_length) == 0 &&
+                    strcmp(tag->name, type_name) == 0) {
+                    return tag->type;
+                }
+            }
+        }
+    }
     for (tag = parser_tag_names; tag; tag = tag->next) {
         if (tag->name && strcmp(tag->name, name) == 0 &&
             (tag->kind == TYPE_STRUCT || tag->kind == TYPE_UNION)) {

@@ -7990,8 +7990,7 @@ bool rcc_parse_cxx_type_start(void) {
     name = parse_qualified_name();
     result = is_active_template_type(name) || find_class(name) != NULL ||
              find_class_template(name) != NULL ||
-             (strstr(name, "::") == NULL &&
-              rcc_parser_lookup_type(name) != NULL);
+             rcc_parser_lookup_type(name) != NULL;
     if (check(TOK_LT) &&
         (find_class_template(name) || find_alias_template(name) ||
          active_template_template_parameter_index(name) >= 0)) {
@@ -11872,8 +11871,7 @@ static Type* parse_cxx_type_spec(void) {
             strcmp(name, active_class->name) == 0) {
             known_class = active_class;
         }
-        Type* known_type = strstr(name, "::") == NULL
-            ? rcc_parser_lookup_type(name) : NULL;
+        Type* known_type = rcc_parser_lookup_type(name);
         if (tmpl && !check(TOK_LT)) {
             bool direct_initialization = check(TOK_IDENT) &&
                 (check_next(TOK_LPAREN) || check_next(TOK_LBRACE));

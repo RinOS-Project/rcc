@@ -574,8 +574,10 @@
           template identity. Two translation units instantiate the same class
           template in different orders, compare `typeid` identity, link both
           `.ro` files for i686/AMD64, and validate the resulting `.rin` images.
-          Local/anonymous class and enum scope identity is still not represented
-          by the parser and keeps the parent item open.
+    - [x] Resolve namespace-qualified enum type-ids and distinguish same-named
+          enums from separate namespaces in `typeid` identity.
+    - [ ] Local/anonymous class and local enum scope identity is still not
+          represented by the parser.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の
