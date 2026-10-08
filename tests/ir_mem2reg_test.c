@@ -1622,10 +1622,12 @@ static void verify_loop_invariant_code_motion(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
     RccIrType i1 = rcc_ir_type_integer(1u);
-    RccIrType parameters[] = {i32, i32, i32};
+    RccIrType parameters[] = {
+        i32, i32, i32, rcc_ir_type_float(32u),
+    };
     RccIrModule* module = rcc_ir_module_create();
     RccIrFunction* function = rcc_ir_function_add(
-        module, "loop_licm", i32, parameters, 3u);
+        module, "loop_licm", i32, parameters, 4u);
     RccIrBlock* entry = rcc_ir_block_add(function, "entry");
     RccIrBlock* header = rcc_ir_block_add(function, "header");
     RccIrBlock* body = rcc_ir_block_add(function, "body");
@@ -1642,11 +1644,13 @@ static void verify_loop_invariant_code_motion(void)
     RccIrInstruction* compare;
     RccIrInstruction* unsafe_division;
     RccIrInstruction* unsafe_shift;
+    RccIrInstruction* unsafe_float_to_int;
     RccIrInstruction* safe_division;
     RccIrInstruction* safe_shift;
     RccIrInstruction* safe_left_shift;
     RccIrInstruction* out_of_range_left_shift;
     RccIrValue unsafe_operands[2];
+    RccIrValue conversion_operand[1];
     RccIrValue safe_operands[2];
     RccIrValue safe_divisor;
     RccIrValue safe_shift_count;
@@ -1689,6 +1693,10 @@ static void verify_loop_invariant_code_motion(void)
     unsafe_shift = rcc_ir_append(
         body, RCC_IR_SHL, i32, unsafe_operands, 2u, NULL, 0u);
     assert(unsafe_shift != NULL);
+    conversion_operand[0] = function->parameters[3];
+    unsafe_float_to_int = rcc_ir_append(
+        body, RCC_IR_FPTOSI, i32, conversion_operand, 1u, NULL, 0u);
+    assert(unsafe_float_to_int != NULL);
     safe_operands[0] = function->parameters[0];
     safe_operands[1] = safe_divisor;
     safe_division = rcc_ir_append(
@@ -1719,6 +1727,8 @@ static void verify_loop_invariant_code_motion(void)
                          next, unsafe_division->result);
     next = append_binary(body, RCC_IR_ADD, i32,
                          next, unsafe_shift->result);
+    next = append_binary(body, RCC_IR_ADD, i32,
+                         next, unsafe_float_to_int->result);
     append_branch(body, header->id);
     phi->operands[1] = next;
     append_return(exit, phi->result);
@@ -1741,6 +1751,7 @@ static void verify_loop_invariant_code_motion(void)
     assert(safe_left_shift->block == entry);
     assert(unsafe_division->block == body);
     assert(unsafe_shift->block == body);
+    assert(unsafe_float_to_int->block == body);
     assert(out_of_range_left_shift->block == body);
     assert(rcc_ir_verify_function(function, error, sizeof(error)));
     rcc_ir_module_destroy(module);

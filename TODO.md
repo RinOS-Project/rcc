@@ -772,6 +772,9 @@
         複数入口・branch edge・hoisted value・verifierをdirect IR回帰で検証
   - [x] typed SSAの不変な左シフトは、定数shift幅が結果bit幅未満の場合だけ
         LICMでhoistし、動的または幅外のshift量はloop内に残す回帰を追加
+  - [x] NaNまたは整数型範囲外の入力で無効となり得る`fptosi`は、loopが0回の
+        場合にも実行されるようなhoistを禁止する。direct IR regressionで変換を
+        loop bodyに保持し、`test-ir`と`test-optimize`で検証
   - [x] 副作用のない単純整数識別子／リテラル引数が関数本体で複数回参照される
         場合も、複雑式のAST共有は行わず安全にO1 inlineし、両archでcall除去と
         実行結果を回帰検証
