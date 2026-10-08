@@ -18,7 +18,11 @@ typedef struct CxxExitEntry {
 
 static CxxExitEntry cxx_exit_entries[16];
 static size_t cxx_exit_count;
+#if defined(__ELF__)
+extern void* __dso_handle;
+#else
 void* __dso_handle;
+#endif
 extern int cxx_static_reference_events;
 extern int cxx_static_reference_expected_events;
 extern int RIN_SYSV rcc_generated_main(void);
@@ -86,9 +90,15 @@ void RIN_SYSV __cxa_finalize(void* dso)
 int main(void)
 {
     int result;
+#if !defined(__ELF__)
     __rcc_global_init();
+#endif
     result = rcc_generated_main();
-    if (result != 0) return result;
+    if (result != 0) {
+        fprintf(stderr, "generated static-reference test failed: status %d\n",
+                result);
+        return result;
+    }
     __cxa_finalize(&__dso_handle);
     __rcc_global_fini();
     if (cxx_static_reference_events != cxx_static_reference_expected_events) {

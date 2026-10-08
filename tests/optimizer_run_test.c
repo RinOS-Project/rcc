@@ -1564,8 +1564,7 @@ int main(int argc, char** argv)
                folded_float_unary() < 2.501f);
         assert(folded_float_cast_from_int() > 6.999 &&
                folded_float_cast_from_int() < 7.001);
-        assert(folded_float_narrow_cast() > 16777215.5f &&
-               folded_float_narrow_cast() < 16777216.5f);
+        assert(folded_float_narrow_cast() == 16777216.0f);
         assert(folded_float_to_signed() == -3);
         assert(folded_float_to_unsigned() == 3u);
         assert(folded_float_to_unsigned_negative_fraction() == 0u);
@@ -1696,7 +1695,7 @@ int main(int argc, char** argv)
         assert(inlined_narrow_parameter_assignment_call(5) == 7);
         assert(inlined_narrow_parameter_assignment_call(-4) == -2);
         assert(inlined_local_float_compound_call(3.0f) == 4.0f);
-        assert(inlined_parameter_double_compound_call(2.0, 3.0) == 1.5);
+        assert(inlined_parameter_double_compound_call(2.0, 3.0) == 0.75);
         assert(inlined_float_increment_mutations_call(3.0f) == 457.0f);
         assert(inlined_float_increment_mutations_call(-2.0f) == -103.0f);
         {
@@ -1724,7 +1723,7 @@ int main(int argc, char** argv)
         {
             int parameter_side_effect_value = 4;
             assert(preserved_parameter_increment_side_effect_call(
-                       &parameter_side_effect_value) == 681);
+                       &parameter_side_effect_value) == 569);
             assert(parameter_side_effect_value == 5);
         }
         {

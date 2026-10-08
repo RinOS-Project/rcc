@@ -12936,7 +12936,15 @@ static void sema_stmt(Stmt* stmt) {
                         sema_cxx_global_namespace(), match_type, handler, 0u);
                 }
                 sema_stmt(handler->body);
-                if (handler->parameter && !reference_type && match_type &&
+                /* The catch parameter is represented as the first declaration
+                 * in handler->body and sema_stmt() has already attached its
+                 * automatic object cleanups.  Only synthesize catch-object
+                 * cleanup metadata when that declaration did not produce a
+                 * plan; appending unconditionally registers each destructor
+                 * twice (once through the declaration and once here). */
+                if (handler->parameter &&
+                    !handler->parameter->var_cleanups &&
+                    !reference_type && match_type &&
                     !sema_cxx_trivially_copyable(match_type, 0) &&
                     sema_cxx_exception_object_copyable(match_type, 0)) {
                     int cleanup_budget = 4096;

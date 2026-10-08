@@ -2540,7 +2540,8 @@ test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o
-	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-reference-temporaries/x64-host \
+	$(CC) $(CFLAGS) -no-pie \
+		-o $(TEST_OUT)/cxx-static-reference-temporaries/x64-host \
 		tests/cxx_static_reference_host.c \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o
 	$(TEST_OUT)/cxx-static-reference-temporaries/x64-host
@@ -2617,7 +2618,7 @@ test-cxx-static-reference-subobjects-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-reference-subobjects/x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
 		$(TEST_OUT)/cxx-static-reference-subobjects/x64.o
-	$(CC) $(CFLAGS) \
+	$(CC) $(CFLAGS) -no-pie \
 		-o $(TEST_OUT)/cxx-static-reference-subobjects/x64-host \
 		tests/cxx_static_reference_host.c \
 		$(TEST_OUT)/cxx-static-reference-subobjects/x64.o
@@ -2642,7 +2643,7 @@ test-cxx-static-reference-conversions-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-reference-conversions/x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
 		$(TEST_OUT)/cxx-static-reference-conversions/x64.o
-	$(CC) $(CFLAGS) \
+	$(CC) $(CFLAGS) -no-pie \
 		-o $(TEST_OUT)/cxx-static-reference-conversions/x64-host \
 		tests/cxx_static_reference_host.c \
 		$(TEST_OUT)/cxx-static-reference-conversions/x64.o
@@ -2667,7 +2668,7 @@ test-cxx-member-pointer-data-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-member-pointer-data/x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
 		$(TEST_OUT)/cxx-member-pointer-data/x64.o
-	$(CC) $(CFLAGS) \
+	$(CC) $(CFLAGS) -no-pie \
 		-o $(TEST_OUT)/cxx-member-pointer-data/x64-host \
 		tests/cxx_static_reference_host.c \
 		$(TEST_OUT)/cxx-member-pointer-data/x64.o
@@ -10368,6 +10369,8 @@ ifeq ($(OS),Windows_NT)
 	$(TEST_OUT)/bitfields/run-test --inspect \
 		$(TEST_OUT)/bitfields/x86.ro
 else
+	$(RCC_TARGET) --target i686-unknown-rinos -S \
+		-o $(TEST_OUT)/bitfields/x86.s tests/bitfields.c
 	$(CC) -m32 -c -o $(TEST_OUT)/bitfields/x86.o \
 		$(TEST_OUT)/bitfields/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/bitfields/start-x86.o \
@@ -12248,6 +12251,8 @@ ifeq ($(OS),Windows_NT)
 		$(TEST_OUT)/alignas/x86.ro $(TEST_OUT)/alignas/x64.ro \
 		$(TEST_OUT)/alignas/verified-x64.ro
 else
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/alignas/x86.ro tests/alignas.c
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/alignas/x86.s tests/alignas.c
 	$(CC) -m32 -c -o $(TEST_OUT)/alignas/x86.o \
@@ -12258,6 +12263,8 @@ else
 		-o $(TEST_OUT)/alignas/x86 \
 		$(TEST_OUT)/alignas/start-x86.o $(TEST_OUT)/alignas/x86.o
 	$(TEST_OUT)/alignas/x86
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/alignas/x64.ro tests/alignas.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/alignas/x64.s tests/alignas.c
 	$(CC) -c -o $(TEST_OUT)/alignas/x64.o \

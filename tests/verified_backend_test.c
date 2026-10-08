@@ -4,6 +4,7 @@
 #include "objfile.h"
 
 #include <assert.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1693,7 +1694,7 @@ static void verify_native_execution(const char* path, uint16_t arch)
     objfile_free(object);
 }
 
-static void verify_cxx_object(const char* path)
+static void verify_cxx_object(const char* path, bool execute)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* text;
@@ -1793,6 +1794,13 @@ static void verify_cxx_object(const char* path)
            wide_noexcept_symbol->type == SYM_GLOBAL &&
            wide_noexcept_symbol->binding == BIND_CODE &&
            wide_noexcept_symbol->section == 0);
+    /* This fixture contains x86-64 machine code.  The i686 verifier still
+     * validates the object format and exported code symbols, but only the
+     * x86-64 host verifier can execute these function pointers. */
+    if (!execute) {
+        objfile_free(object);
+        return;
+    }
     memory = map_text(object, text, &mapping_size);
     address = symbol_address(memory, indirect_target_symbol);
     memcpy(&indirect_target_function, &address,
@@ -1848,8 +1856,11 @@ static void verify_member_methods_object(const char* path, uint16_t arch,
 {
     struct VerifiedMemberMethodObject {
         int value;
-        unsigned long long wide_value;
+        _Alignas(8) unsigned long long wide_value;
     } instance;
+    _Static_assert(offsetof(struct VerifiedMemberMethodObject, wide_value) ==
+                       8u,
+                   "verified member fixture must match RinOS 64-bit alignment");
     struct VerifiedMemberReleaseObject {
         unsigned int value;
     } release_instance;
@@ -2585,7 +2596,7 @@ int main(int argc, char** argv)
     } else {
         verify_native_execution(argv[1], ARCH_X86);
     }
-    verify_cxx_object(argv[3]);
+    verify_cxx_object(argv[3], sizeof(void*) == 8u);
     verify_global_object(argv[4], ARCH_X86, sizeof(void*) == 4u);
     verify_global_object(argv[5], ARCH_X64, sizeof(void*) == 8u);
     if (argc == 8 || argc == 10 || argc == 12) {

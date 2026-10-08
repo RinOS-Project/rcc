@@ -402,16 +402,38 @@ static bool x86_legal_schedule_parallel_copies(
         }
         if (!progress) {
             RccX86Value temporary;
+            RccMirType temporary_type;
+            uint16_t temporary_size;
             size_t other;
             for (index = 0u; index < count; ++index) {
                 if (pending[index]) break;
             }
-            if (index == count ||
-                !x86_legal_reserve_parallel_temporary(
+            if (index == count) goto fail;
+            temporary_type = types[index];
+            temporary_size = x86_legal_type_size(temporary_type, abi);
+            /* Save the value being overwritten, not the width of the copy
+             * which happened to expose the cycle.  A narrow argument can
+             * target a register whose pending source is a full-width pointer
+             * (or scalar); spilling with the narrow type would truncate that
+             * incoming value before its dependent copy executes. */
+            for (other = 0u; other < count; ++other) {
+                uint16_t source_size;
+                if (!pending[other] ||
+                    !x86_legal_value_equal(
+                        sources[other], destinations[index])) {
+                    continue;
+                }
+                source_size = x86_legal_type_size(types[other], abi);
+                if (source_size > temporary_size) {
+                    temporary_type = types[other];
+                    temporary_size = source_size;
+                }
+            }
+            if (!x86_legal_reserve_parallel_temporary(
                     function, abi, &temporary,
                     error, error_size) ||
                 !x86_legal_append_copy(
-                    function, block, types[index], destinations[index],
+                    function, block, temporary_type, destinations[index],
                     temporary, error, error_size)) goto fail;
             for (other = 0u; other < count; ++other) {
                 if (pending[other] &&

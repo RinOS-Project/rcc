@@ -376,11 +376,12 @@
         destruction. The earlier `test-cxx` suite passed; after adding the
         static subobject cases, the three focused static-reference targets
         pass independently. RinOS runtime integration remains unverified.
-  - [ ] Run `test-cxx-static-reference-retry` to execute a throwing block-static
-        reference initializer, catch the exception, and verify
-        `__cxa_guard_abort` permits a later successful initialization. The
-        regression checks cleanup registration and compiles both target
-        objects here, but runtime execution still needs a POSIX host.
+  - [x] Run `test-cxx-static-reference-retry` under the POSIX host harness for
+        both i686 and AMD64: the first block-static reference initialization
+        throws and is caught, `__cxa_guard_abort` is observed exactly once, a
+        later attempt succeeds, and subsequent access reuses the same object.
+        The generated target code executed successfully with the test exception
+        and guard runtime; RinOS runtime integration remains separate.
   - [ ] Finish thread-local reference temporary acceptance. The i686/AMD64
         native backends now allocate per-thread owner/guard storage, initialize
         on first use, and register cleanup with `__cxa_thread_atexit`; `build-rcc`

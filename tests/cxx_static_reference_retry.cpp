@@ -1,7 +1,9 @@
-extern "C" int cxx_static_reference_retry_attempts;
-extern "C" int cxx_static_reference_guard_aborts;
-extern "C" int cxx_static_reference_guard_releases;
-extern "C" int cxx_static_reference_caught_value;
+extern "C" {
+extern int cxx_static_reference_retry_attempts;
+extern int cxx_static_reference_guard_aborts;
+extern int cxx_static_reference_guard_releases;
+extern int cxx_static_reference_caught_value;
+}
 
 static int failed_reference_value;
 
