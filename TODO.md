@@ -687,6 +687,14 @@
           and `long long`; verify freestanding i686 and x64 host execution plus
           both target objects with
           `make SHELL=cmd.exe test-cxx-class-template-dependent-base`.
+    - [x] Verify a dependent virtual override dispatches through a base pointer
+          for `int` and `long long`, with freestanding i686 and x64 host
+          execution plus both target objects using the same focused target.
+    - [x] Support bounded explicit scalar-argument initialization of a direct
+          dependent polymorphic virtual base. The regression verifies override
+          dispatch through the base pointer for `int` and `long long`; the
+          focused target passes freestanding i686 and x64 host execution plus
+          both target object generations.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

@@ -385,3 +385,9 @@ nested arrays and inherited arrays whose elements require cleanup. The parser
 and constructor lowerability checks admit only complete, one-dimensional arrays
 with lowerable zero-argument constructors and no cleanup obligation. The broad
 constructor/member ABI TODO remains open.
+2026-10-09 follow-up: bounded explicit scalar-argument initialization now works
+for a direct dependent polymorphic virtual base. The fixture verifies dispatch
+to the derived override through the base pointer for `int` and `long long`.
+`test-cxx-class-template-dependent-base` passes freestanding i686 execution,
+x64 host execution, and both target object generations. Access/ambiguity rules
+and other dependent initializer forms remain open ([TODO](TODO.md)).
