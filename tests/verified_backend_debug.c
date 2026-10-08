@@ -19,6 +19,16 @@ int verified_debug_entry(int value)
     return verified_debug_static(value) + 1;
 }
 
+int verified_debug_for_scope(int limit)
+{
+    int verified_outer_value = 0;
+    for (int verified_loop_index = 0;
+         verified_loop_index < limit; ++verified_loop_index) {
+        verified_outer_value += verified_loop_index;
+    }
+    return verified_outer_value;
+}
+
 static int verified_debug_call(int value)
 {
     return value * 3 + 1;

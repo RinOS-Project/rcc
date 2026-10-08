@@ -1135,6 +1135,22 @@ static void verify_optimized_verified_debug_object(
                                   architecture, &has_location,
                                   &is_location_list, &aligned_offset));
     assert(has_location && aligned_offset < 0 && is_location_list);
+    {
+        int64_t loop_start;
+        int64_t loop_end;
+        int64_t outer_start;
+        int64_t outer_end;
+        assert(find_location_list_bounds(
+            info, strings, locations, "verified_loop_index",
+            "verified_debug_for_scope", architecture,
+            &loop_start, &loop_end));
+        assert(find_location_list_bounds(
+            info, strings, locations, "verified_outer_value",
+            "verified_debug_for_scope", architecture,
+            &outer_start, &outer_end));
+        assert(loop_start < loop_end && outer_start < outer_end);
+        assert(loop_end < outer_end);
+    }
     verify_overaligned_location_mask(locations, architecture);
     assert(is_location_list);
     objfile_free(object);
@@ -1179,6 +1195,22 @@ static void verify_optimized_cxx_verified_debug_object(
                                   architecture, &has_location,
                                   &is_location_list, &aligned_offset));
     assert(has_location && aligned_offset < 0 && is_location_list);
+    {
+        int64_t loop_start;
+        int64_t loop_end;
+        int64_t outer_start;
+        int64_t outer_end;
+        assert(find_location_list_bounds(
+            info, strings, locations, "verified_cpp_loop_index",
+            "verified_cpp_debug_for_scope", architecture,
+            &loop_start, &loop_end));
+        assert(find_location_list_bounds(
+            info, strings, locations, "verified_cpp_outer_value",
+            "verified_cpp_debug_for_scope", architecture,
+            &outer_start, &outer_end));
+        assert(loop_start < loop_end && outer_start < outer_end);
+        assert(loop_end < outer_end);
+    }
     verify_overaligned_location_mask(locations, architecture);
     assert(is_location_list);
     objfile_free(object);
@@ -2554,6 +2586,22 @@ static void verify_verified_debug_object(const char* path,
                                   architecture, &has_location,
                                   &is_location_list, &aligned_offset));
     assert(has_location && aligned_offset < 0 && is_location_list);
+    {
+        int64_t loop_start;
+        int64_t loop_end;
+        int64_t outer_start;
+        int64_t outer_end;
+        assert(find_location_list_bounds(
+            info, strings, locations, "verified_loop_index",
+            "verified_debug_for_scope", architecture,
+            &loop_start, &loop_end));
+        assert(find_location_list_bounds(
+            info, strings, locations, "verified_outer_value",
+            "verified_debug_for_scope", architecture,
+            &outer_start, &outer_end));
+        assert(loop_start < loop_end && outer_start < outer_end);
+        assert(loop_end < outer_end);
+    }
     verify_overaligned_location_mask(locations, architecture);
     assert(is_location_list);
     objfile_free(object);
