@@ -6357,7 +6357,14 @@ static RccIrLowerValue lower_conditional_expression(
     aggregate_result = lower_abi_is_aggregate(expression->type);
     if (aggregate_result) {
         RccIrInstruction* allocation;
-        if (!lower_abi_aggregate_supported(expression->type)) {
+        /* This path copies the selected branch into caller-owned storage but
+         * does not yet schedule branch-specific constructor/destructor
+         * cleanup.  Keep non-trivial class lifetime semantics on the complete
+         * backend until that cleanup is represented explicitly in SSA. */
+        if (expression->type->cxx_nontrivial ||
+            expression->type->cleanup_function ||
+            expression->type->cleanup_field ||
+            !lower_abi_aggregate_supported(expression->type)) {
             context->unsupported = true;
             return lower_invalid_value();
         }
