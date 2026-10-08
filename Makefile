@@ -4425,6 +4425,19 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET)
 	$(GREP) -F -q "C++20 aggregate parenthesized initialization requires C++20 or newer" $(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.ro tests/cxx_aggregate_paren_init.cpp,$(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.log)
 	$(GREP) -F -q "C++20 aggregate parenthesized initialization requires C++20 or newer" $(TEST_OUT)/cxx-aggregate-paren-init/cxx17-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++14 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx14-x86.ro tests/cxx_aggregate_bases_pre17_invalid.cpp,$(TEST_OUT)/cxx-aggregate-paren-init/base-cxx14-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx14-x64.ro tests/cxx_aggregate_bases_pre17_invalid.cpp,$(TEST_OUT)/cxx-aggregate-paren-init/base-cxx14-x64.log)
+	$(call CHECK_COUNT,no safely lowerable constructor accepts the C++ initializer,$(TEST_OUT)/cxx-aggregate-paren-init/base-cxx14-x86.log,1)
+	$(call CHECK_COUNT,no safely lowerable constructor accepts the C++ initializer,$(TEST_OUT)/cxx-aggregate-paren-init/base-cxx14-x64.log,1)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -S -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.s tests/cxx_aggregate_bases.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.s
+	objdump -f $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.o > $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.arch
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.arch
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -S -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64.s tests/cxx_aggregate_bases.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64.o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64-host tests/cxx_language_core_host.c $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64.o
+	$(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64-host
 else
 test-cxx-conversion-operator: test-cxx-conversion-operator-posix
 test-cxx-nonmember-operator: test-cxx-nonmember-operator-posix

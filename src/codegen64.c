@@ -3566,6 +3566,42 @@ static bool gen64_local_initializer(Module* mod, Type* type,
             return true;
         }
         if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            if (ast_cxx_is_aggregate(type)) {
+                int element_index = 0;
+                for (ExprList* item = initializer->compound_init; item;
+                     item = item->next) {
+                    Type* element_type = NULL;
+                    TypeField* field = NULL;
+                    int element_offset = 0;
+                    int64_t target_offset;
+                    if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                        field = ast_cxx_aggregate_member(
+                            type, item->designator_field);
+                        if (!field) return false;
+                        element_type = field->type;
+                        element_offset = field->offset;
+                    } else if (item->designator_kind !=
+                                   INIT_DESIGNATOR_NONE ||
+                               !ast_cxx_aggregate_element(
+                                   type, element_index++, &element_type,
+                                   &element_offset, &field)) {
+                        return false;
+                    }
+                    target_offset = (int64_t)displacement + element_offset;
+                    if (!element_type || target_offset < INT32_MIN ||
+                        target_offset > INT32_MAX ||
+                        (field && field->is_bitfield
+                             ? !gen64_bitfield_initializer(
+                                   mod, field, item->expr,
+                                   (int32_t)target_offset)
+                             : !gen64_local_initializer(
+                                   mod, element_type, item->expr,
+                                   (int32_t)target_offset))) {
+                        return false;
+                    }
+                }
+                return true;
+            }
             TypeField* cursor = type->fields;
             int initialized = 0;
             for (ExprList* item = initializer->compound_init; item;
@@ -6132,7 +6168,16 @@ static void gen64_cxx_reference_adjustment_impl(Module* mod, Expr* expression,
         }
         emit64_label(mod, end_label);
     } else if (expression->cxx_pointer_adjustment_valid &&
+               !(expression->kind == EXPR_CALL && expression->type &&
+                 expression->type->kind == TYPE_PTR &&
+                 expression->type->is_reference &&
+                 (!expression->call_method ||
+                  !expression->call_method->field)) &&
                expression->cxx_pointer_adjustment != 0) {
+        /* Ordinary reference-returning calls pass through gen64_expr(),
+         * whose common result path already applies this fixed adjustment.
+         * Field-backed inline accessors return their address directly from
+         * gen64_lvalue() and still need the explicit adjustment here. */
         emit64_add_reg_imm(mod, RAX, expression->cxx_pointer_adjustment);
     }
 }

@@ -5,6 +5,8 @@
 
 #include "rcc.h"
 #include "ast.h"
+#include "ast_cxx.h"
+#include <limits.h>
 
 #define AST_ARENA_BLOCK_SIZE (64u * 1024u)
 
@@ -456,6 +458,93 @@ bool type_is_compatible(Type* a, Type* b) {
                strcmp(a->enum_tag, b->enum_tag) == 0;
     }
     return true;
+}
+
+bool ast_cxx_is_aggregate(const Type* type) {
+    const CxxClass* cls;
+    if (!type || type->kind != TYPE_STRUCT || !type->is_complete ||
+        !type->cxx_class) {
+        return false;
+    }
+    cls = type->cxx_class;
+    /* Aggregate classes acquired base subobjects in C++17.  Keep the older
+     * standard's class aggregate rules when shared initializer code asks. */
+    if (cls->base_count > 0 && !rcc_parser_cxx_standard_at_least(17)) {
+        return false;
+    }
+    if (cls->has_user_constructor || cls->has_nonpublic_field ||
+        cls->vtable_size != 0 || cls->virtual_base_count != 0) {
+        return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (!cls->bases[index].base || cls->bases[index].is_virtual ||
+            cls->bases[index].access != ACCESS_PUBLIC) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int ast_cxx_aggregate_element_count(const Type* type) {
+    const CxxClass* cls;
+    int count;
+    if (!ast_cxx_is_aggregate(type)) return 0;
+    cls = type->cxx_class;
+    count = cls->base_count;
+    for (const TypeField* field = type->fields; field; field = field->next) {
+        if (field->cxx_declaring_class == cls) {
+            if (count == INT_MAX) return 0;
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool ast_cxx_aggregate_element(const Type* type, int index,
+                               Type** element_type, int* element_offset,
+                               TypeField** member_field) {
+    const CxxClass* cls;
+    int member_index;
+    if (element_type) *element_type = NULL;
+    if (element_offset) *element_offset = 0;
+    if (member_field) *member_field = NULL;
+    if (index < 0 || !ast_cxx_is_aggregate(type)) return false;
+    cls = type->cxx_class;
+    if (index < cls->base_count) {
+        const CxxClass* base = cls->bases[index].base;
+        if (!base || !base->type || !cls->base_offsets ||
+            cls->base_offsets[index] < 0) {
+            return false;
+        }
+        if (element_type) *element_type = base->type;
+        if (element_offset) *element_offset = cls->base_offsets[index];
+        return true;
+    }
+    member_index = cls->base_count;
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (field->cxx_declaring_class != cls) continue;
+        if (member_index == index) {
+            if (element_type) *element_type = field->type;
+            if (element_offset) *element_offset = field->offset;
+            if (member_field) *member_field = field;
+            return field->type != NULL;
+        }
+        ++member_index;
+    }
+    return false;
+}
+
+TypeField* ast_cxx_aggregate_member(const Type* type, const char* name) {
+    const CxxClass* cls;
+    if (!name || !ast_cxx_is_aggregate(type)) return NULL;
+    cls = type->cxx_class;
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (field->cxx_declaring_class == cls && field->name &&
+            strcmp(field->name, name) == 0) {
+            return field;
+        }
+    }
+    return NULL;
 }
 
 Type* type_common(Type* a, Type* b) {

@@ -337,6 +337,10 @@
   - [x] C++20 aggregate parenthesized initializationを完全なpublic struct
         aggregateと固定長配列へloweringし、static/automatic storageの両arch
         実行、過剰initializer診断、C++17以前の明示的standard-gateを検証
+  - [x] C++17 aggregateのpublic non-virtual direct baseを先に、宣言順に
+        memberを初期化し、複数基底・static/automatic storage・C++20
+        parenthesized initializationを両targetで生成/x64実行。C++14の
+        base aggregate初期化は両targetでconstructor診断を確認
   - [x] C++ direct/list aggregate初期化で`constexpr`/`inline`/`constinit`
         宣言属性を保持し、most-vexing parseの関数宣言を誤認せず、C++20
         designated/nested initializerとconstexpr aggregate member accessを

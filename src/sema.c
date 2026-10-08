@@ -14529,13 +14529,26 @@ static int initializer_scalar_capacity(Type* type) {
         capacity = (int64_t)type->array_len *
                    initializer_scalar_capacity(type->base);
     } else if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
-        TypeField* field = type->fields;
-        if (type->kind == TYPE_UNION && field) {
-            capacity = initializer_scalar_capacity(field->type);
-        } else {
-            for (; field; field = field->next) {
-                capacity += initializer_scalar_capacity(field->type);
+        if (ast_cxx_is_aggregate(type)) {
+            int count = ast_cxx_aggregate_element_count(type);
+            for (int index = 0; index < count; ++index) {
+                Type* element_type = NULL;
+                if (!ast_cxx_aggregate_element(type, index, &element_type,
+                                               NULL, NULL) || !element_type) {
+                    return 0;
+                }
+                capacity += initializer_scalar_capacity(element_type);
                 if (capacity > INT_MAX) break;
+            }
+        } else {
+            TypeField* field = type->fields;
+            if (type->kind == TYPE_UNION && field) {
+                capacity = initializer_scalar_capacity(field->type);
+            } else {
+                for (; field; field = field->next) {
+                    capacity += initializer_scalar_capacity(field->type);
+                    if (capacity > INT_MAX) break;
+                }
             }
         }
     } else {
@@ -14872,6 +14885,23 @@ static void consume_brace_elided_subobject(Type* type, ExprList** source) {
         }
         return;
     }
+    if (ast_cxx_is_aggregate(type)) {
+        int count = ast_cxx_aggregate_element_count(type);
+        for (int index = 0; index < count && *source; ++index) {
+            Type* element_type = NULL;
+            if (!ast_cxx_aggregate_element(type, index, &element_type,
+                                           NULL, NULL) || !element_type) {
+                return;
+            }
+            if (initializer_directly_initializes(element_type,
+                                                  (*source)->expr)) {
+                *source = (*source)->next;
+            } else {
+                consume_brace_elided_subobject(element_type, source);
+            }
+        }
+        return;
+    }
     TypeField* field = type->fields;
     if (type->kind == TYPE_UNION) {
         if (field && *source) {
@@ -14925,6 +14955,44 @@ static void normalize_brace_elided_initializer(Type* type,
     } else if (type->kind == TYPE_ARRAY) {
         for (int index = 0; index < type->array_len && source; ++index) {
             Type* element_type = type->base;
+            if (initializer_directly_initializes(element_type,
+                                                 source->expr)) {
+                exprlist_append_designated(&normalized, source->expr,
+                                           INIT_DESIGNATOR_NONE, 0, NULL);
+                source = source->next;
+            } else if (initializer_is_aggregate_type(element_type)) {
+                int capacity = initializer_scalar_capacity(element_type);
+                ExprList* nested_items = NULL;
+                int consumed = 0;
+                if (capacity <= 0) return;
+                while (source && consumed < capacity) {
+                    exprlist_append_designated(
+                        &nested_items, source->expr, INIT_DESIGNATOR_NONE,
+                        0, NULL);
+                    source = source->next;
+                    ++consumed;
+                }
+                Expr* nested = expr_initializer_list(nested_items,
+                                                     initializer->loc);
+                nested->compound_type = element_type;
+                nested->type = element_type;
+                normalize_brace_elided_initializer(element_type, nested);
+                exprlist_append_designated(&normalized, nested,
+                                           INIT_DESIGNATOR_NONE, 0, NULL);
+            } else {
+                exprlist_append_designated(&normalized, source->expr,
+                                           INIT_DESIGNATOR_NONE, 0, NULL);
+                source = source->next;
+            }
+        }
+    } else if (ast_cxx_is_aggregate(type)) {
+        int count = ast_cxx_aggregate_element_count(type);
+        for (int index = 0; index < count && source; ++index) {
+            Type* element_type = NULL;
+            if (!ast_cxx_aggregate_element(type, index, &element_type,
+                                           NULL, NULL) || !element_type) {
+                return;
+            }
             if (initializer_directly_initializes(element_type,
                                                  source->expr)) {
                 exprlist_append_designated(&normalized, source->expr,
@@ -15300,11 +15368,43 @@ static void sema_initializer(Type* type, Expr* initializer) {
         }
         return;
     }
-    if (initializer_is_aggregate_zero(type, initializer)) {
+    if ((!rcc_parser_is_cxx_mode() || !type->cxx_class ||
+         ast_cxx_is_aggregate(type)) &&
+        initializer_is_aggregate_zero(type, initializer)) {
         sema_expr(initializer->compound_init->expr);
         if (!type_is_integer(initializer->compound_init->expr->type)) {
             rcc_error(initializer->compound_init->expr->loc,
                       "aggregate zero initializer requires an integer zero");
+        }
+        return;
+    }
+    if (rcc_parser_is_cxx_mode() && type->cxx_class &&
+        !ast_cxx_is_aggregate(type) &&
+        !initializer->compound_cxx_default_member_normalized) {
+        ExprList* constructor_arguments = initializer->compound_value_init
+            ? NULL : initializer->compound_init;
+        if (initializer->compound_value_init &&
+            !type->cxx_class->has_user_constructor) {
+            return;
+        }
+        for (ExprList* item = constructor_arguments; item;
+             item = item->next) {
+            if (item->designator_kind != INIT_DESIGNATOR_NONE) {
+                rcc_error(item->expr ? item->expr->loc : initializer->loc,
+                          "constructor initializer cannot use an aggregate designator");
+            } else if (item->expr) {
+                sema_expr(item->expr);
+            }
+        }
+        initializer->compound_constructor = sema_select_cxx_new_constructor(
+            type, &constructor_arguments, initializer->loc);
+        if (!initializer->compound_constructor) {
+            rcc_error(initializer->loc,
+                      "no safely lowerable constructor accepts the C++ initializer");
+        }
+        if (constructor_arguments != initializer->compound_init) {
+            initializer->compound_init = constructor_arguments;
+            initializer->compound_value_init = constructor_arguments == NULL;
         }
         return;
     }
@@ -15346,13 +15446,82 @@ static void sema_initializer(Type* type, Expr* initializer) {
         return;
     }
     if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
-        TypeField* cursor = type->fields;
         int initialized = 0;
         if (!type->is_complete) {
             rcc_error(initializer->loc,
                       "initializer requires a complete aggregate type");
             return;
         }
+        if (ast_cxx_is_aggregate(type)) {
+            int element_count = ast_cxx_aggregate_element_count(type);
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                Type* element_type = NULL;
+                TypeField* field = NULL;
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                    field = ast_cxx_aggregate_member(
+                        type, item->designator_field);
+                    if (!field) {
+                        rcc_error(item->expr->loc,
+                                  "C++ designated initializer must name a direct member");
+                        continue;
+                    }
+                    element_type = field->type;
+                } else if (item->designator_kind != INIT_DESIGNATOR_NONE) {
+                    rcc_error(item->expr->loc,
+                              "array designator cannot initialize a C++ aggregate");
+                    continue;
+                } else if (initialized >= element_count ||
+                           !ast_cxx_aggregate_element(
+                               type, initialized, &element_type, NULL,
+                               &field)) {
+                    rcc_error(item->expr->loc,
+                              "too many initializers for aggregate");
+                    ++initialized;
+                    continue;
+                }
+                if (!element_type) {
+                    rcc_error(item->expr->loc,
+                              "aggregate element has no complete type");
+                    continue;
+                }
+                if (initializer->compound_paren_init &&
+                    element_type->kind == TYPE_STRUCT &&
+                    item->expr->kind != EXPR_COMPOUND &&
+                    (!item->expr->type ||
+                     !type_is_compatible(element_type,
+                                         item->expr->type))) {
+                    Expr* direct_initializer = expr_initializer_list(
+                        exprlist_new(item->expr), item->expr->loc);
+                    direct_initializer->compound_type = element_type;
+                    direct_initializer->type = element_type;
+                    direct_initializer->compound_paren_init = true;
+                    item->expr = direct_initializer;
+                }
+                if (field && field->type &&
+                    field->type->kind == TYPE_ARRAY &&
+                    field->type->array_len == -1 &&
+                    !field->type->array_bound &&
+                    !field->type->array_unspecified_bound) {
+                    rcc_error(item->expr->loc,
+                              "flexible array member cannot be initialized");
+                    ++initialized;
+                    continue;
+                }
+                initializer_absorb_designator_followups(element_type, item);
+                sema_initializer(element_type, item->expr);
+                if (item->designator_kind == INIT_DESIGNATOR_NONE) {
+                    ++initialized;
+                }
+            }
+            if (rcc_parser_is_cxx_mode() && type->cxx_class) {
+                initializer->compound_constructor =
+                    sema_select_cxx_new_constructor(
+                        type, &initializer->compound_init, initializer->loc);
+            }
+            return;
+        }
+        TypeField* cursor = type->fields;
         for (ExprList* item = initializer->compound_init; item;
              item = item->next) {
             TypeField* field = cursor;

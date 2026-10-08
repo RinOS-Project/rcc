@@ -160,6 +160,19 @@ struct ConversionReferenceValue {
     int value;
 };
 
+struct ConversionReferenceBase {
+    int value;
+};
+
+struct ConversionReferencePrefix {
+    int prefix;
+};
+
+struct ConversionReferenceDerived : ConversionReferencePrefix,
+                                    ConversionReferenceBase {
+    int derived_value;
+};
+
 struct ConversionLvalueSource {
     ConversionReferenceValue* value;
 
@@ -176,12 +189,32 @@ struct ConversionXvalueSource {
     }
 };
 
+struct ConversionDerivedXvalueSource {
+    ConversionReferenceDerived* value;
+
+    operator ConversionReferenceDerived&&() {
+        return static_cast<ConversionReferenceDerived&&>(*value);
+    }
+};
+
+ConversionReferenceDerived global_conversion_reference_derived{
+    {73}, {74}, 75};
+
 int read_conversion_lvalue(const ConversionReferenceValue& value) {
     return value.value;
 }
 
 int read_conversion_xvalue(ConversionReferenceValue&& value) {
     return value.value;
+}
+
+int read_conversion_base_xvalue(ConversionReferenceBase&& value) {
+    return value.value;
+}
+
+ConversionReferenceBase&& return_conversion_base_xvalue(
+    ConversionDerivedXvalueSource& source) {
+    return source;
 }
 
 struct LifetimeInheritedCleanup : LifetimeExtendedBase {
@@ -547,6 +580,38 @@ int main() {
         return 64;
     converted_xvalue.value = 65;
     if (converted_reference_value.value != 65) return 65;
+    ConversionReferenceDerived converted_derived_xvalue_value{
+        {65}, {66}, 67};
+    if (converted_derived_xvalue_value.value != 66) return 71;
+    if (converted_derived_xvalue_value.derived_value != 67 ||
+        converted_derived_xvalue_value.prefix != 65) return 72;
+    ConversionDerivedXvalueSource converted_derived_xvalue_source{
+        &converted_derived_xvalue_value};
+    ConversionReferenceBase&& converted_derived_xvalue =
+        converted_derived_xvalue_source;
+    ConversionReferenceBase* expected_converted_base =
+        (ConversionReferenceBase*)((char*)&converted_derived_xvalue_value +
+                                   sizeof(ConversionReferencePrefix));
+    if (&converted_derived_xvalue != expected_converted_base) return 66;
+    if (converted_derived_xvalue.value != 66) return 69;
+    if (read_conversion_base_xvalue(converted_derived_xvalue_source) != 66)
+        return 70;
+    ConversionReferenceBase&& returned_converted_derived_xvalue =
+        return_conversion_base_xvalue(converted_derived_xvalue_source);
+    if (&returned_converted_derived_xvalue !=
+            static_cast<ConversionReferenceBase*>(
+                &converted_derived_xvalue_value) ||
+        returned_converted_derived_xvalue.value != 66)
+        return 67;
+    returned_converted_derived_xvalue.value = 68;
+    if (converted_derived_xvalue_value.value != 68) return 68;
+    if (global_conversion_reference_derived.prefix != 73 ||
+        global_conversion_reference_derived.value != 74 ||
+        global_conversion_reference_derived.derived_value != 75) return 73;
+    ConversionReferenceDerived parenthesized_derived_xvalue(76, 77, 78);
+    if (parenthesized_derived_xvalue.prefix != 76 ||
+        parenthesized_derived_xvalue.value != 77 ||
+        parenthesized_derived_xvalue.derived_value != 78) return 74;
     int derived_temporary_events = 0;
     {
         const LifetimeExtendedBase& extended_base =

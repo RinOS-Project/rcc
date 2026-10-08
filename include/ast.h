@@ -333,6 +333,12 @@ bool type_is_vector(Type* t);
 bool type_is_function(Type* t);
 bool type_is_complete(Type* t);
 bool type_is_compatible(Type* a, Type* b);
+bool ast_cxx_is_aggregate(const Type* type);
+int ast_cxx_aggregate_element_count(const Type* type);
+bool ast_cxx_aggregate_element(const Type* type, int index,
+                              Type** element_type, int* element_offset,
+                              TypeField** member_field);
+TypeField* ast_cxx_aggregate_member(const Type* type, const char* name);
 Type* type_common(Type* a, Type* b);
 
 /* ═══════════════════════════════════════

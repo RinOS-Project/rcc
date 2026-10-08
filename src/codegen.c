@@ -1236,6 +1236,45 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
             return true;
         }
         if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            if (ast_cxx_is_aggregate(type)) {
+                int element_index = 0;
+                for (ExprList* item = initializer->compound_init; item;
+                     item = item->next) {
+                    Type* element_type = NULL;
+                    TypeField* field = NULL;
+                    int element_offset = 0;
+                    uint64_t field_offset;
+                    if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                        field = ast_cxx_aggregate_member(
+                            type, item->designator_field);
+                        if (!field) return false;
+                        element_type = field->type;
+                        element_offset = field->offset;
+                    } else if (item->designator_kind !=
+                                   INIT_DESIGNATOR_NONE ||
+                               !ast_cxx_aggregate_element(
+                                   type, element_index++, &element_type,
+                                   &element_offset, &field)) {
+                        return false;
+                    }
+                    if (!element_type || element_offset < 0 ||
+                        (uint64_t)element_offset > UINT32_MAX - offset) {
+                        return false;
+                    }
+                    field_offset = (uint64_t)offset +
+                                   (uint64_t)element_offset;
+                    if (field && field->is_bitfield
+                            ? !codegen_pack_static_bitfield(
+                                  mod->data.data, mod->data.size, field,
+                                  item->expr, (uint32_t)field_offset)
+                            : !codegen_emit_static_initializer(
+                                  mod, element_type, item->expr,
+                                  (uint32_t)field_offset)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
             TypeField* cursor = type->fields;
             int initialized = 0;
             for (ExprList* item = initializer->compound_init; item;
@@ -1366,6 +1405,45 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
             return true;
         }
         if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            if (ast_cxx_is_aggregate(type)) {
+                int element_index = 0;
+                for (ExprList* item = initializer->compound_init; item;
+                     item = item->next) {
+                    Type* element_type = NULL;
+                    TypeField* field = NULL;
+                    int element_offset = 0;
+                    uint64_t field_offset;
+                    if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                        field = ast_cxx_aggregate_member(
+                            type, item->designator_field);
+                        if (!field) return false;
+                        element_type = field->type;
+                        element_offset = field->offset;
+                    } else if (item->designator_kind !=
+                                   INIT_DESIGNATOR_NONE ||
+                               !ast_cxx_aggregate_element(
+                                   type, element_index++, &element_type,
+                                   &element_offset, &field)) {
+                        return false;
+                    }
+                    if (!element_type || element_offset < 0 ||
+                        (uint64_t)element_offset > UINT32_MAX - offset) {
+                        return false;
+                    }
+                    field_offset = (uint64_t)offset +
+                                   (uint64_t)element_offset;
+                    if (field && field->is_bitfield
+                            ? !codegen_pack_static_bitfield(
+                                  mod->tls.data, mod->tls.size, field,
+                                  item->expr, (uint32_t)field_offset)
+                            : !codegen_emit_tls_initializer(
+                                  mod, element_type, item->expr,
+                                  (uint32_t)field_offset)) {
+                        return false;
+                    }
+                }
+                return true;
+            }
             TypeField* cursor = type->fields;
             int initialized = 0;
             for (ExprList* item = initializer->compound_init; item;
@@ -10336,7 +10414,15 @@ static void gen_cxx_reference_adjustment32_impl(Module* mod, Expr* expression,
         }
         emit_label(mod, end_label);
     } else if (expression->cxx_pointer_adjustment_valid &&
+               !(expression->kind == EXPR_CALL && expression->type &&
+                 expression->type->kind == TYPE_PTR &&
+                 expression->type->is_reference &&
+                 (!expression->call_method ||
+                  !expression->call_method->field)) &&
                expression->cxx_pointer_adjustment != 0) {
+        /* Ordinary reference-returning calls pass through gen_expr(), whose
+         * common result path already applies this fixed adjustment.  The
+         * field-backed inline-address path still needs it here. */
         emit_add_reg_imm(mod, EAX, expression->cxx_pointer_adjustment);
     }
 }
@@ -13708,6 +13794,42 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
             return true;
         }
         if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            if (ast_cxx_is_aggregate(type)) {
+                int element_index = 0;
+                for (ExprList* item = initializer->compound_init; item;
+                     item = item->next) {
+                    Type* element_type = NULL;
+                    TypeField* field = NULL;
+                    int element_offset = 0;
+                    int64_t field_offset;
+                    if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                        field = ast_cxx_aggregate_member(
+                            type, item->designator_field);
+                        if (!field) return false;
+                        element_type = field->type;
+                        element_offset = field->offset;
+                    } else if (item->designator_kind !=
+                                   INIT_DESIGNATOR_NONE ||
+                               !ast_cxx_aggregate_element(
+                                   type, element_index++, &element_type,
+                                   &element_offset, &field)) {
+                        return false;
+                    }
+                    field_offset = (int64_t)displacement + element_offset;
+                    if (!element_type || field_offset < INT32_MIN ||
+                        field_offset > INT32_MAX ||
+                        (field && field->is_bitfield
+                             ? !gen_bitfield_initializer32(
+                                   mod, field, item->expr,
+                                   (int32_t)field_offset)
+                             : !gen_local_initializer(
+                                   mod, element_type, item->expr,
+                                   (int32_t)field_offset))) {
+                        return false;
+                    }
+                }
+                return true;
+            }
             TypeField* cursor = type->fields;
             int initialized = 0;
             for (ExprList* item = initializer->compound_init; item;

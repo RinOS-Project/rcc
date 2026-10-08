@@ -345,15 +345,7 @@ static bool cxx_template_constraint_satisfied(
     bool* unsupported);
 
 static bool cxx_type_is_aggregate(Type* type) {
-    CxxClass* cls;
-    if (!type || (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
-        !type->cxx_class || !type_is_complete(type)) {
-        return false;
-    }
-    cls = type->cxx_class;
-    return type->kind == TYPE_STRUCT && !cls->has_user_constructor &&
-           !cls->has_nonpublic_field && cls->base_count == 0 &&
-           cls->vtable_size == 0;
+    return ast_cxx_is_aggregate(type);
 }
 
 /* `T value(args)` is ambiguous with a function declaration when T is an
