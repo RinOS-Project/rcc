@@ -106,6 +106,20 @@ static void verify_smaller(const char* unoptimized_path,
     static const uint8_t unsigned_mod_high_bit[] = {
         0x81u, 0xE0u, 0xFFu, 0xFFu, 0xFFu, 0x7Fu
     };
+    static const uint8_t unsigned64_div_eight[] = {
+        0x48u, 0xC1u, 0xE8u, 0x03u
+    };
+    static const uint8_t unsigned64_mod_eight[] = {
+        0x48u, 0xB9u, 0x07u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u,
+        0x00u, 0x00u, 0x48u, 0x21u, 0xC8u
+    };
+    static const uint8_t unsigned64_div_high_bit[] = {
+        0x48u, 0xC1u, 0xE8u, 0x3Fu
+    };
+    static const uint8_t unsigned64_mod_high_bit[] = {
+        0x48u, 0xB9u, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu,
+        0xFFu, 0x7Fu, 0x48u, 0x21u, 0xC8u
+    };
     static const uint8_t hardware_div[] = {0xF7u, 0xF1u};
     assert(unoptimized != NULL && optimized != NULL);
     assert(unoptimized->arch == architecture && optimized->arch == architecture);
@@ -515,6 +529,44 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_sequence(
         optimized, "strength_reduce_unsigned_mod_high_bit",
         hardware_div, sizeof(hardware_div)));
+    if (architecture == ARCH_X64) {
+        assert(function_contains_sequence(
+            unoptimized, "strength_reduce_unsigned_64_div_eight",
+            unsigned64_div_eight, sizeof(unsigned64_div_eight)));
+        assert(function_contains_sequence(
+            unoptimized, "strength_reduce_unsigned_64_mod_eight",
+            unsigned64_mod_eight, sizeof(unsigned64_mod_eight)));
+        assert(function_contains_sequence(
+            unoptimized, "strength_reduce_unsigned_64_div_high_bit",
+            unsigned64_div_high_bit, sizeof(unsigned64_div_high_bit)));
+        assert(function_contains_sequence(
+            unoptimized, "strength_reduce_unsigned_64_mod_high_bit",
+            unsigned64_mod_high_bit, sizeof(unsigned64_mod_high_bit)));
+        assert(!function_contains_sequence(
+            unoptimized, "strength_reduce_unsigned_64_div_eight",
+            hardware_div, sizeof(hardware_div)));
+        assert(!function_contains_sequence(
+            optimized, "strength_reduce_unsigned_64_div_eight",
+            hardware_div, sizeof(hardware_div)));
+        assert(!function_contains_sequence(
+            unoptimized, "strength_reduce_unsigned_64_mod_eight",
+            hardware_div, sizeof(hardware_div)));
+        assert(!function_contains_sequence(
+            optimized, "strength_reduce_unsigned_64_mod_eight",
+            hardware_div, sizeof(hardware_div)));
+        assert(!function_contains_sequence(
+            unoptimized, "strength_reduce_unsigned_64_div_high_bit",
+            hardware_div, sizeof(hardware_div)));
+        assert(!function_contains_sequence(
+            optimized, "strength_reduce_unsigned_64_div_high_bit",
+            hardware_div, sizeof(hardware_div)));
+        assert(!function_contains_sequence(
+            unoptimized, "strength_reduce_unsigned_64_mod_high_bit",
+            hardware_div, sizeof(hardware_div)));
+        assert(!function_contains_sequence(
+            optimized, "strength_reduce_unsigned_64_mod_high_bit",
+            hardware_div, sizeof(hardware_div)));
+    }
     assert(function_contains_sequence(
         optimized, "strength_reduce_unsigned_div_three",
         magic_div3, sizeof(magic_div3)));
@@ -704,6 +756,16 @@ int main(int argc, char** argv)
             function_symbol(object, "strength_reduce_unsigned_div_high_bit");
         ObjSymbol* strength_reduce_unsigned_mod_high_bit_symbol =
             function_symbol(object, "strength_reduce_unsigned_mod_high_bit");
+        ObjSymbol* strength_reduce_unsigned_64_div_eight_symbol =
+            function_symbol(object, "strength_reduce_unsigned_64_div_eight");
+        ObjSymbol* strength_reduce_unsigned_64_mod_eight_symbol =
+            function_symbol(object, "strength_reduce_unsigned_64_mod_eight");
+        ObjSymbol* strength_reduce_unsigned_64_div_high_bit_symbol =
+            function_symbol(
+                object, "strength_reduce_unsigned_64_div_high_bit");
+        ObjSymbol* strength_reduce_unsigned_64_mod_high_bit_symbol =
+            function_symbol(
+                object, "strength_reduce_unsigned_64_mod_high_bit");
         ObjSymbol* strength_reduce_unsigned_div_three_symbol =
             function_symbol(object, "strength_reduce_unsigned_div_three");
         ObjSymbol* strength_reduce_unsigned_mod_three_symbol =
@@ -873,6 +935,10 @@ int main(int argc, char** argv)
         uint32_t (*strength_reduce_unsigned_mod)(uint32_t);
         uint32_t (*strength_reduce_unsigned_div_high_bit)(uint32_t);
         uint32_t (*strength_reduce_unsigned_mod_high_bit)(uint32_t);
+        uint64_t (*strength_reduce_unsigned_64_div_eight)(uint64_t);
+        uint64_t (*strength_reduce_unsigned_64_mod_eight)(uint64_t);
+        uint64_t (*strength_reduce_unsigned_64_div_high_bit)(uint64_t);
+        uint64_t (*strength_reduce_unsigned_64_mod_high_bit)(uint64_t);
         uint32_t (*strength_reduce_unsigned_div_three)(uint32_t);
         uint32_t (*strength_reduce_unsigned_mod_three)(uint32_t);
         uint32_t (*strength_reduce_unsigned_div_five)(uint32_t);
@@ -1158,6 +1224,22 @@ int main(int argc, char** argv)
         address = mapping + strength_reduce_unsigned_mod_high_bit_symbol->value;
         memcpy(&strength_reduce_unsigned_mod_high_bit, &address,
                sizeof(strength_reduce_unsigned_mod_high_bit));
+        address = mapping +
+            strength_reduce_unsigned_64_div_eight_symbol->value;
+        memcpy(&strength_reduce_unsigned_64_div_eight, &address,
+               sizeof(strength_reduce_unsigned_64_div_eight));
+        address = mapping +
+            strength_reduce_unsigned_64_mod_eight_symbol->value;
+        memcpy(&strength_reduce_unsigned_64_mod_eight, &address,
+               sizeof(strength_reduce_unsigned_64_mod_eight));
+        address = mapping +
+            strength_reduce_unsigned_64_div_high_bit_symbol->value;
+        memcpy(&strength_reduce_unsigned_64_div_high_bit, &address,
+               sizeof(strength_reduce_unsigned_64_div_high_bit));
+        address = mapping +
+            strength_reduce_unsigned_64_mod_high_bit_symbol->value;
+        memcpy(&strength_reduce_unsigned_64_mod_high_bit, &address,
+               sizeof(strength_reduce_unsigned_64_mod_high_bit));
         address = mapping + strength_reduce_unsigned_div_three_symbol->value;
         memcpy(&strength_reduce_unsigned_div_three, &address,
                sizeof(strength_reduce_unsigned_div_three));
@@ -1750,6 +1832,40 @@ int main(int argc, char** argv)
             assert(preserved_unsigned_mod_seven_side_effect(
                        &side_effect_value_seven) == 0u);
             assert(side_effect_value_seven == 7u);
+            {
+                static const uint64_t division_inputs64[] = {
+                    0u, 1u, 7u, 8u, 9u, UINT64_C(0x7fffffffffffffff),
+                    UINT64_C(0x8000000000000000),
+                    UINT64_C(0x8000000000000001), UINT64_MAX
+                };
+                uint64_t seed64 = UINT64_C(0x91e10da5f00dcafe);
+                for (size_t index = 0u;
+                     index < sizeof(division_inputs64) /
+                         sizeof(division_inputs64[0]);
+                     ++index) {
+                    uint64_t input = division_inputs64[index];
+                    assert(strength_reduce_unsigned_64_div_eight(input) ==
+                           input / 8u);
+                    assert(strength_reduce_unsigned_64_mod_eight(input) ==
+                           input % 8u);
+                    assert(strength_reduce_unsigned_64_div_high_bit(input) ==
+                           input / UINT64_C(0x8000000000000000));
+                    assert(strength_reduce_unsigned_64_mod_high_bit(input) ==
+                           input % UINT64_C(0x8000000000000000));
+                }
+                for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
+                    seed64 = seed64 * UINT64_C(6364136223846793005) +
+                        UINT64_C(1442695040888963407);
+                    assert(strength_reduce_unsigned_64_div_eight(seed64) ==
+                           seed64 / 8u);
+                    assert(strength_reduce_unsigned_64_mod_eight(seed64) ==
+                           seed64 % 8u);
+                    assert(strength_reduce_unsigned_64_div_high_bit(seed64) ==
+                           seed64 / UINT64_C(0x8000000000000000));
+                    assert(strength_reduce_unsigned_64_mod_high_bit(seed64) ==
+                           seed64 % UINT64_C(0x8000000000000000));
+                }
+            }
         }
         assert(strength_reduce_signed_div_two(-17) == -8);
         assert(strength_reduce_signed_div_two(17) == 8);

@@ -931,21 +931,23 @@ static bool gen64_unsigned_magic_divisor32(
     return false;
 }
 
-static bool gen64_unsigned_power_of_two_divisor32(
+static bool gen64_unsigned_power_of_two_divisor(
     const Expr* expression, uint8_t* shift) {
     int64_t constant;
-    uint32_t divisor;
+    uint64_t divisor;
     uint8_t amount = 0u;
     if (!expression || !shift ||
         (expression->kind != EXPR_DIV && expression->kind != EXPR_MOD) ||
         !expression->type || !type_is_integer(expression->type) ||
-        !expression->type->is_unsigned || expression->type->size != 4 ||
+        !expression->type->is_unsigned ||
+        (expression->type->size != 4 && expression->type->size != 8) ||
         !expression->binary_lhs || !expression->binary_rhs ||
-        !expr_eval_integer_constant(expression->binary_rhs, &constant) ||
-        constant <= 0 || (uint64_t)constant > UINT32_MAX) {
+        !expr_eval_integer_constant(expression->binary_rhs, &constant)) {
         return false;
     }
-    divisor = (uint32_t)constant;
+    divisor = (uint64_t)constant;
+    if (expression->type->size == 4) divisor = (uint32_t)divisor;
+    if (divisor == 0u) return false;
     if ((divisor & (divisor - 1u)) != 0u) return false;
     while (divisor > 1u) {
         divisor >>= 1u;
@@ -6612,14 +6614,22 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             {
                 uint8_t shift;
-                if (gen64_unsigned_power_of_two_divisor32(expr, &shift)) {
+                if (gen64_unsigned_power_of_two_divisor(expr, &shift)) {
                     gen64_expr(mod, expr->binary_lhs);
                     if (expr->kind == EXPR_DIV) {
                         if (shift != 0u) {
-                            emit64_shr_reg_imm32(mod, RAX, shift);
+                            if (expr->type->size == 4) {
+                                emit64_shr_reg_imm32(mod, RAX, shift);
+                            } else {
+                                emit64_shr_reg_imm(mod, RAX, shift);
+                            }
                         }
                     } else if (shift == 0u) {
                         emit64_xor_reg_reg(mod, RAX, RAX);
+                    } else if (expr->type->size == 8) {
+                        emit64_mov_reg_imm64(
+                            mod, RCX, (UINT64_C(1) << shift) - 1u);
+                        emit64_and_reg_reg(mod, RAX, RCX);
                     } else {
                         emit64_and_reg_imm32(
                             mod, RAX, (UINT32_C(1) << shift) - 1u);
