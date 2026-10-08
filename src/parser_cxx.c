@@ -2591,7 +2591,14 @@ static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
         if (field->is_static) continue;
         if (type && type->kind == TYPE_ARRAY) {
             Type* element_type = type->base;
-            if (field->initializer || !element_type ||
+            ExprList* initializer_arguments = NULL;
+            unsigned initializer_argument_count = 0u;
+            if ((field->initializer &&
+                 (!cxx_class_member_initializer_arguments(
+                      field->initializer, &initializer_arguments,
+                      &initializer_argument_count) ||
+                  initializer_argument_count != 0u)) ||
+                !element_type ||
                 type->array_len <= 0 || element_type->kind == TYPE_ARRAY) {
                 return false;
             }
@@ -3119,11 +3126,15 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
         }
         for (TypeParam* field = cls->fields; field; field = field->next) {
             CxxConstructorInitializer* item;
+            bool class_object_member = field->type &&
+                (field->type->cxx_class ||
+                 (field->type->kind == TYPE_ARRAY && field->type->base &&
+                  field->type->base->cxx_class));
             if (field->is_static || !field->name) continue;
             item = cxx_find_constructor_initializer(
                 constructor, field->name, NULL);
             if (!item && field->initializer &&
-                !(field->type && field->type->cxx_class &&
+                !(class_object_member &&
                   cxx_is_empty_class_value_initializer(field->initializer))) {
                 Type* type = field->type;
                 if (!type || type->size <= 0 ||

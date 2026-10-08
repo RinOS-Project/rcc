@@ -372,11 +372,11 @@ initializer forms remain unchecked.
 
 2026-10-09 array-member verification: the inherited-constructor regression now
 executes fixed-size class-array initialization through both inherited
-constructors and ordinary constructor prologues. A side-effecting element
-constructor records declaration order; the fixture passes freestanding i686
-and AMD64 host execution and emits both target objects. Negative cases continue
-to reject nested arrays, array member initializers, and inherited arrays whose
-elements require cleanup. The run exposed a parser lowerability check that
-recognized class fields but not class-array fields; the check now admits only
-complete, one-dimensional arrays with lowerable zero-argument constructors and
-no cleanup obligation. The broad constructor/member ABI TODO remains open.
+constructors and ordinary constructor prologues. Side-effecting element
+constructors verify declaration order, including empty-brace array default
+member initializers. The fixtures pass freestanding i686 and AMD64 host
+execution and emit both target objects. Negative cases continue to reject
+nested arrays and inherited arrays whose elements require cleanup. The parser
+and constructor lowerability checks admit only complete, one-dimensional arrays
+with lowerable zero-argument constructors and no cleanup obligation. The broad
+constructor/member ABI TODO remains open.

@@ -657,9 +657,9 @@
       constructor.
       - [x] Add i686/AMD64 runtime coverage for fixed-size class-array members
             initialized through inherited constructors and ordinary constructor
-            prologues; assert per-element construction order and retain negative
-            coverage for unsupported nested arrays, member initializers, and
-            inherited element cleanup. `make SHELL=cmd.exe
+            prologues, including empty-brace array default member initializers;
+            assert per-element construction order and retain negative coverage
+            for unsupported nested arrays and inherited element cleanup. `make SHELL=cmd.exe
             test-cxx-inherited-constructor` passes freestanding i686 execution,
             AMD64 host execution, and object generation for both target widths.
   - [x] Parse and instantiate a dependent direct base in an ordinary class
