@@ -870,9 +870,12 @@
         `va_arg`、`va_copy`、`va_end`をlowerし、copy側の読み取りがsource cursorを
         変えず、helper側の消費がcallerへ反映されることをx64 runtimeで検証
   - [ ] x86_64 SysV FP/XMM `va_arg` register-save経路、aggregate `va_arg`分類、
-        FP/aggregate named parameterの分類、明示的なpointer-to-`va_list`やその他の
-        adjusted-`va_list`形態のSSA化
+        FP/aggregate named parameterの分類、その他の未対応adjusted-`va_list`形態のSSA化
         （現在は関数単位でlegacy backendへ明示fallback）
+  - [x] x86_64 SysVで`va_list*`を受け取るhelperの`va_arg(*p, T)`／
+        `va_copy(local, *p)`をtyped SSAへlowerし、copy側の消費がsource cursorを
+        動かさず、pointer側の消費がcaller cursorを共有することを、i686/AMD64
+        object生成とAMD64実行、O0/O2 verified-backend gateで検証
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路
