@@ -4747,6 +4747,59 @@ static RccIrOpcode lower_binary_opcode(ExprKind kind, bool is_unsigned) {
     }
 }
 
+static RccIrOpcode lower_float_binary_opcode(ExprKind kind) {
+    switch (kind) {
+        case EXPR_ADD: return RCC_IR_FADD;
+        case EXPR_SUB: return RCC_IR_FSUB;
+        case EXPR_MUL: return RCC_IR_FMUL;
+        case EXPR_DIV: return RCC_IR_FDIV;
+        default: return RCC_IR_UNREACHABLE;
+    }
+}
+
+static RccIrLowerValue lower_float_binary(
+    RccIrLowerContext* context, const Expr* expression) {
+    RccIrLowerValue left;
+    RccIrLowerValue right;
+    RccIrType result_type;
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    RccIrOpcode opcode;
+    if (!context || !expression || g_opts.target_arch != ARCH_X64 ||
+        !expression->type ||
+        (expression->type->kind != TYPE_FLOAT &&
+         expression->type->kind != TYPE_DOUBLE) ||
+        !lower_type(expression->type, &result_type) ||
+        result_type.kind != RCC_IR_TYPE_FLOAT ||
+        (result_type.bit_width != 32u && result_type.bit_width != 64u)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    left = lower_expression(context, expression->binary_lhs);
+    right = lower_expression(context, expression->binary_rhs);
+    if (!left.valid || !right.valid) return lower_invalid_value();
+    left = lower_cast(context, left, expression->type);
+    right = lower_cast(context, right, expression->type);
+    if (!left.valid || !right.valid ||
+        !rcc_ir_type_equal(left.type, result_type) ||
+        !rcc_ir_type_equal(right.type, result_type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    opcode = lower_float_binary_opcode(expression->kind);
+    if (opcode == RCC_IR_UNREACHABLE) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operands[0] = left.value;
+    operands[1] = right.value;
+    instruction = lower_append(
+        context, opcode, result_type, operands, 2u, NULL, 0u);
+    return instruction
+        ? lower_value(instruction->result, result_type, false)
+        : lower_invalid_value();
+}
+
 static RccIrLowerValue lower_integer_binary(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerValue left = lower_expression(context,
@@ -7832,9 +7885,20 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                 expression->binary_rhs->type->kind == TYPE_PTR) {
                 return lower_pointer_difference(context, expression);
             }
+            if (expression->type &&
+                (expression->type->kind == TYPE_FLOAT ||
+                 expression->type->kind == TYPE_DOUBLE)) {
+                return lower_float_binary(context, expression);
+            }
             return lower_integer_binary(context, expression);
         case EXPR_MUL:
         case EXPR_DIV:
+            if (expression->type &&
+                (expression->type->kind == TYPE_FLOAT ||
+                 expression->type->kind == TYPE_DOUBLE)) {
+                return lower_float_binary(context, expression);
+            }
+            return lower_integer_binary(context, expression);
         case EXPR_MOD:
         case EXPR_BITAND:
         case EXPR_BITOR:

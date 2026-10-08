@@ -526,6 +526,80 @@ static uint8_t x86_binary_reg_rm_opcode(RccX86Opcode opcode) {
     }
 }
 
+static uint8_t x86_float_binary_opcode(RccX86Opcode opcode) {
+    switch (opcode) {
+        case RCC_X86_FADD: return 0x58u;
+        case RCC_X86_FSUB: return 0x5cu;
+        case RCC_X86_FMUL: return 0x59u;
+        case RCC_X86_FDIV: return 0x5eu;
+        default: return 0u;
+    }
+}
+
+static bool x86_emit_float_binary_register(
+    RccX86Encoder* encoder, RccX86Opcode opcode,
+    unsigned destination, RccX86Value source, uint16_t size) {
+    uint8_t operation = x86_float_binary_opcode(opcode);
+    uint8_t prefix = size == 4u ? 0xf3u : 0xf2u;
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        destination >= 16u || operation == 0u ||
+        (size != 4u && size != 8u)) {
+        return x86_encode_error(
+            encoder, "x86 scalar floating binary operation is invalid");
+    }
+    if (source.kind == RCC_X86_VALUE_FPR) {
+        if (source.fpr >= 16u ||
+            !x86_emit_u8(encoder, prefix) ||
+            !x86_emit_rex(
+                encoder, false,
+                (RccX86HardwareGpr)destination,
+                (RccX86HardwareGpr)source.fpr, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, operation)) return false;
+        return x86_emit_u8(encoder, x86_modrm(
+            3u, destination, source.fpr));
+    }
+    {
+        int32_t displacement;
+        if (!x86_value_displacement(encoder, source, &displacement) ||
+            !x86_emit_u8(encoder, prefix) ||
+            !x86_emit_rex(
+                encoder, false,
+                (RccX86HardwareGpr)destination,
+                RCC_X86_GPR_BP, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, operation)) return false;
+        return x86_emit_memory_modrm(encoder, destination, displacement);
+    }
+}
+
+static bool x86_emit_float_binary(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value destination = instruction->destination;
+    RccX86Value source = instruction->operands[0];
+    uint16_t size = destination.size;
+    if (destination.kind == RCC_X86_VALUE_FPR) {
+        return x86_emit_float_binary_register(
+            encoder, instruction->selected_opcode, destination.fpr,
+            source, size);
+    }
+    if (destination.kind == RCC_X86_VALUE_FRAME ||
+        destination.kind == RCC_X86_VALUE_OUTGOING_ARGUMENT) {
+        /* XMM15 is reserved from allocation as the spill-result scratch. */
+        const unsigned scratch = 15u;
+        return x86_emit_scalar_xmm_memory(
+                encoder, scratch, destination, size, true) &&
+            x86_emit_float_binary_register(
+                encoder, instruction->selected_opcode, scratch,
+                source, size) &&
+            x86_emit_scalar_xmm_memory(
+                encoder, scratch, destination, size, false);
+    }
+    return x86_encode_error(
+        encoder, "x86 scalar floating result has an invalid location");
+}
+
 static bool x86_emit_byte_multiply_register(
     RccX86Encoder* encoder, RccX86HardwareGpr destination,
     RccX86Value source);
@@ -606,6 +680,10 @@ static bool x86_emit_binary(RccX86Encoder* encoder,
     uint16_t size = destination.size;
     uint8_t operation;
     int32_t displacement;
+    if (instruction->selected_opcode >= RCC_X86_FADD &&
+        instruction->selected_opcode <= RCC_X86_FDIV) {
+        return x86_emit_float_binary(encoder, instruction);
+    }
     if (size == 0u || size > encoder->function->pointer_size) {
         return x86_encode_error(encoder,
                                 "x86 binary width is not native");

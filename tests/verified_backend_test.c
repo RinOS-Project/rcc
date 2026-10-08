@@ -2408,6 +2408,68 @@ static void verify_object(const char* path, uint16_t arch)
     objfile_free(object);
 }
 
+static void verify_float_binary_object(const char* path)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    size_t mapping_size;
+    void* memory;
+    void* address;
+    float (RINOS_ABI *add_f32)(float, float);
+    float (RINOS_ABI *sub_f32)(float, float);
+    float (RINOS_ABI *mul_f32)(float, float);
+    float (RINOS_ABI *div_f32)(float, float);
+    double (RINOS_ABI *add_f64)(double, double);
+    double (RINOS_ABI *sub_f64)(double, double);
+    double (RINOS_ABI *mul_f64)(double, double);
+    double (RINOS_ABI *div_f64)(double, double);
+    double (RINOS_ABI *promote)(double, float);
+    float (RINOS_ABI *pressure)(
+        float, float, float, float, float, float, float, float,
+        float, float, float, float, float, float, float, float,
+        float, float, float, float, float, float, float, float,
+        float, float, float, float, float, float, float, float);
+    assert(object != NULL && object->arch == ARCH_X64);
+    text = objfile_get_section(object, ".text");
+    memory = map_text(object, text, &mapping_size);
+#define LOAD_FLOAT_FUNCTION(name, function) \
+    do { \
+        ObjSymbol* symbol = objfile_find_symbol(object, (name)); \
+        assert(symbol != NULL && symbol->type == SYM_GLOBAL && \
+               symbol->binding == BIND_CODE && symbol->section == 0); \
+        address = symbol_address(memory, symbol); \
+        memcpy(&(function), &address, sizeof(function)); \
+    } while (0)
+    LOAD_FLOAT_FUNCTION("verified_fp_add_f32", add_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_sub_f32", sub_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_mul_f32", mul_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_div_f32", div_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_add_f64", add_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_sub_f64", sub_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_mul_f64", mul_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_div_f64", div_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_promote_f32", promote);
+    LOAD_FLOAT_FUNCTION("verified_fp_pressure", pressure);
+#undef LOAD_FLOAT_FUNCTION
+    assert(add_f32(1.25f, 2.5f) == 3.75f);
+    assert(sub_f32(7.5f, 2.25f) == 5.25f);
+    assert(mul_f32(1.5f, 2.0f) == 3.0f);
+    assert(div_f32(9.0f, 2.0f) == 4.5f);
+    assert(add_f64(1.25, 2.5) == 3.75);
+    assert(sub_f64(7.5, 2.25) == 5.25);
+    assert(mul_f64(1.5, 2.0) == 3.0);
+    assert(div_f64(9.0, 2.0) == 4.5);
+    assert(promote(2.5, 1.5f) == 4.0);
+    assert(pressure(
+        1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
+        9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f,
+        17.0f, 18.0f, 19.0f, 20.0f, 21.0f, 22.0f, 23.0f, 24.0f,
+        25.0f, 26.0f, 27.0f, 28.0f, 29.0f, 30.0f, 31.0f, 32.0f)
+        == 528.0f);
+    assert(verified_unmap(memory, mapping_size) == 0);
+    objfile_free(object);
+}
+
 static void verify_native_execution(const char* path, uint16_t arch)
 {
     ObjectFile* object = objfile_read(path);
@@ -3739,6 +3801,11 @@ int main(int argc, char** argv)
     if (argc == 3 && strcmp(argv[1], "--sysv-va-fp-object") == 0) {
         verify_sysv_va_fp_object(argv[2], sizeof(void*) == 8u);
         puts("Verified x86-64 SysV floating va_arg object passed");
+        return 0;
+    }
+    if (argc == 3 && strcmp(argv[1], "--float-binary-object") == 0) {
+        verify_float_binary_object(argv[2]);
+        puts("Verified typed floating binary object passed");
         return 0;
     }
     if (argc == 3 && strcmp(argv[1], "--sysv-va-aggregate-object") == 0) {

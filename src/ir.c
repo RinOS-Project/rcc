@@ -381,6 +381,10 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_SHL: return "shl";
         case RCC_IR_LSHR: return "lshr";
         case RCC_IR_ASHR: return "ashr";
+        case RCC_IR_FADD: return "fadd";
+        case RCC_IR_FSUB: return "fsub";
+        case RCC_IR_FMUL: return "fmul";
+        case RCC_IR_FDIV: return "fdiv";
         case RCC_IR_ICMP: return "icmp";
         case RCC_IR_TRUNC: return "trunc";
         case RCC_IR_ZEXT: return "zext";
@@ -519,6 +523,22 @@ static bool ir_verify_instruction_types(
                                        "const requires integer result type");
             }
             return true;
+        case RCC_IR_FADD:
+        case RCC_IR_FSUB:
+        case RCC_IR_FMUL:
+        case RCC_IR_FDIV:
+            if (!ir_require_shape(verifier, instruction, 2u, 0u) ||
+                instruction->type.kind != RCC_IR_TYPE_FLOAT ||
+                (instruction->type.bit_width != 32u &&
+                 instruction->type.bit_width != 64u)) {
+                return ir_verify_error(
+                    verifier, "%s requires a scalar floating result",
+                    ir_opcode_name(instruction->opcode));
+            }
+            return ir_operand_has_type(
+                    verifier, instruction, 0u, instruction->type) &&
+                ir_operand_has_type(
+                    verifier, instruction, 1u, instruction->type);
         case RCC_IR_ICMP:
             if (!ir_require_shape(verifier, instruction, 2u, 0u) ||
                 !rcc_ir_type_equal(instruction->type, i1_type) ||

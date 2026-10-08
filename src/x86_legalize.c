@@ -562,7 +562,13 @@ static bool x86_legal_is_shift(RccX86Opcode opcode) {
 static bool x86_legal_is_binary(RccX86Opcode opcode) {
     return opcode == RCC_X86_ADD || opcode == RCC_X86_SUB ||
         opcode == RCC_X86_MUL || opcode == RCC_X86_AND ||
-        opcode == RCC_X86_OR || opcode == RCC_X86_XOR;
+        opcode == RCC_X86_OR || opcode == RCC_X86_XOR ||
+        opcode == RCC_X86_FADD || opcode == RCC_X86_FSUB ||
+        opcode == RCC_X86_FMUL || opcode == RCC_X86_FDIV;
+}
+
+static bool x86_legal_is_float_binary(RccX86Opcode opcode) {
+    return opcode >= RCC_X86_FADD && opcode <= RCC_X86_FDIV;
 }
 
 static bool x86_legal_native_type(
@@ -570,6 +576,13 @@ static bool x86_legal_native_type(
     return type.kind == RCC_MIR_TYPE_INTEGER &&
         type.bit_width != 0u &&
         type.bit_width <= (uint16_t)(abi->pointer_size * 8u);
+}
+
+static bool x86_legal_float_type(
+    RccMirType type, const RccX86Abi* abi) {
+    return abi->target == RCC_X86_TARGET_X86_64 &&
+        type.kind == RCC_MIR_TYPE_FLOAT &&
+        (type.bit_width == 32u || type.bit_width == 64u);
 }
 
 static const RccSysvMemoryArgument* x86_memory_argument_for_operand(
@@ -718,7 +731,9 @@ static bool x86_legal_prepare_outgoing_frame(
             if (instruction->has_destination &&
                 instruction->operand_count == 2u &&
                 x86_legal_is_binary(instruction->opcode) &&
-                x86_legal_native_type(instruction->type, abi) &&
+                (x86_legal_native_type(instruction->type, abi) ||
+                 (x86_legal_is_float_binary(instruction->opcode) &&
+                  x86_legal_float_type(instruction->type, abi))) &&
                 x86_legal_selected_location_equal(
                     instruction->destination,
                     instruction->operands[1]) &&
@@ -1293,6 +1308,8 @@ static bool x86_legal_selected_shape(
         case RCC_X86_SREM: case RCC_X86_AND: case RCC_X86_OR:
         case RCC_X86_XOR: case RCC_X86_SHL: case RCC_X86_SHR:
         case RCC_X86_SAR: case RCC_X86_COMPARE_SET:
+        case RCC_X86_FADD: case RCC_X86_FSUB:
+        case RCC_X86_FMUL: case RCC_X86_FDIV:
         case RCC_X86_GEP:
             return instruction->has_destination &&
                 instruction->operand_count == 2u &&
@@ -1477,7 +1494,9 @@ static bool x86_legal_verify_binary(
     const RccX86LegalInstruction* instruction,
     const RccX86Abi* abi, char* error, size_t error_size) {
     const RccX86LegalInstruction* input = instruction->previous;
-    if (!x86_legal_native_type(instruction->type, abi) ||
+    if (!(x86_legal_is_float_binary(instruction->selected_opcode)
+              ? x86_legal_float_type(instruction->type, abi)
+              : x86_legal_native_type(instruction->type, abi)) ||
         !instruction->has_destination ||
         instruction->operand_count != 1u || !input ||
         input->opcode != RCC_X86_LEGAL_COPY ||
@@ -1822,7 +1841,10 @@ bool rcc_x86_verify_legal_function(
             }
             if (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
                 x86_legal_is_binary(instruction->selected_opcode) &&
-                x86_legal_native_type(instruction->type, &abi)) {
+                (x86_legal_native_type(instruction->type, &abi) ||
+                 (x86_legal_is_float_binary(
+                      instruction->selected_opcode) &&
+                  x86_legal_float_type(instruction->type, &abi)))) {
                 return x86_legal_error(error, error_size,
                                        "native binary op was not legalized");
             }
@@ -1945,7 +1967,9 @@ bool rcc_x86_legalize_function(
                         legal, block, source, &abi,
                     error, error_size);
             } else if (x86_legal_is_binary(source->opcode) &&
-                       x86_legal_native_type(source->type, &abi)) {
+                       (x86_legal_native_type(source->type, &abi) ||
+                        (x86_legal_is_float_binary(source->opcode) &&
+                         x86_legal_float_type(source->type, &abi)))) {
                 source_ok = x86_legalize_binary(
                         legal, block, source, &abi,
                     error, error_size);

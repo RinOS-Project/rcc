@@ -844,9 +844,15 @@
         回帰検証
   - [x] typed SSAで`float`／`double`リテラルをread-only constantからloadし、
         C/C++ x86_64 SysV aggregate fixtureの`-O0`/`-O2`実行で値を検証
-  - [ ] typed SSAの浮動小数点二項演算を実装する。現状`EXPR_ADD`などが
-        integer-only loweringへ流れ、浮動小数点加算を含む関数はlegacy backendへ
-        fallbackする。
+  - [x] x86_64 typed SSAで`float`／`double`の加算・減算・乗算・除算を
+        SSE scalar命令へlowerし、混在精度変換、FPR register pressureとstack引数を
+        含むC/C++ `-O0`/`-O2` objectのfallbackなし生成・runtime実行を検証。
+  - [ ] typed SSAでscalar floating comparison／truth conversionと、残る
+        unary／compound arithmetic formsを実装し、NaN・signed-zeroを含む
+        C/C++ `-O0`/`-O2` runtime結果をlegacy backendと照合する。
+  - [ ] typed SSAのi686 scalar floating arithmeticをx87 register-stack規約と
+        cdecl引数／戻り値ABIに合わせて実装し、C/C++の`-O0`/`-O2`を実機以外で
+        fallbackなし実行検証する。
   - [x] i686 wide-scalarの代入、複合代入、pre/post incrementをpair
         load/storeとcarry/borrow付き演算へlowerし、両archのobject・x64
         実行回帰で検証

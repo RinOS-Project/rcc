@@ -114,6 +114,7 @@ bool rcc_x86_abi_verify_policy(
     char* error, size_t error_size) {
     uint64_t expected_gpr_mask;
     uint64_t expected_fpr_mask;
+    uint64_t expected_allocatable_fpr_mask;
     size_t index;
     if (error && error_size != 0u) error[0] = '\0';
     if (!abi || !policy || abi->gpr_count == 0u ||
@@ -124,13 +125,18 @@ bool rcc_x86_abi_verify_policy(
     }
     expected_gpr_mask = (UINT64_C(1) << abi->gpr_count) - 1u;
     expected_fpr_mask = (UINT64_C(1) << abi->fpr_count) - 1u;
+    expected_allocatable_fpr_mask = expected_fpr_mask;
+    if (abi->target == RCC_X86_TARGET_X86_64) {
+        expected_allocatable_fpr_mask &= ~(UINT64_C(1) << 15u);
+    }
     if (policy->pointer_size != abi->pointer_size ||
         policy->stack_alignment != abi->stack_alignment ||
         policy->allocatable_gpr_mask != expected_gpr_mask ||
         policy->caller_saved_gpr_mask !=
             abi->caller_saved_abstract_mask ||
-        policy->allocatable_fpr_mask != expected_fpr_mask ||
-        policy->caller_saved_fpr_mask != abi->caller_saved_fpr_mask ||
+        policy->allocatable_fpr_mask != expected_allocatable_fpr_mask ||
+        policy->caller_saved_fpr_mask !=
+            (abi->caller_saved_fpr_mask & expected_allocatable_fpr_mask) ||
         policy->division_fixed_gpr_mask !=
             abi->division_fixed_abstract_mask ||
         policy->shift_count_fixed_gpr_mask !=

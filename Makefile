@@ -12196,6 +12196,34 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		tests/verified_backend.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-x64.log
 	$(GREP) -F -q 'Verified backend: 14 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-x64.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/float-binary-x64.ro \
+		tests/verified_backend_float_binary.c \
+		>$(TEST_OUT)/verified-backend/float-binary-x64.log
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/float-binary-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-binary-x64.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/float-binary-x64-o2.ro \
+		tests/verified_backend_float_binary.c \
+		>$(TEST_OUT)/verified-backend/float-binary-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/float-binary-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-binary-x64-o2.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/float-binary-cxx-x64.ro \
+		tests/verified_backend_float_binary.c \
+		>$(TEST_OUT)/verified-backend/float-binary-cxx-x64.log
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/float-binary-cxx-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-binary-cxx-x64.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/float-binary-cxx-x64-o2.ro \
+		tests/verified_backend_float_binary.c \
+		>$(TEST_OUT)/verified-backend/float-binary-cxx-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/float-binary-cxx-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-binary-cxx-x64-o2.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/typeinfo-x86.ro \
 		tests/verified_backend_typeinfo.cpp \
@@ -12520,6 +12548,14 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/verified-backend/sysv-va-fp-x64.ro
 	$(TEST_OUT)/verified-backend/verify-x64 --sysv-va-fp-object \
 		$(TEST_OUT)/verified-backend/sysv-va-fp-x64-o2.ro
+	$(TEST_OUT)/verified-backend/verify-x64 --float-binary-object \
+		$(TEST_OUT)/verified-backend/float-binary-x64.ro
+	$(TEST_OUT)/verified-backend/verify-x64 --float-binary-object \
+		$(TEST_OUT)/verified-backend/float-binary-x64-o2.ro
+	$(TEST_OUT)/verified-backend/verify-x64 --float-binary-object \
+		$(TEST_OUT)/verified-backend/float-binary-cxx-x64.ro
+	$(TEST_OUT)/verified-backend/verify-x64 --float-binary-object \
+		$(TEST_OUT)/verified-backend/float-binary-cxx-x64-o2.ro
 	$(TEST_OUT)/verified-backend/verify-x64 --sysv-va-aggregate-object \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64.ro
 	$(TEST_OUT)/verified-backend/verify-x64 --sysv-va-aggregate-object \

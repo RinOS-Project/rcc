@@ -24,6 +24,10 @@ static bool x86_is_terminator(RccX86Opcode opcode) {
         opcode == RCC_X86_RETURN || opcode == RCC_X86_TRAP;
 }
 
+static bool x86_is_float_binary(RccX86Opcode opcode) {
+    return opcode >= RCC_X86_FADD && opcode <= RCC_X86_FDIV;
+}
+
 static bool x86_type_valid(RccMirType type) {
     switch (type.kind) {
         case RCC_MIR_TYPE_VOID:
@@ -223,6 +227,10 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_SHL: return RCC_X86_SHL;
         case RCC_MIR_LSHR: return RCC_X86_SHR;
         case RCC_MIR_ASHR: return RCC_X86_SAR;
+        case RCC_MIR_FADD: return RCC_X86_FADD;
+        case RCC_MIR_FSUB: return RCC_X86_FSUB;
+        case RCC_MIR_FMUL: return RCC_X86_FMUL;
+        case RCC_MIR_FDIV: return RCC_X86_FDIV;
         case RCC_MIR_ICMP: return RCC_X86_COMPARE_SET;
         case RCC_MIR_TRUNC: return RCC_X86_TRUNCATE;
         case RCC_MIR_ZEXT: return RCC_X86_ZERO_EXTEND;
@@ -462,6 +470,8 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
         case RCC_X86_XOR: case RCC_X86_SHL: case RCC_X86_SHR:
         case RCC_X86_SAR: case RCC_X86_COMPARE_SET:
         case RCC_X86_GEP:
+        case RCC_X86_FADD: case RCC_X86_FSUB:
+        case RCC_X86_FMUL: case RCC_X86_FDIV:
             return instruction->has_destination &&
                 instruction->operand_count == 2u &&
                 instruction->target_count == 0u;
@@ -603,7 +613,16 @@ bool rcc_x86_verify_function(
                  instruction->opcode != RCC_X86_RETURN &&
                  instruction->opcode != RCC_X86_COPY &&
                  instruction->opcode != RCC_X86_FLOAT_EXTEND &&
-                 instruction->opcode != RCC_X86_REINTERPRET) ||
+                 instruction->opcode != RCC_X86_REINTERPRET &&
+                 !x86_is_float_binary(instruction->opcode)) ||
+                (x86_is_float_binary(instruction->opcode) &&
+                 (function->target != RCC_X86_TARGET_X86_64 ||
+                  instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
+                  instruction->operand_count != 2u ||
+                  !rcc_mir_type_equal(
+                      instruction->operand_types[0], instruction->type) ||
+                  !rcc_mir_type_equal(
+                      instruction->operand_types[1], instruction->type))) ||
                 (instruction->opcode == RCC_X86_FLOAT_EXTEND &&
                  (function->target != RCC_X86_TARGET_X86_64 ||
                   instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
@@ -672,7 +691,8 @@ bool rcc_x86_verify_function(
                      instruction->opcode != RCC_X86_CALL &&
                      instruction->opcode != RCC_X86_COPY &&
                      instruction->opcode != RCC_X86_FLOAT_EXTEND &&
-                     instruction->opcode != RCC_X86_REINTERPRET)) {
+                     instruction->opcode != RCC_X86_REINTERPRET &&
+                     !x86_is_float_binary(instruction->opcode))) {
                     return x86_select_error(error, error_size,
                                             "x86 operand type is invalid");
                 }

@@ -76,9 +76,10 @@ void rcc_mir_register_policy_x86_64(RccMirRegisterPolicy* policy) {
     if (!policy) return;
     memset(policy, 0, sizeof(*policy));
     policy->allocatable_gpr_mask = UINT64_C(0x3fff);
-    policy->allocatable_fpr_mask = UINT64_C(0xffff);
+    /* XMM15 is the encoder's reserved scalar floating spill scratch. */
+    policy->allocatable_fpr_mask = UINT64_C(0x7fff);
     policy->caller_saved_gpr_mask = UINT64_C(0x01ff);
-    policy->caller_saved_fpr_mask = UINT64_C(0xffff);
+    policy->caller_saved_fpr_mask = UINT64_C(0x7fff);
     policy->division_fixed_gpr_mask = UINT64_C(0x05);
     policy->shift_count_fixed_gpr_mask = UINT64_C(0x02);
     policy->pointer_size = 8u;
