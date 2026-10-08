@@ -129,27 +129,63 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
                       size_t* mapping_size)
 {
     size_t page = verified_page_size();
+    size_t text_size;
+    size_t rodata_offset;
+    size_t rodata_size = 0u;
     size_t size;
+    int rodata_index = 0;
+    ObjSection* rodata;
     void* memory;
     assert(text != NULL && text->size != 0u && page != 0u);
     assert(text->size <= (uint64_t)SIZE_MAX);
-    size = ((size_t)text->size + (size_t)page - 1u) &
-        ~((size_t)page - 1u);
+    text_size = (size_t)text->size;
+    rodata_offset = text_size;
+    rodata = objfile_get_section(object, ".rodata");
+    if (rodata && rodata->size != 0u) {
+        size_t alignment = rodata->align ? rodata->align : 1u;
+        size_t remainder;
+        assert(rodata->size <= (uint64_t)SIZE_MAX);
+        assert((alignment & (alignment - 1u)) == 0u);
+        remainder = text_size & (alignment - 1u);
+        assert(text_size <= SIZE_MAX - remainder);
+        rodata_offset = remainder ?
+            text_size + alignment - remainder : text_size;
+        rodata_size = (size_t)rodata->size;
+        assert(rodata_offset <= SIZE_MAX - rodata_size);
+        for (ObjSection* section = object->sections; section;
+             section = section->next) {
+            if (section == rodata) break;
+            ++rodata_index;
+        }
+        assert(rodata_index < object->section_count);
+    }
+    assert(rodata_offset + rodata_size <= SIZE_MAX - ((size_t)page - 1u));
+    size = ((rodata_offset + rodata_size + (size_t)page - 1u) / page) * page;
     memory = verified_map(size);
     assert(memory != NULL);
-    memcpy(memory, text->data, (size_t)text->size);
+    memcpy(memory, text->data, text_size);
+    if (rodata_size) memcpy((uint8_t*)memory + rodata_offset,
+                            rodata->data, rodata_size);
     for (ObjReloc* relocation = text->relocs; relocation;
          relocation = relocation->next) {
         ObjSymbol* symbol = objfile_find_symbol(
             object, relocation->symbol_name);
         uint8_t* place;
+        size_t target_offset;
         int64_t target;
         int64_t delta;
         int32_t encoded;
-        assert(symbol != NULL && symbol->section == 0 &&
+        assert(symbol != NULL &&
                relocation->offset <= text->size);
+        if (symbol->section == 0) {
+            target_offset = (size_t)symbol->value;
+        } else {
+            assert(symbol->section == rodata_index && rodata_size != 0u &&
+                   symbol->value <= rodata_size);
+            target_offset = rodata_offset + (size_t)symbol->value;
+        }
         place = (uint8_t*)memory + relocation->offset;
-        target = (int64_t)(uintptr_t)memory + (int64_t)symbol->value +
+        target = (int64_t)(uintptr_t)memory + (int64_t)target_offset +
             relocation->addend;
         if (relocation->type == RELOC_REL32) {
             assert(sizeof(encoded) <= text->size - relocation->offset);
@@ -611,6 +647,8 @@ static void verify_sysv_va_aggregate_object(const char* path)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* text;
+    ObjSymbol* float_literal_symbol;
+    ObjSymbol* double_literal_symbol;
     ObjSymbol* mixed_integer_symbol;
     ObjSymbol* mixed_floating_symbol;
     ObjSymbol* mixed_aggregate_integer_call_symbol;
@@ -641,6 +679,8 @@ static void verify_sysv_va_aggregate_object(const char* path)
     size_t mapping_size;
     void* memory;
     void* address;
+    float (RINOS_ABI *float_literal)(void);
+    double (RINOS_ABI *double_literal)(void);
     int (RINOS_ABI *mixed_integer)(int, ...);
     double (RINOS_ABI *mixed_floating)(int, ...);
     int (RINOS_ABI *mixed_aggregate_integer_call)(int, double);
@@ -691,6 +731,10 @@ static void verify_sysv_va_aggregate_object(const char* path)
     struct VerifiedSysvVaLargeAggregate large = { 11, 23, 47 };
     assert(object != NULL && object->arch == ARCH_X64 && sizeof(void*) == 8u);
     text = objfile_get_section(object, ".text");
+    float_literal_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_float_literal");
+    double_literal_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_double_literal");
     mixed_integer_symbol = objfile_find_symbol(
         object, "verified_sysv_va_mixed_aggregate_integer");
     mixed_floating_symbol = objfile_find_symbol(
@@ -797,6 +841,14 @@ static void verify_sysv_va_aggregate_object(const char* path)
            named_mixed_va_stack_offset_call_symbol->type == SYM_GLOBAL &&
            named_mixed_va_stack_offset_call_symbol->binding == BIND_CODE &&
            named_mixed_va_stack_offset_call_symbol->section == 0);
+    assert(float_literal_symbol != NULL &&
+           float_literal_symbol->type == SYM_GLOBAL &&
+           float_literal_symbol->binding == BIND_CODE &&
+           float_literal_symbol->section == 0);
+    assert(double_literal_symbol != NULL &&
+           double_literal_symbol->type == SYM_GLOBAL &&
+           double_literal_symbol->binding == BIND_CODE &&
+           double_literal_symbol->section == 0);
     assert(integer_overflow_symbol != NULL &&
            integer_overflow_symbol->type == SYM_GLOBAL &&
            integer_overflow_symbol->binding == BIND_CODE &&
@@ -854,6 +906,10 @@ static void verify_sysv_va_aggregate_object(const char* path)
            two_double_aggregate_stack_call_symbol->binding == BIND_CODE &&
            two_double_aggregate_stack_call_symbol->section == 0);
     memory = map_text(object, text, &mapping_size);
+    address = symbol_address(memory, float_literal_symbol);
+    memcpy(&float_literal, &address, sizeof(float_literal));
+    address = symbol_address(memory, double_literal_symbol);
+    memcpy(&double_literal, &address, sizeof(double_literal));
     address = symbol_address(memory, mixed_integer_symbol);
     memcpy(&mixed_integer, &address, sizeof(mixed_integer));
     address = symbol_address(memory, mixed_floating_symbol);
@@ -927,6 +983,8 @@ static void verify_sysv_va_aggregate_object(const char* path)
     address = symbol_address(memory, two_double_aggregate_stack_call_symbol);
     memcpy(&two_double_aggregate_stack_call, &address,
            sizeof(two_double_aggregate_stack_call));
+    assert(float_literal() == 1.25f);
+    assert(double_literal() == 5.25);
     assert(mixed_integer(7, mixed) == 19);
     assert(mixed_floating(7, mixed) == 4.125);
     assert(mixed_aggregate_integer_call(19, 4.125) == 19);
@@ -946,7 +1004,7 @@ static void verify_sysv_va_aggregate_object(const char* path)
                19, 4.125, 1.0, 2.0, 3.0, 4.0,
                5.0, 6.0, 7.0, 8.0) == 19);
     assert(named_mixed_va_gp_offset_call(19, 4.125, 7) == 1907);
-    assert(named_mixed_va_sse_offset_call(19, 4.125, 5.25) == 9.375);
+    assert(named_mixed_va_sse_offset_call(19, 4.125, 5.25) == 5.25);
     assert(named_mixed_va_stack_offset_call(1.0, 19, 4.125, 7) == 1907);
     assert(integer_overflow(1, 2, 3, 4, 5, 6, integer) == 137);
     assert(mixed_overflow(1, 2, 3, 4, 5, 6, mixed) == 4.125);

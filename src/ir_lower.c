@@ -7817,7 +7817,40 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             return lower_value(
                 address->result, rcc_ir_type_pointer(0u), true);
         }
-        case EXPR_FLOAT_LIT:
+        case EXPR_FLOAT_LIT: {
+            const RccIrConstant* literal;
+            RccIrType type;
+            RccIrInstruction* address;
+            uint8_t bytes[8];
+            size_t size;
+            if (!expression->type || !lower_type(expression->type, &type) ||
+                type.kind != RCC_IR_TYPE_FLOAT ||
+                (expression->type->size != 4 &&
+                 expression->type->size != 8)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            size = (size_t)expression->type->size;
+            if (size == 4u) {
+                float value = (float)expression->float_val;
+                memcpy(bytes, &value, sizeof(value));
+            } else {
+                double value = expression->float_val;
+                memcpy(bytes, &value, sizeof(value));
+            }
+            literal = rcc_ir_module_intern_constant(
+                context->module, bytes, size, size);
+            address = lower_append(
+                context, RCC_IR_SYMBOL_ADDRESS,
+                rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+            if (!literal || !address) return lower_invalid_value();
+            rcc_ir_set_callee(address, literal->name);
+            return lower_load_address(
+                context,
+                lower_value(address->result,
+                            rcc_ir_type_pointer(0u), true),
+                expression->type);
+        }
         case EXPR_CXX_REQUIRES:
         case EXPR_GENERIC:
         case EXPR_CXX_FOLD:

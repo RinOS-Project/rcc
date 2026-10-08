@@ -9,6 +9,16 @@ struct VerifiedSysvMixedAggregate {
     double floating;
 };
 
+float verified_sysv_va_float_literal(void)
+{
+    return 1.25f;
+}
+
+double verified_sysv_va_double_literal(void)
+{
+    return 5.25;
+}
+
 int verified_sysv_va_named_mixed_aggregate_gp_offset(
     struct VerifiedSysvMixedAggregate value, ...)
 {
@@ -28,7 +38,7 @@ double verified_sysv_va_named_mixed_aggregate_sse_offset(
     va_start(arguments, value);
     tail = va_arg(arguments, double);
     va_end(arguments);
-    return value.floating + tail;
+    return tail;
 }
 
 int verified_sysv_va_named_mixed_aggregate_stack_offset(

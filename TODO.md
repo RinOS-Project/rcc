@@ -842,6 +842,11 @@
   - [x] `__builtin_bswap16/32/64`をtyped-SSAのmask／shift／論理演算へlowerし、
         x64の16/32/64-bit実行値、i686の16/32/64-bit fallbackなしを
         回帰検証
+  - [x] typed SSAで`float`／`double`リテラルをread-only constantからloadし、
+        C/C++ x86_64 SysV aggregate fixtureの`-O0`/`-O2`実行で値を検証
+  - [ ] typed SSAの浮動小数点二項演算を実装する。現状`EXPR_ADD`などが
+        integer-only loweringへ流れ、浮動小数点加算を含む関数はlegacy backendへ
+        fallbackする。
   - [x] i686 wide-scalarの代入、複合代入、pre/post incrementをpair
         load/storeとcarry/borrow付き演算へlowerし、両archのobject・x64
         実行回帰で検証
@@ -905,9 +910,10 @@
         register配置と両bank exhaustion時のwhole-stack配置をfunction entry、call-site、
         `va_start` overflow位置まで接続。C/C++の`-O0`/`-O2`でregister／stack後の
         `va_arg(int/double)`をruntime検証し、fallbackなしで実行。
-      - [x] 24-byte MEMORY-class aggregateをvariadic call-siteから渡すケースで、
-        complete legacy-object fallbackを明示し、C/C++の`-O0`/`-O2`でcalleeの
-        `va_arg`結果までruntime検証する。typed SSA marshallingは別の未完了課題。
+      - [ ] variadic call-siteから24-byte MEMORY-class aggregateをtyped SSAで
+        marshalし、C/C++の`-O0`/`-O2`でcalleeの`va_arg`結果をfallbackなしで
+        runtime検証する。現在はcomplete legacy-object fallbackで同じABI結果を
+        確認できるが、fail-closed fallbackはcaller lowering実装の完了を意味しない。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
         16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER
