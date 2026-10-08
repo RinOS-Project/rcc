@@ -389,11 +389,12 @@
         pthread thread-exit regression on the host. Keep open until RinOS
         thread-exit runtime integration and broader initializer/lifetime forms
         are verified.
-  - [x] Verify a namespace-scope `thread_local const T&` bound to a class
-        prvalue: i686/AMD64 generation must emit `__cxa_thread_atexit`, repeated
-        access in one thread must reuse its owner, distinct threads must get
-        distinct initialized values, and each destructor must run exactly once
-        at thread exit. `test-cxx-static-reference-temporaries-posix` passes on
+  - [x] Verify namespace-scope `thread_local const T&` bindings to direct and
+        derived-to-base class prvalues: i686/AMD64 generation must emit
+        `__cxa_thread_atexit`, repeated access in one thread must reuse its
+        owner, distinct threads must get distinct values, and thread exit must
+        destroy the complete derived object exactly once in derived-before-base
+        order. `test-cxx-static-reference-temporaries-posix` passes on
         i686/AMD64 object generation and x64 pthread host execution.
   - [x] Extend static-duration lifetime through direct member subobjects and
         explicit derived-to-base xvalue bindings, including virtual bases and

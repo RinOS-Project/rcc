@@ -42,6 +42,10 @@ extern int cxx_static_reference_expected_events;
 extern int cxx_static_reference_tls_constructions;
 extern int cxx_static_reference_tls_destructions;
 extern int cxx_static_reference_tls_destruction_order;
+extern int cxx_static_reference_tls_base_constructions;
+extern int cxx_static_reference_tls_derived_constructions;
+extern int cxx_static_reference_tls_base_destructions;
+extern int cxx_static_reference_tls_derived_destructions;
 extern int RIN_SYSV cxx_static_reference_tls_worker(int value);
 #endif
 extern int RIN_SYSV rcc_generated_main(void);
@@ -173,6 +177,9 @@ void RIN_SYSV rin_cpp_exception_unregister_current_cleanup(
 int main(void)
 {
     int result;
+#ifdef RCC_STATIC_REFERENCE_TLS_TEST
+    int tls_result;
+#endif
 #if !defined(__ELF__)
     __rcc_global_init();
 #endif
@@ -184,15 +191,51 @@ int main(void)
     }
 #ifdef RCC_STATIC_REFERENCE_TLS_TEST
     if (cxx_static_reference_tls_constructions != 0 ||
-        cxx_static_reference_tls_destructions != 0) return 92;
-    if (cxx_static_reference_run_tls_thread(3) != 0 ||
-        cxx_static_reference_tls_constructions != 1 ||
+        cxx_static_reference_tls_destructions != 0 ||
+        cxx_static_reference_tls_base_constructions != 0 ||
+        cxx_static_reference_tls_derived_constructions != 0 ||
+        cxx_static_reference_tls_base_destructions != 0 ||
+        cxx_static_reference_tls_derived_destructions != 0) return 92;
+    tls_result = cxx_static_reference_run_tls_thread(3);
+    if (tls_result != 0 || cxx_static_reference_tls_constructions != 1 ||
         cxx_static_reference_tls_destructions != 1 ||
-        cxx_static_reference_tls_destruction_order != 3) return 93;
-    if (cxx_static_reference_run_tls_thread(4) != 0 ||
-        cxx_static_reference_tls_constructions != 2 ||
+        cxx_static_reference_tls_base_constructions != 1 ||
+        cxx_static_reference_tls_derived_constructions != 1 ||
+        cxx_static_reference_tls_base_destructions != 1 ||
+        cxx_static_reference_tls_derived_destructions != 1 ||
+        cxx_static_reference_tls_destruction_order != 213) {
+        fprintf(stderr,
+                "TLS reference first-thread state: worker %d, direct %d/%d, "
+                "base %d/%d, derived %d/%d, order %d\n",
+                tls_result, cxx_static_reference_tls_constructions,
+                cxx_static_reference_tls_destructions,
+                cxx_static_reference_tls_base_constructions,
+                cxx_static_reference_tls_base_destructions,
+                cxx_static_reference_tls_derived_constructions,
+                cxx_static_reference_tls_derived_destructions,
+                cxx_static_reference_tls_destruction_order);
+        return 93;
+    }
+    tls_result = cxx_static_reference_run_tls_thread(4);
+    if (tls_result != 0 || cxx_static_reference_tls_constructions != 2 ||
         cxx_static_reference_tls_destructions != 2 ||
-        cxx_static_reference_tls_destruction_order != 34) return 94;
+        cxx_static_reference_tls_base_constructions != 2 ||
+        cxx_static_reference_tls_derived_constructions != 2 ||
+        cxx_static_reference_tls_base_destructions != 2 ||
+        cxx_static_reference_tls_derived_destructions != 2 ||
+        cxx_static_reference_tls_destruction_order != 213214) {
+        fprintf(stderr,
+                "TLS reference second-thread state: worker %d, direct %d/%d, "
+                "base %d/%d, derived %d/%d, order %d\n",
+                tls_result, cxx_static_reference_tls_constructions,
+                cxx_static_reference_tls_destructions,
+                cxx_static_reference_tls_base_constructions,
+                cxx_static_reference_tls_base_destructions,
+                cxx_static_reference_tls_derived_constructions,
+                cxx_static_reference_tls_derived_destructions,
+                cxx_static_reference_tls_destruction_order);
+        return 94;
+    }
 #endif
     if (cxx_exception_cleanup_error || cxx_exception_cleanup_count != 0u) {
         fprintf(stderr,

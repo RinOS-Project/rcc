@@ -5,6 +5,10 @@ int cxx_static_reference_expected_events = 21;
 int cxx_static_reference_tls_constructions = 0;
 int cxx_static_reference_tls_destructions = 0;
 int cxx_static_reference_tls_destruction_order = 0;
+int cxx_static_reference_tls_base_constructions = 0;
+int cxx_static_reference_tls_derived_constructions = 0;
+int cxx_static_reference_tls_base_destructions = 0;
+int cxx_static_reference_tls_derived_destructions = 0;
 #endif
 }
 
@@ -36,16 +40,51 @@ struct ThreadLocalReferenceLifetime {
     }
 };
 
+struct ThreadLocalReferenceBase {
+    int value;
+
+    explicit ThreadLocalReferenceBase(int initial_value)
+        : value(initial_value) {
+        ++cxx_static_reference_tls_base_constructions;
+    }
+
+    ~ThreadLocalReferenceBase() {
+        ++cxx_static_reference_tls_base_destructions;
+        cxx_static_reference_tls_destruction_order =
+            cxx_static_reference_tls_destruction_order * 10 + 1;
+    }
+};
+
+struct ThreadLocalReferenceDerived : ThreadLocalReferenceBase {
+    explicit ThreadLocalReferenceDerived(int initial_value)
+        : ThreadLocalReferenceBase(initial_value) {
+        ++cxx_static_reference_tls_derived_constructions;
+    }
+
+    ~ThreadLocalReferenceDerived() {
+        ++cxx_static_reference_tls_derived_destructions;
+        cxx_static_reference_tls_destruction_order =
+            cxx_static_reference_tls_destruction_order * 10 + 2;
+    }
+};
+
 thread_local int cxx_static_reference_thread_value;
 
 thread_local const ThreadLocalReferenceLifetime& thread_local_reference =
     ThreadLocalReferenceLifetime{cxx_static_reference_thread_value};
+
+thread_local const ThreadLocalReferenceBase& thread_local_base_reference =
+    static_cast<ThreadLocalReferenceBase&&>(
+        ThreadLocalReferenceDerived{cxx_static_reference_thread_value + 10});
 
 extern "C" int cxx_static_reference_tls_worker(int value) {
     cxx_static_reference_thread_value = value;
     const ThreadLocalReferenceLifetime* first = &thread_local_reference;
     const ThreadLocalReferenceLifetime* second = &thread_local_reference;
     if (first != second || first->value != value) return 1;
+    const ThreadLocalReferenceBase* base_first = &thread_local_base_reference;
+    const ThreadLocalReferenceBase* base_second = &thread_local_base_reference;
+    if (base_first != base_second || base_first->value != value + 10) return 2;
     return 0;
 }
 #endif
