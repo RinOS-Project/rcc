@@ -1623,7 +1623,7 @@ static void verify_loop_invariant_code_motion(void)
     RccIrType i32 = rcc_ir_type_integer(32u);
     RccIrType i1 = rcc_ir_type_integer(1u);
     RccIrType parameters[] = {
-        i32, i32, i32, rcc_ir_type_float(32u),
+        i32, i32, i32, rcc_ir_type_float(64u),
     };
     RccIrModule* module = rcc_ir_module_create();
     RccIrFunction* function = rcc_ir_function_add(
@@ -1644,12 +1644,14 @@ static void verify_loop_invariant_code_motion(void)
     RccIrInstruction* compare;
     RccIrInstruction* unsafe_division;
     RccIrInstruction* unsafe_shift;
+    RccIrInstruction* unsafe_float_trunc;
     RccIrInstruction* unsafe_float_to_int;
     RccIrInstruction* safe_division;
     RccIrInstruction* safe_shift;
     RccIrInstruction* safe_left_shift;
     RccIrInstruction* out_of_range_left_shift;
     RccIrValue unsafe_operands[2];
+    RccIrValue trunc_operand[1];
     RccIrValue conversion_operand[1];
     RccIrValue safe_operands[2];
     RccIrValue safe_divisor;
@@ -1693,7 +1695,12 @@ static void verify_loop_invariant_code_motion(void)
     unsafe_shift = rcc_ir_append(
         body, RCC_IR_SHL, i32, unsafe_operands, 2u, NULL, 0u);
     assert(unsafe_shift != NULL);
-    conversion_operand[0] = function->parameters[3];
+    trunc_operand[0] = function->parameters[3];
+    unsafe_float_trunc = rcc_ir_append(
+        body, RCC_IR_FPTRUNC, rcc_ir_type_float(32u),
+        trunc_operand, 1u, NULL, 0u);
+    assert(unsafe_float_trunc != NULL);
+    conversion_operand[0] = unsafe_float_trunc->result;
     unsafe_float_to_int = rcc_ir_append(
         body, RCC_IR_FPTOSI, i32, conversion_operand, 1u, NULL, 0u);
     assert(unsafe_float_to_int != NULL);
@@ -1751,6 +1758,7 @@ static void verify_loop_invariant_code_motion(void)
     assert(safe_left_shift->block == entry);
     assert(unsafe_division->block == body);
     assert(unsafe_shift->block == body);
+    assert(unsafe_float_trunc->block == body);
     assert(unsafe_float_to_int->block == body);
     assert(out_of_range_left_shift->block == body);
     assert(rcc_ir_verify_function(function, error, sizeof(error)));

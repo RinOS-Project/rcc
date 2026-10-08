@@ -2253,12 +2253,13 @@ static bool ir_pass_licm_candidate(
      * point; this restriction is specific to moving them before the loop.
      */
     switch (instruction->opcode) {
+        case RCC_IR_FPTRUNC:
         case RCC_IR_FPTOSI:
             /*
-             * A floating-to-signed-integer conversion can be invalid for a
-             * NaN or an out-of-range input.  Without a range proof, moving it
-             * before a loop could evaluate it even when the loop executes
-             * zero times, so it is not a safe speculative LICM candidate.
+             * Narrowing float conversion can overflow, and floating-to-
+             * integer conversion can be invalid for NaN or out-of-range
+             * input. Without range proofs, moving either before a loop could
+             * evaluate it when the loop executes zero times.
              */
             return false;
         case RCC_IR_UDIV:
