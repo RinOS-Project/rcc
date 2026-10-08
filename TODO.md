@@ -625,6 +625,9 @@
       - [x] Substitute dependent `using Base<T>::member` and
             `using Base<T>::Base` declarations; execute inherited-constructor
             cases for `int` and `long long` and validate both target objects.
+      - [x] Defer dependent-base `this->member` field and method lookup until
+            local-class specialization; execute `int` and `long long` cases and
+            validate both target widths plus x64 host behavior.
       Dependent base type patterns now remain attached to the local class until
       specialization, where type-pack bases are expanded before layout and
       virtual validation. Local member signatures/bodies and pack-expanded
@@ -641,9 +644,10 @@
       dependent-base/layout/constructor forms checked above. The complete
       native-Windows `test-cxx` aggregate also passes after updating the stale
       array-member diagnostic expectation and covering class-typed empty-brace
-      default member initialization through an inherited constructor. Keep this
+      default member initialization through an inherited constructor, plus
+      dependent-base field and method lookup after specialization. Keep this
       parent unchecked until the broader constructor/member ABI and dependent
-      member lookup are verified.
+      member lookup forms are verified.
       Synthesized inherited constructors retain source constexpr/consteval,
       nodiscard/deprecation, noreturn/inline, and function-type prototype metadata;
       variadic and prototype-less source constructors are rejected. The parser

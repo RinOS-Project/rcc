@@ -340,5 +340,6 @@ empty-argument member-constructor call. Empty-brace and scalar-constant
 direct-list default member initializers use the same path. Arrays, non-constant
 or non-scalar class-field initializers, and destructor-bearing fields remain
 outside the bounded path.
-The inherited-constructor target and full native-Windows `test-cxx` aggregate
-pass, covering i686/x86_64 object generation and x64 host execution.
+The inherited-constructor and local-class targets and full native-Windows
+`test-cxx` aggregate pass, covering i686/x86_64 object generation and x64 host
+execution for class-member defaults and dependent-base lookup.
