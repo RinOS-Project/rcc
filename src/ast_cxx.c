@@ -2186,6 +2186,11 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->function_lowering = TMPL_FUNCTION_NONE;
     tmpl->function_constant = 0;
     tmpl->templated_class = NULL;
+    tmpl->local_classes = NULL;
+    tmpl->local_class_count = 0;
+    tmpl->is_local_class_template = false;
+    tmpl->local_class_pattern = NULL;
+    tmpl->local_class_instance = NULL;
     tmpl->primary_template = NULL;
     tmpl->specializations = NULL;
     tmpl->specialization_count = 0;
@@ -2267,6 +2272,63 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
     int index;
 
     if (!type) return NULL;
+    if (tmpl && type->cxx_class) {
+        if (tmpl->local_class_pattern == type->cxx_class &&
+            tmpl->local_class_instance) {
+            replacement = tmpl->local_class_instance->type;
+            if (type->is_const || type->is_volatile) {
+                Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                *qualified = *replacement;
+                qualified->is_const = qualified->is_const || type->is_const;
+                qualified->is_volatile = qualified->is_volatile ||
+                                          type->is_volatile;
+                return qualified;
+            }
+            return replacement;
+        }
+        for (int local_index = 0;
+             local_index < tmpl->local_class_count; ++local_index) {
+            CxxLocalClassTemplate* local = &tmpl->local_classes[local_index];
+            CxxClass* instance;
+            Type** saved_pack_args;
+            int64_t* saved_pack_values;
+            bool* saved_pack_value_present;
+            int saved_pack_count;
+            if (!local->pattern || local->pattern != type->cxx_class ||
+                !local->templ) {
+                continue;
+            }
+            saved_pack_args = local->templ->pending_pack_args;
+            saved_pack_values = local->templ->pending_pack_values;
+            saved_pack_value_present =
+                local->templ->pending_pack_value_present;
+            saved_pack_count = local->templ->pending_pack_count;
+            local->templ->pending_pack_args = tmpl->pending_pack_args;
+            local->templ->pending_pack_values = tmpl->pending_pack_values;
+            local->templ->pending_pack_value_present =
+                tmpl->pending_pack_value_present;
+            local->templ->pending_pack_count = tmpl->pending_pack_count;
+            instance = rcc_cxx_instantiate_class_template(
+                local->templ, args, value_args, value_present, arg_count,
+                (SourceLoc){"<local-class-template>", 0, 0});
+            local->templ->pending_pack_args = saved_pack_args;
+            local->templ->pending_pack_values = saved_pack_values;
+            local->templ->pending_pack_value_present =
+                saved_pack_value_present;
+            local->templ->pending_pack_count = saved_pack_count;
+            if (!instance) return NULL;
+            replacement = instance->type;
+            if (type->is_const || type->is_volatile) {
+                Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                *qualified = *replacement;
+                qualified->is_const = qualified->is_const || type->is_const;
+                qualified->is_volatile = qualified->is_volatile ||
+                                          type->is_volatile;
+                return qualified;
+            }
+            return replacement;
+        }
+    }
     if (type->cxx_dependent && type->cxx_dependent_member_name &&
         type->cxx_template_param_index >= 0 &&
         type->cxx_template_param_index < arg_count &&
@@ -3270,6 +3332,16 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->call_delete_cleanup = NULL;
             copy->call_delete_cleanup_field = NULL;
             copy->call_delete_cleanup_invalid = 0;
+            break;
+        case EXPR_CXX_TYPEID:
+            copy->cxx_typeid_operand_type = template_substitute_type(
+                tmpl, expression->cxx_typeid_operand_type, args, arg_count,
+                value_args, value_present);
+            copy->cxx_typeid_operand = template_clone_expr(
+                tmpl, expression->cxx_typeid_operand, args, arg_count,
+                value_args, value_present);
+            copy->cxx_typeid_symbol = NULL;
+            copy->cxx_typeid_dynamic = false;
             break;
         case EXPR_INDEX:
             copy->index_base = template_clone_expr(

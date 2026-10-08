@@ -409,6 +409,7 @@ endif
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-cxx-variable-templates
+.PHONY: test-cxx-template-local-classes
 .PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
@@ -538,6 +539,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-class-template-static-data-odr \
 	test-cxx-static-locals \
 	test-cxx-function-templates \
+	test-cxx-template-local-classes \
 	test-cxx-abbreviated-function-template \
 	test-cxx-abbreviated-function-template-invalid \
 	test-cxx-trailing-requires \
@@ -2458,6 +2460,22 @@ test-cxx-function-templates: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateEIiEv,$(TEST_OUT)/cxx-function-templates/x86.ro)
 	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateEIlEv,$(TEST_OUT)/cxx-function-templates/x86.ro)
 	@echo "RCC++ function template syntax tests completed"
+
+test-cxx-template-local-classes: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-local-classes)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-template-local-classes/x86.ro \
+		tests/cxx_template_local_classes.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-template-local-classes/x64.ro \
+		tests/cxx_template_local_classes.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-template-local-classes/x64.s \
+		tests/cxx_template_local_classes.cpp
+	$(CC) -no-pie -o $(TEST_OUT)/cxx-template-local-classes/run \
+		$(TEST_OUT)/cxx-template-local-classes/x64.s
+	$(TEST_OUT)/cxx-template-local-classes/run
+	@echo "RCC++ function-template local class specialization tests completed"
 
 test-cxx-variable-templates-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-variable-templates)

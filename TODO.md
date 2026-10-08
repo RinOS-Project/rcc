@@ -571,9 +571,9 @@
         deep pointerのidentityを実行テストし、両archの`.ro`/`.rin`を検証。
   - [x] Give static typeinfo symbols collision-safe, cross-translation-unit
         identities for every type form currently represented by the frontend;
-        the supported-type regressions and golden outputs pass. Local classes
-        with member functions and local classes in function-template scopes
-        remain explicitly unsupported in the separate unchecked item below.
+        the supported-type regressions and golden outputs pass. Remaining
+        local-class template-scope coverage is tracked in the unchecked item
+        below.
     - [x] Replace the non-class 64-bit structural hash with a length-prefixed
           canonical encoding for represented structural types, including
           distinct plain `char`, `signed char`, and `char8_t` identities.
@@ -600,9 +600,14 @@
           constructors with scope-distinct mangling and local symbol linkage;
           execute sibling and cross-translation-unit cases and validate both
           target-width RIN images.
-    - [ ] Local classes inside function-template instantiations still need
-          specialization-bound identities; the parser currently diagnoses
-          this case instead of lowering it.
+    - [ ] Complete local classes inside function-template instantiations,
+          including dependent bases, nested/discarded-branch definitions,
+          parameter packs, and the complete constructor/member ABI.
+      - [x] Bind each local class to the enclosing template arguments, clone
+            dependent field layouts and member-function bodies per
+            specialization, and preserve distinct local `typeid` identities;
+            execute distinct `int`/`long long` specializations and validate
+            i686/AMD64 objects.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

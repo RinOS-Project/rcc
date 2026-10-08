@@ -19,6 +19,7 @@ typedef struct CxxDeductionGuide CxxDeductionGuide;
 typedef struct CxxVtableEntry CxxVtableEntry;
 typedef struct CxxSecondaryVtable CxxSecondaryVtable;
 typedef struct CxxTypeAlias CxxTypeAlias;
+typedef struct CxxLocalClassTemplate CxxLocalClassTemplate;
 
 typedef struct CxxVirtualBaseInfo {
     CxxClass* base;
@@ -306,6 +307,17 @@ struct CxxTemplate {
     /* Alternate storage for parsed class (used by parser_cxx.c) */
     CxxClass* templated_class;
 
+    /* Function-template local classes are represented by private class
+     * templates whose parameters mirror the enclosing function template.
+     * Their source type is replaced only while the enclosing specialization
+     * is cloned, so each function-template argument list gets its own class
+     * identity and substituted layout. */
+    CxxLocalClassTemplate* local_classes;
+    int local_class_count;
+    bool is_local_class_template;
+    CxxClass* local_class_pattern;
+    CxxClass* local_class_instance;
+
     CxxDeductionGuide* deduction_guides;
 
     /* Explicit class-template specializations owned by this primary. */
@@ -341,6 +353,11 @@ struct CxxTemplate {
     int64_t* pending_pack_values;
     bool* pending_pack_value_present;
     int pending_pack_count;
+};
+
+struct CxxLocalClassTemplate {
+    CxxClass* pattern;
+    CxxTemplate* templ;
 };
 
 /* C++ Method (extends Decl) */

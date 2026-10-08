@@ -5520,7 +5520,11 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
      * may use a non-aggregate class through a pointer or reference even when
      * its constructors, private members, or virtual members are not lowered
      * by the common backend. */
-    if (!active_template && cls->type->is_complete) {
+    if (local_type_identity && !cls->type->is_complete) {
+        rcc_parser_define_type(cls->name, cls->type);
+    }
+    if ((!active_template || local_type_identity) &&
+        cls->type->is_complete) {
         uint32_t constructor_mask = lowerable_constructor_arity_mask(cls);
         if (constructor_mask != 0u) {
             rcc_parser_define_cxx_constructor_type(
@@ -8442,6 +8446,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     int index;
     uint32_t constructor_mask;
     bool has_value_parameters = false;
+    CxxClass* saved_local_class_instance;
     int pack_index = cxx_class_pack_index(tmpl);
 
     if (!tmpl || tmpl->kind != TMPL_CLASS || !tmpl->templated_class ||
@@ -8664,10 +8669,55 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                                   value_present, argument_count);
     }
 
+    if (tmpl->is_local_class_template && tmpl->local_class_pattern) {
+        char identity[1024];
+        size_t identity_length;
+        const char* source_identity =
+            tmpl->local_class_pattern->type->cxx_scope_identity;
+        int written = snprintf(identity, sizeof(identity), "%s",
+                               source_identity ? source_identity : tmpl->name);
+        if (written < 0 || (size_t)written >= sizeof(identity)) {
+            rcc_error(loc, "local class specialization identity is too long");
+            return NULL;
+        }
+        identity_length = (size_t)written;
+        for (int identity_index = 0; identity_index < argument_count;
+             ++identity_index) {
+            char argument_identity[384];
+            int parameter_index = pack_index >= 0 && identity_index >= pack_index
+                ? pack_index : identity_index;
+            TemplateParam* parameter = &tmpl->params[parameter_index];
+            if (parameter->kind == TPARAM_NONTYPE) {
+                written = snprintf(argument_identity,
+                                   sizeof(argument_identity), "_V%lld",
+                                   (long long)value_args[identity_index]);
+            } else {
+                char* mangled = cxx_mangle_type(arguments[identity_index]);
+                written = snprintf(argument_identity,
+                                   sizeof(argument_identity), "_T%s",
+                                   mangled ? mangled : "unknown");
+            }
+            if (written < 0 || (size_t)written >= sizeof(argument_identity) ||
+                (size_t)written >= sizeof(identity) - identity_length) {
+                rcc_error(loc,
+                          "local class specialization identity exceeds compiler limits");
+                return NULL;
+            }
+            memcpy(identity + identity_length, argument_identity,
+                   (size_t)written + 1u);
+            identity_length += (size_t)written;
+        }
+        instance->type->cxx_scope_identity = rcc_intern(identity);
+    }
+
     int saved_pending_pack_count = tmpl->pending_pack_count;
     Type** saved_pending_pack_args = tmpl->pending_pack_args;
     int64_t* saved_pending_pack_values = tmpl->pending_pack_values;
     bool* saved_pending_pack_value_present = tmpl->pending_pack_value_present;
+    saved_local_class_instance = tmpl->local_class_instance;
+    if (tmpl->is_local_class_template) {
+        tmpl->local_class_instance = instance;
+    }
     if (pack_index >= 0) {
         tmpl->pending_pack_args = tmpl->params[pack_index].kind == TPARAM_TYPE
             ? arguments + pack_index : NULL;
@@ -8753,6 +8803,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         *tail = copy;
         }
     }
+    tmpl->local_class_instance = saved_local_class_instance;
     tmpl->pending_pack_args = saved_pending_pack_args;
     tmpl->pending_pack_values = saved_pending_pack_values;
     tmpl->pending_pack_value_present = saved_pending_pack_value_present;
@@ -13358,17 +13409,61 @@ static Stmt* parse_cxx_local_class_definition(void) {
     SourceLoc loc = peek()->loc;
     bool is_struct = match(TOK_STRUCT);
     Token* name;
+    const char* local_identity;
+    CxxClass* local_class;
     if (!is_struct) expect(TOK_CLASS, "class");
     name = expect(TOK_IDENT, "local class name");
     if (!name) {
         return stmt_null(loc);
     }
-    (void)parse_cxx_class_named(
-        loc, is_struct, name->value.str_val,
-        rcc_parser_new_local_type_identity());
-    if (active_template) {
-        rcc_error(loc,
-                  "local class identities in function templates are not supported");
+    local_identity = rcc_parser_new_local_type_identity();
+    local_class = parse_cxx_class_named(
+        loc, is_struct, name->value.str_val, local_identity);
+
+    /* A local class in a template is a distinct class in every enclosing
+     * specialization.  Keep its dependent definition as a private class
+     * template; template substitution materializes the class only when the
+     * containing function or class specialization is cloned. */
+    if (active_template && local_class &&
+        (active_template->kind == TMPL_FUNCTION ||
+         active_template->kind == TMPL_CLASS)) {
+        CxxTemplate* local_template = cxx_template_new(loc);
+        char template_name[128];
+        int written = snprintf(template_name, sizeof(template_name),
+                               "__rcc_local_class_%s", local_identity);
+        if (written < 0 || (size_t)written >= sizeof(template_name)) {
+            rcc_error(loc, "local class template identity is too long");
+            return stmt_null(loc);
+        }
+        local_template->name = rcc_intern(template_name);
+        local_template->kind = TMPL_CLASS;
+        local_template->templated_class = local_class;
+        local_template->class_def = local_class;
+        local_template->is_local_class_template = true;
+        local_template->local_class_pattern = local_class;
+        local_template->ns = active_template->ns
+            ? active_template->ns
+            : (active_namespace ? active_namespace : g_global_namespace);
+        local_template->param_count = active_template->param_count;
+        if (local_template->param_count > 0) {
+            local_template->params = ast_arena_alloc(
+                sizeof(local_template->params[0]) *
+                (size_t)local_template->param_count);
+            memcpy(local_template->params, active_template->params,
+                   sizeof(local_template->params[0]) *
+                   (size_t)local_template->param_count);
+        }
+        active_template->local_classes = ast_arena_grow(
+            active_template->local_classes,
+            sizeof(active_template->local_classes[0]) *
+                (size_t)active_template->local_class_count,
+            sizeof(active_template->local_classes[0]) *
+                (size_t)(active_template->local_class_count + 1));
+        active_template->local_classes[
+            active_template->local_class_count].pattern = local_class;
+        active_template->local_classes[
+            active_template->local_class_count].templ = local_template;
+        ++active_template->local_class_count;
     }
     return stmt_null(loc);
 }
