@@ -886,15 +886,16 @@
       - [x] single SSE eightbyteに分類される単一`float`／`double` field aggregateを
         variadic call-siteからmarshalし、C/C++ objectでXMM register、最後のXMM register、
         SSE register枯渇後のstack配置を`-O0`/`-O2`実行検証。
-      - [ ] 2個のSSE eightbyteを持つtrivial aggregateを両XMM registerへ渡す経路と、
+      - [x] 2個のSSE eightbyteを持つtrivial aggregateを両XMM registerへ渡す経路と、
         SSE bank枯渇後に両方stackへ置く経路をC/C++で実行検証する。残り1 XMM slotでは
         分割せず専用legacy-object fixtureへ分離し、`-O0`/`-O2`で実行確認する。
-        source／fixtureは実装済みだが、現在の生成済みlogはこのsource commitより古く、
-        新経路の実行証跡として使えないため未完了。
-      - [ ] 最大2個のINTEGER/SSE eightbyteで構成されるmixed GP/SSE aggregateを、
+        C/C++の`-O0`/`-O2`でfallbackなしの両XMM／全stack経路を実行し、
+        one-XMM-slot straddleは専用legacy-only fixtureのcomplete backend結果を実行確認。
+      - [x] 最大2個のINTEGER/SSE eightbyteで構成されるmixed GP/SSE aggregateを、
         必要な両register bankに余裕がある場合と両bank枯渇後のstack配置でmarshalする。
         一方のbankだけが不足する境界ではaggregate全体を分割せずcomplete legacy objectへ
-        fallbackするsource pathは追加済みだが、C/C++の`-O0`/`-O2` runtime gateは未確認。
+        fallbackし、C/C++の`-O0`/`-O2`でregister／全stack経路とlegacy境界経路を
+        runtime検証。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
         16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER

@@ -38,6 +38,120 @@ struct VerifiedSysvVaTwoDoubleAggregate {
     double second;
 };
 
+int verified_sysv_va_read_mixed_aggregate_integer(int marker, ...)
+{
+    va_list arguments;
+    va_start(arguments, marker);
+    marker = va_arg(arguments, struct VerifiedSysvMixedAggregate).integer;
+    va_end(arguments);
+    return marker;
+}
+
+double verified_sysv_va_read_mixed_aggregate_floating(int marker, ...)
+{
+    va_list arguments;
+    double value;
+    va_start(arguments, marker);
+    value = va_arg(arguments, struct VerifiedSysvMixedAggregate).floating;
+    va_end(arguments);
+    return value;
+}
+
+int verified_sysv_va_mixed_aggregate_integer_call(int integer, double floating)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_va_read_mixed_aggregate_integer(1, value);
+}
+
+double verified_sysv_va_mixed_aggregate_floating_call(
+    int integer, double floating)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_va_read_mixed_aggregate_floating(1, value);
+}
+
+double verified_sysv_va_read_mixed_floating_after_full_banks(
+    int marker, ...)
+{
+    va_list arguments;
+    int ignored_integer;
+    double ignored_floating;
+    double value;
+    va_start(arguments, marker);
+    ignored_integer = va_arg(arguments, int);
+    ignored_integer = va_arg(arguments, int);
+    ignored_integer = va_arg(arguments, int);
+    ignored_integer = va_arg(arguments, int);
+    ignored_integer = va_arg(arguments, int);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    value = va_arg(arguments, struct VerifiedSysvMixedAggregate).floating;
+    va_end(arguments);
+    return value;
+}
+
+int verified_sysv_va_read_mixed_integer_after_full_banks(
+    int marker, ...)
+{
+    va_list arguments;
+    int ignored_integer;
+    double ignored_floating;
+    int value;
+    va_start(arguments, marker);
+    ignored_integer = va_arg(arguments, int);
+    ignored_integer = va_arg(arguments, int);
+    ignored_integer = va_arg(arguments, int);
+    ignored_integer = va_arg(arguments, int);
+    ignored_integer = va_arg(arguments, int);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    ignored_floating = va_arg(arguments, double);
+    value = va_arg(arguments, struct VerifiedSysvMixedAggregate).integer;
+    va_end(arguments);
+    return value;
+}
+
+double verified_sysv_va_mixed_aggregate_stack_call(
+    int integer, double floating,
+    double fa, double fb, double fc, double fd,
+    double fe, double ff, double fg, double flast)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_va_read_mixed_floating_after_full_banks(
+        1, 2, 3, 4, 5, 6, fa, fb, fc, fd,
+        fe, ff, fg, flast, value);
+}
+
+int verified_sysv_va_mixed_aggregate_stack_integer_call(
+    int integer, double floating,
+    double fa, double fb, double fc, double fd,
+    double fe, double ff, double fg, double flast)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_va_read_mixed_integer_after_full_banks(
+        1, 2, 3, 4, 5, 6, fa, fb, fc, fd,
+        fe, ff, fg, flast, value);
+}
+
 int verified_sysv_va_mixed_aggregate_integer(int marker, ...)
 {
     va_list arguments;
