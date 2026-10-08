@@ -61,6 +61,7 @@ typedef enum {
     SECT_DEBUG_STR = 12,/* DWARF .debug_str (non-loadable) */
     SECT_DEBUG_FRAME = 13,/* DWARF .debug_frame (non-loadable) */
     SECT_DEBUG_RANGES = 14,/* DWARF .debug_ranges (non-loadable) */
+    SECT_DEBUG_LOC = 15,  /* DWARF .debug_loc (non-loadable) */
 } SectionType;
 
 /* ═══════════════════════════════════════

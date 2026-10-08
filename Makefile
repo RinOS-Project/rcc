@@ -908,6 +908,12 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/debug-info/verify \
 		tests/debug_info_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e debug_line_entry -o $(TEST_OUT)/debug-info/x86.rin \
+		$(TEST_OUT)/debug-info/x86-g.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e debug_line_entry -o $(TEST_OUT)/debug-info/x64.rin \
+		$(TEST_OUT)/debug-info/x64-g.ro
 	$(TEST_OUT)/debug-info/verify \
 		$(TEST_OUT)/debug-info/x86-g.ro \
 		$(TEST_OUT)/debug-info/x64-g.ro \
@@ -929,14 +935,10 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-enum-x86-g.ro \
 		$(TEST_OUT)/debug-info/cxx-enum-x64-g.ro \
 		$(TEST_OUT)/debug-info/verified-cxx-opt-x86-g.ro \
-		$(TEST_OUT)/debug-info/verified-cxx-opt-x64-g.ro
-	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
-		-e debug_line_entry -o $(TEST_OUT)/debug-info/x86.rin \
-		$(TEST_OUT)/debug-info/x86-g.ro
-	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
-		-e debug_line_entry -o $(TEST_OUT)/debug-info/x64.rin \
-		$(TEST_OUT)/debug-info/x64-g.ro
-	@echo "Relocatable DWARF line-table, info, and frame-CFI tests completed"
+		$(TEST_OUT)/debug-info/verified-cxx-opt-x64-g.ro \
+		$(TEST_OUT)/debug-info/x86.rin \
+		$(TEST_OUT)/debug-info/x64.rin
+	@echo "Relocatable DWARF line/info/location-list/frame tests completed"
 
 test-aqc: $(AQC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))

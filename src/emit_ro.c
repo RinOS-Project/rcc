@@ -42,16 +42,16 @@ static bool ro_section_policy(uint16_t arch, const RoSection* section) {
     uint32_t pointer_size = arch == ARCH_X64 ? 8u : 4u;
     uint32_t allowed_flags = SECT_FLAG_WRITE | SECT_FLAG_EXEC |
                              SECT_FLAG_ALLOC | SECT_FLAG_COMDAT;
-    if (section->type < SECT_CODE || section->type > SECT_DEBUG_RANGES ||
+    if (section->type < SECT_CODE || section->type > SECT_DEBUG_LOC ||
         (section->flags & ~allowed_flags) != 0u ||
         (section->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) ==
             (SECT_FLAG_WRITE | SECT_FLAG_EXEC) ||
         (!(section->type >= SECT_DEBUG_LINE &&
-           section->type <= SECT_DEBUG_RANGES) &&
+           section->type <= SECT_DEBUG_LOC) &&
          (section->flags & SECT_FLAG_ALLOC) == 0u)) return false;
 
     if (section->type >= SECT_DEBUG_LINE &&
-        section->type <= SECT_DEBUG_RANGES) {
+        section->type <= SECT_DEBUG_LOC) {
         return section->flags == 0u &&
                section->size == section->memory_size;
     }
@@ -1480,13 +1480,12 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
     debug_type_patches_apply(info, patches);
 }
 
-static void debug_expr_breg(ObjSection* section, int architecture,
-                            int64_t offset, bool dereference) {
-    uint8_t expression[16];
+static size_t debug_build_expr_breg(uint8_t expression[16], int architecture,
+                                    int64_t offset, bool dereference) {
     size_t size = 1u;
     int64_t value = offset;
     bool more;
-
+    if (!expression) return 0u;
     expression[0] = architecture == ARCH_X64 ? 0x76u : 0x75u;
     do {
         uint8_t byte = (uint8_t)((uint64_t)value & 0x7fu);
@@ -1494,19 +1493,28 @@ static void debug_expr_breg(ObjSection* section, int architecture,
         more = !((value == 0 && (byte & 0x40u) == 0u) ||
                  (value == -1 && (byte & 0x40u) != 0u));
         if (more) byte |= 0x80u;
-        if (size + 1u >= sizeof(expression)) {
+        if (size + 1u >= 16u) {
             rcc_fatal("DWARF variable location expression is too large");
-            return;
+            return 0u;
         }
         expression[size++] = byte;
     } while (more);
     if (dereference) {
-        if (size >= sizeof(expression)) {
+        if (size >= 16u) {
             rcc_fatal("DWARF VLA location expression is too large");
-            return;
+            return 0u;
         }
         expression[size++] = 0x06u; /* DW_OP_deref: load saved VLA address */
     }
+    return size;
+}
+
+static void debug_expr_breg(ObjSection* section, int architecture,
+                            int64_t offset, bool dereference) {
+    uint8_t expression[16];
+    size_t size = debug_build_expr_breg(expression, architecture, offset,
+                                        dereference);
+    if (!section || size == 0u) return;
     debug_line_uleb(section, (uint64_t)size);
     section_add_bytes(section, expression, size);
 }
@@ -1743,18 +1751,33 @@ static void debug_expr_member_location(ObjSection* info, int offset) {
     debug_line_uleb(info, value);
 }
 
-static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
-                                    DebugTypeContext* types,
-                                    const char* const* files, int file_count,
-                                    const Module* mod,
-                                    const Decl* declaration,
-                                    uint8_t abbreviation, int architecture) {
+static void debug_emit_variable_die(
+    ObjectFile* obj, ObjSection* info, ObjSection* strings,
+    DebugTypeContext* types, const char* const* files, int file_count,
+    const Module* mod, const char* filename, const ModuleSymbol* function,
+    const Decl* declaration, const Stmt* location_scope,
+    uint8_t abbreviation, int architecture);
+
+static uint32_t debug_emit_location_list(
+    ObjectFile* obj, const Module* mod, const char* filename,
+    const ModuleSymbol* function,
+    const Stmt* scope, int architecture, int64_t frame_offset,
+    bool dereference);
+
+static void debug_emit_variable_die(
+    ObjectFile* obj, ObjSection* info, ObjSection* strings,
+    DebugTypeContext* types, const char* const* files, int file_count,
+    const Module* mod, const char* filename, const ModuleSymbol* function,
+    const Decl* declaration, const Stmt* location_scope,
+    uint8_t abbreviation, int architecture) {
     DebugTypeEntry* type_entry;
     uint32_t type_offset;
     int file_index;
     int64_t frame_offset;
     bool has_frame_location = true;
-    if (!info || !strings || !declaration || !declaration->name ||
+    bool use_location_list = false;
+    uint32_t location_list_offset = 0u;
+    if (!obj || !info || !strings || !declaration || !declaration->name ||
         declaration->name[0] == '\0') return;
     type_entry = debug_type_find(types, declaration->type);
     if (!type_entry) {
@@ -1792,13 +1815,23 @@ static void debug_emit_variable_die(ObjSection* info, ObjSection* strings,
             else return;
         }
     }
+    if (abbreviation == 4u && location_scope &&
+        location_scope->debug_code_end > location_scope->debug_code_start) {
+        location_list_offset = debug_emit_location_list(
+            obj, mod, filename, function, location_scope, architecture,
+            frame_offset, declaration->var_is_vla);
+        use_location_list = location_list_offset != UINT32_MAX;
+        if (use_location_list) abbreviation = 39u;
+    }
     section_add_byte(info, abbreviation);
     debug_line_u32(info, debug_str_add(strings, declaration->name));
     debug_line_u32(info, type_offset);
     debug_line_u32(info, (uint32_t)file_index);
     debug_line_u32(info, declaration->loc.line);
     debug_line_u32(info, declaration->loc.column);
-    if (has_frame_location) {
+    if (has_frame_location && use_location_list) {
+        debug_line_u32(info, location_list_offset);
+    } else if (has_frame_location) {
         debug_expr_breg(info, architecture, frame_offset,
                         declaration->var_is_vla);
     }
@@ -1848,13 +1881,17 @@ static void debug_emit_stmt_locals(
     ObjectFile* obj, ObjSection* info, ObjSection* strings,
     DebugTypeContext* types, const char* const* files, int file_count,
     const Module* mod, const char* filename, int info_section,
-    const ModuleSymbol* function, const Stmt* statement, int architecture);
+    const ModuleSymbol* function, const Stmt* statement,
+    const Stmt* location_scope, int architecture);
 
 static int debug_line_file_index(const char* const* files, int file_count,
                                  const char* file);
 
 static int objfile_section_index(const ObjectFile* object,
                                  const ObjSection* target);
+
+static uint32_t debug_function_size(const Module* mod,
+                                    const ModuleSymbol* function);
 
 static size_t debug_statement_range_count(const Stmt* statement) {
     size_t count = 0u;
@@ -1921,6 +1958,121 @@ static uint32_t debug_emit_statement_ranges(
     debug_line_address(ranges, 0u, address_size);
     rcc_free(scoped_name);
     return range_offset;
+}
+
+static uint32_t debug_emit_location_list(
+    ObjectFile* obj, const Module* mod, const char* filename,
+    const ModuleSymbol* function,
+    const Stmt* scope, int architecture, int64_t frame_offset,
+    bool dereference) {
+    ObjSection* locations;
+    const char* symbol_name;
+    char* scoped_name = NULL;
+    uint8_t expression[16];
+    size_t expression_size;
+    size_t range_count;
+    uint32_t list_offset;
+    uint32_t function_size;
+    uint64_t entry_size;
+    uint64_t list_size;
+    uint64_t entry_count;
+    int locations_section;
+    int address_size = architecture == ARCH_X64 ? 8 : 4;
+    if (!obj || !filename || !function || !scope ||
+        scope->debug_code_end <= scope->debug_code_start) {
+        return UINT32_MAX;
+    }
+    locations = objfile_get_section(obj, ".debug_loc");
+    if (!locations) {
+        locations = objfile_add_section(
+            obj, ".debug_loc", SECT_DEBUG_LOC, 0u);
+        locations->align = 1u;
+    }
+    if (locations->size > UINT32_MAX) {
+        rcc_fatal("DWARF location-list section exceeds 32-bit offsets");
+        return UINT32_MAX;
+    }
+    locations_section = objfile_section_index(obj, locations);
+    if (locations_section < 0) {
+        rcc_fatal("DWARF location-list section is detached");
+        return UINT32_MAX;
+    }
+    function_size = debug_function_size(mod, function);
+    if (function_size == 0u || function->offset > UINT32_MAX - function_size) {
+        rcc_fatal("DWARF location-list function range is invalid");
+        return UINT32_MAX;
+    }
+    range_count = debug_statement_range_count(scope);
+    expression_size = debug_build_expr_breg(
+        expression, architecture, frame_offset, dereference);
+    if (expression_size == 0u || expression_size > UINT16_MAX) {
+        rcc_fatal("DWARF location-list expression exceeds 16-bit length");
+        return UINT32_MAX;
+    }
+    entry_count = range_count != 0u ? (uint64_t)range_count : 1u;
+    entry_size = (uint64_t)address_size * 2u + 2u + expression_size;
+    if (entry_size == 0u ||
+        entry_count > (UINT32_MAX - (uint64_t)address_size * 2u) /
+                          entry_size) {
+        rcc_fatal("DWARF location list exceeds 32-bit section offsets");
+        return UINT32_MAX;
+    }
+    list_size = entry_count * entry_size + (uint64_t)address_size * 2u;
+    if (list_size > UINT32_MAX - locations->size) {
+        rcc_fatal("DWARF location-list section exceeds 32-bit offsets");
+        return UINT32_MAX;
+    }
+    symbol_name = function->name;
+    if (!function->is_global) {
+        scoped_name = module_scoped_symbol(filename, function->name);
+        symbol_name = scoped_name;
+    }
+    list_offset = (uint32_t)locations->size;
+    for (size_t index = 0u; index < (range_count ? range_count : 1u);
+         ++index) {
+        uint32_t start = scope->debug_code_start;
+        uint32_t end = scope->debug_code_end;
+        uint64_t start_reloc;
+        uint64_t end_reloc;
+        if (range_count != 0u) {
+            const StmtDebugRange* range = scope->debug_code_ranges;
+            for (size_t skip = 0u; skip < index && range; ++skip) {
+                range = range->next;
+            }
+            if (!range) {
+                rcc_fatal("DWARF location-range chain is incomplete");
+                rcc_free(scoped_name);
+                return UINT32_MAX;
+            }
+            start = range->start;
+            end = range->end;
+        }
+        if (end <= start || start < function->offset ||
+            end > function->offset + function_size) {
+            rcc_fatal("DWARF variable location range is outside function '%s'",
+                      function->name ? function->name : "<unnamed>");
+            rcc_free(scoped_name);
+            return UINT32_MAX;
+        }
+        start_reloc = locations->size;
+        debug_line_address(locations, 0u, address_size);
+        objfile_add_reloc(
+            obj, locations_section, start_reloc, symbol_name,
+            address_size == 8 ? RELOC_ABS64 : RELOC_ABS32U,
+            (int64_t)(start - function->offset));
+        end_reloc = locations->size;
+        debug_line_address(locations, 0u, address_size);
+        objfile_add_reloc(
+            obj, locations_section, end_reloc, symbol_name,
+            address_size == 8 ? RELOC_ABS64 : RELOC_ABS32U,
+            (int64_t)(end - function->offset));
+        debug_line_u16(locations, (uint16_t)expression_size);
+        section_add_bytes(locations, expression, expression_size);
+    }
+    debug_line_address(locations, 0u, address_size);
+    debug_line_address(locations, 0u, address_size);
+    rcc_free(scoped_name);
+    return list_offset;
 }
 
 static void debug_emit_lexical_block_die(
@@ -1993,15 +2145,13 @@ static void debug_emit_catch_locals(
     const ModuleSymbol* function, const CxxCatch* handler, int architecture) {
     for (; handler; handler = handler->next) {
         if (handler->parameter && handler->parameter->kind == DECL_PARAM) {
-            debug_emit_variable_die(info, strings, types,
-                                    files, file_count,
-                                    mod,
-                                    handler->parameter, 3u,
-                                    architecture);
+            debug_emit_variable_die(
+                obj, info, strings, types, files, file_count, mod, filename,
+                function, handler->parameter, NULL, 3u, architecture);
         }
         debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                mod, filename, info_section, function,
-                               handler->body, architecture);
+                               handler->body, NULL, architecture);
     }
 }
 
@@ -2009,7 +2159,8 @@ static void debug_emit_stmt_locals(
     ObjectFile* obj, ObjSection* info, ObjSection* strings,
     DebugTypeContext* types, const char* const* files, int file_count,
     const Module* mod, const char* filename, int info_section,
-    const ModuleSymbol* function, const Stmt* statement, int architecture) {
+    const ModuleSymbol* function, const Stmt* statement,
+    const Stmt* location_scope, int architecture) {
     const StmtList* item;
     if (!statement) return;
     switch (statement->kind) {
@@ -2017,6 +2168,8 @@ static void debug_emit_stmt_locals(
             {
                 bool has_range = !statement->block_no_scope &&
                     statement->debug_code_end > statement->debug_code_start;
+                const Stmt* child_scope = has_range ? statement
+                                                     : location_scope;
                 if (has_range) {
                 debug_emit_lexical_block_die(
                     obj, info, files, file_count, mod, filename, info_section,
@@ -2026,7 +2179,7 @@ static void debug_emit_stmt_locals(
                     debug_emit_stmt_locals(
                         obj, info, strings, types, files, file_count, mod,
                         filename, info_section, function, item->stmt,
-                        architecture);
+                        child_scope, architecture);
                 }
                 if (has_range) section_add_byte(info, 0u);
             }
@@ -2034,60 +2187,69 @@ static void debug_emit_stmt_locals(
         case STMT_IF:
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
-                                   statement->if_then, architecture);
+                                   statement->if_then, location_scope,
+                                   architecture);
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
-                                   statement->if_else, architecture);
+                                   statement->if_else, location_scope,
+                                   architecture);
             break;
         case STMT_WHILE:
         case STMT_DO:
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
-                                   statement->while_body, architecture);
+                                   statement->while_body, location_scope,
+                                   architecture);
             break;
         case STMT_FOR:
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
-                                   statement->for_init, architecture);
+                                   statement->for_init, location_scope,
+                                   architecture);
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
-                                   statement->for_body, architecture);
+                                   statement->for_body, location_scope,
+                                   architecture);
             break;
         case STMT_SWITCH:
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
-                                   statement->switch_body, architecture);
+                                   statement->switch_body, location_scope,
+                                   architecture);
             break;
         case STMT_CASE:
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
-                                   statement->case_stmt, architecture);
+                                   statement->case_stmt, location_scope,
+                                   architecture);
             break;
         case STMT_DEFAULT:
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
-                                   statement->default_stmt, architecture);
+                                   statement->default_stmt, location_scope,
+                                   architecture);
             break;
         case STMT_LABEL:
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
-                                   statement->label_stmt, architecture);
+                                   statement->label_stmt, location_scope,
+                                   architecture);
             break;
         case STMT_DECL:
             if (statement->decl && statement->decl->kind == DECL_VAR &&
                 !statement->decl->var_is_global &&
                 !statement->decl->var_is_static_local) {
-                debug_emit_variable_die(info, strings, types,
-                                        files, file_count,
-                                        mod,
-                                        statement->decl, 4u,
-                                        architecture);
+                debug_emit_variable_die(
+                    obj, info, strings, types, files, file_count, mod,
+                    filename, function, statement->decl, location_scope,
+                    4u, architecture);
             }
             break;
         case STMT_TRY:
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
-                                   statement->try_body, architecture);
+                                   statement->try_body, location_scope,
+                                   architecture);
             debug_emit_catch_locals(obj, info, strings, types, files, file_count,
                                     mod, filename, info_section, function,
                                     statement->try_catches, architecture);
@@ -2304,23 +2466,23 @@ static void debug_emit_function_locals(
     Decl* function = debug_find_function_decl(mod, symbol);
     if (!function) return;
     if (function->func_this_param) {
-        debug_emit_variable_die(info, strings, types, files, file_count, mod,
-                                function->func_this_param, 27u,
-                                architecture);
+        debug_emit_variable_die(
+            obj, info, strings, types, files, file_count, mod, filename,
+            symbol, function->func_this_param, NULL, 27u, architecture);
         section_add_byte(info, 1u); /* DW_AT_artificial */
     }
     for (DeclList* parameter = function->func_params; parameter;
          parameter = parameter->next) {
-        debug_emit_variable_die(info, strings, types, files, file_count, mod,
-                                parameter->decl, 3u,
-                                architecture);
+        debug_emit_variable_die(
+            obj, info, strings, types, files, file_count, mod, filename,
+            symbol, parameter->decl, NULL, 3u, architecture);
     }
     debug_emit_static_local_stmt(
         obj, info, strings, types, files, file_count, mod, filename,
         info_section, function->func_body, architecture);
     debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                            mod, filename, info_section, symbol,
-                           function->func_body, architecture);
+                           function->func_body, NULL, architecture);
 }
 
 static int debug_line_file_index(const char* const* files, int file_count,
@@ -3124,6 +3286,25 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     section_add_byte(abbrev, 0u);
     debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* Scoped stack variables use a DWARF v4 location list so their frame
+     * address is not advertised outside the lexical block's PC ranges. */
+    debug_line_uleb(abbrev, 39u);
+    debug_line_uleb(abbrev, 0x34u);    /* DW_TAG_variable */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x02u);    /* DW_AT_location */
+    debug_line_uleb(abbrev, 0x17u);    /* DW_FORM_sec_offset */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     /* Abbreviation 26 is a source-level member function.  Its explicit

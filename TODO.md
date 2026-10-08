@@ -24,8 +24,10 @@
 - bounded scalar inlining、LICM、loop unrolling、strength reductionは実装済み。
   一般のloop transformationとcost-aware/interprocedural optimizationは未完了であり、
   「inliningやloop optimizationが存在しない」とは分類しない。
-- DWARF line/info/frame、stack location、多数のC/C++ type DIEは実装済みだが、
-  完全なlocation list、inline attribution、任意prologueのCFIは未完了。
+- DWARF line/info/frame、stack location、多数のC/C++ type DIEと、nested
+  lexical block内stack localのv4 location listは実装済みだが、全lifetime／
+  register配置を追跡する完全なlocation list、inline attribution、任意prologueの
+  CFIは未完了。
   RinOS-native i686/x86_64 self-hostは、成功済みhost stage2 reproductionとは別項目。
 - `.github/workflows/ci.yml`はGCC/Clangの`test-ci`、full `test-cxx`、独立sanitizer jobを
   設定済み。workflowの存在だけでは成功を証明しないため、下記CI実行確認項目は
@@ -902,6 +904,12 @@
         rangeをcodegenのhalf-open code offsetから`DW_AT_low_pc`／
         `DW_AT_high_pc`へrelocation付きで出力し、両arch object回帰で検証。
         完全なinline attribution/CFIは引き続き未実装
+  - [x] nested lexical block内のframe-backed localへDWARF v4 `.debug_loc`
+        location listを出力し、blockのdiscontiguous PC ranges、各rangeの
+        function-symbol relocation、frame-relative expression、VLA address
+        dereferenceを検証。C legacy、C verified O0/O2、C++ verified O2のi686/AMD64
+        `.ro`回帰と、RLDがdebug-only sectionをloadable imageから除外する
+        回帰を`test-debug-info`へ接続
   - [x] legacy i686/AMD64 codegenで命令を出したstatementの開始offsetを
         source line rowへ対応付け、代入・分岐・returnの`.debug_line`行を
         objectからデコードして両archで検証
@@ -910,8 +918,9 @@
         CIEにABI-preserved GPRの`DW_CFA_same_value`を定義し、`leave`後は
         CIE ruleへ戻す。non-terminal return後はstack-slot ruleを再適用。
         live-across-call回帰でi686/AMD64のO0/O2 CIE/FDEをdecodeして検証
-  - [ ] `.debug_info`のinline attribution／完全なvariable location listsと
-        非標準prologueを含む完全なCFI/unwind
+  - [ ] `.debug_info`のinline attribution／全scopeの宣言開始・終了に一致する
+        location lists、register・piece location追跡、非標準prologueを含む
+        完全なCFI/unwind
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および
