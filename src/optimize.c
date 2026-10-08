@@ -498,19 +498,20 @@ static Expr* make_unsigned_shift(const Expr* operand, unsigned shift,
 
 static Expr* make_unsigned_shift_add_sub(const Expr* operand,
                                          unsigned factor, SourceLoc loc,
-                                         Type* type) {
+                                         Type* type, bool require_sparse) {
     Expr* positive = NULL;
     Expr* negative = NULL;
     Expr* result;
-    int digits[9] = {0};
+    int digits[17] = {0};
+    unsigned digit_count = 0u;
     unsigned shift;
 
     if (!operand || !type) return NULL;
     /* Use a non-adjacent signed-digit form instead of a binary sum.  This
      * keeps dense constants such as 127 (128 - 1) and 255 (256 - 1) from
-     * expanding into a long chain of shifts and additions.  The caller only
-     * supplies factors through 255, so nine positions cover the carry digit. */
-    for (shift = 0u; factor != 0u && shift < 9u; ++shift) {
+     * expanding into a long chain of shifts and additions.  Seventeen
+     * positions cover every 16-bit factor and its carry digit. */
+    for (shift = 0u; factor != 0u && shift < 17u; ++shift) {
         if ((factor & 1u) == 0u) {
             factor >>= 1u;
             continue;
@@ -522,10 +523,11 @@ static Expr* make_unsigned_shift_add_sub(const Expr* operand,
             digits[shift] = -1;
             ++factor;
         }
+        ++digit_count;
         factor >>= 1u;
     }
-    if (factor != 0u) return NULL;
-    for (shift = 0u; shift < 9u; ++shift) {
+    if (factor != 0u || (require_sparse && digit_count > 3u)) return NULL;
+    for (shift = 0u; shift < 17u; ++shift) {
         Expr* term;
         Expr** accumulator;
         if (digits[shift] == 0) continue;
@@ -575,10 +577,13 @@ static bool simplify_unsigned_small_multiply(Expr** expression) {
     if (!integer_expression_type_matches(operand, value->type) ||
         expression_has_side_effect(operand)) return false;
     factor = integer_unsigned_value(factor_value, value->type);
-    if (factor < 3u || factor > 255u || factor == 4u || factor == 8u ||
+    if (factor < 3u || factor > 65535u || factor == 4u || factor == 8u ||
         factor == 16u) {
         return false;
     }
+    /* The largest generated shift is 16.  Keep the transformation inside
+     * the promoted unsigned value width even for unusual target types. */
+    if (factor > 255u && integer_width(value->type) <= 16) return false;
 
     switch (factor) {
         case 3u:
@@ -612,9 +617,10 @@ static bool simplify_unsigned_small_multiply(Expr** expression) {
                 ? expr_binary(EXPR_SUB, left, right, value->loc) : NULL;
             break;
         default:
-            if (factor < 9u || factor > 255u) return false;
+            if (factor < 9u || factor > 65535u) return false;
             replacement = make_unsigned_shift_add_sub(
-                operand, (unsigned)factor, value->loc, value->type);
+                operand, (unsigned)factor, value->loc, value->type,
+                factor > 255u);
             break;
     }
     if (!replacement) return false;

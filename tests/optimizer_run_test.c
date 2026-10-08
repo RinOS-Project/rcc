@@ -498,6 +498,26 @@ static void verify_smaller(const char* unoptimized_path,
         function_extent(
             optimized,
             "strength_reduce_unsigned_two_hundred_fifty_five_binary_reference"));
+    assert(function_contains_byte(
+        unoptimized,
+        "strength_reduce_unsigned_257", 0xafu));
+    assert(!function_contains_byte(
+        optimized,
+        "strength_reduce_unsigned_257", 0xafu));
+    assert(function_contains_byte(
+        unoptimized,
+        "strength_reduce_unsigned_1023", 0xafu));
+    assert(!function_contains_byte(
+        optimized,
+        "strength_reduce_unsigned_1023", 0xafu));
+    assert(function_contains_byte(
+        unoptimized, "strength_reduce_unsigned_65535", 0xafu));
+    assert(!function_contains_byte(
+        optimized, "strength_reduce_unsigned_65535", 0xafu));
+    assert(function_contains_byte(
+        unoptimized, "preserve_dense_unsigned_multiplier", 0xafu));
+    assert(function_contains_byte(
+        optimized, "preserve_dense_unsigned_multiplier", 0xafu));
     assert(function_contains_sequence(
         unoptimized, "strength_reduce_unsigned_div",
         unsigned_div_eight, sizeof(unsigned_div_eight)));
@@ -1369,6 +1389,10 @@ int main(int argc, char** argv)
             uint32_t);
         uint32_t (*strength_reduce_unsigned_two_hundred_fifty_five)(
             uint32_t);
+        uint32_t (*strength_reduce_unsigned_257)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_1023)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_65535)(uint32_t);
+        uint32_t (*preserve_dense_unsigned_multiplier)(uint32_t);
         uint32_t (*strength_reduce_unsigned_div)(uint32_t);
         uint32_t (*strength_reduce_unsigned_mod)(uint32_t);
         uint32_t (*strength_reduce_unsigned_div_high_bit)(uint32_t);
@@ -1625,6 +1649,22 @@ int main(int argc, char** argv)
             "strength_reduce_unsigned_two_hundred_fifty_five")->value;
         memcpy(&strength_reduce_unsigned_two_hundred_fifty_five, &address,
                sizeof(strength_reduce_unsigned_two_hundred_fifty_five));
+        address = mapping + function_symbol(
+            object, "strength_reduce_unsigned_257")->value;
+        memcpy(&strength_reduce_unsigned_257, &address,
+               sizeof(strength_reduce_unsigned_257));
+        address = mapping + function_symbol(
+            object, "strength_reduce_unsigned_1023")->value;
+        memcpy(&strength_reduce_unsigned_1023, &address,
+               sizeof(strength_reduce_unsigned_1023));
+        address = mapping + function_symbol(
+            object, "strength_reduce_unsigned_65535")->value;
+        memcpy(&strength_reduce_unsigned_65535, &address,
+               sizeof(strength_reduce_unsigned_65535));
+        address = mapping + function_symbol(
+            object, "preserve_dense_unsigned_multiplier")->value;
+        memcpy(&preserve_dense_unsigned_multiplier, &address,
+               sizeof(preserve_dense_unsigned_multiplier));
         address = mapping + unsigned_32_symbol->value;
         memcpy(&folded_unsigned_32, &address,
                sizeof(folded_unsigned_32));
@@ -2250,10 +2290,33 @@ int main(int argc, char** argv)
                15867u);
         assert(strength_reduce_unsigned_two_hundred_fifty_five(123u) ==
                31365u);
+        assert(strength_reduce_unsigned_257(123u) == 31611u);
+        assert(strength_reduce_unsigned_1023(123u) == 125829u);
+        assert(strength_reduce_unsigned_65535(123u) == 8052945u);
+        assert(preserve_dense_unsigned_multiplier(123u) == 2683155u);
         assert(strength_reduce_unsigned_one_hundred_twenty_nine(
                    UINT32_MAX) == UINT32_MAX - 128u);
         assert(strength_reduce_unsigned_two_hundred_fifty_five(
                    UINT32_MAX) == UINT32_MAX - 254u);
+        assert(strength_reduce_unsigned_257(UINT32_MAX) ==
+               UINT32_MAX - 255u);
+        assert(strength_reduce_unsigned_1023(UINT32_MAX) ==
+               UINT32_MAX - 1022u);
+        assert(strength_reduce_unsigned_65535(UINT32_MAX) ==
+               UINT32_MAX - 65534u);
+        assert(preserve_dense_unsigned_multiplier(UINT32_MAX) ==
+               UINT32_MAX - UINT32_C(21844));
+        {
+            uint32_t seed = UINT32_C(0x7f4a7c15);
+            for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
+                seed = seed * UINT32_C(1664525) + UINT32_C(1013904223);
+                assert(strength_reduce_unsigned_257(seed) == seed * 257u);
+                assert(strength_reduce_unsigned_1023(seed) == seed * 1023u);
+                assert(strength_reduce_unsigned_65535(seed) == seed * 65535u);
+                assert(preserve_dense_unsigned_multiplier(seed) ==
+                       seed * 21845u);
+            }
+        }
         assert(strength_reduce_unsigned_div(123u) == 15u);
         assert(strength_reduce_unsigned_mod(123u) == 3u);
         {

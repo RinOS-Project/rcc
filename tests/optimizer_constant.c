@@ -823,6 +823,26 @@ unsigned int strength_reduce_unsigned_two_hundred_fifty_five(
     return value * 255U;
 }
 
+unsigned int strength_reduce_unsigned_257(unsigned int value)
+{
+    return value * 257U;
+}
+
+unsigned int strength_reduce_unsigned_1023(unsigned int value)
+{
+    return value * 1023U;
+}
+
+unsigned int strength_reduce_unsigned_65535(unsigned int value)
+{
+    return value * 65535U;
+}
+
+unsigned int preserve_dense_unsigned_multiplier(unsigned int value)
+{
+    return value * 21845U;
+}
+
 unsigned int strength_reduce_unsigned_two_hundred_fifty_five_binary_reference(
     unsigned int value)
 {
