@@ -375,6 +375,14 @@ virtual direct-base construction and member access now also pass for `int` and
 overrides, access and ambiguity rules, and other initializer forms remain
 unchecked.
 
+2026-10-09 follow-up: inherited field and method access now observes private
+and protected base paths, and ambiguous repeated field/method lookup is
+diagnosed before overload ranking. The fixture also covers class-valued brace
+DMIs and scalar constant arithmetic DMIs for int and long long. The focused
+target passes the access/ambiguity diagnostics, freestanding i686 and x64 host
+execution, and both target object generations. Mixed field/function name
+ambiguity, additional hiding paths, and other DMI forms remain unchecked.
+
 2026-10-09 array-member verification: the inherited-constructor regression now
 executes fixed-size class-array initialization through both inherited
 constructors and ordinary constructor prologues. Side-effecting element

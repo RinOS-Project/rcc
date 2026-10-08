@@ -4819,6 +4819,9 @@ static const char* cxx_method_source_name(CxxMethod* method) {
 static bool class_declares_method_name(CxxClass* cls, const char* name) {
     struct CxxMember* member;
     if (!cls || !name) return false;
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->name && strcmp(field->name, name) == 0) return true;
+    }
     for (member = cls->members; member; member = member->next) {
         if (member->method && cxx_method_source_name(member->method) &&
             strcmp(cxx_method_source_name(member->method), name) == 0) {
@@ -4927,8 +4930,7 @@ static void register_inherited_class_methods(CxxClass* cls,
     for (int base_index = 0; base_index < cls->base_count; ++base_index) {
         CxxClass* base = cls->bases[base_index].base;
         TypeMethod* method;
-        if (cls->bases[base_index].access == ACCESS_PRIVATE ||
-            !base || !base->type || !base->type->is_complete ||
+        if (!base || !base->type || !base->type->is_complete ||
             cls->base_offsets[base_index] < 0) {
             continue;
         }
@@ -4948,6 +4950,11 @@ static void register_inherited_class_methods(CxxClass* cls,
             if (cls->bases[base_index].access == ACCESS_PROTECTED &&
                 inherited->cxx_access == ACCESS_PUBLIC) {
                 inherited->cxx_access = ACCESS_PROTECTED;
+                inherited->cxx_access_owner = cls;
+            } else if (cls->bases[base_index].access == ACCESS_PRIVATE &&
+                       inherited->cxx_access != ACCESS_PRIVATE) {
+                inherited->cxx_access = ACCESS_PRIVATE;
+                inherited->cxx_access_owner = cls;
             }
             if (method->this_owner) {
                 int this_adjustment = cls->base_offsets[base_index];

@@ -80,6 +80,70 @@ struct DependentVirtualDispatchDerived
     }
 };
 
+struct DependentAccessPrefix {
+    int padding;
+};
+
+template <typename T>
+struct DependentDmiMember {
+    T value;
+
+    DependentDmiMember(T initial) : value(initial) {}
+};
+
+template <typename T>
+struct DependentDmiContainer {
+    DependentDmiMember<T> nested{7};
+    T scaled = 3 * 4;
+};
+
+template <typename T>
+struct DependentAccessBase {
+    T public_value;
+
+    T public_read() const {
+        return public_value;
+    }
+
+protected:
+    T protected_value;
+
+    T protected_read() const {
+        return protected_value;
+    }
+};
+
+template <typename T>
+struct DependentPrivateAccessDerived
+    : DependentAccessPrefix, private DependentAccessBase<T> {
+    void write(T initial) {
+        this->public_value = initial;
+        this->protected_value = initial + 1;
+    }
+
+    T read() const {
+        return this->public_value + this->protected_value +
+               this->public_read() + this->protected_read();
+    }
+};
+
+template <typename T>
+struct DependentProtectedAccessDerived
+    : DependentAccessPrefix, protected DependentAccessBase<T> {
+    void write(T initial) {
+        this->public_value = initial;
+        this->protected_value = initial + 1;
+    }
+
+    T read() const {
+        return this->public_value + this->protected_value +
+               this->public_read() + this->protected_read();
+    }
+};
+
+DependentPrivateAccessDerived<int> dependent_private_access;
+DependentProtectedAccessDerived<int> dependent_protected_access;
+
 int main() {
     dependent_base_pack_order = 0;
     DependentClassTemplateBasePack<> empty_pack;
@@ -106,6 +170,10 @@ int main() {
         &virtual_dispatch_integer;
     DependentVirtualDispatchBase<long long>* virtual_dispatch_wide_base =
         &virtual_dispatch_wide;
+    DependentDmiContainer<int> dependent_dmi_integer{};
+    DependentDmiContainer<long long> dependent_dmi_wide{};
+    dependent_private_access.write(10);
+    dependent_protected_access.write(20);
     return integer.read_twice() == 41 && wide.read_twice() == 45 &&
                    integer.read_unsigned_biases() == 0x100000002ULL &&
                    wide.read_unsigned_biases() == 0x100000002ULL &&
@@ -114,7 +182,13 @@ int main() {
                    virtual_integer_base->read() == 29 &&
                    virtual_wide_base->read() == 31 &&
                    virtual_dispatch_integer_base->read() == 38 &&
-                   virtual_dispatch_wide_base->read() == 42
+                   virtual_dispatch_wide_base->read() == 42 &&
+                   dependent_private_access.read() == 42 &&
+                   dependent_protected_access.read() == 82 &&
+                   dependent_dmi_integer.nested.value == 7 &&
+                   dependent_dmi_integer.scaled == 12 &&
+                   dependent_dmi_wide.nested.value == 7 &&
+                   dependent_dmi_wide.scaled == 12
                ? 0
-               : 7;
+               : 9;
 }

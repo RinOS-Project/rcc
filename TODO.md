@@ -695,6 +695,19 @@
           dispatch through the base pointer for `int` and `long long`; the
           focused target passes freestanding i686 and x64 host execution plus
           both target object generations.
+    - [x] Apply private/protected base access to inherited fields and methods;
+          exercise access from the derived class and reject access from outside.
+    - [x] Diagnose repeated dependent-base data names and member-function lookup
+          ambiguity before overload ranking; verify private/protected access
+          diagnostics on i686 and AMD64.
+    - [x] Initialize dependent class-valued fields from bounded brace DMIs and
+          dependent scalar fields from constant arithmetic DMIs for int and
+          long long on both target widths.
+    - [ ] Cover mixed data-member/function name ambiguity, direct-member hiding,
+          and further dependent name-lookup paths.
+    - [ ] Cover dependent DMIs beyond class-valued brace initialization and
+          scalar constant expressions. Keep unsupported expressions and cleanup
+          cases open until their lowering and target behavior are implemented.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

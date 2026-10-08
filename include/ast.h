@@ -136,6 +136,9 @@ struct TypeMethod {
     TypeField* result_field;
     int64_t success_constant;
     unsigned char cxx_access;
+    /* Class whose inheritance path determines the effective access of an
+     * inherited method; NULL keeps the source declaration's owner. */
+    struct CxxClass* cxx_access_owner;
     bool is_explicit;
     bool is_noexcept;
     CxxRefQualifier ref_qualifier;

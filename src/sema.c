@@ -279,6 +279,9 @@ static CxxClass* sema_cxx_method_owner(Type* object_type,
     Decl* declaration = method
         ? (method->source_decl ? method->source_decl : method->function_decl)
         : NULL;
+    if (method && method->cxx_access_owner) {
+        return method->cxx_access_owner;
+    }
     if (declaration && declaration->func_method_owner &&
         declaration->func_method_owner->cxx_class) {
         return declaration->func_method_owner->cxx_class;
@@ -9264,19 +9267,144 @@ static int cxx_member_ref_qualifier_rank(Expr* call, TypeMethod* method) {
     return object_is_lvalue ? -1 : 0;
 }
 
+static bool sema_cxx_member_method_lookup_ambiguous(
+    Type* aggregate, const char* name) {
+    TypeMethod* first = NULL;
+    CxxClass* aggregate_class = aggregate ? aggregate->cxx_class : NULL;
+    if (!aggregate || !name) return false;
+    for (TypeMethod* method = aggregate->methods; method;
+         method = method->next) {
+        Decl* declaration;
+        CxxClass* owner;
+        CxxClass* first_owner;
+        if (method->kind != TYPE_METHOD_FUNCTION ||
+            !method->function_decl || !method->name ||
+            strcmp(method->name, name) != 0) {
+            continue;
+        }
+        declaration = method->source_decl
+            ? method->source_decl : method->function_decl;
+        owner = declaration->func_method_owner
+            ? declaration->func_method_owner->cxx_class : NULL;
+        if (owner == aggregate_class) {
+            /* A declaration in the derived class hides every base
+             * declaration with the same name before overload selection. */
+            return false;
+        }
+        if (!first) {
+            first = method;
+            continue;
+        }
+        Decl* first_declaration = first->source_decl
+            ? first->source_decl : first->function_decl;
+        first_owner = first_declaration->func_method_owner
+            ? first_declaration->func_method_owner->cxx_class : NULL;
+        if (owner != first_owner ||
+            method->this_adjustment != first->this_adjustment) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sema_cxx_class_declares_member_name(Type* aggregate,
+                                                const char* name) {
+    CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
+    if (!cls || !name) return false;
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->name && strcmp(field->name, name) == 0) return true;
+    }
+    for (TypeMethod* method = aggregate->methods; method;
+         method = method->next) {
+        Decl* declaration;
+        if (!method->name || strcmp(method->name, name) != 0 ||
+            method->kind != TYPE_METHOD_FUNCTION ||
+            !method->function_decl) {
+            continue;
+        }
+        declaration = method->source_decl
+            ? method->source_decl : method->function_decl;
+        if (declaration->func_method_owner &&
+            declaration->func_method_owner->cxx_class == cls) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sema_cxx_member_lookup_ambiguous(Type* aggregate,
+                                              const char* name) {
+    TypeField* first_field = NULL;
+    bool has_method = false;
+    if (!aggregate || !aggregate->cxx_class || !name ||
+        sema_cxx_class_declares_member_name(aggregate, name)) {
+        return false;
+    }
+    for (TypeField* field = aggregate->fields; field; field = field->next) {
+        if (!field->name || strcmp(field->name, name) != 0) continue;
+        if (!first_field) {
+            first_field = field;
+            continue;
+        }
+        if (field->cxx_declaring_class != first_field->cxx_declaring_class ||
+            field->offset != first_field->offset ||
+            field->from_virtual_base != first_field->from_virtual_base ||
+            field->virtual_base_owner != first_field->virtual_base_owner) {
+            return true;
+        }
+    }
+    for (TypeMethod* method = aggregate->methods; method;
+         method = method->next) {
+        if (method->kind == TYPE_METHOD_FUNCTION && method->function_decl &&
+            method->name && strcmp(method->name, name) == 0) {
+            has_method = true;
+            break;
+        }
+    }
+    if (first_field && has_method) return true;
+    return sema_cxx_member_method_lookup_ambiguous(aggregate, name);
+}
+
+static bool sema_cxx_class_declares_method_name(Type* aggregate,
+                                                const char* name) {
+    CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
+    if (!cls || !name) return false;
+    for (TypeMethod* method = aggregate->methods; method;
+         method = method->next) {
+        Decl* declaration;
+        if (method->kind != TYPE_METHOD_FUNCTION || !method->function_decl ||
+            !method->name || strcmp(method->name, name) != 0) {
+            continue;
+        }
+        declaration = method->source_decl
+            ? method->source_decl : method->function_decl;
+        if (declaration->func_method_owner &&
+            declaration->func_method_owner->cxx_class == cls) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Member functions are kept on the owning TypeMethod list rather than in the
  * global symbol table because ordinary members use their ABI spelling as the
  * declaration key.  Apply the same conversion ranking used by free-function
  * overloads to the explicit arguments, skipping the implicit this parameter. */
 static TypeMethod* sema_select_cxx_member_method(
-    Expr* call, Type* aggregate, const char* name) {
+    Expr* call, Type* aggregate, const char* name,
+    bool* ambiguous_lookup) {
     TypeMethod* method;
     TypeMethod* best = NULL;
     int argument_count;
     int* best_ranks;
     bool ambiguous = false;
 
+    if (ambiguous_lookup) *ambiguous_lookup = false;
     if (!call || !aggregate || !name) return NULL;
+    if (sema_cxx_member_lookup_ambiguous(aggregate, name)) {
+        if (ambiguous_lookup) *ambiguous_lookup = true;
+        return NULL;
+    }
     argument_count = sema_cxx_argument_count(call->call_args);
     if (argument_count < 0 || argument_count == INT_MAX) {
         rcc_error(call->loc, "too many arguments for member overload '%s'",
@@ -12191,6 +12319,7 @@ static Type* sema_expr(Expr* expr) {
                 Expr* member = expr->call_func;
                 Type* owner = sema_expr(member->member_base);
                 TypeMethod* method;
+                bool ambiguous_lookup = false;
                 if (owner && owner->kind == TYPE_PTR &&
                     owner->is_reference) {
                     owner = owner->base;
@@ -12274,7 +12403,14 @@ static Type* sema_expr(Expr* expr) {
                     sema_expr(argument->expr);
                 }
                 method = sema_select_cxx_member_method(
-                    expr, owner, member->member_name);
+                    expr, owner, member->member_name, &ambiguous_lookup);
+                if (ambiguous_lookup) {
+                    rcc_error(expr->loc,
+                              "ambiguous member lookup for '%s'",
+                              member->member_name);
+                    expr->type = type_int;
+                    break;
+                }
                 if (method && method->function_decl) {
                     Expr* function_expression;
                     arguments_analyzed = true;
@@ -12796,6 +12932,23 @@ static Type* sema_expr(Expr* expr) {
                     }
                     break;
                 }
+            }
+
+            if (sema_cxx_class_declares_method_name(
+                    bt, expr->member_name)) {
+                rcc_error(expr->loc,
+                          "member '%s' names a function, not a data member",
+                          expr->member_name);
+                expr->type = type_int;
+                break;
+            }
+            /* A declaration in the current class hides inherited names.
+             * Otherwise, equal names from distinct base subobjects make the
+             * member lookup ambiguous.  A shared virtual-base subobject is
+             * represented once in the completed field list. */
+            if (sema_cxx_member_lookup_ambiguous(bt, expr->member_name)) {
+                rcc_error(expr->loc, "member '%s' is ambiguous",
+                          expr->member_name);
             }
 
             /* Find member */
