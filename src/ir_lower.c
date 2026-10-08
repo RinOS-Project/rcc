@@ -4230,7 +4230,15 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             /* A reference parameter is an address in the target ABI.  Keep
              * the argument as an lvalue address so a reference local is not
              * accidentally loaded as its pointee value. */
-            value = lower_lvalue_address(context, argument->expr);
+            if (argument->expr &&
+                lower_abi_is_aggregate(argument->expr->type) &&
+                argument->expr->kind == EXPR_COND &&
+                !argument->expr->cxx_conditional_lvalue &&
+                !argument->expr->cxx_conditional_xvalue) {
+                value = lower_expression(context, argument->expr);
+            } else {
+                value = lower_lvalue_address(context, argument->expr);
+            }
         } else {
             value = lower_expression(context, argument->expr);
         }
@@ -6340,9 +6348,31 @@ static RccIrLowerValue lower_conditional_expression(
     RccIrValue operands[2];
     RccIrBlockId targets[2];
     RccIrInstruction* phi;
-    if (!expression || !expression->type ||
-        !lower_type(expression->type, &result_type) ||
-        result_type.kind == RCC_IR_TYPE_VOID) {
+    RccIrLowerValue aggregate_storage = lower_invalid_value();
+    bool aggregate_result;
+    if (!expression || !expression->type) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    aggregate_result = lower_abi_is_aggregate(expression->type);
+    if (aggregate_result) {
+        RccIrInstruction* allocation;
+        if (!lower_abi_aggregate_supported(expression->type)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        allocation = lower_append(
+            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        if (!allocation) return lower_invalid_value();
+        rcc_ir_set_immediate(
+            allocation, (uint64_t)expression->type->size);
+        allocation->alignment = expression->type->align > 0
+            ? (uint32_t)expression->type->align : 0u;
+        aggregate_storage = lower_value(
+            allocation->result, rcc_ir_type_pointer(0u), true);
+    } else if (!lower_type(expression->type, &result_type) ||
+               result_type.kind == RCC_IR_TYPE_VOID) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -6360,9 +6390,28 @@ static RccIrLowerValue lower_conditional_expression(
     context->current = then_block;
     context->terminated = false;
     then_value = lower_expression(context, expression->cond_then);
-    then_value = lower_cast(context, then_value, expression->type);
+    if (aggregate_result) {
+        const Type* then_type = expression->cond_then
+            ? expression->cond_then->type : NULL;
+        bool copied = then_value.valid &&
+            then_value.type.kind == RCC_IR_TYPE_POINTER && then_type &&
+            type_is_compatible((Type*)expression->type, (Type*)then_type) &&
+            (expression->type->kind == TYPE_STRUCT
+                 ? lower_copy_struct_storage(
+                       context, aggregate_storage.value,
+                       then_value.value, expression->type)
+                 : lower_copy_union_storage(
+                       context, aggregate_storage.value,
+                       then_value.value, expression->type));
+        if (!copied) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+    } else {
+        then_value = lower_cast(context, then_value, expression->type);
+    }
     then_end = context->current;
-    if (!then_value.valid || context->terminated ||
+    if ((!aggregate_result && !then_value.valid) || context->terminated ||
         !lower_branch(context, merge_block->id)) {
         return lower_invalid_value();
     }
@@ -6370,15 +6419,35 @@ static RccIrLowerValue lower_conditional_expression(
     context->current = else_block;
     context->terminated = false;
     else_value = lower_expression(context, expression->cond_else);
-    else_value = lower_cast(context, else_value, expression->type);
+    if (aggregate_result) {
+        const Type* else_type = expression->cond_else
+            ? expression->cond_else->type : NULL;
+        bool copied = else_value.valid &&
+            else_value.type.kind == RCC_IR_TYPE_POINTER && else_type &&
+            type_is_compatible((Type*)expression->type, (Type*)else_type) &&
+            (expression->type->kind == TYPE_STRUCT
+                 ? lower_copy_struct_storage(
+                       context, aggregate_storage.value,
+                       else_value.value, expression->type)
+                 : lower_copy_union_storage(
+                       context, aggregate_storage.value,
+                       else_value.value, expression->type));
+        if (!copied) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+    } else {
+        else_value = lower_cast(context, else_value, expression->type);
+    }
     else_end = context->current;
-    if (!else_value.valid || context->terminated ||
+    if ((!aggregate_result && !else_value.valid) || context->terminated ||
         !lower_branch(context, merge_block->id)) {
         return lower_invalid_value();
     }
 
     context->current = merge_block;
     context->terminated = false;
+    if (aggregate_result) return aggregate_storage;
     operands[0] = then_value.value;
     operands[1] = else_value.value;
     targets[0] = then_end->id;

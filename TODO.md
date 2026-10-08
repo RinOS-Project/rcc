@@ -633,6 +633,11 @@
         addresses in SSA; verify a user-defined `T&&` conversion return has no
         fallback on i686/AMD64 and execute the generated x64 `.ro` alias test
         in `test-verified-cxx-reference-return`.
+  - [x] Lower supported trivial-aggregate conditional prvalues into one
+        branch-selected object slot and pass that slot to a reference parameter;
+        verify i686 sret and x64 register-return paths emit without fallback,
+        then execute the generated x64 `.ro` in
+        `test-verified-cxx-conditional-aggregate`.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering
