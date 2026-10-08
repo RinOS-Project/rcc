@@ -437,6 +437,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-static-reference-conversions \
 	test-cxx-static-reference-conversions-posix
 .PHONY: test-cxx-member-pointer-data \
+	test-cxx-member-pointer-reference-lifetime \
 	test-cxx-member-pointer-data-posix
 .PHONY: test-verified-volatile
 .PHONY: test-verified-cxx-temporary-cleanup
@@ -524,6 +525,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-static-reference-subobjects \
 	test-cxx-static-reference-conversions \
 	test-cxx-member-pointer-data \
+	test-cxx-member-pointer-reference-lifetime \
 	test-cxx-class-template-methods \
 	test-cxx-class-template-specialization \
 	test-cxx-class-template-specialization-ambiguous \
@@ -3066,6 +3068,30 @@ test-cxx-static-reference-conversions: $(RCXX_TARGET)
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-static-reference-conversions/x64.o
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-reference-conversions/x64-host tests/cxx_static_reference_host.c $(TEST_OUT)/cxx-static-reference-conversions/x64.o
 	$(TEST_OUT)/cxx-static-reference-conversions/x64-host
+
+test-cxx-member-pointer-reference-lifetime: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-reference-lifetime)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.s \
+		tests/cxx_member_pointer_reference_lifetime.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.o \
+		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.s
+	objdump -f $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.o \
+		> $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86-arch.log
+	$(GREP) -F -q "pe-i386" \
+		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.s \
+		tests/cxx_member_pointer_reference_lifetime.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.o \
+		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64-host \
+		tests/cxx_static_reference_host.c \
+		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.o
+	$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64-host
+	@echo "C++ pointer-to-member static reference lifetime tests completed"
 
 test-cxx-member-pointer-data: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-data)

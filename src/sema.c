@@ -1557,6 +1557,7 @@ static bool sema_cxx_reference_subobject_path(Expr* expression,
             return sema_cxx_reference_subobject_path(
                 expression->member_base, complete_object);
         case EXPR_CXX_MEMBER_PTR_DOT:
+            if (expression->binary_lhs == complete_object) return true;
             return sema_cxx_reference_subobject_path(
                 expression->binary_lhs, complete_object);
         case EXPR_CAST:
