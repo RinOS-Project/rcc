@@ -750,6 +750,7 @@ TEST_CI_TARGETS = \
 	test-aggregate-sse-abi \
 	test-aggregate-nested-abi \
 	test-inline-asm \
+	test-inline-asm-execute \
 	test-inline-asm-encoding \
 	test-inline-asm-ports \
 	test-intrin-header \
@@ -9830,6 +9831,13 @@ test-inline-asm-execute: $(RCC_TARGET)
 		-o $(TEST_OUT)/inline-asm/x86.ro tests/inline_asm_execution.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/inline-asm/x64.ro tests/inline_asm_execution.c
+
+ifeq ($(OS),Windows_NT)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/inline-asm/run-test-x64 \
+		tests/inline_asm_execution_run_test.c src/emit_ro.c src/utils.c
+	$(TEST_OUT)/inline-asm/run-test-x64 $(TEST_OUT)/inline-asm/x64.ro
+else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/inline-asm/run-test-x86 \
 		tests/inline_asm_execution_run_test.c src/emit_ro.c src/utils.c
@@ -9854,7 +9862,8 @@ test-inline-asm-execute: $(RCC_TARGET)
 	fi
 	$(GREP) -q "unsupported i686 inline asm instruction" \
 		$(TEST_OUT)/inline-asm/invalid-x86.log
-	@echo "Dual-architecture fixed-register inline asm tests completed"
+endif
+	@echo "Dual-architecture inline asm execution/diagnostic tests completed"
 
 test-inline-asm: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/inline-asm-compile)

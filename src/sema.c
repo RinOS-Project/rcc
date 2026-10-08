@@ -1670,13 +1670,15 @@ static bool sema_asm_register_name_supported(const char* name,
     }
     if (g_opts.target_arch == ARCH_X86) {
         if (strlen(name) == 1 && strchr("abcdSD", name[0])) return true;
-        if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0) return true;
+        if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0 ||
+            strcmp(name, "g") == 0) return true;
         rcc_error(loc, "unsupported i686 inline asm %s register constraint '%s'",
                   output ? "output" : "input", name);
         return false;
     }
     if (strlen(name) == 1 && strchr("abcdSD", name[0])) return true;
-    if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0) return true;
+    if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0 ||
+        strcmp(name, "g") == 0) return true;
     if (!output && (strcmp(name, "{eax}") == 0 ||
                     strcmp(name, "{rax}") == 0 ||
                     strcmp(name, "{ebx}") == 0 ||
@@ -1790,7 +1792,8 @@ static bool sema_asm_clobber_supported(const char* name, SourceLoc loc) {
  * as well. */
 static int sema_asm_fixed_register_id(const char* name) {
     if (!name || !name[0]) return -1;
-    if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0) {
+    if (strcmp(name, "r") == 0 || strcmp(name, "X") == 0 ||
+        strcmp(name, "g") == 0) {
         return g_opts.target_arch == ARCH_X64 ? 6 : 2;
     }
     if (strcmp(name, "a") == 0 || strcmp(name, "eax") == 0 ||

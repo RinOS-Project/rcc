@@ -42,6 +42,26 @@ int asm_generic_read_write(int value)
     return value;
 }
 
+int asm_general_input_move(int value)
+{
+    int result;
+    __asm__ __volatile__("mov %1, %0" : "=a"(result) : "g"(value));
+    return result;
+}
+
+int asm_general_output_move(int value)
+{
+    int result;
+    __asm__ __volatile__("mov %1, %0" : "=g"(result) : "a"(value));
+    return result;
+}
+
+int asm_general_read_write(int value)
+{
+    __asm__ __volatile__("mov %0, %0" : "+g"(value));
+    return value;
+}
+
 void asm_immediate_interrupt(void)
 {
     __asm__ __volatile__("int %0" : : "i"(0x40 + 0x40));

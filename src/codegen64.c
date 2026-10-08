@@ -9240,6 +9240,7 @@ static int codegen64_asm_register(const char* constraint)
         case 'D': return RDI;
         case 'r':
         case 'X': return R10;
+        case 'g': return R10; /* Select the register alternative of GCC g. */
         case 'i':
         case 'n': return -2;  /* Integer constant */
         default: return -1;

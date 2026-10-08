@@ -76,11 +76,12 @@ static void verify(const char* path, uint16_t architecture,
                                             : sizeof(x86_move));
 }
 
-static void verify_generic(const char* path, uint16_t architecture)
+static void verify_generic(const char* path, uint16_t architecture,
+                          const char* function_name)
 {
     static const uint8_t x86_move[] = {0x89u, 0xc8u};
     static const uint8_t x64_move[] = {0x4cu, 0x89u, 0xd0u};
-    verify_pattern(path, architecture, "asm_generic_placeholder_move",
+    verify_pattern(path, architecture, function_name,
                    architecture == ARCH_X64 ? x64_move : x86_move,
                    architecture == ARCH_X64 ? sizeof(x64_move)
                                             : sizeof(x86_move));
@@ -104,11 +105,17 @@ int main(int argc, char** argv)
     verify(argv[1], ARCH_X86, "asm_placeholder_move");
     verify(argv[2], ARCH_X64, "asm_placeholder_move");
     verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
-    verify_generic(argv[1], ARCH_X86);
-    verify_generic(argv[2], ARCH_X64);
+    verify_generic(argv[1], ARCH_X86, "asm_generic_placeholder_move");
+    verify_generic(argv[2], ARCH_X64, "asm_generic_placeholder_move");
+    verify_generic(argv[1], ARCH_X86, "asm_general_input_move");
+    verify_generic(argv[2], ARCH_X64, "asm_general_input_move");
     verify_generic_output(argv[1], ARCH_X86, "asm_generic_output_move");
     verify_generic_output(argv[2], ARCH_X64, "asm_generic_output_move");
     verify_generic_output(argv[3], ARCH_X64, "asm_cpp_generic_output_move");
+    verify_generic_output(argv[1], ARCH_X86, "asm_general_output_move");
+    verify_generic_output(argv[2], ARCH_X64, "asm_general_output_move");
+    verify_generic(argv[3], ARCH_X64, "asm_cpp_general_input_move");
+    verify_generic_output(argv[3], ARCH_X64, "asm_cpp_general_output_move");
     verify_pattern(argv[1], ARCH_X86, "asm_immediate_interrupt",
                    interrupt, sizeof(interrupt));
     verify_pattern(argv[2], ARCH_X64, "asm_immediate_interrupt",

@@ -995,6 +995,10 @@
         register、I/O、fenceを受理だけにせず実x86命令へエンコードし、
         i686/AMD64のC/C++ヘッダコンパイルと生成バイトを回帰検証。C++の
         intrinsic vector型Itanium name manglingも同時に実装
+  - [x] GCC `g` input/output constraintは有効なGPR alternativeを決定的に
+        選び、`=`／`+` outputの保存、input評価、衝突検査を通してlowerする。
+        Cでi686/AMD64 byte・生成検証とx64実行、C++でx64生成byteを検証し、
+        `test-inline-asm-execute`をproduction `test-ci`へ追加
 - [x] driver modeでのFPU/SIMD禁止検査
 
 ## Aquamarine shader frontend
