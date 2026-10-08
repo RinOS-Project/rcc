@@ -379,6 +379,7 @@ static bool x86_select_instruction(
     }
     machine->immediate = instruction->immediate;
     machine->predicate = instruction->predicate;
+    machine->sysv_variadic_call = instruction->sysv_variadic_call;
     if (instruction->opcode == RCC_MIR_ALLOCA) {
         machine->immediate = selected->frame_size -
             (uint32_t)instruction->immediate;
@@ -571,6 +572,9 @@ bool rcc_x86_verify_function(
             if (!x86_instruction_shape(instruction) ||
                 !x86_type_supported_for_target(
                     instruction->type, function->target) ||
+                (instruction->sysv_variadic_call &&
+                 (instruction->opcode != RCC_X86_CALL ||
+                  function->target != RCC_X86_TARGET_X86_64)) ||
                 (instruction->type.kind == RCC_MIR_TYPE_FLOAT &&
                  instruction->opcode != RCC_X86_LOAD &&
                  instruction->opcode != RCC_X86_STORE &&

@@ -1883,6 +1883,12 @@ static bool x86_emit_instruction(
         case RCC_X86_LEGAL_SHIFT:
             return x86_emit_shift(encoder, instruction);
         case RCC_X86_LEGAL_CALL:
+            if (instruction->sysv_variadic_call &&
+                (!x86_emit_u8(encoder, 0xb0u) ||
+                 !x86_emit_u8(
+                     encoder, instruction->sysv_vector_argument_count))) {
+                return false;
+            }
             if (instruction->has_callee) {
                 if (!x86_emit_indirect_call(encoder, instruction->callee)) {
                     return false;

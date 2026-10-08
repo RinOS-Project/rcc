@@ -157,6 +157,30 @@ static void* symbol_address(void* text_memory, const ObjSymbol* symbol)
     return (uint8_t*)text_memory + symbol->value;
 }
 
+static bool symbol_has_sysv_variadic_call_setup(
+    const ObjectFile* object, const ObjSection* text,
+    const ObjSymbol* symbol, uint8_t vector_argument_count)
+{
+    const ObjSymbol* candidate;
+    uint64_t end;
+    if (!object || !text || !symbol || symbol->section != 0 ||
+        symbol->value >= text->size || text->size > SIZE_MAX) return false;
+    end = text->size;
+    for (candidate = object->symbols; candidate; candidate = candidate->next) {
+        if (candidate->section == symbol->section &&
+            candidate->value > symbol->value && candidate->value < end) {
+            end = candidate->value;
+        }
+    }
+    for (uint64_t offset = symbol->value;
+         offset <= end && end - offset >= 3u; ++offset) {
+        if (text->data[offset] == 0xb0u &&
+            text->data[offset + 1u] == vector_argument_count &&
+            text->data[offset + 2u] == 0xe8u) return true;
+    }
+    return false;
+}
+
 static void verify_va_list_pointer_cxx_object(
     const char* path, uint16_t arch, bool execute)
 {
@@ -200,6 +224,9 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
     ObjSymbol* fp_call_mixed_symbol;
     ObjSymbol* fp_call_ninth_symbol;
     ObjSymbol* fp_call_mixed_stack_symbol;
+    ObjSymbol* fp_call_variadic_double_symbol;
+    ObjSymbol* fp_call_variadic_int_symbol;
+    ObjSymbol* fp_call_variadic_ninth_symbol;
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
     first_symbol = objfile_find_symbol(
@@ -226,6 +253,12 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         object, "verified_sysv_fp_call_ninth");
     fp_call_mixed_stack_symbol = objfile_find_symbol(
         object, "verified_sysv_fp_call_mixed_stack");
+    fp_call_variadic_double_symbol = objfile_find_symbol(
+        object, "verified_sysv_fp_call_variadic_double");
+    fp_call_variadic_int_symbol = objfile_find_symbol(
+        object, "verified_sysv_fp_call_variadic_int");
+    fp_call_variadic_ninth_symbol = objfile_find_symbol(
+        object, "verified_sysv_fp_call_variadic_ninth");
     assert(first_symbol != NULL && first_symbol->type == SYM_GLOBAL &&
            first_symbol->binding == BIND_CODE && first_symbol->section == 0);
     assert(second_symbol != NULL && second_symbol->type == SYM_GLOBAL &&
@@ -268,6 +301,24 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
            fp_call_mixed_stack_symbol->type == SYM_GLOBAL &&
            fp_call_mixed_stack_symbol->binding == BIND_CODE &&
            fp_call_mixed_stack_symbol->section == 0);
+    assert(fp_call_variadic_double_symbol != NULL &&
+           fp_call_variadic_double_symbol->type == SYM_GLOBAL &&
+           fp_call_variadic_double_symbol->binding == BIND_CODE &&
+           fp_call_variadic_double_symbol->section == 0);
+    assert(fp_call_variadic_int_symbol != NULL &&
+           fp_call_variadic_int_symbol->type == SYM_GLOBAL &&
+           fp_call_variadic_int_symbol->binding == BIND_CODE &&
+           fp_call_variadic_int_symbol->section == 0);
+    assert(fp_call_variadic_ninth_symbol != NULL &&
+           fp_call_variadic_ninth_symbol->type == SYM_GLOBAL &&
+           fp_call_variadic_ninth_symbol->binding == BIND_CODE &&
+           fp_call_variadic_ninth_symbol->section == 0);
+    assert(symbol_has_sysv_variadic_call_setup(
+        object, text, fp_call_variadic_double_symbol, 1u));
+    assert(symbol_has_sysv_variadic_call_setup(
+        object, text, fp_call_variadic_int_symbol, 0u));
+    assert(symbol_has_sysv_variadic_call_setup(
+        object, text, fp_call_variadic_ninth_symbol, 8u));
     if (execute) {
         size_t mapping_size;
         void* memory = map_text(object, text, &mapping_size);
@@ -294,6 +345,11 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
             int, int, int, int, int, int, int,
             double, double, double, double, double,
             double, double, double, double);
+        double (RINOS_ABI *fp_call_variadic_double)(double);
+        int (RINOS_ABI *fp_call_variadic_int)(int);
+        double (RINOS_ABI *fp_call_variadic_ninth)(
+            double, double, double, double, double,
+            double, double, double, double);
         memcpy(&first, &address, sizeof(first));
         address = symbol_address(memory, second_symbol);
         memcpy(&second, &address, sizeof(second));
@@ -317,6 +373,15 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         memcpy(&fp_call_ninth, &address, sizeof(fp_call_ninth));
         address = symbol_address(memory, fp_call_mixed_stack_symbol);
         memcpy(&fp_call_mixed_stack, &address, sizeof(fp_call_mixed_stack));
+        address = symbol_address(memory, fp_call_variadic_double_symbol);
+        memcpy(&fp_call_variadic_double, &address,
+               sizeof(fp_call_variadic_double));
+        address = symbol_address(memory, fp_call_variadic_int_symbol);
+        memcpy(&fp_call_variadic_int, &address,
+               sizeof(fp_call_variadic_int));
+        address = symbol_address(memory, fp_call_variadic_ninth_symbol);
+        memcpy(&fp_call_variadic_ninth, &address,
+               sizeof(fp_call_variadic_ninth));
         assert(first(7, 3.25) == 3.25);
         assert(second(7, 1.25, 2.5) == 2.5);
         assert(ninth(7, 1.0, 2.0, 3.0, 4.0, 5.0,
@@ -337,6 +402,11 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
                    6.0, 7.0, 8.0, 9.0) == 9.0);
         assert(fp_call_mixed_stack(
                    1, 2, 3, 4, 5, 6, 7,
+                   1.0, 2.0, 3.0, 4.0, 5.0,
+                   6.0, 7.0, 8.0, 9.0) == 9.0);
+        assert(fp_call_variadic_double(21.25) == 21.25);
+        assert(fp_call_variadic_int(52) == 52);
+        assert(fp_call_variadic_ninth(
                    1.0, 2.0, 3.0, 4.0, 5.0,
                    6.0, 7.0, 8.0, 9.0) == 9.0);
         assert(verified_unmap(memory, mapping_size) == 0);

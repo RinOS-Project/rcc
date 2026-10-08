@@ -31,6 +31,15 @@ extern "C" double verified_sysv_va_double_ninth(int marker, ...)
     return value;
 }
 
+extern "C" int verified_sysv_va_int_first(int marker, ...)
+{
+    va_list arguments;
+    va_start(arguments, marker);
+    int value = va_arg(arguments, int);
+    va_end(arguments);
+    return value;
+}
+
 extern "C" double verified_sysv_named_double_first(double value)
 {
     return value;
@@ -96,4 +105,22 @@ extern "C" double verified_sysv_fp_call_mixed_stack(
     return verified_sysv_named_mixed_stack(
         i0, i1, i2, i3, i4, i5, i6,
         d0, d1, d2, d3, d4, d5, d6, d7, d8);
+}
+
+extern "C" double verified_sysv_fp_call_variadic_double(double value)
+{
+    return verified_sysv_va_double_first(31, value);
+}
+
+extern "C" int verified_sysv_fp_call_variadic_int(int value)
+{
+    return verified_sysv_va_int_first(35, value);
+}
+
+extern "C" double verified_sysv_fp_call_variadic_ninth(
+    double d0, double d1, double d2, double d3, double d4,
+    double d5, double d6, double d7, double d8)
+{
+    return verified_sysv_va_double_ninth(
+        41, d0, d1, d2, d3, d4, d5, d6, d7, d8);
 }

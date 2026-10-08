@@ -5073,16 +5073,18 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         TypeParam* variadic_parameter = function_type->params;
         for (const ExprList* variadic_argument = expression->call_args;
              variadic_argument; variadic_argument = variadic_argument->next) {
-            const Type* argument_type = variadic_parameter
-                ? variadic_parameter->type
-                : (variadic_argument->expr
-                       ? variadic_argument->expr->type : NULL);
-            if (argument_type &&
-                (argument_type->kind == TYPE_FLOAT ||
-                 argument_type->kind == TYPE_DOUBLE)) {
-                /* Floating variadic calls require the SysV %al vector-register
-                 * count; keep these on the established backend until that
-                 * call-site metadata is carried through legalization. */
+            if (variadic_parameter && variadic_parameter->type &&
+                lower_abi_is_aggregate(variadic_parameter->type)) {
+                /* Aggregate fixed arguments in variadic functions need the
+                 * full SysV aggregate register-class algorithm. */
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (!variadic_parameter && variadic_argument->expr &&
+                variadic_argument->expr->type &&
+                variadic_argument->expr->type->kind == TYPE_FLOAT) {
+                /* The default float-to-double promotion needs FP extension in
+                 * typed SSA; keep this call on the established backend. */
                 context->unsupported = true;
                 return lower_invalid_value();
             }
@@ -5277,6 +5279,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             }
             if (!value.valid ||
                 (value.type.kind != RCC_IR_TYPE_POINTER &&
+                 value.type.kind != RCC_IR_TYPE_FLOAT &&
                  (value.type.kind != RCC_IR_TYPE_INTEGER ||
                   value.type.bit_width > chunk_size * 8u))) {
                 rcc_free(operands);
@@ -5357,6 +5360,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     } else {
         rcc_ir_set_callee(call, decl_link_name(callee));
     }
+    call->sysv_variadic_call = function_type->variadic &&
+        g_opts.target_arch == ARCH_X64;
     if (return_kind == LOWER_ABI_RETURN_SRET &&
         g_opts.target_arch != ARCH_X64) {
         rcc_ir_set_immediate(call, 4u);

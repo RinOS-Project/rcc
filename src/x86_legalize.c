@@ -512,6 +512,7 @@ static bool x86_legal_copy_selected_metadata(
     destination->symbol_is_code = source->symbol_is_code;
     destination->symbol_is_tls = source->symbol_is_tls;
     destination->has_callee = source->has_callee;
+    destination->sysv_variadic_call = source->sysv_variadic_call;
     if (source->symbol) destination->symbol = rcc_strdup(source->symbol);
     return true;
 }
@@ -575,6 +576,8 @@ static bool x86_legal_call_supported(
     const RccX86Instruction* instruction, const RccX86Abi* abi) {
     size_t index;
     if (instruction->opcode != RCC_X86_CALL ||
+        (instruction->sysv_variadic_call &&
+         abi->target != RCC_X86_TARGET_X86_64) ||
         (instruction->type.kind != RCC_MIR_TYPE_VOID &&
          !x86_legal_abi_scalar_parameter(instruction->type, abi)) ||
         (instruction->immediate != 0u &&
@@ -986,6 +989,7 @@ static bool x86_legalize_call(
     uint32_t stack_index = 0u;
     size_t integer_index = 0u;
     size_t floating_index = 0u;
+    uint8_t vector_argument_count = 0u;
     size_t index;
     RccX86LegalInstruction* call;
     RccX86Value callee;
@@ -1025,6 +1029,9 @@ static bool x86_legalize_call(
                 if (in_register) {
                     argument_destinations[index] = x86_legal_fixed_fpr(
                         abi->floating_arguments[floating_index], type, abi);
+                    if (source->sysv_variadic_call) {
+                        ++vector_argument_count;
+                    }
                 }
                 ++floating_index;
             } else {
@@ -1070,6 +1077,8 @@ static bool x86_legalize_call(
     }
     if (source->has_callee) call->callee = callee_temporary;
     call->auxiliary = stack_bytes;
+    call->sysv_variadic_call = source->sysv_variadic_call;
+    call->sysv_vector_argument_count = vector_argument_count;
     if (source->has_destination) {
         RccX86Value result = source->type.kind == RCC_MIR_TYPE_FLOAT
             ? x86_legal_fixed_fpr(0u, source->type, abi)
@@ -1427,7 +1436,12 @@ static bool x86_legal_verify_call(
     const RccX86LegalInstruction* instruction,
     const RccX86LegalFunction* function, const RccX86Abi* abi,
     char* error, size_t error_size) {
-    if (instruction->auxiliary > function->outgoing_stack_size ||
+    if ((instruction->sysv_variadic_call
+             ? function->target != RCC_X86_TARGET_X86_64 ||
+                   instruction->sysv_vector_argument_count >
+                       abi->floating_argument_count
+             : instruction->sysv_vector_argument_count != 0u) ||
+        instruction->auxiliary > function->outgoing_stack_size ||
         instruction->auxiliary % abi->pointer_size != 0u) {
         return x86_legal_error(error, error_size,
                                "x86 call stack area is invalid");

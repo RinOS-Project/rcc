@@ -81,6 +81,7 @@ struct RccMirInstruction {
     RccIrIntPredicate predicate;
     bool volatile_access;
     bool sysv_varargs_gpr_save_area;
+    bool sysv_variadic_call;
     char* callee;
     bool symbol_is_code;
     bool symbol_is_tls;

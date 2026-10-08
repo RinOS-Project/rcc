@@ -221,6 +221,11 @@ static bool mir_verify_instruction_type(
             verifier,
             "SysV variadic register-save area requires a 176-byte, 16-byte-aligned alloca");
     }
+    if (instruction->sysv_variadic_call &&
+        instruction->opcode != RCC_MIR_CALL) {
+        return mir_error(
+            verifier, "SysV variadic-call metadata requires a call");
+    }
     if (mir_is_binary(instruction->opcode)) {
         return mir_shape(verifier, instruction, 2u, 0u) &&
             instruction->type.kind == RCC_MIR_TYPE_INTEGER &&
@@ -869,6 +874,8 @@ bool rcc_mir_lower_ir(const RccIrFunction* ir_function,
                 ir_instruction->volatile_access;
             instruction->sysv_varargs_gpr_save_area =
                 ir_instruction->sysv_varargs_gpr_save_area;
+            instruction->sysv_variadic_call =
+                ir_instruction->sysv_variadic_call;
             instruction->symbol_is_code = ir_instruction->symbol_is_code;
             instruction->symbol_is_tls = ir_instruction->symbol_is_tls;
             if (ir_instruction->callee_value != RCC_IR_VALUE_NONE) {

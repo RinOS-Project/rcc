@@ -106,6 +106,8 @@ struct RccIrInstruction {
     bool volatile_access;
     /* Mark the base of an x86-64 SysV variadic callee's register-save area. */
     bool sysv_varargs_gpr_save_area;
+    /* Emit the x86-64 SysV %al vector-register count before this call. */
+    bool sysv_variadic_call;
     char* callee;
     bool symbol_is_code;
     bool symbol_is_tls;

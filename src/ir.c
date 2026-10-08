@@ -446,6 +446,11 @@ static bool ir_verify_instruction_types(
         return ir_verify_error(verifier,
                                "volatile access flag requires load or store");
     }
+    if (instruction->sysv_variadic_call &&
+        instruction->opcode != RCC_IR_CALL) {
+        return ir_verify_error(
+            verifier, "SysV variadic-call metadata requires a call");
+    }
     if (instruction->sysv_varargs_gpr_save_area &&
         (instruction->opcode != RCC_IR_ALLOCA ||
          instruction->immediate != RCC_IR_SYSV_VA_SAVE_AREA_SIZE ||
