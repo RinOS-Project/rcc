@@ -83,9 +83,9 @@ endif
 
 ifeq ($(OS),Windows_NT)
 MKDIR_P = if not exist "$(1)\." mkdir "$(1)"
-# Keep expected-failure checks shell-neutral. Native Windows builds use
-# cmd.exe, while POSIX/WSL builds use a Bourne-compatible shell.
-EXPECT_FAILURE = $(subst ./,,$(1)) >$(2) 2>&1 & if not errorlevel 1 exit /b 1
+# cmd.exe treats forward slashes in an executable path as option syntax. Make
+# Windows expected-failure invocations use native separators before launching.
+EXPECT_FAILURE = $(subst /,\,$(subst ./,,$(1))) >$(subst /,\,$(2)) 2>&1 & if not errorlevel 1 exit /b 1
 CHECK_NONEMPTY = powershell -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(1)') -or (Get-Item -LiteralPath '$(1)').Length -eq 0) { exit 1 }"
 COPY_FILE = powershell -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
 ASSERT_ABSENT = powershell -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { exit 1 }"
@@ -196,6 +196,36 @@ $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
 $(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/$(1)/x64.o
 $(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/x64.o
 $(TEST_OUT)/$(1)/x64-host
+endef
+
+# MinGW represents .weak definitions using synthetic fallback symbols whose
+# names include the host entry.  The peer TU's two shared type_info fallbacks
+# get distinct names so the native COFF test can exercise weak merging.
+define CXX_WINDOWS_ENTRY_TWO_TU_TEST
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86.s tests/$(2)
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x86-peer.s tests/$(3)
+$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
+$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86-peer.o $(TEST_OUT)/$(1)/x86-peer.s
+objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
+$(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64-peer.s tests/$(3)
+$(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
+$(CC) -c -o $(TEST_OUT)/$(1)/x64-peer.o $(TEST_OUT)/$(1)/x64-peer.s
+$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/$(1)/x64.o
+$(OBJCOPY) --redefine-sym .weak.__rcc_typeinfo_type_T9_0sPT4_0s_name._rcc_entry=.weak.peer_typeinfo_name --redefine-sym .weak.__rcc_typeinfo_type_T9_0sPT4_0s._rcc_entry=.weak.peer_typeinfo $(TEST_OUT)/$(1)/x64-peer.o
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64-peer.o
+$(TEST_OUT)/$(1)/x64-host
+endef
+
+define CXX_POSIX_ENTRY_TEST
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+	-o $(TEST_OUT)/$(1)/x86.s tests/$(2)
+$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+	-o $(TEST_OUT)/$(1)/x64.s tests/$(2)
+$(CC) -no-pie -o $(TEST_OUT)/$(1)/x64 $(TEST_OUT)/$(1)/x64.s
+$(TEST_OUT)/$(1)/x64
 endef
 
 define C_WINDOWS_ENTRY_TEST
@@ -6043,11 +6073,23 @@ test-cxx-noexcept-expression-posix: $(RCXX_TARGET)
 ifeq ($(OS),Windows_NT)
 test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid)
-	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid,cxx_typeid.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-char-type-identity)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-deep)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-named-types)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-composite)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeinfo-api)
+	$(call CXX_WINDOWS_ENTRY_TWO_TU_TEST,cxx-typeid,cxx_typeid.cpp,cxx_typeid_peer.cpp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-char-type-identity,cxx_char_type_identity.cpp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid-deep,cxx_typeid_deep.cpp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid-named-types,cxx_typeid_named_types.cpp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid-composite,cxx_typeid_composite.cpp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeinfo-api,cxx_typeinfo_api.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/x86.ro tests/cxx_typeid.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/x86-peer.ro tests/cxx_typeid_peer.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/x64.ro tests/cxx_typeid.cpp
-	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid/x86.rin $(TEST_OUT)/cxx-typeid/x86.ro
-	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid/x64.rin $(TEST_OUT)/cxx-typeid/x64.ro
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/x64-peer.ro tests/cxx_typeid_peer.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid/x86.rin $(TEST_OUT)/cxx-typeid/x86.ro $(TEST_OUT)/cxx-typeid/x86-peer.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid/x64.rin $(TEST_OUT)/cxx-typeid/x64.ro $(TEST_OUT)/cxx-typeid/x64-peer.ro
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned $(TEST_OUT)/cxx-typeid/x86.rin
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned $(TEST_OUT)/cxx-typeid/x64.rin
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/invalid-x86.ro tests/cxx_typeid_polymorphic_invalid.cpp,$(TEST_OUT)/cxx-typeid/invalid-x86.log)
@@ -6069,26 +6111,52 @@ endif
 
 test-cxx-typeid-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-char-type-identity)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-deep)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-named-types)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-composite)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeinfo-api)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-char-type-identity,cxx_char_type_identity.cpp)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-typeid-deep,cxx_typeid_deep.cpp)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-typeid-named-types,cxx_typeid_named_types.cpp)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-typeid-composite,cxx_typeid_composite.cpp)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-typeinfo-api,cxx_typeinfo_api.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-typeid/x86.s tests/cxx_typeid.cpp
-	$(CC) -m32 -no-pie -o $(TEST_OUT)/cxx-typeid/x86 \
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-typeid/x86-peer.s tests/cxx_typeid_peer.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid/x86.o \
 		$(TEST_OUT)/cxx-typeid/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid/x86-peer.o \
+		$(TEST_OUT)/cxx-typeid/x86-peer.s
+	$(CC) -m32 -no-pie -o $(TEST_OUT)/cxx-typeid/x86 \
+		$(TEST_OUT)/cxx-typeid/x86.o $(TEST_OUT)/cxx-typeid/x86-peer.o
 	$(TEST_OUT)/cxx-typeid/x86
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-typeid/x64.s tests/cxx_typeid.cpp
-	$(CC) -no-pie -o $(TEST_OUT)/cxx-typeid/x64 \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-typeid/x64-peer.s tests/cxx_typeid_peer.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-typeid/x64.o \
 		$(TEST_OUT)/cxx-typeid/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-typeid/x64-peer.o \
+		$(TEST_OUT)/cxx-typeid/x64-peer.s
+	$(CC) -no-pie -o $(TEST_OUT)/cxx-typeid/x64 \
+		$(TEST_OUT)/cxx-typeid/x64.o $(TEST_OUT)/cxx-typeid/x64-peer.o
 	$(TEST_OUT)/cxx-typeid/x64
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-typeid/x86.ro tests/cxx_typeid.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid/x86-peer.ro tests/cxx_typeid_peer.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-typeid/x64.ro tests/cxx_typeid.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid/x64-peer.ro tests/cxx_typeid_peer.cpp
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-e main -o $(TEST_OUT)/cxx-typeid/x86.rin \
-		$(TEST_OUT)/cxx-typeid/x86.ro
+		$(TEST_OUT)/cxx-typeid/x86.ro $(TEST_OUT)/cxx-typeid/x86-peer.ro
 	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
 		-e main -o $(TEST_OUT)/cxx-typeid/x64.rin \
-		$(TEST_OUT)/cxx-typeid/x64.ro
+		$(TEST_OUT)/cxx-typeid/x64.ro $(TEST_OUT)/cxx-typeid/x64-peer.ro
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
 		$(TEST_OUT)/cxx-typeid/x86.rin
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \

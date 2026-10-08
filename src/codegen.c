@@ -3086,8 +3086,9 @@ static void codegen_emit_cxx_vbase_tables_in_namespace(Module* mod,
 void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
     static const uint8_t zero[8] = {0};
     uint8_t hash_bytes[8];
-    char name_buffer[80];
     const char* name_symbol;
+    char* name_buffer;
+    size_t symbol_length;
     uint32_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     uint32_t offset;
     uint32_t name_offset;
@@ -3102,11 +3103,15 @@ void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
      * must be promoted in place so weak RTTI references cannot escape the TU
      * unresolved. */
     if (existing && existing->is_defined) return;
-    if (snprintf(name_buffer, sizeof(name_buffer), "%s_name", symbol) < 0 ||
-        strlen(name_buffer) >= sizeof(name_buffer) - 1u) {
+    symbol_length = strlen(symbol);
+    if (symbol_length > SIZE_MAX - sizeof("_name")) {
         rcc_fatal("C++ typeinfo name symbol is too long");
     }
+    name_buffer = rcc_alloc(symbol_length + sizeof("_name"));
+    memcpy(name_buffer, symbol, symbol_length);
+    memcpy(name_buffer + symbol_length, "_name", sizeof("_name"));
     name_symbol = rcc_intern(name_buffer);
+    rcc_free(name_buffer);
     name_offset = emit_string(mod, symbol, strlen(symbol));
     module_add_symbol(mod, name_symbol, name_offset, true,
                       MODULE_SYMBOL_RODATA, true);

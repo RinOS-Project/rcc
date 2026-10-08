@@ -131,13 +131,28 @@ static bool emit_asm_symbols(FILE* file, const Module* mod,
 
 static bool emit_asm_code(FILE* file, Module* mod) {
     uint32_t offset = 0u;
-    uint32_t entry = mod->entry_point;
+    uint32_t entry = 0u;
+    bool has_entry = false;
+
+    /* -S output may be one translation unit in a larger program.  The host
+     * test adapter's _rcc_entry alias belongs only to a TU that defines main;
+     * aliasing every object's first function makes ordinary multi-object
+     * links fail with duplicate entry points. */
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        const ModuleSymbol* symbol = &mod->symbols[index];
+        if (symbol->is_defined && symbol->section == MODULE_SYMBOL_CODE &&
+            symbol->name && strcmp(symbol->name, "main") == 0) {
+            entry = symbol->offset;
+            has_entry = true;
+            break;
+        }
+    }
 
     while (offset < mod->code.size) {
         uint32_t next = (uint32_t)mod->code.size;
         bool label_written = false;
 
-        if (offset == entry) {
+        if (has_entry && offset == entry) {
             if (fprintf(file, ".globl _rcc_entry\n_rcc_entry:\n") < 0) {
                 return false;
             }
@@ -179,11 +194,7 @@ static bool emit_asm_code(FILE* file, Module* mod) {
         offset = next;
     }
 
-    if (mod->code.size == 0u) {
-        if (fprintf(file, ".globl _rcc_entry\n_rcc_entry:\n") < 0) {
-            return false;
-        }
-    } else if (entry == mod->code.size) {
+    if (has_entry && entry == mod->code.size) {
         if (fprintf(file, ".globl _rcc_entry\n_rcc_entry:\n") < 0) {
             return false;
         }

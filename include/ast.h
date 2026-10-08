@@ -156,6 +156,10 @@ struct Type {
     int align;          /* Alignment */
     bool has_explicit_alignment;
     bool is_unsigned;
+    /* TYPE_CHAR has three distinct language types with identical storage:
+     * plain char, signed char, unsigned char, plus C++20 char8_t. */
+    bool is_plain_char;
+    bool is_char8;
     bool is_const;
     bool is_volatile;
     bool is_atomic;          /* C17 _Atomic-qualified scalar object type. */
@@ -248,6 +252,8 @@ struct Type {
 extern Type* type_void;
 extern Type* type_bool;
 extern Type* type_char;
+extern Type* type_schar;
+extern Type* type_char8;
 extern Type* type_short;
 extern Type* type_int;
 extern Type* type_long;

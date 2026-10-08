@@ -94,7 +94,8 @@ char* ast_arena_strdup(const char* text) {
 #define BUILTIN_TYPE(type_kind, type_size, type_align, unsigned_type) \
     { .kind = (type_kind), .size = (type_size), .align = (type_align), \
       .has_explicit_alignment = false, \
-      .is_unsigned = (unsigned_type), .is_const = false, \
+      .is_unsigned = (unsigned_type), .is_plain_char = false, \
+      .is_char8 = false, .is_const = false, \
       .is_volatile = false, .is_atomic = false, .cxx_is_class = false, \
       .cxx_nontrivial = false, .cxx_class = NULL, \
       .cxx_namespace = NULL, .cxx_vtable_size = 0, \
@@ -102,7 +103,14 @@ char* ast_arena_strdup(const char* text) {
 
 static Type builtin_void   = BUILTIN_TYPE(TYPE_VOID,   0, 1, false);
 static Type builtin_bool   = BUILTIN_TYPE(TYPE_BOOL,   1, 1, true);
-static Type builtin_char   = BUILTIN_TYPE(TYPE_CHAR,   1, 1, false);
+static Type builtin_char   = {
+    .kind = TYPE_CHAR, .size = 1, .align = 1, .is_plain_char = true
+};
+static Type builtin_schar  = BUILTIN_TYPE(TYPE_CHAR,   1, 1, false);
+static Type builtin_char8  = {
+    .kind = TYPE_CHAR, .size = 1, .align = 1, .is_unsigned = true,
+    .is_char8 = true
+};
 static Type builtin_short  = BUILTIN_TYPE(TYPE_SHORT,  2, 2, false);
 static Type builtin_int    = BUILTIN_TYPE(TYPE_INT,    4, 4, false);
 static Type builtin_long   = BUILTIN_TYPE(TYPE_LONG,   4, 4, false); /* ILP32/LP64 */
@@ -121,6 +129,8 @@ static Type builtin_nullptr = BUILTIN_TYPE(TYPE_NULLPTR, 4, 4, false);
 Type* type_void   = &builtin_void;
 Type* type_bool   = &builtin_bool;
 Type* type_char   = &builtin_char;
+Type* type_schar  = &builtin_schar;
+Type* type_char8  = &builtin_char8;
 Type* type_short  = &builtin_short;
 Type* type_int    = &builtin_int;
 Type* type_long   = &builtin_long;
@@ -396,6 +406,9 @@ bool type_is_compatible(Type* a, Type* b) {
     if (!a || !b) return false;
     if (a == b) return true;
     if (a->kind != b->kind) return false;
+    if (a->kind == TYPE_CHAR &&
+        (a->is_plain_char != b->is_plain_char ||
+         a->is_char8 != b->is_char8)) return false;
     if (a->is_reference != b->is_reference ||
         a->is_rvalue_reference != b->is_rvalue_reference) {
         return false;
@@ -446,8 +459,18 @@ bool type_is_compatible(Type* a, Type* b) {
         return ap == NULL && bp == NULL;
     }
     if (a->kind == TYPE_STRUCT || a->kind == TYPE_UNION) {
+        /* C++ class identity is declaration-based.  Comparing only the tag
+         * merges unrelated classes with the same spelling in different
+         * namespaces (and can then incorrectly reuse a class-template
+         * specialization). */
+        if (a->cxx_class || b->cxx_class) {
+            return a->cxx_class && a->cxx_class == b->cxx_class;
+        }
         if (a->tag || b->tag) {
-            return a->tag && b->tag && strcmp(a->tag, b->tag) == 0;
+            return a->tag && b->tag && strcmp(a->tag, b->tag) == 0 &&
+                   ((!a->cxx_namespace && !b->cxx_namespace) ||
+                    (a->cxx_namespace && b->cxx_namespace &&
+                     strcmp(a->cxx_namespace, b->cxx_namespace) == 0));
         }
         /* A qualified copy of an anonymous aggregate retains the same field
          * graph even though it has no tag to compare. */
@@ -455,7 +478,10 @@ bool type_is_compatible(Type* a, Type* b) {
     }
     if (a->kind == TYPE_ENUM) {
         return a->enum_tag && b->enum_tag &&
-               strcmp(a->enum_tag, b->enum_tag) == 0;
+               strcmp(a->enum_tag, b->enum_tag) == 0 &&
+               ((!a->cxx_namespace && !b->cxx_namespace) ||
+                (a->cxx_namespace && b->cxx_namespace &&
+                 strcmp(a->cxx_namespace, b->cxx_namespace) == 0));
     }
     return true;
 }

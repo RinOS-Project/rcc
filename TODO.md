@@ -559,11 +559,23 @@
         classを区別し、32段を超えるpointer型も末端まで識別する。
         const/non-const pointee、function signature、member owner、reference、
         deep pointerのidentityを実行テストし、両archの`.ro`/`.rin`を検証。
-  - [ ] Non-class static typeinfo symbols must use a collision-safe canonical
-        identity across translation units. The current 64-bit structural hash
-        can collide, which would incorrectly merge distinct `type_info` objects;
-        cover collision handling and local/anonymous class identity where
-        supported.
+  - [ ] Give static typeinfo symbols collision-safe, cross-translation-unit
+        identities; keep this item open until the supported-type regressions
+        and golden outputs are refreshed and local/anonymous scope identity is
+        implemented where supported.
+    - [x] Replace the non-class 64-bit structural hash with a length-prefixed
+          canonical encoding for represented structural types, including
+          distinct plain `char`, `signed char`, and `char8_t` identities.
+    - [x] Derive supported class-template identity from its source template,
+          namespace path, and complete arguments instead of internal
+          `.__instanceN` names; include namespace-qualified type arguments.
+    - [x] Run the dual-architecture `typeid` regression, refresh deterministic
+          golden outputs, and add translation-unit-order coverage for class
+          template identity. Two translation units instantiate the same class
+          template in different orders, compare `typeid` identity, link both
+          `.ro` files for i686/AMD64, and validate the resulting `.rin` images.
+          Local/anonymous class and enum scope identity is still not represented
+          by the parser and keeps the parent item open.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

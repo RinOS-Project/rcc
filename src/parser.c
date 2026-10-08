@@ -65,6 +65,8 @@ extern void* rcc_parser_cxx_using_scope_mark(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_using_scope_restore(void* mark) RCC_OPTIONAL_CXX;
 extern const char* rcc_parser_cxx_resolve_local_using(
     const char* name, SourceLoc loc) RCC_OPTIONAL_CXX;
+extern const char* rcc_parser_cxx_current_namespace_identity(void)
+    RCC_OPTIONAL_CXX;
 
 typedef struct ParserTypeName {
     const char* name;
@@ -75,6 +77,7 @@ typedef struct ParserTypeName {
 
 typedef struct ParserTagName {
     const char* name;
+    const char* cxx_namespace;
     TypeKind kind;
     Type* type;
     struct ParserTagName* next;
@@ -250,18 +253,28 @@ static void parser_define_type(const char* name, Type* type) {
 
 static Type* parser_tag_type(TypeKind kind, const char* name) {
     ParserTagName* entry;
+    const char* cxx_namespace = parser_cxx_mode &&
+        rcc_parser_cxx_current_namespace_identity
+        ? rcc_parser_cxx_current_namespace_identity() : NULL;
     if (name) {
         for (entry = parser_tag_names; entry; entry = entry->next) {
-            if (entry->kind == kind && strcmp(entry->name, name) == 0) {
+            bool same_namespace =
+                (!entry->cxx_namespace && !cxx_namespace) ||
+                (entry->cxx_namespace && cxx_namespace &&
+                 strcmp(entry->cxx_namespace, cxx_namespace) == 0);
+            if (entry->kind == kind && same_namespace &&
+                strcmp(entry->name, name) == 0) {
                 return entry->type;
             }
         }
     }
     Type* type = kind == TYPE_STRUCT ? type_struct(name) :
                  kind == TYPE_UNION ? type_union(name) : type_enum(name);
+    type->cxx_namespace = cxx_namespace;
     if (name) {
         entry = ast_arena_alloc(sizeof(*entry));
         entry->name = name;
+        entry->cxx_namespace = cxx_namespace;
         entry->kind = kind;
         entry->type = type;
         entry->next = parser_tag_names;
@@ -1411,6 +1424,9 @@ static Expr* parse_primary(void) {
         Expr* expression = expr_char(literal->value.char_val, loc);
         expression->is_cxx_utf8_literal = literal->is_utf8_literal;
         if (parser_cxx_mode) {
+            expression->type = literal->is_utf8_literal &&
+                    rcc_parser_cxx_standard_at_least(20)
+                ? type_char8 : type_char;
             const char* suffix = take_cxx_user_literal_suffix();
             if (suffix) {
                 return parse_cxx_user_literal_call(suffix, expression, NULL,
@@ -3207,9 +3223,13 @@ static Type* parse_type_spec(void) {
     } else if (parser_cxx_mode && match(TOK_BOOL)) {
         t = type_bool;
     } else if (parser_cxx_mode && match(TOK_CHAR8_T)) {
-        t = type_uchar;
+        if (is_unsigned || saw_sign || long_count != 0 || is_short) {
+            rcc_error(previous()->loc,
+                      "integer sign/width specifier is invalid on char8_t");
+        }
+        t = type_char8;
     } else if (match(TOK_CHAR)) {
-        t = is_unsigned ? type_uchar : type_char;
+        t = is_unsigned ? type_uchar : saw_sign ? type_schar : type_char;
     } else if (match(TOK_INT) || long_count > 0 || is_short) {
         if (is_short) {
             t = is_unsigned ? type_ushort : type_short;

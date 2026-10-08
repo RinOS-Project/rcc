@@ -319,144 +319,214 @@ static bool sema_cxx_is_polymorphic(Type* type) {
     return cls && (cls->vtable_size > 0 || cls->secondary_vtable_count > 0);
 }
 
-static uint64_t sema_cxx_typeinfo_hash_u64(uint64_t hash,
-                                           uint64_t value) {
-    unsigned byte;
-    for (byte = 0; byte < 8u; ++byte) {
-        hash ^= (uint8_t)(value >> (byte * 8u));
-        hash *= UINT64_C(1099511628211);
+typedef struct {
+    char* data;
+    size_t length;
+    size_t capacity;
+} CxxTypeInfoNameBuilder;
+
+static void sema_cxx_typeinfo_name_append(CxxTypeInfoNameBuilder* builder,
+                                          const char* data,
+                                          size_t length) {
+    size_t needed;
+    size_t capacity;
+    if (length > SIZE_MAX - builder->length - 1u) {
+        rcc_fatal("C++ typeinfo identity is too large");
     }
-    return hash;
+    needed = builder->length + length + 1u;
+    if (needed > builder->capacity) {
+        capacity = builder->capacity ? builder->capacity : 128u;
+        while (capacity < needed) {
+            if (capacity > SIZE_MAX / 2u) {
+                capacity = needed;
+                break;
+            }
+            capacity *= 2u;
+        }
+        builder->data = rcc_realloc(builder->data, capacity);
+        builder->capacity = capacity;
+    }
+    if (length != 0u) {
+        memcpy(builder->data + builder->length, data, length);
+        builder->length += length;
+    }
+    builder->data[builder->length] = '\0';
 }
 
-static uint64_t sema_cxx_typeinfo_hash_text(uint64_t hash,
-                                            const char* text) {
-    if (!text) return hash ^ UINT64_C(0xff);
-    while (*text) {
-        hash ^= (uint8_t)*text++;
-        hash *= UINT64_C(1099511628211);
-    }
-    return hash ^ UINT64_C(0x9d);
+static void sema_cxx_typeinfo_name_append_char(
+    CxxTypeInfoNameBuilder* builder, char value) {
+    sema_cxx_typeinfo_name_append(builder, &value, 1u);
 }
 
-static uint64_t sema_cxx_typeinfo_hash_type(const Type* type,
-                                            bool ignore_top_level_cv) {
-    uint64_t hash;
+static void sema_cxx_typeinfo_name_append_number(
+    CxxTypeInfoNameBuilder* builder, uint64_t value) {
+    char digits[32];
+    int length = snprintf(digits, sizeof(digits), "%llu",
+                          (unsigned long long)value);
+    if (length < 0 || (size_t)length >= sizeof(digits)) {
+        rcc_fatal("C++ typeinfo integer formatting failed");
+    }
+    sema_cxx_typeinfo_name_append(builder, digits, (size_t)length);
+    sema_cxx_typeinfo_name_append_char(builder, '_');
+}
+
+static void sema_cxx_typeinfo_name_append_signed(
+    CxxTypeInfoNameBuilder* builder, int64_t value) {
+    uint64_t magnitude;
+    if (value < 0) {
+        sema_cxx_typeinfo_name_append_char(builder, 'n');
+        magnitude = (uint64_t)(-(value + 1)) + UINT64_C(1);
+    } else {
+        sema_cxx_typeinfo_name_append_char(builder, 'p');
+        magnitude = (uint64_t)value;
+    }
+    sema_cxx_typeinfo_name_append_number(builder, magnitude);
+}
+
+static void sema_cxx_typeinfo_name_append_text(
+    CxxTypeInfoNameBuilder* builder, const char* text) {
+    static const char hex[] = "0123456789abcdef";
+    size_t length;
+    if (!text) {
+        sema_cxx_typeinfo_name_append_char(builder, 'N');
+        return;
+    }
+    length = strlen(text);
+    sema_cxx_typeinfo_name_append_char(builder, 'S');
+    sema_cxx_typeinfo_name_append_number(builder, (uint64_t)length);
+    for (size_t index = 0; index < length; ++index) {
+        unsigned char byte = (unsigned char)text[index];
+        char encoded[2] = {hex[byte >> 4], hex[byte & 0x0fu]};
+        sema_cxx_typeinfo_name_append(builder, encoded, sizeof(encoded));
+    }
+}
+
+static void sema_cxx_typeinfo_name_append_type(
+    CxxTypeInfoNameBuilder* builder, const Type* type,
+    bool ignore_top_level_cv) {
     const TypeParam* parameter;
     uint64_t parameter_count = 0;
-    if (!type) return UINT64_C(0x4f1bbcdcaa55ee11);
-    hash = UINT64_C(1469598103934665603);
-    hash = sema_cxx_typeinfo_hash_u64(hash, (uint64_t)type->kind);
-    hash = sema_cxx_typeinfo_hash_u64(
-        hash, (uint64_t)(uint32_t)type->size);
-    hash = sema_cxx_typeinfo_hash_u64(
-        hash, (uint64_t)(uint32_t)type->align);
-    hash = sema_cxx_typeinfo_hash_u64(
-        hash, type->is_unsigned ? UINT64_C(1) : UINT64_C(0));
-    if (!ignore_top_level_cv) {
-        hash = sema_cxx_typeinfo_hash_u64(
-            hash, type->is_const ? UINT64_C(1) : UINT64_C(0));
-        hash = sema_cxx_typeinfo_hash_u64(
-            hash, type->is_volatile ? UINT64_C(1) : UINT64_C(0));
+    unsigned qualifiers = 0;
+    static const char hex[] = "0123456789abcdef";
+    if (!type) {
+        sema_cxx_typeinfo_name_append_char(builder, '0');
+        return;
     }
-    hash = sema_cxx_typeinfo_hash_u64(
-        hash, type->is_atomic ? UINT64_C(1) : UINT64_C(0));
-    hash = sema_cxx_typeinfo_hash_u64(
-        hash, type->is_restrict ? UINT64_C(1) : UINT64_C(0));
+    sema_cxx_typeinfo_name_append_char(builder, 'T');
+    sema_cxx_typeinfo_name_append_number(builder, (uint64_t)type->kind);
+    if (!ignore_top_level_cv && type->is_const) qualifiers |= 1u;
+    if (!ignore_top_level_cv && type->is_volatile) qualifiers |= 2u;
+    if (type->is_atomic) qualifiers |= 4u;
+    if (type->is_restrict) qualifiers |= 8u;
+    sema_cxx_typeinfo_name_append_char(builder, hex[qualifiers]);
+    sema_cxx_typeinfo_name_append_char(
+        builder, type->is_unsigned ? 'u' : 's');
+    if (type->kind == TYPE_CHAR) {
+        sema_cxx_typeinfo_name_append_char(
+            builder, type->is_plain_char ? 'p' :
+                     type->is_char8 ? '8' : 'c');
+    }
     switch (type->kind) {
         case TYPE_PTR:
-            hash = sema_cxx_typeinfo_hash_u64(
-                hash, type->cxx_is_member_pointer ? UINT64_C(1)
-                                                  : UINT64_C(0));
-            if (type->cxx_is_member_pointer) {
-                hash ^= sema_cxx_typeinfo_hash_type(
-                    type->cxx_member_pointer_owner, true);
-                hash *= UINT64_C(1099511628211);
+            if (type->is_reference) {
+                sema_cxx_typeinfo_name_append_char(
+                    builder, type->is_rvalue_reference ? 'O' : 'R');
+            } else if (type->cxx_is_member_pointer) {
+                sema_cxx_typeinfo_name_append_char(builder, 'M');
+                sema_cxx_typeinfo_name_append_type(
+                    builder, type->cxx_member_pointer_owner, true);
+            } else {
+                sema_cxx_typeinfo_name_append_char(builder, 'P');
             }
-            hash ^= sema_cxx_typeinfo_hash_type(type->base, false);
-            hash *= UINT64_C(1099511628211);
+            sema_cxx_typeinfo_name_append_type(builder, type->base, false);
             break;
         case TYPE_ARRAY:
+            sema_cxx_typeinfo_name_append_char(builder, 'A');
+            sema_cxx_typeinfo_name_append_signed(
+                builder, (int64_t)type->array_len);
+            sema_cxx_typeinfo_name_append_type(builder, type->base, false);
+            break;
         case TYPE_VECTOR:
-            hash ^= sema_cxx_typeinfo_hash_type(type->base, false);
-            hash *= UINT64_C(1099511628211);
-            if (type->kind == TYPE_ARRAY || type->kind == TYPE_VECTOR) {
-                hash = sema_cxx_typeinfo_hash_u64(
-                    hash, (uint64_t)(uint32_t)type->array_len);
-            }
+            sema_cxx_typeinfo_name_append_char(builder, 'V');
+            sema_cxx_typeinfo_name_append_signed(
+                builder, (int64_t)type->array_len);
+            sema_cxx_typeinfo_name_append_type(builder, type->base, false);
             break;
         case TYPE_STRUCT:
         case TYPE_UNION:
-            hash = sema_cxx_typeinfo_hash_text(hash, type->tag);
-            hash = sema_cxx_typeinfo_hash_text(hash, type->cxx_namespace);
-            if (type->cxx_typeinfo_symbol) {
-                hash = sema_cxx_typeinfo_hash_text(
-                    hash, type->cxx_typeinfo_symbol);
+            sema_cxx_typeinfo_name_append_char(
+                builder, type->kind == TYPE_STRUCT ? 'S' : 'U');
+            if (type->cxx_class && type->cxx_typeinfo_symbol) {
+                sema_cxx_typeinfo_name_append_text(
+                    builder, type->cxx_typeinfo_symbol);
+            } else {
+                sema_cxx_typeinfo_name_append_text(
+                    builder, type->cxx_namespace);
+                sema_cxx_typeinfo_name_append_text(builder, type->tag);
             }
             break;
         case TYPE_ENUM:
-            hash = sema_cxx_typeinfo_hash_text(hash, type->enum_tag);
-            hash = sema_cxx_typeinfo_hash_text(hash, type->cxx_namespace);
-            hash = sema_cxx_typeinfo_hash_u64(
-                hash, type->enum_is_scoped ? UINT64_C(1) : UINT64_C(0));
-            if (type->enum_underlying_type) {
-                hash ^= sema_cxx_typeinfo_hash_type(
-                    type->enum_underlying_type, true);
-                hash *= UINT64_C(1099511628211);
-            }
+            sema_cxx_typeinfo_name_append_char(builder, 'E');
+            sema_cxx_typeinfo_name_append_text(
+                builder, type->cxx_namespace);
+            sema_cxx_typeinfo_name_append_text(builder, type->enum_tag);
+            sema_cxx_typeinfo_name_append_char(
+                builder, type->enum_is_scoped ? 'C' : 'U');
             break;
         case TYPE_FUNC:
-            hash ^= sema_cxx_typeinfo_hash_type(type->ret_type, false);
-            hash *= UINT64_C(1099511628211);
-            hash = sema_cxx_typeinfo_hash_u64(
-                hash, type->has_prototype ? UINT64_C(1) : UINT64_C(0));
-            hash = sema_cxx_typeinfo_hash_u64(
-                hash, type->variadic ? UINT64_C(1) : UINT64_C(0));
+            sema_cxx_typeinfo_name_append_char(builder, 'F');
+            sema_cxx_typeinfo_name_append_char(
+                builder, type->has_prototype ? 'P' : 'N');
+            sema_cxx_typeinfo_name_append_char(
+                builder, type->variadic ? 'V' : 'N');
+            sema_cxx_typeinfo_name_append_type(
+                builder, type->ret_type, false);
             for (parameter = type->params; parameter;
                  parameter = parameter->next) {
-                hash ^= sema_cxx_typeinfo_hash_type(
-                    parameter->type, true);
-                hash *= UINT64_C(1099511628211);
                 ++parameter_count;
             }
-            hash = sema_cxx_typeinfo_hash_u64(hash, parameter_count);
+            sema_cxx_typeinfo_name_append_number(
+                builder, parameter_count);
+            for (parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                sema_cxx_typeinfo_name_append_type(
+                    builder, parameter->type, true);
+            }
             break;
         default:
             break;
     }
-    return hash;
 }
 
-static uint64_t sema_cxx_typeinfo_hash(const Type* type) {
-    while (type && type->kind == TYPE_PTR && type->is_reference) {
-        type = type->base;
-    }
-    return sema_cxx_typeinfo_hash_type(type, true);
+static const char* sema_cxx_typeinfo_canonical_symbol(Type* type) {
+    static const char prefix[] = "__rcc_typeinfo_type_";
+    CxxTypeInfoNameBuilder builder = {0};
+    size_t prefix_length = sizeof(prefix) - 1u;
+    const char* interned;
+    sema_cxx_typeinfo_name_append(&builder, prefix, prefix_length);
+    sema_cxx_typeinfo_name_append_type(&builder, type, true);
+    interned = rcc_intern(builder.data);
+    rcc_free(builder.data);
+    return interned;
 }
 
 static const char* sema_cxx_typeinfo_symbol(Type* type, SourceLoc loc) {
-    char* symbol;
-    uint64_t hash;
     if (!type) return NULL;
     while (type->kind == TYPE_PTR && type->is_reference) {
         type = type->base;
         if (!type) return NULL;
     }
-    if (type->cxx_typeinfo_symbol) return type->cxx_typeinfo_symbol;
+    if (type->cxx_class && type->cxx_typeinfo_symbol) {
+        return type->cxx_typeinfo_symbol;
+    }
     if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC ||
         type->size <= 0) {
         rcc_error(loc,
                   "typeid requires a complete object type operand");
         return NULL;
     }
-    hash = sema_cxx_typeinfo_hash(type);
-    symbol = ast_arena_alloc(32u);
-    if (snprintf(symbol, 32u, "__rcc_typeinfo_%016llx",
-                 (unsigned long long)hash) < 0) {
-        rcc_fatal("C++ typeinfo symbol formatting failed");
-    }
-    type->cxx_typeinfo_symbol = symbol;
-    return symbol;
+    type->cxx_typeinfo_symbol = sema_cxx_typeinfo_canonical_symbol(type);
+    return type->cxx_typeinfo_symbol;
 }
 
 static void sema_validate_static_integer_expression(Expr* expression);
@@ -7011,6 +7081,11 @@ static bool cxx_same_parameter_type(Type* source, Type* target,
         source->is_unsigned != target->is_unsigned) {
         return false;
     }
+    if (source->kind == TYPE_CHAR &&
+        (source->is_plain_char != target->is_plain_char ||
+         source->is_char8 != target->is_char8)) {
+        return false;
+    }
     if (source->kind == TYPE_PTR) {
         if (source->cxx_is_member_pointer !=
             target->cxx_is_member_pointer) return false;
@@ -10441,7 +10516,11 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_CHAR_LIT:
-            expr->type = expr->is_cxx_utf8_literal ? type_uchar : type_int;
+            expr->type = rcc_parser_is_cxx_mode()
+                ? (expr->is_cxx_utf8_literal &&
+                   rcc_parser_cxx_standard_at_least(20)
+                       ? type_char8 : type_char)
+                : type_int;
             break;
 
         case EXPR_STRING_LIT: {

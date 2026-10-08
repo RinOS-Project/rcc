@@ -164,20 +164,20 @@
     {
       "id": "cxx20-typeid",
       "language": "C++20",
-      "source": "tests/cxx_typeid.cpp",
+      "source": "tests/cxx_typeinfo_api.cpp",
       "flags": ["-std=c++20"],
       "sha256": {
         "i686-unknown-rinos": {
-          "ro": "120f6673c35572becc24fed144f765a554248ef80c70c6eedf933443003c9dff",
-          "rin": "b54728169cefad74bbd9e7671447594ac5d3d173d073d8800eac8c3247bf4ba0",
-          "rll": "48807bb7c918399a5292f3fd77af592b37114b3fcccfc93a1fe48ae8ea60f871",
-          "drv": "6d895c4c23bfdcaf88a7135d7f53c90b0758db29220ea516178ac9740642b772"
+          "ro": "45a2152e10683c974150282d844371a25ddb2b195c52476b6ce96ee3eb4d6176",
+          "rin": "59c5dd94fe85ed17e919d6560e57180458cc21002f36246fe83dc2500327b27b",
+          "rll": "9b6d3532968f75326b49f3b85b143701594e898bbd508aa791e213b58ca13bff",
+          "drv": "54b2c28e0dc692ffa991d419ba7e4f7a7ac3f7b99d1c18053effb992ef2c0609"
         },
         "x86_64-unknown-rinos": {
-          "ro": "c1f48597c385ed19b15199fed652f49e33c3ef14a1830415a3d954bd4504ed0d",
-          "rin": "9c1ad986bc3a1dce87173baaad465f4336d72ee91c540e900d752ba604d00370",
-          "rll": "2e62b61d7c015498b0d27b8e312f8823dbd3cf906737a847edcf3eecb775596f",
-          "drv": "d2b5e468b1a0909ef48af07fbff00619895e6808d6a779d64bf5c13366489622"
+          "ro": "684a5e485a37dd122f803131fee9751249b65b8211fc67a10982f5217f088853",
+          "rin": "69afb2415398a633aac034cfe082e1c19b529dc8bb51d3ddc49538f865d564de",
+          "rll": "915f5c3ecec427d69051aabf7b129097fd93baee648dcba3bf8723e4dd5f0cd6",
+          "drv": "7384ee994674934f67d7d030a50213379e3852b9ef9ac7783371db290ef0ed70"
         }
       }
     }

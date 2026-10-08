@@ -351,8 +351,17 @@ static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type) {
     switch (type->kind) {
         case TYPE_VOID:   cxx_mangle_type_char(buf, pos, 'v'); break;
         case TYPE_BOOL:   cxx_mangle_type_char(buf, pos, 'b'); break;
-        case TYPE_CHAR:   cxx_mangle_type_char(buf, pos,
-                              type->is_unsigned ? 'h' : 'c'); break;
+        case TYPE_CHAR:
+            if (type->is_char8) {
+                cxx_mangle_type_char(buf, pos, 'D');
+                cxx_mangle_type_char(buf, pos, 'u');
+            } else if (type->is_plain_char) {
+                cxx_mangle_type_char(buf, pos, 'c');
+            } else {
+                cxx_mangle_type_char(buf, pos,
+                                     type->is_unsigned ? 'h' : 'a');
+            }
+            break;
         case TYPE_SHORT:  cxx_mangle_type_char(buf, pos,
                               type->is_unsigned ? 't' : 's'); break;
         case TYPE_INT:    cxx_mangle_type_char(buf, pos,
@@ -1417,10 +1426,314 @@ static const char* cxx_vtable_name(CxxClass* cls) {
     return rcc_intern(buffer);
 }
 
+typedef struct {
+    char* data;
+    size_t length;
+    size_t capacity;
+} CxxTypeInfoIdentityBuilder;
+
+static void cxx_typeinfo_identity_append(
+    CxxTypeInfoIdentityBuilder* builder, const char* data, size_t length) {
+    size_t needed;
+    size_t capacity;
+    if (length > SIZE_MAX - builder->length - 1u) {
+        rcc_fatal("C++ typeinfo identity is too large");
+    }
+    needed = builder->length + length + 1u;
+    if (needed > builder->capacity) {
+        capacity = builder->capacity ? builder->capacity : 128u;
+        while (capacity < needed) {
+            if (capacity > SIZE_MAX / 2u) {
+                capacity = needed;
+                break;
+            }
+            capacity *= 2u;
+        }
+        builder->data = ast_arena_grow(builder->data, builder->capacity,
+                                       capacity);
+        builder->capacity = capacity;
+    }
+    if (length != 0u) {
+        memcpy(builder->data + builder->length, data, length);
+        builder->length += length;
+    }
+    builder->data[builder->length] = '\0';
+}
+
+static void cxx_typeinfo_identity_append_char(
+    CxxTypeInfoIdentityBuilder* builder, char value) {
+    cxx_typeinfo_identity_append(builder, &value, 1u);
+}
+
+static void cxx_typeinfo_identity_append_number(
+    CxxTypeInfoIdentityBuilder* builder, uint64_t value) {
+    char digits[32];
+    int length = snprintf(digits, sizeof(digits), "%llu",
+                          (unsigned long long)value);
+    if (length < 0 || (size_t)length >= sizeof(digits)) {
+        rcc_fatal("C++ typeinfo identity integer formatting failed");
+    }
+    cxx_typeinfo_identity_append(builder, digits, (size_t)length);
+    cxx_typeinfo_identity_append_char(builder, '_');
+}
+
+static void cxx_typeinfo_identity_append_signed(
+    CxxTypeInfoIdentityBuilder* builder, int64_t value) {
+    uint64_t magnitude;
+    if (value < 0) {
+        cxx_typeinfo_identity_append_char(builder, 'n');
+        magnitude = (uint64_t)(-(value + 1)) + UINT64_C(1);
+    } else {
+        cxx_typeinfo_identity_append_char(builder, 'p');
+        magnitude = (uint64_t)value;
+    }
+    cxx_typeinfo_identity_append_number(builder, magnitude);
+}
+
+static void cxx_typeinfo_identity_append_text(
+    CxxTypeInfoIdentityBuilder* builder, const char* text) {
+    static const char hex[] = "0123456789abcdef";
+    size_t length;
+    if (!text) {
+        cxx_typeinfo_identity_append_char(builder, 'N');
+        return;
+    }
+    length = strlen(text);
+    cxx_typeinfo_identity_append_char(builder, 'S');
+    cxx_typeinfo_identity_append_number(builder, (uint64_t)length);
+    for (size_t index = 0; index < length; ++index) {
+        unsigned char byte = (unsigned char)text[index];
+        char encoded[2] = {hex[byte >> 4], hex[byte & 0x0fu]};
+        cxx_typeinfo_identity_append(builder, encoded, sizeof(encoded));
+    }
+}
+
+static void cxx_typeinfo_identity_append_namespace(
+    CxxTypeInfoIdentityBuilder* builder, CxxNamespace* ns) {
+    CxxNamespace* stack[32];
+    size_t count = 0u;
+    for (CxxNamespace* current = ns; current && current->name;
+         current = current->parent) {
+        if (count == sizeof(stack) / sizeof(stack[0])) {
+            rcc_fatal("C++ typeinfo namespace nesting is too deep");
+        }
+        stack[count++] = current;
+    }
+    cxx_typeinfo_identity_append_char(builder, 'N');
+    cxx_typeinfo_identity_append_number(builder, (uint64_t)count);
+    while (count != 0u) {
+        cxx_typeinfo_identity_append_text(builder, stack[--count]->name);
+    }
+}
+
+static void cxx_typeinfo_identity_append_template(
+    CxxTypeInfoIdentityBuilder* builder, CxxTemplate* tmpl,
+    CxxNamespace* fallback_namespace) {
+    if (!tmpl || !tmpl->name) {
+        rcc_fatal("C++ typeinfo template identity is incomplete");
+    }
+    cxx_typeinfo_identity_append_char(builder, 'M');
+    cxx_typeinfo_identity_append_namespace(
+        builder, tmpl->ns ? tmpl->ns : fallback_namespace);
+    cxx_typeinfo_identity_append_text(builder, tmpl->name);
+}
+
+static void cxx_typeinfo_identity_append_class(
+    CxxTypeInfoIdentityBuilder* builder, CxxClass* cls);
+
+static void cxx_typeinfo_identity_append_type(
+    CxxTypeInfoIdentityBuilder* builder, const Type* type);
+
+static void cxx_typeinfo_identity_append_class(
+    CxxTypeInfoIdentityBuilder* builder, CxxClass* cls) {
+    CxxTemplate* tmpl;
+    Type** arguments;
+    int argument_count;
+    int64_t* value_arguments;
+    bool* value_present;
+    if (!cls || !cls->name) {
+        rcc_fatal("C++ typeinfo class identity is incomplete");
+    }
+    tmpl = cls->template_identity_tmpl
+        ? cls->template_identity_tmpl : cls->templ;
+    arguments = cls->template_identity_tmpl
+        ? cls->template_identity_args : cls->template_args;
+    argument_count = cls->template_identity_tmpl
+        ? cls->template_identity_arg_count : cls->template_arg_count;
+    value_arguments = cls->template_identity_tmpl
+        ? cls->template_identity_value_args : cls->template_value_args;
+    value_present = cls->template_identity_tmpl
+        ? cls->template_identity_value_present : cls->template_value_present;
+
+    cxx_typeinfo_identity_append_char(builder, 'C');
+    cxx_typeinfo_identity_append_namespace(builder, cls->ns);
+    cxx_typeinfo_identity_append_text(
+        builder, tmpl && tmpl->name ? tmpl->name : cls->name);
+    if (!tmpl) {
+        cxx_typeinfo_identity_append_char(builder, 'N');
+        return;
+    }
+    if (argument_count < 0 ||
+        (argument_count != 0 && !arguments &&
+         (!tmpl->params || tmpl->params[0].kind != TPARAM_NONTYPE))) {
+        rcc_fatal("C++ typeinfo template arguments are incomplete");
+    }
+    cxx_typeinfo_identity_append_char(builder, 'I');
+    cxx_typeinfo_identity_append_number(builder, (uint64_t)argument_count);
+    for (int index = 0; index < argument_count; ++index) {
+        int parameter_index = index < tmpl->param_count
+            ? index : tmpl->param_count - 1;
+        TemplateParam* parameter;
+        if (parameter_index < 0 || !tmpl->params ||
+            (index >= tmpl->param_count &&
+             !tmpl->params[parameter_index].is_pack)) {
+            rcc_fatal("C++ typeinfo template argument count is invalid");
+        }
+        parameter = &tmpl->params[parameter_index];
+        switch (parameter->kind) {
+            case TPARAM_TYPE:
+                if (!arguments || !arguments[index]) {
+                    rcc_fatal("C++ typeinfo type argument is missing");
+                }
+                cxx_typeinfo_identity_append_type(builder, arguments[index]);
+                break;
+            case TPARAM_NONTYPE:
+                if (!value_present || !value_present[index] ||
+                    !value_arguments) {
+                    rcc_fatal("C++ typeinfo value argument is missing");
+                }
+                cxx_typeinfo_identity_append_char(builder, 'V');
+                cxx_typeinfo_identity_append_signed(
+                    builder, value_arguments[index]);
+                break;
+            case TPARAM_TEMPLATE:
+                if (!arguments || !arguments[index] ||
+                    !arguments[index]->cxx_template) {
+                    rcc_fatal("C++ typeinfo template-template argument is missing");
+                }
+                cxx_typeinfo_identity_append_template(
+                    builder, arguments[index]->cxx_template, cls->ns);
+                break;
+            default:
+                rcc_fatal("unsupported C++ typeinfo template parameter");
+        }
+    }
+}
+
+static void cxx_typeinfo_identity_append_type(
+    CxxTypeInfoIdentityBuilder* builder, const Type* type) {
+    const TypeParam* parameter;
+    uint64_t parameter_count = 0u;
+    unsigned qualifiers = 0u;
+    static const char hex[] = "0123456789abcdef";
+    if (!type) {
+        cxx_typeinfo_identity_append_char(builder, '0');
+        return;
+    }
+    cxx_typeinfo_identity_append_char(builder, 'T');
+    cxx_typeinfo_identity_append_number(builder, (uint64_t)type->kind);
+    if (type->is_const) qualifiers |= 1u;
+    if (type->is_volatile) qualifiers |= 2u;
+    if (type->is_atomic) qualifiers |= 4u;
+    if (type->is_restrict) qualifiers |= 8u;
+    cxx_typeinfo_identity_append_char(builder, hex[qualifiers]);
+    cxx_typeinfo_identity_append_char(
+        builder, type->is_unsigned ? 'u' : 's');
+    if (type->kind == TYPE_CHAR) {
+        cxx_typeinfo_identity_append_char(
+            builder, type->is_plain_char ? 'p' :
+                     type->is_char8 ? '8' : 'c');
+    }
+    switch (type->kind) {
+        case TYPE_PTR:
+            if (type->is_reference) {
+                cxx_typeinfo_identity_append_char(
+                    builder, type->is_rvalue_reference ? 'O' : 'R');
+            } else if (type->cxx_is_member_pointer) {
+                cxx_typeinfo_identity_append_char(builder, 'M');
+                cxx_typeinfo_identity_append_type(
+                    builder, type->cxx_member_pointer_owner);
+            } else {
+                cxx_typeinfo_identity_append_char(builder, 'P');
+            }
+            cxx_typeinfo_identity_append_type(builder, type->base);
+            break;
+        case TYPE_ARRAY:
+            cxx_typeinfo_identity_append_char(builder, 'A');
+            cxx_typeinfo_identity_append_signed(
+                builder, (int64_t)type->array_len);
+            cxx_typeinfo_identity_append_type(builder, type->base);
+            break;
+        case TYPE_VECTOR:
+            cxx_typeinfo_identity_append_char(builder, 'V');
+            cxx_typeinfo_identity_append_signed(
+                builder, (int64_t)type->array_len);
+            cxx_typeinfo_identity_append_type(builder, type->base);
+            break;
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+            if (type->cxx_class) {
+                cxx_typeinfo_identity_append_class(
+                    builder, type->cxx_class);
+            } else {
+                cxx_typeinfo_identity_append_char(
+                    builder, type->kind == TYPE_STRUCT ? 'S' : 'U');
+                cxx_typeinfo_identity_append_text(
+                    builder, type->cxx_namespace);
+                cxx_typeinfo_identity_append_text(builder, type->tag);
+            }
+            break;
+        case TYPE_ENUM:
+            cxx_typeinfo_identity_append_char(builder, 'E');
+            cxx_typeinfo_identity_append_text(
+                builder, type->cxx_namespace);
+            cxx_typeinfo_identity_append_text(builder, type->enum_tag);
+            cxx_typeinfo_identity_append_char(
+                builder, type->enum_is_scoped ? 'C' : 'U');
+            break;
+        case TYPE_FUNC:
+            cxx_typeinfo_identity_append_char(builder, 'F');
+            cxx_typeinfo_identity_append_char(
+                builder, type->has_prototype ? 'P' : 'N');
+            cxx_typeinfo_identity_append_char(
+                builder, type->variadic ? 'V' : 'N');
+            cxx_typeinfo_identity_append_type(builder, type->ret_type);
+            for (parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                ++parameter_count;
+            }
+            cxx_typeinfo_identity_append_number(
+                builder, parameter_count);
+            for (parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                cxx_typeinfo_identity_append_type(builder, parameter->type);
+            }
+            break;
+        case TYPE_BOOL:
+        case TYPE_CHAR:
+        case TYPE_SHORT:
+        case TYPE_INT:
+        case TYPE_LONG:
+        case TYPE_LLONG:
+        case TYPE_FLOAT:
+        case TYPE_DOUBLE:
+        case TYPE_NULLPTR:
+        case TYPE_VOID:
+            break;
+    }
+}
+
 static const char* cxx_typeinfo_name(CxxClass* cls) {
+    static const char prefix[] = "__rcc_typeinfo_class_";
+    CxxTypeInfoIdentityBuilder builder = {0};
     char buffer[1024];
     char* class_name;
     if (!cls || !cls->name) return NULL;
+    if (cls->templ || cls->template_identity_tmpl) {
+        cxx_typeinfo_identity_append(&builder, prefix, sizeof(prefix) - 1u);
+        cxx_typeinfo_identity_append_class(&builder, cls);
+        return rcc_intern(builder.data);
+    }
     class_name = cxx_mangle_name(cls->name, cls->ns, NULL);
     if (snprintf(buffer, sizeof(buffer), "__rcc_typeinfo_%s", class_name) < 0 ||
         strlen(buffer) >= sizeof(buffer) - 1u) {

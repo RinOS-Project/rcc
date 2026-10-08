@@ -26,6 +26,10 @@ static CxxNamespace* active_namespace;
 static CxxClass* active_class;
 static AST* active_ast;
 
+const char* rcc_parser_cxx_current_namespace_identity(void) {
+    return cxx_namespace_qualified_name(active_namespace);
+}
+
 /* A leading alignas belongs to a class declaration only when its complete
  * parenthesized argument list is followed by class-key.  Leave other
  * declarations to the common declaration parser so alignas on objects and
@@ -11820,9 +11824,13 @@ static Type* parse_cxx_type_spec(void) {
     } else if (match(TOK_BOOL)) {
         t = type_bool;
     } else if (match(TOK_CHAR8_T)) {
-        t = type_uchar;
+        if (is_unsigned || saw_sign || long_count != 0 || is_short) {
+            rcc_error(previous()->loc,
+                      "integer sign/width specifier is invalid on char8_t");
+        }
+        t = type_char8;
     } else if (match(TOK_CHAR)) {
-        t = is_unsigned ? type_uchar : type_char;
+        t = is_unsigned ? type_uchar : saw_sign ? type_schar : type_char;
     } else if (match(TOK___BUILTIN_VA_LIST)) {
         t = rcc_parser_builtin_va_list_type();
     } else if (match(TOK_INT) || long_count > 0 || is_short || saw_sign) {
