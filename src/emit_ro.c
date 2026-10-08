@@ -2319,6 +2319,28 @@ static void debug_emit_stmt_locals(
                 if (has_range) section_add_byte(info, 0u);
             }
             break;
+        case STMT_FOR:
+            {
+                bool has_range = statement->debug_code_end >
+                                 statement->debug_code_start;
+                const Stmt* child_scope = has_range ? statement
+                                                    : location_scope;
+                if (has_range) {
+                    debug_emit_lexical_block_die(
+                        obj, info, files, file_count, mod, filename,
+                        info_section, function, statement, architecture);
+                }
+                debug_emit_stmt_locals(
+                    obj, info, strings, types, files, file_count, mod,
+                    filename, info_section, function, statement->for_init,
+                    child_scope, architecture);
+                debug_emit_stmt_locals(
+                    obj, info, strings, types, files, file_count, mod,
+                    filename, info_section, function, statement->for_body,
+                    child_scope, architecture);
+                if (has_range) section_add_byte(info, 0u);
+            }
+            break;
         case STMT_IF:
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
@@ -2334,16 +2356,6 @@ static void debug_emit_stmt_locals(
             debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
                                    mod, filename, info_section, function,
                                    statement->while_body, location_scope,
-                                   architecture);
-            break;
-        case STMT_FOR:
-            debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
-                                   mod, filename, info_section, function,
-                                   statement->for_init, location_scope,
-                                   architecture);
-            debug_emit_stmt_locals(obj, info, strings, types, files, file_count,
-                                   mod, filename, info_section, function,
-                                   statement->for_body, location_scope,
                                    architecture);
             break;
         case STMT_SWITCH:

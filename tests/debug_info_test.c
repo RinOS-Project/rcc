@@ -989,6 +989,104 @@ static bool find_variable_location(const ObjSection* info,
     return false;
 }
 
+static bool find_location_list_bounds(
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* locations, const char* variable_name,
+    const char* function_symbol, uint16_t architecture,
+    int64_t* range_start, int64_t* range_end)
+{
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    if (!info || !strings || !locations || !variable_name ||
+        !function_symbol || !range_start || !range_end) return false;
+    for (uint64_t die = 11u; die + 25u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint32_t list_offset;
+        uint64_t cursor;
+        int64_t minimum_start = 0;
+        int64_t maximum_end = 0;
+        bool saw_entry = false;
+        if (info->data[die] != 39u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) != 0) continue;
+        list_offset = read_u32(info->data, die + 21u);
+        if (list_offset >= locations->size) return false;
+        cursor = list_offset;
+        for (;;) {
+            const ObjReloc* start_reloc = NULL;
+            const ObjReloc* end_reloc = NULL;
+            uint16_t expression_size;
+            for (const ObjReloc* reloc = locations->relocs; reloc;
+                 reloc = reloc->next) {
+                if (reloc->offset == cursor) start_reloc = reloc;
+                if (reloc->offset == cursor + address_size) {
+                    end_reloc = reloc;
+                }
+            }
+            if (!start_reloc && !end_reloc) {
+                if (!saw_entry) return false;
+                *range_start = minimum_start;
+                *range_end = maximum_end;
+                return true;
+            }
+            if (!start_reloc || !end_reloc ||
+                !start_reloc->symbol_name || !end_reloc->symbol_name ||
+                strcmp(start_reloc->symbol_name, function_symbol) != 0 ||
+                strcmp(end_reloc->symbol_name, function_symbol) != 0 ||
+                cursor > locations->size ||
+                address_size * 2u + 2u > locations->size - cursor) {
+                return false;
+            }
+            if (end_reloc->addend <= start_reloc->addend) return false;
+            if (!saw_entry || start_reloc->addend < minimum_start) {
+                minimum_start = start_reloc->addend;
+            }
+            if (!saw_entry || end_reloc->addend > maximum_end) {
+                maximum_end = end_reloc->addend;
+            }
+            saw_entry = true;
+            cursor += address_size * 2u;
+            expression_size = (uint16_t)locations->data[cursor] |
+                (uint16_t)((uint16_t)locations->data[cursor + 1u] << 8);
+            cursor += 2u;
+            if (expression_size > locations->size - cursor) return false;
+            cursor += expression_size;
+        }
+    }
+    return false;
+}
+
+static void verify_cxx_for_initializer_scope(const char* path,
+                                             uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* locations;
+    int64_t loop_scope_start;
+    int64_t loop_scope_end;
+    int64_t outer_scope_start;
+    int64_t outer_scope_end;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    locations = objfile_get_section(object, ".debug_loc");
+    assert(info != NULL && strings != NULL && locations != NULL);
+    assert(find_location_list_bounds(
+        info, strings, locations, "loop_index",
+        "debug_cxx_for_initializer_scope", architecture,
+        &loop_scope_start, &loop_scope_end));
+    assert(find_location_list_bounds(
+        info, strings, locations, "outer_value",
+        "debug_cxx_for_initializer_scope", architecture,
+        &outer_scope_start, &outer_scope_end));
+    assert(loop_scope_start < loop_scope_end);
+    assert(outer_scope_start < loop_scope_start);
+    assert(loop_scope_end < outer_scope_end);
+    objfile_free(object);
+}
+
 static void verify_multiple_return_frame_fde(const ObjSection* frame,
                                              uint16_t architecture);
 static void verify_saved_callee_register_rules(
@@ -2196,6 +2294,10 @@ static void verify_debug_object(const char* path, uint16_t architecture,
                1u);
         verify_vla_variable_location(info, strings, locations, architecture);
         if (strcmp(source_file, "tests/debug_info.c") == 0) {
+            int64_t loop_scope_start;
+            int64_t loop_scope_end;
+            int64_t outer_scope_start;
+            int64_t outer_scope_end;
             assert(locations != NULL && locations->type == SECT_DEBUG_LOC &&
                    locations->relocs != NULL);
             assert(find_variable_location(
@@ -2209,6 +2311,17 @@ static void verify_debug_object(const char* path, uint16_t architecture,
             assert(verify_location_starts_after_simple_scope(
                 info, strings, locations, "nested",
                 architecture == ARCH_X64 ? 8u : 4u));
+            assert(find_location_list_bounds(
+                info, strings, locations, "loop_index",
+                "debug_for_initializer_scope", architecture,
+                &loop_scope_start, &loop_scope_end));
+            assert(find_location_list_bounds(
+                info, strings, locations, "outer_value",
+                "debug_for_initializer_scope", architecture,
+                &outer_scope_start, &outer_scope_end));
+            assert(loop_scope_start < loop_scope_end);
+            assert(outer_scope_start < loop_scope_start);
+            assert(loop_scope_end < outer_scope_end);
         }
         verify_vla_bound_dies(info, abbrev, architecture);
         verify_multidimensional_vla_type(info, strings);
@@ -2522,6 +2635,8 @@ int main(int argc, char** argv)
     verify_cxx_method_accessibility(argv[15], ARCH_X64);
     verify_cxx_reference_type_dies(argv[14], ARCH_X86);
     verify_cxx_reference_type_dies(argv[15], ARCH_X64);
+    verify_cxx_for_initializer_scope(argv[14], ARCH_X86);
+    verify_cxx_for_initializer_scope(argv[15], ARCH_X64);
     verify_optimized_verified_debug_object(argv[16], ARCH_X86);
     verify_optimized_verified_debug_object(argv[17], ARCH_X64);
     verify_unsigned_enum_dwarf(argv[18], ARCH_X86, "DebugUnsignedEnum",

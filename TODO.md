@@ -1128,6 +1128,9 @@
         C++ verified O2の`.ro`回帰と、RLDがdebug-only sectionをloadable image
         から除外する回帰を`test-debug-info`へ接続。命令rangeを持たない宣言、
         全制御フローでの正確なlifetime、register/piece locationsは未完
+  - [x] `for`文を独立したDWARF lexical blockとして出力し、for-init localの
+        `.debug_loc`をループ終了PCで閉じる。C/C++のi686/AMD64 object回帰で
+        外側localより短いlocation lifetimeを検証
   - [x] legacy i686/AMD64 codegenで命令を出したstatementの開始offsetを
         source line rowへ対応付け、代入・分岐・returnの`.debug_line`行を
         objectからデコードして両archで検証

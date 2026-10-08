@@ -82,6 +82,15 @@ int debug_info_parameters(int left, int right)
     }
 }
 
+int debug_for_initializer_scope(int limit)
+{
+    int outer_value = 0;
+    for (int loop_index = 0; loop_index < limit; ++loop_index) {
+        outer_value += loop_index;
+    }
+    return outer_value;
+}
+
 int debug_vla_location(int count)
 {
     int debug_vla_values[count];
