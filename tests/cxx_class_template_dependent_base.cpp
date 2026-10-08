@@ -47,6 +47,17 @@ struct DependentClassTemplateDerived
     }
 };
 
+template <typename T>
+struct DependentVirtualClassTemplateDerived
+    : virtual DependentClassTemplateBase<T> {
+    DependentVirtualClassTemplateDerived(T initial)
+        : DependentClassTemplateBase<T>(initial) {}
+
+    T read_virtual_base() const {
+        return this->value;
+    }
+};
+
 int main() {
     dependent_base_pack_order = 0;
     DependentClassTemplateBasePack<> empty_pack;
@@ -63,9 +74,17 @@ int main() {
 
     DependentClassTemplateDerived<int> integer(21);
     DependentClassTemplateDerived<long long> wide(23);
+    DependentVirtualClassTemplateDerived<int> virtual_integer(29);
+    DependentVirtualClassTemplateDerived<long long> virtual_wide(31);
+    DependentClassTemplateBase<int>* virtual_integer_base = &virtual_integer;
+    DependentClassTemplateBase<long long>* virtual_wide_base = &virtual_wide;
     return integer.read_twice() == 41 && wide.read_twice() == 45 &&
                    integer.read_unsigned_biases() == 0x100000002ULL &&
-                   wide.read_unsigned_biases() == 0x100000002ULL
+                   wide.read_unsigned_biases() == 0x100000002ULL &&
+                   virtual_integer.read_virtual_base() == 29 &&
+                   virtual_wide.read_virtual_base() == 31 &&
+                   virtual_integer_base->read() == 29 &&
+                   virtual_wide_base->read() == 31
                ? 0
-               : 5;
+               : 6;
 }

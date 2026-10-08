@@ -359,8 +359,8 @@ and inherited constructors, and lower `this->` field/method lookup. The new
 `test-cxx-class-template-dependent-base` target covers `int` and `long long`;
 the nested TODO records its x64 run and both target-width emissions. The full
 compiler rebuild passed in this integration, but the target was not rerun.
-Dependent base packs, virtual-base/override rules, access and ambiguity, and
-remaining dependent member initializer forms stay unchecked in the parent.
+Dependent virtual-base/override rules, access and ambiguity, and remaining
+dependent member initializer forms stay unchecked in the parent.
 
 2026-10-09 verification follow-up: the dependent-base fixture now checks
 `T bias = -1`, an unsigned 32-to-64-bit initializer, and the full-width value
@@ -370,8 +370,10 @@ generations. This verifies i686 sign/zero extension and high-word storage for
 these forms. Ordinary class-template dependent base packs and matching
 `Bases()...` constructor initializers now cover zero, one, and two bases with
 construction-order checks on freestanding i686 and x64 host execution. Dependent
-virtual bases/overrides, access and ambiguity rules, and other initializer forms
-remain unchecked.
+virtual direct-base construction and member access now also pass for `int` and
+`long long` on both target widths and x64 host execution. Dependent virtual
+overrides, access and ambiguity rules, and other initializer forms remain
+unchecked.
 
 2026-10-09 array-member verification: the inherited-constructor regression now
 executes fixed-size class-array initialization through both inherited

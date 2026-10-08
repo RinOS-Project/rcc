@@ -682,6 +682,11 @@
           verify construction order on freestanding i686 and x64 host execution
           and emit both target objects with
           `make SHELL=cmd.exe test-cxx-class-template-dependent-base`.
+    - [x] Instantiate a dependent virtual direct base, initialize it from the
+          most-derived constructor, and access its dependent member for `int`
+          and `long long`; verify freestanding i686 and x64 host execution plus
+          both target objects with
+          `make SHELL=cmd.exe test-cxx-class-template-dependent-base`.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

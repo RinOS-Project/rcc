@@ -9820,6 +9820,15 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     }
     complete_cxx_default_member_initializers(instance);
     cxx_class_build_vtable(instance);
+    /* Template instances are normally kept only on their CxxTemplate.  The
+     * object-image backend walks namespace classes when emitting vtables and
+     * virtual-base offset tables, so publish instances that own ABI tables
+     * into the same namespace registry as non-template classes. */
+    if (instance->ns &&
+        (instance->virtual_base_count > 0 || instance->vtable_size > 0 ||
+         instance->secondary_vtable_count > 0)) {
+        cxx_namespace_add_class(instance->ns, instance);
+    }
     diagnose_unlowered_destructors(instance);
     register_inline_class_accessors(instance);
     register_inline_class_bool_delegates(instance);
