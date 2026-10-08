@@ -369,3 +369,14 @@ passes freestanding i686 execution, x64 host execution, and both target object
 generations. This verifies i686 sign/zero extension and high-word storage for
 these forms; dependent base packs, virtual/access/ambiguity rules, and other
 initializer forms remain unchecked.
+
+2026-10-09 array-member verification: the inherited-constructor regression now
+executes fixed-size class-array initialization through both inherited
+constructors and ordinary constructor prologues. A side-effecting element
+constructor records declaration order; the fixture passes freestanding i686
+and AMD64 host execution and emits both target objects. Negative cases continue
+to reject nested arrays, array member initializers, and inherited arrays whose
+elements require cleanup. The run exposed a parser lowerability check that
+recognized class fields but not class-array fields; the check now admits only
+complete, one-dimensional arrays with lowerable zero-argument constructors and
+no cleanup obligation. The broad constructor/member ABI TODO remains open.

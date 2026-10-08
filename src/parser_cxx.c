@@ -3604,7 +3604,11 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
             if (!initializer->field ||
                 strcmp(initializer->field, field->name) != 0 ||
                 (!initializer->value && !initializer->arguments &&
-                 !(field->type && field->type->cxx_class))) {
+                 !(field->type &&
+                   (field->type->cxx_class ||
+                    (field->type->kind == TYPE_ARRAY &&
+                     field->type->base &&
+                     field->type->base->cxx_class))))) {
                 supported = false;
                 break;
             }
@@ -3613,6 +3617,27 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
              * symbol table.  Default member initializers keep their own
              * argument list; explicit constructor initializers are restricted
              * to the bounded parameter-forwarding form below. */
+            if (field->type && field->type->kind == TYPE_ARRAY &&
+                field->type->base &&
+                field->type->base->cxx_class) {
+                Type* element_type = field->type->base;
+                CxxClass* member_class = element_type->cxx_class;
+                if (field->type->array_len <= 0 ||
+                    element_type->kind == TYPE_ARRAY ||
+                    initializer->value || initializer->arguments ||
+                    !initializer->constructor || !member_class ||
+                    !member_class->type ||
+                    member_class->destructor_method ||
+                    member_class->type->cleanup_function ||
+                    (lowerable_constructor_arity_mask(member_class) &
+                     UINT32_C(1)) == 0u) {
+                    supported = false;
+                    break;
+                }
+                field = field->next;
+                initializer = initializer->next;
+                continue;
+            }
             if (field->type && field->type->cxx_class) {
                 if (initializer->is_default_member_initializer) {
                     CxxConstructorInfo* member_constructor =

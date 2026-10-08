@@ -655,11 +655,13 @@
       the full native-Windows `test-cxx` aggregate passes on the current checkout,
       including class-typed default-member initialization through an inherited
       constructor.
-      - [ ] Add i686/AMD64 runtime coverage for fixed-size class-array members
+      - [x] Add i686/AMD64 runtime coverage for fixed-size class-array members
             initialized through inherited constructors and ordinary constructor
             prologues; assert per-element construction order and retain negative
             coverage for unsupported nested arrays, member initializers, and
-            inherited element cleanup. The current change has build evidence only.
+            inherited element cleanup. `make SHELL=cmd.exe
+            test-cxx-inherited-constructor` passes freestanding i686 execution,
+            AMD64 host execution, and object generation for both target widths.
   - [x] Parse and instantiate a dependent direct base in an ordinary class
         template, defer its base layout and default-member initialization,
         resolve `using Base<T>::Base`/`using Base<T>::member`, and lower
