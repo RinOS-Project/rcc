@@ -385,6 +385,7 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_FSUB: return "fsub";
         case RCC_IR_FMUL: return "fmul";
         case RCC_IR_FDIV: return "fdiv";
+        case RCC_IR_FCMP: return "fcmp";
         case RCC_IR_ICMP: return "icmp";
         case RCC_IR_TRUNC: return "trunc";
         case RCC_IR_ZEXT: return "zext";
@@ -539,6 +540,26 @@ static bool ir_verify_instruction_types(
                     verifier, instruction, 0u, instruction->type) &&
                 ir_operand_has_type(
                     verifier, instruction, 1u, instruction->type);
+        case RCC_IR_FCMP:
+            if (!ir_require_shape(verifier, instruction, 2u, 0u) ||
+                !rcc_ir_type_equal(instruction->type,
+                                   rcc_ir_type_integer(1u)) ||
+                !ir_value_type(verifier, instruction->operands[0], &first) ||
+                !ir_value_type(verifier, instruction->operands[1], &second)) {
+                return false;
+            }
+            if (!rcc_ir_type_equal(first, second) ||
+                first.kind != RCC_IR_TYPE_FLOAT ||
+                (first.bit_width != 32u && first.bit_width != 64u) ||
+                (instruction->predicate != RCC_IR_ICMP_EQ &&
+                 instruction->predicate != RCC_IR_ICMP_NE &&
+                 (instruction->predicate < RCC_IR_ICMP_SLT ||
+                  instruction->predicate > RCC_IR_ICMP_SGE))) {
+                return ir_verify_error(
+                    verifier,
+                    "fcmp requires equal scalar floats and an ordered predicate");
+            }
+            return true;
         case RCC_IR_ICMP:
             if (!ir_require_shape(verifier, instruction, 2u, 0u) ||
                 !rcc_ir_type_equal(instruction->type, i1_type) ||
@@ -610,6 +631,12 @@ static bool ir_verify_instruction_types(
             if ((first.kind == RCC_IR_TYPE_INTEGER &&
                  instruction->type.kind == RCC_IR_TYPE_INTEGER &&
                  first.bit_width == instruction->type.bit_width) ||
+                (((first.kind == RCC_IR_TYPE_FLOAT &&
+                   instruction->type.kind == RCC_IR_TYPE_INTEGER) ||
+                  (first.kind == RCC_IR_TYPE_INTEGER &&
+                   instruction->type.kind == RCC_IR_TYPE_FLOAT)) &&
+                 first.bit_width == instruction->type.bit_width &&
+                 (first.bit_width == 32u || first.bit_width == 64u)) ||
                 (first.kind == RCC_IR_TYPE_POINTER &&
                  instruction->type.kind == RCC_IR_TYPE_POINTER)) {
                 return true;

@@ -847,9 +847,14 @@
   - [x] x86_64 typed SSAで`float`／`double`の加算・減算・乗算・除算を
         SSE scalar命令へlowerし、混在精度変換、FPR register pressureとstack引数を
         含むC/C++ `-O0`/`-O2` objectのfallbackなし生成・runtime実行を検証。
-  - [ ] typed SSAでscalar floating comparison／truth conversionと、残る
-        unary／compound arithmetic formsを実装し、NaN・signed-zeroを含む
-        C/C++ `-O0`/`-O2` runtime結果をlegacy backendと照合する。
+  - [x] x86_64 typed SSAでscalar floating comparisonとtruth conversionを
+        実装し、C/C++ `-O0`/`-O2`でNaN時の`!=`／ordered comparison、
+        `+0`/`-0`の比較・truth、stack引数とFPR spill後のruntime結果を検証。
+  - [ ] Finish typed-SSA floating unary/compound arithmetic. x86-64 sign-bit
+        negation, compound assignment, and pre/post increment lowering are now
+        present in source; this continuation did not run the C/C++ `-O0`/`-O2`
+        comparison gate, so keep the item open until runtime behavior is checked
+        against the legacy backend.
   - [ ] typed SSAのi686 scalar floating arithmeticをx87 register-stack規約と
         cdecl引数／戻り値ABIに合わせて実装し、C/C++の`-O0`/`-O2`を実機以外で
         fallbackなし実行検証する。

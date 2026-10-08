@@ -12200,28 +12200,28 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/float-binary-x64.ro \
 		tests/verified_backend_float_binary.c \
 		>$(TEST_OUT)/verified-backend/float-binary-x64.log
-	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/float-binary-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-binary-x64.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/float-binary-x64-o2.ro \
 		tests/verified_backend_float_binary.c \
 		>$(TEST_OUT)/verified-backend/float-binary-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/float-binary-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-binary-x64-o2.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/float-binary-cxx-x64.ro \
 		tests/verified_backend_float_binary.c \
 		>$(TEST_OUT)/verified-backend/float-binary-cxx-x64.log
-	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/float-binary-cxx-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-binary-cxx-x64.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/float-binary-cxx-x64-o2.ro \
 		tests/verified_backend_float_binary.c \
 		>$(TEST_OUT)/verified-backend/float-binary-cxx-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/float-binary-cxx-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-binary-cxx-x64-o2.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \

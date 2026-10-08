@@ -260,6 +260,20 @@ static bool mir_verify_instruction_type(
                                  instruction->type) &&
                 mir_operand_type(verifier, instruction, 1u,
                                  instruction->type);
+        case RCC_MIR_FCMP:
+            return mir_shape(verifier, instruction, 2u, 0u) &&
+                rcc_mir_type_equal(instruction->type, i1) &&
+                mir_register_type(verifier, instruction->operands[0],
+                                  &first) &&
+                mir_register_type(verifier, instruction->operands[1],
+                                  &second) &&
+                rcc_mir_type_equal(first, second) &&
+                first.kind == RCC_MIR_TYPE_FLOAT &&
+                (first.bit_width == 32u || first.bit_width == 64u) &&
+                (instruction->predicate == RCC_IR_ICMP_EQ ||
+                 instruction->predicate == RCC_IR_ICMP_NE ||
+                 (instruction->predicate >= RCC_IR_ICMP_SLT &&
+                  instruction->predicate <= RCC_IR_ICMP_SGE));
         case RCC_MIR_ICMP:
             if (!mir_shape(verifier, instruction, 2u, 0u) ||
                 !rcc_mir_type_equal(instruction->type, i1) ||
@@ -319,6 +333,12 @@ static bool mir_verify_instruction_type(
             return (first.kind == RCC_MIR_TYPE_INTEGER &&
                     instruction->type.kind == RCC_MIR_TYPE_INTEGER &&
                     first.bit_width == instruction->type.bit_width) ||
+                (((first.kind == RCC_MIR_TYPE_FLOAT &&
+                   instruction->type.kind == RCC_MIR_TYPE_INTEGER) ||
+                  (first.kind == RCC_MIR_TYPE_INTEGER &&
+                   instruction->type.kind == RCC_MIR_TYPE_FLOAT)) &&
+                 first.bit_width == instruction->type.bit_width &&
+                 (first.bit_width == 32u || first.bit_width == 64u)) ||
                 (first.kind == RCC_MIR_TYPE_POINTER &&
                  instruction->type.kind == RCC_MIR_TYPE_POINTER);
         case RCC_MIR_PHI:

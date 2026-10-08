@@ -38,6 +38,78 @@ double verified_fp_promote_f32(double left, float right) {
     return left + right;
 }
 
+int verified_fp_predicates_f32(float left, float right) {
+    return (left == right) | ((left != right) << 1) |
+        ((left < right) << 2) | ((left <= right) << 3) |
+        ((left > right) << 4) | ((left >= right) << 5);
+}
+
+int verified_fp_predicates_f64(double left, double right) {
+    return (left == right) | ((left != right) << 1) |
+        ((left < right) << 2) | ((left <= right) << 3) |
+        ((left > right) << 4) | ((left >= right) << 5);
+}
+
+int verified_fp_truth_f32(float value) {
+    if (value) return 1;
+    return 0;
+}
+
+int verified_fp_truth_f64(double value) {
+    if (value) return 1;
+    return 0;
+}
+
+float verified_fp_neg_f32(float value) {
+    return -value;
+}
+
+double verified_fp_neg_f64(double value) {
+    return -value;
+}
+
+float verified_fp_compound_f32(float value, float rhs) {
+    float plus = value;
+    float minus = value;
+    float multiply = value;
+    float divide = value;
+    plus += rhs;
+    minus -= rhs;
+    multiply *= rhs;
+    divide /= rhs;
+    return plus + minus * 2.0f + multiply * 4.0f + divide * 8.0f;
+}
+
+double verified_fp_compound_f64(double value, double rhs) {
+    double plus = value;
+    double minus = value;
+    double multiply = value;
+    double divide = value;
+    plus += rhs;
+    minus -= rhs;
+    multiply *= rhs;
+    divide /= rhs;
+    return plus + minus * 2.0 + multiply * 4.0 + divide * 8.0;
+}
+
+float verified_fp_incdec_f32(float value) {
+    float post_increment = value++;
+    float pre_increment = ++value;
+    float post_decrement = value--;
+    float pre_decrement = --value;
+    return post_increment * 1000.0f + pre_increment * 100.0f +
+        post_decrement * 10.0f + pre_decrement;
+}
+
+double verified_fp_incdec_f64(double value) {
+    double post_increment = value++;
+    double pre_increment = ++value;
+    double post_decrement = value--;
+    double pre_decrement = --value;
+    return post_increment * 1000.0 + pre_increment * 100.0 +
+        post_decrement * 10.0 + pre_decrement;
+}
+
 float verified_fp_pressure(
     float a1, float a2, float a3, float a4,
     float a5, float a6, float a7, float a8,

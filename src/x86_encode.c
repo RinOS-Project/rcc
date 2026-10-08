@@ -951,13 +951,11 @@ static bool x86_emit_compare_values(
     }
 }
 
-static bool x86_emit_setcc(RccX86Encoder* encoder,
-                           RccX86Value destination,
-                           RccIrIntPredicate predicate) {
-    uint8_t opcode = x86_setcc_opcode(predicate);
-    if (opcode == 0u) {
+static bool x86_emit_setcc_code(
+    RccX86Encoder* encoder, RccX86Value destination, uint8_t opcode) {
+    if (opcode < 0x90u || opcode > 0x9fu) {
         return x86_encode_error(encoder,
-                                "x86 integer predicate is invalid");
+                                "x86 setcc opcode is invalid");
     }
     if (destination.kind == RCC_X86_VALUE_GPR) {
         if (!x86_emit_rex(
@@ -978,9 +976,169 @@ static bool x86_emit_setcc(RccX86Encoder* encoder,
     }
 }
 
+static bool x86_emit_setcc(RccX86Encoder* encoder,
+                           RccX86Value destination,
+                           RccIrIntPredicate predicate) {
+    uint8_t opcode = x86_setcc_opcode(predicate);
+    if (opcode == 0u) {
+        return x86_encode_error(encoder,
+                                "x86 integer predicate is invalid");
+    }
+    return x86_emit_setcc_code(encoder, destination, opcode);
+}
+
+static bool x86_emit_float_compare_flags(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction, uint16_t size) {
+    RccX86Value left = instruction->operands[0];
+    RccX86Value right = instruction->operands[1];
+    unsigned left_register;
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        (size != 4u && size != 8u)) {
+        return x86_encode_error(
+            encoder, "x86 scalar floating comparison width is invalid");
+    }
+    if (left.kind == RCC_X86_VALUE_FPR) {
+        left_register = left.fpr;
+    } else if (left.kind == RCC_X86_VALUE_FRAME ||
+               left.kind == RCC_X86_VALUE_OUTGOING_ARGUMENT ||
+               left.kind == RCC_X86_VALUE_INCOMING_ARGUMENT) {
+        /* XMM15 is reserved from allocation as the spill-result scratch. */
+        left_register = 15u;
+        if (!x86_emit_scalar_xmm_memory(
+                encoder, left_register, left, size, true)) return false;
+    } else {
+        return x86_encode_error(
+            encoder, "x86 floating comparison left operand is invalid");
+    }
+    if (right.kind == RCC_X86_VALUE_FPR) {
+        if ((size == 8u && !x86_emit_u8(encoder, 0x66u)) ||
+            !x86_emit_rex(
+                encoder, false,
+                (RccX86HardwareGpr)left_register,
+                (RccX86HardwareGpr)right.fpr, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0x2eu)) return false;
+        return x86_emit_u8(encoder, x86_modrm(
+            3u, left_register, right.fpr));
+    }
+    if (right.kind == RCC_X86_VALUE_FRAME ||
+        right.kind == RCC_X86_VALUE_OUTGOING_ARGUMENT ||
+        right.kind == RCC_X86_VALUE_INCOMING_ARGUMENT) {
+        int32_t displacement;
+        if (!x86_value_displacement(encoder, right, &displacement) ||
+            (size == 8u && !x86_emit_u8(encoder, 0x66u)) ||
+            !x86_emit_rex(
+                encoder, false,
+                (RccX86HardwareGpr)left_register,
+                RCC_X86_GPR_BP, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0x2eu)) return false;
+        return x86_emit_memory_modrm(encoder, left_register, displacement);
+    }
+    return x86_encode_error(
+        encoder, "x86 floating comparison right operand is invalid");
+}
+
+static bool x86_emit_boolean_combine(
+    RccX86Encoder* encoder, RccX86Value destination,
+    RccX86HardwareGpr source, bool conjunction) {
+    uint8_t opcode = conjunction ? 0x20u : 0x08u;
+    if (destination.kind == RCC_X86_VALUE_GPR) {
+        bool force_rex = ((unsigned)source & 7u) >= 4u ||
+            ((unsigned)destination.gpr & 7u) >= 4u;
+        if (!x86_emit_rex(
+                encoder, false, source, destination.gpr, force_rex) ||
+            !x86_emit_u8(encoder, opcode)) return false;
+        return x86_emit_u8(encoder, x86_modrm(
+            3u, (unsigned)source, (unsigned)destination.gpr));
+    }
+    {
+        int32_t displacement;
+        bool force_rex = ((unsigned)source & 7u) >= 4u;
+        if (!x86_value_displacement(
+                encoder, destination, &displacement) ||
+            !x86_emit_rex(
+                encoder, false, source, RCC_X86_GPR_BP, force_rex) ||
+            !x86_emit_u8(encoder, opcode)) return false;
+        return x86_emit_memory_modrm(
+            encoder, (unsigned)source, displacement);
+    }
+}
+
+static bool x86_emit_float_compare_set(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value destination = instruction->destination;
+    RccX86Value left = instruction->operands[0];
+    uint16_t size = (uint16_t)(instruction->operand_types[0].bit_width / 8u);
+    uint8_t condition;
+    uint8_t ordered_condition = 0u;
+    bool conjunction = false;
+    bool combine = true;
+    switch (instruction->predicate) {
+        case RCC_IR_ICMP_EQ:
+            condition = 0x94u; /* sete */
+            ordered_condition = 0x9bu; /* setnp */
+            conjunction = true;
+            break;
+        case RCC_IR_ICMP_NE:
+            condition = 0x95u; /* setne */
+            ordered_condition = 0x9au; /* setp */
+            break;
+        case RCC_IR_ICMP_SLT:
+            condition = 0x92u; /* setb */
+            ordered_condition = 0x9bu; /* setnp */
+            conjunction = true;
+            break;
+        case RCC_IR_ICMP_SLE:
+            condition = 0x96u; /* setbe */
+            ordered_condition = 0x9bu; /* setnp */
+            conjunction = true;
+            break;
+        case RCC_IR_ICMP_SGT:
+            condition = 0x97u; /* seta; unordered is false */
+            combine = false;
+            break;
+        case RCC_IR_ICMP_SGE:
+            condition = 0x93u; /* setae; unordered is false */
+            combine = false;
+            break;
+        default:
+            return x86_encode_error(
+                encoder, "x86 floating predicate is invalid");
+    }
+    if (!x86_emit_float_compare_flags(encoder, instruction, size)) {
+        return false;
+    }
+    if (!combine) {
+        return x86_emit_setcc_code(encoder, destination, condition);
+    }
+    {
+        RccX86HardwareGpr scratch = x86_choose_scratch(destination, left);
+        RccX86Value scratch_value = {
+            .kind = RCC_X86_VALUE_GPR,
+            .gpr = scratch,
+            .size = 1u,
+            .alignment = 1u,
+        };
+        if (!x86_emit_push(encoder, scratch) ||
+            !x86_emit_setcc_code(encoder, scratch_value, condition) ||
+            !x86_emit_setcc_code(
+                encoder, destination, ordered_condition) ||
+            !x86_emit_boolean_combine(
+                encoder, destination, scratch, conjunction) ||
+            !x86_emit_pop(encoder, scratch)) return false;
+    }
+    return true;
+}
+
 static bool x86_emit_compare_set(
     RccX86Encoder* encoder,
     const RccX86LegalInstruction* instruction) {
+    if (instruction->operand_types[0].kind == RCC_MIR_TYPE_FLOAT) {
+        return x86_emit_float_compare_set(encoder, instruction);
+    }
     uint16_t size = instruction->operand_types[0].kind ==
                         RCC_MIR_TYPE_POINTER
         ? encoder->function->pointer_size

@@ -51,6 +51,7 @@ typedef enum {
     RCC_IR_FSUB,
     RCC_IR_FMUL,
     RCC_IR_FDIV,
+    RCC_IR_FCMP,
     RCC_IR_ICMP,
     RCC_IR_TRUNC,
     RCC_IR_ZEXT,

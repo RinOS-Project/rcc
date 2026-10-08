@@ -1622,6 +1622,7 @@ static bool ir_pass_cse_candidate(const RccIrInstruction* instruction) {
         case RCC_IR_FSUB:
         case RCC_IR_FMUL:
         case RCC_IR_FDIV:
+        case RCC_IR_FCMP:
         case RCC_IR_ICMP:
         case RCC_IR_TRUNC:
         case RCC_IR_ZEXT:
@@ -2086,6 +2087,7 @@ static bool ir_pass_instruction_is_dead(const RccIrInstruction* instruction) {
         case RCC_IR_FSUB:
         case RCC_IR_FMUL:
         case RCC_IR_FDIV:
+        case RCC_IR_FCMP:
         case RCC_IR_ICMP:
         case RCC_IR_TRUNC:
         case RCC_IR_ZEXT:

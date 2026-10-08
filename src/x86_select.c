@@ -231,6 +231,7 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_FSUB: return RCC_X86_FSUB;
         case RCC_MIR_FMUL: return RCC_X86_FMUL;
         case RCC_MIR_FDIV: return RCC_X86_FDIV;
+        case RCC_MIR_FCMP: return RCC_X86_COMPARE_SET;
         case RCC_MIR_ICMP: return RCC_X86_COMPARE_SET;
         case RCC_MIR_TRUNC: return RCC_X86_TRUNCATE;
         case RCC_MIR_ZEXT: return RCC_X86_ZERO_EXTEND;
@@ -623,6 +624,21 @@ bool rcc_x86_verify_function(
                       instruction->operand_types[0], instruction->type) ||
                   !rcc_mir_type_equal(
                       instruction->operand_types[1], instruction->type))) ||
+                (instruction->opcode == RCC_X86_COMPARE_SET &&
+                 instruction->operand_count == 2u &&
+                 instruction->operand_types[0].kind == RCC_MIR_TYPE_FLOAT &&
+                 (function->target != RCC_X86_TARGET_X86_64 ||
+                  !rcc_mir_type_equal(
+                      instruction->type, rcc_mir_type_integer(1u)) ||
+                  !rcc_mir_type_equal(
+                      instruction->operand_types[0],
+                      instruction->operand_types[1]) ||
+                  (instruction->operand_types[0].bit_width != 32u &&
+                   instruction->operand_types[0].bit_width != 64u) ||
+                  (instruction->predicate != RCC_IR_ICMP_EQ &&
+                   instruction->predicate != RCC_IR_ICMP_NE &&
+                   (instruction->predicate < RCC_IR_ICMP_SLT ||
+                    instruction->predicate > RCC_IR_ICMP_SGE)))) ||
                 (instruction->opcode == RCC_X86_FLOAT_EXTEND &&
                  (function->target != RCC_X86_TARGET_X86_64 ||
                   instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
@@ -692,6 +708,7 @@ bool rcc_x86_verify_function(
                      instruction->opcode != RCC_X86_COPY &&
                      instruction->opcode != RCC_X86_FLOAT_EXTEND &&
                      instruction->opcode != RCC_X86_REINTERPRET &&
+                     instruction->opcode != RCC_X86_COMPARE_SET &&
                      !x86_is_float_binary(instruction->opcode))) {
                     return x86_select_error(error, error_size,
                                             "x86 operand type is invalid");

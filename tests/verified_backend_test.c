@@ -4,6 +4,7 @@
 #include "objfile.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -2424,11 +2425,25 @@ static void verify_float_binary_object(const char* path)
     double (RINOS_ABI *mul_f64)(double, double);
     double (RINOS_ABI *div_f64)(double, double);
     double (RINOS_ABI *promote)(double, float);
+    int (RINOS_ABI *predicates_f32)(float, float);
+    int (RINOS_ABI *predicates_f64)(double, double);
+    int (RINOS_ABI *truth_f32)(float);
+    int (RINOS_ABI *truth_f64)(double);
+    float (RINOS_ABI *neg_f32)(float);
+    double (RINOS_ABI *neg_f64)(double);
+    float (RINOS_ABI *compound_f32)(float, float);
+    double (RINOS_ABI *compound_f64)(double, double);
+    float (RINOS_ABI *incdec_f32)(float);
+    double (RINOS_ABI *incdec_f64)(double);
     float (RINOS_ABI *pressure)(
         float, float, float, float, float, float, float, float,
         float, float, float, float, float, float, float, float,
         float, float, float, float, float, float, float, float,
         float, float, float, float, float, float, float, float);
+    uint32_t nan_f32_bits = UINT32_C(0x7fc00000);
+    uint64_t nan_f64_bits = UINT64_C(0x7ff8000000000000);
+    float nan_f32;
+    double nan_f64;
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
     memory = map_text(object, text, &mapping_size);
@@ -2449,8 +2464,20 @@ static void verify_float_binary_object(const char* path)
     LOAD_FLOAT_FUNCTION("verified_fp_mul_f64", mul_f64);
     LOAD_FLOAT_FUNCTION("verified_fp_div_f64", div_f64);
     LOAD_FLOAT_FUNCTION("verified_fp_promote_f32", promote);
+    LOAD_FLOAT_FUNCTION("verified_fp_predicates_f32", predicates_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_predicates_f64", predicates_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_truth_f32", truth_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_truth_f64", truth_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_neg_f32", neg_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_neg_f64", neg_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_compound_f32", compound_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_compound_f64", compound_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_incdec_f32", incdec_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_incdec_f64", incdec_f64);
     LOAD_FLOAT_FUNCTION("verified_fp_pressure", pressure);
 #undef LOAD_FLOAT_FUNCTION
+    memcpy(&nan_f32, &nan_f32_bits, sizeof(nan_f32));
+    memcpy(&nan_f64, &nan_f64_bits, sizeof(nan_f64));
     assert(add_f32(1.25f, 2.5f) == 3.75f);
     assert(sub_f32(7.5f, 2.25f) == 5.25f);
     assert(mul_f32(1.5f, 2.0f) == 3.0f);
@@ -2460,6 +2487,28 @@ static void verify_float_binary_object(const char* path)
     assert(mul_f64(1.5, 2.0) == 3.0);
     assert(div_f64(9.0, 2.0) == 4.5);
     assert(promote(2.5, 1.5f) == 4.0);
+    assert(predicates_f32(1.0f, 2.0f) == 14);
+    assert(predicates_f32(2.0f, 2.0f) == 41);
+    assert(predicates_f32(-0.0f, 0.0f) == 41);
+    assert(predicates_f32(nan_f32, 1.0f) == 2);
+    assert(predicates_f32(1.0f, nan_f32) == 2);
+    assert(predicates_f64(1.0, 2.0) == 14);
+    assert(predicates_f64(2.0, 2.0) == 41);
+    assert(predicates_f64(-0.0, 0.0) == 41);
+    assert(predicates_f64(nan_f64, 1.0) == 2);
+    assert(predicates_f64(1.0, nan_f64) == 2);
+    assert(truth_f32(0.0f) == 0 && truth_f32(-0.0f) == 0);
+    assert(truth_f32(1.0f) == 1 && truth_f32(nan_f32) == 1);
+    assert(truth_f64(0.0) == 0 && truth_f64(-0.0) == 0);
+    assert(truth_f64(1.0) == 1 && truth_f64(nan_f64) == 1);
+    assert(neg_f32(3.5f) == -3.5f);
+    assert(neg_f64(3.5) == -3.5);
+    assert(neg_f32(0.0f) == 0.0f && signbit(neg_f32(0.0f)));
+    assert(neg_f64(0.0) == 0.0 && signbit(neg_f64(0.0)));
+    assert(compound_f32(8.0f, 2.0f) == 118.0f);
+    assert(compound_f64(8.0, 2.0) == 118.0);
+    assert(incdec_f32(3.0f) == 3553.0f);
+    assert(incdec_f64(3.0) == 3553.0);
     assert(pressure(
         1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
         9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f,
