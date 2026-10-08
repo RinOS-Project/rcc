@@ -7244,6 +7244,8 @@ test-floating-runtime-x64: $(RCC_TARGET)
 		$(TEST_OUT)/floating-runtime-x64/float-abi.s
 	$(CC) -c -o $(TEST_OUT)/floating-runtime-x64/float-abi-host.o \
 		tests/floating_abi_host.c
+	$(OBJCOPY) --redefine-sym _rcc_float_entry=_rcc_entry \
+		$(TEST_OUT)/floating-runtime-x64/float-abi.o
 	$(CC) -no-pie -o $(TEST_OUT)/floating-runtime-x64/float-abi.exe \
 		$(TEST_OUT)/floating-runtime-x64/float-abi-host.o \
 		$(TEST_OUT)/floating-runtime-x64/float-abi.o
@@ -7255,6 +7257,8 @@ test-floating-runtime-x64: $(RCC_TARGET)
 		$(TEST_OUT)/floating-runtime-x64/double-abi.s
 	$(CC) -c -o $(TEST_OUT)/floating-runtime-x64/double-abi-host.o \
 		tests/floating_abi_double_host.c
+	$(OBJCOPY) --redefine-sym _rcc_double_entry=_rcc_entry \
+		$(TEST_OUT)/floating-runtime-x64/double-abi.o
 	$(CC) -no-pie -o $(TEST_OUT)/floating-runtime-x64/double-abi.exe \
 		$(TEST_OUT)/floating-runtime-x64/double-abi-host.o \
 		$(TEST_OUT)/floating-runtime-x64/double-abi.o
