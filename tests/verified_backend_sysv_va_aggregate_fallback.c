@@ -55,21 +55,42 @@ long long verified_sysv_va_large_memory_aggregate_call(
 }
 
 #ifdef __cplusplus
+long long verified_sysv_va_read_aligned_memory_aggregate(int marker, ...)
+{
+    va_list arguments;
+    struct VerifiedSysvVaAlignedMemoryAggregate value;
+    va_start(arguments, marker);
+    value = va_arg(arguments, struct VerifiedSysvVaAlignedMemoryAggregate);
+    va_end(arguments);
+    return value.fourth;
+}
+
+long long verified_sysv_va_aligned_memory_aggregate_simple_call(
+    long long first, long long second, long long third, long long fourth)
+{
+    struct VerifiedSysvVaAlignedMemoryAggregate value;
+    value.first = first;
+    value.second = second;
+    value.third = third;
+    value.fourth = fourth;
+    return verified_sysv_va_read_aligned_memory_aggregate(7, value);
+}
+
 long long verified_sysv_va_read_aligned_memory_aggregate_after_nine_doubles(
     int marker, ...)
 {
     va_list arguments;
-    double tail;
+    double ignored;
     struct VerifiedSysvVaAlignedMemoryAggregate value;
     va_start(arguments, marker);
     for (int index = 0; index < 9; ++index) {
-        tail = va_arg(arguments, double);
+        ignored = va_arg(arguments, double);
     }
     value = va_arg(arguments, struct VerifiedSysvVaAlignedMemoryAggregate);
     struct VerifiedSysvVaLargeMemoryAggregate trailing =
         va_arg(arguments, struct VerifiedSysvVaLargeMemoryAggregate);
     va_end(arguments);
-    return value.fourth + (long long)tail + trailing.third;
+    return value.fourth + trailing.third;
 }
 
 long long verified_sysv_va_aligned_memory_aggregate_call(

@@ -913,11 +913,13 @@
       - [x] variadic call-siteから24-byte MEMORY-class aggregateをtyped SSAで
         by-value stack marshalし、C/C++の`-O0`/`-O2`でcalleeの`va_arg`結果を
         fallbackなしでruntime検証する。
-      - [ ] 16-byte aligned 32-byte C++ aggregateを9個目のstack double後に
+      - [x] 16-byte aligned 32-byte C++ aggregateを9個目のstack double後に
         `va_arg`し、さらに24-byte MEMORY aggregateを続けて読む経路をtyped SSAで
-        完成する。call loweringは複数のMEMORY descriptorをstackへ配置するが、
-        aligned calleeはまだcomplete legacy-object fallbackとなるため未完了。
-        現在のC++ `-O0`/`-O2` runtime fixtureはlegacy結果だけを確認する。
+        lowerし、call loweringによる複数のMEMORY descriptor stack配置とcalleeの
+        overflow cursor/alignment更新をfallbackなしで接続する。9個のdoubleを消費した後の
+        aggregate fieldと後続aggregate fieldの値をC++ `-O0`/`-O2` runtimeで検証する。
+        unsupported floating-point binary arithmeticをfixtureから分離し、対象関数自身が
+        typed SSAで出力されることをfallback reason検査でも固定する。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
         16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER
@@ -926,7 +928,7 @@
         bounded INTEGER/SSE分類でregister／whole-stack loweringと実行検証を完了し、variadic
         functionのbounded named aggregateもregister／whole-stack配置と`va_start` cursorを
         C/C++ O0/O2で実行検証した。片bankだけのregister straddleはcomplete legacy backendで
-        実行する。aligned MEMORY-class `va_arg`、alignmentが16-byteを超えるcaller、
+        実行する。alignmentが16-byteを超えるcaller、
         bounded profile外のnamed aggregate layouts、残るadjusted-`va_list`形態は未実装であり、
         このparent checkboxは未完了のままにする。
   - [x] x86_64 SysVで`va_list*`を受け取るhelperの`va_arg(*p, T)`／
