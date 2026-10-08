@@ -2237,6 +2237,204 @@ static bool ir_pass_constant_operand(
     return true;
 }
 
+static RccIrInstruction* ir_pass_insert_before(
+    RccIrInstruction* anchor, RccIrOpcode opcode, RccIrType type,
+    const RccIrValue* operands, size_t operand_count) {
+    RccIrInstruction* inserted;
+    RccIrBlock* block;
+    if (!anchor || !anchor->block) return NULL;
+    block = anchor->block;
+    inserted = rcc_ir_append(block, opcode, type, operands, operand_count,
+                             NULL, 0u);
+    if (!inserted) return NULL;
+    ir_pass_detach_instruction(inserted);
+    inserted->block = block;
+    inserted->previous = anchor->previous;
+    inserted->next = anchor;
+    if (anchor->previous) anchor->previous->next = inserted;
+    else block->first = inserted;
+    anchor->previous = inserted;
+    return inserted;
+}
+
+static RccIrValue ir_pass_insert_integer_constant_before(
+    RccIrInstruction* anchor, RccIrType type, uint64_t value) {
+    RccIrInstruction* constant = ir_pass_insert_before(
+        anchor, RCC_IR_CONST_INT, type, NULL, 0u);
+    if (!constant) return RCC_IR_VALUE_NONE;
+    rcc_ir_set_immediate(constant, value);
+    return constant->result;
+}
+
+static RccIrInstruction* ir_pass_insert_binary_before(
+    RccIrInstruction* anchor, RccIrOpcode opcode, RccIrType type,
+    RccIrValue left, RccIrValue right) {
+    RccIrValue operands[] = {left, right};
+    return ir_pass_insert_before(anchor, opcode, type, operands, 2u);
+}
+
+static void ir_pass_rewrite_binary(
+    RccIrInstruction* instruction, RccIrOpcode opcode,
+    RccIrValue left, RccIrValue right) {
+    RccIrValue* operands = rcc_alloc(2u * sizeof(*operands));
+    operands[0] = left;
+    operands[1] = right;
+    rcc_free(instruction->operands);
+    instruction->operands = operands;
+    instruction->operand_count = 2u;
+    instruction->opcode = opcode;
+}
+
+static bool ir_pass_reduce_signed_power_of_two_division(
+    RccIrFunction* function, RccIrSimplifyStats* stats,
+    char* error, size_t error_size) {
+    RccIrBlock* block;
+    for (block = function->first_block; block; block = block->next) {
+        RccIrInstruction* instruction = block->first;
+        while (instruction) {
+            RccIrInstruction* next = instruction->next;
+            uint64_t encoded_divisor;
+            uint64_t divisor_magnitude;
+            uint64_t bias_mask;
+            uint64_t shift_count = 0u;
+            int64_t divisor;
+            uint16_t width;
+            bool negative;
+            RccIrValue dividend;
+            RccIrValue sign_shift;
+            RccIrValue mask;
+            RccIrValue shift;
+            RccIrInstruction* sign;
+            RccIrInstruction* bias;
+            RccIrInstruction* adjusted;
+            RccIrInstruction* quotient;
+
+            if ((instruction->opcode != RCC_IR_SDIV &&
+                 instruction->opcode != RCC_IR_SREM) ||
+                instruction->result == RCC_IR_VALUE_NONE ||
+                instruction->operand_count != 2u ||
+                instruction->type.kind != RCC_IR_TYPE_INTEGER ||
+                !ir_pass_constant_operand(
+                    function, instruction->operands[1], &encoded_divisor)) {
+                instruction = next;
+                continue;
+            }
+            width = instruction->type.bit_width;
+            if (width < 8u || width > 64u) {
+                instruction = next;
+                continue;
+            }
+            divisor = ir_pass_signed_value(encoded_divisor, width);
+            if (divisor == 0 || divisor == 1 || divisor == -1) {
+                instruction = next;
+                continue;
+            }
+            if (divisor == INT64_MIN) {
+                divisor_magnitude = UINT64_C(1) << 63u;
+            } else {
+                divisor_magnitude = divisor < 0
+                    ? (uint64_t)(-divisor) : (uint64_t)divisor;
+            }
+            if ((divisor_magnitude & (divisor_magnitude - 1u)) != 0u) {
+                instruction = next;
+                continue;
+            }
+            while ((divisor_magnitude >> shift_count) > 1u) {
+                ++shift_count;
+            }
+            if (shift_count == 0u || shift_count >= width) {
+                instruction = next;
+                continue;
+            }
+            /* Keep the original operation intact if the SSA value namespace
+             * cannot hold the bounded expansion. */
+            if (function->value_count > (size_t)UINT32_MAX - 8u) {
+                instruction = next;
+                continue;
+            }
+            negative = divisor < 0;
+            dividend = instruction->operands[0];
+            bias_mask = (UINT64_C(1) << shift_count) - 1u;
+            sign_shift = ir_pass_insert_integer_constant_before(
+                instruction, instruction->type, width - 1u);
+            mask = ir_pass_insert_integer_constant_before(
+                instruction, instruction->type, bias_mask);
+            shift = ir_pass_insert_integer_constant_before(
+                instruction, instruction->type, shift_count);
+            if (sign_shift == RCC_IR_VALUE_NONE ||
+                mask == RCC_IR_VALUE_NONE || shift == RCC_IR_VALUE_NONE) {
+                return ir_pass_error(
+                    error, error_size,
+                    "SSA signed-division reduction could not create constants");
+            }
+            sign = ir_pass_insert_binary_before(
+                instruction, RCC_IR_ASHR, instruction->type,
+                dividend, sign_shift);
+            if (!sign) {
+                return ir_pass_error(
+                    error, error_size,
+                    "SSA signed-division reduction could not create sign value");
+            }
+            bias = ir_pass_insert_binary_before(
+                instruction, RCC_IR_AND, instruction->type,
+                sign->result, mask);
+            if (!bias) {
+                return ir_pass_error(
+                    error, error_size,
+                    "SSA signed-division reduction could not create bias");
+            }
+            adjusted = ir_pass_insert_binary_before(
+                instruction, RCC_IR_ADD, instruction->type,
+                dividend, bias->result);
+            if (!adjusted) {
+                return ir_pass_error(
+                    error, error_size,
+                    "SSA signed-division reduction could not create adjusted value");
+            }
+
+            if (instruction->opcode == RCC_IR_SDIV && !negative) {
+                ir_pass_rewrite_binary(
+                    instruction, RCC_IR_ASHR, adjusted->result, shift);
+            } else {
+                quotient = ir_pass_insert_binary_before(
+                    instruction, RCC_IR_ASHR, instruction->type,
+                    adjusted->result, shift);
+                if (!quotient) {
+                    return ir_pass_error(
+                        error, error_size,
+                        "SSA signed-division reduction could not create quotient");
+                }
+                if (instruction->opcode == RCC_IR_SDIV) {
+                    RccIrValue zero =
+                        ir_pass_insert_integer_constant_before(
+                            instruction, instruction->type, 0u);
+                    if (zero == RCC_IR_VALUE_NONE) {
+                        return ir_pass_error(
+                            error, error_size,
+                            "SSA signed-division reduction could not create zero");
+                    }
+                    ir_pass_rewrite_binary(
+                        instruction, RCC_IR_SUB, zero, quotient->result);
+                } else {
+                    RccIrInstruction* scaled = ir_pass_insert_binary_before(
+                        instruction, RCC_IR_SHL, instruction->type,
+                        quotient->result, shift);
+                    if (!scaled) {
+                        return ir_pass_error(
+                            error, error_size,
+                            "SSA signed-remainder reduction could not scale quotient");
+                    }
+                    ir_pass_rewrite_binary(
+                        instruction, RCC_IR_SUB, dividend, scaled->result);
+                }
+            }
+            if (stats) ++stats->folded_instructions;
+            instruction = next;
+        }
+    }
+    return true;
+}
+
 static bool ir_pass_licm_candidate(
     const RccIrFunction* function, const RccIrInstruction* instruction) {
     uint64_t immediate;
@@ -2728,6 +2926,8 @@ static bool ir_pass_simplify(RccIrFunction* function, bool enable_gvn,
     if (!ir_pass_fold_constants(function, &local_stats) ||
         !ir_pass_simplify_integer_identities(function, &local_stats,
                                               error, error_size) ||
+        !ir_pass_reduce_signed_power_of_two_division(
+            function, &local_stats, error, error_size) ||
         !ir_pass_prune_unreachable(function, &local_stats,
                                    error, error_size) ||
         (enable_gvn &&

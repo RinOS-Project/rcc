@@ -739,6 +739,10 @@
   - [x] unsigned integerの`x * 2^k`／`2^k * x`、`x / 2^k`、`x % 2^k`を
         型付きshift/maskへstrength reductionし、i686/x86_64の即値shift生成と
         実行回帰を追加。signed/overflow-sensitive formは変更しない
+  - [x] typed SSAの符号付き`SDIV`／`SREM`も定数±2冪をsign-fill biasと
+        arithmetic shiftでlowerし、全width 8/16/32/64のIR interpreterで
+        8-bit全入力、境界値と4096 deterministic inputsを照合。0、-1、非2冪は
+        保持し、`INT_MIN` divisorを含むIR verifier回帰を追加
 - [x] mem2reg、DCE、CSE/GVN
   - [x] 定数`if`分岐選択とゼロ回`while/for`のAST dead-code除去
     （`goto`および`case/default`からのentryを保持）

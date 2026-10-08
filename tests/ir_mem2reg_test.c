@@ -815,6 +815,214 @@ static void verify_undefined_folds_are_preserved(void)
     rcc_ir_module_destroy(module);
 }
 
+static uint64_t ir_test_integer_mask(uint16_t width)
+{
+    return width == 64u ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
+}
+
+static uint64_t ir_test_arithmetic_shift_right(
+    uint64_t value, uint16_t width, unsigned shift)
+{
+    uint64_t mask = ir_test_integer_mask(width);
+    uint64_t result = (value & mask) >> shift;
+    if (shift != 0u && ((value >> (width - 1u)) & 1u) != 0u) {
+        uint64_t low_mask = (UINT64_C(1) << (width - shift)) - 1u;
+        result |= mask ^ low_mask;
+    }
+    return result & mask;
+}
+
+static int64_t ir_test_signed_value(uint64_t value, uint16_t width)
+{
+    uint64_t mask = ir_test_integer_mask(width);
+    uint64_t magnitude;
+    value &= mask;
+    if (width == 64u) {
+        int64_t result;
+        memcpy(&result, &value, sizeof(result));
+        return result;
+    }
+    if (((value >> (width - 1u)) & 1u) == 0u) return (int64_t)value;
+    magnitude = ((~value) & mask) + 1u;
+    return -(int64_t)magnitude;
+}
+
+static uint64_t evaluate_reduced_signed_integer_function(
+    const RccIrFunction* function, uint64_t input)
+{
+    uint64_t values[64] = {0u};
+    const RccIrBlock* block;
+    uint16_t width = function->return_type.bit_width;
+    uint64_t mask = ir_test_integer_mask(width);
+    assert(function->parameter_count == 1u &&
+           function->value_count <= sizeof(values) / sizeof(values[0]));
+    values[function->parameters[0]] = input & mask;
+    for (block = function->first_block; block; block = block->next) {
+        const RccIrInstruction* instruction;
+        for (instruction = block->first; instruction;
+             instruction = instruction->next) {
+            uint64_t left;
+            uint64_t right;
+            if (instruction->opcode == RCC_IR_RETURN) {
+                assert(instruction->operand_count == 1u);
+                return values[instruction->operands[0]] & mask;
+            }
+            assert(instruction->result != RCC_IR_VALUE_NONE);
+            if (instruction->opcode == RCC_IR_CONST_INT) {
+                values[instruction->result] = instruction->immediate & mask;
+                continue;
+            }
+            assert(instruction->operand_count == 2u);
+            left = values[instruction->operands[0]];
+            right = values[instruction->operands[1]];
+            switch (instruction->opcode) {
+                case RCC_IR_ADD:
+                    values[instruction->result] = (left + right) & mask;
+                    break;
+                case RCC_IR_SUB:
+                    values[instruction->result] = (left - right) & mask;
+                    break;
+                case RCC_IR_AND:
+                    values[instruction->result] = left & right;
+                    break;
+                case RCC_IR_SHL:
+                    values[instruction->result] = (left << right) & mask;
+                    break;
+                case RCC_IR_ASHR:
+                    values[instruction->result] =
+                        ir_test_arithmetic_shift_right(
+                            left, width, (unsigned)right);
+                    break;
+                default:
+                    assert(!"unexpected opcode in signed division reduction");
+                    return 0u;
+            }
+        }
+    }
+    assert(!"reduced signed integer function has no return");
+    return 0u;
+}
+
+static void verify_signed_power_of_two_reduction_case(
+    uint16_t width, int64_t divisor, RccIrOpcode operation)
+{
+    RccIrType type = rcc_ir_type_integer(width);
+    RccIrType parameters[] = {type};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "signed_power_of_two_reduction", type, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    uint64_t mask = ir_test_integer_mask(width);
+    uint64_t encoded_divisor = (uint64_t)divisor & mask;
+    RccIrValue divisor_value = append_const(entry, type, encoded_divisor);
+    RccIrValue operands[] = {function->parameters[0], divisor_value};
+    RccIrInstruction* arithmetic = rcc_ir_append(
+        entry, operation, type, operands, 2u, NULL, 0u);
+    RccIrSimplifyStats stats;
+    char error[256];
+    assert(arithmetic != NULL);
+    append_return(entry, arithmetic->result);
+    assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+    assert(error[0] == '\0' && stats.folded_instructions >= 1u);
+    assert(count_opcode(function, RCC_IR_SDIV) == 0u);
+    assert(count_opcode(function, RCC_IR_SREM) == 0u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+
+    if (width == 8u) {
+        for (uint64_t input = 0u; input <= UINT8_MAX; ++input) {
+            int64_t signed_input = ir_test_signed_value(input, width);
+            int64_t expected = operation == RCC_IR_SDIV
+                ? signed_input / divisor : signed_input % divisor;
+            assert(ir_test_signed_value(
+                       evaluate_reduced_signed_integer_function(
+                           function, input), width) == expected);
+        }
+    } else {
+        static const uint64_t edges[] = {
+            0u, 1u, 2u, UINT64_MAX, UINT64_C(0x7fffffffffffffff),
+            UINT64_C(0x8000000000000000),
+            UINT64_C(0x8000000000000001), UINT64_C(0x123456789abcdef0),
+        };
+        uint64_t seed = UINT64_C(0x9e3779b97f4a7c15);
+        for (size_t index = 0u; index < sizeof(edges) / sizeof(edges[0]);
+             ++index) {
+            uint64_t input = edges[index] & mask;
+            int64_t signed_input = ir_test_signed_value(input, width);
+            int64_t expected = operation == RCC_IR_SDIV
+                ? signed_input / divisor : signed_input % divisor;
+            assert(ir_test_signed_value(
+                       evaluate_reduced_signed_integer_function(
+                           function, input), width) == expected);
+        }
+        for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
+            uint64_t input;
+            int64_t signed_input;
+            int64_t expected;
+            seed = seed * UINT64_C(6364136223846793005) +
+                UINT64_C(1442695040888963407);
+            input = seed & mask;
+            signed_input = ir_test_signed_value(input, width);
+            expected = operation == RCC_IR_SDIV
+                ? signed_input / divisor : signed_input % divisor;
+            assert(ir_test_signed_value(
+                       evaluate_reduced_signed_integer_function(
+                           function, input), width) == expected);
+        }
+    }
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_signed_divisor_is_not_reduced(
+    uint16_t width, int64_t divisor)
+{
+    RccIrType type = rcc_ir_type_integer(width);
+    RccIrType parameters[] = {type};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* function = rcc_ir_function_add(
+        module, "preserve_signed_divisor", type, parameters, 1u);
+    RccIrBlock* entry = rcc_ir_block_add(function, "entry");
+    uint64_t encoded_divisor =
+        (uint64_t)divisor & ir_test_integer_mask(width);
+    RccIrValue divisor_value = append_const(entry, type, encoded_divisor);
+    RccIrValue operands[] = {function->parameters[0], divisor_value};
+    RccIrInstruction* division = rcc_ir_append(
+        entry, RCC_IR_SDIV, type, operands, 2u, NULL, 0u);
+    char error[256];
+    assert(division != NULL);
+    append_return(entry, division->result);
+    assert(rcc_ir_simplify(function, NULL, error, sizeof(error)));
+    assert(error[0] == '\0');
+    assert(count_opcode(function, RCC_IR_SDIV) == 1u);
+    assert(rcc_ir_verify_function(function, error, sizeof(error)));
+    rcc_ir_module_destroy(module);
+}
+
+static void verify_signed_power_of_two_reduction(void)
+{
+    static const uint16_t widths[] = {8u, 16u, 32u, 64u};
+    for (size_t index = 0u; index < sizeof(widths) / sizeof(widths[0]);
+         ++index) {
+        uint16_t width = widths[index];
+        int64_t signed_minimum = width == 64u
+            ? INT64_MIN : -(INT64_C(1) << (width - 1u));
+        verify_signed_power_of_two_reduction_case(
+            width, 2, RCC_IR_SDIV);
+        verify_signed_power_of_two_reduction_case(
+            width, -8, RCC_IR_SDIV);
+        verify_signed_power_of_two_reduction_case(
+            width, 2, RCC_IR_SREM);
+        verify_signed_power_of_two_reduction_case(
+            width, -8, RCC_IR_SREM);
+        verify_signed_power_of_two_reduction_case(
+            width, signed_minimum, RCC_IR_SDIV);
+        verify_signed_power_of_two_reduction_case(
+            width, signed_minimum, RCC_IR_SREM);
+    }
+    verify_signed_divisor_is_not_reduced(32u, 0);
+    verify_signed_divisor_is_not_reduced(32u, 3);
+    verify_signed_divisor_is_not_reduced(32u, -1);
+}
+
 static void verify_integer_identities(void)
 {
     RccIrType i32 = rcc_ir_type_integer(32u);
@@ -2001,6 +2209,7 @@ int main(void)
     verify_self_compare_simplification();
     verify_self_binary_simplification();
     verify_modulo_one_simplification();
+    verify_signed_power_of_two_reduction();
     verify_constant_branch_pruning();
     verify_equal_branch_target_simplification();
     verify_constant_phi_and_select_folding();
