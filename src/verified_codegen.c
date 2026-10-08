@@ -881,6 +881,7 @@ static void verified_collect_debug_variable_locations(
         (*locations)[*count].declaration =
             (const Decl*)source->declaration;
         (*locations)[*count].frame_offset = source->frame_offset;
+        (*locations)[*count].alignment = source->alignment;
         ++*count;
     }
 }

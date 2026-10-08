@@ -134,6 +134,7 @@ typedef struct StaticLocalCleanup {
 typedef struct {
     const Decl* declaration;
     int64_t frame_offset;
+    uint32_t alignment;
 } DebugVariableLocation;
 
 /* Compiled module */

@@ -1480,8 +1480,22 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
     debug_type_patches_apply(info, patches);
 }
 
-static size_t debug_build_expr_breg(uint8_t expression[16], int architecture,
-                                    int64_t offset, bool dereference) {
+static bool debug_expression_uleb(uint8_t* expression, size_t capacity,
+                                 size_t* size, uint64_t value) {
+    do {
+        uint8_t byte;
+        if (!expression || !size || *size >= capacity) return false;
+        byte = (uint8_t)(value & 0x7fu);
+        value >>= 7u;
+        if (value != 0u) byte |= 0x80u;
+        expression[(*size)++] = byte;
+    } while (value != 0u);
+    return true;
+}
+
+static size_t debug_build_expr_breg(uint8_t expression[32], int architecture,
+                                    int64_t offset, uint32_t alignment,
+                                    bool dereference) {
     size_t size = 1u;
     int64_t value = offset;
     bool more;
@@ -1493,14 +1507,34 @@ static size_t debug_build_expr_breg(uint8_t expression[16], int architecture,
         more = !((value == 0 && (byte & 0x40u) == 0u) ||
                  (value == -1 && (byte & 0x40u) != 0u));
         if (more) byte |= 0x80u;
-        if (size + 1u >= 16u) {
+        if (size + 1u >= 32u) {
             rcc_fatal("DWARF variable location expression is too large");
             return 0u;
         }
         expression[size++] = byte;
     } while (more);
+    if (alignment != 0u) {
+        uint64_t pointer_mask;
+        if (alignment < 2u || alignment > 4096u ||
+            (alignment & (alignment - 1u)) != 0u || size >= 32u) {
+            rcc_fatal("DWARF dynamic local alignment is invalid");
+            return 0u;
+        }
+        expression[size++] = 0x23u; /* DW_OP_plus_uconst: round-up bias */
+        if (!debug_expression_uleb(
+                expression, 32u, &size, (uint64_t)alignment - 1u) ||
+            size >= 32u) return 0u;
+        expression[size++] = 0x10u; /* DW_OP_constu: address-width mask */
+        pointer_mask = architecture == ARCH_X64
+            ? UINT64_MAX : UINT32_MAX;
+        pointer_mask &= ~((uint64_t)alignment - 1u);
+        if (!debug_expression_uleb(
+                expression, 32u, &size, pointer_mask) ||
+            size >= 32u) return 0u;
+        expression[size++] = 0x1au; /* DW_OP_and */
+    }
     if (dereference) {
-        if (size >= 16u) {
+        if (size >= 32u) {
             rcc_fatal("DWARF VLA location expression is too large");
             return 0u;
         }
@@ -1510,10 +1544,11 @@ static size_t debug_build_expr_breg(uint8_t expression[16], int architecture,
 }
 
 static void debug_expr_breg(ObjSection* section, int architecture,
-                            int64_t offset, bool dereference) {
-    uint8_t expression[16];
+                            int64_t offset, uint32_t alignment,
+                            bool dereference) {
+    uint8_t expression[32];
     size_t size = debug_build_expr_breg(expression, architecture, offset,
-                                        dereference);
+                                        alignment, dereference);
     if (!section || size == 0u) return;
     debug_line_uleb(section, (uint64_t)size);
     section_add_bytes(section, expression, size);
@@ -1763,7 +1798,7 @@ static uint32_t debug_emit_location_list(
     ObjectFile* obj, const Module* mod, const char* filename,
     const ModuleSymbol* function,
     const Stmt* scope, const Stmt* declaration_statement,
-    int architecture, int64_t frame_offset,
+    int architecture, int64_t frame_offset, uint32_t alignment,
     bool dereference);
 
 static void debug_emit_variable_die(
@@ -1777,6 +1812,7 @@ static void debug_emit_variable_die(
     uint32_t type_offset;
     int file_index;
     int64_t frame_offset;
+    uint32_t frame_alignment = 0u;
     bool has_frame_location = true;
     bool use_location_list = false;
     uint32_t location_list_offset = 0u;
@@ -1807,6 +1843,7 @@ static void debug_emit_variable_die(
                 &mod->debug_variable_locations[index];
             if (location->declaration == declaration) {
                 frame_offset = location->frame_offset;
+                frame_alignment = location->alignment;
                 has_frame_location = true;
                 break;
             }
@@ -1823,6 +1860,7 @@ static void debug_emit_variable_die(
         location_list_offset = debug_emit_location_list(
             obj, mod, filename, function, location_scope,
             declaration_statement, architecture, frame_offset,
+            frame_alignment,
             declaration->var_is_vla);
         use_location_list = location_list_offset != UINT32_MAX;
         if (use_location_list) abbreviation = 39u;
@@ -1836,7 +1874,7 @@ static void debug_emit_variable_die(
     if (has_frame_location && use_location_list) {
         debug_line_u32(info, location_list_offset);
     } else if (has_frame_location) {
-        debug_expr_breg(info, architecture, frame_offset,
+        debug_expr_breg(info, architecture, frame_offset, frame_alignment,
                         declaration->var_is_vla);
     }
 }
@@ -2008,11 +2046,11 @@ static uint32_t debug_emit_location_list(
     ObjectFile* obj, const Module* mod, const char* filename,
     const ModuleSymbol* function, const Stmt* scope,
     const Stmt* declaration_statement, int architecture,
-    int64_t frame_offset, bool dereference) {
+    int64_t frame_offset, uint32_t alignment, bool dereference) {
     ObjSection* locations;
     const char* symbol_name;
     char* scoped_name = NULL;
-    uint8_t expression[16];
+    uint8_t expression[32];
     size_t expression_size;
     uint32_t list_offset;
     uint32_t function_size;
@@ -2067,7 +2105,7 @@ static uint32_t debug_emit_location_list(
     }
     function_end = function->offset + function_size;
     expression_size = debug_build_expr_breg(
-        expression, architecture, frame_offset, dereference);
+        expression, architecture, frame_offset, alignment, dereference);
     if (expression_size == 0u || expression_size > UINT16_MAX) {
         rcc_fatal("DWARF location-list expression exceeds 16-bit length");
         return UINT32_MAX;
@@ -3710,7 +3748,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
          * the same EBP/RBP base used by stack-local locations.  Full CFI and
          * unwind ranges remain a separate debug/unwind feature. */
         debug_expr_breg(info, g_opts.target_arch == ARCH_X64
-                                  ? ARCH_X64 : ARCH_X86, 0, false);
+                                  ? ARCH_X64 : ARCH_X86, 0, 0u, false);
         /* DW_INL_declared_inlined is 3.  This is deliberately based on the
          * parsed declaration, not on a guessed call-site optimization state. */
         section_add_byte(info, function_decl && function_decl->func_is_inline

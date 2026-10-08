@@ -40,3 +40,14 @@ int verified_debug_preserved_registers(int value)
     return call_result + first + second + third + fourth + fifth + sixth +
         seventh + eighth + ninth + tenth;
 }
+
+struct VerifiedDebugAligned32 {
+    _Alignas(32) int value;
+};
+
+int verified_debug_overaligned_local(void)
+{
+    struct VerifiedDebugAligned32 aligned;
+    aligned.value = 37;
+    return aligned.value;
+}

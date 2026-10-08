@@ -36,6 +36,8 @@ typedef struct {
     const void* declaration;
     /* DWARF frame-base-relative byte offset after final frame layout. */
     int64_t frame_offset;
+    /* Runtime alignment when the source local exceeds the ABI stack alignment. */
+    uint32_t alignment;
 } RccX86CodeLocalLocation;
 
 typedef struct {

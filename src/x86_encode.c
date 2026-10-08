@@ -121,10 +121,6 @@ static bool x86_add_local_location(
     if (!encoder || !instruction ||
         instruction->selected_opcode != RCC_X86_STACK_ADDRESS ||
         !instruction->source_declaration) return true;
-    if (instruction->auxiliary > encoder->function->stack_alignment) {
-        /* A dynamically aligned local has no fixed BP-relative location. */
-        return true;
-    }
     if (instruction->immediate > encoder->function->stack_adjustment) {
         return x86_encode_error(
             encoder, "x86 source local lies outside the final stack frame");
@@ -150,6 +146,9 @@ static bool x86_add_local_location(
     locations[encoder->output.local_location_count].frame_offset =
         (int64_t)instruction->immediate -
         (int64_t)encoder->function->stack_adjustment;
+    locations[encoder->output.local_location_count].alignment =
+        instruction->auxiliary > encoder->function->stack_alignment
+            ? (uint32_t)instruction->auxiliary : 0u;
     ++encoder->output.local_location_count;
     return true;
 }

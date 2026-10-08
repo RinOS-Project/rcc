@@ -34,6 +34,24 @@ static bool contains_sequence(const uint8_t* data, uint64_t size,
     return false;
 }
 
+static void verify_overaligned_location_mask(const ObjSection* locations,
+                                             uint16_t architecture)
+{
+    static const uint8_t x86_mask[] = {
+        0x23u, 0x1fu, 0x10u, 0xe0u, 0xffu, 0xffu, 0xffu, 0x0fu, 0x1au
+    };
+    static const uint8_t x64_mask[] = {
+        0x23u, 0x1fu, 0x10u, 0xe0u, 0xffu, 0xffu, 0xffu, 0xffu,
+        0xffu, 0xffu, 0xffu, 0xffu, 0x01u, 0x1au
+    };
+    const uint8_t* mask = architecture == ARCH_X64 ? x64_mask : x86_mask;
+    uint64_t mask_size = architecture == ARCH_X64
+        ? sizeof(x64_mask) : sizeof(x86_mask);
+    assert(locations != NULL &&
+           contains_sequence(locations->data, locations->size,
+                             mask, mask_size));
+}
+
 static bool contains_byte_pair(const uint8_t* data, uint64_t size,
                                uint8_t first, uint8_t second)
 {
@@ -943,7 +961,8 @@ static bool find_variable_location(const ObjSection* info,
                 }
                 assert(expression_cursor == expression_limit ||
                        (expression_cursor + 1u == expression_limit &&
-                        locations->data[expression_cursor] == 0x06u));
+                        locations->data[expression_cursor] == 0x06u) ||
+                       strcmp(variable_name, "aligned") == 0);
                 if (!saw_entry) *frame_offset = current_frame_offset;
                 saw_entry = true;
                 cursor = expression_limit;
@@ -963,7 +982,8 @@ static bool find_variable_location(const ObjSection* info,
             &expression_cursor);
         assert(expression_cursor == expression_end ||
                (expression_cursor + 1u == expression_end &&
-                info->data[expression_cursor] == 0x06u));
+                info->data[expression_cursor] == 0x06u) ||
+               strcmp(variable_name, "aligned") == 0);
         return true;
     }
     return false;
@@ -988,6 +1008,7 @@ static void verify_optimized_verified_debug_object(
     int64_t value_offset;
     int64_t local_offset;
     int64_t nested_offset;
+    int64_t aligned_offset;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -1012,6 +1033,11 @@ static void verify_optimized_verified_debug_object(
                                   &is_location_list, &nested_offset));
     assert(has_location && nested_offset < 0 && nested_offset % 4 == 0 &&
            nested_offset != value_offset && nested_offset != local_offset);
+    assert(find_variable_location(info, strings, locations, "aligned",
+                                  architecture, &has_location,
+                                  &is_location_list, &aligned_offset));
+    assert(has_location && aligned_offset < 0 && is_location_list);
+    verify_overaligned_location_mask(locations, architecture);
     assert(is_location_list);
     objfile_free(object);
 }
@@ -1029,6 +1055,7 @@ static void verify_optimized_cxx_verified_debug_object(
     int64_t value_offset;
     int64_t local_offset;
     int64_t nested_offset;
+    int64_t aligned_offset;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -1050,6 +1077,11 @@ static void verify_optimized_cxx_verified_debug_object(
                                   &is_location_list, &nested_offset));
     assert(has_location && nested_offset < 0 && nested_offset % 4 == 0 &&
            nested_offset != value_offset && nested_offset != local_offset);
+    assert(find_variable_location(info, strings, locations, "aligned",
+                                  architecture, &has_location,
+                                  &is_location_list, &aligned_offset));
+    assert(has_location && aligned_offset < 0 && is_location_list);
+    verify_overaligned_location_mask(locations, architecture);
     assert(is_location_list);
     objfile_free(object);
 }
@@ -2343,6 +2375,7 @@ static void verify_verified_debug_object(const char* path,
     int64_t value_offset;
     int64_t local_offset;
     int64_t nested_offset;
+    int64_t aligned_offset;
     assert(object != NULL && object->arch == architecture);
     line = objfile_get_section(object, ".debug_line");
     info = objfile_get_section(object, ".debug_info");
@@ -2404,6 +2437,11 @@ static void verify_verified_debug_object(const char* path,
                                   &is_location_list, &nested_offset));
     assert(has_location && nested_offset < 0 && nested_offset % 4 == 0 &&
            nested_offset != value_offset && nested_offset != local_offset);
+    assert(find_variable_location(info, strings, locations, "aligned",
+                                  architecture, &has_location,
+                                  &is_location_list, &aligned_offset));
+    assert(has_location && aligned_offset < 0 && is_location_list);
+    verify_overaligned_location_mask(locations, architecture);
     assert(is_location_list);
     objfile_free(object);
 }
