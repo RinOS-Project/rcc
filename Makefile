@@ -12403,33 +12403,57 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-x64.ro \
 		tests/verified_backend_sysv_va_aggregate.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
-		$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-x64-o2.ro \
 		tests/verified_backend_sysv_va_aggregate.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64-o2.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64-o2.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
-		$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-x64-o2.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64.ro \
 		tests/verified_backend_sysv_va_aggregate.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
-		$(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-std=c++20 -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64-o2.ro \
 		tests/verified_backend_sysv_va_aggregate.c \
 		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64-o2.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64-o2.log,1)
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64-o2.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64.ro \
+		tests/verified_backend_sysv_va_aggregate_fallback.c \
+		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64.log,1)
 	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
-		$(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64-o2.log
+		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64.log
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
+		-O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64-o2.ro \
+		tests/verified_backend_sysv_va_aggregate_fallback.c \
+		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64-o2.log,1)
+	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
+		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64-o2.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
+		-std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64.ro \
+		tests/verified_backend_sysv_va_aggregate_fallback.c \
+		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64.log,1)
+	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
+		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
+		-std=c++20 -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64-o2.ro \
+		tests/verified_backend_sysv_va_aggregate_fallback.c \
+		>$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64-o2.log,1)
+	$(GREP) -F -q "Verified backend fallback: function 'verified_sysv_va_two_integer_aggregate_straddle_call' is outside the typed SSA subset" \
+		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64-o2.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/sysv-fp-variadic-promotion-x64.ro \
@@ -12504,6 +12528,14 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64.ro
 	$(TEST_OUT)/verified-backend/verify-x64 --sysv-va-aggregate-object \
 		$(TEST_OUT)/verified-backend/sysv-va-aggregate-cxx-x64-o2.ro
+	$(TEST_OUT)/verified-backend/verify-x64 --sysv-va-aggregate-fallback-object \
+		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64.ro
+	$(TEST_OUT)/verified-backend/verify-x64 --sysv-va-aggregate-fallback-object \
+		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-x64-o2.ro
+	$(TEST_OUT)/verified-backend/verify-x64 --sysv-va-aggregate-fallback-object \
+		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64.ro
+	$(TEST_OUT)/verified-backend/verify-x64 --sysv-va-aggregate-fallback-object \
+		$(TEST_OUT)/verified-backend/sysv-va-aggregate-fallback-cxx-x64-o2.ro
 	$(TEST_OUT)/verified-backend/verify-x86 --va-list-pointer-cxx-object \
 		$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x86.ro x86
 	$(TEST_OUT)/verified-backend/verify-x86 \

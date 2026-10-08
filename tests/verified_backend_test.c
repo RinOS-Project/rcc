@@ -620,11 +620,13 @@ static void verify_sysv_va_aggregate_object(const char* path)
     ObjSymbol* integer_aggregate_call_symbol;
     ObjSymbol* two_integer_aggregate_call_symbol;
     ObjSymbol* two_integer_aggregate_stack_call_symbol;
-    ObjSymbol* two_integer_aggregate_straddle_call_symbol;
     ObjSymbol* double_aggregate_call_symbol;
     ObjSymbol* double_aggregate_last_xmm_call_symbol;
     ObjSymbol* double_aggregate_stack_call_symbol;
     ObjSymbol* float_aggregate_call_symbol;
+    ObjSymbol* two_double_aggregate_call_symbol;
+    ObjSymbol* two_double_aggregate_last_xmm_call_symbol;
+    ObjSymbol* two_double_aggregate_stack_call_symbol;
     size_t mapping_size;
     void* memory;
     void* address;
@@ -640,14 +642,18 @@ static void verify_sysv_va_aggregate_object(const char* path)
     long long (RINOS_ABI *two_integer_aggregate_call)(long long, long long);
     long long (RINOS_ABI *two_integer_aggregate_stack_call)(
         int, int, int, int, int, int, long long, long long);
-    long long (RINOS_ABI *two_integer_aggregate_straddle_call)(
-        int, int, int, int, int, long long, long long);
     double (RINOS_ABI *double_aggregate_call)(double);
     double (RINOS_ABI *double_aggregate_last_xmm_call)(
         double, double, double, double, double, double, double, double);
     double (RINOS_ABI *double_aggregate_stack_call)(
         double, double, double, double, double, double, double, double, double);
     float (RINOS_ABI *float_aggregate_call)(float);
+    double (RINOS_ABI *two_double_aggregate_call)(double, double);
+    double (RINOS_ABI *two_double_aggregate_last_xmm_call)(
+        double, double, double, double, double, double, double, double);
+    double (RINOS_ABI *two_double_aggregate_stack_call)(
+        double, double, double, double, double, double, double, double,
+        double, double);
     struct VerifiedSysvMixedAggregate mixed = { 19, 4.125 };
     struct VerifiedSysvIntegerAggregate integer = { 13, 7 };
     struct VerifiedSysvVaLargeAggregate large = { 11, 23, 47 };
@@ -671,8 +677,6 @@ static void verify_sysv_va_aggregate_object(const char* path)
         object, "verified_sysv_va_two_integer_aggregate_call");
     two_integer_aggregate_stack_call_symbol = objfile_find_symbol(
         object, "verified_sysv_va_two_integer_aggregate_stack_call");
-    two_integer_aggregate_straddle_call_symbol = objfile_find_symbol(
-        object, "verified_sysv_va_two_integer_aggregate_straddle_call");
     double_aggregate_call_symbol = objfile_find_symbol(
         object, "verified_sysv_va_double_aggregate_call");
     double_aggregate_last_xmm_call_symbol = objfile_find_symbol(
@@ -681,6 +685,12 @@ static void verify_sysv_va_aggregate_object(const char* path)
         object, "verified_sysv_va_double_aggregate_stack_call");
     float_aggregate_call_symbol = objfile_find_symbol(
         object, "verified_sysv_va_float_aggregate_call");
+    two_double_aggregate_call_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_two_double_aggregate_call");
+    two_double_aggregate_last_xmm_call_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_two_double_aggregate_last_xmm_call");
+    two_double_aggregate_stack_call_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_two_double_aggregate_stack_call");
     assert(mixed_integer_symbol != NULL &&
            mixed_integer_symbol->type == SYM_GLOBAL &&
            mixed_integer_symbol->binding == BIND_CODE &&
@@ -717,10 +727,6 @@ static void verify_sysv_va_aggregate_object(const char* path)
            two_integer_aggregate_stack_call_symbol->type == SYM_GLOBAL &&
            two_integer_aggregate_stack_call_symbol->binding == BIND_CODE &&
            two_integer_aggregate_stack_call_symbol->section == 0);
-    assert(two_integer_aggregate_straddle_call_symbol != NULL &&
-           two_integer_aggregate_straddle_call_symbol->type == SYM_GLOBAL &&
-           two_integer_aggregate_straddle_call_symbol->binding == BIND_CODE &&
-           two_integer_aggregate_straddle_call_symbol->section == 0);
     assert(double_aggregate_call_symbol != NULL &&
            double_aggregate_call_symbol->type == SYM_GLOBAL &&
            double_aggregate_call_symbol->binding == BIND_CODE &&
@@ -737,6 +743,18 @@ static void verify_sysv_va_aggregate_object(const char* path)
            float_aggregate_call_symbol->type == SYM_GLOBAL &&
            float_aggregate_call_symbol->binding == BIND_CODE &&
            float_aggregate_call_symbol->section == 0);
+    assert(two_double_aggregate_call_symbol != NULL &&
+           two_double_aggregate_call_symbol->type == SYM_GLOBAL &&
+           two_double_aggregate_call_symbol->binding == BIND_CODE &&
+           two_double_aggregate_call_symbol->section == 0);
+    assert(two_double_aggregate_last_xmm_call_symbol != NULL &&
+           two_double_aggregate_last_xmm_call_symbol->type == SYM_GLOBAL &&
+           two_double_aggregate_last_xmm_call_symbol->binding == BIND_CODE &&
+           two_double_aggregate_last_xmm_call_symbol->section == 0);
+    assert(two_double_aggregate_stack_call_symbol != NULL &&
+           two_double_aggregate_stack_call_symbol->type == SYM_GLOBAL &&
+           two_double_aggregate_stack_call_symbol->binding == BIND_CODE &&
+           two_double_aggregate_stack_call_symbol->section == 0);
     memory = map_text(object, text, &mapping_size);
     address = symbol_address(memory, mixed_integer_symbol);
     memcpy(&mixed_integer, &address, sizeof(mixed_integer));
@@ -758,9 +776,6 @@ static void verify_sysv_va_aggregate_object(const char* path)
     address = symbol_address(memory, two_integer_aggregate_stack_call_symbol);
     memcpy(&two_integer_aggregate_stack_call, &address,
            sizeof(two_integer_aggregate_stack_call));
-    address = symbol_address(memory, two_integer_aggregate_straddle_call_symbol);
-    memcpy(&two_integer_aggregate_straddle_call, &address,
-           sizeof(two_integer_aggregate_straddle_call));
     address = symbol_address(memory, double_aggregate_call_symbol);
     memcpy(&double_aggregate_call, &address, sizeof(double_aggregate_call));
     address = symbol_address(memory, double_aggregate_last_xmm_call_symbol);
@@ -771,6 +786,15 @@ static void verify_sysv_va_aggregate_object(const char* path)
            sizeof(double_aggregate_stack_call));
     address = symbol_address(memory, float_aggregate_call_symbol);
     memcpy(&float_aggregate_call, &address, sizeof(float_aggregate_call));
+    address = symbol_address(memory, two_double_aggregate_call_symbol);
+    memcpy(&two_double_aggregate_call, &address,
+           sizeof(two_double_aggregate_call));
+    address = symbol_address(memory, two_double_aggregate_last_xmm_call_symbol);
+    memcpy(&two_double_aggregate_last_xmm_call, &address,
+           sizeof(two_double_aggregate_last_xmm_call));
+    address = symbol_address(memory, two_double_aggregate_stack_call_symbol);
+    memcpy(&two_double_aggregate_stack_call, &address,
+           sizeof(two_double_aggregate_stack_call));
     assert(mixed_integer(7, mixed) == 19);
     assert(mixed_floating(7, mixed) == 4.125);
     assert(integer_overflow(1, 2, 3, 4, 5, 6, integer) == 137);
@@ -783,14 +807,53 @@ static void verify_sysv_va_aggregate_object(const char* path)
     assert(two_integer_aggregate_call(11, 47) == 47);
     assert(two_integer_aggregate_stack_call(
                1, 2, 3, 4, 5, 6, 11, 47) == 47);
-    assert(two_integer_aggregate_straddle_call(
-               1, 2, 3, 4, 5, 11, 47) == 47);
     assert(double_aggregate_call(6.25) == 6.25);
     assert(double_aggregate_last_xmm_call(
                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 12.5) == 12.5);
     assert(double_aggregate_stack_call(
                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 15.75) == 15.75);
     assert(float_aggregate_call(3.5f) == 3.5f);
+    assert(two_double_aggregate_call(3.0, 4.5) == 4.5);
+    assert(two_double_aggregate_last_xmm_call(
+               1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.5, 8.5) == 8.5);
+    assert(two_double_aggregate_stack_call(
+               1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
+               9.5, 10.5) == 10.5);
+    assert(verified_unmap(memory, mapping_size) == 0);
+    objfile_free(object);
+}
+
+static void verify_sysv_va_aggregate_fallback_object(const char* path)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* integer_symbol;
+    ObjSymbol* sse_symbol;
+    size_t mapping_size;
+    void* memory;
+    void* address;
+    long long (RINOS_ABI *integer_call)(
+        int, int, int, int, int, long long, long long);
+    double (RINOS_ABI *sse_call)(
+        double, double, double, double, double, double, double,
+        double, double);
+    assert(object != NULL && object->arch == ARCH_X64 && sizeof(void*) == 8u);
+    text = objfile_get_section(object, ".text");
+    integer_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_two_integer_aggregate_straddle_call");
+    sse_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_two_double_aggregate_straddle_call");
+    assert(integer_symbol != NULL && integer_symbol->type == SYM_GLOBAL &&
+           integer_symbol->binding == BIND_CODE && integer_symbol->section == 0);
+    assert(sse_symbol != NULL && sse_symbol->type == SYM_GLOBAL &&
+           sse_symbol->binding == BIND_CODE && sse_symbol->section == 0);
+    memory = map_text(object, text, &mapping_size);
+    address = symbol_address(memory, integer_symbol);
+    memcpy(&integer_call, &address, sizeof(integer_call));
+    address = symbol_address(memory, sse_symbol);
+    memcpy(&sse_call, &address, sizeof(sse_call));
+    assert(integer_call(1, 2, 3, 4, 5, 11, 47) == 47);
+    assert(sse_call(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.5, 9.5) == 9.5);
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }
@@ -3342,6 +3405,12 @@ int main(int argc, char** argv)
     if (argc == 3 && strcmp(argv[1], "--sysv-va-aggregate-object") == 0) {
         verify_sysv_va_aggregate_object(argv[2]);
         puts("Verified x86-64 SysV aggregate va_arg object passed");
+        return 0;
+    }
+    if (argc == 3 &&
+        strcmp(argv[1], "--sysv-va-aggregate-fallback-object") == 0) {
+        verify_sysv_va_aggregate_fallback_object(argv[2]);
+        puts("Verified x86-64 SysV aggregate legacy fallback object passed");
         return 0;
     }
     if (argc == 4 && strcmp(argv[1], "--cxx-reference-object") == 0) {

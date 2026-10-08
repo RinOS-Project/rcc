@@ -881,16 +881,19 @@
         `{13, 7}`を渡した結果137を、`-O0`/`-O2`かつfallbackなしで検証。
       - [x] trivial C aggregateのvariadic callを最大2個のINTEGER eightbyteまで
         拡張し、両wordがregisterに入る場合と両wordがstackへ送られる場合を実行検証。
-        1 GPRだけ空いた境界では分割せず、実際のlegacy backendへfallbackしたcallも
-        `-O0`/`-O2`で実行して正しい値を確認。
+        1 GPRだけ空いた境界では分割せず、専用legacy-object fixtureへ分離して
+        `-O0`/`-O2`で実際のcomplete backendの結果を実行確認。
       - [x] single SSE eightbyteに分類される単一`float`／`double` field aggregateを
         variadic call-siteからmarshalし、C/C++ objectでXMM register、最後のXMM register、
         SSE register枯渇後のstack配置を`-O0`/`-O2`実行検証。
+      - [x] 2個のSSE eightbyteを持つtrivial aggregateを両XMM registerへ渡す経路と、
+        SSE bank枯渇後に両方stackへ置く経路をC/C++で実行検証。残り1 XMM slotでは
+        分割せず専用legacy-object fixtureへ分離し、`-O0`/`-O2`で実行確認。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
         16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER
-        eightbyteまたは単一scalar fieldのsingle SSE eightbyte aggregateに限定される。
-        MEMORY aggregate、複数SSE/mixed aggregate、
+        eightbyteまたは最大2個のhomogeneous SSE eightbyteを持つtrivial aggregateに限定される。
+        Mixed GP/SSE aggregate、MEMORY aggregate、
         3個以上のeightbyte、
         FP/aggregate named parameter分類、残るadjusted-`va_list`形態は未実装であり、
         このparent checkboxは未完了のままにする。
