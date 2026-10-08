@@ -5069,6 +5069,27 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         context->unsupported = true;
         return lower_invalid_value();
     }
+    if (function_type->variadic) {
+        TypeParam* variadic_parameter = function_type->params;
+        for (const ExprList* variadic_argument = expression->call_args;
+             variadic_argument; variadic_argument = variadic_argument->next) {
+            const Type* argument_type = variadic_parameter
+                ? variadic_parameter->type
+                : (variadic_argument->expr
+                       ? variadic_argument->expr->type : NULL);
+            if (argument_type &&
+                (argument_type->kind == TYPE_FLOAT ||
+                 argument_type->kind == TYPE_DOUBLE)) {
+                /* Floating variadic calls require the SysV %al vector-register
+                 * count; keep these on the established backend until that
+                 * call-site metadata is carried through legalization. */
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            if (variadic_parameter) variadic_parameter =
+                variadic_parameter->next;
+        }
+    }
     if (lower_call_temporary_cleanups_supported(expression)) {
         for (argument = expression->call_args; argument;
              argument = argument->next) {

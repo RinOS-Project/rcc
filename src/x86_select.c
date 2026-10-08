@@ -574,11 +574,10 @@ bool rcc_x86_verify_function(
                 (instruction->type.kind == RCC_MIR_TYPE_FLOAT &&
                  instruction->opcode != RCC_X86_LOAD &&
                  instruction->opcode != RCC_X86_STORE &&
+                 instruction->opcode != RCC_X86_CALL &&
                  instruction->opcode != RCC_X86_RETURN &&
                  instruction->opcode != RCC_X86_COPY &&
                  instruction->opcode != RCC_X86_REINTERPRET) ||
-                (instruction->opcode == RCC_X86_CALL &&
-                 instruction->type.kind == RCC_MIR_TYPE_FLOAT) ||
                 (instruction->opcode == RCC_X86_CAPTURE_RETURN_PAIR &&
                  ((function->target == RCC_X86_TARGET_I686 &&
                    instruction->immediate != 8u) ||
@@ -636,6 +635,7 @@ bool rcc_x86_verify_function(
                          RCC_MIR_TYPE_FLOAT &&
                      instruction->opcode != RCC_X86_STORE &&
                      instruction->opcode != RCC_X86_RETURN &&
+                     instruction->opcode != RCC_X86_CALL &&
                      instruction->opcode != RCC_X86_COPY &&
                      instruction->opcode != RCC_X86_REINTERPRET)) {
                     return x86_select_error(error, error_size,

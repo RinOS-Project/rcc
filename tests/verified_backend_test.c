@@ -196,6 +196,10 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
     ObjSymbol* named_float_symbol;
     ObjSymbol* named_ninth_symbol;
     ObjSymbol* named_mixed_stack_symbol;
+    ObjSymbol* fp_call_double_symbol;
+    ObjSymbol* fp_call_mixed_symbol;
+    ObjSymbol* fp_call_ninth_symbol;
+    ObjSymbol* fp_call_mixed_stack_symbol;
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
     first_symbol = objfile_find_symbol(
@@ -214,6 +218,14 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         object, "verified_sysv_named_double_ninth");
     named_mixed_stack_symbol = objfile_find_symbol(
         object, "verified_sysv_named_mixed_stack");
+    fp_call_double_symbol = objfile_find_symbol(
+        object, "verified_sysv_fp_call_double");
+    fp_call_mixed_symbol = objfile_find_symbol(
+        object, "verified_sysv_fp_call_mixed");
+    fp_call_ninth_symbol = objfile_find_symbol(
+        object, "verified_sysv_fp_call_ninth");
+    fp_call_mixed_stack_symbol = objfile_find_symbol(
+        object, "verified_sysv_fp_call_mixed_stack");
     assert(first_symbol != NULL && first_symbol->type == SYM_GLOBAL &&
            first_symbol->binding == BIND_CODE && first_symbol->section == 0);
     assert(second_symbol != NULL && second_symbol->type == SYM_GLOBAL &&
@@ -240,6 +252,22 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
            named_mixed_stack_symbol->type == SYM_GLOBAL &&
            named_mixed_stack_symbol->binding == BIND_CODE &&
            named_mixed_stack_symbol->section == 0);
+    assert(fp_call_double_symbol != NULL &&
+           fp_call_double_symbol->type == SYM_GLOBAL &&
+           fp_call_double_symbol->binding == BIND_CODE &&
+           fp_call_double_symbol->section == 0);
+    assert(fp_call_mixed_symbol != NULL &&
+           fp_call_mixed_symbol->type == SYM_GLOBAL &&
+           fp_call_mixed_symbol->binding == BIND_CODE &&
+           fp_call_mixed_symbol->section == 0);
+    assert(fp_call_ninth_symbol != NULL &&
+           fp_call_ninth_symbol->type == SYM_GLOBAL &&
+           fp_call_ninth_symbol->binding == BIND_CODE &&
+           fp_call_ninth_symbol->section == 0);
+    assert(fp_call_mixed_stack_symbol != NULL &&
+           fp_call_mixed_stack_symbol->type == SYM_GLOBAL &&
+           fp_call_mixed_stack_symbol->binding == BIND_CODE &&
+           fp_call_mixed_stack_symbol->section == 0);
     if (execute) {
         size_t mapping_size;
         void* memory = map_text(object, text, &mapping_size);
@@ -254,6 +282,15 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
             double, double, double, double, double,
             double, double, double, double);
         double (RINOS_ABI *named_mixed_stack)(
+            int, int, int, int, int, int, int,
+            double, double, double, double, double,
+            double, double, double, double);
+        double (RINOS_ABI *fp_call_double)(double);
+        double (RINOS_ABI *fp_call_mixed)(int, double);
+        double (RINOS_ABI *fp_call_ninth)(
+            double, double, double, double, double,
+            double, double, double, double);
+        double (RINOS_ABI *fp_call_mixed_stack)(
             int, int, int, int, int, int, int,
             double, double, double, double, double,
             double, double, double, double);
@@ -272,6 +309,14 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         memcpy(&named_ninth, &address, sizeof(named_ninth));
         address = symbol_address(memory, named_mixed_stack_symbol);
         memcpy(&named_mixed_stack, &address, sizeof(named_mixed_stack));
+        address = symbol_address(memory, fp_call_double_symbol);
+        memcpy(&fp_call_double, &address, sizeof(fp_call_double));
+        address = symbol_address(memory, fp_call_mixed_symbol);
+        memcpy(&fp_call_mixed, &address, sizeof(fp_call_mixed));
+        address = symbol_address(memory, fp_call_ninth_symbol);
+        memcpy(&fp_call_ninth, &address, sizeof(fp_call_ninth));
+        address = symbol_address(memory, fp_call_mixed_stack_symbol);
+        memcpy(&fp_call_mixed_stack, &address, sizeof(fp_call_mixed_stack));
         assert(first(7, 3.25) == 3.25);
         assert(second(7, 1.25, 2.5) == 2.5);
         assert(ninth(7, 1.0, 2.0, 3.0, 4.0, 5.0,
@@ -282,6 +327,15 @@ static void verify_sysv_va_fp_object(const char* path, bool execute)
         assert(named_ninth(1.0, 2.0, 3.0, 4.0, 5.0,
                            6.0, 7.0, 8.0, 9.0) == 9.0);
         assert(named_mixed_stack(
+                   1, 2, 3, 4, 5, 6, 7,
+                   1.0, 2.0, 3.0, 4.0, 5.0,
+                   6.0, 7.0, 8.0, 9.0) == 9.0);
+        assert(fp_call_double(12.5) == 12.5);
+        assert(fp_call_mixed(23, 14.75) == 14.75);
+        assert(fp_call_ninth(
+                   1.0, 2.0, 3.0, 4.0, 5.0,
+                   6.0, 7.0, 8.0, 9.0) == 9.0);
+        assert(fp_call_mixed_stack(
                    1, 2, 3, 4, 5, 6, 7,
                    1.0, 2.0, 3.0, 4.0, 5.0,
                    6.0, 7.0, 8.0, 9.0) == 9.0);
