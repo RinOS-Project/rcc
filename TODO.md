@@ -396,6 +396,14 @@
         destroy the complete derived object exactly once in derived-before-base
         order. `test-cxx-static-reference-temporaries-posix` passes on
         i686/AMD64 object generation and x64 pthread host execution.
+  - [x] Verify a namespace-scope TLS `const Base&` initialized through a
+        user-defined conversion returning a `Derived` prvalue: run the
+        conversion once per thread, retain each thread's complete result, and
+        destroy derived then base exactly once at thread exit. The regression
+        exposed and fixed missing caller-frame planning for guarded TLS
+        initializer expressions; dual-architecture generation and x64 pthread
+        execution pass in `test-cxx-static-reference-temporaries-posix` and
+        `make CC=gcc test-ci`.
   - [x] Extend static-duration lifetime through direct member subobjects and
         explicit derived-to-base xvalue bindings, including virtual bases and
         class-prvalue sources selected by comma/conditional expressions.

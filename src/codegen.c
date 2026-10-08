@@ -12967,6 +12967,13 @@ static int codegen_align_frame_bytes(int bytes, int alignment) {
 
 static ExprList* active_call_temporary_owners = NULL;
 
+typedef struct CodegenTLSInitializerPlanFrame {
+    Decl* declaration;
+    struct CodegenTLSInitializerPlanFrame* previous;
+} CodegenTLSInitializerPlanFrame;
+
+static CodegenTLSInitializerPlanFrame* active_tls_initializer_plan = NULL;
+
 ExprList* codegen_call_temporary_owners(void) {
     return active_call_temporary_owners;
 }
@@ -13024,6 +13031,28 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
     }
 
     switch (expression->kind) {
+        case EXPR_IDENT: {
+            Decl* declaration = expression->ident_decl;
+            if (declaration && declaration->var_is_thread_local &&
+                declaration->var_init &&
+                (declaration->var_reference_temporary_guard ||
+                 declaration->var_dynamic_initializer)) {
+                CodegenTLSInitializerPlanFrame* frame;
+                for (frame = active_tls_initializer_plan; frame;
+                     frame = frame->previous) {
+                    if (frame->declaration == declaration) break;
+                }
+                if (!frame) {
+                    CodegenTLSInitializerPlanFrame current = {
+                        declaration, active_tls_initializer_plan};
+                    active_tls_initializer_plan = &current;
+                    codegen_assign_compound_expr(declaration->var_init,
+                                                 bytes, stack_alignment);
+                    active_tls_initializer_plan = current.previous;
+                }
+            }
+            break;
+        }
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:

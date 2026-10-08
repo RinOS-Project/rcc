@@ -9,6 +9,7 @@ int cxx_static_reference_tls_base_constructions = 0;
 int cxx_static_reference_tls_derived_constructions = 0;
 int cxx_static_reference_tls_base_destructions = 0;
 int cxx_static_reference_tls_derived_destructions = 0;
+int cxx_static_reference_tls_conversions = 0;
 #endif
 }
 
@@ -68,6 +69,15 @@ struct ThreadLocalReferenceDerived : ThreadLocalReferenceBase {
     }
 };
 
+struct ThreadLocalReferenceConversionSource {
+    int value;
+
+    operator ThreadLocalReferenceDerived() {
+        ++cxx_static_reference_tls_conversions;
+        return ThreadLocalReferenceDerived{value + 20};
+    }
+};
+
 thread_local int cxx_static_reference_thread_value;
 
 thread_local const ThreadLocalReferenceLifetime& thread_local_reference =
@@ -77,6 +87,11 @@ thread_local const ThreadLocalReferenceBase& thread_local_base_reference =
     static_cast<ThreadLocalReferenceBase&&>(
         ThreadLocalReferenceDerived{cxx_static_reference_thread_value + 10});
 
+thread_local const ThreadLocalReferenceBase&
+    thread_local_converted_base_reference =
+        ThreadLocalReferenceConversionSource{
+            cxx_static_reference_thread_value + 20};
+
 extern "C" int cxx_static_reference_tls_worker(int value) {
     cxx_static_reference_thread_value = value;
     const ThreadLocalReferenceLifetime* first = &thread_local_reference;
@@ -85,6 +100,12 @@ extern "C" int cxx_static_reference_tls_worker(int value) {
     const ThreadLocalReferenceBase* base_first = &thread_local_base_reference;
     const ThreadLocalReferenceBase* base_second = &thread_local_base_reference;
     if (base_first != base_second || base_first->value != value + 10) return 2;
+    const ThreadLocalReferenceBase* converted_first =
+        &thread_local_converted_base_reference;
+    const ThreadLocalReferenceBase* converted_second =
+        &thread_local_converted_base_reference;
+    if (converted_first != converted_second ||
+        converted_first->value != value + 40) return 3;
     return 0;
 }
 #endif
