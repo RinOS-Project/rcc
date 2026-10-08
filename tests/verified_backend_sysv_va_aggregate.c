@@ -79,3 +79,21 @@ long long verified_sysv_va_large_aggregate(int marker, ...)
     va_end(arguments);
     return value;
 }
+
+int verified_sysv_va_read_integer_aggregate(int marker, ...)
+{
+    va_list arguments;
+    struct VerifiedSysvIntegerAggregate value;
+    va_start(arguments, marker);
+    value = va_arg(arguments, struct VerifiedSysvIntegerAggregate);
+    va_end(arguments);
+    return value.first * 10 + value.second;
+}
+
+int verified_sysv_va_integer_aggregate_call(int first, int second)
+{
+    struct VerifiedSysvIntegerAggregate value;
+    value.first = first;
+    value.second = second;
+    return verified_sysv_va_read_integer_aggregate(1, value);
+}

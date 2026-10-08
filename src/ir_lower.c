@@ -271,6 +271,16 @@ typedef struct {
 static bool lower_sysv_classify_aggregate(
     const Type* type, LowerSysvAggregateClass* result);
 
+static bool lower_sysv_variadic_integer_word_aggregate(
+    const Type* type) {
+    LowerSysvAggregateClass classification;
+    return g_opts.target_arch == ARCH_X64 && type && type->size > 0 &&
+        type->size <= 8 &&
+        lower_sysv_classify_aggregate(type, &classification) &&
+        !classification.memory && classification.count == 1 &&
+        classification.classes[0] == LOWER_SYSV_CLASS_INTEGER;
+}
+
 static RccIrLowerValue lower_invalid_value(void) {
     RccIrLowerValue value;
     value.value = RCC_IR_VALUE_NONE;
@@ -5487,8 +5497,11 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                      chunk_size - 1u) / chunk_size;
         } else if (!parameter && argument->expr &&
                    lower_abi_is_aggregate(argument->expr->type)) {
-            context->unsupported = true;
-            return lower_invalid_value();
+            if (!lower_sysv_variadic_integer_word_aggregate(
+                    argument->expr->type)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
         }
         if (units > SIZE_MAX - argument_count) {
             context->unsupported = true;
@@ -5568,6 +5581,23 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                 }
                 operands[index++] = chunk.value;
             }
+        } else if (!parameter && argument->expr &&
+                   lower_abi_is_aggregate(argument->expr->type)) {
+            RccIrLowerValue chunk;
+            if (!lower_sysv_variadic_integer_word_aggregate(
+                    argument->expr->type) ||
+                !value.valid || value.type.kind != RCC_IR_TYPE_POINTER) {
+                rcc_free(operands);
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            chunk = lower_load_aggregate_chunk(
+                context, value, argument->expr->type, 0u);
+            if (!chunk.valid) {
+                rcc_free(operands);
+                return lower_invalid_value();
+            }
+            operands[index++] = chunk.value;
         } else if (parameter) {
             value = lower_cast(context, value, parameter->type);
             if (!value.valid) {

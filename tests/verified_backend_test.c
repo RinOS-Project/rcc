@@ -617,6 +617,7 @@ static void verify_sysv_va_aggregate_object(const char* path)
     ObjSymbol* mixed_overflow_symbol;
     ObjSymbol* mixed_sse_overflow_symbol;
     ObjSymbol* large_aggregate_symbol;
+    ObjSymbol* integer_aggregate_call_symbol;
     size_t mapping_size;
     void* memory;
     void* address;
@@ -628,6 +629,7 @@ static void verify_sysv_va_aggregate_object(const char* path)
         double, double, double, double,
         double, double, double, double, ...);
     long long (RINOS_ABI *large_aggregate)(int, ...);
+    int (RINOS_ABI *integer_aggregate_call)(int, int);
     struct VerifiedSysvMixedAggregate mixed = { 19, 4.125 };
     struct VerifiedSysvIntegerAggregate integer = { 13, 7 };
     struct VerifiedSysvVaLargeAggregate large = { 11, 23, 47 };
@@ -645,6 +647,8 @@ static void verify_sysv_va_aggregate_object(const char* path)
         object, "verified_sysv_va_mixed_aggregate_sse_overflow");
     large_aggregate_symbol = objfile_find_symbol(
         object, "verified_sysv_va_large_aggregate");
+    integer_aggregate_call_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_integer_aggregate_call");
     assert(mixed_integer_symbol != NULL &&
            mixed_integer_symbol->type == SYM_GLOBAL &&
            mixed_integer_symbol->binding == BIND_CODE &&
@@ -669,6 +673,10 @@ static void verify_sysv_va_aggregate_object(const char* path)
            large_aggregate_symbol->type == SYM_GLOBAL &&
            large_aggregate_symbol->binding == BIND_CODE &&
            large_aggregate_symbol->section == 0);
+    assert(integer_aggregate_call_symbol != NULL &&
+           integer_aggregate_call_symbol->type == SYM_GLOBAL &&
+           integer_aggregate_call_symbol->binding == BIND_CODE &&
+           integer_aggregate_call_symbol->section == 0);
     memory = map_text(object, text, &mapping_size);
     address = symbol_address(memory, mixed_integer_symbol);
     memcpy(&mixed_integer, &address, sizeof(mixed_integer));
@@ -682,6 +690,8 @@ static void verify_sysv_va_aggregate_object(const char* path)
     memcpy(&mixed_sse_overflow, &address, sizeof(mixed_sse_overflow));
     address = symbol_address(memory, large_aggregate_symbol);
     memcpy(&large_aggregate, &address, sizeof(large_aggregate));
+    address = symbol_address(memory, integer_aggregate_call_symbol);
+    memcpy(&integer_aggregate_call, &address, sizeof(integer_aggregate_call));
     assert(mixed_integer(7, mixed) == 19);
     assert(mixed_floating(7, mixed) == 4.125);
     assert(integer_overflow(1, 2, 3, 4, 5, 6, integer) == 137);
@@ -690,6 +700,7 @@ static void verify_sysv_va_aggregate_object(const char* path)
                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
                mixed) == 4.125);
     assert(large_aggregate(7, large) == 47);
+    assert(integer_aggregate_call(13, 7) == 137);
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }

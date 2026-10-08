@@ -876,9 +876,13 @@
         16-byte alignasを持つ32-byte C++構造体を実装に接続し、stack spill後の
         overflow cursor／alignmentを含むSysV host ABI実行を`-O0`/`-O2`で検証。
         全対象関数がfallbackなしでtyped SSAから生成されることも確認。
+      - [x] 1 INTEGER eightbyteに収まるtrivial C aggregateのvariadic callを
+        typed SSAへmarshalし、同じobject内の`va_arg` calleeまで接続。C callerから
+        `{13, 7}`を渡した結果137を、`-O0`/`-O2`かつfallbackなしで検証。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
-        16-byteを超えるMEMORY aggregateを実装・実行検証した。aggregateを渡すvariadic call、
+        16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは1 INTEGER
+        eightbyteのtrivial aggregateに限定され、複数eightbyte／SSE／MEMORY aggregate、
         FP/aggregate named parameter分類、残るadjusted-`va_list`形態は未実装であり、
         このparent checkboxは未完了のままにする。
   - [x] x86_64 SysVで`va_list*`を受け取るhelperの`va_arg(*p, T)`／
