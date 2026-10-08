@@ -14,6 +14,24 @@ T local_class_template_value(T value) {
 }
 
 template <typename T>
+T local_class_template_constructor_member(T value) {
+    struct Local {
+        T item;
+        T bias;
+
+        Local(T initial_item, T initial_bias)
+            : item(initial_item), bias(initial_bias) {}
+
+        T sum(T extra) const {
+            return item + bias + extra;
+        }
+    };
+
+    Local local(value, value);
+    return local.sum(value);
+}
+
+template <typename T>
 int local_class_template_size(T value) {
     struct Local {
         char prefix;
@@ -187,6 +205,8 @@ const void* local_class_template_typeinfo() {
 int main() {
     if (local_class_template_value(13) != 26) return 1;
     if (local_class_template_value(19LL) != 38) return 2;
+    if (local_class_template_constructor_member(13) != 39) return 24;
+    if (local_class_template_constructor_member(19LL) != 57) return 25;
     if (local_class_template_size(1) != 8) return 3;
     if (local_class_template_size(1LL) != 16) return 4;
     if (local_class_template_dependent_base_size(1) != 8) return 5;
