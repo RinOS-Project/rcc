@@ -13411,23 +13411,22 @@ static Stmt* parse_cxx_local_class_definition(void) {
     Token* name;
     const char* local_identity;
     CxxClass* local_class;
+    CxxTemplate* enclosing_template = active_template;
+    CxxTemplate* local_template = NULL;
     if (!is_struct) expect(TOK_CLASS, "class");
     name = expect(TOK_IDENT, "local class name");
     if (!name) {
         return stmt_null(loc);
     }
     local_identity = rcc_parser_new_local_type_identity();
-    local_class = parse_cxx_class_named(
-        loc, is_struct, name->value.str_val, local_identity);
 
-    /* A local class in a template is a distinct class in every enclosing
-     * specialization.  Keep its dependent definition as a private class
-     * template; template substitution materializes the class only when the
-     * containing function or class specialization is cloned. */
-    if (active_template && local_class &&
-        (active_template->kind == TMPL_FUNCTION ||
-         active_template->kind == TMPL_CLASS)) {
-        CxxTemplate* local_template = cxx_template_new(loc);
+    /* Install the local class's substitution environment before parsing its
+     * members.  Member-function bodies can themselves declare local classes;
+     * those nested definitions must belong to this class specialization,
+     * rather than the enclosing function template's flat list. */
+    if (enclosing_template &&
+        (enclosing_template->kind == TMPL_FUNCTION ||
+         enclosing_template->kind == TMPL_CLASS)) {
         char template_name[128];
         int written = snprintf(template_name, sizeof(template_name),
                                "__rcc_local_class_%s", local_identity);
@@ -13435,35 +13434,47 @@ static Stmt* parse_cxx_local_class_definition(void) {
             rcc_error(loc, "local class template identity is too long");
             return stmt_null(loc);
         }
+        local_template = cxx_template_new(loc);
         local_template->name = rcc_intern(template_name);
         local_template->kind = TMPL_CLASS;
-        local_template->templated_class = local_class;
-        local_template->class_def = local_class;
         local_template->is_local_class_template = true;
-        local_template->local_class_pattern = local_class;
-        local_template->ns = active_template->ns
-            ? active_template->ns
+        local_template->ns = enclosing_template->ns
+            ? enclosing_template->ns
             : (active_namespace ? active_namespace : g_global_namespace);
-        local_template->param_count = active_template->param_count;
+        local_template->param_count = enclosing_template->param_count;
         if (local_template->param_count > 0) {
             local_template->params = ast_arena_alloc(
                 sizeof(local_template->params[0]) *
                 (size_t)local_template->param_count);
-            memcpy(local_template->params, active_template->params,
+            memcpy(local_template->params, enclosing_template->params,
                    sizeof(local_template->params[0]) *
                    (size_t)local_template->param_count);
         }
-        active_template->local_classes = ast_arena_grow(
-            active_template->local_classes,
-            sizeof(active_template->local_classes[0]) *
-                (size_t)active_template->local_class_count,
-            sizeof(active_template->local_classes[0]) *
-                (size_t)(active_template->local_class_count + 1));
-        active_template->local_classes[
-            active_template->local_class_count].pattern = local_class;
-        active_template->local_classes[
-            active_template->local_class_count].templ = local_template;
-        ++active_template->local_class_count;
+        active_template = local_template;
+    }
+    local_class = parse_cxx_class_named(
+        loc, is_struct, name->value.str_val, local_identity);
+    active_template = enclosing_template;
+
+    /* A local class in a template is a distinct class in every enclosing
+     * specialization.  Keep its dependent definition as a private class
+     * template; template substitution materializes the class only when the
+     * containing function or class specialization is cloned. */
+    if (enclosing_template && local_template && local_class) {
+        local_template->templated_class = local_class;
+        local_template->class_def = local_class;
+        local_template->local_class_pattern = local_class;
+        enclosing_template->local_classes = ast_arena_grow(
+            enclosing_template->local_classes,
+            sizeof(enclosing_template->local_classes[0]) *
+                (size_t)enclosing_template->local_class_count,
+            sizeof(enclosing_template->local_classes[0]) *
+                (size_t)(enclosing_template->local_class_count + 1));
+        enclosing_template->local_classes[
+            enclosing_template->local_class_count].pattern = local_class;
+        enclosing_template->local_classes[
+            enclosing_template->local_class_count].templ = local_template;
+        ++enclosing_template->local_class_count;
     }
     return stmt_null(loc);
 }

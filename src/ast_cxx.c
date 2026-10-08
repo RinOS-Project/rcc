@@ -3541,6 +3541,24 @@ static Stmt* template_clone_stmt(CxxTemplate* tmpl, Stmt* statement,
             copy->if_cond = template_clone_expr(
                 tmpl, statement->if_cond, args, arg_count,
                 value_args, value_present);
+            if (statement->if_is_constexpr && copy->if_cond) {
+                int64_t condition_value;
+                if (expr_eval_integer_constant(copy->if_cond,
+                                               &condition_value)) {
+                    bool take_then = condition_value != 0;
+                    copy->if_then = take_then
+                        ? template_clone_stmt(
+                              tmpl, statement->if_then, args, arg_count,
+                              value_args, value_present)
+                        : NULL;
+                    copy->if_else = take_then
+                        ? NULL
+                        : template_clone_stmt(
+                              tmpl, statement->if_else, args, arg_count,
+                              value_args, value_present);
+                    break;
+                }
+            }
             copy->if_then = template_clone_stmt(
                 tmpl, statement->if_then, args, arg_count,
                 value_args, value_present);

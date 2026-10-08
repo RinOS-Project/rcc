@@ -52,6 +52,7 @@ CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(subst /,\,$(1))
 CHECK_FINI_ARRAY = findstr /c:".section .fini_array"
 CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(subst /,\,$(1))
 CHECK_TEXT = findstr /c:"$(1)" "$(subst /,\,$(2))" >NUL
+CHECK_TEXT_ABSENT = powershell -NoProfile -Command "$$text=Get-Content -Raw -LiteralPath '$(2)'; if ($$text.Contains('$(1)')) { exit 1 }"
 GREP = powershell -NoProfile -File "$(CURDIR)/scripts/rcc_grep.ps1"
 else
 CHECK_INIT_ARRAY = $(GREP) -F -q ".section .init_array"
@@ -59,6 +60,7 @@ CHECK_INIT_ARRAY_FILE = $(CHECK_INIT_ARRAY) $(1)
 CHECK_FINI_ARRAY = $(GREP) -F -q ".section .fini_array"
 CHECK_FINI_ARRAY_FILE = $(CHECK_FINI_ARRAY) $(1)
 CHECK_TEXT = $(GREP) -F -q "$(1)" "$(2)"
+CHECK_TEXT_ABSENT = ! $(GREP) -F -q '$(1)' '$(2)'
 GREP = grep
 endif
 
@@ -2472,6 +2474,7 @@ test-cxx-template-local-classes: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-template-local-classes/x64.s \
 		tests/cxx_template_local_classes.cpp
+	$(call CHECK_TEXT_ABSENT,should_not_be_lowered,$(TEST_OUT)/cxx-template-local-classes/x64.s)
 	$(CC) -no-pie -o $(TEST_OUT)/cxx-template-local-classes/run \
 		$(TEST_OUT)/cxx-template-local-classes/x64.s
 	$(TEST_OUT)/cxx-template-local-classes/run

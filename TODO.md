@@ -601,8 +601,11 @@
           execute sibling and cross-translation-unit cases and validate both
           target-width RIN images.
     - [ ] Complete local classes inside function-template instantiations,
-          including dependent bases, nested/discarded-branch definitions,
-          parameter packs, and the complete constructor/member ABI.
+          including dependent bases, nested/discarded-branch definitions
+          (nested method-local class association and skipping unselected
+          if-constexpr branches are now source-wired and compiler-linked, but
+          the focused regression target has not been run), parameter packs,
+          and the complete constructor/member ABI.
       - [x] Bind each local class to the enclosing template arguments, clone
             dependent field layouts and member-function bodies per
             specialization, and preserve distinct local `typeid` identities;
