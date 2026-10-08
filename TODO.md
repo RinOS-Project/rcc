@@ -354,6 +354,9 @@
       converted class xvalues, and broader call/return ABI interactions still
       need systematic coverage; a direct thread-local class-prvalue reference
       now has dedicated per-thread host coverage below.
+  - [x] Reject non-template `int&` returns from prvalues and `int&&` returns
+        from lvalues as hard C++ semantic errors; verify both cases, invalid
+        reference initializers, and invalid ordinary calls for i686/AMD64.
   - [x] Verify public implicit conversion functions returning class lvalue
         references, rvalue references, and class prvalues during class-reference
         binding, including derived-to-base adjustment and lifetime cleanup.

@@ -12856,7 +12856,11 @@ static void sema_stmt(Stmt* stmt) {
                 if (!current_func_auto_return_pending && current_func_ret &&
                     current_func_ret != type_void) {
                     if (!implicit_cast(stmt->return_val, current_func_ret)) {
-                        if (sema_is_scoped_enum(stmt->return_val->type) ||
+                        if (rcc_parser_is_cxx_mode() &&
+                            current_func_ret->is_reference) {
+                            rcc_error(stmt->loc,
+                                      "invalid C++ reference binding in return");
+                        } else if (sema_is_scoped_enum(stmt->return_val->type) ||
                             sema_is_scoped_enum(current_func_ret)) {
                             rcc_error(stmt->loc,
                                       "cannot implicitly convert scoped enum in return");
@@ -16053,7 +16057,11 @@ static bool sema_validate_auto_return_stmt(Stmt* statement) {
             if (statement->return_val && current_func_ret &&
                 current_func_ret != type_void &&
                 !implicit_cast(statement->return_val, current_func_ret)) {
-                if (sema_is_scoped_enum(statement->return_val->type) ||
+                if (rcc_parser_is_cxx_mode() &&
+                    current_func_ret->is_reference) {
+                    rcc_error(statement->loc,
+                              "invalid C++ reference binding in return");
+                } else if (sema_is_scoped_enum(statement->return_val->type) ||
                     sema_is_scoped_enum(current_func_ret)) {
                     rcc_error(statement->loc,
                               "cannot implicitly convert scoped enum in return");
