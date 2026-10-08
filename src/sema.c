@@ -2744,6 +2744,24 @@ static TypeMethod* sema_find_inline_method(Type* aggregate,
     return NULL;
 }
 
+/* Member names in a class with a dependent base are looked up only after the
+ * base pattern is substituted.  Keep this query separate from ordinary
+ * dependent expression typing so the source expression itself remains
+ * available for semantic analysis of the concrete specialization. */
+static bool sema_cxx_has_unresolved_dependent_base(CxxClass* cls, int depth) {
+    if (!cls || depth > 32) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        Type* pattern = cls->bases[index].type_pattern;
+        if (pattern && pattern->cxx_dependent) return true;
+        if (cls->bases[index].base &&
+            sema_cxx_has_unresolved_dependent_base(
+                cls->bases[index].base, depth + 1)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Static-storage integer initializers must be integer constant expressions.
  * Keep this validation separate from the runtime-initializer extension used
  * for otherwise non-constant globals: an expression such as 1 / 0 is not a
@@ -12175,7 +12193,10 @@ static Type* sema_expr(Expr* expr) {
                 if (member->kind == EXPR_PTR_MEMBER) {
                     owner = get_pointer_base(owner);
                 }
-                if (owner && owner->cxx_dependent) {
+                if (owner &&
+                    (owner->cxx_dependent ||
+                     sema_cxx_has_unresolved_dependent_base(
+                         owner->cxx_class, 0))) {
                     /* Dependent member lookup is completed after class
                      * template substitution; never diagnose or lower the
                      * placeholder expression here. */
@@ -12849,6 +12870,15 @@ static Type* sema_expr(Expr* expr) {
             }
 
             if (!field) {
+                if (bt->cxx_class &&
+                    sema_cxx_has_unresolved_dependent_base(
+                        bt->cxx_class, 0)) {
+                    /* The missing name may be introduced by a dependent
+                     * base.  Preserve it for lookup against the substituted
+                     * base list rather than rejecting the template pattern. */
+                    expr->type = type_int;
+                    break;
+                }
                 rcc_error(expr->loc, "no member named '%s'", expr->member_name);
                 expr->type = type_int;
             }
