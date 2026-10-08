@@ -271,6 +271,25 @@ typedef struct {
 static bool lower_sysv_classify_aggregate(
     const Type* type, LowerSysvAggregateClass* result);
 
+static const TypeField* lower_sysv_variadic_single_sse_field(
+    const Type* type) {
+    LowerSysvAggregateClass classification;
+    const TypeField* field;
+    if (g_opts.target_arch != ARCH_X64 || !type ||
+        type->kind != TYPE_STRUCT || type->size <= 0 || type->size > 8 ||
+        type->align <= 0 || type->align > 8 ||
+        !lower_sysv_classify_aggregate(type, &classification) ||
+        classification.memory || classification.count != 1 ||
+        classification.classes[0] != LOWER_SYSV_CLASS_SSE) return NULL;
+    field = type->fields;
+    if (!field || field->next || field->offset != 0 || field->is_bitfield ||
+        !field->type || field->type->is_volatile ||
+        (field->type->kind != TYPE_FLOAT &&
+         field->type->kind != TYPE_DOUBLE) ||
+        field->type->size != type->size) return NULL;
+    return field;
+}
+
 static bool lower_sysv_variadic_integer_aggregate(
     const Type* type, size_t* units_out) {
     LowerSysvAggregateClass classification;
@@ -5509,15 +5528,20 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                      chunk_size - 1u) / chunk_size;
         } else if (!parameter && argument->expr &&
                    lower_abi_is_aggregate(argument->expr->type)) {
-            if (!lower_sysv_variadic_integer_aggregate(
-                    argument->expr->type, &units) ||
-                (sysv_gp_arguments_used < 6u &&
-                 units > 6u - sysv_gp_arguments_used)) {
-                context->unsupported = true;
-                return lower_invalid_value();
-            }
-            if (sysv_gp_arguments_used < 6u) {
-                sysv_gp_arguments_used += units;
+            if (lower_sysv_variadic_single_sse_field(
+                    argument->expr->type)) {
+                units = 1u;
+            } else {
+                if (!lower_sysv_variadic_integer_aggregate(
+                        argument->expr->type, &units) ||
+                    (sysv_gp_arguments_used < 6u &&
+                     units > 6u - sysv_gp_arguments_used)) {
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                if (sysv_gp_arguments_used < 6u) {
+                    sysv_gp_arguments_used += units;
+                }
             }
         }
         if (units > SIZE_MAX - argument_count) {
@@ -5610,23 +5634,42 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             }
         } else if (!parameter && argument->expr &&
                    lower_abi_is_aggregate(argument->expr->type)) {
-            size_t units;
-            if (!lower_sysv_variadic_integer_aggregate(
-                    argument->expr->type, &units) ||
-                !value.valid || value.type.kind != RCC_IR_TYPE_POINTER) {
+            const TypeField* sse_field =
+                lower_sysv_variadic_single_sse_field(
+                    argument->expr->type);
+            if (!value.valid || value.type.kind != RCC_IR_TYPE_POINTER) {
                 rcc_free(operands);
                 context->unsupported = true;
                 return lower_invalid_value();
             }
-            for (size_t unit = 0u; unit < units; ++unit) {
-                RccIrLowerValue chunk = lower_load_aggregate_chunk(
-                    context, value, argument->expr->type,
-                    unit * chunk_size);
-                if (!chunk.valid) {
+            if (sse_field) {
+                RccIrLowerValue field_address = lower_byte_offset_address(
+                    context, value, (uint64_t)sse_field->offset);
+                RccIrLowerValue field_value = lower_load_address(
+                    context, field_address, sse_field->type);
+                if (!field_value.valid) {
                     rcc_free(operands);
                     return lower_invalid_value();
                 }
-                operands[index++] = chunk.value;
+                operands[index++] = field_value.value;
+            } else {
+                size_t units;
+                if (!lower_sysv_variadic_integer_aggregate(
+                        argument->expr->type, &units)) {
+                    rcc_free(operands);
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                for (size_t unit = 0u; unit < units; ++unit) {
+                    RccIrLowerValue chunk = lower_load_aggregate_chunk(
+                        context, value, argument->expr->type,
+                        unit * chunk_size);
+                    if (!chunk.valid) {
+                        rcc_free(operands);
+                        return lower_invalid_value();
+                    }
+                    operands[index++] = chunk.value;
+                }
             }
         } else if (parameter) {
             value = lower_cast(context, value, parameter->type);

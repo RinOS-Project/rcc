@@ -883,10 +883,14 @@
         拡張し、両wordがregisterに入る場合と両wordがstackへ送られる場合を実行検証。
         1 GPRだけ空いた境界では分割せず、実際のlegacy backendへfallbackしたcallも
         `-O0`/`-O2`で実行して正しい値を確認。
+      - [ ] single SSE eightbyteに分類される単一float/double field aggregateの
+        variadic call-site marshalを追加する。sourceとC regression fixtureは追加済みだが、
+        このcontinuationでは未実行のため受入れは未確認。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
         16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER
-        eightbyte、alignment 8以下のtrivial aggregateに限定され、SSE／MEMORY aggregate、
+        eightbyteまたは単一fieldのsingle SSE eightbyte aggregateに限定される。後者のsourceと
+        regression fixtureはあるが未検証。MEMORY aggregate、複数SSE/mixed aggregate、
         3個以上のeightbyte、
         FP/aggregate named parameter分類、残るadjusted-`va_list`形態は未実装であり、
         このparent checkboxは未完了のままにする。

@@ -1,5 +1,9 @@
 #include <stdarg.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct VerifiedSysvMixedAggregate {
     int integer;
     double floating;
@@ -19,6 +23,14 @@ struct VerifiedSysvVaLargeAggregate {
 struct VerifiedSysvVaTwoIntegerAggregate {
     long long first;
     long long second;
+};
+
+struct VerifiedSysvVaDoubleAggregate {
+    double value;
+};
+
+struct VerifiedSysvVaFloatAggregate {
+    float value;
 };
 
 int verified_sysv_va_mixed_aggregate_integer(int marker, ...)
@@ -165,3 +177,85 @@ long long verified_sysv_va_two_integer_aggregate_straddle_call(
     return verified_sysv_va_read_two_integer_aggregate_after_five(
         a, b, c, d, last, value);
 }
+
+double verified_sysv_va_read_double_aggregate(int marker, ...)
+{
+    va_list arguments;
+    struct VerifiedSysvVaDoubleAggregate value;
+    va_start(arguments, marker);
+    value = va_arg(arguments, struct VerifiedSysvVaDoubleAggregate);
+    va_end(arguments);
+    return value.value;
+}
+
+double verified_sysv_va_double_aggregate_call(double floating)
+{
+    struct VerifiedSysvVaDoubleAggregate value;
+    value.value = floating;
+    return verified_sysv_va_read_double_aggregate(1, value);
+}
+
+double verified_sysv_va_read_double_aggregate_after_seven(
+    double a, double b, double c, double d,
+    double e, double f, double last, ...)
+{
+    va_list arguments;
+    struct VerifiedSysvVaDoubleAggregate value;
+    va_start(arguments, last);
+    value = va_arg(arguments, struct VerifiedSysvVaDoubleAggregate);
+    va_end(arguments);
+    return value.value;
+}
+
+double verified_sysv_va_double_aggregate_last_xmm_call(
+    double a, double b, double c, double d,
+    double e, double f, double last, double floating)
+{
+    struct VerifiedSysvVaDoubleAggregate value;
+    value.value = floating;
+    return verified_sysv_va_read_double_aggregate_after_seven(
+        a, b, c, d, e, f, last, value);
+}
+
+double verified_sysv_va_read_double_aggregate_after_eight(
+    double a, double b, double c, double d,
+    double e, double f, double g, double last, ...)
+{
+    va_list arguments;
+    struct VerifiedSysvVaDoubleAggregate value;
+    va_start(arguments, last);
+    value = va_arg(arguments, struct VerifiedSysvVaDoubleAggregate);
+    va_end(arguments);
+    return value.value;
+}
+
+double verified_sysv_va_double_aggregate_stack_call(
+    double a, double b, double c, double d,
+    double e, double f, double g, double last, double floating)
+{
+    struct VerifiedSysvVaDoubleAggregate value;
+    value.value = floating;
+    return verified_sysv_va_read_double_aggregate_after_eight(
+        a, b, c, d, e, f, g, last, value);
+}
+
+float verified_sysv_va_read_float_aggregate(int marker, ...)
+{
+    va_list arguments;
+    struct VerifiedSysvVaFloatAggregate value;
+    va_start(arguments, marker);
+    value = va_arg(arguments, struct VerifiedSysvVaFloatAggregate);
+    va_end(arguments);
+    return value.value;
+}
+
+float verified_sysv_va_float_aggregate_call(float floating)
+{
+    struct VerifiedSysvVaFloatAggregate value;
+    value.value = floating;
+    return verified_sysv_va_read_float_aggregate(1, value);
+}
+
+#ifdef __cplusplus
+}
+#endif
