@@ -2541,6 +2541,21 @@ static bool cxx_constructor_parameter_lists_match(
 
 static uint32_t lowerable_constructor_arity_mask(CxxClass* cls);
 
+/* The initializer parser represents C++ `{}` as a value-init compound with a
+ * single synthetic zero element.  It is safe to lower for a class member
+ * through a user-provided zero-argument constructor: value-initialization does
+ * not pre-zero the object when that constructor is user-provided. */
+static bool cxx_is_empty_class_value_initializer(const Expr* initializer) {
+    const ExprList* item;
+    if (!initializer || initializer->kind != EXPR_COMPOUND ||
+        !initializer->compound_value_init) {
+        return false;
+    }
+    item = initializer->compound_init;
+    return item && !item->next && item->expr &&
+           item->expr->kind == EXPR_INT_LIT && item->expr->int_val == 0;
+}
+
 static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
     if (!cls) return false;
     for (TypeParam* field = cls->fields; field; field = field->next) {
@@ -2548,7 +2563,9 @@ static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
         if (field->is_static) continue;
         if (type && type->cxx_class) {
             CxxClass* member_class = type->cxx_class;
-            if (field->initializer || !member_class->type ||
+            if ((field->initializer &&
+                 !cxx_is_empty_class_value_initializer(field->initializer)) ||
+                !member_class->type ||
                 member_class->destructor_method ||
                 member_class->type->cleanup_function ||
                 (lowerable_constructor_arity_mask(member_class) & 1u) == 0u) {
@@ -2665,10 +2682,11 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
 }
 
 /* Materialize only the bounded form of `using Base::Base`: public direct
- * non-virtual bases with scalar derived fields and constant scalar default
- * member initializers.  The synthesized constructor owns the derived object
- * but delegates the base initialization to the original constructor, so no
- * fake function body or unresolved symbol is emitted. */
+ * non-virtual bases with scalar fields, safely lowerable class members, and
+ * constant scalar or empty-brace class default member initializers.  The
+ * synthesized constructor owns the derived object but delegates base
+ * initialization to the original constructor, so no fake function body or
+ * unresolved symbol is emitted. */
 static void cxx_materialize_inherited_constructors(CxxClass* cls) {
     CxxConstructorInfo** tail;
     if (!cls || cls->base_count == 0) return;
@@ -2695,8 +2713,8 @@ static void cxx_materialize_inherited_constructors(CxxClass* cls) {
                           "using-base constructor cannot name a virtual base");
             } else if (!cxx_inherited_constructor_member_supported(cls)) {
                 rcc_error(cls->using_base_members[using_index].loc,
-                          "using-base constructors require scalar derived fields "
-                          "and constant scalar default member initializers in the "
+                          "using-base constructors require safely lowerable derived "
+                          "members and supported default member initializers in the "
                           "bounded RCC++ profile");
             } else {
                 bool has_lowerable_source = false;
@@ -3050,7 +3068,9 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
             if (field->is_static || !field->name) continue;
             item = cxx_find_constructor_initializer(
                 constructor, field->name, NULL);
-            if (!item && field->initializer) {
+            if (!item && field->initializer &&
+                !(field->type && field->type->cxx_class &&
+                  cxx_is_empty_class_value_initializer(field->initializer))) {
                 Type* type = field->type;
                 if (!type || type->size <= 0 ||
                     !(type_is_integer(type) || type->kind == TYPE_ENUM ||
@@ -3076,8 +3096,7 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item->is_default_member_initializer = true;
                 item->is_pack_expansion = false;
                 item->next = NULL;
-            } else if (!item && field->type && field->type->cxx_class &&
-                       !field->initializer) {
+            } else if (!item && field->type && field->type->cxx_class) {
                 CxxClass* member_class = field->type->cxx_class;
                 CxxConstructorInfo* member_constructor =
                     cxx_find_base_constructor(member_class, 0);
