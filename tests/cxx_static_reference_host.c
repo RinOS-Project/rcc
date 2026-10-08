@@ -47,6 +47,8 @@ extern int cxx_static_reference_tls_derived_constructions;
 extern int cxx_static_reference_tls_base_destructions;
 extern int cxx_static_reference_tls_derived_destructions;
 extern int cxx_static_reference_tls_conversions;
+extern int cxx_static_reference_tls_member_constructions;
+extern int cxx_static_reference_tls_member_destructions;
 extern int RIN_SYSV cxx_static_reference_tls_worker(int value);
 #endif
 extern int RIN_SYSV rcc_generated_main(void);
@@ -197,7 +199,9 @@ int main(void)
         cxx_static_reference_tls_derived_constructions != 0 ||
         cxx_static_reference_tls_base_destructions != 0 ||
         cxx_static_reference_tls_derived_destructions != 0 ||
-        cxx_static_reference_tls_conversions != 0) return 92;
+        cxx_static_reference_tls_conversions != 0 ||
+        cxx_static_reference_tls_member_constructions != 0 ||
+        cxx_static_reference_tls_member_destructions != 0) return 92;
     tls_result = cxx_static_reference_run_tls_thread(3);
     if (tls_result != 0 || cxx_static_reference_tls_constructions != 1 ||
         cxx_static_reference_tls_destructions != 1 ||
@@ -206,7 +210,9 @@ int main(void)
         cxx_static_reference_tls_base_destructions != 3 ||
         cxx_static_reference_tls_derived_destructions != 3 ||
         cxx_static_reference_tls_conversions != 2 ||
-        cxx_static_reference_tls_destruction_order != 2121213) {
+        cxx_static_reference_tls_member_constructions != 1 ||
+        cxx_static_reference_tls_member_destructions != 1 ||
+        cxx_static_reference_tls_destruction_order != 21521213) {
         fprintf(stderr,
                 "TLS reference first-thread state: worker %d, direct %d/%d, "
                 "base %d/%d, derived %d/%d, conversions %d, order %d\n",
@@ -229,7 +235,9 @@ int main(void)
         cxx_static_reference_tls_base_destructions != 6 ||
         cxx_static_reference_tls_derived_destructions != 6 ||
         cxx_static_reference_tls_conversions != 4 ||
-        cxx_static_reference_tls_destruction_order != 2121214) {
+        cxx_static_reference_tls_member_constructions != 2 ||
+        cxx_static_reference_tls_member_destructions != 2 ||
+        cxx_static_reference_tls_destruction_order != 21521214) {
         fprintf(stderr,
                 "TLS reference second-thread state: worker %d, direct %d/%d, "
                 "base %d/%d, derived %d/%d, conversions %d, order %d\n",

@@ -10,6 +10,8 @@ int cxx_static_reference_tls_derived_constructions = 0;
 int cxx_static_reference_tls_base_destructions = 0;
 int cxx_static_reference_tls_derived_destructions = 0;
 int cxx_static_reference_tls_conversions = 0;
+int cxx_static_reference_tls_member_constructions = 0;
+int cxx_static_reference_tls_member_destructions = 0;
 #endif
 }
 
@@ -78,6 +80,24 @@ struct ThreadLocalReferenceConversionSource {
     }
 };
 
+struct ThreadLocalReferenceMemberOwner {
+    int value;
+
+    explicit ThreadLocalReferenceMemberOwner(int initial_value)
+        : value(initial_value) {
+        ++cxx_static_reference_tls_member_constructions;
+    }
+
+    ~ThreadLocalReferenceMemberOwner() {
+        ++cxx_static_reference_tls_member_destructions;
+        cxx_static_reference_tls_destruction_order =
+            cxx_static_reference_tls_destruction_order * 10 + 5;
+    }
+};
+
+int ThreadLocalReferenceMemberOwner::*thread_local_reference_member_pointer =
+    &ThreadLocalReferenceMemberOwner::value;
+
 thread_local int cxx_static_reference_thread_value;
 
 thread_local const ThreadLocalReferenceLifetime& thread_local_reference =
@@ -91,6 +111,11 @@ thread_local const ThreadLocalReferenceBase&
     thread_local_converted_base_reference =
         ThreadLocalReferenceConversionSource{
             cxx_static_reference_thread_value + 20};
+
+thread_local const int& thread_local_member_reference =
+    ThreadLocalReferenceMemberOwner{
+        cxx_static_reference_thread_value + 60}.*
+        thread_local_reference_member_pointer;
 
 extern "C" int cxx_static_reference_tls_worker(int value) {
     cxx_static_reference_thread_value = value;
@@ -106,6 +131,9 @@ extern "C" int cxx_static_reference_tls_worker(int value) {
         &thread_local_converted_base_reference;
     if (converted_first != converted_second ||
         converted_first->value != value + 40) return 3;
+    const int* member_first = &thread_local_member_reference;
+    const int* member_second = &thread_local_member_reference;
+    if (member_first != member_second || *member_first != value + 60) return 5;
     const ThreadLocalReferenceBase& local_converted_reference =
         ThreadLocalReferenceConversionSource{value + 30};
     if (local_converted_reference.value != value + 50) return 4;
