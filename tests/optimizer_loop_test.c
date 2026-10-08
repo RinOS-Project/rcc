@@ -3,9 +3,67 @@
 #include <assert.h>
 #include <string.h>
 
-#if !defined(_WIN32) && (defined(__x86_64__) || defined(__i386__))
+#if defined(_WIN32)
+#include <windows.h>
+#if defined(_M_X64) || defined(__x86_64__)
+#define RCC_TARGET_ABI __attribute__((sysv_abi))
+#else
+#define RCC_TARGET_ABI
+#endif
+#else
 #include <sys/mman.h>
 #include <unistd.h>
+#define RCC_TARGET_ABI
+#endif
+
+#if (defined(_WIN32) && (defined(_M_X64) || defined(_M_IX86) || \
+                         defined(__x86_64__) || defined(__i386__))) || \
+    defined(__x86_64__) || defined(__i386__)
+#define RCC_OPTIMIZER_NATIVE_X86 1
+
+static size_t execution_page_size(void)
+{
+#if defined(_WIN32)
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    return (size_t)info.dwPageSize;
+#else
+    long size = sysconf(_SC_PAGESIZE);
+    return size > 0 ? (size_t)size : 0u;
+#endif
+}
+
+static void* allocate_execution_memory(size_t size)
+{
+#if defined(_WIN32)
+    return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#else
+    void* memory = mmap(NULL, size, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    return memory == MAP_FAILED ? NULL : memory;
+#endif
+}
+
+static bool protect_execution_memory(void* memory, size_t size)
+{
+#if defined(_WIN32)
+    DWORD old_protection;
+    return VirtualProtect(memory, size, PAGE_EXECUTE_READ,
+                          &old_protection) != 0;
+#else
+    return mprotect(memory, size, PROT_READ | PROT_EXEC) == 0;
+#endif
+}
+
+static bool release_execution_memory(void* memory, size_t size)
+{
+#if defined(_WIN32)
+    (void)size;
+    return VirtualFree(memory, 0u, MEM_RELEASE) != 0;
+#else
+    return munmap(memory, size) == 0;
+#endif
+}
 #endif
 
 static ObjSection* code_section(ObjectFile* object)
@@ -40,6 +98,36 @@ static uint64_t function_extent(ObjectFile* object, const char* name)
     }
     assert(end >= function->value);
     return end - function->value;
+}
+
+static size_t function_local_label_count(ObjectFile* object, const char* name)
+{
+    ObjSection* code = code_section(object);
+    ObjSymbol* function = objfile_find_symbol(object, name);
+    uint64_t end;
+    size_t count = 0u;
+    assert(code != NULL && function != NULL);
+    end = function->value + function_extent(object, name);
+    for (ObjSymbol* symbol = object->symbols; symbol; symbol = symbol->next) {
+        if (symbol->binding == BIND_CODE && symbol->section == function->section &&
+            symbol->value > function->value && symbol->value < end &&
+            is_internal_label(symbol->name)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+static int generated_int_function(ObjectFile* object, uint8_t* mapping,
+                                  const char* name)
+{
+    ObjSymbol* symbol = objfile_find_symbol(object, name);
+    int (*function)(void);
+    void* address;
+    assert(symbol != NULL && mapping != NULL);
+    address = mapping + symbol->value;
+    memcpy(&function, &address, sizeof(function));
+    return function();
 }
 
 static void verify_pair(const char* unoptimized_path,
@@ -105,6 +193,14 @@ static void verify_pair(const char* unoptimized_path,
     /* Unrolling three iterations can increase code size on this backend;
      * semantic execution below is the regression check for that case. */
     assert(function_extent(optimized, "loop_constant_three_le") > 0);
+    assert(function_local_label_count(optimized, "loop_constant_five") <
+           function_local_label_count(unoptimized, "loop_constant_five"));
+    assert(function_local_label_count(optimized, "loop_constant_eight") <
+           function_local_label_count(unoptimized, "loop_constant_eight"));
+    /* The configured eight-iteration bound is inclusive: nine-trip loops
+     * must retain their original control-flow shape. */
+    assert(function_local_label_count(optimized, "loop_constant_nine") ==
+           function_local_label_count(unoptimized, "loop_constant_nine"));
     assert(function_extent(optimized, "loop_constant_zero") <
            function_extent(unoptimized, "loop_constant_zero"));
     assert(function_extent(optimized, "loop_constant_zero_le") <
@@ -145,8 +241,8 @@ static void verify_pair(const char* unoptimized_path,
     assert(function_extent(optimized, "expression_constant_sizeof") <
            function_extent(unoptimized, "expression_constant_sizeof"));
 
-#if !defined(_WIN32) && (defined(__x86_64__) || defined(__i386__))
-#if defined(__i386__)
+#if defined(RCC_OPTIMIZER_NATIVE_X86)
+#if defined(__i386__) || defined(_M_IX86)
     if (architecture == ARCH_X86)
 #else
     if (architecture == ARCH_X64)
@@ -267,12 +363,12 @@ static void verify_pair(const char* unoptimized_path,
             optimized, "for_constant_sizeof_bound");
         ObjSymbol* expression_constant_sizeof_symbol = objfile_find_symbol(
             optimized, "expression_constant_sizeof");
-        long page_size = sysconf(_SC_PAGESIZE);
+        size_t page_size = execution_page_size();
         size_t mapping_size;
         uint8_t* mapping;
         int (*while_function)(void);
         int (*for_function)(void);
-        int (*mutate_function)(int);
+        int (RCC_TARGET_ABI *mutate_function)(int);
         int (*while_one_function)(void);
         int (*while_two_function)(void);
         int (*assignment_while_two_function)(void);
@@ -375,14 +471,13 @@ static void verify_pair(const char* unoptimized_path,
                for_constant_alignof_symbol != NULL &&
                for_constant_sizeof_bound_symbol != NULL &&
                expression_constant_sizeof_symbol != NULL &&
-               page_size > 0);
-        mapping_size = (((size_t)code->size + (size_t)page_size - 1u) /
-                        (size_t)page_size) * (size_t)page_size;
-        mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
-                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-        assert(mapping != MAP_FAILED);
+               page_size > 0u);
+        mapping_size = (((size_t)code->size + page_size - 1u) /
+                        page_size) * page_size;
+        mapping = allocate_execution_memory(mapping_size);
+        assert(mapping != NULL);
         memcpy(mapping, code->data, (size_t)code->size);
-        assert(mprotect(mapping, mapping_size, PROT_READ | PROT_EXEC) == 0);
+        assert(protect_execution_memory(mapping, mapping_size));
         address = mapping + while_symbol->value;
         memcpy(&while_function, &address, sizeof(while_function));
         address = mapping + for_symbol->value;
@@ -570,6 +665,12 @@ static void verify_pair(const char* unoptimized_path,
         assert(not_equal_two_function() == 106);
         assert(not_equal_descending_two_function() == 118);
         assert(three_le_function() == 21);
+        assert(generated_int_function(optimized, mapping,
+                                      "loop_constant_five") == 305);
+        assert(generated_int_function(optimized, mapping,
+                                      "loop_constant_eight") == 536);
+        assert(generated_int_function(optimized, mapping,
+                                      "loop_constant_nine") == 639);
         assert(zero_function() == 5);
         assert(zero_le_function() == 7);
         assert(zero_unsigned_function() == 11);
@@ -592,7 +693,7 @@ static void verify_pair(const char* unoptimized_path,
         assert(for_constant_alignof_function() == 107);
         assert(for_constant_sizeof_bound_function() == 109);
         assert(expression_constant_sizeof_function() == 228);
-        munmap(mapping, mapping_size);
+        assert(release_execution_memory(mapping, mapping_size));
     }
 #endif
     objfile_free(unoptimized);

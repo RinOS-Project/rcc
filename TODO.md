@@ -730,6 +730,11 @@
   - [x] C17 `for`の`i += 2`／`i -= 2`／`i = i + 2`形式を±4以内のbounded
         constant-stride proofへ接続し、符号付き／符号なしoverflow・方向・
         `!=`到達性を保持した1〜4-trip展開と両archの実行回帰を追加
+  - [x] C17 `for`の5-trip／8-tripを展開し、9-tripは8回上限を越えるため
+        loop control flowを保持する境界回帰を追加。i686/AMD64のO0/O1 objectで
+        local-label数を比較し、生成AMD64 codeを実行。Native Windows runnerも
+        `VirtualAlloc`/`VirtualProtect`で実行し、引数付きSysV関数の呼出規約を検証。
+        `test-optimize`は既存の`test-ci` production gateに含まれる
   - [x] side-effect-free floating literalからrepresentableなsigned／unsigned
         integerへのcastをO1でtruncation semanticsを保って定数化し、NaN・
         infinity・範囲外の変換はbackendへ残す。i686/AMD64のsize、実行、

@@ -351,6 +351,33 @@ int loop_constant_three_le(void)
     return result;
 }
 
+int loop_constant_five(void)
+{
+    int result = 0;
+    for (int index = 0; index < 5; ++index) {
+        result += 61;
+    }
+    return result;
+}
+
+int loop_constant_eight(void)
+{
+    int result = 0;
+    for (int index = 0; index < 8; ++index) {
+        result += 67;
+    }
+    return result;
+}
+
+int loop_constant_nine(void)
+{
+    int result = 0;
+    for (int index = 0; index < 9; ++index) {
+        result += 71;
+    }
+    return result;
+}
+
 int loop_constant_zero(void)
 {
     int result = 5;
