@@ -407,10 +407,11 @@
         and guard runtime; RinOS runtime integration remains separate.
   - [ ] Finish thread-local reference temporary acceptance. The i686/AMD64
         backends now emit per-thread owner/guard storage and register cleanup
-        with `__cxa_thread_atexit`; a direct class-prvalue reference now has a
-        pthread thread-exit regression on the host. Keep open until RinOS
-        thread-exit runtime integration and broader initializer/lifetime forms
-        are verified.
+        with `__cxa_thread_atexit`; libc start-return and `pthread_exit` paths
+        run `__rin_cxa_thread_finalize` before `SYS_THREAD_EXIT`, ahead of POSIX
+        TSD destructors. Host thread-exit regressions exist. Keep open until
+        RinOS target execution and broader initializer/lifetime forms are
+        verified.
   - [x] Verify namespace-scope `thread_local const T&` bindings to direct and
         derived-to-base class prvalues: i686/AMD64 generation must emit
         `__cxa_thread_atexit`, repeated access in one thread must reuse its
