@@ -1,5 +1,9 @@
 #include <stddef.h>
 #include <stdio.h>
+#ifdef RCC_STATIC_REFERENCE_TLS_TEST
+#include <pthread.h>
+#include <stdint.h>
+#endif
 
 #if defined(_WIN32) && defined(__x86_64__)
 #define RIN_SYSV __attribute__((sysv_abi))
@@ -34,9 +38,36 @@ void* __dso_handle;
 #endif
 extern int cxx_static_reference_events;
 extern int cxx_static_reference_expected_events;
+#ifdef RCC_STATIC_REFERENCE_TLS_TEST
+extern int cxx_static_reference_tls_constructions;
+extern int cxx_static_reference_tls_destructions;
+extern int cxx_static_reference_tls_destruction_order;
+extern int RIN_SYSV cxx_static_reference_tls_worker(int value);
+#endif
 extern int RIN_SYSV rcc_generated_main(void);
 extern void RIN_SYSV __rcc_global_init(void);
 extern void RIN_SYSV __rcc_global_fini(void);
+
+#ifdef RCC_STATIC_REFERENCE_TLS_TEST
+static void* cxx_static_reference_tls_thread(void* argument)
+{
+    int value = (int)(intptr_t)argument;
+    int result = cxx_static_reference_tls_worker(value);
+    return (void*)(intptr_t)result;
+}
+
+static int cxx_static_reference_run_tls_thread(int value)
+{
+    pthread_t thread;
+    void* result = NULL;
+    if (pthread_create(&thread, NULL, cxx_static_reference_tls_thread,
+                       (void*)(intptr_t)value) != 0) {
+        return -1;
+    }
+    if (pthread_join(thread, &result) != 0) return -2;
+    return (int)(intptr_t)result;
+}
+#endif
 
 int RIN_SYSV __cxa_guard_acquire(long long* guard)
 {
@@ -151,6 +182,18 @@ int main(void)
                 result);
         return result;
     }
+#ifdef RCC_STATIC_REFERENCE_TLS_TEST
+    if (cxx_static_reference_tls_constructions != 0 ||
+        cxx_static_reference_tls_destructions != 0) return 92;
+    if (cxx_static_reference_run_tls_thread(3) != 0 ||
+        cxx_static_reference_tls_constructions != 1 ||
+        cxx_static_reference_tls_destructions != 1 ||
+        cxx_static_reference_tls_destruction_order != 3) return 93;
+    if (cxx_static_reference_run_tls_thread(4) != 0 ||
+        cxx_static_reference_tls_constructions != 2 ||
+        cxx_static_reference_tls_destructions != 2 ||
+        cxx_static_reference_tls_destruction_order != 34) return 94;
+#endif
     if (cxx_exception_cleanup_error || cxx_exception_cleanup_count != 0u) {
         fprintf(stderr,
                 "static-reference exception cleanup state: error %d, active %zu\n",

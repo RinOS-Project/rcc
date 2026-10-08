@@ -344,8 +344,9 @@
       semantics. Named xvalue local binding and alias-preserving `int&`/`int&&`
       function returns now have regressions that compile for both targets and
       execute on the x64 host. Source-level reference collapsing is covered;
-      thread-local reference temporaries, converted class xvalues, and broader
-      call/return ABI interactions still need systematic coverage.
+      converted class xvalues, and broader call/return ABI interactions still
+      need systematic coverage; a direct thread-local class-prvalue reference
+      now has dedicated per-thread host coverage below.
   - [x] Verify public implicit conversion functions returning class lvalue
         references, rvalue references, and class prvalues during class-reference
         binding, including derived-to-base adjustment and lifetime cleanup.
@@ -383,10 +384,17 @@
         The generated target code executed successfully with the test exception
         and guard runtime; RinOS runtime integration remains separate.
   - [ ] Finish thread-local reference temporary acceptance. The i686/AMD64
-        native backends now allocate per-thread owner/guard storage, initialize
-        on first use, and register cleanup with `__cxa_thread_atexit`; `build-rcc`
-        and `build-rcxx` pass. Keep open until per-thread lifetime regressions
-        and RinOS thread-exit runtime integration are exercised.
+        backends now emit per-thread owner/guard storage and register cleanup
+        with `__cxa_thread_atexit`; a direct class-prvalue reference now has a
+        pthread thread-exit regression on the host. Keep open until RinOS
+        thread-exit runtime integration and broader initializer/lifetime forms
+        are verified.
+  - [x] Verify a namespace-scope `thread_local const T&` bound to a class
+        prvalue: i686/AMD64 generation must emit `__cxa_thread_atexit`, repeated
+        access in one thread must reuse its owner, distinct threads must get
+        distinct initialized values, and each destructor must run exactly once
+        at thread exit. `test-cxx-static-reference-temporaries-posix` passes on
+        i686/AMD64 object generation and x64 pthread host execution.
   - [x] Extend static-duration lifetime through direct member subobjects and
         explicit derived-to-base xvalue bindings, including virtual bases and
         class-prvalue sources selected by comma/conditional expressions.

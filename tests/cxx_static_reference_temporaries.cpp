@@ -1,6 +1,11 @@
 extern "C" {
 int cxx_static_reference_events = 0;
 int cxx_static_reference_expected_events = 21;
+#ifdef RCC_STATIC_REFERENCE_TLS_TEST
+int cxx_static_reference_tls_constructions = 0;
+int cxx_static_reference_tls_destructions = 0;
+int cxx_static_reference_tls_destruction_order = 0;
+#endif
 }
 
 struct StaticReferenceLifetime {
@@ -14,6 +19,36 @@ struct StaticReferenceLifetime {
 
 const StaticReferenceLifetime& global_static_reference =
         StaticReferenceLifetime{1};
+
+#ifdef RCC_STATIC_REFERENCE_TLS_TEST
+struct ThreadLocalReferenceLifetime {
+    int value;
+
+    explicit ThreadLocalReferenceLifetime(int initial_value)
+        : value(initial_value) {
+        ++cxx_static_reference_tls_constructions;
+    }
+
+    ~ThreadLocalReferenceLifetime() {
+        ++cxx_static_reference_tls_destructions;
+        cxx_static_reference_tls_destruction_order =
+            cxx_static_reference_tls_destruction_order * 10 + value;
+    }
+};
+
+thread_local int cxx_static_reference_thread_value;
+
+thread_local const ThreadLocalReferenceLifetime& thread_local_reference =
+    ThreadLocalReferenceLifetime{cxx_static_reference_thread_value};
+
+extern "C" int cxx_static_reference_tls_worker(int value) {
+    cxx_static_reference_thread_value = value;
+    const ThreadLocalReferenceLifetime* first = &thread_local_reference;
+    const ThreadLocalReferenceLifetime* second = &thread_local_reference;
+    if (first != second || first->value != value) return 1;
+    return 0;
+}
+#endif
 
 const StaticReferenceLifetime& local_static_reference() {
     static const StaticReferenceLifetime& value =

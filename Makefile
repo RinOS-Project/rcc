@@ -2527,26 +2527,32 @@ test-cxx-function-template-references-posix: $(RCXX_TARGET)
 
 test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-temporaries)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-DRCC_STATIC_REFERENCE_TLS_TEST -S \
 		-o $(TEST_OUT)/cxx-static-reference-temporaries/x86.s \
 		tests/cxx_static_reference_temporaries.cpp
+	$(GREP) -F -q "__cxa_thread_atexit" \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x86.o \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
 	objdump -f $(TEST_OUT)/cxx-static-reference-temporaries/x86.o \
 		> $(TEST_OUT)/cxx-static-reference-temporaries/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86-arch.log
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-DRCC_STATIC_REFERENCE_TLS_TEST -S \
 		-o $(TEST_OUT)/cxx-static-reference-temporaries/x64.s \
 		tests/cxx_static_reference_temporaries.cpp
+	$(GREP) -F -q "__cxa_thread_atexit" \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x64.o \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o
-	$(CC) $(CFLAGS) -no-pie \
+	$(CC) $(CFLAGS) -DRCC_STATIC_REFERENCE_TLS_TEST -pthread -no-pie \
 		-o $(TEST_OUT)/cxx-static-reference-temporaries/x64-host \
 		tests/cxx_static_reference_host.c \
-		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o
+		$(TEST_OUT)/cxx-static-reference-temporaries/x64.o -lstdc++
 	$(TEST_OUT)/cxx-static-reference-temporaries/x64-host
 
 test-cxx-static-reference-retry-posix: $(RCXX_TARGET)
