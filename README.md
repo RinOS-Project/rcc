@@ -325,3 +325,10 @@ initializers in addition to forwarding constructor arguments to a public direct
 base. Class/array members and non-constant or out-of-range initializers remain
 outside this bounded profile and are diagnosed. `make SHELL=cmd.exe
 build-rcxx` passed; no tests were run for this change.
+
+2026-10-09 follow-up: synthesized inherited constructors now retain constexpr,
+consteval, nodiscard/deprecation, noreturn/inline, and function-type prototype
+metadata from their base declaration. Variadic and prototype-less source
+constructors are rejected instead of being emitted with a narrowed signature.
+`gcc -Wall -Wextra -std=c11 -fsyntax-only` passed for `src/parser_cxx.c`; no
+tests or full relink were run for this metadata correction.

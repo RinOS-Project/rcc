@@ -642,6 +642,11 @@
       dedicated host-execution and target-object fixture. Keep this parent
       unchecked until those checks and the broader constructor/member ABI and
       dependent member lookup are verified.
+      Synthesized inherited constructors now retain source constexpr/consteval,
+      nodiscard/deprecation, noreturn/inline, and function-type prototype
+      metadata; variadic and prototype-less sources are rejected. The parser
+      translation unit passes `gcc -Wall -Wextra -std=c11 -fsyntax-only`, but
+      no behavior fixture or full relink was run for this metadata correction.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

@@ -2564,7 +2564,11 @@ static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
 
 static bool cxx_inherited_constructor_source_supported(
     const CxxConstructorInfo* source) {
+    Type* function_type = source && source->method && source->method->decl
+        ? source->method->decl->type : NULL;
     return source && source->method && source->method->decl &&
+           function_type && function_type->kind == TYPE_FUNC &&
+           function_type->has_prototype && !function_type->variadic &&
            !source->is_deleted && !source->is_defaulted &&
            source->access == ACCESS_PUBLIC &&
            source->initializers_are_supported;
@@ -2583,15 +2587,32 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     method = cxx_method_new(cls->name, type_void,
                             source->method->decl->func_params, NULL,
                             source->method->decl->loc);
+    method->decl->type->has_prototype =
+        source->method->decl->type->has_prototype;
+    method->decl->type->variadic = source->method->decl->type->variadic;
     method->source_name = cls->name;
     method->owner = cls;
     method->access = source->access;
     method->is_constructor = true;
     method->is_explicit = source->method->is_explicit;
     method->is_noexcept = source->method->is_noexcept;
+    method->is_constexpr = source->method->is_constexpr;
     method->decl->func_is_cxx_method = true;
     method->decl->func_has_cxx_linkage = true;
     method->decl->func_is_cxx_constructor = true;
+    method->decl->func_is_constexpr =
+        source->method->decl->func_is_constexpr;
+    method->decl->func_is_consteval =
+        source->method->decl->func_is_consteval;
+    method->decl->func_is_noreturn =
+        source->method->decl->func_is_noreturn;
+    method->decl->func_is_nodiscard =
+        source->method->decl->func_is_nodiscard;
+    method->decl->func_is_deprecated =
+        source->method->decl->func_is_deprecated;
+    method->decl->func_deprecated_message =
+        source->method->decl->func_deprecated_message;
+    method->decl->func_is_inline = source->method->decl->func_is_inline;
     method->decl->func_is_noexcept = method->is_noexcept;
     method->decl->func_noexcept_expr = source->method->decl->func_noexcept_expr;
     method->decl->func_method_owner = cls->type;
