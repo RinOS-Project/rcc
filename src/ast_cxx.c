@@ -133,6 +133,7 @@ static void mangle_nested_prefix(char* buf, size_t* pos,
 static void mangle_nested_method_prefix(char* buf, size_t* pos,
                                         CxxNamespace* ns, CxxClass* cls,
                                         bool is_const,
+                                        bool is_volatile,
                                         CxxRefQualifier ref_qualifier) {
     CxxNamespace* ns_stack[32];
     int ns_count = 0;
@@ -140,6 +141,7 @@ static void mangle_nested_method_prefix(char* buf, size_t* pos,
     buf[(*pos)++] = 'Z';
     if (!ns && !cls) return;
     buf[(*pos)++] = 'N';
+    if (is_volatile) buf[(*pos)++] = 'V';
     if (is_const) buf[(*pos)++] = 'K';
     if (ref_qualifier == CXX_REF_QUAL_LVALUE) buf[(*pos)++] = 'R';
     else if (ref_qualifier == CXX_REF_QUAL_RVALUE) buf[(*pos)++] = 'O';
@@ -452,6 +454,7 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     static char buf[1024];
     size_t pos = 0;
     bool is_const_method = false;
+    bool is_volatile_method = false;
     CxxRefQualifier ref_qualifier = CXX_REF_QUAL_NONE;
 
     if (func && cls) {
@@ -459,6 +462,7 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
              member = member->next) {
             if (member->method && member->method->decl == func) {
                 is_const_method = member->method->is_const;
+                is_volatile_method = member->method->is_volatile;
                 ref_qualifier = member->method->ref_qualifier;
                 break;
             }
@@ -483,7 +487,7 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
         strcmp(func->name, "operator conversion") == 0) {
         char* return_type;
         mangle_nested_method_prefix(buf, &pos, ns, cls, is_const_method,
-                                    ref_qualifier);
+                                    is_volatile_method, ref_qualifier);
         buf[pos++] = 'c';
         buf[pos++] = 'v';
         return_type = cxx_mangle_type(func->type ? func->type->ret_type : NULL);
@@ -494,10 +498,11 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
         pos += strlen(return_type);
         buf[pos++] = 'E';
     } else {
-        if (cls && (is_const_method ||
+        if (cls && (is_const_method || is_volatile_method ||
                     ref_qualifier != CXX_REF_QUAL_NONE)) {
             mangle_nested_method_prefix(buf, &pos, ns, cls,
-                                        is_const_method, ref_qualifier);
+                                        is_const_method, is_volatile_method,
+                                        ref_qualifier);
             mangle_name(buf, &pos, func->name);
             buf[pos++] = 'E';
         } else {
@@ -830,6 +835,7 @@ bool cxx_method_virtual_signature_matches(const CxxMethod* derived,
         ? base->source_name : base->decl->name;
     return derived_name && base_name && strcmp(derived_name, base_name) == 0 &&
            derived->is_const == base->is_const &&
+           derived->is_volatile == base->is_volatile &&
            derived->ref_qualifier == base->ref_qualifier &&
            cxx_method_parameter_lists_match(derived, base);
 }
@@ -3974,6 +3980,7 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
     method->is_override = false;
     method->is_final = false;
     method->is_const = false;
+    method->is_volatile = false;
     method->ref_qualifier = CXX_REF_QUAL_NONE;
     method->is_constexpr = false;
     method->is_explicit = false;

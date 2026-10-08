@@ -35,3 +35,13 @@ struct InvalidFriendRefQualifier {
         return 4;
     }
 };
+
+struct InvalidStaticVolatileQualifier {
+    static int value() volatile {
+        return 5;
+    }
+};
+
+struct InvalidConstructorCvQualifier {
+    InvalidConstructorCvQualifier() const {}
+};

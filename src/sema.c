@@ -9017,7 +9017,10 @@ static int cxx_member_object_conversion_rank(Type* object_type,
     /* Binding a mutable object to a const member is a qualification
      * conversion.  The mutable overload is the better match when both are
      * viable. */
-    if (this_object->is_const && !object_type->is_const) return 1;
+    if ((this_object->is_const && !object_type->is_const) ||
+        (this_object->is_volatile && !object_type->is_volatile)) {
+        return 1;
+    }
     return 0;
 }
 

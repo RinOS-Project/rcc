@@ -3482,6 +3482,7 @@ static void register_inline_class_accessors(CxxClass* cls) {
             method->is_pure_virtual || method->is_deleted ||
             method->is_defaulted || method->is_constructor ||
             method->is_destructor || !method->is_const ||
+            method->is_volatile ||
             method->decl->func_params || !method->decl->func_body ||
             method->decl->func_body->kind != STMT_BLOCK) {
             continue;
@@ -3618,6 +3619,7 @@ static void register_inline_class_bool_delegates(CxxClass* cls) {
             method->is_pure_virtual || method->is_deleted ||
             method->is_defaulted || method->is_constructor ||
             method->is_destructor || !method->is_const ||
+            method->is_volatile ||
             !method->decl || !method->decl->type ||
             !(method->source_name ? method->source_name : method->decl->name) ||
             strcmp(method->source_name ? method->source_name : method->decl->name,
@@ -3689,6 +3691,7 @@ static void register_inline_class_releases(CxxClass* cls) {
             method->is_pure_virtual || method->is_deleted ||
             method->is_defaulted || method->is_constructor ||
             method->is_destructor || method->is_const ||
+            method->is_volatile ||
             method->decl->func_params || !method->decl->func_body ||
             method->decl->func_body->kind != STMT_BLOCK) {
             continue;
@@ -4057,7 +4060,8 @@ static void register_inline_class_closes(CxxClass* cls) {
             method->is_virtual || method->is_pure_virtual ||
             method->is_deleted || method->is_defaulted ||
             method->is_constructor || method->is_destructor ||
-            method->is_const || !method->decl->type ||
+            method->is_const || method->is_volatile ||
+            !method->decl->type ||
             method->decl->type->kind != TYPE_FUNC ||
             method->decl->func_params ||
             !method->decl->func_body ||
@@ -4224,7 +4228,8 @@ static void register_inline_class_close_delegates(CxxClass* cls) {
             method->is_virtual || method->is_pure_virtual ||
             method->is_deleted || method->is_defaulted ||
             method->is_constructor || method->is_destructor ||
-            method->is_const || !method->decl->type ||
+            method->is_const || method->is_volatile ||
+            !method->decl->type ||
             method->decl->type->kind != TYPE_FUNC ||
             method->decl->func_params || !method->decl->func_body ||
             method->decl->func_body->kind != STMT_BLOCK) {
@@ -4314,7 +4319,8 @@ static void register_inline_class_move_assignment(CxxClass* cls) {
             method->is_virtual || method->is_pure_virtual ||
             method->is_deleted || method->is_defaulted ||
             method->is_constructor || method->is_destructor ||
-            method->is_const || !method->decl->type ||
+            method->is_const || method->is_volatile ||
+            !method->decl->type ||
             !class_reference_is_self(cls, method->decl->type->ret_type,
                                      false) ||
             !method->decl->func_params ||
@@ -4650,7 +4656,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         Decl* declaration;
         TypeParam* this_type_parameter;
         Type* this_type;
-        Type* const_owner;
+        Type* qualified_owner;
         Decl* this_parameter;
         TypeMethod* lowered;
         const char* source_name;
@@ -4696,11 +4702,13 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         declaration->func_method_owner = cls->type;
 
         this_type = NULL;
-        if (!method->is_static && method->is_const) {
-            const_owner = ast_arena_alloc(sizeof(*const_owner));
-            *const_owner = *cls->type;
-            const_owner->is_const = true;
-            this_type = type_ptr(const_owner);
+        if (!method->is_static &&
+            (method->is_const || method->is_volatile)) {
+            qualified_owner = ast_arena_alloc(sizeof(*qualified_owner));
+            *qualified_owner = *cls->type;
+            qualified_owner->is_const = method->is_const;
+            qualified_owner->is_volatile = method->is_volatile;
+            this_type = type_ptr(qualified_owner);
         } else if (!method->is_static) {
             this_type = type_ptr(cls->type);
         }
@@ -5046,13 +5054,14 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         expect(TOK_RPAREN, ")");
 
         bool is_const = false;
+        bool is_volatile = false;
         CxxRefQualifier ref_qualifier = CXX_REF_QUAL_NONE;
         bool is_override = false;
         bool is_final = false;
         bool is_noexcept = false;
         for (;;) {
             if (match(TOK_CONST)) is_const = true;
-            else if (match(TOK_VOLATILE)) { }
+            else if (match(TOK_VOLATILE)) is_volatile = true;
             else if (match(TOK_AMP)) {
                 if (ref_qualifier != CXX_REF_QUAL_NONE) {
                     rcc_error(previous()->loc,
@@ -5114,11 +5123,13 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             rcc_parser_function_scope_push(name);
             if (!is_static) {
                 Type* this_type = type_ptr(cls->type);
-                if (is_const) {
-                    Type* const_owner = ast_arena_alloc(sizeof(*const_owner));
-                    *const_owner = *cls->type;
-                    const_owner->is_const = true;
-                    this_type = type_ptr(const_owner);
+                if (is_const || is_volatile) {
+                    Type* qualified_owner =
+                        ast_arena_alloc(sizeof(*qualified_owner));
+                    *qualified_owner = *cls->type;
+                    qualified_owner->is_const = is_const;
+                    qualified_owner->is_volatile = is_volatile;
+                    this_type = type_ptr(qualified_owner);
                 }
                 rcc_parser_cxx_add_value_binding("this", this_type);
             }
@@ -5159,6 +5170,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->decl->func_deprecated_message = deprecated_message;
         method->is_explicit = is_explicit;
         method->is_const = is_const;
+        method->is_volatile = is_volatile;
         method->ref_qualifier = ref_qualifier;
         method->is_override = is_override;
         method->is_final = is_final;
@@ -5170,18 +5182,28 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_defaulted = is_defaulted;
         method->is_constructor = is_constructor;
         method->is_destructor = is_destructor;
-        if (ref_qualifier != CXX_REF_QUAL_NONE && is_friend) {
+        if ((is_const || is_volatile ||
+             ref_qualifier != CXX_REF_QUAL_NONE) && is_friend) {
             rcc_error(loc,
-                      "a friend function cannot have a member ref-qualifier");
+                      "a friend function cannot have member cv/ref qualifiers");
+        }
+        if (is_volatile && is_static) {
+            rcc_error(loc,
+                      "a static member function cannot have a volatile qualifier");
+        }
+        if (is_const && is_static) {
+            rcc_error(loc,
+                      "a static member function cannot have a const qualifier");
         }
         if (ref_qualifier != CXX_REF_QUAL_NONE && is_static) {
             rcc_error(loc,
                       "a static member function cannot have a ref-qualifier");
         }
-        if (ref_qualifier != CXX_REF_QUAL_NONE &&
+        if ((is_const || is_volatile ||
+             ref_qualifier != CXX_REF_QUAL_NONE) &&
             (is_constructor || is_destructor)) {
             rcc_error(loc,
-                      "a constructor or destructor cannot have a ref-qualifier");
+                      "a constructor or destructor cannot have cv/ref qualifiers");
         }
         method->decl->func_is_cxx_constructor = is_constructor;
         method->decl->func_is_cxx_destructor = is_destructor;
@@ -8333,6 +8355,7 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->is_override = method->is_override;
     copy->is_final = method->is_final;
     copy->is_const = method->is_const;
+    copy->is_volatile = method->is_volatile;
     copy->ref_qualifier = method->ref_qualifier;
     copy->is_constexpr = method->is_constexpr;
     copy->is_explicit = method->is_explicit;
