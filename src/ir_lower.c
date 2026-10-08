@@ -253,6 +253,7 @@ static RccIrLowerValue lower_typeinfo_before(
 enum {
     LOWER_ABI_RETURN_SCALAR = 0,
     LOWER_ABI_RETURN_REGISTER_AGGREGATE,
+    LOWER_ABI_RETURN_REGISTER_SSE_AGGREGATE,
     LOWER_ABI_RETURN_REGISTER_PAIR,
     LOWER_ABI_RETURN_SRET,
     LOWER_ABI_RETURN_UNSUPPORTED,
@@ -6105,6 +6106,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         if (use_aggregate_result_destination) {
             if ((return_kind != LOWER_ABI_RETURN_SRET &&
                  return_kind != LOWER_ABI_RETURN_REGISTER_AGGREGATE &&
+                 return_kind != LOWER_ABI_RETURN_REGISTER_SSE_AGGREGATE &&
                  return_kind != LOWER_ABI_RETURN_REGISTER_PAIR) ||
                 !context->aggregate_result_destination.valid ||
                 context->aggregate_result_destination.type.kind !=
@@ -6528,7 +6530,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         g_opts.target_arch != ARCH_X64) {
         rcc_ir_set_immediate(call, 4u);
     }
-    if (return_kind == LOWER_ABI_RETURN_REGISTER_AGGREGATE) {
+    if (return_kind == LOWER_ABI_RETURN_REGISTER_AGGREGATE ||
+        return_kind == LOWER_ABI_RETURN_REGISTER_SSE_AGGREGATE) {
         RccIrLowerValue value = lower_value(
             call->result, return_type, true);
         if (!lower_store_address(context, aggregate_address, value)) {
@@ -10480,6 +10483,7 @@ static bool lower_sysv_classify_aggregate(
 
 static int lower_abi_return_layout(const Type* type,
                                    RccIrType* return_type) {
+    LowerSysvAggregateClass classification;
     if (!lower_abi_is_aggregate(type) || !return_type ||
         !lower_storage_type_supported_internal(type, 0u)) {
         return LOWER_ABI_RETURN_UNSUPPORTED;
@@ -10499,6 +10503,19 @@ static int lower_abi_return_layout(const Type* type,
         lower_abi_integer_class_internal(type, 0u)) {
         *return_type = rcc_ir_type_integer(64u);
         return LOWER_ABI_RETURN_REGISTER_PAIR;
+    }
+    /* A single SSE-class eightbyte has the same low XMM register transport
+     * as its scalar-width bit pattern. Keep this bounded to one eightbyte;
+     * mixed INTEGER/SSE and two-register aggregate returns need a separate
+     * multi-class return representation. */
+    if (type->size <= 8 &&
+        lower_abi_naturally_aligned_internal(type, 0u, 0u) &&
+        lower_sysv_classify_aggregate(type, &classification) &&
+        !classification.memory && classification.count == 1 &&
+        classification.classes[0] == LOWER_SYSV_CLASS_SSE) {
+        *return_type = rcc_ir_type_float(
+            type->size <= 4 ? 32u : 64u);
+        return LOWER_ABI_RETURN_REGISTER_SSE_AGGREGATE;
     }
     if (type->size > 16 ||
         !lower_abi_naturally_aligned_internal(type, 0u, 0u)) {
@@ -11971,6 +11988,13 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                     LOWER_ABI_RETURN_REGISTER_AGGREGATE) {
                     result = lower_load_aggregate_chunk(
                         context, source, context->ast_return_type, 0u);
+                } else if (context->aggregate_return_kind ==
+                           LOWER_ABI_RETURN_REGISTER_SSE_AGGREGATE) {
+                    const Type* scalar_type =
+                        context->ast_return_type->size <= 4
+                            ? type_float : type_double;
+                    result = lower_load_address(context, source,
+                                                scalar_type);
                 } else if (context->aggregate_return_kind ==
                            LOWER_ABI_RETURN_REGISTER_PAIR) {
                     result = lower_load_aggregate_chunk(

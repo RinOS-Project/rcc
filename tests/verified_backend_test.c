@@ -126,6 +126,14 @@ struct VerifiedLargeReturn {
     int sixth;
 };
 
+struct VerifiedSseAggregateReturn {
+    double value;
+};
+
+struct VerifiedSseAggregateFloatReturn {
+    float value;
+};
+
 static void* map_text(ObjectFile* object, const ObjSection* text,
                       size_t* mapping_size)
 {
@@ -4029,8 +4037,122 @@ static void verify_tls_object(const char* path, uint16_t arch,
     objfile_free(object);
 }
 
+static void verify_sysv_sse_aggregate_return_object(
+    const char* path, const char* round_trip_name,
+    const char* call_value_name, const char* float_round_trip_name,
+    const char* float_call_value_name)
+{
+    static const uint64_t bit_patterns[] = {
+        UINT64_C(0), UINT64_C(0x8000000000000000),
+        UINT64_C(0x3ff0000000000000), UINT64_C(0xc02a000000000000),
+        UINT64_C(0x7ff0000000000000), UINT64_C(0x7ff8000000001234),
+        UINT64_C(0x7ff0000000000001),
+    };
+    static const uint32_t float_bit_patterns[] = {
+        UINT32_C(0), UINT32_C(0x80000000), UINT32_C(0x3f800000),
+        UINT32_C(0xc02a0000), UINT32_C(0x7f800000),
+        UINT32_C(0x7fc01234), UINT32_C(0x7f800001),
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* round_trip_symbol;
+    ObjSymbol* call_value_symbol;
+    ObjSymbol* float_round_trip_symbol;
+    ObjSymbol* float_call_value_symbol;
+    size_t mapping_size;
+    void* memory;
+    void* round_trip_address;
+    void* call_value_address;
+    void* float_round_trip_address;
+    void* float_call_value_address;
+    struct VerifiedSseAggregateReturn (RINOS_ABI *round_trip)(
+        struct VerifiedSseAggregateReturn);
+    double (RINOS_ABI *call_value)(struct VerifiedSseAggregateReturn);
+    struct VerifiedSseAggregateFloatReturn (RINOS_ABI *float_round_trip)(
+        struct VerifiedSseAggregateFloatReturn);
+    float (RINOS_ABI *float_call_value)(
+        struct VerifiedSseAggregateFloatReturn);
+    assert(object != NULL && object->arch == ARCH_X64);
+    text = objfile_get_section(object, ".text");
+    round_trip_symbol = objfile_find_symbol(object, round_trip_name);
+    call_value_symbol = objfile_find_symbol(object, call_value_name);
+    float_round_trip_symbol = objfile_find_symbol(
+        object, float_round_trip_name);
+    float_call_value_symbol = objfile_find_symbol(
+        object, float_call_value_name);
+    assert(round_trip_symbol != NULL &&
+           round_trip_symbol->type == SYM_GLOBAL &&
+           round_trip_symbol->binding == BIND_CODE &&
+           round_trip_symbol->section == 0);
+    assert(call_value_symbol != NULL &&
+           call_value_symbol->type == SYM_GLOBAL &&
+           call_value_symbol->binding == BIND_CODE &&
+           call_value_symbol->section == 0);
+    assert(float_round_trip_symbol != NULL &&
+           float_round_trip_symbol->type == SYM_GLOBAL &&
+           float_round_trip_symbol->binding == BIND_CODE &&
+           float_round_trip_symbol->section == 0);
+    assert(float_call_value_symbol != NULL &&
+           float_call_value_symbol->type == SYM_GLOBAL &&
+           float_call_value_symbol->binding == BIND_CODE &&
+           float_call_value_symbol->section == 0);
+    memory = map_text(object, text, &mapping_size);
+    round_trip_address = symbol_address(memory, round_trip_symbol);
+    call_value_address = symbol_address(memory, call_value_symbol);
+    float_round_trip_address = symbol_address(
+        memory, float_round_trip_symbol);
+    float_call_value_address = symbol_address(
+        memory, float_call_value_symbol);
+    memcpy(&round_trip, &round_trip_address, sizeof(round_trip));
+    memcpy(&call_value, &call_value_address, sizeof(call_value));
+    memcpy(&float_round_trip, &float_round_trip_address,
+           sizeof(float_round_trip));
+    memcpy(&float_call_value, &float_call_value_address,
+           sizeof(float_call_value));
+    for (size_t index = 0u;
+         index < sizeof(bit_patterns) / sizeof(bit_patterns[0]); ++index) {
+        struct VerifiedSseAggregateReturn input;
+        struct VerifiedSseAggregateReturn output;
+        uint64_t output_bits;
+        double extracted;
+        uint64_t extracted_bits;
+        memcpy(&input.value, &bit_patterns[index], sizeof(input.value));
+        output = round_trip(input);
+        memcpy(&output_bits, &output.value, sizeof(output_bits));
+        assert(output_bits == bit_patterns[index]);
+        extracted = call_value(input);
+        memcpy(&extracted_bits, &extracted, sizeof(extracted_bits));
+        assert(extracted_bits == bit_patterns[index]);
+    }
+    for (size_t index = 0u;
+         index < sizeof(float_bit_patterns) /
+                     sizeof(float_bit_patterns[0]); ++index) {
+        struct VerifiedSseAggregateFloatReturn input;
+        struct VerifiedSseAggregateFloatReturn output;
+        uint32_t output_bits;
+        float extracted;
+        uint32_t extracted_bits;
+        memcpy(&input.value, &float_bit_patterns[index], sizeof(input.value));
+        output = float_round_trip(input);
+        memcpy(&output_bits, &output.value, sizeof(output_bits));
+        assert(output_bits == float_bit_patterns[index]);
+        extracted = float_call_value(input);
+        memcpy(&extracted_bits, &extracted, sizeof(extracted_bits));
+        assert(extracted_bits == float_bit_patterns[index]);
+    }
+    assert(verified_unmap(memory, mapping_size) == 0);
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
+    if (argc == 7 &&
+        strcmp(argv[1], "--sysv-sse-aggregate-return-object") == 0) {
+        verify_sysv_sse_aggregate_return_object(
+            argv[2], argv[3], argv[4], argv[5], argv[6]);
+        puts("Verified x86-64 SysV single-SSE aggregate return passed");
+        return 0;
+    }
     if (argc == 4 &&
         strcmp(argv[1], "--va-list-pointer-cxx-object") == 0) {
         uint16_t arch;
