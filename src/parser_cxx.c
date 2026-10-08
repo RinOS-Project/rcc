@@ -1353,6 +1353,46 @@ static bool check_next(TokenType type) {
     return parser.cur->next && parser.cur->next->type == type;
 }
 
+/* A dependent using-declaration such as `using Base<T>::Base` cannot be
+ * resolved while its enclosing local class template is only a pattern.  Keep
+ * the whole base type for the later class specialization, while leaving
+ * ordinary non-template using-declarations on the established name parser. */
+static bool cxx_using_starts_with_template_id_base(void) {
+    Token* token = parser.cur;
+    if (token && token->type == TOK_SCOPE) token = token->next;
+    if (!token || token->type != TOK_IDENT) return false;
+    while (token && token->type != TOK_EOF) {
+        if (token->next && token->next->type == TOK_LT) {
+            int depth = 0;
+            token = token->next;
+            while (token && token->type != TOK_EOF) {
+                if (token->type == TOK_LT) {
+                    ++depth;
+                } else if (token->type == TOK_GT) {
+                    if (--depth == 0) {
+                        return token->next &&
+                               token->next->type == TOK_SCOPE;
+                    }
+                } else if (token->type == TOK_RSHIFT) {
+                    depth -= depth > 1 ? 2 : depth;
+                    if (depth == 0) {
+                        return token->next &&
+                               token->next->type == TOK_SCOPE;
+                    }
+                }
+                token = token->next;
+            }
+            return false;
+        }
+        if (!token->next || token->next->type != TOK_SCOPE ||
+            !token->next->next || token->next->next->type != TOK_IDENT) {
+            return false;
+        }
+        token = token->next->next;
+    }
+    return false;
+}
+
 static bool pending_cxx_nodiscard;
 static bool pending_cxx_deprecated;
 static bool pending_cxx_no_unique_address;
@@ -2464,12 +2504,18 @@ static CxxConstructorInitializer* cxx_copy_constructor_initializer(
 static bool cxx_using_name_matches_base(const char* using_base,
                                         const CxxClass* base) {
     const char* suffix;
+    const char* template_name;
     if (!using_base || !base || !base->name) return false;
     if (strcmp(using_base, base->name) == 0) return true;
+    template_name = base->templ ? base->templ->name : NULL;
+    if (template_name && strcmp(using_base, template_name) == 0) return true;
     suffix = strstr(using_base, "::");
     while (suffix) {
         suffix += 2;
-        if (strcmp(suffix, base->name) == 0) return true;
+        if (strcmp(suffix, base->name) == 0 ||
+            (template_name && strcmp(suffix, template_name) == 0)) {
+            return true;
+        }
         suffix = strstr(suffix, "::");
     }
     return false;
@@ -5501,6 +5547,26 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                     expect(TOK_SEMICOLON, ";");
                     continue;
                 }
+                if (active_template &&
+                    active_template->is_local_class_template &&
+                    cxx_using_starts_with_template_id_base()) {
+                    Type* base_type = parse_cxx_type_spec();
+                    Token* member_token;
+                    expect(TOK_SCOPE, ":: in dependent base using-declaration");
+                    member_token = expect(TOK_IDENT,
+                                          "member in dependent base using-declaration");
+                    if (!base_type || base_type->kind != TYPE_STRUCT ||
+                        !member_token) {
+                        rcc_error(using_loc,
+                                  "dependent base using-declaration requires a class type and member");
+                    } else {
+                        cxx_class_add_using_base_member(
+                            cls, base_type->tag, member_token->value.str_val,
+                            base_type, current_access, using_loc);
+                    }
+                    expect(TOK_SEMICOLON, ";");
+                    continue;
+                }
                 const char* qualified = parse_qualified_name();
                 const char* separator = qualified
                     ? strrchr(qualified, ':') : NULL;
@@ -5519,8 +5585,8 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                         base_name[base_length] = '\0';
                         cxx_class_add_using_base_member(
                             cls, rcc_intern(base_name),
-                            rcc_intern(separator + 1), current_access,
-                            using_loc);
+                            rcc_intern(separator + 1), NULL,
+                            current_access, using_loc);
                     }
                 }
                 expect(TOK_SEMICOLON, ";");
@@ -9233,6 +9299,54 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                 definition->bases[base_index].access,
                 definition->bases[base_index].is_virtual, loc);
         }
+    }
+    for (int using_index = 0;
+         using_index < instance->using_base_member_count; ++using_index) {
+        Type* pattern = instance->using_base_members[using_index]
+                            .base_type_pattern;
+        Type* resolved;
+        CxxClass* used_base;
+        bool is_direct_base = false;
+        if (!pattern) continue;
+        resolved = substitute_template_type(
+            tmpl, pattern, arguments, argument_count, value_args,
+            value_present);
+        used_base = resolved ? resolved->cxx_class : NULL;
+        if (!resolved || resolved->kind != TYPE_STRUCT ||
+            resolved->cxx_dependent || !used_base) {
+            rcc_error(loc,
+                      "dependent base using-declaration did not resolve to a class type");
+            continue;
+        }
+        for (int base_index = 0; base_index < instance->base_count;
+             ++base_index) {
+            if (instance->bases[base_index].base == used_base) {
+                is_direct_base = true;
+                break;
+            }
+        }
+        if (!is_direct_base) {
+            rcc_error(loc,
+                      "dependent base using-declaration must name a direct base");
+            continue;
+        }
+        {
+            const char* member_name = instance->using_base_members[using_index]
+                                          .member_name;
+            const char* template_name = used_base->templ
+                ? used_base->templ->name : NULL;
+            const char* member_tail = cxx_unqualified_name(member_name);
+            const char* base_tail = cxx_unqualified_name(used_base->name);
+            const char* template_tail = cxx_unqualified_name(template_name);
+            if (member_tail &&
+                ((base_tail && strcmp(member_tail, base_tail) == 0) ||
+                 (template_tail && strcmp(member_tail, template_tail) == 0))) {
+                instance->using_base_members[using_index].member_name =
+                    used_base->name;
+            }
+        }
+        instance->using_base_members[using_index].base_name = used_base->name;
+        instance->using_base_members[using_index].base_type_pattern = NULL;
     }
     for (CxxTypeAlias* alias = definition->type_aliases; alias;
          alias = alias->next) {

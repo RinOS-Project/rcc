@@ -311,3 +311,10 @@ were not run. Specialized member declarations retain their source attributes
 and function-type metadata, and resolve their owning class type before
 publication. The broader local-class constructor/member ABI item remains open
 in [`TODO.md`](TODO.md).
+
+2026-10-09 follow-up: dependent local-class using-declarations now retain
+`Base<T>` through parsing and resolve it against the selected base specialization.
+This connects public direct `using Base<T>::Base` declarations to the existing
+bounded inherited-constructor lowering. `make SHELL=cmd.exe -B build-rcxx`
+passed; no fixture or target objects were run, so the parent ABI TODO remains
+open.
