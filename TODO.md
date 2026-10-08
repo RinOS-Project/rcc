@@ -601,16 +601,19 @@
           execute sibling and cross-translation-unit cases and validate both
           target-width RIN images.
     - [ ] Complete local classes inside function-template instantiations,
-          including dependent bases, nested/discarded-branch definitions
-          (nested method-local class association and skipping unselected
-          if-constexpr branches are now source-wired and compiler-linked, but
-          the focused regression target has not been run), parameter packs,
-          and the complete constructor/member ABI.
+          including dependent bases, parameter packs, and the complete
+          constructor/member ABI.
       - [x] Bind each local class to the enclosing template arguments, clone
             dependent field layouts and member-function bodies per
             specialization, and preserve distinct local `typeid` identities;
             execute distinct `int`/`long long` specializations and validate
             i686/AMD64 objects.
+      - [x] Associate method-local classes with their owning local-class
+            specialization; execute nested member-function cases for `int`
+            and `long long` on the host and validate i686/AMD64 objects.
+      - [x] Discard unselected `if constexpr` local-class definitions during
+            template substitution; execute the selected specialization and
+            verify the discarded method is absent from generated assembly.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の
