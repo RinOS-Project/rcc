@@ -275,9 +275,9 @@
   - [x] parser-knownなnamespace所属class型の引数からqualified symbolをADLで
         解決し、free function callをi686/AMD64で実行検証
   - [x] class-templateの型引数、complete classのdirect/indirect base、
-        pointer-to-memberのowner classからassociated namespace/classを集め、
-        再帰型集合と合流overload集合を動的拡張。template-argument/base由来の
-        ADLをi686/AMD64で実行検証
+        pointer-to-memberのowner class、およびglobal-scope classから
+        associated namespace/classを集め、型集合・overload集合を動的拡張。
+        template-argument/base/global-scope由来のADLをi686/AMD64で実行検証
   - [x] integer user-defined literal operatorをItanium `li`名修飾へ接続し、
         built-in integer suffixを含むi686/AMD64の生成・実行を検証
   - [x] C++17 floating、character、string user-defined literal operatorを

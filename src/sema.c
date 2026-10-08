@@ -776,24 +776,80 @@ static Symbol* sema_cxx_runtime_function(const char* name, SourceLoc loc) {
 }
 
 typedef struct SemaCxxAdlCandidates {
-    Decl* declarations[128];
-    int count;
-    bool overflow;
+    Decl** declarations;
+    size_t count;
+    size_t capacity;
 } SemaCxxAdlCandidates;
 
 typedef struct SemaCxxAdlTypes {
-    Type* types[128];
-    int count;
-    bool overflow;
+    Type** types;
+    size_t count;
+    size_t capacity;
 } SemaCxxAdlTypes;
 
 static bool sema_cxx_adl_contains(const SemaCxxAdlCandidates* candidates,
                                   Decl* declaration) {
     if (!candidates || !declaration) return false;
-    for (int index = 0; index < candidates->count; ++index) {
+    for (size_t index = 0; index < candidates->count; ++index) {
         if (candidates->declarations[index] == declaration) return true;
     }
     return false;
+}
+
+static void sema_cxx_adl_append_candidate(
+    SemaCxxAdlCandidates* candidates, Decl* declaration) {
+    size_t capacity;
+
+    if (!candidates || !declaration) return;
+    if (candidates->count == candidates->capacity) {
+        if (candidates->capacity > SIZE_MAX / 2u) {
+            rcc_fatal("ADL candidate storage is too large");
+        }
+        capacity = candidates->capacity ? candidates->capacity * 2u : 8u;
+        if (capacity > SIZE_MAX / sizeof(*candidates->declarations)) {
+            rcc_fatal("ADL candidate storage is too large");
+        }
+        candidates->declarations = ast_arena_grow(
+            candidates->declarations,
+            candidates->count * sizeof(*candidates->declarations),
+            capacity * sizeof(*candidates->declarations));
+        candidates->capacity = capacity;
+    }
+    candidates->declarations[candidates->count++] = declaration;
+}
+
+static void sema_cxx_adl_append_type(SemaCxxAdlTypes* types, Type* type) {
+    size_t capacity;
+
+    if (!types || !type) return;
+    if (type->cxx_is_member_pointer && type->cxx_member_pointer_owner) {
+        sema_cxx_adl_append_type(types, type->cxx_member_pointer_owner);
+    }
+    while (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+        type = type->base;
+        if (!type) return;
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION &&
+        type->kind != TYPE_ENUM) {
+        return;
+    }
+    for (size_t index = 0; index < types->count; ++index) {
+        if (types->types[index] == type) return;
+    }
+    if (types->count == types->capacity) {
+        if (types->capacity > SIZE_MAX / 2u) {
+            rcc_fatal("associated ADL type storage is too large");
+        }
+        capacity = types->capacity ? types->capacity * 2u : 8u;
+        if (capacity > SIZE_MAX / sizeof(*types->types)) {
+            rcc_fatal("associated ADL type storage is too large");
+        }
+        types->types = ast_arena_grow(
+            types->types, types->count * sizeof(*types->types),
+            capacity * sizeof(*types->types));
+        types->capacity = capacity;
+    }
+    types->types[types->count++] = type;
 }
 
 static void sema_cxx_adl_collect_symbol(
@@ -807,90 +863,37 @@ static void sema_cxx_adl_collect_symbol(
             sema_cxx_adl_contains(candidates, declaration)) {
             continue;
         }
-        if (candidates->count == (int)(sizeof(candidates->declarations) /
-                                       sizeof(candidates->declarations[0]))) {
-            candidates->overflow = true;
-            return;
-        }
-        candidates->declarations[candidates->count++] = declaration;
+        sema_cxx_adl_append_candidate(candidates, declaration);
     }
 }
 
 static void sema_cxx_adl_collect_namespace(
     const char* namespace_name, const char* name,
     SemaCxxAdlCandidates* candidates) {
-    char qualified[512];
-    size_t length;
+    char* qualified;
+    size_t namespace_length;
+    size_t name_length;
 
-    if (!namespace_name || !*namespace_name || !name || !candidates) return;
-    length = strlen(namespace_name);
-    if (length + strlen(name) + 3u >= sizeof(qualified)) {
-        rcc_error((SourceLoc){"<sema>", 0, 0},
-                  "ADL namespace qualification exceeds compiler limits");
+    if (!name || !candidates) return;
+    if (!namespace_name || !*namespace_name) {
+        /* A class declared at global scope associates the global namespace,
+         * whose symbols use their unqualified spelling in the symbol table. */
+        sema_cxx_adl_collect_symbol(symtab_lookup(g_symtab, name),
+                                    candidates);
         return;
     }
-    strcpy(qualified, namespace_name);
-    strcpy(qualified + length, "::");
-    strcpy(qualified + length + 2u, name);
+    namespace_length = strlen(namespace_name);
+    name_length = strlen(name);
+    if (name_length > SIZE_MAX - 3u ||
+        namespace_length > SIZE_MAX - name_length - 3u) {
+        rcc_fatal("ADL qualified name is too large");
+    }
+    qualified = ast_arena_alloc(namespace_length + name_length + 3u);
+    memcpy(qualified, namespace_name, namespace_length);
+    qualified[namespace_length] = ':';
+    qualified[namespace_length + 1u] = ':';
+    memcpy(qualified + namespace_length + 2u, name, name_length + 1u);
     sema_cxx_adl_collect_symbol(symtab_lookup(g_symtab, qualified), candidates);
-}
-
-static bool sema_cxx_adl_type_seen(const SemaCxxAdlTypes* seen, Type* type) {
-    if (!seen || !type) return false;
-    for (int index = 0; index < seen->count; ++index) {
-        if (seen->types[index] == type) return true;
-    }
-    return false;
-}
-
-static void sema_cxx_adl_collect_type(Type* type, const char* name,
-                                      SemaCxxAdlCandidates* candidates,
-                                      SemaCxxAdlTypes* seen) {
-    CxxClass* class_info;
-
-    if (!type || !candidates || !seen || seen->overflow) return;
-    while (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
-        type = type->base;
-        if (!type) return;
-    }
-    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION &&
-        type->kind != TYPE_ENUM) {
-        return;
-    }
-    if (sema_cxx_adl_type_seen(seen, type)) return;
-    if (seen->count == (int)(sizeof(seen->types) / sizeof(seen->types[0]))) {
-        seen->overflow = true;
-        return;
-    }
-    seen->types[seen->count++] = type;
-
-    sema_cxx_adl_collect_namespace(type->cxx_namespace, name, candidates);
-    if (type->kind == TYPE_ENUM) return;
-
-    class_info = type->cxx_class;
-
-    /* A class-template specialization contributes the associated entities of
-     * each type template argument as well as those of the specialization. */
-    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
-        sema_cxx_adl_collect_type(type->cxx_template_args[index], name,
-                                  candidates, seen);
-    }
-    if (class_info) {
-        for (int index = 0; index < class_info->template_arg_count; ++index) {
-            sema_cxx_adl_collect_type(class_info->template_args[index], name,
-                                      candidates, seen);
-        }
-    }
-
-    /* Complete class types also associate their public and non-public base
-     * classes.  Access does not affect the associated-entity set. */
-    if (!class_info) return;
-    for (int index = 0; index < class_info->base_count; ++index) {
-        CxxClass* base = class_info->bases[index].base;
-        if (base && base->type) {
-            sema_cxx_adl_collect_type(base->type, name, candidates, seen);
-        }
-    }
 }
 
 static Symbol* sema_cxx_make_function_symbol(
@@ -903,7 +906,7 @@ static Symbol* sema_cxx_make_function_symbol(
     /* Keep the source declarations owned by the AST.  The linked copies are
      * an analysis-only overload view; each copy retains the original ABI
      * spelling, body, and lifetime metadata for the selected call. */
-    for (int index = 0; index < candidates->count; ++index) {
+    for (size_t index = 0; index < candidates->count; ++index) {
         Decl* copy = ast_arena_alloc(sizeof(*copy));
         *copy = *candidates->declarations[index];
         copy->func_overload_next = NULL;
@@ -927,18 +930,39 @@ static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
     if (!rcc_parser_is_cxx_mode() || !name) return NULL;
     for (ExprList* item = arguments; item; item = item->next) {
         Type* type = item->expr ? item->expr->type : NULL;
-        sema_cxx_adl_collect_type(type, name, &candidates,
-                                  &associated_types);
-        if (associated_types.overflow) {
-            rcc_error((SourceLoc){"<sema>", 0, 0},
-                      "associated ADL type set exceeds compiler limits");
-            return NULL;
-        }
+        sema_cxx_adl_append_type(&associated_types, type);
     }
-    if (candidates.overflow) {
-        rcc_error((SourceLoc){"<sema>", 0, 0},
-                  "associated ADL overload set exceeds compiler limits");
-        return NULL;
+    for (size_t index = 0; index < associated_types.count; ++index) {
+        Type* type = associated_types.types[index];
+        CxxClass* class_info = type->cxx_class;
+
+        sema_cxx_adl_collect_namespace(type->cxx_namespace, name,
+                                       &candidates);
+        if (type->kind == TYPE_ENUM || !class_info) continue;
+
+        /* A class-template specialization contributes the associated entities
+         * of each type template argument as well as those of the class. */
+        for (int argument = 0; argument < type->cxx_template_arg_count;
+             ++argument) {
+            sema_cxx_adl_append_type(&associated_types,
+                                     type->cxx_template_args[argument]);
+        }
+        for (int argument = 0; argument < class_info->template_arg_count;
+             ++argument) {
+            sema_cxx_adl_append_type(&associated_types,
+                                     class_info->template_args[argument]);
+        }
+
+        /* Only complete classes associate direct and indirect bases; access
+         * control does not affect that associated-entity set. */
+        if (!type_is_complete(type)) continue;
+        for (int base_index = 0; base_index < class_info->base_count;
+             ++base_index) {
+            CxxClass* base = class_info->bases[base_index].base;
+            if (base && base->type) {
+                sema_cxx_adl_append_type(&associated_types, base->type);
+            }
+        }
     }
     return sema_cxx_make_function_symbol(name, &candidates);
 }
@@ -972,17 +996,7 @@ static Symbol* sema_cxx_visible_symbol(Symbol* symbol, SourceLoc use_loc) {
     for (Decl* declaration = symbol->decl; declaration;
          declaration = declaration->func_overload_next) {
         if (!sema_cxx_declaration_visible_at(declaration, use_loc)) continue;
-        if (candidates.count == (int)(sizeof(candidates.declarations) /
-                                       sizeof(candidates.declarations[0]))) {
-            candidates.overflow = true;
-            break;
-        }
-        candidates.declarations[candidates.count++] = declaration;
-    }
-    if (candidates.overflow) {
-        rcc_error(use_loc,
-                  "ordinary lookup overload set exceeds compiler limits");
-        return NULL;
+        sema_cxx_adl_append_candidate(&candidates, declaration);
     }
     if (candidates.count == 0) return NULL;
     return sema_cxx_make_function_symbol(symbol->name, &candidates);
@@ -1069,11 +1083,6 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
         } else if (!non_function) {
             non_function = result;
         }
-    }
-    if (function_candidates.overflow) {
-        rcc_error((SourceLoc){"<sema>", 0, 0},
-                  "using-namespace overload set exceeds compiler limits");
-        return NULL;
     }
     if (function_candidates.count > 0) {
         return sema_cxx_make_function_symbol(name, &function_candidates);
