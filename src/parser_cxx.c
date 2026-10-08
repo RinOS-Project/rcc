@@ -4502,6 +4502,52 @@ static bool class_has_method_declaration(CxxClass* cls, Decl* declaration) {
     return false;
 }
 
+static bool cxx_method_parameter_lists_match(const CxxMethod* left,
+                                             const CxxMethod* right) {
+    DeclList* left_parameter;
+    DeclList* right_parameter;
+    if (!left || !right || !left->decl || !right->decl) return false;
+    left_parameter = left->decl->func_params;
+    right_parameter = right->decl->func_params;
+    while (left_parameter && right_parameter) {
+        if (!left_parameter->decl || !right_parameter->decl ||
+            !type_is_compatible(left_parameter->decl->type,
+                                right_parameter->decl->type)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return left_parameter == NULL && right_parameter == NULL;
+}
+
+/* C++ forbids mixing ref-qualified and unqualified declarations in one
+ * overload set with the same name and explicit parameter types. */
+static void diagnose_mixed_cxx_method_ref_qualifiers(
+    CxxClass* cls, CxxMethod* method) {
+    const char* name = cxx_method_source_name(method);
+    if (!cls || !method || !name) return;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* previous = member->method;
+        const char* previous_name;
+        if (!previous) continue;
+        previous_name = cxx_method_source_name(previous);
+        if (!previous_name || strcmp(name, previous_name) != 0 ||
+            !cxx_method_parameter_lists_match(method, previous)) {
+            continue;
+        }
+        if ((method->ref_qualifier == CXX_REF_QUAL_NONE) !=
+            (previous->ref_qualifier == CXX_REF_QUAL_NONE)) {
+            rcc_error(method->decl->loc,
+                      "a member function cannot be overloaded with the "
+                      "same parameter types when only one declaration has "
+                      "a ref-qualifier");
+            return;
+        }
+    }
+}
+
 static bool class_method_declares_shared_virtual_base(
     CxxClass* cls, Decl* declaration) {
     CxxClass* owner;
@@ -4686,6 +4732,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
         lowered->success_constant = 0;
         lowered->cxx_access = (unsigned char)member->access;
         lowered->is_explicit = method->is_explicit;
+        lowered->ref_qualifier = method->ref_qualifier;
         lowered->this_owner = method->is_static ? NULL : cls->type;
         lowered->this_adjustment = 0;
         /* A method can override a secondary base slot without occupying a
@@ -4999,14 +5046,30 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         expect(TOK_RPAREN, ")");
 
         bool is_const = false;
+        CxxRefQualifier ref_qualifier = CXX_REF_QUAL_NONE;
         bool is_override = false;
         bool is_final = false;
         bool is_noexcept = false;
         for (;;) {
             if (match(TOK_CONST)) is_const = true;
             else if (match(TOK_VOLATILE)) { }
-            else if (match(TOK_AMP) || match(TOK_AND)) { }
-            else if (match(TOK_OVERRIDE)) is_override = true;
+            else if (match(TOK_AMP)) {
+                if (ref_qualifier != CXX_REF_QUAL_NONE) {
+                    rcc_error(previous()->loc,
+                              "a member function cannot have multiple "
+                              "ref-qualifiers");
+                } else {
+                    ref_qualifier = CXX_REF_QUAL_LVALUE;
+                }
+            } else if (match(TOK_AND)) {
+                if (ref_qualifier != CXX_REF_QUAL_NONE) {
+                    rcc_error(previous()->loc,
+                              "a member function cannot have multiple "
+                              "ref-qualifiers");
+                } else {
+                    ref_qualifier = CXX_REF_QUAL_RVALUE;
+                }
+            } else if (match(TOK_OVERRIDE)) is_override = true;
             else if (match(TOK_FINAL)) is_final = true;
             else if (match(TOK_NOEXCEPT)) {
                 if (check(TOK_LPAREN)) {
@@ -5096,6 +5159,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->decl->func_deprecated_message = deprecated_message;
         method->is_explicit = is_explicit;
         method->is_const = is_const;
+        method->ref_qualifier = ref_qualifier;
         method->is_override = is_override;
         method->is_final = is_final;
         method->is_noexcept = is_noexcept;
@@ -5106,6 +5170,19 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->is_defaulted = is_defaulted;
         method->is_constructor = is_constructor;
         method->is_destructor = is_destructor;
+        if (ref_qualifier != CXX_REF_QUAL_NONE && is_friend) {
+            rcc_error(loc,
+                      "a friend function cannot have a member ref-qualifier");
+        }
+        if (ref_qualifier != CXX_REF_QUAL_NONE && is_static) {
+            rcc_error(loc,
+                      "a static member function cannot have a ref-qualifier");
+        }
+        if (ref_qualifier != CXX_REF_QUAL_NONE &&
+            (is_constructor || is_destructor)) {
+            rcc_error(loc,
+                      "a constructor or destructor cannot have a ref-qualifier");
+        }
         method->decl->func_is_cxx_constructor = is_constructor;
         method->decl->func_is_cxx_destructor = is_destructor;
         if (is_no_unique_address) {
@@ -5130,6 +5207,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             return;
         }
         method->owner = cls;
+        diagnose_mixed_cxx_method_ref_qualifiers(cls, method);
 
         if (is_constructor) cls->has_user_constructor = true;
 
@@ -8255,6 +8333,7 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->is_override = method->is_override;
     copy->is_final = method->is_final;
     copy->is_const = method->is_const;
+    copy->ref_qualifier = method->ref_qualifier;
     copy->is_constexpr = method->is_constexpr;
     copy->is_explicit = method->is_explicit;
     copy->is_noexcept = method->is_noexcept;

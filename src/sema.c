@@ -8895,7 +8895,7 @@ static Decl* sema_select_cxx_overload(Expr* call) {
         return NULL;
     }
     argument_count = sema_cxx_argument_count(call->call_args);
-    if (argument_count < 0 || argument_count == INT_MAX) {
+    if (argument_count < 0 || argument_count > INT_MAX - 2) {
         rcc_error(call->loc, "too many arguments for overload '%s'",
                   call->call_func->ident_name);
         return NULL;
@@ -9021,6 +9021,39 @@ static int cxx_member_object_conversion_rank(Type* object_type,
     return 0;
 }
 
+/* Apply the implicit-object reference binding rules for member ref-
+ * qualifiers. A const lvalue-ref-qualified method can bind a temporary;
+ * an rvalue-ref-qualified method cannot bind an lvalue. */
+static int cxx_member_ref_qualifier_rank(Expr* call, TypeMethod* method) {
+    Expr* member;
+    bool object_is_lvalue;
+    Type* this_type;
+    bool this_is_const;
+    if (!call || !method ||
+        method->ref_qualifier == CXX_REF_QUAL_NONE) {
+        return 0;
+    }
+    member = call->call_func;
+    if (!member || (member->kind != EXPR_MEMBER &&
+                    member->kind != EXPR_PTR_MEMBER)) {
+        return -1;
+    }
+    /* For `->`, member_base is the pointer expression; the designated object
+     * is nevertheless always an lvalue. */
+    object_is_lvalue = member->kind == EXPR_PTR_MEMBER ||
+                       is_lvalue(member->member_base);
+    if (method->ref_qualifier == CXX_REF_QUAL_LVALUE) {
+        if (object_is_lvalue) return 0;
+        this_type = method->function_decl &&
+                    method->function_decl->func_this_param
+            ? method->function_decl->func_this_param->type : NULL;
+        this_is_const = this_type && this_type->kind == TYPE_PTR &&
+                        this_type->base && this_type->base->is_const;
+        return this_is_const ? 1 : -1;
+    }
+    return object_is_lvalue ? -1 : 0;
+}
+
 /* Member functions are kept on the owning TypeMethod list rather than in the
  * global symbol table because ordinary members use their ABI spelling as the
  * declaration key.  Apply the same conversion ranking used by free-function
@@ -9041,14 +9074,14 @@ static TypeMethod* sema_select_cxx_member_method(
         return NULL;
     }
     best_ranks = ast_arena_alloc(sizeof(*best_ranks) *
-                                 (size_t)(argument_count + 1));
+                                 (size_t)(argument_count + 2));
     for (method = aggregate->methods; method; method = method->next) {
         Decl* function;
         TypeParam* parameter;
         DeclList* declared_parameter;
         ExprList* argument;
         int* candidate_ranks = ast_arena_alloc(
-            sizeof(*candidate_ranks) * (size_t)(argument_count + 1));
+            sizeof(*candidate_ranks) * (size_t)(argument_count + 2));
         int rank_count = 0;
         bool viable = true;
         int object_rank;
@@ -9061,6 +9094,9 @@ static TypeMethod* sema_select_cxx_member_method(
         object_rank = cxx_member_object_conversion_rank(aggregate, method);
         if (object_rank < 0) continue;
         candidate_ranks[rank_count++] = object_rank;
+        object_rank = cxx_member_ref_qualifier_rank(call, method);
+        if (object_rank < 0) continue;
+        candidate_ranks[rank_count++] = object_rank;
         parameter = function->type ? function->type->params : NULL;
         declared_parameter = function->func_params;
         if (function->func_this_param && parameter) parameter = parameter->next;
@@ -9071,7 +9107,7 @@ static TypeMethod* sema_select_cxx_member_method(
                 viable = false;
                 break;
             }
-            if (rank_count > argument_count) {
+            if (rank_count > argument_count + 1) {
                 viable = false;
                 break;
             }
@@ -9089,7 +9125,7 @@ static TypeMethod* sema_select_cxx_member_method(
         if (argument) {
             if (!function->type->variadic) continue;
             while (argument) {
-                if (rank_count > argument_count) {
+                if (rank_count > argument_count + 1) {
                     viable = false;
                     break;
                 }
@@ -9097,16 +9133,16 @@ static TypeMethod* sema_select_cxx_member_method(
                 argument = argument->next;
             }
         }
-        if (!viable || rank_count != argument_count + 1) continue;
+        if (!viable || rank_count != argument_count + 2) continue;
         {
             int relation = best
                 ? cxx_conversion_vector_relation(
-                    candidate_ranks, best_ranks, argument_count + 1)
+                    candidate_ranks, best_ranks, argument_count + 2)
                 : 1;
             if (!best || (relation > 0 && !ambiguous)) {
                 best = method;
                 memcpy(best_ranks, candidate_ranks,
-                       sizeof(*best_ranks) * (size_t)(argument_count + 1));
+                       sizeof(*best_ranks) * (size_t)(argument_count + 2));
                 ambiguous = false;
             } else if (relation == 0) {
                 ambiguous = true;
@@ -10537,9 +10573,17 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_ADDR: {
             Type* t = sema_expr(expr->unary_operand);
             Type* addressed_type = t;
+            Type* implicit_object_type = t;
+            if (implicit_object_type &&
+                implicit_object_type->kind == TYPE_PTR &&
+                implicit_object_type->is_reference) {
+                implicit_object_type = implicit_object_type->base;
+            }
             bool materialized_implicit_object =
                 expr->cxx_implicit_object_address && t &&
-                (t->kind == TYPE_STRUCT || t->kind == TYPE_UNION);
+                implicit_object_type &&
+                (implicit_object_type->kind == TYPE_STRUCT ||
+                 implicit_object_type->kind == TYPE_UNION);
             if (!is_lvalue(expr->unary_operand) &&
                 !materialized_implicit_object) {
                 rcc_error(expr->loc, "cannot take address of rvalue");
@@ -11933,6 +11977,10 @@ static Type* sema_expr(Expr* expr) {
                 Expr* member = expr->call_func;
                 Type* owner = sema_expr(member->member_base);
                 TypeMethod* method;
+                if (owner && owner->kind == TYPE_PTR &&
+                    owner->is_reference) {
+                    owner = owner->base;
+                }
                 if (member->kind == EXPR_PTR_MEMBER) {
                     owner = get_pointer_base(owner);
                 }

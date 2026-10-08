@@ -111,6 +111,13 @@ typedef enum {
     TYPE_METHOD_FUNCTION,
 } TypeMethodKind;
 
+/* C++ ref-qualifiers affect member overload viability and ABI naming. */
+typedef enum {
+    CXX_REF_QUAL_NONE,
+    CXX_REF_QUAL_LVALUE,
+    CXX_REF_QUAL_RVALUE,
+} CxxRefQualifier;
+
 /* A structurally validated C++ zero-argument method that can be expanded by
  * the common backend without exposing private representation as a member. */
 struct TypeMethod {
@@ -130,6 +137,7 @@ struct TypeMethod {
     unsigned char cxx_access;
     bool is_explicit;
     bool is_noexcept;
+    CxxRefQualifier ref_qualifier;
     /* For a lowered member function, identify the object type expected by
      * the ABI and the byte adjustment needed to reach it from the lookup
      * object's address.  Ordinary methods use adjustment zero; inherited

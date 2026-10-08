@@ -350,6 +350,7 @@ struct CxxMethod {
     bool is_override;
     bool is_final;
     bool is_const;           /* const member function */
+    CxxRefQualifier ref_qualifier;
     bool is_constexpr;
     bool is_explicit;
     bool is_noexcept;

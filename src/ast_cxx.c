@@ -128,6 +128,33 @@ static void mangle_nested_prefix(char* buf, size_t* pos,
     if (cls) mangle_class_name(buf, pos, cls);
 }
 
+/* Itanium encodes member-function cv/ref qualifiers before the nested class
+ * name (for example `_ZNKR1S1fEv`), not between the class and method names. */
+static void mangle_nested_method_prefix(char* buf, size_t* pos,
+                                        CxxNamespace* ns, CxxClass* cls,
+                                        bool is_const,
+                                        CxxRefQualifier ref_qualifier) {
+    CxxNamespace* ns_stack[32];
+    int ns_count = 0;
+    buf[(*pos)++] = '_';
+    buf[(*pos)++] = 'Z';
+    if (!ns && !cls) return;
+    buf[(*pos)++] = 'N';
+    if (is_const) buf[(*pos)++] = 'K';
+    if (ref_qualifier == CXX_REF_QUAL_LVALUE) buf[(*pos)++] = 'R';
+    else if (ref_qualifier == CXX_REF_QUAL_RVALUE) buf[(*pos)++] = 'O';
+    for (CxxNamespace* current = ns; current && current->name;
+         current = current->parent) {
+        if (ns_count < (int)(sizeof(ns_stack) / sizeof(ns_stack[0]))) {
+            ns_stack[ns_count++] = current;
+        }
+    }
+    for (int index = ns_count - 1; index >= 0; --index) {
+        mangle_name(buf, pos, ns_stack[index]->name);
+    }
+    if (cls) mangle_class_name(buf, pos, cls);
+}
+
 static void cxx_mangle_type_char(char* buf, size_t* pos, char value) {
     if (*pos + 1u >= 256u) {
         rcc_fatal("C++ type name is too long");
@@ -425,12 +452,14 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     static char buf[1024];
     size_t pos = 0;
     bool is_const_method = false;
+    CxxRefQualifier ref_qualifier = CXX_REF_QUAL_NONE;
 
     if (func && cls) {
         for (struct CxxMember* member = cls->members; member;
              member = member->next) {
             if (member->method && member->method->decl == func) {
                 is_const_method = member->method->is_const;
+                ref_qualifier = member->method->ref_qualifier;
                 break;
             }
         }
@@ -453,8 +482,8 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     } else if (func && func->name &&
         strcmp(func->name, "operator conversion") == 0) {
         char* return_type;
-        mangle_nested_prefix(buf, &pos, ns, cls);
-        if (is_const_method) buf[pos++] = 'K';
+        mangle_nested_method_prefix(buf, &pos, ns, cls, is_const_method,
+                                    ref_qualifier);
         buf[pos++] = 'c';
         buf[pos++] = 'v';
         return_type = cxx_mangle_type(func->type ? func->type->ret_type : NULL);
@@ -465,9 +494,10 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
         pos += strlen(return_type);
         buf[pos++] = 'E';
     } else {
-        if (is_const_method && cls) {
-            mangle_nested_prefix(buf, &pos, ns, cls);
-            buf[pos++] = 'K';
+        if (cls && (is_const_method ||
+                    ref_qualifier != CXX_REF_QUAL_NONE)) {
+            mangle_nested_method_prefix(buf, &pos, ns, cls,
+                                        is_const_method, ref_qualifier);
             mangle_name(buf, &pos, func->name);
             buf[pos++] = 'E';
         } else {
@@ -800,6 +830,7 @@ bool cxx_method_virtual_signature_matches(const CxxMethod* derived,
         ? base->source_name : base->decl->name;
     return derived_name && base_name && strcmp(derived_name, base_name) == 0 &&
            derived->is_const == base->is_const &&
+           derived->ref_qualifier == base->ref_qualifier &&
            cxx_method_parameter_lists_match(derived, base);
 }
 
@@ -3943,6 +3974,7 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
     method->is_override = false;
     method->is_final = false;
     method->is_const = false;
+    method->ref_qualifier = CXX_REF_QUAL_NONE;
     method->is_constexpr = false;
     method->is_explicit = false;
     method->is_noexcept = false;
