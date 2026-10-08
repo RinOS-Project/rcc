@@ -781,6 +781,12 @@ typedef struct SemaCxxAdlCandidates {
     bool overflow;
 } SemaCxxAdlCandidates;
 
+typedef struct SemaCxxAdlTypes {
+    Type* types[128];
+    int count;
+    bool overflow;
+} SemaCxxAdlTypes;
+
 static bool sema_cxx_adl_contains(const SemaCxxAdlCandidates* candidates,
                                   Decl* declaration) {
     if (!candidates || !declaration) return false;
@@ -829,6 +835,64 @@ static void sema_cxx_adl_collect_namespace(
     sema_cxx_adl_collect_symbol(symtab_lookup(g_symtab, qualified), candidates);
 }
 
+static bool sema_cxx_adl_type_seen(const SemaCxxAdlTypes* seen, Type* type) {
+    if (!seen || !type) return false;
+    for (int index = 0; index < seen->count; ++index) {
+        if (seen->types[index] == type) return true;
+    }
+    return false;
+}
+
+static void sema_cxx_adl_collect_type(Type* type, const char* name,
+                                      SemaCxxAdlCandidates* candidates,
+                                      SemaCxxAdlTypes* seen) {
+    CxxClass* class_info;
+
+    if (!type || !candidates || !seen || seen->overflow) return;
+    while (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+        type = type->base;
+        if (!type) return;
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION &&
+        type->kind != TYPE_ENUM) {
+        return;
+    }
+    if (sema_cxx_adl_type_seen(seen, type)) return;
+    if (seen->count == (int)(sizeof(seen->types) / sizeof(seen->types[0]))) {
+        seen->overflow = true;
+        return;
+    }
+    seen->types[seen->count++] = type;
+
+    sema_cxx_adl_collect_namespace(type->cxx_namespace, name, candidates);
+    if (type->kind == TYPE_ENUM) return;
+
+    class_info = type->cxx_class;
+
+    /* A class-template specialization contributes the associated entities of
+     * each type template argument as well as those of the specialization. */
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        sema_cxx_adl_collect_type(type->cxx_template_args[index], name,
+                                  candidates, seen);
+    }
+    if (class_info) {
+        for (int index = 0; index < class_info->template_arg_count; ++index) {
+            sema_cxx_adl_collect_type(class_info->template_args[index], name,
+                                      candidates, seen);
+        }
+    }
+
+    /* Complete class types also associate their public and non-public base
+     * classes.  Access does not affect the associated-entity set. */
+    if (!class_info) return;
+    for (int index = 0; index < class_info->base_count; ++index) {
+        CxxClass* base = class_info->bases[index].base;
+        if (base && base->type) {
+            sema_cxx_adl_collect_type(base->type, name, candidates, seen);
+        }
+    }
+}
+
 static Symbol* sema_cxx_make_function_symbol(
     const char* name, const SemaCxxAdlCandidates* candidates) {
     Symbol* result;
@@ -858,20 +922,18 @@ static Symbol* sema_cxx_make_function_symbol(
 
 static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
     SemaCxxAdlCandidates candidates = {0};
+    SemaCxxAdlTypes associated_types = {0};
 
     if (!rcc_parser_is_cxx_mode() || !name) return NULL;
     for (ExprList* item = arguments; item; item = item->next) {
         Type* type = item->expr ? item->expr->type : NULL;
-        while (type && type->kind == TYPE_PTR && !type->is_reference) {
-            type = type->base;
+        sema_cxx_adl_collect_type(type, name, &candidates,
+                                  &associated_types);
+        if (associated_types.overflow) {
+            rcc_error((SourceLoc){"<sema>", 0, 0},
+                      "associated ADL type set exceeds compiler limits");
+            return NULL;
         }
-        if (!type || (type->kind != TYPE_STRUCT &&
-                      type->kind != TYPE_UNION) ||
-            !type->cxx_namespace) {
-            continue;
-        }
-        sema_cxx_adl_collect_namespace(type->cxx_namespace, name,
-                                       &candidates);
     }
     if (candidates.overflow) {
         rcc_error((SourceLoc){"<sema>", 0, 0},

@@ -18,8 +18,25 @@ int score(Flag flag) {
 }
 }
 
+namespace wrapper {
+template<typename T>
+struct Box {};
+}
+
+namespace payload {
+struct Token {
+    int value;
+};
+
+int score_box(wrapper::Box<Token>) {
+    return 33;
+}
+}
+
 int main(void) {
     left::Token token{1};
     right::Flag flag{2};
-    return score(token) == 11 && score(flag) == 22 ? 0 : 1;
+    wrapper::Box<payload::Token> box;
+    return score(token) == 11 && score(flag) == 22 &&
+                   score_box(box) == 33 ? 0 : 1;
 }
