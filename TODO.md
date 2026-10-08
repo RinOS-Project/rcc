@@ -660,6 +660,16 @@
             prologues; assert per-element construction order and retain negative
             coverage for unsupported nested arrays, member initializers, and
             inherited element cleanup. The current change has build evidence only.
+  - [x] Parse and instantiate a dependent direct base in an ordinary class
+        template, defer its base layout and default-member initialization,
+        resolve `using Base<T>::Base`/`using Base<T>::member`, and lower
+        `this->` field and method lookup. The `int`/`long long` regression
+        emits both target widths and executes on x64 in
+        `test-cxx-class-template-dependent-base`.
+  - [ ] Complete ordinary class-template dependent inheritance coverage for
+        base packs, dependent virtual bases/overrides, access and ambiguity
+        rules, and dependent default-member initializers whose substituted
+        scalar width exceeds the i686 register width.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

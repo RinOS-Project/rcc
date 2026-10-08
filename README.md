@@ -352,3 +352,12 @@ constructors still reject array DMIs, nested or incomplete arrays, and elements
 that require cleanup. The forced compiler build passed; no runtime tests or
 target objects were run, so the local-class constructor/member ABI TODO remains
 open pending per-element runtime coverage.
+
+2026-10-09 follow-up: ordinary class-template specializations now retain a
+dependent direct base until specialization, resolve dependent `using` members
+and inherited constructors, and lower `this->` field/method lookup. The new
+`test-cxx-class-template-dependent-base` target covers `int` and `long long`;
+the nested TODO records its x64 run and both target-width emissions. The full
+compiler rebuild passed in this integration, but the target was not rerun.
+Dependent base packs, virtual-base/override rules, access and ambiguity, and
+wide dependent member initializers remain unchecked in the parent item.

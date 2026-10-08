@@ -5,5 +5,5 @@ struct MemberInheritedBase {
 
 struct MemberInheritedDerived : public MemberInheritedBase {
     using MemberInheritedBase::MemberInheritedBase;
-    int extra_[2];
+    int extra_[2] = {1, 2};
 };

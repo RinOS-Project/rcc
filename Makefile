@@ -562,6 +562,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-member-pointer-reference-lifetime \
 	test-cxx-class-template-methods \
 	test-cxx-class-template-specialization \
+	test-cxx-class-template-dependent-base \
 	test-cxx-class-template-specialization-ambiguous \
 	test-cxx-class-template-specialization-partial-order-invalid \
 	test-cxx-class-template-specialization-constraint-invalid \
@@ -3301,9 +3302,16 @@ test-cxx-class-template-methods: $(RCXX_TARGET)
 test-cxx-class-template-specialization: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-specialization,cxx_class_template_specialization.cpp)
+
+test-cxx-class-template-dependent-base: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-base)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-dependent-base,cxx_class_template_dependent_base.cpp)
 else
 test-cxx-class-template-methods: test-cxx-class-template-methods-posix
 test-cxx-class-template-specialization: test-cxx-class-template-specialization-posix
+test-cxx-class-template-dependent-base: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-base)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-class-template-dependent-base,cxx_class_template_dependent_base.cpp)
 endif
 
 test-cxx-class-template-specialization-ambiguous-posix: $(RCXX_TARGET)
@@ -7692,6 +7700,7 @@ endif
 .PHONY: test-cxx-static-members test-cxx-static-data-members test-cxx-class-template-static-data test-cxx-class-template-static-data-odr test-cxx-static-locals test-vla-declarations test-vla-declarator-variants test-cxx-constructor-body test-cxx-constructor-initializer-body test-aggregate-union-abi test-aggregate-flexible-abi test-aggregate-sse-abi test-aggregate-nested-abi
 .PHONY: test-cxx-class-template-methods
 .PHONY: test-cxx-class-template-specialization
+.PHONY: test-cxx-class-template-dependent-base
 .PHONY: test-cxx-class-template-specialization-ambiguous
 .PHONY: test-cxx-class-template-specialization-partial-order-invalid
 .PHONY: test-cxx-class-template-specialization-constraint-invalid

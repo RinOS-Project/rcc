@@ -5702,12 +5702,12 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
             else if (match(TOK_PRIVATE)) inherit_access = ACCESS_PRIVATE;
             if (match(TOK_VIRTUAL)) is_virtual = true;
 
-            if (active_template && active_template->is_local_class_template) {
+            if (active_template) {
                 Type* base_type = parse_cxx_type_spec();
                 bool is_pack_expansion = match(TOK_ELLIPSIS);
                 if (!base_type || base_type->kind != TYPE_STRUCT) {
                     rcc_error(loc,
-                              "local class base must name a class type");
+                              "template class base must name a class type");
                 } else {
                     cxx_class_add_base_pattern(
                         cls, base_type, base_type->tag, inherit_access,
@@ -5758,7 +5758,6 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                     continue;
                 }
                 if (active_template &&
-                    active_template->is_local_class_template &&
                     cxx_using_starts_with_template_id_base()) {
                     Type* base_type = parse_cxx_type_spec();
                     Token* member_token;
@@ -5827,7 +5826,8 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
         validate_class_virtual_specifiers(cls, loc);
     }
     cxx_class_compute_layout(cls);
-    if (!active_template || !active_template->is_local_class_template) {
+    if ((!active_template || !active_template->is_local_class_template) &&
+        !cxx_class_has_unresolved_dependent_base(cls)) {
         complete_cxx_default_member_initializers(cls);
     }
     cxx_class_build_vtable(cls);
@@ -9047,14 +9047,14 @@ static int cxx_local_base_pack_pattern(CxxTemplate* tmpl,
     return matched_base;
 }
 
-static void cxx_local_class_add_resolved_base(
+static void cxx_template_class_add_resolved_base(
     CxxClass* instance, Type* resolved, const char* base_name,
     AccessSpec access, bool is_virtual, SourceLoc loc) {
     CxxClass* base = resolved ? resolved->cxx_class : NULL;
     if (!resolved || resolved->kind != TYPE_STRUCT ||
         resolved->cxx_dependent || !base) {
         rcc_error(loc,
-                  "dependent local class base did not resolve to a class type");
+                  "dependent class-template base did not resolve to a class type");
         return;
     }
     if (base == instance || base->is_final) {
@@ -9066,7 +9066,7 @@ static void cxx_local_class_add_resolved_base(
     for (int index = 0; instance && index < instance->base_count; ++index) {
         if (instance->bases[index].base == base) {
             rcc_error(loc,
-                      "a local class cannot name the same direct base twice");
+                      "a class cannot name the same direct base twice");
             return;
         }
     }
@@ -9442,7 +9442,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                           "local class base was not resolved before specialization");
                 continue;
             }
-            cxx_local_class_add_resolved_base(
+            cxx_template_class_add_resolved_base(
                 instance, base->type, definition->bases[base_index].base_name,
                 definition->bases[base_index].access,
                 definition->bases[base_index].is_virtual, loc);
@@ -9486,7 +9486,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                 resolved = substitute_template_type(
                     tmpl, pattern, expanded_arguments, argument_count,
                     expanded_values, expanded_value_present);
-                cxx_local_class_add_resolved_base(
+                cxx_template_class_add_resolved_base(
                     instance, resolved,
                     definition->bases[base_index].base_name,
                     definition->bases[base_index].access,
@@ -9503,7 +9503,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             Type* resolved = substitute_template_type(
                 tmpl, pattern, arguments, argument_count,
                 value_args, value_present);
-            cxx_local_class_add_resolved_base(
+            cxx_template_class_add_resolved_base(
                 instance, resolved,
                 definition->bases[base_index].base_name,
                 definition->bases[base_index].access,
