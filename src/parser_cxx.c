@@ -2541,10 +2541,21 @@ static bool cxx_constructor_parameter_lists_match(
 
 static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
     if (!cls) return false;
-    if (cls->has_field_initializer) return false;
     for (TypeParam* field = cls->fields; field; field = field->next) {
+        Type* type = field->type;
+        if (field->is_static) continue;
         if (field->type && (field->type->cxx_class ||
                             field->type->kind == TYPE_ARRAY)) {
+            return false;
+        }
+        if (field->initializer &&
+            (!type || type->size <= 0 ||
+             !(type_is_integer(type) || type->kind == TYPE_ENUM ||
+               type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR ||
+               type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) ||
+             !cxx_constructor_scalar_constant(field->initializer) ||
+             (g_opts.target_arch == ARCH_X86 && type->size > 4) ||
+             (g_opts.target_arch == ARCH_X64 && type->size > 8))) {
             return false;
         }
     }
@@ -2622,10 +2633,10 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
 }
 
 /* Materialize only the bounded form of `using Base::Base`: public direct
- * non-virtual bases with scalar derived fields.  The synthesized constructor
- * owns the derived object but delegates the complete base initialization to
- * the original constructor, so no fake function body or unresolved symbol is
- * emitted. */
+ * non-virtual bases with scalar derived fields and constant scalar default
+ * member initializers.  The synthesized constructor owns the derived object
+ * but delegates the base initialization to the original constructor, so no
+ * fake function body or unresolved symbol is emitted. */
 static void cxx_materialize_inherited_constructors(CxxClass* cls) {
     CxxConstructorInfo** tail;
     if (!cls || cls->base_count == 0) return;
@@ -2653,7 +2664,8 @@ static void cxx_materialize_inherited_constructors(CxxClass* cls) {
             } else if (!cxx_inherited_constructor_member_supported(cls)) {
                 rcc_error(cls->using_base_members[using_index].loc,
                           "using-base constructors require scalar derived fields "
-                          "without member initializers in the bounded RCC++ profile");
+                          "and constant scalar default member initializers in the "
+                          "bounded RCC++ profile");
             } else {
                 bool has_lowerable_source = false;
                 for (CxxConstructorInfo* source = base->constructors;

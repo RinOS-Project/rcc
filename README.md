@@ -318,3 +318,10 @@ This connects public direct `using Base<T>::Base` declarations to the existing
 bounded inherited-constructor lowering. `make SHELL=cmd.exe -B build-rcxx`
 passed; no fixture or target objects were run, so the parent ABI TODO remains
 open.
+
+2026-10-09 follow-up: inherited constructors for local class-template
+specializations now retain supported constant scalar default member
+initializers in addition to forwarding constructor arguments to a public direct
+base. Class/array members and non-constant or out-of-range initializers remain
+outside this bounded profile and are diagnosed. `make SHELL=cmd.exe
+build-rcxx` passed; no tests were run for this change.
