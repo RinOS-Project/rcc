@@ -300,6 +300,14 @@ static bool lower_type(const Type* type, RccIrType* result) {
             }
             *result = rcc_ir_type_integer((uint16_t)(type->size * 8));
             return true;
+        case TYPE_FLOAT:
+            if (type->size != 4) return false;
+            *result = rcc_ir_type_float(32u);
+            return true;
+        case TYPE_DOUBLE:
+            if (type->size != 8) return false;
+            *result = rcc_ir_type_float(64u);
+            return true;
         case TYPE_PTR:
             if (type->cxx_is_member_pointer) {
                 if (type->size <= 0 ||
@@ -316,8 +324,6 @@ static bool lower_type(const Type* type, RccIrType* result) {
         case TYPE_NULLPTR:
             *result = rcc_ir_type_pointer(0u);
             return true;
-        case TYPE_FLOAT:
-        case TYPE_DOUBLE:
         case TYPE_ARRAY:
         case TYPE_VECTOR:
         case TYPE_FUNC:
@@ -1831,6 +1837,97 @@ static RccIrLowerValue lower_sysv_va_copy(
     return destination;
 }
 
+static RccIrLowerValue lower_sysv_va_arg_fp(
+    RccIrLowerContext* context, const Expr* expression) {
+    const Type* type = expression ? expression->va_arg_type : NULL;
+    RccIrLowerValue list_slot;
+    RccIrLowerValue fp_field;
+    RccIrLowerValue fp_offset;
+    RccIrLowerValue limit;
+    RccIrLowerValue in_registers;
+    RccIrLowerValue save_field;
+    RccIrLowerValue save_area;
+    RccIrLowerValue register_address;
+    RccIrLowerValue overflow_field;
+    RccIrLowerValue overflow_address;
+    RccIrLowerValue selected_address;
+    RccIrLowerValue loaded;
+    RccIrLowerValue increment;
+    RccIrLowerValue next_fp_register;
+    RccIrLowerValue next_fp;
+    RccIrLowerValue next_overflow;
+    RccIrLowerValue stored_overflow;
+    RccIrValue operands[2];
+    RccIrInstruction* compare;
+    RccIrType result_type;
+    if (!context || !expression || !type ||
+        (type->kind != TYPE_FLOAT && type->kind != TYPE_DOUBLE) ||
+        (type->kind == TYPE_FLOAT && type->size != 4) ||
+        (type->kind == TYPE_DOUBLE && type->size != 8) ||
+        !lower_type(type, &result_type) ||
+        !lower_sysv_va_list_type(expression->va_list_operand)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    list_slot = lower_sysv_va_list_address(
+        context, expression->va_list_operand);
+    fp_field = lower_byte_offset_address(context, list_slot, 4u);
+    fp_offset = lower_load_address(context, fp_field, type_uint);
+    limit = lower_integer_constant(
+        context, fp_offset.type, true, RCC_IR_SYSV_VA_SAVE_AREA_SIZE);
+    if (!list_slot.valid || !fp_field.valid || !fp_offset.valid ||
+        !limit.valid) return lower_invalid_value();
+    operands[0] = fp_offset.value;
+    operands[1] = limit.value;
+    compare = lower_append(
+        context, RCC_IR_ICMP, rcc_ir_type_integer(1u), operands, 2u,
+        NULL, 0u);
+    if (!compare) return lower_invalid_value();
+    rcc_ir_set_predicate(compare, RCC_IR_ICMP_ULT);
+    in_registers = lower_value(
+        compare->result, rcc_ir_type_integer(1u), true);
+    save_field = lower_byte_offset_address(context, list_slot, 16u);
+    save_area = lower_sysv_va_pointer_load(context, save_field);
+    register_address = lower_dynamic_byte_offset_address(
+        context, save_area, fp_offset);
+    overflow_field = lower_byte_offset_address(context, list_slot, 8u);
+    overflow_address = lower_sysv_va_pointer_load(context, overflow_field);
+    selected_address = lower_sysv_va_select(
+        context, in_registers, register_address, overflow_address);
+    loaded = lower_load_address(context, selected_address, type);
+    if (!save_field.valid || !save_area.valid ||
+        !register_address.valid || !overflow_field.valid ||
+        !overflow_address.valid || !selected_address.valid || !loaded.valid ||
+        !rcc_ir_type_equal(loaded.type, result_type)) {
+        return lower_invalid_value();
+    }
+
+    increment = lower_integer_constant(context, fp_offset.type, true, 16u);
+    if (!increment.valid) return lower_invalid_value();
+    operands[0] = fp_offset.value;
+    operands[1] = increment.value;
+    {
+        RccIrInstruction* add = lower_append(
+            context, RCC_IR_ADD, fp_offset.type, operands, 2u,
+            NULL, 0u);
+        if (!add) return lower_invalid_value();
+        next_fp_register = lower_value(add->result, fp_offset.type, true);
+    }
+    next_fp = lower_sysv_va_select(
+        context, in_registers, next_fp_register, fp_offset);
+    next_overflow = lower_byte_offset_address(
+        context, overflow_address, 8u);
+    stored_overflow = lower_sysv_va_select(
+        context, in_registers, overflow_address, next_overflow);
+    if (!next_fp.valid || !next_overflow.valid || !stored_overflow.valid ||
+        !lower_store_address(context, fp_field, next_fp) ||
+        !lower_sysv_va_pointer_store(
+            context, overflow_field, stored_overflow)) {
+        return lower_invalid_value();
+    }
+    return loaded;
+}
+
 static RccIrLowerValue lower_sysv_va_arg(
     RccIrLowerContext* context, const Expr* expression) {
     RccIrLowerValue list_slot;
@@ -1854,6 +1951,10 @@ static RccIrLowerValue lower_sysv_va_arg(
     RccIrInstruction* compare;
     RccIrInstruction* add;
     const Type* type = expression ? expression->va_arg_type : NULL;
+    if (type &&
+        (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE)) {
+        return lower_sysv_va_arg_fp(context, expression);
+    }
     if (!context || !expression || !type ||
         !lower_sysv_va_list_type(expression->va_list_operand) ||
         type->size <= 0 || type->size > 8 ||

@@ -46,6 +46,10 @@ static bool x86_type_supported_for_target(RccMirType type,
     if (!x86_type_valid(type)) return false;
     if (type.kind == RCC_MIR_TYPE_VOID ||
         type.kind == RCC_MIR_TYPE_POINTER) return true;
+    if (type.kind == RCC_MIR_TYPE_FLOAT) {
+        return target == RCC_X86_TARGET_X86_64 &&
+            (type.bit_width == 32u || type.bit_width == 64u);
+    }
     return type.kind == RCC_MIR_TYPE_INTEGER &&
         type.bit_width <= maximum_width;
 }
@@ -540,6 +544,8 @@ bool rcc_x86_verify_function(
         if (!x86_type_supported_for_target(
                 function->parameter_types[parameter], function->target) ||
             function->parameter_types[parameter].kind ==
+                RCC_MIR_TYPE_FLOAT ||
+            function->parameter_types[parameter].kind ==
                 RCC_MIR_TYPE_VOID ||
             !x86_location_valid(function->parameters[parameter], policy,
                                 function->frame_size)) {
@@ -567,6 +573,14 @@ bool rcc_x86_verify_function(
             if (!x86_instruction_shape(instruction) ||
                 !x86_type_supported_for_target(
                     instruction->type, function->target) ||
+                (instruction->type.kind == RCC_MIR_TYPE_FLOAT &&
+                 instruction->opcode != RCC_X86_LOAD &&
+                 instruction->opcode != RCC_X86_STORE &&
+                 instruction->opcode != RCC_X86_RETURN &&
+                 instruction->opcode != RCC_X86_COPY &&
+                 instruction->opcode != RCC_X86_REINTERPRET) ||
+                (instruction->opcode == RCC_X86_CALL &&
+                 instruction->type.kind == RCC_MIR_TYPE_FLOAT) ||
                 (instruction->opcode == RCC_X86_CAPTURE_RETURN_PAIR &&
                  ((function->target == RCC_X86_TARGET_I686 &&
                    instruction->immediate != 8u) ||
@@ -585,7 +599,12 @@ bool rcc_x86_verify_function(
                 (x86_is_terminator(instruction->opcode) &&
                  instruction->next)) {
                 return x86_select_error(error, error_size,
-                                        "x86 instruction shape is invalid");
+                    "x86 instruction shape is invalid (opcode %u, type %u/%u, operands %zu, destination %u)",
+                    (unsigned)instruction->opcode,
+                    (unsigned)instruction->type.kind,
+                    (unsigned)instruction->type.bit_width,
+                    instruction->operand_count,
+                    instruction->has_destination ? 1u : 0u);
             }
             if (instruction->opcode == RCC_X86_CALL &&
                 instruction->has_callee &&
@@ -614,7 +633,13 @@ bool rcc_x86_verify_function(
                         instruction->operand_types[operand],
                         function->target) ||
                     instruction->operand_types[operand].kind ==
-                        RCC_MIR_TYPE_VOID) {
+                        RCC_MIR_TYPE_VOID ||
+                    (instruction->operand_types[operand].kind ==
+                         RCC_MIR_TYPE_FLOAT &&
+                     instruction->opcode != RCC_X86_STORE &&
+                     instruction->opcode != RCC_X86_RETURN &&
+                     instruction->opcode != RCC_X86_COPY &&
+                     instruction->opcode != RCC_X86_REINTERPRET)) {
                     return x86_select_error(error, error_size,
                                             "x86 operand type is invalid");
                 }

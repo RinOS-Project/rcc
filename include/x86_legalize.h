@@ -9,6 +9,7 @@
 
 typedef enum {
     RCC_X86_VALUE_GPR,
+    RCC_X86_VALUE_FPR,
     RCC_X86_VALUE_FRAME,
     RCC_X86_VALUE_INCOMING_ARGUMENT,
     RCC_X86_VALUE_OUTGOING_ARGUMENT,
@@ -17,6 +18,7 @@ typedef enum {
 typedef struct {
     RccX86ValueKind kind;
     RccX86HardwareGpr gpr;
+    uint16_t fpr;
     uint32_t frame_offset;
     uint16_t size;
     uint16_t alignment;

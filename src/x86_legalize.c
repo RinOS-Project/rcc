@@ -48,6 +48,10 @@ static bool x86_legal_type_supported(
     RccMirType type, const RccX86Abi* abi) {
     if (type.kind == RCC_MIR_TYPE_VOID) return type.bit_width == 0u;
     if (type.kind == RCC_MIR_TYPE_POINTER) return type.bit_width == 0u;
+    if (type.kind == RCC_MIR_TYPE_FLOAT) {
+        return abi->target == RCC_X86_TARGET_X86_64 &&
+            (type.bit_width == 32u || type.bit_width == 64u);
+    }
     if (!x86_legal_native_scalar(type, abi)) return false;
     return type.bit_width == 1u || type.bit_width == 8u ||
         type.bit_width == 16u || type.bit_width == 32u ||
@@ -56,6 +60,9 @@ static bool x86_legal_type_supported(
 
 static bool x86_legal_return_type_supported(
     RccMirType type, const RccX86Abi* abi) {
+    if (type.kind == RCC_MIR_TYPE_FLOAT) {
+        return x86_legal_type_supported(type, abi);
+    }
     return (abi->target == RCC_X86_TARGET_I686 &&
             type.kind == RCC_MIR_TYPE_INTEGER &&
             type.bit_width == 64u) ||
@@ -179,6 +186,7 @@ static bool x86_legal_plan_callee_saves(
 static bool x86_legal_value_equal(RccX86Value left, RccX86Value right) {
     if (left.kind != right.kind) return false;
     if (left.kind == RCC_X86_VALUE_GPR) return left.gpr == right.gpr;
+    if (left.kind == RCC_X86_VALUE_FPR) return left.fpr == right.fpr;
     return left.frame_offset == right.frame_offset &&
         left.size == right.size;
 }
@@ -189,6 +197,17 @@ static RccX86Value x86_legal_fixed_gpr(
     memset(&value, 0, sizeof(value));
     value.kind = RCC_X86_VALUE_GPR;
     value.gpr = gpr;
+    value.size = x86_legal_type_size(type, abi);
+    value.alignment = value.size;
+    return value;
+}
+
+static RccX86Value x86_legal_fixed_fpr(
+    uint16_t fpr, RccMirType type, const RccX86Abi* abi) {
+    RccX86Value value;
+    memset(&value, 0, sizeof(value));
+    value.kind = RCC_X86_VALUE_FPR;
+    value.fpr = fpr;
     value.size = x86_legal_type_size(type, abi);
     value.alignment = value.size;
     return value;
@@ -211,7 +230,18 @@ static bool x86_legal_resolve_location(
     RccX86Value* value, char* error, size_t error_size) {
     memset(value, 0, sizeof(*value));
     if (location.kind == RCC_MIR_LOCATION_PHYSICAL) {
+        if (location.register_class == RCC_MIR_REGCLASS_FPR &&
+            type.kind == RCC_MIR_TYPE_FLOAT &&
+            abi->target == RCC_X86_TARGET_X86_64 &&
+            location.physical_register < abi->fpr_count) {
+            value->kind = RCC_X86_VALUE_FPR;
+            value->fpr = location.physical_register;
+            value->size = x86_legal_type_size(type, abi);
+            value->alignment = value->size;
+            return true;
+        }
         if (location.register_class != RCC_MIR_REGCLASS_GPR ||
+            type.kind == RCC_MIR_TYPE_FLOAT ||
             !rcc_x86_abi_hardware_gpr(
                 abi, location.physical_register, &value->gpr)) {
             return x86_legal_error(
@@ -1035,8 +1065,9 @@ static bool x86_legalize_return(
         }
     } else if (source->operand_count == 1u) {
         RccMirType type = source->operand_types[0];
-        RccX86Value return_register = x86_legal_fixed_gpr(
-            abi->return_low, type, abi);
+        RccX86Value return_register = type.kind == RCC_MIR_TYPE_FLOAT
+            ? x86_legal_fixed_fpr(0u, type, abi)
+            : x86_legal_fixed_gpr(abi->return_low, type, abi);
         if (!x86_legal_append_copy(
                 function, block, type, operands[0], return_register,
                 error, error_size)) {
@@ -1077,6 +1108,12 @@ static bool x86_legal_value_valid(
     if (value.size == 0u || value.alignment == 0u) return false;
     if (value.kind == RCC_X86_VALUE_GPR) {
         return x86_legal_gpr_allowed(value.gpr, abi);
+    }
+    if (value.kind == RCC_X86_VALUE_FPR) {
+        return abi->target == RCC_X86_TARGET_X86_64 &&
+            value.fpr < abi->fpr_count &&
+            (value.size == 4u || value.size == 8u) &&
+            value.alignment == value.size;
     }
     if (value.frame_offset % value.alignment != 0u) return false;
     if (value.kind == RCC_X86_VALUE_FRAME) {
@@ -1368,7 +1405,12 @@ static bool x86_legal_verify_return(
         bool found_low = false;
         bool found_high = false;
         while (input && input->opcode == RCC_X86_LEGAL_COPY) {
-            if (input->has_destination &&
+            if (function->return_type.kind == RCC_MIR_TYPE_FLOAT &&
+                input->has_destination &&
+                input->destination.kind == RCC_X86_VALUE_FPR &&
+                input->destination.fpr == 0u) {
+                found_low = true;
+            } else if (input->has_destination &&
                 input->destination.kind == RCC_X86_VALUE_GPR) {
                 if (input->destination.gpr == abi->return_low) {
                     found_low = true;
@@ -1633,7 +1675,8 @@ bool rcc_x86_verify_legal_function(
             if (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
                 instruction->selected_opcode == RCC_X86_RETURN &&
                 (function->return_type.kind == RCC_MIR_TYPE_VOID ||
-                 x86_legal_native_scalar(function->return_type, &abi))) {
+                 x86_legal_native_scalar(function->return_type, &abi) ||
+                 function->return_type.kind == RCC_MIR_TYPE_FLOAT)) {
                 return x86_legal_error(error, error_size,
                                        "native SysV return was not legalized");
             }
@@ -1761,6 +1804,7 @@ bool rcc_x86_legalize_function(
                        (selected->return_type.kind == RCC_MIR_TYPE_VOID ||
                         x86_legal_native_scalar(
                             selected->return_type, &abi) ||
+                        selected->return_type.kind == RCC_MIR_TYPE_FLOAT ||
                         x86_legal_pair_return_supported(source, &abi))) {
                 source_ok = x86_legalize_return(
                         legal, block, source, &abi,

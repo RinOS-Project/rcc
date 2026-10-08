@@ -12382,6 +12382,22 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64-o2.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
+		-std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-va-fp-x64.ro \
+		tests/verified_backend_sysv_va_fp.cpp \
+		>$(TEST_OUT)/verified-backend/sysv-va-fp-x64.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-va-fp-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-fp-x64.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
+		-std=c++20 -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-va-fp-x64-o2.ro \
+		tests/verified_backend_sysv_va_fp.cpp \
+		>$(TEST_OUT)/verified-backend/sysv-va-fp-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-va-fp-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-va-fp-x64-o2.log,0)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/wide-variadic-call-x86.ro \
 		tests/verified_backend_wide_variadic_call.c \
@@ -12436,6 +12452,10 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64.ro x64
 	$(TEST_OUT)/verified-backend/verify-x64 --va-list-pointer-cxx-object \
 		$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64-o2.ro x64
+	$(TEST_OUT)/verified-backend/verify-x64 --sysv-va-fp-object \
+		$(TEST_OUT)/verified-backend/sysv-va-fp-x64.ro
+	$(TEST_OUT)/verified-backend/verify-x64 --sysv-va-fp-object \
+		$(TEST_OUT)/verified-backend/sysv-va-fp-x64-o2.ro
 	$(TEST_OUT)/verified-backend/verify-x86 --va-list-pointer-cxx-object \
 		$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x86.ro x86
 	$(TEST_OUT)/verified-backend/verify-x86 \

@@ -184,6 +184,48 @@ static void verify_va_list_pointer_cxx_object(
     objfile_free(object);
 }
 
+static void verify_sysv_va_fp_object(const char* path, bool execute)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* first_symbol;
+    ObjSymbol* second_symbol;
+    ObjSymbol* ninth_symbol;
+    assert(object != NULL && object->arch == ARCH_X64);
+    text = objfile_get_section(object, ".text");
+    first_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_double_first");
+    second_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_double_second");
+    ninth_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_double_ninth");
+    assert(first_symbol != NULL && first_symbol->type == SYM_GLOBAL &&
+           first_symbol->binding == BIND_CODE && first_symbol->section == 0);
+    assert(second_symbol != NULL && second_symbol->type == SYM_GLOBAL &&
+           second_symbol->binding == BIND_CODE && second_symbol->section == 0);
+    assert(ninth_symbol != NULL && ninth_symbol->type == SYM_GLOBAL &&
+           ninth_symbol->binding == BIND_CODE && ninth_symbol->section == 0);
+    if (execute) {
+        size_t mapping_size;
+        void* memory = map_text(object, text, &mapping_size);
+        void* address = symbol_address(memory, first_symbol);
+        double (RINOS_ABI *first)(int, ...);
+        double (RINOS_ABI *second)(int, ...);
+        double (RINOS_ABI *ninth)(int, ...);
+        memcpy(&first, &address, sizeof(first));
+        address = symbol_address(memory, second_symbol);
+        memcpy(&second, &address, sizeof(second));
+        address = symbol_address(memory, ninth_symbol);
+        memcpy(&ninth, &address, sizeof(ninth));
+        assert(first(7, 3.25) == 3.25);
+        assert(second(7, 1.25, 2.5) == 2.5);
+        assert(ninth(7, 1.0, 2.0, 3.0, 4.0, 5.0,
+                    6.0, 7.0, 8.0, 9.0) == 9.0);
+        assert(verified_unmap(memory, mapping_size) == 0);
+    }
+    objfile_free(object);
+}
+
 static void verify_wide_scalar_object(const char* path, uint16_t arch)
 {
     ObjectFile* object = objfile_read(path);
@@ -2721,6 +2763,11 @@ int main(int argc, char** argv)
         }
         verify_va_list_pointer_cxx_object(argv[2], arch, execute);
         puts("Verified C++ pointer-based va_list object passed");
+        return 0;
+    }
+    if (argc == 3 && strcmp(argv[1], "--sysv-va-fp-object") == 0) {
+        verify_sysv_va_fp_object(argv[2], sizeof(void*) == 8u);
+        puts("Verified x86-64 SysV floating va_arg object passed");
         return 0;
     }
     if (argc == 4 && strcmp(argv[1], "--cxx-reference-object") == 0) {

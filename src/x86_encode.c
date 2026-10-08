@@ -29,6 +29,8 @@ typedef struct {
 
 static bool x86_emit_compare_zero(RccX86Encoder* encoder,
                                   RccX86Value value, uint16_t size);
+static bool x86_emit_indirect_modrm(
+    RccX86Encoder* encoder, unsigned reg, RccX86HardwareGpr base);
 
 static bool x86_encode_error(RccX86Encoder* encoder,
                              const char* format, ...) {
@@ -214,6 +216,7 @@ static uint8_t x86_modrm(uint8_t mode, unsigned reg, unsigned rm) {
 static bool x86_value_equal(RccX86Value left, RccX86Value right) {
     if (left.kind != right.kind) return false;
     if (left.kind == RCC_X86_VALUE_GPR) return left.gpr == right.gpr;
+    if (left.kind == RCC_X86_VALUE_FPR) return left.fpr == right.fpr;
     return left.frame_offset == right.frame_offset &&
         left.size == right.size;
 }
@@ -337,6 +340,80 @@ static bool x86_emit_store_xmm(RccX86Encoder* encoder,
     return x86_emit_memory_modrm(encoder, xmm_register, displacement);
 }
 
+static bool x86_emit_scalar_xmm_memory(
+    RccX86Encoder* encoder, unsigned xmm_register,
+    RccX86Value memory, uint16_t size, bool to_xmm) {
+    int32_t displacement;
+    uint8_t prefix = size == 4u ? 0xf3u : 0xf2u;
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        xmm_register >= 16u || (size != 4u && size != 8u) ||
+        !x86_value_displacement(encoder, memory, &displacement) ||
+        !x86_emit_u8(encoder, prefix) ||
+        !x86_emit_rex(encoder, false,
+            (RccX86HardwareGpr)xmm_register, RCC_X86_GPR_BP, false) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, to_xmm ? 0x10u : 0x11u)) {
+        return x86_encode_error(
+            encoder, "x86 scalar XMM memory move is invalid");
+    }
+    return x86_emit_memory_modrm(encoder, xmm_register, displacement);
+}
+
+static bool x86_emit_scalar_xmm_indirect(
+    RccX86Encoder* encoder, unsigned xmm_register,
+    RccX86HardwareGpr address, uint16_t size, bool to_xmm) {
+    uint8_t prefix = size == 4u ? 0xf3u : 0xf2u;
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        xmm_register >= 16u || (size != 4u && size != 8u) ||
+        !x86_emit_u8(encoder, prefix) ||
+        !x86_emit_rex(encoder, false,
+            (RccX86HardwareGpr)xmm_register, address, false) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, to_xmm ? 0x10u : 0x11u)) {
+        return x86_encode_error(
+            encoder, "x86 scalar XMM indirect move is invalid");
+    }
+    return x86_emit_indirect_modrm(
+        encoder, xmm_register, address);
+}
+
+static bool x86_emit_scalar_xmm_register(
+    RccX86Encoder* encoder, unsigned destination, unsigned source,
+    uint16_t size) {
+    uint8_t prefix = size == 4u ? 0xf3u : 0xf2u;
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        destination >= 16u || source >= 16u ||
+        (size != 4u && size != 8u) ||
+        !x86_emit_u8(encoder, prefix) ||
+        !x86_emit_rex(encoder, false,
+            (RccX86HardwareGpr)destination,
+            (RccX86HardwareGpr)source, false) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, 0x10u)) {
+        return x86_encode_error(
+            encoder, "x86 scalar XMM register move is invalid");
+    }
+    return x86_emit_u8(encoder, x86_modrm(3u, destination, source));
+}
+
+static bool x86_emit_xmm_gpr_bits(
+    RccX86Encoder* encoder, unsigned xmm_register,
+    RccX86HardwareGpr gpr, uint16_t size, bool to_xmm) {
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        xmm_register >= 16u || (unsigned)gpr >= 16u ||
+        (size != 4u && size != 8u) ||
+        !x86_emit_u8(encoder, 0x66u) ||
+        !x86_emit_rex(encoder, size == 8u,
+            (RccX86HardwareGpr)xmm_register, gpr, false) ||
+        !x86_emit_u8(encoder, 0x0fu) ||
+        !x86_emit_u8(encoder, to_xmm ? 0x6eu : 0x7eu)) {
+        return x86_encode_error(
+            encoder, "x86 XMM/GPR bit transfer is invalid");
+    }
+    return x86_emit_u8(encoder, x86_modrm(
+        3u, xmm_register, (unsigned)gpr));
+}
+
 static bool x86_emit_copy(RccX86Encoder* encoder,
                           RccX86Value source,
                           RccX86Value destination, uint16_t size) {
@@ -345,6 +422,31 @@ static bool x86_emit_copy(RccX86Encoder* encoder,
                                 "x86 copy width is not native");
     }
     if (x86_value_equal(source, destination)) return true;
+    if (source.kind == RCC_X86_VALUE_FPR ||
+        destination.kind == RCC_X86_VALUE_FPR) {
+        if (size != 4u && size != 8u) {
+            return x86_encode_error(
+                encoder, "x86 scalar XMM copy width is invalid");
+        }
+        if (source.kind == RCC_X86_VALUE_FPR) {
+            if (destination.kind == RCC_X86_VALUE_FPR) {
+                return x86_emit_scalar_xmm_register(
+                    encoder, destination.fpr, source.fpr, size);
+            }
+            if (destination.kind == RCC_X86_VALUE_GPR) {
+                return x86_emit_xmm_gpr_bits(
+                    encoder, source.fpr, destination.gpr, size, false);
+            }
+            return x86_emit_scalar_xmm_memory(
+                encoder, source.fpr, destination, size, false);
+        }
+        if (source.kind == RCC_X86_VALUE_GPR) {
+            return x86_emit_xmm_gpr_bits(
+                encoder, destination.fpr, source.gpr, size, true);
+        }
+        return x86_emit_scalar_xmm_memory(
+            encoder, destination.fpr, source, size, true);
+    }
     if (source.kind == RCC_X86_VALUE_GPR &&
         destination.kind == RCC_X86_VALUE_GPR) {
         return x86_emit_move_register_register(
@@ -763,8 +865,9 @@ static bool x86_emit_compare_values(
             x86_emit_load(encoder, scratch, left, size) &&
             x86_emit_compare_values(
                 encoder,
-                (RccX86Value){RCC_X86_VALUE_GPR, scratch, 0u,
-                              size, size},
+                (RccX86Value){.kind = RCC_X86_VALUE_GPR,
+                              .gpr = scratch, .size = size,
+                              .alignment = size},
                 right, size) &&
             x86_emit_pop(encoder, scratch);
     }
@@ -1186,6 +1289,22 @@ static bool x86_emit_pointer_load(
     RccX86HardwareGpr address_register;
     RccX86HardwareGpr result_register;
     bool preserve_address = address.kind != RCC_X86_VALUE_GPR;
+    if (instruction->type.kind == RCC_MIR_TYPE_FLOAT &&
+        destination.kind == RCC_X86_VALUE_FPR) {
+        address_register = preserve_address
+            ? x86_choose_scratch(address, destination) : address.gpr;
+        if ((preserve_address && !x86_emit_push(
+                 encoder, address_register)) ||
+            (preserve_address && !x86_emit_load(
+                 encoder, address_register, address,
+                 encoder->function->pointer_size)) ||
+            !x86_emit_scalar_xmm_indirect(
+                encoder, destination.fpr, address_register,
+                destination.size, true) ||
+            (preserve_address && !x86_emit_pop(
+                 encoder, address_register))) return false;
+        return true;
+    }
     bool preserve_result = destination.kind != RCC_X86_VALUE_GPR;
     address_register = preserve_address
         ? x86_choose_scratch(address, destination) : address.gpr;
@@ -1221,6 +1340,22 @@ static bool x86_emit_pointer_store(
     RccX86HardwareGpr address_register;
     RccX86HardwareGpr value_register;
     bool preserve_address = address.kind != RCC_X86_VALUE_GPR;
+    if (instruction->operand_types[0].kind == RCC_MIR_TYPE_FLOAT &&
+        value.kind == RCC_X86_VALUE_FPR) {
+        address_register = preserve_address
+            ? x86_choose_scratch(address, value) : address.gpr;
+        if ((preserve_address && !x86_emit_push(
+                 encoder, address_register)) ||
+            (preserve_address && !x86_emit_load(
+                 encoder, address_register, address,
+                 encoder->function->pointer_size)) ||
+            !x86_emit_scalar_xmm_indirect(
+                encoder, value.fpr, address_register,
+                value.size, false) ||
+            (preserve_address && !x86_emit_pop(
+                 encoder, address_register))) return false;
+        return true;
+    }
     bool preserve_value = value.kind != RCC_X86_VALUE_GPR;
     address_register = preserve_address
         ? x86_choose_scratch(address, value) : address.gpr;
@@ -1270,8 +1405,9 @@ static bool x86_emit_gep_index(
     if (source_size == pointer_size) {
         return x86_emit_copy(
             encoder, source,
-            (RccX86Value){RCC_X86_VALUE_GPR, destination, 0u,
-                          pointer_size, pointer_size},
+            (RccX86Value){.kind = RCC_X86_VALUE_GPR,
+                          .gpr = destination, .size = pointer_size,
+                          .alignment = pointer_size},
             pointer_size);
     }
     return x86_emit_extend_register(
@@ -1313,9 +1449,11 @@ static bool x86_emit_gep(
     if (destination_is_base) {
         if (!x86_emit_binary_register(
                 encoder, RCC_X86_ADD, destination.gpr,
-                (RccX86Value){RCC_X86_VALUE_GPR, result, 0u,
-                              encoder->function->pointer_size,
-                              encoder->function->pointer_size},
+                (RccX86Value){.kind = RCC_X86_VALUE_GPR,
+                              .gpr = result,
+                              .size = encoder->function->pointer_size,
+                              .alignment =
+                                  encoder->function->pointer_size},
                 encoder->function->pointer_size)) return false;
     } else {
         if (!x86_emit_binary_register(
