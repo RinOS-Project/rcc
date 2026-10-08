@@ -13320,6 +13320,8 @@ static bool cxx_unsupported_module_directive(void) {
 
 static bool cxx_local_class_definition_starts(void) {
     Token* cursor = parser.cur;
+    Token* body;
+    int brace_depth = 0;
     if (!cursor || (cursor->type != TOK_CLASS &&
                     cursor->type != TOK_STRUCT)) {
         return false;
@@ -13328,8 +13330,21 @@ static bool cxx_local_class_definition_starts(void) {
     if (!cursor || cursor->type != TOK_IDENT) return false;
     cursor = cursor->next;
     if (cursor && cursor->type == TOK_FINAL) cursor = cursor->next;
-    return cursor && (cursor->type == TOK_LBRACE ||
-                      cursor->type == TOK_COLON);
+    while (cursor && cursor->type != TOK_LBRACE &&
+           cursor->type != TOK_SEMICOLON) {
+        cursor = cursor->next;
+    }
+    if (!cursor || cursor->type != TOK_LBRACE) return false;
+    for (body = cursor; body; body = body->next) {
+        if (body->type == TOK_LBRACE) {
+            ++brace_depth;
+        } else if (body->type == TOK_RBRACE && --brace_depth == 0) {
+            body = body->next;
+            return body && (body->type == TOK_SEMICOLON ||
+                            body->type == TOK_RBRACE);
+        }
+    }
+    return false;
 }
 
 static Stmt* parse_cxx_local_class_definition(void) {
