@@ -30,3 +30,18 @@ float verified_aggregate_float_call_value(
 {
     return verified_aggregate_float_return_fallback(value).value;
 }
+
+struct VerifiedAggregateFallback verified_aggregate_return_conditional(
+    int select_first, struct VerifiedAggregateFallback first,
+    struct VerifiedAggregateFallback second)
+{
+    return select_first ? first : second;
+}
+
+struct VerifiedAggregateFloatFallback
+verified_aggregate_float_return_conditional(
+    int select_first, struct VerifiedAggregateFloatFallback first,
+    struct VerifiedAggregateFloatFallback second)
+{
+    return select_first ? first : second;
+}

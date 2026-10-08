@@ -226,6 +226,7 @@ static RccIrLowerValue lower_compound_literal_address(
     RccIrLowerContext* context, const Expr* expression);
 static bool lower_abi_is_aggregate(const Type* type);
 static bool lower_abi_aggregate_supported(const Type* type);
+static bool lower_abi_single_sse_aggregate_supported(const Type* type);
 static int lower_abi_return_layout(const Type* type,
                                    RccIrType* return_type);
 static size_t lower_abi_chunk_size(void);
@@ -8672,7 +8673,8 @@ static RccIrLowerValue lower_conditional_expression(
              !supported_temporary_conditional) ||
             expression->type->cleanup_function ||
             expression->type->cleanup_field ||
-            !lower_abi_aggregate_supported(expression->type)) {
+            (!lower_abi_aggregate_supported(expression->type) &&
+             !lower_abi_single_sse_aggregate_supported(expression->type))) {
             context->unsupported = true;
             return lower_invalid_value();
         }
@@ -10481,9 +10483,18 @@ static bool lower_sysv_classify_aggregate(
     return true;
 }
 
+static bool lower_abi_single_sse_aggregate_supported(const Type* type) {
+    LowerSysvAggregateClass classification;
+    return g_opts.target_arch == ARCH_X64 &&
+        type && type->size <= 8 &&
+        lower_abi_naturally_aligned_internal(type, 0u, 0u) &&
+        lower_sysv_classify_aggregate(type, &classification) &&
+        !classification.memory && classification.count == 1 &&
+        classification.classes[0] == LOWER_SYSV_CLASS_SSE;
+}
+
 static int lower_abi_return_layout(const Type* type,
                                    RccIrType* return_type) {
-    LowerSysvAggregateClass classification;
     if (!lower_abi_is_aggregate(type) || !return_type ||
         !lower_storage_type_supported_internal(type, 0u)) {
         return LOWER_ABI_RETURN_UNSUPPORTED;
@@ -10508,11 +10519,7 @@ static int lower_abi_return_layout(const Type* type,
      * as its scalar-width bit pattern. Keep this bounded to one eightbyte;
      * mixed INTEGER/SSE and two-register aggregate returns need a separate
      * multi-class return representation. */
-    if (type->size <= 8 &&
-        lower_abi_naturally_aligned_internal(type, 0u, 0u) &&
-        lower_sysv_classify_aggregate(type, &classification) &&
-        !classification.memory && classification.count == 1 &&
-        classification.classes[0] == LOWER_SYSV_CLASS_SSE) {
+    if (lower_abi_single_sse_aggregate_supported(type)) {
         *return_type = rcc_ir_type_float(
             type->size <= 4 ? 32u : 64u);
         return LOWER_ABI_RETURN_REGISTER_SSE_AGGREGATE;

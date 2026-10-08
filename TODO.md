@@ -931,10 +931,10 @@
         `+=`/`-=`/`*=`/`/=`を実装し、C/C++ `-O0`/`-O2`でfallbackなしの
         runtime結果を検証。
   - [x] x86_64 SysVでtrivialな単一SSE-eightbyte aggregate（`float`／`double`
-        一field struct）のparameter、XMM0 return、call-result storageをtyped SSAへ
-        lowerし、C/C++ `-O0`/`-O2`でmember抽出を含む実行とsigned zero／infinity／
-        NaN payloadのbit-exact保存をfallbackなしで検証。mixed-classおよび複数
-        eightbyte returnは引き続き未対応。
+        一field struct）のparameter、XMM0 return、call-result storage、条件式の
+        branch selectionをtyped SSAへlowerし、C/C++ `-O0`/`-O2`でmember抽出を含む
+        実行とsigned zero／infinity／NaN payloadのbit-exact保存をfallbackなしで
+        検証。nontrivial conditional、mixed-classおよび複数eightbyte returnは未対応。
   - [ ] typed SSAのi686 scalar floating arithmeticをx87 register-stack規約と
         cdecl引数／戻り値ABIに合わせて実装し、C/C++の`-O0`/`-O2`を実機以外で
         fallbackなし実行検証する。

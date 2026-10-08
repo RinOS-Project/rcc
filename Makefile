@@ -12515,14 +12515,14 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/array-fallback.ro \
 		tests/verified_backend_array_fallback.c \
 		>$(TEST_OUT)/verified-backend/array-fallback.log
-	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/array-fallback.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/array-fallback.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/array-fallback-x64-o2.ro \
 		tests/verified_backend_array_fallback.c \
 		>$(TEST_OUT)/verified-backend/array-fallback-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/array-fallback-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/array-fallback-x64-o2.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
@@ -12530,7 +12530,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/sse-aggregate-return-cxx-x64.ro \
 		tests/verified_backend_sse_aggregate_return.cpp \
 		>$(TEST_OUT)/verified-backend/sse-aggregate-return-cxx-x64.log
-	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/sse-aggregate-return-cxx-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sse-aggregate-return-cxx-x64.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
@@ -12538,7 +12538,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/sse-aggregate-return-cxx-x64-o2.ro \
 		tests/verified_backend_sse_aggregate_return.cpp \
 		>$(TEST_OUT)/verified-backend/sse-aggregate-return-cxx-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/sse-aggregate-return-cxx-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sse-aggregate-return-cxx-x64-o2.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
@@ -12746,28 +12746,36 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		verified_aggregate_return_fallback \
 		verified_aggregate_return_call_value \
 		verified_aggregate_float_return_fallback \
-		verified_aggregate_float_call_value
+		verified_aggregate_float_call_value \
+		verified_aggregate_return_conditional \
+		verified_aggregate_float_return_conditional
 	$(TEST_OUT)/verified-backend/verify-x64 \
 		--sysv-sse-aggregate-return-object \
 		$(TEST_OUT)/verified-backend/array-fallback-x64-o2.ro \
 		verified_aggregate_return_fallback \
 		verified_aggregate_return_call_value \
 		verified_aggregate_float_return_fallback \
-		verified_aggregate_float_call_value
+		verified_aggregate_float_call_value \
+		verified_aggregate_return_conditional \
+		verified_aggregate_float_return_conditional
 	$(TEST_OUT)/verified-backend/verify-x64 \
 		--sysv-sse-aggregate-return-object \
 		$(TEST_OUT)/verified-backend/sse-aggregate-return-cxx-x64.ro \
 		verified_sse_aggregate_round_trip \
 		verified_sse_aggregate_call_value \
 		verified_sse_aggregate_float_round_trip \
-		verified_sse_aggregate_float_call_value
+		verified_sse_aggregate_float_call_value \
+		verified_sse_aggregate_conditional \
+		verified_sse_aggregate_float_conditional
 	$(TEST_OUT)/verified-backend/verify-x64 \
 		--sysv-sse-aggregate-return-object \
 		$(TEST_OUT)/verified-backend/sse-aggregate-return-cxx-x64-o2.ro \
 		verified_sse_aggregate_round_trip \
 		verified_sse_aggregate_call_value \
 		verified_sse_aggregate_float_round_trip \
-		verified_sse_aggregate_float_call_value
+		verified_sse_aggregate_float_call_value \
+		verified_sse_aggregate_conditional \
+		verified_sse_aggregate_float_conditional
 	$(TEST_OUT)/verified-backend/verify-x64 --wide-scalar-object \
 		$(TEST_OUT)/verified-backend/wide-scalar-return-x64-o2.ro x64
 	$(TEST_OUT)/verified-backend/verify-x64 --va-list-pointer-cxx-object \
