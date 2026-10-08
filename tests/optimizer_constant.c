@@ -843,6 +843,34 @@ unsigned int preserve_dense_unsigned_multiplier(unsigned int value)
     return value * 21845U;
 }
 
+unsigned int strength_reduce_unsigned_32_high_plus_one(unsigned int value)
+{
+    return value * 0x80000001U;
+}
+
+unsigned int strength_reduce_unsigned_32_high_minus_one(unsigned int value)
+{
+    return value * 0x7fffffffU;
+}
+
+unsigned long long strength_reduce_unsigned_64_high_plus_one(
+    unsigned long long value)
+{
+    return value * 0x8000000000000001ULL;
+}
+
+unsigned long long strength_reduce_unsigned_64_high_minus_one(
+    unsigned long long value)
+{
+    return value * 0x7fffffffffffffffULL;
+}
+
+unsigned long long preserve_dense_unsigned_64_multiplier(
+    unsigned long long value)
+{
+    return value * 0x5555555555555555ULL;
+}
+
 unsigned int strength_reduce_unsigned_two_hundred_fifty_five_binary_reference(
     unsigned int value)
 {

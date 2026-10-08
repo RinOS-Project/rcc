@@ -518,6 +518,14 @@ static void verify_smaller(const char* unoptimized_path,
         unoptimized, "preserve_dense_unsigned_multiplier", 0xafu));
     assert(function_contains_byte(
         optimized, "preserve_dense_unsigned_multiplier", 0xafu));
+    assert(function_contains_byte(
+        unoptimized, "strength_reduce_unsigned_32_high_plus_one", 0xafu));
+    assert(!function_contains_byte(
+        optimized, "strength_reduce_unsigned_32_high_plus_one", 0xafu));
+    assert(function_contains_byte(
+        unoptimized, "strength_reduce_unsigned_32_high_minus_one", 0xafu));
+    assert(!function_contains_byte(
+        optimized, "strength_reduce_unsigned_32_high_minus_one", 0xafu));
     assert(function_contains_sequence(
         unoptimized, "strength_reduce_unsigned_div",
         unsigned_div_eight, sizeof(unsigned_div_eight)));
@@ -756,6 +764,18 @@ static void verify_smaller(const char* unoptimized_path,
             assert(function_extent(optimized, name) <=
                    function_extent(unoptimized, name) + 64u);
         }
+        assert(function_contains_byte(
+            unoptimized, "strength_reduce_unsigned_64_high_plus_one", 0xafu));
+        assert(!function_contains_byte(
+            optimized, "strength_reduce_unsigned_64_high_plus_one", 0xafu));
+        assert(function_contains_byte(
+            unoptimized, "strength_reduce_unsigned_64_high_minus_one", 0xafu));
+        assert(!function_contains_byte(
+            optimized, "strength_reduce_unsigned_64_high_minus_one", 0xafu));
+        assert(function_contains_byte(
+            unoptimized, "preserve_dense_unsigned_64_multiplier", 0xafu));
+        assert(function_contains_byte(
+            optimized, "preserve_dense_unsigned_64_multiplier", 0xafu));
     }
     assert(function_contains_sequence(
         optimized, "preserved_signed_div_negative_eight_side_effect",
@@ -1393,6 +1413,14 @@ int main(int argc, char** argv)
         uint32_t (*strength_reduce_unsigned_1023)(uint32_t);
         uint32_t (*strength_reduce_unsigned_65535)(uint32_t);
         uint32_t (*preserve_dense_unsigned_multiplier)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_32_high_plus_one)(uint32_t);
+        uint32_t (*strength_reduce_unsigned_32_high_minus_one)(uint32_t);
+        unsigned long long (*strength_reduce_unsigned_64_high_plus_one)(
+            unsigned long long);
+        unsigned long long (*strength_reduce_unsigned_64_high_minus_one)(
+            unsigned long long);
+        unsigned long long (*preserve_dense_unsigned_64_multiplier)(
+            unsigned long long);
         uint32_t (*strength_reduce_unsigned_div)(uint32_t);
         uint32_t (*strength_reduce_unsigned_mod)(uint32_t);
         uint32_t (*strength_reduce_unsigned_div_high_bit)(uint32_t);
@@ -1665,6 +1693,26 @@ int main(int argc, char** argv)
             object, "preserve_dense_unsigned_multiplier")->value;
         memcpy(&preserve_dense_unsigned_multiplier, &address,
                sizeof(preserve_dense_unsigned_multiplier));
+        address = mapping + function_symbol(
+            object, "strength_reduce_unsigned_32_high_plus_one")->value;
+        memcpy(&strength_reduce_unsigned_32_high_plus_one, &address,
+               sizeof(strength_reduce_unsigned_32_high_plus_one));
+        address = mapping + function_symbol(
+            object, "strength_reduce_unsigned_32_high_minus_one")->value;
+        memcpy(&strength_reduce_unsigned_32_high_minus_one, &address,
+               sizeof(strength_reduce_unsigned_32_high_minus_one));
+        address = mapping + function_symbol(
+            object, "strength_reduce_unsigned_64_high_plus_one")->value;
+        memcpy(&strength_reduce_unsigned_64_high_plus_one, &address,
+               sizeof(strength_reduce_unsigned_64_high_plus_one));
+        address = mapping + function_symbol(
+            object, "strength_reduce_unsigned_64_high_minus_one")->value;
+        memcpy(&strength_reduce_unsigned_64_high_minus_one, &address,
+               sizeof(strength_reduce_unsigned_64_high_minus_one));
+        address = mapping + function_symbol(
+            object, "preserve_dense_unsigned_64_multiplier")->value;
+        memcpy(&preserve_dense_unsigned_64_multiplier, &address,
+               sizeof(preserve_dense_unsigned_64_multiplier));
         address = mapping + unsigned_32_symbol->value;
         memcpy(&folded_unsigned_32, &address,
                sizeof(folded_unsigned_32));
@@ -2294,6 +2342,10 @@ int main(int argc, char** argv)
         assert(strength_reduce_unsigned_1023(123u) == 125829u);
         assert(strength_reduce_unsigned_65535(123u) == 8052945u);
         assert(preserve_dense_unsigned_multiplier(123u) == 2683155u);
+        assert(strength_reduce_unsigned_32_high_plus_one(123u) ==
+               123u * UINT32_C(0x80000001));
+        assert(strength_reduce_unsigned_32_high_minus_one(123u) ==
+               123u * UINT32_C(0x7fffffff));
         assert(strength_reduce_unsigned_one_hundred_twenty_nine(
                    UINT32_MAX) == UINT32_MAX - 128u);
         assert(strength_reduce_unsigned_two_hundred_fifty_five(
@@ -2306,6 +2358,10 @@ int main(int argc, char** argv)
                UINT32_MAX - 65534u);
         assert(preserve_dense_unsigned_multiplier(UINT32_MAX) ==
                UINT32_MAX - UINT32_C(21844));
+        assert(strength_reduce_unsigned_32_high_plus_one(UINT32_MAX) ==
+               UINT32_C(0x7fffffff));
+        assert(strength_reduce_unsigned_32_high_minus_one(UINT32_MAX) ==
+               UINT32_C(0x80000001));
         {
             uint32_t seed = UINT32_C(0x7f4a7c15);
             for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
@@ -2315,6 +2371,40 @@ int main(int argc, char** argv)
                 assert(strength_reduce_unsigned_65535(seed) == seed * 65535u);
                 assert(preserve_dense_unsigned_multiplier(seed) ==
                        seed * 21845u);
+                assert(strength_reduce_unsigned_32_high_plus_one(seed) ==
+                       seed * UINT32_C(0x80000001));
+                assert(strength_reduce_unsigned_32_high_minus_one(seed) ==
+                       seed * UINT32_C(0x7fffffff));
+            }
+        }
+        {
+            static const uint64_t multiplier_inputs[] = {
+                UINT64_C(0), UINT64_C(1), UINT64_C(2), UINT64_MAX,
+                UINT64_C(0x7fffffffffffffff),
+                UINT64_C(0x8000000000000000),
+                UINT64_C(0x8000000000000001)
+            };
+            uint64_t seed = UINT64_C(0x9e3779b97f4a7c15);
+            for (size_t index = 0u;
+                 index < sizeof(multiplier_inputs) /
+                     sizeof(multiplier_inputs[0]); ++index) {
+                uint64_t input = multiplier_inputs[index];
+                assert(strength_reduce_unsigned_64_high_plus_one(input) ==
+                       input * UINT64_C(0x8000000000000001));
+                assert(strength_reduce_unsigned_64_high_minus_one(input) ==
+                       input * UINT64_C(0x7fffffffffffffff));
+                assert(preserve_dense_unsigned_64_multiplier(input) ==
+                       input * UINT64_C(0x5555555555555555));
+            }
+            for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
+                seed = seed * UINT64_C(6364136223846793005) +
+                    UINT64_C(1442695040888963407);
+                assert(strength_reduce_unsigned_64_high_plus_one(seed) ==
+                       seed * UINT64_C(0x8000000000000001));
+                assert(strength_reduce_unsigned_64_high_minus_one(seed) ==
+                       seed * UINT64_C(0x7fffffffffffffff));
+                assert(preserve_dense_unsigned_64_multiplier(seed) ==
+                       seed * UINT64_C(0x5555555555555555));
             }
         }
         assert(strength_reduce_unsigned_div(123u) == 15u);

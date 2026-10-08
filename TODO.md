@@ -859,9 +859,10 @@
   - [x] 同じ剰余幅を保つsigned-digit loweringを129〜255へ拡張し、129／255と
         `UINT32_MAX` wraparoundをC/C++ i686/AMD64で実行検証。255のO1 objectが
         明示的binary shift/add参照より短いことも比較し、signed式・副作用式を保持
-  - [x] 係数256〜65535はNAF項数が3以下の場合のみunsigned shift/add/subへ変換し、
-        denseな21845は`imul`を維持。257／1023／65535の`UINT32_MAX`境界と4,096
-        deterministic入力を両targetで生成し、AMD64実行とi686命令検証を実施
+  - [x] 係数256以上もNAF項数が3以下の場合に限って対象unsigned型の幅まで
+        shift/add/subへ変換し、denseな32-bit／64-bit係数は`imul`を維持。
+        32-bit境界係数と64-bitの`2^63±1`を含む境界・4,096 deterministic入力を
+        AMD64で実行し、i686生成物の命令を検証
   - [x] C17/C++20のside-effect-free signed `/ -2^k`／`% -2^k`を、除算の
         ゼロ方向丸め・剰余符号を保つ算術shift/maskへ削減。i686/AMD64のO0/O1で
         境界値と4,096 deterministic inputsを実行し、side-effect dividendの一回評価と
