@@ -20,7 +20,9 @@ T local_class_template_constructor_member(T value) {
         T bias;
 
         Local(T initial_item, T initial_bias)
-            : item(initial_item), bias(initial_bias) {}
+            : item(initial_item), bias(initial_bias) {
+            bias = initial_bias + initial_item;
+        }
 
         T sum(T extra) const {
             return item + bias + extra;
@@ -205,8 +207,8 @@ const void* local_class_template_typeinfo() {
 int main() {
     if (local_class_template_value(13) != 26) return 1;
     if (local_class_template_value(19LL) != 38) return 2;
-    if (local_class_template_constructor_member(13) != 39) return 24;
-    if (local_class_template_constructor_member(19LL) != 57) return 25;
+    if (local_class_template_constructor_member(13) != 52) return 24;
+    if (local_class_template_constructor_member(19LL) != 76) return 25;
     if (local_class_template_size(1) != 8) return 3;
     if (local_class_template_size(1LL) != 16) return 4;
     if (local_class_template_dependent_base_size(1) != 8) return 5;
