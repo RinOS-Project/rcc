@@ -441,6 +441,8 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-verified-volatile
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
+.PHONY: test-cxx-return-semantics
+.PHONY: test-c-return-semantics
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -509,6 +511,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-alternative-tokens \
 	test-cxx-variable-templates \
 	test-cxx-function-template-overloads \
+	test-cxx-return-semantics \
 	test-cxx-function-template-references \
 	test-cxx-static-reference-temporaries \
 	test-cxx-static-reference-retry \
@@ -622,6 +625,7 @@ C17_REGRESSION_TARGETS = \
 	test-preprocessor-operators \
 	test-preprocessor-va-opt \
 	test-language-boundaries \
+	test-c-return-semantics \
 	test-noreturn \
 	test-compiler-builtins \
 	test-integer-literals \
@@ -2952,14 +2956,37 @@ test-cxx-function-template-references: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-references,cxx_function_template_references.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/non-template-invalid-x86.ro tests/cxx_reference_binding_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/non-template-invalid-x86.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/non-template-invalid-x64.ro tests/cxx_reference_binding_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/non-template-invalid-x64.log)
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/non-template-return-invalid-x86.ro tests/cxx_reference_return_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/non-template-return-invalid-x86.log)
-	$(call CHECK_COUNT,invalid C++ reference binding in return,$(TEST_OUT)/cxx-function-template-references/non-template-return-invalid-x86.log,2)
-	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-references/non-template-return-invalid-x86.ro)
-	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/non-template-return-invalid-x64.ro tests/cxx_reference_return_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/non-template-return-invalid-x64.log)
-	$(call CHECK_COUNT,invalid C++ reference binding in return,$(TEST_OUT)/cxx-function-template-references/non-template-return-invalid-x64.log,2)
-	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-references/non-template-return-invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/invalid.ro tests/cxx_function_template_references_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/invalid.log)
 	$(GREP) -F -q "no matching function template overload for 'read_rvalue'" $(TEST_OUT)/cxx-function-template-references/invalid.log
+
+test-cxx-return-semantics: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-return-semantics)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-return-semantics,cxx_return_semantics.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-return-semantics/invalid-x86.ro tests/cxx_return_semantics_invalid.cpp,$(TEST_OUT)/cxx-return-semantics/invalid-x86.log)
+	$(call CHECK_COUNT,invalid C++ reference binding in return,$(TEST_OUT)/cxx-return-semantics/invalid-x86.log,2)
+	$(call CHECK_COUNT,incompatible C++ return type,$(TEST_OUT)/cxx-return-semantics/invalid-x86.log,1)
+	$(call CHECK_COUNT,return expression in a C++ void function must have void type,$(TEST_OUT)/cxx-return-semantics/invalid-x86.log,1)
+	$(call CHECK_COUNT,return statement in a non-void C++ function requires a value,$(TEST_OUT)/cxx-return-semantics/invalid-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-return-semantics/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-return-semantics/invalid-x64.ro tests/cxx_return_semantics_invalid.cpp,$(TEST_OUT)/cxx-return-semantics/invalid-x64.log)
+	$(call CHECK_COUNT,invalid C++ reference binding in return,$(TEST_OUT)/cxx-return-semantics/invalid-x64.log,2)
+	$(call CHECK_COUNT,incompatible C++ return type,$(TEST_OUT)/cxx-return-semantics/invalid-x64.log,1)
+	$(call CHECK_COUNT,return expression in a C++ void function must have void type,$(TEST_OUT)/cxx-return-semantics/invalid-x64.log,1)
+	$(call CHECK_COUNT,return statement in a non-void C++ function requires a value,$(TEST_OUT)/cxx-return-semantics/invalid-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-return-semantics/invalid-x64.ro)
+
+test-c-return-semantics: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c-return-semantics)
+	$(call C_WINDOWS_ENTRY_TEST,c-return-semantics,c_return_semantics.c)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c-return-semantics/invalid-x86.ro tests/c_return_semantics_invalid.c,$(TEST_OUT)/c-return-semantics/invalid-x86.log)
+	$(call CHECK_COUNT,return expression in a void function is not allowed,$(TEST_OUT)/c-return-semantics/invalid-x86.log,1)
+	$(call CHECK_COUNT,return statement in a non-void function requires a value,$(TEST_OUT)/c-return-semantics/invalid-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c-return-semantics/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c-return-semantics/invalid-x64.ro tests/c_return_semantics_invalid.c,$(TEST_OUT)/c-return-semantics/invalid-x64.log)
+	$(call CHECK_COUNT,return expression in a void function is not allowed,$(TEST_OUT)/c-return-semantics/invalid-x64.log,1)
+	$(call CHECK_COUNT,return statement in a non-void function requires a value,$(TEST_OUT)/c-return-semantics/invalid-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/c-return-semantics/invalid-x64.ro)
+	@echo "C17 return statement constraint tests completed"
 
 test-cxx-static-reference-temporaries: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-temporaries)

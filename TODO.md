@@ -79,6 +79,8 @@
   - [x] `switch/case/default`のfallthrough、nested context、64-bit dispatchとdiagnostic
   - [x] 裸の`signed` / `unsigned`を`int`として解釈
   - [x] 両archのfunction-local `goto` / label loweringと配置diagnostic
+- [x] C17の`return`制約として、void関数のreturn-expressionと非void関数の
+      値なしreturnをsemaで拒否し、i686/AMD64診断と有効なvoid return実行を検証
 - [x] `f` suffix付き浮動小数点リテラルの型保持と、定数式による
       float/doubleのstatic/TLS IEEE scalar初期化
 - [x] x86-64 runtimeのfloat/double算術・比較・cast・代入と、
@@ -251,6 +253,8 @@
 ## 3. C++20 frontend / ABI
 
 - [x] `rcc++` entrypointとC++20既定mode
+- [x] 明示的C++関数の`return`値有無・void式・変換可能性をsemaで検証し、
+      不正なreference/scalar returnを両archで診断、void式returnをhost実行で検証
 - [x] C frontendと共通のtarget/preprocessor CLI
 - [x] bounded class、継承、virtual dispatch実装
   - [x] 非static・非virtualメンバー関数の`this`引数、暗黙field参照、

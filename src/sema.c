@@ -12854,7 +12854,22 @@ static void sema_stmt(Stmt* stmt) {
                               "supported yet");
                 }
                 if (!current_func_auto_return_pending && current_func_ret &&
-                    current_func_ret != type_void) {
+                    current_func_ret->kind == TYPE_VOID) {
+                    if (rcc_parser_is_cxx_mode()) {
+                        if (!stmt->return_val->type ||
+                            stmt->return_val->type->kind != TYPE_VOID) {
+                            rcc_error(stmt->loc,
+                                      "return expression in a C++ void function "
+                                      "must have void type");
+                        }
+                    } else {
+                        rcc_error(stmt->loc,
+                                  "return expression in a void function is "
+                                  "not allowed");
+                    }
+                } else if (!current_func_auto_return_pending &&
+                           current_func_ret &&
+                           current_func_ret->kind != TYPE_VOID) {
                     if (!implicit_cast(stmt->return_val, current_func_ret)) {
                         if (rcc_parser_is_cxx_mode() &&
                             current_func_ret->is_reference) {
@@ -12864,10 +12879,25 @@ static void sema_stmt(Stmt* stmt) {
                             sema_is_scoped_enum(current_func_ret)) {
                             rcc_error(stmt->loc,
                                       "cannot implicitly convert scoped enum in return");
+                        } else if (rcc_parser_is_cxx_mode()) {
+                            rcc_error(stmt->loc,
+                                      "incompatible C++ return type");
                         } else {
                             rcc_warning(stmt->loc, "incompatible return type");
                         }
                     }
+                }
+            } else if (!current_func_auto_return_pending &&
+                       current_func_ret &&
+                       current_func_ret->kind != TYPE_VOID) {
+                if (rcc_parser_is_cxx_mode()) {
+                    rcc_error(stmt->loc,
+                              "return statement in a non-void C++ function "
+                              "requires a value");
+                } else {
+                    rcc_error(stmt->loc,
+                              "return statement in a non-void function "
+                              "requires a value");
                 }
             }
             break;
@@ -16065,6 +16095,9 @@ static bool sema_validate_auto_return_stmt(Stmt* statement) {
                     sema_is_scoped_enum(current_func_ret)) {
                     rcc_error(statement->loc,
                               "cannot implicitly convert scoped enum in return");
+                } else if (rcc_parser_is_cxx_mode()) {
+                    rcc_error(statement->loc,
+                              "incompatible C++ return type");
                 } else {
                     rcc_warning(statement->loc, "incompatible return type");
                 }
