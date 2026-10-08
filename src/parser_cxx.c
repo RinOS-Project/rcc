@@ -8517,6 +8517,8 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
         value_args, value_present);
     copy = cxx_method_new(cxx_method_source_name(method), return_type, parameters,
                           method->decl->func_body, method->decl->loc);
+    copy->decl->type->variadic = method->decl->type->variadic;
+    copy->decl->type->has_prototype = method->decl->type->has_prototype;
     copy->decl->is_weak = method->decl->is_weak;
     copy->decl->func_is_inline = method->decl->func_is_inline;
     copy->decl->func_is_defined = method->decl->func_is_defined;
