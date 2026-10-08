@@ -3730,6 +3730,30 @@ static bool gen_unsigned_magic_divisor32(
     return false;
 }
 
+static bool gen_unsigned_power_of_two_divisor32(
+    const Expr* expression, uint8_t* shift) {
+    int64_t constant;
+    uint32_t divisor;
+    uint8_t amount = 0u;
+    if (!expression || !shift ||
+        (expression->kind != EXPR_DIV && expression->kind != EXPR_MOD) ||
+        !expression->type || !type_is_integer(expression->type) ||
+        !expression->type->is_unsigned || expression->type->size != 4 ||
+        !expression->binary_lhs || !expression->binary_rhs ||
+        !expr_eval_integer_constant(expression->binary_rhs, &constant) ||
+        constant <= 0 || (uint64_t)constant > UINT32_MAX) {
+        return false;
+    }
+    divisor = (uint32_t)constant;
+    if ((divisor & (divisor - 1u)) != 0u) return false;
+    while (divisor > 1u) {
+        divisor >>= 1u;
+        ++amount;
+    }
+    *shift = amount;
+    return true;
+}
+
 /* Lower the integer atomic bitwise compound assignments with the same
  * compare/exchange retry semantics as the standard atomic bitwise builtins.
  * The address and RHS are each evaluated once; a failed exchange reloads the
@@ -11202,6 +11226,20 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 }
                 emit_x87_binary_stack(mod, arithmetic_type, EXPR_DIV);
                 break;
+            }
+            {
+                uint8_t shift;
+                if (gen_unsigned_power_of_two_divisor32(expr, &shift)) {
+                    gen_expr(mod, expr->binary_lhs);
+                    if (expr->kind == EXPR_DIV) {
+                        if (shift != 0u) emit_shr_reg_imm(mod, EAX, shift);
+                    } else {
+                        uint32_t mask = shift == 0u
+                            ? 0u : (UINT32_C(1) << shift) - 1u;
+                        emit_and_reg_imm(mod, EAX, mask);
+                    }
+                    break;
+                }
             }
             {
                 uint32_t divisor;

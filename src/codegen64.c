@@ -390,6 +390,13 @@ static void emit64_shr_reg_imm32(Module* mod, int reg, uint8_t amount) {
     emit_byte(mod, amount);
 }
 
+static void emit64_and_reg_imm32(Module* mod, int reg, uint32_t immediate) {
+    emit_rex(mod, false, 0, 0, reg);
+    emit_byte(mod, 0x81);
+    emit_byte(mod, modrm64(3, 4, reg));
+    emit_dword(mod, immediate);
+}
+
 static void emit64_sar_reg_imm(Module* mod, int reg, uint8_t amount) {
     emit_rex_w(mod, 0, reg);
     emit_byte(mod, 0xC1);
@@ -922,6 +929,30 @@ static bool gen64_unsigned_magic_divisor32(
         return true;
     }
     return false;
+}
+
+static bool gen64_unsigned_power_of_two_divisor32(
+    const Expr* expression, uint8_t* shift) {
+    int64_t constant;
+    uint32_t divisor;
+    uint8_t amount = 0u;
+    if (!expression || !shift ||
+        (expression->kind != EXPR_DIV && expression->kind != EXPR_MOD) ||
+        !expression->type || !type_is_integer(expression->type) ||
+        !expression->type->is_unsigned || expression->type->size != 4 ||
+        !expression->binary_lhs || !expression->binary_rhs ||
+        !expr_eval_integer_constant(expression->binary_rhs, &constant) ||
+        constant <= 0 || (uint64_t)constant > UINT32_MAX) {
+        return false;
+    }
+    divisor = (uint32_t)constant;
+    if ((divisor & (divisor - 1u)) != 0u) return false;
+    while (divisor > 1u) {
+        divisor >>= 1u;
+        ++amount;
+    }
+    *shift = amount;
+    return true;
 }
 
 /* Lower integer atomic bitwise compound assignments as a CAS loop.  This
@@ -6578,6 +6609,24 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 gen64_float_binary_raw(mod, 0x5E,
                                        gen64_float_width(expr->type));
                 break;
+            }
+            {
+                uint8_t shift;
+                if (gen64_unsigned_power_of_two_divisor32(expr, &shift)) {
+                    gen64_expr(mod, expr->binary_lhs);
+                    if (expr->kind == EXPR_DIV) {
+                        if (shift != 0u) {
+                            emit64_shr_reg_imm32(mod, RAX, shift);
+                        }
+                    } else if (shift == 0u) {
+                        emit64_xor_reg_reg(mod, RAX, RAX);
+                    } else {
+                        emit64_and_reg_imm32(
+                            mod, RAX, (UINT32_C(1) << shift) - 1u);
+                    }
+                    emit64_normalize_atomic_value(mod, RAX, expr->type);
+                    break;
+                }
             }
             {
                 uint32_t divisor;

@@ -840,6 +840,21 @@ unsigned int strength_reduce_unsigned_mod(unsigned int value)
     return value % 8U;
 }
 
+unsigned int strength_reduce_unsigned_div_high_bit(unsigned int value)
+{
+    return value / 0x80000000U;
+}
+
+unsigned int strength_reduce_unsigned_mod_high_bit(unsigned int value)
+{
+    return value % 0x80000000U;
+}
+
+unsigned int preserved_unsigned_mod_eight_side_effect(unsigned int* value)
+{
+    return (*value += 1U) % 8U;
+}
+
 unsigned int strength_reduce_unsigned_div_three(unsigned int value)
 {
     return value / 3U;
