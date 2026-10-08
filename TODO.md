@@ -939,9 +939,25 @@
   - [x] 配列型`va_list`を引数調整して受け取る非variadic helper内で、pointer経由の
         `va_arg`、`va_copy`、`va_end`をlowerし、copy側の読み取りがsource cursorを
         変えず、helper側の消費がcallerへ反映されることをx64 runtimeで検証
-  - [ ] x86_64 SysV FP/XMM `va_arg` register-save経路、aggregate `va_arg`分類、
-        FP/aggregate named parameterの分類、その他の未対応adjusted-`va_list`形態のSSA化
-        （未対応箇所があればtranslation unit全体を完全なlegacy backendへ明示fallback）
+  - [ ] Extend typed-SSA x86_64 SysV variadic coverage beyond the verified
+        scalar-FP and bounded aggregate profiles below. Remaining work is
+        nontrivial/unsupported aggregate layouts and adjusted-`va_list` shapes;
+        unsupported functions must continue through the complete legacy backend.
+      - [x] Lower scalar `double va_arg` from XMM save slots and the overflow
+        area, advance `fp_offset`/overflow independently, and initialize the
+        cursor after named FP parameters. Verify first, second, ninth/stack,
+        named-double, and mixed GP/SSE overflow cases at `-O0`/`-O2`, with no
+        verified-backend fallback and host SysV execution.
+      - [x] Lower trivial aggregate `va_arg` values classified across INTEGER,
+        SSE, and MEMORY classes, including mixed GP/SSE retrieval, whole-object
+        stack fallback when a register bank is short, and aligned MEMORY-class
+        overflow. Verify C and C++ objects and host ABI execution at `-O0`/`-O2`
+        without fallback for supported layouts.
+      - [x] Classify supported named scalar FP and trivial aggregate parameters
+        at function entry and `va_start`, including independent GP/XMM cursors,
+        register exhaustion, and whole-stack aggregate placement. Verify C/C++
+        call/entry paths and variadic cursor results through the verified
+        backend at both optimization levels.
       - [x] MEMORY-class aggregate `va_arg`の24-byte C/C++構造体と、
         16-byte alignasを持つ32-byte C++構造体を実装に接続し、stack spill後の
         overflow cursor／alignmentを含むSysV host ABI実行を`-O0`/`-O2`で検証。
