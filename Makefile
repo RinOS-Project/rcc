@@ -439,6 +439,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-member-pointer-data \
 	test-cxx-member-pointer-data-posix
 .PHONY: test-verified-volatile
+.PHONY: test-verified-cxx-temporary-cleanup
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
 .PHONY: test-cxx-return-semantics
@@ -11965,7 +11966,32 @@ test-verified-cxx-conditional-aggregate: $(RCXX_TARGET) test-verified-cxx-refere
 		$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log,1)
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate
+test-verified-cxx-temporary-cleanup: $(RCXX_TARGET) test-verified-cxx-reference-local
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.ro \
+		tests/verified_backend_cxx_temporary_cleanup.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.ro \
+		tests/verified_backend_cxx_temporary_cleanup.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.log,0)
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.ro x64
+
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \

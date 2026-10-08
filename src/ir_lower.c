@@ -4092,6 +4092,204 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
     return new_value;
 }
 
+static bool lower_noexcept_expression(const Expr* expression);
+
+static bool lower_noexcept_expression_list(const ExprList* arguments) {
+    for (; arguments; arguments = arguments->next) {
+        if (arguments->cxx_temporary_owner ||
+            !lower_noexcept_expression(arguments->expr)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* This predicate is deliberately limited to expressions whose exception
+ * behavior can be read directly from the semantically resolved AST.  The
+ * verified backend may run a reference-argument temporary cleanup inline
+ * after the call only when neither argument evaluation nor the call can
+ * transfer control through the exception runtime. */
+static bool lower_noexcept_expression(const Expr* expression) {
+    if (!expression) return true;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_IDENT:
+        case EXPR_CXX_THIS:
+            return true;
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF: {
+            int64_t constant;
+            return expr_eval_integer_constant(
+                (Expr*)expression, &constant);
+        }
+        case EXPR_NOEXCEPT:
+            return expression->cxx_noexcept_value_valid;
+        case EXPR_CALL:
+            return expression->cxx_call_is_noexcept &&
+                lower_noexcept_expression(expression->call_func) &&
+                lower_noexcept_expression_list(expression->call_args);
+        case EXPR_COMMA:
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            return lower_noexcept_expression(expression->binary_lhs) &&
+                lower_noexcept_expression(expression->binary_rhs);
+        case EXPR_COND:
+            return lower_noexcept_expression(expression->cond_test) &&
+                lower_noexcept_expression(expression->cond_then) &&
+                lower_noexcept_expression(expression->cond_else);
+        case EXPR_CAST:
+            return lower_noexcept_expression(expression->cast_expr);
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            return lower_noexcept_expression(expression->unary_operand);
+        case EXPR_INDEX:
+            return lower_noexcept_expression(expression->index_base) &&
+                lower_noexcept_expression(expression->index_expr);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return lower_noexcept_expression(expression->member_base);
+        default:
+            return false;
+    }
+}
+
+static bool lower_single_temporary_cleanup_supported(
+    const ExprList* argument) {
+    const CxxCleanupPlan* plan;
+    const Expr* cleanup;
+    const Expr* function;
+    const ExprList* cleanup_argument;
+    const Expr* address;
+    const Decl* destructor;
+    if (!argument || !argument->cxx_temporary_owner ||
+        !argument->cxx_temporary_cleanups ||
+        !argument->cxx_temporary_owner->type ||
+        !argument->cxx_temporary_owner->type->is_reference) {
+        return false;
+    }
+    plan = argument->cxx_temporary_cleanups;
+    if (plan->kind != CXX_CLEANUP_EXPRESSION || plan->next ||
+        !(cleanup = plan->expression) || cleanup->kind != EXPR_CALL ||
+        !(function = cleanup->call_func) ||
+        function->kind != EXPR_IDENT ||
+        !(destructor = function->ident_decl) ||
+        destructor->kind != DECL_FUNC ||
+        !destructor->func_is_cxx_destructor ||
+        !destructor->func_is_noexcept ||
+        !(cleanup_argument = cleanup->call_args) ||
+        cleanup_argument->next || !(address = cleanup_argument->expr) ||
+        address->kind != EXPR_ADDR || !address->unary_operand ||
+        address->unary_operand->kind != EXPR_IDENT ||
+        address->unary_operand->ident_decl !=
+            argument->cxx_temporary_owner) {
+        return false;
+    }
+    return true;
+}
+
+static bool lower_call_temporary_cleanups_supported(
+    const Expr* expression) {
+    const ExprList* argument;
+    bool has_temporary = false;
+    if (!expression || !expression->cxx_call_is_noexcept ||
+        !lower_noexcept_expression(expression->call_func)) {
+        return false;
+    }
+    for (argument = expression->call_args; argument;
+         argument = argument->next) {
+        if (!lower_noexcept_expression(argument->expr)) return false;
+        if (!argument->cxx_temporary_owner) continue;
+        has_temporary = true;
+        if (!lower_single_temporary_cleanup_supported(argument)) {
+            return false;
+        }
+    }
+    return has_temporary;
+}
+
+static bool lower_bind_temporary_owner(RccIrLowerContext* context,
+                                       const Decl* owner,
+                                       RccIrLowerValue object_address) {
+    RccIrInstruction* allocation;
+    RccIrLowerValue slot;
+    size_t pointer_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    if (!context || !owner || !object_address.valid ||
+        object_address.type.kind != RCC_IR_TYPE_POINTER ||
+        lower_find_local(context, owner)) {
+        return false;
+    }
+    allocation = lower_append(context, RCC_IR_ALLOCA,
+                              rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+    if (!allocation) return false;
+    rcc_ir_set_immediate(allocation, (uint64_t)pointer_size);
+    allocation->alignment = (uint32_t)pointer_size;
+    allocation->source_declaration = owner;
+    if (!lower_add_local(context, owner, allocation->result,
+                         rcc_ir_type_pointer(0u))) {
+        return false;
+    }
+    slot = lower_value(allocation->result,
+                       rcc_ir_type_pointer(0u), true);
+    return lower_store_address(context, slot, object_address);
+}
+
+static bool lower_emit_call_temporary_cleanups(
+    RccIrLowerContext* context, const ExprList* const* arguments,
+    size_t count) {
+    while (count > 0u) {
+        const ExprList* argument = arguments[--count];
+        RccIrLowerValue cleanup;
+        if (!lower_single_temporary_cleanup_supported(argument)) {
+            context->unsupported = true;
+            return false;
+        }
+        cleanup = lower_expression(
+            context, argument->cxx_temporary_cleanups->expression);
+        if (!cleanup.valid || cleanup.type.kind != RCC_IR_TYPE_VOID) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    return true;
+}
+
 static RccIrLowerValue lower_call(RccIrLowerContext* context,
                                   const Expr* expression) {
     const Decl* callee = NULL;
@@ -4101,8 +4299,10 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     size_t argument_count = 0u;
     size_t index = 0u;
     size_t fixed_count = 0u;
+    size_t cleanup_count = 0u;
     size_t chunk_size = lower_abi_chunk_size();
     RccIrValue* operands = NULL;
+    const ExprList** temporary_cleanups = NULL;
     RccIrType* fixed_types = NULL;
     RccIrType return_type;
     RccIrType call_type;
@@ -4146,6 +4346,27 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         !type_is_compatible(function_type->ret_type, expression->type)) {
         context->unsupported = true;
         return lower_invalid_value();
+    }
+    if (lower_call_temporary_cleanups_supported(expression)) {
+        for (argument = expression->call_args; argument;
+             argument = argument->next) {
+            if (argument->cxx_temporary_owner) ++cleanup_count;
+        }
+        if (cleanup_count > SIZE_MAX / sizeof(*temporary_cleanups)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        temporary_cleanups = rcc_alloc(
+            cleanup_count * sizeof(*temporary_cleanups));
+        cleanup_count = 0u;
+    } else {
+        for (argument = expression->call_args; argument;
+             argument = argument->next) {
+            if (argument->cxx_temporary_owner) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+        }
     }
     if (lower_abi_is_aggregate(expression->type)) {
         RccIrInstruction* allocation;
@@ -4230,7 +4451,18 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             /* A reference parameter is an address in the target ABI.  Keep
              * the argument as an lvalue address so a reference local is not
              * accidentally loaded as its pointee value. */
-            if (argument->expr &&
+            if (argument->cxx_temporary_owner) {
+                value = lower_expression(context, argument->expr);
+                if (!value.valid || value.type.kind !=
+                        RCC_IR_TYPE_POINTER ||
+                    !lower_bind_temporary_owner(
+                        context, argument->cxx_temporary_owner, value)) {
+                    rcc_free(operands);
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                temporary_cleanups[cleanup_count++] = argument;
+            } else if (argument->expr &&
                 lower_abi_is_aggregate(argument->expr->type) &&
                 argument->expr->kind == EXPR_COND &&
                 !argument->expr->cxx_conditional_lvalue &&
@@ -4360,6 +4592,10 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         if (!lower_store_address(context, aggregate_address, value)) {
             return lower_invalid_value();
         }
+        if (!lower_emit_call_temporary_cleanups(
+                context, temporary_cleanups, cleanup_count)) {
+            return lower_invalid_value();
+        }
         return aggregate_address;
     }
     if (return_kind == LOWER_ABI_RETURN_REGISTER_PAIR) {
@@ -4370,19 +4606,38 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         if (!capture) return lower_invalid_value();
         rcc_ir_set_immediate(capture,
                              (uint64_t)expression->type->size);
+        if (!lower_emit_call_temporary_cleanups(
+                context, temporary_cleanups, cleanup_count)) {
+            return lower_invalid_value();
+        }
         return aggregate_address;
     }
     if (return_kind == LOWER_ABI_RETURN_SRET) {
+        if (!lower_emit_call_temporary_cleanups(
+                context, temporary_cleanups, cleanup_count)) {
+            return lower_invalid_value();
+        }
         return aggregate_address;
     }
     if (return_type.kind == RCC_IR_TYPE_VOID) {
         RccIrLowerValue value = lower_invalid_value();
         value.type = return_type;
         value.valid = true;
+        if (!lower_emit_call_temporary_cleanups(
+                context, temporary_cleanups, cleanup_count)) {
+            return lower_invalid_value();
+        }
         return value;
     }
-    return lower_value(call->result, return_type,
-                       expression->type->is_unsigned);
+    {
+        RccIrLowerValue value = lower_value(
+            call->result, return_type, expression->type->is_unsigned);
+        if (!lower_emit_call_temporary_cleanups(
+                context, temporary_cleanups, cleanup_count)) {
+            return lower_invalid_value();
+        }
+        return value;
+    }
 }
 
 static RccIrLowerValue lower_builtin_integer_binary(
