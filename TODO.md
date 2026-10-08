@@ -863,7 +863,8 @@
   - [x] C17/C++20のside-effect-free signed `/ -2^k`／`% -2^k`を、除算の
         ゼロ方向丸め・剰余符号を保つ算術shift/maskへ削減。i686/AMD64のO0/O1で
         境界値と4,096 deterministic inputsを実行し、side-effect dividendの一回評価と
-        optimized `idiv` removalを`test-optimize`で検証
+        optimized `idiv` removalを`test-optimize`で検証。Windows native runnerも
+        ABI-aware SysV function pointerでAMD64 C/C++ O1 objectsを実行
   - [ ] 一般のloop transformation、recursive/cost-aware inline、aggregate/exception
         callのinline
 - [x] `-O0..3`ごとのpass pipeline
