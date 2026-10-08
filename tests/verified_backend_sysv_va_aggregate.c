@@ -365,6 +365,16 @@ long long verified_sysv_va_large_aggregate(int marker, ...)
     return value;
 }
 
+long long verified_sysv_va_large_aggregate_call(
+    long long first, long long second, long long third)
+{
+    struct VerifiedSysvVaLargeAggregate value;
+    value.first = first;
+    value.second = second;
+    value.third = third;
+    return verified_sysv_va_large_aggregate(7, value);
+}
+
 int verified_sysv_va_read_integer_aggregate(int marker, ...)
 {
     va_list arguments;

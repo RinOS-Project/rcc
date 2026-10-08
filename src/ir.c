@@ -60,6 +60,32 @@ bool rcc_ir_type_equal(RccIrType left, RccIrType right) {
         left.aggregate_id == right.aggregate_id;
 }
 
+bool rcc_sysv_memory_arguments_valid(
+    const RccSysvMemoryArgument* arguments, size_t argument_count,
+    size_t operand_count) {
+    size_t previous_end = 0u;
+    if ((argument_count == 0u) != (arguments == NULL)) return false;
+    for (size_t index = 0u; index < argument_count; ++index) {
+        const RccSysvMemoryArgument* argument = &arguments[index];
+        uint64_t expected_operands;
+        if (argument->size == 0u ||
+            (argument->alignment != 8u && argument->alignment != 16u)) {
+            return false;
+        }
+        expected_operands =
+            ((uint64_t)argument->size + 7u) / 8u;
+        if (expected_operands != argument->operand_count ||
+            argument->first_operand < previous_end ||
+            argument->first_operand > operand_count ||
+            argument->operand_count >
+                operand_count - argument->first_operand) {
+            return false;
+        }
+        previous_end = argument->first_operand + argument->operand_count;
+    }
+    return true;
+}
+
 static bool ir_type_well_formed(RccIrType type) {
     switch (type.kind) {
         case RCC_IR_TYPE_VOID:
@@ -93,6 +119,7 @@ static void ir_instruction_destroy(RccIrInstruction* instruction) {
     if (!instruction) return;
     rcc_free(instruction->operands);
     rcc_free(instruction->targets);
+    rcc_free(instruction->sysv_memory_arguments);
     rcc_free(instruction->callee);
     rcc_free(instruction);
 }
@@ -452,6 +479,16 @@ static bool ir_verify_instruction_types(
         return ir_verify_error(
             verifier, "SysV variadic-call metadata requires a call");
     }
+    if (!rcc_sysv_memory_arguments_valid(
+            instruction->sysv_memory_arguments,
+            instruction->sysv_memory_argument_count,
+            instruction->operand_count) ||
+        (instruction->sysv_memory_argument_count != 0u &&
+         (instruction->opcode != RCC_IR_CALL ||
+          !instruction->sysv_variadic_call))) {
+        return ir_verify_error(
+            verifier, "SysV MEMORY argument metadata is invalid");
+    }
     if (instruction->sysv_varargs_gpr_save_area &&
         (instruction->opcode != RCC_IR_ALLOCA ||
          instruction->immediate != RCC_IR_SYSV_VA_SAVE_AREA_SIZE ||
@@ -678,6 +715,26 @@ static bool ir_verify_instruction_types(
                 if (!ir_value_type(verifier, instruction->operands[index],
                                    &first)) {
                     return false;
+                }
+            }
+            for (size_t argument_index = 0u;
+                 argument_index < instruction->sysv_memory_argument_count;
+                 ++argument_index) {
+                const RccSysvMemoryArgument* memory_argument =
+                    &instruction->sysv_memory_arguments[argument_index];
+                for (size_t unit = 0u;
+                     unit < memory_argument->operand_count; ++unit) {
+                    if (!ir_value_type(
+                            verifier,
+                            instruction->operands[
+                                memory_argument->first_operand + unit],
+                            &first) ||
+                        first.kind != RCC_IR_TYPE_INTEGER ||
+                        first.bit_width != 64u) {
+                        return ir_verify_error(
+                            verifier,
+                            "SysV MEMORY argument must use 64-bit words");
+                    }
                 }
             }
             return true;

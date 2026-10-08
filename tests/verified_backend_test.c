@@ -1045,6 +1045,7 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
     ObjSymbol* named_mixed_va_gp_symbol;
     ObjSymbol* named_mixed_va_sse_symbol;
     ObjSymbol* large_memory_aggregate_symbol;
+    ObjSymbol* aligned_memory_aggregate_symbol;
     size_t mapping_size;
     void* memory;
     void* address;
@@ -1069,6 +1070,10 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
         int, double, double);
     long long (RINOS_ABI *large_memory_aggregate_call)(
         long long, long long, long long);
+    long long (RINOS_ABI *aligned_memory_aggregate_call)(
+        double, double, double, double, double, double, double, double, double,
+        long long, long long, long long, long long,
+        long long, long long, long long);
     assert(object != NULL && object->arch == ARCH_X64 && sizeof(void*) == 8u);
     text = objfile_get_section(object, ".text");
     integer_symbol = objfile_find_symbol(
@@ -1089,6 +1094,8 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
         object, "verified_sysv_va_named_mixed_aggregate_sse_straddle_call");
     large_memory_aggregate_symbol = objfile_find_symbol(
         object, "verified_sysv_va_large_memory_aggregate_call");
+    aligned_memory_aggregate_symbol = objfile_find_symbol(
+        object, "verified_sysv_va_aligned_memory_aggregate_call");
     assert(integer_symbol != NULL && integer_symbol->type == SYM_GLOBAL &&
            integer_symbol->binding == BIND_CODE && integer_symbol->section == 0);
     assert(sse_symbol != NULL && sse_symbol->type == SYM_GLOBAL &&
@@ -1119,6 +1126,11 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
            large_memory_aggregate_symbol->type == SYM_GLOBAL &&
            large_memory_aggregate_symbol->binding == BIND_CODE &&
            large_memory_aggregate_symbol->section == 0);
+    if (aligned_memory_aggregate_symbol) {
+        assert(aligned_memory_aggregate_symbol->type == SYM_GLOBAL &&
+               aligned_memory_aggregate_symbol->binding == BIND_CODE &&
+               aligned_memory_aggregate_symbol->section == 0);
+    }
     memory = map_text(object, text, &mapping_size);
     address = symbol_address(memory, integer_symbol);
     memcpy(&integer_call, &address, sizeof(integer_call));
@@ -1139,6 +1151,11 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
     address = symbol_address(memory, large_memory_aggregate_symbol);
     memcpy(&large_memory_aggregate_call, &address,
            sizeof(large_memory_aggregate_call));
+    if (aligned_memory_aggregate_symbol) {
+        address = symbol_address(memory, aligned_memory_aggregate_symbol);
+        memcpy(&aligned_memory_aggregate_call, &address,
+               sizeof(aligned_memory_aggregate_call));
+    }
     assert(integer_call(1, 2, 3, 4, 5, 11, 47) == 47);
     assert(sse_call(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.5, 9.5) == 9.5);
     assert(mixed_gp_call(1, 2, 3, 4, 5, 6, 19, 4.125) == 23.125);
@@ -1154,6 +1171,11 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
                19, 4.125, 5.25) == 5.25);
     assert(large_memory_aggregate_call(11, 23, 47) == 47);
+    if (aligned_memory_aggregate_symbol) {
+        assert(aligned_memory_aggregate_call(
+                   1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0,
+                   11, 23, 47, 53, 13, 29, 47) == 109);
+    }
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }

@@ -572,6 +572,21 @@ static bool x86_legal_native_type(
         type.bit_width <= (uint16_t)(abi->pointer_size * 8u);
 }
 
+static const RccSysvMemoryArgument* x86_memory_argument_for_operand(
+    const RccX86Instruction* instruction, size_t operand_index) {
+    for (size_t index = 0u;
+         index < instruction->sysv_memory_argument_count; ++index) {
+        const RccSysvMemoryArgument* argument =
+            &instruction->sysv_memory_arguments[index];
+        if (operand_index >= argument->first_operand &&
+            operand_index - argument->first_operand <
+                argument->operand_count) {
+            return argument;
+        }
+    }
+    return NULL;
+}
+
 static bool x86_legal_call_supported(
     const RccX86Instruction* instruction, const RccX86Abi* abi) {
     size_t index;
@@ -582,10 +597,25 @@ static bool x86_legal_call_supported(
          !x86_legal_abi_scalar_parameter(instruction->type, abi)) ||
         (instruction->immediate != 0u &&
          (abi->target != RCC_X86_TARGET_I686 ||
-          instruction->immediate != abi->pointer_size))) {
+          instruction->immediate != abi->pointer_size)) ||
+        !rcc_sysv_memory_arguments_valid(
+            instruction->sysv_memory_arguments,
+            instruction->sysv_memory_argument_count,
+            instruction->operand_count) ||
+        (instruction->sysv_memory_argument_count != 0u &&
+         (!instruction->sysv_variadic_call ||
+          abi->target != RCC_X86_TARGET_X86_64))) {
         return false;
     }
     for (index = 0u; index < instruction->operand_count; ++index) {
+        if (x86_memory_argument_for_operand(instruction, index)) {
+            if (instruction->operand_types[index].kind !=
+                    RCC_MIR_TYPE_INTEGER ||
+                instruction->operand_types[index].bit_width != 64u) {
+                return false;
+            }
+            continue;
+        }
         if (!x86_legal_abi_scalar_parameter(
                 instruction->operand_types[index], abi)) return false;
     }
@@ -600,7 +630,26 @@ static bool x86_legal_call_stack_bytes(
     size_t floating_index = 0u;
     if (!x86_legal_call_supported(instruction, abi)) return false;
     stack_count = 0u;
-    for (size_t index = 0u; index < instruction->operand_count; ++index) {
+    for (size_t index = 0u; index < instruction->operand_count;) {
+        const RccSysvMemoryArgument* memory_argument =
+            x86_memory_argument_for_operand(instruction, index);
+        if (memory_argument) {
+            if (index == memory_argument->first_operand) {
+                size_t alignment_slots =
+                    memory_argument->alignment / abi->pointer_size;
+                size_t remainder;
+                if (alignment_slots == 0u) return false;
+                remainder = stack_count % alignment_slots;
+                if (remainder != 0u) {
+                    size_t padding = alignment_slots - remainder;
+                    if (padding > SIZE_MAX - stack_count) return false;
+                    stack_count += padding;
+                }
+            }
+            ++stack_count;
+            ++index;
+            continue;
+        }
         if (instruction->operand_types[index].kind == RCC_MIR_TYPE_FLOAT) {
             if (floating_index >= abi->floating_argument_count) {
                 ++stack_count;
@@ -612,6 +661,7 @@ static bool x86_legal_call_stack_bytes(
             }
             ++integer_index;
         }
+        ++index;
     }
     if (stack_count > UINT32_MAX / abi->pointer_size) return false;
     *bytes_out = (uint32_t)stack_count * abi->pointer_size;
@@ -1021,11 +1071,33 @@ static bool x86_legalize_call(
             source->operand_count * sizeof(*argument_destinations));
         for (index = 0u; index < source->operand_count; ++index) {
             RccMirType type = source->operand_types[index];
+            const RccSysvMemoryArgument* memory_argument =
+                x86_memory_argument_for_operand(source, index);
             bool floating = type.kind == RCC_MIR_TYPE_FLOAT;
-            bool in_register = floating
+            bool in_register = !memory_argument && (floating
                 ? floating_index < abi->floating_argument_count
-                : integer_index < abi->integer_argument_count;
-            if (floating) {
+                : integer_index < abi->integer_argument_count);
+            if (memory_argument &&
+                index == memory_argument->first_operand) {
+                size_t alignment_slots =
+                    memory_argument->alignment / abi->pointer_size;
+                size_t remainder = stack_index % alignment_slots;
+                if (remainder != 0u) {
+                    size_t padding = alignment_slots - remainder;
+                    if (padding > UINT32_MAX - stack_index) {
+                        rcc_free(argument_destinations);
+                        rcc_free(operands);
+                        return x86_legal_error(
+                            error, error_size,
+                            "x86 outgoing argument alignment exceeds 32 bits");
+                    }
+                    stack_index += (uint32_t)padding;
+                }
+            }
+            if (memory_argument) {
+                /* MEMORY-class aggregate words are copied contiguously to
+                 * the caller's stack area and consume no argument registers. */
+            } else if (floating) {
                 if (in_register) {
                     argument_destinations[index] = x86_legal_fixed_fpr(
                         abi->floating_arguments[floating_index], type, abi);

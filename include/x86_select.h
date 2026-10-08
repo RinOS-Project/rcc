@@ -67,6 +67,8 @@ struct RccX86Instruction {
     bool symbol_is_tls;
     bool has_callee;
     bool sysv_variadic_call;
+    RccSysvMemoryArgument* sysv_memory_arguments;
+    size_t sysv_memory_argument_count;
     RccMirLocation callee;
     /* Borrowed AST declaration for a source variable stack allocation. */
     const void* source_declaration;

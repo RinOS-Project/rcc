@@ -83,6 +83,8 @@ struct RccMirInstruction {
     bool volatile_access;
     bool sysv_varargs_gpr_save_area;
     bool sysv_variadic_call;
+    RccSysvMemoryArgument* sysv_memory_arguments;
+    size_t sysv_memory_argument_count;
     char* callee;
     bool symbol_is_code;
     bool symbol_is_tls;

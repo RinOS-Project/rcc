@@ -381,6 +381,17 @@ static bool x86_select_instruction(
     machine->immediate = instruction->immediate;
     machine->predicate = instruction->predicate;
     machine->sysv_variadic_call = instruction->sysv_variadic_call;
+    machine->sysv_memory_argument_count =
+        instruction->sysv_memory_argument_count;
+    if (machine->sysv_memory_argument_count != 0u) {
+        machine->sysv_memory_arguments = rcc_alloc(
+            machine->sysv_memory_argument_count *
+            sizeof(*machine->sysv_memory_arguments));
+        memcpy(machine->sysv_memory_arguments,
+               instruction->sysv_memory_arguments,
+               machine->sysv_memory_argument_count *
+               sizeof(*machine->sysv_memory_arguments));
+    }
     if (instruction->opcode == RCC_MIR_ALLOCA) {
         machine->immediate = selected->frame_size -
             (uint32_t)instruction->immediate;
@@ -577,6 +588,14 @@ bool rcc_x86_verify_function(
                 (instruction->sysv_variadic_call &&
                  (instruction->opcode != RCC_X86_CALL ||
                   function->target != RCC_X86_TARGET_X86_64)) ||
+                !rcc_sysv_memory_arguments_valid(
+                    instruction->sysv_memory_arguments,
+                    instruction->sysv_memory_argument_count,
+                    instruction->operand_count) ||
+                (instruction->sysv_memory_argument_count != 0u &&
+                 (!instruction->sysv_variadic_call ||
+                  instruction->opcode != RCC_X86_CALL ||
+                  function->target != RCC_X86_TARGET_X86_64)) ||
                 (instruction->type.kind == RCC_MIR_TYPE_FLOAT &&
                  instruction->opcode != RCC_X86_LOAD &&
                  instruction->opcode != RCC_X86_STORE &&
@@ -658,6 +677,23 @@ bool rcc_x86_verify_function(
                                             "x86 operand type is invalid");
                 }
             }
+            for (size_t argument_index = 0u;
+                 argument_index < instruction->sysv_memory_argument_count;
+                 ++argument_index) {
+                const RccSysvMemoryArgument* memory_argument =
+                    &instruction->sysv_memory_arguments[argument_index];
+                for (size_t unit = 0u;
+                     unit < memory_argument->operand_count; ++unit) {
+                    RccMirType type = instruction->operand_types[
+                        memory_argument->first_operand + unit];
+                    if (type.kind != RCC_MIR_TYPE_INTEGER ||
+                        type.bit_width != 64u) {
+                        return x86_select_error(
+                            error, error_size,
+                            "SysV MEMORY argument must use 64-bit words");
+                    }
+                }
+            }
             for (target = 0u; target < instruction->target_count;
                  ++target) {
                 if (instruction->targets[target] >= function->block_count) {
@@ -698,6 +734,7 @@ void rcc_x86_function_destroy(RccX86Function* function) {
             rcc_free(instruction->operands);
             rcc_free(instruction->operand_types);
             rcc_free(instruction->targets);
+            rcc_free(instruction->sysv_memory_arguments);
             rcc_free(instruction->symbol);
             rcc_free(instruction);
             instruction = next_instruction;

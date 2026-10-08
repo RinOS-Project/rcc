@@ -25,6 +25,15 @@ struct VerifiedSysvVaLargeMemoryAggregate {
     long long third;
 };
 
+#ifdef __cplusplus
+alignas(16) struct VerifiedSysvVaAlignedMemoryAggregate {
+    long long first;
+    long long second;
+    long long third;
+    long long fourth;
+};
+#endif
+
 long long verified_sysv_va_read_large_memory_aggregate(int marker, ...)
 {
     va_list arguments;
@@ -44,6 +53,47 @@ long long verified_sysv_va_large_memory_aggregate_call(
     value.third = third;
     return verified_sysv_va_read_large_memory_aggregate(7, value);
 }
+
+#ifdef __cplusplus
+long long verified_sysv_va_read_aligned_memory_aggregate_after_nine_doubles(
+    int marker, ...)
+{
+    va_list arguments;
+    double tail;
+    struct VerifiedSysvVaAlignedMemoryAggregate value;
+    va_start(arguments, marker);
+    for (int index = 0; index < 9; ++index) {
+        tail = va_arg(arguments, double);
+    }
+    value = va_arg(arguments, struct VerifiedSysvVaAlignedMemoryAggregate);
+    struct VerifiedSysvVaLargeMemoryAggregate trailing =
+        va_arg(arguments, struct VerifiedSysvVaLargeMemoryAggregate);
+    va_end(arguments);
+    return value.fourth + (long long)tail + trailing.third;
+}
+
+long long verified_sysv_va_aligned_memory_aggregate_call(
+    double first, double second, double third, double fourth, double fifth,
+    double sixth, double seventh, double eighth, double ninth,
+    long long value_first, long long value_second,
+    long long value_third, long long value_fourth,
+    long long trailing_first, long long trailing_second,
+    long long trailing_third)
+{
+    struct VerifiedSysvVaAlignedMemoryAggregate value;
+    struct VerifiedSysvVaLargeMemoryAggregate trailing;
+    value.first = value_first;
+    value.second = value_second;
+    value.third = value_third;
+    value.fourth = value_fourth;
+    trailing.first = trailing_first;
+    trailing.second = trailing_second;
+    trailing.third = trailing_third;
+    return verified_sysv_va_read_aligned_memory_aggregate_after_nine_doubles(
+        7, first, second, third, fourth, fifth, sixth, seventh, eighth,
+        ninth, value, trailing);
+}
+#endif
 
 long long verified_sysv_va_read_two_integer_aggregate_after_five(
     int a, int b, int c, int d, int last, ...)

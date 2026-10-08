@@ -76,6 +76,7 @@ static void ir_pass_unlink_instruction(RccIrInstruction* instruction) {
     }
     rcc_free(instruction->operands);
     rcc_free(instruction->targets);
+    rcc_free(instruction->sysv_memory_arguments);
     rcc_free(instruction->callee);
     rcc_free(instruction);
 }
@@ -1008,11 +1009,14 @@ static void ir_pass_make_integer_constant(RccIrInstruction* instruction,
                                           uint64_t value) {
     rcc_free(instruction->operands);
     rcc_free(instruction->targets);
+    rcc_free(instruction->sysv_memory_arguments);
     rcc_free(instruction->callee);
     instruction->operands = NULL;
     instruction->operand_count = 0u;
     instruction->targets = NULL;
     instruction->target_count = 0u;
+    instruction->sysv_memory_arguments = NULL;
+    instruction->sysv_memory_argument_count = 0u;
     instruction->callee = NULL;
     instruction->symbol_is_code = false;
     instruction->symbol_is_tls = false;
@@ -1031,9 +1035,12 @@ static void ir_pass_make_unconditional_branch(
     }
     target = instruction->targets[selected_target];
     rcc_free(instruction->operands);
+    rcc_free(instruction->sysv_memory_arguments);
     rcc_free(instruction->callee);
     instruction->operands = NULL;
     instruction->operand_count = 0u;
+    instruction->sysv_memory_arguments = NULL;
+    instruction->sysv_memory_argument_count = 0u;
     instruction->targets[0] = target;
     instruction->target_count = 1u;
     instruction->callee = NULL;

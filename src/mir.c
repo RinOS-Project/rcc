@@ -78,6 +78,7 @@ static void mir_instruction_destroy(RccMirInstruction* instruction) {
     if (!instruction) return;
     rcc_free(instruction->operands);
     rcc_free(instruction->targets);
+    rcc_free(instruction->sysv_memory_arguments);
     rcc_free(instruction->callee);
     rcc_free(instruction);
 }
@@ -226,6 +227,15 @@ static bool mir_verify_instruction_type(
         return mir_error(
             verifier, "SysV variadic-call metadata requires a call");
     }
+    if (!rcc_sysv_memory_arguments_valid(
+            instruction->sysv_memory_arguments,
+            instruction->sysv_memory_argument_count,
+            instruction->operand_count) ||
+        (instruction->sysv_memory_argument_count != 0u &&
+         (instruction->opcode != RCC_MIR_CALL ||
+          !instruction->sysv_variadic_call))) {
+        return mir_error(verifier, "SysV MEMORY argument metadata is invalid");
+    }
     if (mir_is_binary(instruction->opcode)) {
         return mir_shape(verifier, instruction, 2u, 0u) &&
             instruction->type.kind == RCC_MIR_TYPE_INTEGER &&
@@ -361,6 +371,19 @@ static bool mir_verify_instruction_type(
                  (instruction->callee_value == RCC_MIR_VREG_NONE)) ||
                 (instruction->callee && !instruction->callee[0])) {
                 return false;
+            }
+            for (size_t argument_index = 0u;
+                 argument_index < instruction->sysv_memory_argument_count;
+                 ++argument_index) {
+                const RccSysvMemoryArgument* memory_argument =
+                    &instruction->sysv_memory_arguments[argument_index];
+                for (size_t unit = 0u;
+                     unit < memory_argument->operand_count; ++unit) {
+                    if (!mir_operand_type(
+                            verifier, instruction,
+                            memory_argument->first_operand + unit,
+                            rcc_mir_type_integer(64u))) return false;
+                }
             }
             if (instruction->callee_value != RCC_MIR_VREG_NONE) {
                 RccMirType callee_type = rcc_mir_type_void();
@@ -884,6 +907,17 @@ bool rcc_mir_lower_ir(const RccIrFunction* ir_function,
                 ir_instruction->sysv_varargs_gpr_save_area;
             instruction->sysv_variadic_call =
                 ir_instruction->sysv_variadic_call;
+            instruction->sysv_memory_argument_count =
+                ir_instruction->sysv_memory_argument_count;
+            if (instruction->sysv_memory_argument_count != 0u) {
+                instruction->sysv_memory_arguments = rcc_alloc(
+                    instruction->sysv_memory_argument_count *
+                    sizeof(*instruction->sysv_memory_arguments));
+                memcpy(instruction->sysv_memory_arguments,
+                       ir_instruction->sysv_memory_arguments,
+                       instruction->sysv_memory_argument_count *
+                       sizeof(*instruction->sysv_memory_arguments));
+            }
             instruction->symbol_is_code = ir_instruction->symbol_is_code;
             instruction->symbol_is_tls = ir_instruction->symbol_is_tls;
             if (ir_instruction->callee_value != RCC_IR_VALUE_NONE) {

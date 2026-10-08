@@ -91,6 +91,17 @@ typedef struct RccIrFunction RccIrFunction;
 typedef struct RccIrModule RccIrModule;
 typedef struct RccIrConstant RccIrConstant;
 
+typedef struct {
+    size_t first_operand;
+    size_t operand_count;
+    uint32_t size;
+    uint32_t alignment;
+} RccSysvMemoryArgument;
+
+bool rcc_sysv_memory_arguments_valid(
+    const RccSysvMemoryArgument* arguments, size_t argument_count,
+    size_t operand_count);
+
 struct RccIrInstruction {
     RccIrOpcode opcode;
     RccIrType type;
@@ -109,6 +120,9 @@ struct RccIrInstruction {
     bool sysv_varargs_gpr_save_area;
     /* Emit the x86-64 SysV %al vector-register count before this call. */
     bool sysv_variadic_call;
+    /* Variadic MEMORY-class aggregate words that must remain stack-by-value. */
+    RccSysvMemoryArgument* sysv_memory_arguments;
+    size_t sysv_memory_argument_count;
     char* callee;
     bool symbol_is_code;
     bool symbol_is_tls;
