@@ -850,7 +850,12 @@
   - [x] wide-scalar戻り値を持つdirect variadic callでi686のinteger/pointer
         引数をSSA loweringし、narrow integerのC default promotionと64-bit
         引数のlow/high配置を含むi686/x64 object・外部call relocationを検証。
-        floating-point/aggregate variadic引数と`va_arg`関数本体は対象外
+        floating-point/aggregate variadic引数とx86_64 SysV `va_arg`関数本体は対象外
+  - [x] i686 cdecl variadic calleeの`va_start`を最終named parameterのincoming
+        stack slotからlowerし、pointer-based `va_copy`／`va_end`、default
+        promotion後のinteger、pointer、two-word 64-bit `va_arg` loadをtyped SSAへ
+        接続。i686 verified backendでfallbackなしのobject生成を検証し、x64では
+        完全なlegacy backendへの明示fallbackを保持
 - [x] i386基本integer/cdecl code generation
   - [x] 宣言量に基づくstack frameとbyte/word typed load/store
 - [x] AMD64 SysV基本integer引数とscalar/小aggregate経路

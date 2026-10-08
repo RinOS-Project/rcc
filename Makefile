@@ -12333,7 +12333,8 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/wide-scalar-return-x86.ro \
 		tests/verified_backend_wide_scalar_return.c \
 		>$(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
-	$(GREP) -F -q "Verified backend fallback: function 'verified_wide_scalar_variadic_target' is outside the typed SSA subset" $(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
+	$(GREP) -F -q 'Verified backend: 67 function(s) emitted' $(TEST_OUT)/verified-backend/wide-scalar-return-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/wide-scalar-return-x86.log,0)
 	$(call CHECK_COUNT,Verified backend fallback: function 'verified_wide_scalar_forward_goto',$(TEST_OUT)/verified-backend/wide-scalar-return-x86.log,0)
 	$(call CHECK_COUNT,Verified backend fallback: function 'verified_wide_scalar_backward_goto',$(TEST_OUT)/verified-backend/wide-scalar-return-x86.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \

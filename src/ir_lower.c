@@ -1598,6 +1598,180 @@ static bool lower_wide_scalar_store(
         lower_store_address(context, high_address, value.high);
 }
 
+static bool lower_i686_va_list_type(const Expr* list_expression) {
+    return list_expression && list_expression->type &&
+        list_expression->type->kind == TYPE_PTR &&
+        list_expression->type->size == 4 &&
+        list_expression->type->base;
+}
+
+static RccIrLowerValue lower_i686_va_start(
+    RccIrLowerContext* context, const Expr* expression) {
+    const Decl* last_parameter = expression && expression->va_second_operand &&
+            expression->va_second_operand->kind == EXPR_IDENT
+        ? expression->va_second_operand->ident_decl : NULL;
+    RccIrLowerValue list_slot;
+    RccIrInstruction* frame_address;
+    uint64_t slot_size;
+    uint64_t next_argument;
+    if (!context || g_opts.target_arch != ARCH_X86 ||
+        !expression || !lower_i686_va_list_type(
+            expression->va_list_operand) ||
+        !last_parameter || last_parameter->kind != DECL_PARAM ||
+        !last_parameter->type || last_parameter->type->size <= 0 ||
+        last_parameter->var_offset < 0) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    slot_size = (uint64_t)last_parameter->type->size;
+    if (slot_size < 4u) slot_size = 4u;
+    if (slot_size > UINT64_MAX - 3u) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    slot_size = (slot_size + 3u) & ~UINT64_C(3);
+    if ((uint64_t)last_parameter->var_offset > UINT64_MAX - slot_size) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    next_argument = (uint64_t)last_parameter->var_offset + slot_size;
+    if (next_argument > INT32_MAX) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    list_slot = lower_lvalue_address(
+        context, expression->va_list_operand);
+    if (!list_slot.valid || list_slot.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    frame_address = lower_append(
+        context, RCC_IR_FRAME_ADDRESS, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!frame_address) return lower_invalid_value();
+    rcc_ir_set_immediate(frame_address, next_argument);
+    {
+        RccIrLowerValue cursor = lower_value(
+            frame_address->result, rcc_ir_type_pointer(0u), true);
+        if (!lower_store_address(context, list_slot, cursor)) {
+            return lower_invalid_value();
+        }
+    }
+    /* A void builtin has no SSA result; retain a valid ignored expression
+     * value for comma/expression-statement lowering after the store. */
+    return list_slot;
+}
+
+static bool lower_i686_va_argument_address(
+    RccIrLowerContext* context, const Expr* list_expression,
+    const Type* argument_type, RccIrLowerValue* address_out) {
+    RccIrLowerValue list_slot;
+    RccIrLowerValue cursor;
+    RccIrLowerValue next_cursor;
+    uint64_t step;
+    if (address_out) *address_out = lower_invalid_value();
+    if (!context || !address_out || g_opts.target_arch != ARCH_X86 ||
+        !lower_i686_va_list_type(list_expression) || !argument_type ||
+        argument_type->size <= 0 ||
+        (!type_is_integer((Type*)argument_type) &&
+         argument_type->kind != TYPE_PTR) ||
+        argument_type->size > 8 ||
+        (argument_type->kind == TYPE_PTR && argument_type->size != 4)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    list_slot = lower_lvalue_address(context, list_expression);
+    cursor = lower_load_address(
+        context, list_slot, list_expression->type);
+    if (!list_slot.valid || !cursor.valid ||
+        cursor.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return false;
+    }
+    step = (uint64_t)argument_type->size;
+    if (step < 4u) step = 4u;
+    if (step > UINT64_MAX - 3u) {
+        context->unsupported = true;
+        return false;
+    }
+    step = (step + 3u) & ~UINT64_C(3);
+    next_cursor = lower_byte_offset_address(context, cursor, step);
+    if (!next_cursor.valid ||
+        !lower_store_address(context, list_slot, next_cursor)) {
+        return false;
+    }
+    *address_out = cursor;
+    return true;
+}
+
+static bool lower_i686_va_arg_wide(
+    RccIrLowerContext* context, const Expr* expression,
+    RccIrLowerWideValue* result) {
+    RccIrLowerValue address;
+    if (!expression || !expression->va_arg_type ||
+        !type_is_integer(expression->va_arg_type) ||
+        expression->va_arg_type->size != 8 ||
+        !lower_i686_va_argument_address(
+            context, expression->va_list_operand,
+            expression->va_arg_type, &address)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    return lower_wide_scalar_load(
+        context, address, expression->va_arg_type->is_unsigned, result);
+}
+
+static RccIrLowerValue lower_i686_va_builtin(
+    RccIrLowerContext* context, const Expr* expression) {
+    RccIrLowerValue list_slot;
+    RccIrLowerValue source;
+    RccIrLowerValue address;
+    RccIrLowerValue stored;
+    if (!context || !expression || g_opts.target_arch != ARCH_X86 ||
+        !lower_i686_va_list_type(expression->va_list_operand)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    list_slot = lower_lvalue_address(context, expression->va_list_operand);
+    if (!list_slot.valid) return lower_invalid_value();
+    switch (expression->kind) {
+        case EXPR_VA_START:
+            return lower_i686_va_start(context, expression);
+        case EXPR_VA_END:
+            /* i686 cdecl va_list is a plain pointer and has no teardown. */
+            return list_slot;
+        case EXPR_VA_COPY:
+            if (!expression->va_second_operand ||
+                !lower_i686_va_list_type(expression->va_second_operand)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            source = lower_expression(
+                context, expression->va_second_operand);
+            if (!source.valid ||
+                source.type.kind != RCC_IR_TYPE_POINTER ||
+                !lower_store_address(context, list_slot, source)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            return list_slot;
+        case EXPR_VA_ARG:
+            if (!expression->va_arg_type ||
+                !lower_i686_va_argument_address(
+                    context, expression->va_list_operand,
+                    expression->va_arg_type, &address)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            stored = lower_load_address(
+                context, address, expression->va_arg_type);
+            return stored;
+        default:
+            context->unsupported = true;
+            return lower_invalid_value();
+    }
+}
+
 static bool lower_inline_method_wide_value(
     RccIrLowerContext* context, const Expr* expression,
     RccIrLowerWideValue* result) {
@@ -3264,6 +3438,10 @@ static bool lower_wide_scalar_expression_impl(
     if (!context || !expression || !result || context->unsupported ||
         !expression->type || !type_is_integer(expression->type) ||
         expression->type->size <= 0) return false;
+    if (expression->kind == EXPR_VA_ARG &&
+        lower_i686_wide_scalar_type(expression->type)) {
+        return lower_i686_va_arg_wide(context, expression, result);
+    }
     if (lower_wide_scalar_constant(context, expression, result)) return true;
     if (expression->kind == EXPR_CALL && expression->call_method &&
         lower_i686_wide_scalar_type(expression->type) &&
@@ -6628,10 +6806,20 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
         case EXPR_CXX_REQUIRES:
         case EXPR_GENERIC:
         case EXPR_CXX_FOLD:
+            context->unsupported = true;
+            return lower_invalid_value();
         case EXPR_VA_START:
         case EXPR_VA_END:
         case EXPR_VA_COPY:
+            return lower_i686_va_builtin(context, expression);
         case EXPR_VA_ARG:
+            if (expression->va_arg_type &&
+                lower_i686_va_argument_address(
+                    context, expression->va_list_operand,
+                    expression->va_arg_type, &operand)) {
+                return lower_load_address(
+                    context, operand, expression->va_arg_type);
+            }
             context->unsupported = true;
             return lower_invalid_value();
         case EXPR_CXX_TYPEID:

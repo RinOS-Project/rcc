@@ -1137,6 +1137,31 @@ static bool x86_emit_stack_address(
     return true;
 }
 
+static bool x86_emit_frame_address(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value destination = instruction->destination;
+    RccX86HardwareGpr result = destination.kind == RCC_X86_VALUE_GPR
+        ? destination.gpr
+        : x86_choose_scratch(destination, destination);
+    bool preserve = destination.kind != RCC_X86_VALUE_GPR;
+    if (instruction->immediate > INT32_MAX ||
+        (preserve && !x86_emit_push(encoder, result)) ||
+        !x86_emit_prefix(
+            encoder, encoder->function->pointer_size,
+            result, RCC_X86_GPR_BP, false) ||
+        !x86_emit_u8(encoder, 0x8du) ||
+        !x86_emit_memory_modrm(
+            encoder, result, (int32_t)instruction->immediate) ||
+        (preserve && !x86_emit_store(
+            encoder, destination, result,
+            encoder->function->pointer_size)) ||
+        (preserve && !x86_emit_pop(encoder, result))) {
+        return false;
+    }
+    return true;
+}
+
 static bool x86_emit_pointer_load(
     RccX86Encoder* encoder,
     const RccX86LegalInstruction* instruction) {
@@ -1711,6 +1736,8 @@ static bool x86_emit_instruction(
             return x86_emit_conversion(encoder, instruction);
         case RCC_X86_STACK_ADDRESS:
             return x86_emit_stack_address(encoder, instruction);
+        case RCC_X86_FRAME_ADDRESS:
+            return x86_emit_frame_address(encoder, instruction);
         case RCC_X86_SYMBOL_ADDRESS:
             return x86_emit_symbol_address(encoder, instruction);
         case RCC_X86_LOAD:

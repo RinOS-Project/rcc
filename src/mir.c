@@ -303,6 +303,10 @@ static bool mir_verify_instruction_type(
             return mir_shape(verifier, instruction, 0u, 0u) &&
                 instruction->type.kind == RCC_MIR_TYPE_POINTER &&
                 instruction->immediate != 0u;
+        case RCC_MIR_FRAME_ADDRESS:
+            return mir_shape(verifier, instruction, 0u, 0u) &&
+                instruction->type.kind == RCC_MIR_TYPE_POINTER &&
+                instruction->immediate <= INT32_MAX;
         case RCC_MIR_LOAD:
             return mir_shape(verifier, instruction, 1u, 0u) &&
                 instruction->type.kind != RCC_MIR_TYPE_VOID &&

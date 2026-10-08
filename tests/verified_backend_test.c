@@ -192,6 +192,9 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
     ObjSymbol* call_local_symbol;
     ObjSymbol* indirect_call_symbol;
     ObjSymbol* variadic_call_symbol;
+    ObjSymbol* variadic_target_symbol;
+    ObjSymbol* variadic_scalar_call_symbol;
+    ObjSymbol* variadic_scalar_target_symbol;
     ObjSymbol* expect_symbol;
     ObjSymbol* assignment_symbol;
     ObjSymbol* compound_symbol;
@@ -284,6 +287,12 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
         object, "verified_wide_scalar_indirect_call");
     variadic_call_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_variadic_call");
+    variadic_target_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_variadic_target");
+    variadic_scalar_call_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_variadic_scalar_call");
+    variadic_scalar_target_symbol = objfile_find_symbol(
+        object, "verified_wide_scalar_variadic_scalar_target");
     expect_symbol = objfile_find_symbol(
         object, "verified_wide_scalar_expect");
     assignment_symbol = objfile_find_symbol(
@@ -445,10 +454,22 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
            indirect_call_symbol->type == SYM_GLOBAL &&
            indirect_call_symbol->binding == BIND_CODE &&
            indirect_call_symbol->section == 0);
+    assert(variadic_target_symbol != NULL &&
+           variadic_target_symbol->type == SYM_GLOBAL &&
+           variadic_target_symbol->binding == BIND_CODE &&
+           variadic_target_symbol->section == 0);
     assert(variadic_call_symbol != NULL &&
            variadic_call_symbol->type == SYM_GLOBAL &&
            variadic_call_symbol->binding == BIND_CODE &&
            variadic_call_symbol->section == 0);
+    assert(variadic_scalar_target_symbol != NULL &&
+           variadic_scalar_target_symbol->type == SYM_GLOBAL &&
+           variadic_scalar_target_symbol->binding == BIND_CODE &&
+           variadic_scalar_target_symbol->section == 0);
+    assert(variadic_scalar_call_symbol != NULL &&
+           variadic_scalar_call_symbol->type == SYM_GLOBAL &&
+           variadic_scalar_call_symbol->binding == BIND_CODE &&
+           variadic_scalar_call_symbol->section == 0);
     assert(expect_symbol != NULL && expect_symbol->type == SYM_GLOBAL &&
            expect_symbol->binding == BIND_CODE && expect_symbol->section == 0);
     assert(assignment_symbol != NULL &&
@@ -608,6 +629,8 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
             unsigned long long);
         unsigned long long RINOS_ABI (*variadic_call_function)(
             unsigned long long);
+        unsigned long long RINOS_ABI (*variadic_scalar_call_function)(
+            unsigned int, const void*);
         long long RINOS_ABI (*expect_function)(long long);
         unsigned long long RINOS_ABI (*assignment_function)(unsigned long long);
         unsigned long long RINOS_ABI (*compound_function)(unsigned long long);
@@ -686,6 +709,10 @@ static void verify_wide_scalar_object(const char* path, uint16_t arch)
                sizeof(variadic_call_function));
         assert(variadic_call_function(0x0000000200000002ULL) ==
                0x0000000200000007ULL);
+        address = symbol_address(memory, variadic_scalar_call_symbol);
+        memcpy(&variadic_scalar_call_function, &address,
+               sizeof(variadic_scalar_call_function));
+        assert(variadic_scalar_call_function(0x1234u, object) == 60ULL);
         address = symbol_address(memory, carry_symbol);
         memcpy(&carry_function, &address, sizeof(carry_function));
         assert(carry_function(1ULL) == 0x0000000100000000ULL);

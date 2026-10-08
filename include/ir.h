@@ -56,6 +56,7 @@ typedef enum {
     RCC_IR_PHI,
     RCC_IR_SELECT,
     RCC_IR_ALLOCA,
+    RCC_IR_FRAME_ADDRESS,
     RCC_IR_LOAD,
     RCC_IR_STORE,
     RCC_IR_GEP,

@@ -364,6 +364,7 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_PHI: return "phi";
         case RCC_IR_SELECT: return "select";
         case RCC_IR_ALLOCA: return "alloca";
+        case RCC_IR_FRAME_ADDRESS: return "frame_address";
         case RCC_IR_LOAD: return "load";
         case RCC_IR_STORE: return "store";
         case RCC_IR_GEP: return "gep";
@@ -567,6 +568,15 @@ static bool ir_verify_instruction_types(
                 instruction->immediate == 0u) {
                 return ir_verify_error(verifier,
                                        "alloca requires pointer type and size");
+            }
+            return true;
+        case RCC_IR_FRAME_ADDRESS:
+            if (!ir_require_shape(verifier, instruction, 0u, 0u) ||
+                instruction->type.kind != RCC_IR_TYPE_POINTER ||
+                instruction->immediate > INT32_MAX) {
+                return ir_verify_error(
+                    verifier,
+                    "frame_address requires a pointer type and signed displacement");
             }
             return true;
         case RCC_IR_LOAD:

@@ -1109,10 +1109,13 @@ static bool x86_legal_selected_shape(
     switch (instruction->selected_opcode) {
         case RCC_X86_MOV_IMMEDIATE:
         case RCC_X86_STACK_ADDRESS:
+        case RCC_X86_FRAME_ADDRESS:
         case RCC_X86_SYMBOL_ADDRESS:
             return instruction->has_destination &&
                 instruction->operand_count == 0u &&
                 instruction->target_count == 0u &&
+                (instruction->selected_opcode != RCC_X86_FRAME_ADDRESS ||
+                 instruction->immediate <= INT32_MAX) &&
                 (instruction->selected_opcode != RCC_X86_SYMBOL_ADDRESS ||
                  (instruction->symbol && instruction->symbol[0]));
         case RCC_X86_ADD: case RCC_X86_SUB: case RCC_X86_MUL:

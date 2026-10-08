@@ -184,9 +184,12 @@ unsigned long long verified_wide_scalar_indirect_call(
 unsigned long long verified_wide_scalar_variadic_target(int increment, ...)
 {
     va_list arguments;
+    va_list copied;
     unsigned long long value;
     va_start(arguments, increment);
-    value = va_arg(arguments, unsigned long long);
+    va_copy(copied, arguments);
+    value = va_arg(copied, unsigned long long);
+    va_end(copied);
     va_end(arguments);
     return value + (unsigned int)increment;
 }
@@ -195,6 +198,27 @@ unsigned long long verified_wide_scalar_variadic_call(
     unsigned long long value)
 {
     return verified_wide_scalar_variadic_target(5, value);
+}
+
+unsigned long long verified_wide_scalar_variadic_scalar_target(
+    int increment, ...)
+{
+    va_list arguments;
+    int promoted;
+    const void* pointer;
+    va_start(arguments, increment);
+    promoted = va_arg(arguments, int);
+    pointer = va_arg(arguments, const void*);
+    va_end(arguments);
+    return (unsigned long long)(unsigned int)promoted +
+        (pointer ? 3ULL : 0ULL) + (unsigned int)increment;
+}
+
+unsigned long long verified_wide_scalar_variadic_scalar_call(
+    unsigned int value, const void* pointer)
+{
+    return verified_wide_scalar_variadic_scalar_target(
+        5, (unsigned char)value, pointer);
 }
 
 long long verified_wide_scalar_expect(long long value)

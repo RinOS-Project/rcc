@@ -50,6 +50,7 @@ typedef enum {
     RCC_MIR_PHI,
     RCC_MIR_SELECT,
     RCC_MIR_ALLOCA,
+    RCC_MIR_FRAME_ADDRESS,
     RCC_MIR_LOAD,
     RCC_MIR_STORE,
     RCC_MIR_GEP,
