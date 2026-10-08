@@ -2305,10 +2305,6 @@ static bool ir_pass_loop_has_hoistable_invariant(
         }
     }
     if (outside_predecessors < 2u) return false;
-    for (RccIrInstruction* instruction = blocks[header]->first;
-         instruction; instruction = instruction->next) {
-        if (instruction->opcode == RCC_IR_PHI) return false;
-    }
     for (size_t block_index = 0u; block_index < block_count; ++block_index) {
         if (!loop[block_index]) continue;
         for (RccIrInstruction* instruction = blocks[block_index]->first;
@@ -2354,6 +2350,8 @@ static bool ir_pass_split_loop_preheader(
     RccIrBlock* preheader;
     RccIrInstruction* branch;
     RccIrBlockId header_id;
+    size_t outside_predecessor_count = 0u;
+    size_t new_preheader_phis = 0u;
     if (created_out) *created_out = false;
     if (!function || !blocks || !predecessors || header >= block_count) {
         return ir_pass_error(error, error_size,
@@ -2365,11 +2363,134 @@ static bool ir_pass_split_loop_preheader(
             header, predecessors, value_count)) {
         return true;
     }
+    for (size_t predecessor = 0u; predecessor < block_count; ++predecessor) {
+        if (predecessors[header * block_count + predecessor] &&
+            !loop[predecessor]) {
+            ++outside_predecessor_count;
+        }
+    }
+    for (RccIrInstruction* phi = blocks[header]->first;
+         phi && phi->opcode == RCC_IR_PHI; phi = phi->next) {
+        size_t external_inputs = 0u;
+        RccIrValue first_external_value = RCC_IR_VALUE_NONE;
+        bool external_values_match = true;
+        for (size_t incoming = 0u; incoming < phi->target_count; ++incoming) {
+            RccIrBlockId predecessor = phi->targets[incoming];
+            if (predecessor >= block_count) {
+                return ir_pass_error(error, error_size,
+                                     "SSA LICM found an invalid header phi edge");
+            }
+            if (!loop[predecessor]) {
+                if (external_inputs == 0u) {
+                    first_external_value = phi->operands[incoming];
+                } else if (phi->operands[incoming] !=
+                           first_external_value) {
+                    external_values_match = false;
+                }
+                ++external_inputs;
+            }
+        }
+        if (external_inputs != outside_predecessor_count) {
+            return ir_pass_error(
+                error, error_size,
+                "SSA LICM header phi does not cover every external entry");
+        }
+        for (size_t predecessor = 0u; predecessor < block_count;
+             ++predecessor) {
+            size_t matching_inputs = 0u;
+            if (!predecessors[header * block_count + predecessor] ||
+                loop[predecessor]) {
+                continue;
+            }
+            for (size_t incoming = 0u; incoming < phi->target_count;
+                 ++incoming) {
+                if (phi->targets[incoming] == predecessor) {
+                    ++matching_inputs;
+                }
+            }
+            if (matching_inputs != 1u) {
+                return ir_pass_error(
+                    error, error_size,
+                    "SSA LICM header phi has a duplicate or missing entry");
+            }
+        }
+        if (!external_values_match) ++new_preheader_phis;
+    }
+    if (outside_predecessor_count > SIZE_MAX / sizeof(RccIrValue) ||
+        outside_predecessor_count > SIZE_MAX / sizeof(RccIrBlockId) ||
+        function->value_count > UINT32_MAX ||
+        new_preheader_phis > UINT32_MAX - function->value_count) {
+        return true;
+    }
     header_id = blocks[header]->id;
     preheader = rcc_ir_block_add(function, "licm.preheader");
     if (!preheader) {
         return ir_pass_error(error, error_size,
                              "SSA LICM could not allocate a loop preheader");
+    }
+    for (RccIrInstruction* phi = blocks[header]->first;
+         phi && phi->opcode == RCC_IR_PHI; phi = phi->next) {
+        RccIrValue* incoming_values;
+        RccIrBlockId* incoming_blocks;
+        RccIrValue merged_value = RCC_IR_VALUE_NONE;
+        size_t incoming_count = 0u;
+        size_t write_index = 0u;
+        bool values_match = true;
+        bool emitted_preheader_input = false;
+        incoming_values = rcc_alloc(
+            outside_predecessor_count * sizeof(*incoming_values));
+        incoming_blocks = rcc_alloc(
+            outside_predecessor_count * sizeof(*incoming_blocks));
+        for (size_t incoming = 0u; incoming < phi->target_count; ++incoming) {
+            RccIrBlockId predecessor = phi->targets[incoming];
+            if (loop[predecessor]) continue;
+            incoming_values[incoming_count] = phi->operands[incoming];
+            incoming_blocks[incoming_count] = predecessor;
+            if (incoming_count == 0u) {
+                merged_value = phi->operands[incoming];
+            } else if (phi->operands[incoming] != merged_value) {
+                values_match = false;
+            }
+            ++incoming_count;
+        }
+        if (incoming_count != outside_predecessor_count) {
+            rcc_free(incoming_blocks);
+            rcc_free(incoming_values);
+            return ir_pass_error(
+                error, error_size,
+                "SSA LICM header phi changed during preheader synthesis");
+        }
+        if (!values_match) {
+            RccIrInstruction* preheader_phi = rcc_ir_append(
+                preheader, RCC_IR_PHI, phi->type, incoming_values,
+                incoming_count, incoming_blocks, incoming_count);
+            if (!preheader_phi) {
+                rcc_free(incoming_blocks);
+                rcc_free(incoming_values);
+                rcc_fatal("SSA LICM failed to merge header phi inputs");
+                return false;
+            }
+            merged_value = preheader_phi->result;
+        }
+        rcc_free(incoming_blocks);
+        rcc_free(incoming_values);
+        for (size_t incoming = 0u; incoming < phi->target_count; ++incoming) {
+            RccIrBlockId predecessor = phi->targets[incoming];
+            if (!loop[predecessor]) {
+                if (!emitted_preheader_input) {
+                    phi->operands[write_index] = merged_value;
+                    phi->targets[write_index] = preheader->id;
+                    ++write_index;
+                    emitted_preheader_input = true;
+                }
+                continue;
+            }
+            phi->operands[write_index] = phi->operands[incoming];
+            phi->targets[write_index] = predecessor;
+            ++write_index;
+        }
+        phi->operand_count = write_index;
+        phi->target_count = write_index;
     }
     branch = rcc_ir_append(preheader, RCC_IR_BRANCH, rcc_ir_type_void(),
                            NULL, 0u, &header_id, 1u);

@@ -766,10 +766,10 @@
   - [x] 一意なpreheaderを持つ自然ループに対して、純粋typed-SSA命令の
         ループ不変性を支配関係とuse-defで検証してpreheaderへ移動する限定LICMを
         O2/O3へ接続し、移動後のverifierとIR回帰を追加
-  - [x] headerにphiがなく外部入口が複数ある自然ループでは、安全にhoist可能な
-        invariantと全入口を支配するoperandがある場合だけLICM preheaderを合成し、
-        incoming edgeを付け替えて再解析する。複数入口・branch edge・hoisted value・
-        verifierをdirect IR回帰で検証
+  - [x] 外部入口が複数ある自然ループで、安全なinvariantと入口を支配するoperandが
+        ある場合にLICM preheaderを合成する。header phiの入口値が異なるときは
+        preheader phiへ集約し、loop backedgeを保持してCFGを再解析する。phiなし／ありの
+        複数入口・branch edge・hoisted value・verifierをdirect IR回帰で検証
   - [x] typed SSAの不変な左シフトは、定数shift幅が結果bit幅未満の場合だけ
         LICMでhoistし、動的または幅外のshift量はloop内に残す回帰を追加
   - [x] 副作用のない単純整数識別子／リテラル引数が関数本体で複数回参照される
