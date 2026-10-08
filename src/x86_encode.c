@@ -121,6 +121,10 @@ static bool x86_add_local_location(
     if (!encoder || !instruction ||
         instruction->selected_opcode != RCC_X86_STACK_ADDRESS ||
         !instruction->source_declaration) return true;
+    if (instruction->auxiliary > encoder->function->stack_alignment) {
+        /* A dynamically aligned local has no fixed BP-relative location. */
+        return true;
+    }
     if (instruction->immediate > encoder->function->stack_adjustment) {
         return x86_encode_error(
             encoder, "x86 source local lies outside the final stack frame");
@@ -1473,21 +1477,43 @@ static bool x86_emit_stack_address(
         : x86_choose_scratch(destination, destination);
     int32_t displacement = 0;
     bool preserve = destination.kind != RCC_X86_VALUE_GPR;
+    bool dynamic_alignment =
+        instruction->auxiliary > encoder->function->stack_alignment;
+    uint32_t alignment = (uint32_t)instruction->auxiliary;
+    int64_t aligned_displacement;
     memset(&slot, 0, sizeof(slot));
     slot.kind = RCC_X86_VALUE_FRAME;
     slot.frame_offset = (uint32_t)instruction->immediate;
     slot.size = encoder->function->pointer_size;
     slot.alignment = encoder->function->pointer_size;
-    if (!x86_value_displacement(encoder, slot, &displacement) ||
+    if (alignment == 0u || alignment > 4096u ||
+        (alignment & (alignment - 1u)) != 0u ||
+        instruction->immediate > INT32_MAX ||
+        !x86_value_displacement(encoder, slot, &displacement)) {
+        return x86_encode_error(
+            encoder, "x86 stack-address alignment is invalid");
+    }
+    aligned_displacement = (int64_t)displacement +
+        (dynamic_alignment ? (int64_t)alignment - 1 : 0);
+    if (aligned_displacement < INT32_MIN ||
+        aligned_displacement > INT32_MAX ||
         (preserve && !x86_emit_push(encoder, result)) ||
         !x86_emit_prefix(
             encoder, encoder->function->pointer_size,
             result, RCC_X86_GPR_BP, false) ||
         !x86_emit_u8(encoder, 0x8du) ||
-        !x86_emit_memory_modrm(encoder, result, displacement) ||
-        (preserve && !x86_emit_store(
-            encoder, destination, result,
-            encoder->function->pointer_size)) ||
+        !x86_emit_memory_modrm(
+            encoder, result, (int32_t)aligned_displacement)) return false;
+    if (dynamic_alignment &&
+        (!x86_emit_rex(
+             encoder, encoder->function->pointer_size == 8u,
+             RCC_X86_GPR_SP, result, false) ||
+         !x86_emit_u8(encoder, 0x81u) ||
+         !x86_emit_u8(encoder, x86_modrm(3u, 4u, result)) ||
+         !x86_emit_u32(encoder, 0u - alignment))) return false;
+    if ((preserve && !x86_emit_store(
+             encoder, destination, result,
+             encoder->function->pointer_size)) ||
         (preserve && !x86_emit_pop(encoder, result))) return false;
     return true;
 }
@@ -2062,6 +2088,58 @@ static bool x86_emit_stack_add(RccX86Encoder* encoder, uint32_t bytes) {
         x86_emit_u32(encoder, bytes);
 }
 
+static bool x86_emit_dynamic_outgoing_stack(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    uint32_t bytes = (uint32_t)instruction->auxiliary;
+    uint32_t alignment = instruction->sysv_stack_alignment;
+    uint32_t reserve;
+    if (alignment <= encoder->function->stack_alignment) return true;
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        alignment > 4096u || bytes == 0u || bytes % 8u != 0u ||
+        bytes > (uint32_t)INT32_MAX - (alignment - 1u)) {
+        return x86_encode_error(
+            encoder, "x86 dynamic SysV outgoing stack layout is invalid");
+    }
+    reserve = bytes + alignment - 1u;
+    if (!x86_emit_stack_subtract(encoder, reserve) ||
+        !x86_emit_rex(
+            encoder, true, RCC_X86_GPR_SP, RCC_X86_GPR_SP, false) ||
+        !x86_emit_u8(encoder, 0x81u) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            3u, 4u, RCC_X86_GPR_SP)) ||
+        !x86_emit_u32(encoder, 0u - alignment)) {
+        return false;
+    }
+    for (uint32_t offset = 0u; offset < bytes; offset += 8u) {
+        RccX86Value source;
+        if (encoder->function->outgoing_stack_offset >
+            UINT32_MAX - offset) {
+            return x86_encode_error(
+                encoder, "x86 staged outgoing argument offset overflows");
+        }
+        memset(&source, 0, sizeof(source));
+        source.kind = RCC_X86_VALUE_OUTGOING_ARGUMENT;
+        source.frame_offset =
+            encoder->function->outgoing_stack_offset + offset;
+        source.size = 8u;
+        source.alignment = 8u;
+        if (!x86_emit_load(encoder, RCC_X86_GPR_R11, source, 8u) ||
+            !x86_emit_indirect_store_displacement(
+                encoder, RCC_X86_GPR_SP, (int32_t)offset,
+                RCC_X86_GPR_R11, 8u)) return false;
+    }
+    return true;
+}
+
+static bool x86_emit_restore_frame_stack(RccX86Encoder* encoder) {
+    return x86_emit_move_register_register(
+               encoder, RCC_X86_GPR_SP, RCC_X86_GPR_BP,
+               encoder->function->pointer_size) &&
+        x86_emit_stack_subtract(
+            encoder, encoder->function->stack_adjustment);
+}
+
 static bool x86_emit_float_extend_register(
     RccX86Encoder* encoder, unsigned destination,
     RccX86Value source) {
@@ -2371,6 +2449,8 @@ static bool x86_emit_instruction(
         case RCC_X86_LEGAL_SHIFT:
             return x86_emit_shift(encoder, instruction);
         case RCC_X86_LEGAL_CALL:
+            if (!x86_emit_dynamic_outgoing_stack(
+                    encoder, instruction)) return false;
             if (instruction->sysv_variadic_call &&
                 (!x86_emit_u8(encoder, 0xb0u) ||
                  !x86_emit_u8(
@@ -2387,6 +2467,9 @@ static bool x86_emit_instruction(
                            RCC_X86_CODE_RELOC_REL32)) {
                 return false;
             }
+            if (instruction->sysv_stack_alignment >
+                    encoder->function->stack_alignment &&
+                !x86_emit_restore_frame_stack(encoder)) return false;
             return x86_emit_stack_subtract(
                 encoder, (uint32_t)instruction->immediate);
         case RCC_X86_LEGAL_RETURN:

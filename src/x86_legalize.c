@@ -637,17 +637,22 @@ static bool x86_legal_call_supported(
 
 static bool x86_legal_call_stack_bytes(
     const RccX86Instruction* instruction, const RccX86Abi* abi,
-    uint32_t* bytes_out) {
+    uint32_t* bytes_out, uint32_t* alignment_out) {
     size_t stack_count;
     size_t integer_index = 0u;
     size_t floating_index = 0u;
-    if (!x86_legal_call_supported(instruction, abi)) return false;
+    if (!alignment_out ||
+        !x86_legal_call_supported(instruction, abi)) return false;
+    *alignment_out = abi->stack_alignment;
     stack_count = 0u;
     for (size_t index = 0u; index < instruction->operand_count;) {
         const RccSysvMemoryArgument* memory_argument =
             x86_memory_argument_for_operand(instruction, index);
         if (memory_argument) {
             if (index == memory_argument->first_operand) {
+                if (memory_argument->alignment > *alignment_out) {
+                    *alignment_out = memory_argument->alignment;
+                }
                 size_t alignment_slots =
                     memory_argument->alignment / abi->pointer_size;
                 size_t remainder;
@@ -706,6 +711,7 @@ static bool x86_legal_prepare_outgoing_frame(
         for (instruction = block->first; instruction;
              instruction = instruction->next) {
             uint32_t bytes;
+            uint32_t stack_alignment;
             if (instruction->opcode == RCC_X86_CALL &&
                 x86_legal_call_supported(instruction, abi)) {
                 if (instruction->has_callee) may_need_temporary = true;
@@ -715,7 +721,10 @@ static bool x86_legal_prepare_outgoing_frame(
                     may_need_temporary = true;
                 }
                 if (!x86_legal_call_stack_bytes(
-                        instruction, abi, &bytes) ||
+                        instruction, abi, &bytes, &stack_alignment) ||
+                    (stack_alignment > abi->stack_alignment &&
+                     bytes > (uint32_t)INT32_MAX -
+                         (stack_alignment - 1u)) ||
                     !x86_legal_align(
                         bytes, abi->stack_alignment, &bytes)) {
                     return x86_legal_error(
@@ -1059,7 +1068,9 @@ static bool x86_legalize_call(
     RccX86LegalInstruction* call;
     RccX86Value callee;
     RccX86Value callee_temporary;
-    if (!x86_legal_call_stack_bytes(source, abi, &stack_bytes) ||
+    uint32_t stack_alignment;
+    if (!x86_legal_call_stack_bytes(
+            source, abi, &stack_bytes, &stack_alignment) ||
         !x86_legal_resolve_instruction(
             source, abi, &destination, &operands,
             error, error_size)) {
@@ -1166,6 +1177,7 @@ static bool x86_legalize_call(
     call->auxiliary = stack_bytes;
     call->sysv_variadic_call = source->sysv_variadic_call;
     call->sysv_vector_argument_count = vector_argument_count;
+    call->sysv_stack_alignment = stack_alignment;
     if (source->has_destination) {
         RccX86Value result = source->type.kind == RCC_MIR_TYPE_FLOAT
             ? x86_legal_fixed_fpr(0u, source->type, abi)
@@ -1299,6 +1311,12 @@ static bool x86_legal_selected_shape(
             return instruction->has_destination &&
                 instruction->operand_count == 0u &&
                 instruction->target_count == 0u &&
+                (instruction->selected_opcode != RCC_X86_STACK_ADDRESS ||
+                 (instruction->immediate <= INT32_MAX &&
+                  instruction->auxiliary != 0u &&
+                  instruction->auxiliary <= 4096u &&
+                  (instruction->auxiliary &
+                   (instruction->auxiliary - 1u)) == 0u)) &&
                 (instruction->selected_opcode != RCC_X86_FRAME_ADDRESS ||
                  instruction->immediate <= INT32_MAX) &&
                 (instruction->selected_opcode != RCC_X86_SYMBOL_ADDRESS ||
@@ -1539,6 +1557,17 @@ static bool x86_legal_verify_call(
         instruction->auxiliary % abi->pointer_size != 0u) {
         return x86_legal_error(error, error_size,
                                "x86 call stack area is invalid");
+    }
+    if (instruction->sysv_stack_alignment < abi->stack_alignment ||
+        instruction->sysv_stack_alignment > 4096u ||
+        (instruction->sysv_stack_alignment &
+         (instruction->sysv_stack_alignment - 1u)) != 0u ||
+        (instruction->sysv_stack_alignment > abi->stack_alignment &&
+         (function->target != RCC_X86_TARGET_X86_64 ||
+          !instruction->sysv_variadic_call ||
+          instruction->auxiliary == 0u))) {
+        return x86_legal_error(error, error_size,
+                               "x86 call stack alignment is invalid");
     }
     if (instruction->type.kind != RCC_MIR_TYPE_VOID) {
         const RccX86LegalInstruction* output = instruction->next;

@@ -13,7 +13,13 @@ struct CxxMemberAlignedSmall {
     alignas(8) int value;
 };
 
-alignas(16) struct CxxClassAligned {
+struct CxxMemberAligned32 {
+    char tag;
+    alignas(32) long long value;
+    char tail;
+};
+
+alignas(32) struct CxxClassAligned {
     int value;
 };
 
@@ -47,11 +53,15 @@ int main() {
                   "small member alignas must raise class alignment");
     static_assert(sizeof(CxxMemberAlignedSmall) == 8,
                   "small member alignas must round class size");
-    static_assert(alignof(CxxClassAligned) == 16,
+    static_assert(alignof(CxxMemberAligned32) == 32,
+                  "over-aligned member must raise class alignment");
+    static_assert(sizeof(CxxMemberAligned32) == 64,
+                  "over-aligned member must round class size");
+    static_assert(alignof(CxxClassAligned) == 32,
                   "class alignas must raise class alignment");
-    static_assert(sizeof(CxxClassAligned) == 16,
+    static_assert(sizeof(CxxClassAligned) == 32,
                   "class alignas must round class size");
-    static_assert(sizeof(CxxClassAlignedHolder) == 32,
+    static_assert(sizeof(CxxClassAlignedHolder) == 64,
                   "containing layout must preserve class alignment padding");
     static_assert(alignof(cxx_alignas_namespace::CxxNamespaceAligned) == 8,
                   "namespace class alignas must be retained");

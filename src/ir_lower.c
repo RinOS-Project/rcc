@@ -316,12 +316,13 @@ static bool lower_sysv_memory_aggregate(
     if (!classification_out || !alignment_out ||
         g_opts.target_arch != ARCH_X64 ||
         !lower_abi_is_aggregate(type) || type->size <= 0 ||
-        type->align <= 0 || type->align > 16 ||
+        type->align <= 0 || type->align > 4096 ||
+        (type->align & (type->align - 1)) != 0 ||
         !lower_sysv_classify_aggregate(type, &classification)) {
         return false;
     }
     alignment = type->align > 8 ? (uint32_t)type->align : 8u;
-    if (alignment != 8u && alignment != 16u) return false;
+    if (alignment > 4096u) return false;
     if (!classification.memory) return false;
     if (classification.count < 1) return false;
     *classification_out = classification;
@@ -458,10 +459,13 @@ static bool lower_add_local(RccIrLowerContext* context,
         lower_find_local(context, declaration)) {
         return false;
     }
-    /* The verified frame planner handles alignments guaranteed by the target
-     * ABI.  Preserve the complete backend for stronger alignments, which need
-     * dynamic stack realignment rather than a fixed frame slot. */
-    if (declaration->type && declaration->type->align > 16) {
+    /* The x86 selector reserves alignment slack and realigns over-aligned
+     * stack objects at their address-producing instruction. */
+    if (declaration->type &&
+        (declaration->type->align > 4096 ||
+         declaration->type->align <= 0 ||
+         (declaration->type->align &
+          (declaration->type->align - 1)) != 0)) {
         context->unsupported = true;
         return false;
     }
@@ -887,7 +891,21 @@ static RccIrLowerValue lower_cast(RccIrLowerContext* context,
     RccIrType target;
     RccIrInstruction* instruction;
     RccIrValue operand;
-    if (!source.valid || !lower_type(target_type, &target)) {
+    if (!source.valid || !target_type) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    /* A cast to void keeps the source expression's side effects but has no
+     * result value to represent in SSA.  Expression lowering evaluates the
+     * source before calling this helper, so return a valid void sentinel. */
+    if (target_type->kind == TYPE_VOID) {
+        source.value = RCC_IR_VALUE_NONE;
+        source.type = rcc_ir_type_void();
+        source.is_unsigned = false;
+        source.volatile_access = false;
+        return source;
+    }
+    if (!lower_type(target_type, &target)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -2377,7 +2395,8 @@ static RccIrLowerValue lower_sysv_va_arg_aggregate(
     overflow_field = lower_byte_offset_address(context, list_slot, 8u);
     overflow_address = lower_sysv_va_pointer_load(context, overflow_field);
     stack_overflow_address = type->align > 8
-        ? lower_sysv_va_align_pointer(context, overflow_address, 16u)
+        ? lower_sysv_va_align_pointer(
+              context, overflow_address, (uint64_t)type->align)
         : overflow_address;
     save_field = lower_byte_offset_address(context, list_slot, 16u);
     save_area = lower_sysv_va_pointer_load(context, save_field);
@@ -11067,7 +11086,9 @@ static RccIrLowerValue lower_compound_literal_address(
         ? expression->compound_type : expression->type;
     if (!type || type->size <= 0 || type->size > 65536 ||
         type->is_reference || type->is_volatile ||
-        type->cleanup_function) {
+        type->cleanup_function || type->align <= 0 ||
+        type->align > 4096 ||
+        (type->align & (type->align - 1)) != 0) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -11076,11 +11097,7 @@ static RccIrLowerValue lower_compound_literal_address(
         NULL, 0u, NULL, 0u);
     if (!allocation) return lower_invalid_value();
     rcc_ir_set_immediate(allocation, (uint64_t)type->size);
-    allocation->alignment = type->align > 0 ? (uint32_t)type->align : 0u;
-    if (type->align > 16) {
-        context->unsupported = true;
-        return lower_invalid_value();
-    }
+    allocation->alignment = (uint32_t)type->align;
     if (type->kind == TYPE_ARRAY) {
         if (!lower_array_initializer(
                 context, allocation->result, type, expression)) {

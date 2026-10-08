@@ -96,16 +96,19 @@ static bool x86_align_frame_for_object(
     uint32_t value, uint32_t alignment,
     const RccMirRegisterPolicy* policy, uint32_t* result) {
     uint32_t mask;
+    uint32_t frame_alignment;
     uint32_t frame_pointer_residue;
     uint32_t padding;
     if (!policy || !result || alignment == 0u ||
         (alignment & (alignment - 1u)) != 0u ||
-        alignment > policy->stack_alignment ||
+        alignment > 4096u ||
         policy->stack_alignment <
             (uint32_t)policy->pointer_size * 2u) {
         return false;
     }
-    mask = alignment - 1u;
+    frame_alignment = alignment > policy->stack_alignment
+        ? policy->stack_alignment : alignment;
+    mask = frame_alignment - 1u;
     /* At function entry, the return address and saved frame pointer have
      * consumed two pointer words from the ABI-aligned caller stack.  Local
      * offsets are EBP/RBP-relative, so account for that base residue instead
@@ -337,6 +340,8 @@ static bool x86_select_instruction(
         uint32_t offset;
         uint32_t alignment = instruction->alignment != 0u
             ? instruction->alignment : policy->pointer_size;
+        uint32_t allocation_size;
+        uint32_t reserved_size;
         if (instruction->sysv_varargs_gpr_save_area &&
             (selected->target != RCC_X86_TARGET_X86_64 ||
              selected->has_sysv_varargs_gpr_save_area ||
@@ -348,10 +353,27 @@ static bool x86_select_instruction(
                 error, error_size,
                 "x86-64 SysV variadic save-area metadata is invalid");
         }
-        if (instruction->immediate > UINT32_MAX ||
-            !x86_align_frame_for_object(
+        if (instruction->immediate > UINT32_MAX) {
+            rcc_free(operands);
+            rcc_free(operand_types);
+            return x86_select_error(error, error_size,
+                                    "x86 alloca frame exceeds 32 bits");
+        }
+        allocation_size = (uint32_t)instruction->immediate;
+        reserved_size = allocation_size;
+        if (alignment > policy->stack_alignment) {
+            if (reserved_size > UINT32_MAX - (alignment - 1u)) {
+                rcc_free(operands);
+                rcc_free(operand_types);
+                return x86_select_error(
+                    error, error_size,
+                    "x86 over-aligned alloca exceeds 32 bits");
+            }
+            reserved_size += alignment - 1u;
+        }
+        if (!x86_align_frame_for_object(
                 selected->frame_size, alignment, policy, &offset) ||
-            offset > UINT32_MAX - (uint32_t)instruction->immediate) {
+            offset > UINT32_MAX - reserved_size) {
             rcc_free(operands);
             rcc_free(operand_types);
             return x86_select_error(error, error_size,
@@ -361,7 +383,7 @@ static bool x86_select_instruction(
             selected->has_sysv_varargs_gpr_save_area = true;
             selected->sysv_varargs_gpr_save_area_offset = offset;
         }
-        selected->frame_size = offset + (uint32_t)instruction->immediate;
+        selected->frame_size = offset + reserved_size;
     }
     for (target = 0u; target < instruction->target_count; ++target) {
         targets[target] = x86_critical_target(
@@ -405,9 +427,14 @@ static bool x86_select_instruction(
                sizeof(*machine->sysv_memory_arguments));
     }
     if (instruction->opcode == RCC_MIR_ALLOCA) {
-        machine->immediate = selected->frame_size -
-            (uint32_t)instruction->immediate;
-        machine->auxiliary = instruction->immediate;
+        uint32_t alignment = instruction->alignment != 0u
+            ? instruction->alignment : policy->pointer_size;
+        uint32_t reserved_size = (uint32_t)instruction->immediate;
+        if (alignment > policy->stack_alignment) {
+            reserved_size += alignment - 1u;
+        }
+        machine->immediate = selected->frame_size - reserved_size;
+        machine->auxiliary = alignment;
     } else if (instruction->opcode == RCC_MIR_GEP) {
         machine->auxiliary = instruction->immediate;
     }

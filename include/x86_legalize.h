@@ -59,6 +59,7 @@ struct RccX86LegalInstruction {
     bool has_callee;
     bool sysv_variadic_call;
     uint8_t sysv_vector_argument_count;
+    uint32_t sysv_stack_alignment;
     RccX86Value callee;
     /* Borrowed AST declaration for a source variable stack allocation. */
     const void* source_declaration;

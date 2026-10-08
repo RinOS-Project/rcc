@@ -2279,10 +2279,10 @@ static int parse_explicit_alignment(void) {
     }
     expect(TOK_RPAREN, "')' after _Alignas");
     if (alignment != 0 &&
-        (alignment < 1 || alignment > 16 ||
+        (alignment < 1 || alignment > 4096 ||
          (alignment & (alignment - 1)) != 0)) {
         rcc_error(loc,
-                  "_Alignas alignment must be a power of two no greater than 16");
+                  "_Alignas alignment must be a power of two no greater than 4096");
         alignment = 0;
     }
     return alignment;
@@ -3014,9 +3014,17 @@ static void parse_aggregate_body(Type* aggregate) {
     parser_reset_bitfield_layout(&bitfield_layout);
     while (!check(TOK_RBRACE) && !at_end()) {
         Type* field_base;
+        int explicit_alignment = 0;
+        SourceLoc alignment_loc = peek()->loc;
         if (match(TOK_PRAGMA_PACK)) {
             parser_apply_pack(previous());
             continue;
+        }
+        while (check(TOK__ALIGNAS)) {
+            int alignment = parse_explicit_alignment();
+            if (alignment > explicit_alignment) {
+                explicit_alignment = alignment;
+            }
         }
         skip_attributes();
         if (take_weak_attribute()) {
@@ -3032,6 +3040,10 @@ static void parse_aggregate_body(Type* aggregate) {
         do {
             const char* field_name = NULL;
             Type* field_type = parse_declarator(field_base, &field_name, NULL);
+            if (explicit_alignment != 0) {
+                field_type = rcc_parser_apply_explicit_alignment(
+                    field_type, explicit_alignment, alignment_loc);
+            }
             if (parser_type_has_array_parameter_spec(field_type)) {
                 rcc_error(previous()->loc,
                           "array parameter qualifiers are only valid in function parameter declarations");

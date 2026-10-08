@@ -1367,9 +1367,9 @@ void cxx_class_apply_explicit_alignment(CxxClass* cls, int alignment,
     if (!cls || !cls->type || alignment <= 0 || alignment <= cls->align) {
         return;
     }
-    if (alignment > 16 || (alignment & (alignment - 1)) != 0) {
+    if (alignment > 4096 || (alignment & (alignment - 1)) != 0) {
         rcc_error(loc,
-                  "C++ class alignment must be a power of two no greater than 16");
+                  "C++ class alignment must be a power of two no greater than 4096");
         return;
     }
     mask = alignment - 1;

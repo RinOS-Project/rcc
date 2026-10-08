@@ -68,8 +68,9 @@ bool rcc_sysv_memory_arguments_valid(
     for (size_t index = 0u; index < argument_count; ++index) {
         const RccSysvMemoryArgument* argument = &arguments[index];
         uint64_t expected_operands;
-        if (argument->size == 0u ||
-            (argument->alignment != 8u && argument->alignment != 16u)) {
+        if (argument->size == 0u || argument->alignment < 8u ||
+            argument->alignment > 4096u ||
+            (argument->alignment & (argument->alignment - 1u)) != 0u) {
             return false;
         }
         expected_operands =
