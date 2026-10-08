@@ -15485,19 +15485,6 @@ static void sema_initializer(Type* type, Expr* initializer) {
                               "aggregate element has no complete type");
                     continue;
                 }
-                if (initializer->compound_paren_init &&
-                    element_type->kind == TYPE_STRUCT &&
-                    item->expr->kind != EXPR_COMPOUND &&
-                    (!item->expr->type ||
-                     !type_is_compatible(element_type,
-                                         item->expr->type))) {
-                    Expr* direct_initializer = expr_initializer_list(
-                        exprlist_new(item->expr), item->expr->loc);
-                    direct_initializer->compound_type = element_type;
-                    direct_initializer->type = element_type;
-                    direct_initializer->compound_paren_init = true;
-                    item->expr = direct_initializer;
-                }
                 if (field && field->type &&
                     field->type->kind == TYPE_ARRAY &&
                     field->type->array_len == -1 &&

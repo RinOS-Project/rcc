@@ -608,7 +608,8 @@ int main() {
     if (global_conversion_reference_derived.prefix != 73 ||
         global_conversion_reference_derived.value != 74 ||
         global_conversion_reference_derived.derived_value != 75) return 73;
-    ConversionReferenceDerived parenthesized_derived_xvalue(76, 77, 78);
+    ConversionReferenceDerived parenthesized_derived_xvalue(
+        ConversionReferencePrefix{76}, ConversionReferenceBase{77}, 78);
     if (parenthesized_derived_xvalue.prefix != 76 ||
         parenthesized_derived_xvalue.value != 77 ||
         parenthesized_derived_xvalue.derived_value != 78) return 74;

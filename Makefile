@@ -4429,6 +4429,10 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++14 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx14-x64.ro tests/cxx_aggregate_bases_pre17_invalid.cpp,$(TEST_OUT)/cxx-aggregate-paren-init/base-cxx14-x64.log)
 	$(call CHECK_COUNT,no safely lowerable constructor accepts the C++ initializer,$(TEST_OUT)/cxx-aggregate-paren-init/base-cxx14-x86.log,1)
 	$(call CHECK_COUNT,no safely lowerable constructor accepts the C++ initializer,$(TEST_OUT)/cxx-aggregate-paren-init/base-cxx14-x64.log,1)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/paren-base-invalid-x86.ro tests/cxx_aggregate_paren_base_invalid.cpp,$(TEST_OUT)/cxx-aggregate-paren-init/paren-base-invalid-x86.log)
+	$(call CHECK_COUNT,incompatible aggregate copy initialization,$(TEST_OUT)/cxx-aggregate-paren-init/paren-base-invalid-x86.log,2)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/paren-base-invalid-x64.ro tests/cxx_aggregate_paren_base_invalid.cpp,$(TEST_OUT)/cxx-aggregate-paren-init/paren-base-invalid-x64.log)
+	$(call CHECK_COUNT,incompatible aggregate copy initialization,$(TEST_OUT)/cxx-aggregate-paren-init/paren-base-invalid-x64.log,2)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -S -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.s tests/cxx_aggregate_bases.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.s
 	objdump -f $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.o > $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x86.arch
