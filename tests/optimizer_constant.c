@@ -988,6 +988,16 @@ int strength_reduce_signed_mod_negative_eight(int value)
     return value % -8;
 }
 
+long long strength_reduce_signed_64_div_negative_eight(long long value)
+{
+    return value / -8LL;
+}
+
+long long strength_reduce_signed_64_mod_negative_eight(long long value)
+{
+    return value % -8LL;
+}
+
 int preserved_signed_div_negative_eight_side_effect(int* value)
 {
     return (*value += 1) / -8;

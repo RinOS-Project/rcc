@@ -125,6 +125,7 @@ static void verify_smaller(const char* unoptimized_path,
     };
     static const uint8_t hardware_div[] = {0xF7u, 0xF1u};
     static const uint8_t signed_div_ecx[] = {0xF7u, 0xF9u};
+    static const uint8_t signed64_div_ecx[] = {0x48u, 0xF7u, 0xF9u};
     assert(unoptimized != NULL && optimized != NULL);
     assert(unoptimized->arch == architecture && optimized->arch == architecture);
     unoptimized_code = code_section(unoptimized);
@@ -671,6 +672,20 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_sequence(
         optimized, "strength_reduce_signed_mod_negative_eight",
         signed_div_ecx, sizeof(signed_div_ecx)));
+    if (architecture == ARCH_X64) {
+        assert(function_contains_sequence(
+            unoptimized, "strength_reduce_signed_64_div_negative_eight",
+            signed64_div_ecx, sizeof(signed64_div_ecx)));
+        assert(function_contains_sequence(
+            optimized, "strength_reduce_signed_64_div_negative_eight",
+            signed64_div_ecx, sizeof(signed64_div_ecx)));
+        assert(function_contains_sequence(
+            unoptimized, "strength_reduce_signed_64_mod_negative_eight",
+            signed64_div_ecx, sizeof(signed64_div_ecx)));
+        assert(function_contains_sequence(
+            optimized, "strength_reduce_signed_64_mod_negative_eight",
+            signed64_div_ecx, sizeof(signed64_div_ecx)));
+    }
     assert(function_contains_sequence(
         optimized, "preserved_signed_div_negative_eight_side_effect",
         signed_div_ecx, sizeof(signed_div_ecx)));
@@ -736,21 +751,33 @@ static void verify_smaller(const char* unoptimized_path,
 static void execute_signed_negative_power_of_two_cases(const char* path) {
     typedef int (__attribute__((sysv_abi)) *SysvIntUnary)(int);
     typedef int (__attribute__((sysv_abi)) *SysvIntUnaryPointer)(int*);
+    typedef long long (__attribute__((sysv_abi)) *SysvInt64Unary)(long long);
     ObjectFile* object = objfile_read(path);
     ObjSection* code;
     ObjSymbol* division_symbol;
     ObjSymbol* remainder_symbol;
     ObjSymbol* side_effect_symbol;
+    ObjSymbol* division64_symbol;
+    ObjSymbol* remainder64_symbol;
     uint8_t* mapping;
     DWORD previous_protection;
     SysvIntUnary division;
     SysvIntUnary remainder;
     SysvIntUnaryPointer side_effect_division;
+    SysvInt64Unary division64;
+    SysvInt64Unary remainder64;
     uintptr_t address;
     uint32_t random_bits = UINT32_C(0x7f4a7c15);
+    uint64_t random_bits64 = UINT64_C(0x7f4a7c159e3779b9);
     static const int32_t edge_inputs[] = {
         INT32_MIN, INT32_MIN + 1, -257, -17, -9, -8, -7, -1,
         0, 1, 7, 8, 9, 17, 257, INT32_MAX
+    };
+    static const int64_t edge_inputs64[] = {
+        INT64_MIN, INT64_MIN + 1, INT64_C(-257), INT64_C(-17),
+        INT64_C(-9), INT64_C(-8), INT64_C(-7), INT64_C(-1), INT64_C(0),
+        INT64_C(1), INT64_C(7), INT64_C(8), INT64_C(9), INT64_C(17),
+        INT64_C(257), INT64_MAX
     };
 
     assert(object != NULL && object->arch == ARCH_X64);
@@ -761,9 +788,14 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
         object, "strength_reduce_signed_mod_negative_eight");
     side_effect_symbol = function_symbol(
         object, "preserved_signed_div_negative_eight_side_effect");
+    division64_symbol = function_symbol(
+        object, "strength_reduce_signed_64_div_negative_eight");
+    remainder64_symbol = function_symbol(
+        object, "strength_reduce_signed_64_mod_negative_eight");
     assert(code != NULL && code->data != NULL && code->size != 0u);
     assert(division_symbol != NULL && remainder_symbol != NULL &&
-           side_effect_symbol != NULL);
+           side_effect_symbol != NULL && division64_symbol != NULL &&
+           remainder64_symbol != NULL);
 
     mapping = VirtualAlloc(NULL, code->size, MEM_RESERVE | MEM_COMMIT,
                            PAGE_READWRITE);
@@ -779,6 +811,10 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
     memcpy(&remainder, &address, sizeof(remainder));
     address = (uintptr_t)mapping + side_effect_symbol->value;
     memcpy(&side_effect_division, &address, sizeof(side_effect_division));
+    address = (uintptr_t)mapping + division64_symbol->value;
+    memcpy(&division64, &address, sizeof(division64));
+    address = (uintptr_t)mapping + remainder64_symbol->value;
+    memcpy(&remainder64, &address, sizeof(remainder64));
 
     for (size_t index = 0u;
          index < sizeof(edge_inputs) / sizeof(edge_inputs[0]); ++index) {
@@ -794,6 +830,20 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
         assert(division(input) == input / -8);
         assert(remainder(input) == input % -8);
     }
+    for (size_t index = 0u;
+         index < sizeof(edge_inputs64) / sizeof(edge_inputs64[0]); ++index) {
+        int64_t input = edge_inputs64[index];
+        assert(division64(input) == input / -8LL);
+        assert(remainder64(input) == input % -8LL);
+    }
+    for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
+        int64_t input;
+        random_bits64 = random_bits64 * UINT64_C(6364136223846793005) +
+            UINT64_C(1442695040888963407);
+        memcpy(&input, &random_bits64, sizeof(input));
+        assert(division64(input) == input / -8LL);
+        assert(remainder64(input) == input % -8LL);
+    }
     {
         int value = -17;
         assert(side_effect_division(&value) == 2);
@@ -802,7 +852,66 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
 
     assert(VirtualFree(mapping, 0u, MEM_RELEASE));
     objfile_free(object);
-    puts("Windows AMD64 SysV signed negative-power execution passed");
+    puts("Windows AMD64 SysV signed 32/64-bit negative-power execution passed");
+}
+#endif
+
+#if !defined(_WIN32) && defined(__x86_64__)
+static void execute_signed_negative_power_of_two_64_cases(const char* path) {
+    ObjectFile* object = objfile_read(path);
+    ObjSection* code;
+    ObjSymbol* division_symbol;
+    ObjSymbol* remainder_symbol;
+    uint8_t* mapping;
+    long long (*division)(long long);
+    long long (*remainder)(long long);
+    uintptr_t address;
+    uint64_t random_bits = UINT64_C(0x7f4a7c159e3779b9);
+    static const int64_t edge_inputs[] = {
+        INT64_MIN, INT64_MIN + 1, INT64_C(-257), INT64_C(-17),
+        INT64_C(-9), INT64_C(-8), INT64_C(-7), INT64_C(-1), INT64_C(0),
+        INT64_C(1), INT64_C(7), INT64_C(8), INT64_C(9), INT64_C(17),
+        INT64_C(257), INT64_MAX
+    };
+
+    assert(object != NULL && object->arch == ARCH_X64);
+    code = code_section(object);
+    division_symbol = function_symbol(
+        object, "strength_reduce_signed_64_div_negative_eight");
+    remainder_symbol = function_symbol(
+        object, "strength_reduce_signed_64_mod_negative_eight");
+    assert(code != NULL && code->data != NULL && code->size != 0u);
+    assert(division_symbol != NULL && remainder_symbol != NULL);
+
+    mapping = mmap(NULL, code->size, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(mapping != MAP_FAILED);
+    memcpy(mapping, code->data, code->size);
+    assert(mprotect(mapping, code->size, PROT_READ | PROT_EXEC) == 0);
+
+    address = (uintptr_t)mapping + division_symbol->value;
+    memcpy(&division, &address, sizeof(division));
+    address = (uintptr_t)mapping + remainder_symbol->value;
+    memcpy(&remainder, &address, sizeof(remainder));
+
+    for (size_t index = 0u;
+         index < sizeof(edge_inputs) / sizeof(edge_inputs[0]); ++index) {
+        int64_t input = edge_inputs[index];
+        assert(division(input) == input / -8LL);
+        assert(remainder(input) == input % -8LL);
+    }
+    for (unsigned iteration = 0u; iteration < 4096u; ++iteration) {
+        int64_t input;
+        random_bits = random_bits * UINT64_C(6364136223846793005) +
+            UINT64_C(1442695040888963407);
+        memcpy(&input, &random_bits, sizeof(input));
+        assert(division(input) == input / -8LL);
+        assert(remainder(input) == input % -8LL);
+    }
+
+    assert(munmap(mapping, code->size) == 0);
+    objfile_free(object);
+    puts("AMD64 signed 64-bit negative-power execution passed");
 }
 #endif
 
@@ -2342,6 +2451,8 @@ int main(int argc, char** argv)
     }
 #elif defined(_WIN32) && defined(__x86_64__)
     execute_signed_negative_power_of_two_cases(argv[4]);
+#elif !defined(_WIN32) && defined(__x86_64__)
+    execute_signed_negative_power_of_two_64_cases(argv[4]);
 #endif
     return 0;
 }

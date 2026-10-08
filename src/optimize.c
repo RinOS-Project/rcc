@@ -411,7 +411,11 @@ static bool simplify_signed_power_of_two(Expr** expression) {
     operand = value->binary_lhs;
     if (expression_has_side_effect(operand)) return false;
     width = integer_width(value->type);
-    if (width <= 1) return false;
+    /* Expanding a 64-bit divide into this target-independent expression tree
+     * currently costs substantially more code than the x64 IDIV sequence.
+     * Keep the original operation until the backend can lower the correction
+     * tree efficiently for wide scalar values. */
+    if (width <= 1 || width > 32) return false;
     if (factor_bits < 2u ||
         factor_bits > (uint64_t)INT64_MAX ||
         (factor_bits & (factor_bits - 1u)) != 0u) return false;
@@ -536,7 +540,10 @@ static bool simplify_signed_power_of_two_remainder(Expr** expression) {
         return false;
     }
     width = integer_width(value->type);
-    if (width <= 1) return false;
+    /* The generic signed-remainder correction tree is not profitable for
+     * 64-bit operands on the current backend.  Leave those to normal lowering
+     * rather than inflating the generated code. */
+    if (width <= 1 || width > 32) return false;
     if (factor_bits < 2u || factor_bits > (uint64_t)INT64_MAX ||
         (factor_bits & (factor_bits - 1u)) != 0u) return false;
     while ((factor_bits >> shift_count) > 1u) ++shift_count;
