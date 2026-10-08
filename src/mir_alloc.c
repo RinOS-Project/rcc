@@ -26,6 +26,39 @@ static bool mir_alloc_error(char* error, size_t error_size,
     return false;
 }
 
+/* Compare nonnegative fractions without a cross-product (which could
+ * overflow size_t) or a floating-point ABI dependency. Continued-fraction
+ * quotients reverse ordering each time the remainder is reciprocated. */
+static int mir_alloc_compare_fractions(size_t left_numerator,
+                                       size_t left_denominator,
+                                       size_t right_numerator,
+                                       size_t right_denominator) {
+    bool reversed = false;
+    for (;;) {
+        size_t left_quotient = left_numerator / left_denominator;
+        size_t right_quotient = right_numerator / right_denominator;
+        size_t left_remainder;
+        size_t right_remainder;
+        if (left_quotient != right_quotient) {
+            int comparison = left_quotient < right_quotient ? -1 : 1;
+            return reversed ? -comparison : comparison;
+        }
+        left_remainder = left_numerator % left_denominator;
+        right_remainder = right_numerator % right_denominator;
+        if (left_remainder == 0u || right_remainder == 0u) {
+            int comparison;
+            if (left_remainder == 0u && right_remainder == 0u) return 0;
+            comparison = left_remainder == 0u ? -1 : 1;
+            return reversed ? -comparison : comparison;
+        }
+        left_numerator = left_denominator;
+        left_denominator = left_remainder;
+        right_numerator = right_denominator;
+        right_denominator = right_remainder;
+        reversed = !reversed;
+    }
+}
+
 void rcc_mir_register_policy_i686(RccMirRegisterPolicy* policy) {
     if (!policy) return;
     memset(policy, 0, sizeof(*policy));
@@ -742,7 +775,6 @@ static bool mir_alloc_graph_color(
     while (stack_count < function->register_count) {
         size_t selected = SIZE_MAX;
         size_t selected_degree = SIZE_MAX;
-        long double lowest_spill_priority = 0.0L;
 
         for (reg = 0u; reg < function->register_count; ++reg) {
             size_t palette_size;
@@ -759,18 +791,18 @@ static bool mir_alloc_graph_color(
 
         if (selected == SIZE_MAX) {
             for (reg = 0u; reg < function->register_count; ++reg) {
-                long double priority;
+                int priority_order;
                 if (removed[reg]) continue;
-                priority = (long double)spill_costs[reg] /
-                    (long double)(degrees[reg] + 1u);
-                if (selected == SIZE_MAX ||
-                    priority < lowest_spill_priority ||
-                    (priority == lowest_spill_priority &&
+                priority_order = selected == SIZE_MAX ? -1 :
+                    mir_alloc_compare_fractions(
+                        spill_costs[reg], degrees[reg] + 1u,
+                        spill_costs[selected], degrees[selected] + 1u);
+                if (priority_order < 0 ||
+                    (priority_order == 0 &&
                      (degrees[reg] > selected_degree ||
                       (degrees[reg] == selected_degree && reg < selected)))) {
                     selected = reg;
                     selected_degree = degrees[reg];
-                    lowest_spill_priority = priority;
                 }
             }
         }

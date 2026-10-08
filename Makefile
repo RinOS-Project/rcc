@@ -12074,10 +12074,14 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 		tests/optimizer_loop_cpp.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O1 -c \
 		-o $(TEST_OUT)/optimize/cxx-cleanup-x86.ro \
-		tests/cxx_inline_aggregate.cpp
+		tests/cxx_inline_aggregate.cpp \
+		>$(TEST_OUT)/optimize/cxx-cleanup-x86.log 2>&1
+	$(call CHECK_COUNT,incompatible return type,$(TEST_OUT)/optimize/cxx-cleanup-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O1 -c \
 		-o $(TEST_OUT)/optimize/cxx-cleanup-x64.ro \
-		tests/cxx_inline_aggregate.cpp
+		tests/cxx_inline_aggregate.cpp \
+		>$(TEST_OUT)/optimize/cxx-cleanup-x64.log 2>&1
+	$(call CHECK_COUNT,incompatible return type,$(TEST_OUT)/optimize/cxx-cleanup-x64.log,0)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -driver \
 		--emit-unsigned-v3 -o $(TEST_OUT)/optimize/forbidden.drv \
 		tests/driver_policy_float.c,$(TEST_OUT)/optimize/forbidden.log)

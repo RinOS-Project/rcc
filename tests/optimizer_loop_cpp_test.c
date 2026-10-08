@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 #if defined(_WIN32)
@@ -89,6 +90,34 @@ static uint64_t function_extent(ObjectFile* object, const char* name)
     return end - function->value;
 }
 
+static size_t function_local_label_count(ObjectFile* object,
+                                        const char* name)
+{
+    ObjSection* code = code_section(object);
+    ObjSymbol* function = objfile_find_symbol(object, name);
+    uint64_t end;
+    size_t count = 0u;
+    assert(code != NULL && function != NULL);
+    end = function->value + function_extent(object, name);
+    for (ObjSymbol* symbol = object->symbols; symbol; symbol = symbol->next) {
+        if (symbol->binding == BIND_CODE &&
+            symbol->section == function->section &&
+            symbol->value > function->value && symbol->value < end &&
+            strstr(symbol->name, "__rcc_label_") != NULL) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+static bool is_bounded_loop_function(const char* name)
+{
+    return strncmp(name, "cxx_loop_", 9u) == 0 ||
+        strcmp(name, "cxx_while_constant_sizeof") == 0 ||
+        strcmp(name, "cxx_for_constant_alignof") == 0 ||
+        strcmp(name, "cxx_for_constant_sizeof_bound") == 0;
+}
+
 static void verify_pair(const char* unoptimized_path,
                         const char* optimized_path, uint16_t architecture)
 {
@@ -112,13 +141,43 @@ static void verify_pair(const char* unoptimized_path,
     assert(unoptimized != NULL && optimized != NULL);
     assert(unoptimized->arch == architecture && optimized->arch == architecture);
     for (size_t index = 0u; index < sizeof(names) / sizeof(names[0]); ++index) {
+        uint64_t unoptimized_extent;
+        uint64_t optimized_extent;
+        size_t unoptimized_labels;
+        size_t optimized_labels;
         assert(function_extent(optimized, names[index]) > 0u);
+        unoptimized_extent = function_extent(unoptimized, names[index]);
+        optimized_extent = function_extent(optimized, names[index]);
+        unoptimized_labels = function_local_label_count(
+            unoptimized, names[index]);
+        optimized_labels = function_local_label_count(
+            optimized, names[index]);
         if (strcmp(names[index], "cxx_loop_for_nine") == 0) {
-            assert(function_extent(optimized, names[index]) ==
-                   function_extent(unoptimized, names[index]));
+            if (optimized_labels != unoptimized_labels) {
+                fprintf(stderr,
+                        "%s changed loop labels: O0=%lu O1=%lu\n",
+                        names[index], (unsigned long)unoptimized_labels,
+                        (unsigned long)optimized_labels);
+                assert(optimized_labels == unoptimized_labels);
+            }
+        } else if (is_bounded_loop_function(names[index])) {
+            if (optimized_labels >= unoptimized_labels) {
+                fprintf(stderr,
+                        "%s retained loop labels: O0=%llu bytes/%lu labels, "
+                        "O1=%llu bytes/%lu labels\n",
+                        names[index], (unsigned long long)unoptimized_extent,
+                        (unsigned long)unoptimized_labels,
+                        (unsigned long long)optimized_extent,
+                        (unsigned long)optimized_labels);
+                assert(optimized_labels < unoptimized_labels);
+            }
         } else {
-            assert(function_extent(optimized, names[index]) !=
-                   function_extent(unoptimized, names[index]));
+            if (optimized_extent == unoptimized_extent) {
+                fprintf(stderr,
+                        "%s did not optimize: O0=O1=%llu\n", names[index],
+                        (unsigned long long)optimized_extent);
+                assert(optimized_extent != unoptimized_extent);
+            }
         }
     }
 

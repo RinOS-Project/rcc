@@ -923,7 +923,9 @@
   - [x] RCC単体checkoutから実行できる決定的parser/compiler fuzz gateで、
         C17/C++20の有効変異を両archで再現コンパイルし、無効変異のsignal／
         timeout／空診断／誤った成果物を拒否する
-- [x] host stage0 -> rcc stage1 -> rcc stage2再現build
+- [x] host stage0 -> RCC stage1 -> RCC stage2再現build。i686/x86_64の全compiler
+      sourceをstage1で二重生成して一致比較し、両arch stage1 imageのlink／実行、
+      stage2 objectとimageの完全一致まで確認
   - [x] stage0による閉じたfrontend/sema/backend subset `.ro`の両arch再現生成
   - [x] build manifest、host process shim、rcc/rcc++/rld/rar entry pointまでの再現object生成
   - [x] `rincrt.rll` typed import付きrcc stage1 RIN v3 imageの両arch再現link

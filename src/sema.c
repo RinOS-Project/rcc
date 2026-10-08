@@ -79,6 +79,11 @@ static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
         case EXPR_MEMBER:
         case EXPR_CXX_MEMBER_PTR_DOT:
             return !expression->cxx_member_xvalue;
+        case EXPR_CALL:
+            return expression->call_method &&
+                expression->call_method->return_type &&
+                expression->call_method->return_type->is_reference &&
+                !expression->call_method->return_type->is_rvalue_reference;
         case EXPR_COMMA:
             return sema_decltype_auto_expression_is_lvalue(
                 expression->binary_rhs);
@@ -95,7 +100,11 @@ static bool sema_decltype_auto_expression_is_xvalue(Expr* expression) {
         return sema_decltype_auto_expression_is_xvalue(
             expression->binary_rhs);
     }
-    return (expression->kind == EXPR_COND &&
+    return (expression->kind == EXPR_CALL && expression->call_method &&
+            expression->call_method->return_type &&
+            expression->call_method->return_type->is_reference &&
+            expression->call_method->return_type->is_rvalue_reference) ||
+           (expression->kind == EXPR_COND &&
             expression->cxx_conditional_xvalue) ||
            (expression->kind == EXPR_MEMBER &&
             expression->cxx_member_xvalue) ||
@@ -1312,6 +1321,10 @@ static bool is_lvalue(Expr* e) {
         case EXPR_COMMA:
             return rcc_parser_is_cxx_mode() && is_lvalue(e->binary_rhs);
         case EXPR_CALL:
+            if (e->call_method && e->call_method->return_type &&
+                e->call_method->return_type->is_reference) {
+                return !e->call_method->return_type->is_rvalue_reference;
+            }
             return e->type && e->type->is_reference &&
                    !e->type->is_rvalue_reference;
         default:
@@ -1333,6 +1346,11 @@ static bool is_xvalue(Expr* expression) {
     }
     if (expression->kind == EXPR_CXX_MEMBER_PTR_DOT) {
         return expression->cxx_member_xvalue;
+    }
+    if (expression->kind == EXPR_CALL && expression->call_method &&
+        expression->call_method->return_type &&
+        expression->call_method->return_type->is_reference) {
+        return expression->call_method->return_type->is_rvalue_reference;
     }
     return expression->type && expression->type->is_reference &&
            expression->type->is_rvalue_reference &&
@@ -11903,11 +11921,13 @@ static Type* sema_expr(Expr* expr) {
                         sema_prepare_cxx_close_call(expr, method,
                                                     member->member_base);
                     }
-                    /* Reference-returning accessors denote the referenced
-                     * object, just like an ordinary reference-returning
-                     * function call.  Keep that type metadata so lvalue
-                     * checks and address-of preserve the source semantics. */
-                    expr->type = method->return_type;
+                    /* Reference results have the referred-to object type in
+                     * value contexts.  The accessor metadata retains the
+                     * glvalue category for address-of and decltype(auto). */
+                    expr->type = method->return_type &&
+                        method->return_type->is_reference
+                        ? method->return_type->base
+                        : method->return_type;
                     break;
                 }
                 for (argument = expr->call_args; argument;
