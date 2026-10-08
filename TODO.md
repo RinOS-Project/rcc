@@ -85,6 +85,10 @@
       float/doubleのstatic/TLS IEEE scalar初期化
 - [x] x86-64 runtimeのfloat/double算術・比較・cast・代入と、
       register-only SysV XMM scalar引数/戻り値lowering
+  - [x] typed-SSA scalar castでsigned/unsigned integerとf32/f64の変換、
+        f64→f32 narrowingを実装。uint64→floatの丸めと、範囲内float→uint64を
+        境界値および決定的512ケースのhost differentialで照合し、C/C++の
+        x64通常/O2生成・実行でfallbackなしを検証
 - [x] i686 runtimeのfloat/double x87算術・比較・cast・代入・前後置更新と、
       cdecl stack引数/スカラー戻り値lowering
 - [x] nested include、macro、条件付きpreprocess、`-MMD/-MF`

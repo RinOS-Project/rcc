@@ -2435,6 +2435,22 @@ static void verify_float_binary_object(const char* path)
     double (RINOS_ABI *compound_f64)(double, double);
     float (RINOS_ABI *incdec_f32)(float);
     double (RINOS_ABI *incdec_f64)(double);
+    float (RINOS_ABI *from_i32)(int);
+    double (RINOS_ABI *from_i64)(long long);
+    float (RINOS_ABI *from_u32)(unsigned int);
+    int (RINOS_ABI *to_i32)(float);
+    long long (RINOS_ABI *to_i64)(double);
+    unsigned int (RINOS_ABI *to_u32_f32)(float);
+    unsigned int (RINOS_ABI *to_u32_f64)(double);
+    float (RINOS_ABI *mixed_add_f32)(float, int);
+    double (RINOS_ABI *mixed_add_f64)(double, unsigned int);
+    int (RINOS_ABI *mixed_compare_i32)(double, int);
+    int (RINOS_ABI *mixed_compare_u32)(float, unsigned int);
+    float (RINOS_ABI *narrow_f64)(double);
+    float (RINOS_ABI *from_u64_f32)(unsigned long long);
+    double (RINOS_ABI *from_u64_f64)(unsigned long long);
+    unsigned long long (RINOS_ABI *to_u64_f32)(float);
+    unsigned long long (RINOS_ABI *to_u64_f64)(double);
     float (RINOS_ABI *pressure)(
         float, float, float, float, float, float, float, float,
         float, float, float, float, float, float, float, float,
@@ -2474,6 +2490,22 @@ static void verify_float_binary_object(const char* path)
     LOAD_FLOAT_FUNCTION("verified_fp_compound_f64", compound_f64);
     LOAD_FLOAT_FUNCTION("verified_fp_incdec_f32", incdec_f32);
     LOAD_FLOAT_FUNCTION("verified_fp_incdec_f64", incdec_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_from_i32", from_i32);
+    LOAD_FLOAT_FUNCTION("verified_fp_from_i64", from_i64);
+    LOAD_FLOAT_FUNCTION("verified_fp_from_u32", from_u32);
+    LOAD_FLOAT_FUNCTION("verified_fp_to_i32", to_i32);
+    LOAD_FLOAT_FUNCTION("verified_fp_to_i64", to_i64);
+    LOAD_FLOAT_FUNCTION("verified_fp_to_u32_f32", to_u32_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_to_u32_f64", to_u32_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_mixed_add_f32", mixed_add_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_mixed_add_f64", mixed_add_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_mixed_compare_i32", mixed_compare_i32);
+    LOAD_FLOAT_FUNCTION("verified_fp_mixed_compare_u32", mixed_compare_u32);
+    LOAD_FLOAT_FUNCTION("verified_fp_narrow_f64", narrow_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_from_u64_f32", from_u64_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_from_u64_f64", from_u64_f64);
+    LOAD_FLOAT_FUNCTION("verified_fp_to_u64_f32", to_u64_f32);
+    LOAD_FLOAT_FUNCTION("verified_fp_to_u64_f64", to_u64_f64);
     LOAD_FLOAT_FUNCTION("verified_fp_pressure", pressure);
 #undef LOAD_FLOAT_FUNCTION
     memcpy(&nan_f32, &nan_f32_bits, sizeof(nan_f32));
@@ -2509,6 +2541,115 @@ static void verify_float_binary_object(const char* path)
     assert(compound_f64(8.0, 2.0) == 118.0);
     assert(incdec_f32(3.0f) == 3553.0f);
     assert(incdec_f64(3.0) == 3553.0);
+    assert(from_i32(16777217) == 16777216.0f);
+    assert(from_i32(-16777217) == -16777216.0f);
+    assert(from_i64(9007199254740993LL) == 9007199254740992.0);
+    assert(from_u32(UINT32_MAX) == 4294967296.0f);
+    assert(to_i32(-123.9f) == -123);
+    assert(to_i64(-9007199254740991.0) == -9007199254740991LL);
+    assert(to_u32_f32(4294967040.0f) == UINT32_C(4294967040));
+    assert(to_u32_f64(4294967295.0) == UINT32_MAX);
+    assert(mixed_add_f32(0.5f, 3) == 3.5f);
+    assert(mixed_add_f64(0.5, UINT32_MAX) == 4294967295.5);
+    assert(mixed_compare_i32(0.5, 1) == 1);
+    assert(mixed_compare_i32(2.5, 1) == 0);
+    assert(mixed_compare_u32(1.0f, 1u) == 0);
+    assert(mixed_compare_u32(0.5f, 1u) == 1);
+    assert(narrow_f64(1.1) == 1.1f);
+    assert(from_u64_f32(UINT64_MAX) == 18446744073709551616.0f);
+    assert(from_u64_f64(UINT64_MAX) == 18446744073709551616.0);
+    assert(from_u64_f64(UINT64_C(0x8000000000000401)) ==
+           9223372036854777856.0);
+    assert(to_u64_f32(-0.0f) == 0u);
+    assert(to_u64_f32(123.75f) == 123u);
+    assert(to_u64_f32(18446742974197923840.0f) ==
+           UINT64_C(0xffffff0000000000));
+    assert(to_u64_f64(123.75) == 123u);
+    assert(to_u64_f64(9223372036854774784.0) ==
+           UINT64_C(0x7ffffffffffffc00));
+    assert(to_u64_f64(9223372036854775808.0) ==
+           UINT64_C(0x8000000000000000));
+    assert(to_u64_f64(18446744073709549568.0) ==
+           UINT64_C(0xfffffffffffff800));
+    {
+        static const uint64_t conversion_edges[] = {
+            UINT64_C(0), UINT64_C(1), UINT64_C(2), UINT64_C(3),
+            UINT64_C(0x0000000000ffffff), UINT64_C(0x0000000001000000),
+            UINT64_C(0x0000000001000001), UINT64_C(0x001fffffffffffff),
+            UINT64_C(0x0020000000000000), UINT64_C(0x0020000000000001),
+            UINT64_C(0x7fffffffffffffff), UINT64_C(0x8000000000000000),
+            UINT64_C(0x8000000000000001), UINT64_C(0xfffffffffffff800),
+            UINT64_MAX
+        };
+        uint64_t random_state = UINT64_C(0x9e3779b97f4a7c15);
+        for (size_t index = 0u;
+             index < sizeof(conversion_edges) / sizeof(conversion_edges[0]);
+             ++index) {
+            float expected_f32 = (float)conversion_edges[index];
+            float actual_f32 = from_u64_f32(conversion_edges[index]);
+            double expected_f64 = (double)conversion_edges[index];
+            double actual_f64 = from_u64_f64(conversion_edges[index]);
+            uint32_t expected_f32_bits;
+            uint32_t actual_f32_bits;
+            uint64_t expected_f64_bits;
+            uint64_t actual_f64_bits;
+            memcpy(&expected_f32_bits, &expected_f32,
+                   sizeof(expected_f32_bits));
+            memcpy(&actual_f32_bits, &actual_f32,
+                   sizeof(actual_f32_bits));
+            memcpy(&expected_f64_bits, &expected_f64,
+                   sizeof(expected_f64_bits));
+            memcpy(&actual_f64_bits, &actual_f64,
+                   sizeof(actual_f64_bits));
+            assert(actual_f32_bits == expected_f32_bits);
+            assert(actual_f64_bits == expected_f64_bits);
+        }
+        for (size_t index = 0u; index < 512u; ++index) {
+            float input_f32;
+            double input_f64;
+            uint32_t input_f32_bits;
+            uint64_t input_f64_bits;
+            float expected_f32;
+            float actual_f32;
+            double expected_f64;
+            double actual_f64;
+            uint32_t expected_f32_bits;
+            uint32_t actual_f32_bits;
+            uint64_t expected_f64_bits;
+            uint64_t actual_f64_bits;
+            random_state ^= random_state >> 12u;
+            random_state ^= random_state << 25u;
+            random_state ^= random_state >> 27u;
+            expected_f32 = (float)random_state;
+            actual_f32 = from_u64_f32(random_state);
+            expected_f64 = (double)random_state;
+            actual_f64 = from_u64_f64(random_state);
+            memcpy(&expected_f32_bits, &expected_f32,
+                   sizeof(expected_f32_bits));
+            memcpy(&actual_f32_bits, &actual_f32,
+                   sizeof(actual_f32_bits));
+            memcpy(&expected_f64_bits, &expected_f64,
+                   sizeof(expected_f64_bits));
+            memcpy(&actual_f64_bits, &actual_f64,
+                   sizeof(actual_f64_bits));
+            assert(actual_f32_bits == expected_f32_bits);
+            assert(actual_f64_bits == expected_f64_bits);
+            random_state ^= random_state >> 12u;
+            random_state ^= random_state << 25u;
+            random_state ^= random_state >> 27u;
+            input_f32_bits = (uint32_t)(random_state %
+                                         UINT32_C(0x5f800000));
+            memcpy(&input_f32, &input_f32_bits, sizeof(input_f32));
+            assert(to_u64_f32(input_f32) == (uint64_t)input_f32);
+            random_state ^= random_state >> 12u;
+            random_state ^= random_state << 25u;
+            random_state ^= random_state >> 27u;
+            input_f64_bits = random_state %
+                UINT64_C(0x43f0000000000000);
+            memcpy(&input_f64, &input_f64_bits, sizeof(input_f64));
+            assert(to_u64_f64(input_f64) == (uint64_t)input_f64);
+        }
+    }
     assert(pressure(
         1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f,
         9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f, 15.0f, 16.0f,

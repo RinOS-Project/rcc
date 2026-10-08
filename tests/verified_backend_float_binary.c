@@ -110,6 +110,70 @@ double verified_fp_incdec_f64(double value) {
         post_decrement * 10.0 + pre_decrement;
 }
 
+float verified_fp_from_i32(int value) {
+    return (float)value;
+}
+
+double verified_fp_from_i64(long long value) {
+    return (double)value;
+}
+
+float verified_fp_from_u32(unsigned int value) {
+    return (float)value;
+}
+
+int verified_fp_to_i32(float value) {
+    return (int)value;
+}
+
+long long verified_fp_to_i64(double value) {
+    return (long long)value;
+}
+
+unsigned int verified_fp_to_u32_f32(float value) {
+    return (unsigned int)value;
+}
+
+unsigned int verified_fp_to_u32_f64(double value) {
+    return (unsigned int)value;
+}
+
+float verified_fp_mixed_add_f32(float left, int right) {
+    return left + right;
+}
+
+double verified_fp_mixed_add_f64(double left, unsigned int right) {
+    return left + right;
+}
+
+int verified_fp_mixed_compare_i32(double left, int right) {
+    return left < right;
+}
+
+int verified_fp_mixed_compare_u32(float left, unsigned int right) {
+    return left != right;
+}
+
+float verified_fp_narrow_f64(double value) {
+    return (float)value;
+}
+
+float verified_fp_from_u64_f32(unsigned long long value) {
+    return (float)value;
+}
+
+double verified_fp_from_u64_f64(unsigned long long value) {
+    return (double)value;
+}
+
+unsigned long long verified_fp_to_u64_f32(float value) {
+    return (unsigned long long)value;
+}
+
+unsigned long long verified_fp_to_u64_f64(double value) {
+    return (unsigned long long)value;
+}
+
 float verified_fp_pressure(
     float a1, float a2, float a3, float a4,
     float a5, float a6, float a7, float a8,

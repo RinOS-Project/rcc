@@ -1737,6 +1737,11 @@ static bool x86_emit_select(
     uint32_t branch_offset;
     if (instruction->type.kind == RCC_MIR_TYPE_POINTER) {
         size = encoder->function->pointer_size;
+    } else if (instruction->type.kind == RCC_MIR_TYPE_FLOAT &&
+               encoder->function->target == RCC_X86_TARGET_X86_64 &&
+               (instruction->type.bit_width == 32u ||
+                instruction->type.bit_width == 64u)) {
+        size = (uint16_t)(instruction->type.bit_width / 8u);
     } else if (instruction->type.kind == RCC_MIR_TYPE_INTEGER) {
         switch (instruction->type.bit_width) {
             case 1u: case 8u: size = 1u; break;
@@ -2125,6 +2130,175 @@ static bool x86_emit_float_extend(
         x86_emit_stack_add(encoder, 16u);
 }
 
+static bool x86_emit_float_truncate(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value destination = instruction->destination;
+    RccX86Value source = instruction->operands[0];
+    bool destination_register = destination.kind == RCC_X86_VALUE_FPR;
+    bool source_register = source.kind == RCC_X86_VALUE_FPR;
+    unsigned destination_xmm = destination_register ? destination.fpr : 15u;
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
+        instruction->type.bit_width != 32u ||
+        instruction->operand_types[0].kind != RCC_MIR_TYPE_FLOAT ||
+        instruction->operand_types[0].bit_width != 64u ||
+        (source.kind != RCC_X86_VALUE_FPR &&
+         source.kind != RCC_X86_VALUE_FRAME &&
+         source.kind != RCC_X86_VALUE_OUTGOING_ARGUMENT &&
+         source.kind != RCC_X86_VALUE_INCOMING_ARGUMENT) ||
+        (!destination_register &&
+         destination.kind != RCC_X86_VALUE_FRAME &&
+         destination.kind != RCC_X86_VALUE_OUTGOING_ARGUMENT &&
+         destination.kind != RCC_X86_VALUE_INCOMING_ARGUMENT)) {
+        return x86_encode_error(
+            encoder, "x86 float64-to-float32 conversion operands are invalid");
+    }
+    if (source_register) {
+        if (!x86_emit_u8(encoder, 0xf2u) ||
+            !x86_emit_rex(
+                encoder, false,
+                (RccX86HardwareGpr)destination_xmm,
+                (RccX86HardwareGpr)source.fpr, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0x5au) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                3u, destination_xmm, source.fpr))) return false;
+    } else {
+        int32_t displacement;
+        if (!x86_value_displacement(encoder, source, &displacement) ||
+            !x86_emit_u8(encoder, 0xf2u) ||
+            !x86_emit_rex(
+                encoder, false,
+                (RccX86HardwareGpr)destination_xmm,
+                RCC_X86_GPR_BP, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0x5au) ||
+            !x86_emit_memory_modrm(
+                encoder, destination_xmm, displacement)) return false;
+    }
+    return destination_register || x86_emit_scalar_xmm_memory(
+        encoder, destination_xmm, destination, 4u, false);
+}
+
+static bool x86_emit_integer_to_float(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value destination = instruction->destination;
+    RccX86Value source = instruction->operands[0];
+    uint16_t destination_size =
+        (uint16_t)(instruction->type.bit_width / 8u);
+    uint16_t source_size =
+        (uint16_t)(instruction->operand_types[0].bit_width / 8u);
+    unsigned xmm_register;
+    bool destination_register = destination.kind == RCC_X86_VALUE_FPR;
+
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
+        (destination_size != 4u && destination_size != 8u) ||
+        instruction->operand_types[0].kind != RCC_MIR_TYPE_INTEGER ||
+        (source_size != 4u && source_size != 8u) ||
+        (source.kind != RCC_X86_VALUE_GPR &&
+         source.kind != RCC_X86_VALUE_FRAME &&
+         source.kind != RCC_X86_VALUE_OUTGOING_ARGUMENT &&
+         source.kind != RCC_X86_VALUE_INCOMING_ARGUMENT) ||
+        (!destination_register &&
+         destination.kind != RCC_X86_VALUE_FRAME &&
+         destination.kind != RCC_X86_VALUE_OUTGOING_ARGUMENT &&
+         destination.kind != RCC_X86_VALUE_INCOMING_ARGUMENT)) {
+        return x86_encode_error(
+            encoder, "x86 signed-integer-to-float operands are invalid");
+    }
+
+    /* XMM15 is reserved by the allocator for spilled floating results. */
+    xmm_register = destination_register ? destination.fpr : 15u;
+    if (source.kind == RCC_X86_VALUE_GPR) {
+        if (!x86_emit_u8(encoder, destination_size == 4u ? 0xf3u : 0xf2u) ||
+            !x86_emit_rex(
+                encoder, source_size == 8u,
+                (RccX86HardwareGpr)xmm_register, source.gpr, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0x2au) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                3u, xmm_register, (unsigned)source.gpr))) return false;
+    } else {
+        int32_t displacement;
+        if (!x86_value_displacement(encoder, source, &displacement) ||
+            !x86_emit_u8(encoder, destination_size == 4u ? 0xf3u : 0xf2u) ||
+            !x86_emit_rex(
+                encoder, source_size == 8u,
+                (RccX86HardwareGpr)xmm_register, RCC_X86_GPR_BP, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0x2au) ||
+            !x86_emit_memory_modrm(
+                encoder, xmm_register, displacement)) return false;
+    }
+    return destination_register || x86_emit_scalar_xmm_memory(
+        encoder, xmm_register, destination, destination_size, false);
+}
+
+static bool x86_emit_float_to_integer(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    RccX86Value destination = instruction->destination;
+    RccX86Value source = instruction->operands[0];
+    uint16_t destination_size =
+        (uint16_t)(instruction->type.bit_width / 8u);
+    uint16_t source_size =
+        (uint16_t)(instruction->operand_types[0].bit_width / 8u);
+    RccX86HardwareGpr result_register;
+    bool destination_register = destination.kind == RCC_X86_VALUE_GPR;
+
+    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
+        instruction->type.kind != RCC_MIR_TYPE_INTEGER ||
+        (destination_size != 4u && destination_size != 8u) ||
+        instruction->operand_types[0].kind != RCC_MIR_TYPE_FLOAT ||
+        (source_size != 4u && source_size != 8u) ||
+        (source.kind != RCC_X86_VALUE_FPR &&
+         source.kind != RCC_X86_VALUE_FRAME &&
+         source.kind != RCC_X86_VALUE_OUTGOING_ARGUMENT &&
+         source.kind != RCC_X86_VALUE_INCOMING_ARGUMENT) ||
+        (!destination_register &&
+         destination.kind != RCC_X86_VALUE_FRAME &&
+         destination.kind != RCC_X86_VALUE_OUTGOING_ARGUMENT &&
+         destination.kind != RCC_X86_VALUE_INCOMING_ARGUMENT)) {
+        return x86_encode_error(
+            encoder, "x86 float-to-signed-integer operands are invalid");
+    }
+
+    result_register = destination_register
+        ? destination.gpr : x86_choose_scratch(destination, source);
+    if (!destination_register && !x86_emit_push(encoder, result_register)) {
+        return false;
+    }
+    if (source.kind == RCC_X86_VALUE_FPR) {
+        if (!x86_emit_u8(encoder, source_size == 4u ? 0xf3u : 0xf2u) ||
+            !x86_emit_rex(
+                encoder, destination_size == 8u, result_register,
+                (RccX86HardwareGpr)source.fpr, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0x2cu) ||
+            !x86_emit_u8(encoder, x86_modrm(
+                3u, (unsigned)result_register, source.fpr))) return false;
+    } else {
+        int32_t displacement;
+        if (!x86_value_displacement(encoder, source, &displacement) ||
+            !x86_emit_u8(encoder, source_size == 4u ? 0xf3u : 0xf2u) ||
+            !x86_emit_rex(
+                encoder, destination_size == 8u, result_register,
+                RCC_X86_GPR_BP, false) ||
+            !x86_emit_u8(encoder, 0x0fu) ||
+            !x86_emit_u8(encoder, 0x2cu) ||
+            !x86_emit_memory_modrm(
+                encoder, (unsigned)result_register, displacement)) return false;
+    }
+    if (!destination_register &&
+        (!x86_emit_store(
+             encoder, destination, result_register, destination_size) ||
+         !x86_emit_pop(encoder, result_register))) return false;
+    return true;
+}
+
 static bool x86_emit_epilogue(RccX86Encoder* encoder,
                               uint16_t stack_pop) {
     const RccX86LegalFunction* function = encoder->function;
@@ -2244,6 +2418,12 @@ static bool x86_emit_instruction(
             return x86_emit_conversion(encoder, instruction);
         case RCC_X86_FLOAT_EXTEND:
             return x86_emit_float_extend(encoder, instruction);
+        case RCC_X86_FLOAT_TRUNCATE:
+            return x86_emit_float_truncate(encoder, instruction);
+        case RCC_X86_SITOFP:
+            return x86_emit_integer_to_float(encoder, instruction);
+        case RCC_X86_FPTOSI:
+            return x86_emit_float_to_integer(encoder, instruction);
         case RCC_X86_STACK_ADDRESS:
             return x86_emit_stack_address(encoder, instruction);
         case RCC_X86_FRAME_ADDRESS:

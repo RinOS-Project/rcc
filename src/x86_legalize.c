@@ -1316,6 +1316,8 @@ static bool x86_legal_selected_shape(
                 instruction->target_count == 0u;
         case RCC_X86_TRUNCATE: case RCC_X86_ZERO_EXTEND:
         case RCC_X86_SIGN_EXTEND: case RCC_X86_FLOAT_EXTEND:
+        case RCC_X86_SITOFP: case RCC_X86_FPTOSI:
+        case RCC_X86_FLOAT_TRUNCATE:
         case RCC_X86_REINTERPRET:
         case RCC_X86_LOAD:
             return instruction->has_destination &&
@@ -1747,6 +1749,37 @@ bool rcc_x86_verify_legal_function(
                   instruction->operand_types[0].kind !=
                       RCC_MIR_TYPE_FLOAT ||
                   instruction->operand_types[0].bit_width != 32u)) ||
+                (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
+                 instruction->selected_opcode == RCC_X86_SITOFP &&
+                 (function->target != RCC_X86_TARGET_X86_64 ||
+                  instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
+                  (instruction->type.bit_width != 32u &&
+                   instruction->type.bit_width != 64u) ||
+                  instruction->operand_count != 1u ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_INTEGER ||
+                  (instruction->operand_types[0].bit_width != 32u &&
+                   instruction->operand_types[0].bit_width != 64u))) ||
+                (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
+                 instruction->selected_opcode == RCC_X86_FPTOSI &&
+                 (function->target != RCC_X86_TARGET_X86_64 ||
+                  instruction->type.kind != RCC_MIR_TYPE_INTEGER ||
+                  (instruction->type.bit_width != 32u &&
+                   instruction->type.bit_width != 64u) ||
+                  instruction->operand_count != 1u ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_FLOAT ||
+                  (instruction->operand_types[0].bit_width != 32u &&
+                   instruction->operand_types[0].bit_width != 64u))) ||
+                (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
+                 instruction->selected_opcode == RCC_X86_FLOAT_TRUNCATE &&
+                 (function->target != RCC_X86_TARGET_X86_64 ||
+                  instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
+                  instruction->type.bit_width != 32u ||
+                  instruction->operand_count != 1u ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_FLOAT ||
+                  instruction->operand_types[0].bit_width != 64u)) ||
                 !((instruction->opcode == RCC_X86_LEGAL_RETURN
                        ? x86_legal_return_type_supported(
                              instruction->type, &abi)

@@ -386,6 +386,9 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_FMUL: return "fmul";
         case RCC_IR_FDIV: return "fdiv";
         case RCC_IR_FCMP: return "fcmp";
+        case RCC_IR_SITOFP: return "sitofp";
+        case RCC_IR_FPTOSI: return "fptosi";
+        case RCC_IR_FPTRUNC: return "fptrunc";
         case RCC_IR_ICMP: return "icmp";
         case RCC_IR_TRUNC: return "trunc";
         case RCC_IR_ZEXT: return "zext";
@@ -558,6 +561,50 @@ static bool ir_verify_instruction_types(
                 return ir_verify_error(
                     verifier,
                     "fcmp requires equal scalar floats and an ordered predicate");
+            }
+            return true;
+        case RCC_IR_SITOFP:
+            if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
+                !ir_value_type(verifier, instruction->operands[0], &first)) {
+                return false;
+            }
+            if (first.kind != RCC_IR_TYPE_INTEGER ||
+                (first.bit_width != 32u && first.bit_width != 64u) ||
+                instruction->type.kind != RCC_IR_TYPE_FLOAT ||
+                (instruction->type.bit_width != 32u &&
+                 instruction->type.bit_width != 64u)) {
+                return ir_verify_error(
+                    verifier,
+                    "sitofp requires a signed 32/64-bit integer and scalar float");
+            }
+            return true;
+        case RCC_IR_FPTOSI:
+            if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
+                !ir_value_type(verifier, instruction->operands[0], &first)) {
+                return false;
+            }
+            if (first.kind != RCC_IR_TYPE_FLOAT ||
+                (first.bit_width != 32u && first.bit_width != 64u) ||
+                instruction->type.kind != RCC_IR_TYPE_INTEGER ||
+                (instruction->type.bit_width != 32u &&
+                 instruction->type.bit_width != 64u)) {
+                return ir_verify_error(
+                    verifier,
+                    "fptosi requires a scalar float and signed 32/64-bit integer");
+            }
+            return true;
+        case RCC_IR_FPTRUNC:
+            if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
+                !ir_value_type(verifier, instruction->operands[0], &first)) {
+                return false;
+            }
+            if (first.kind != RCC_IR_TYPE_FLOAT ||
+                first.bit_width != 64u ||
+                instruction->type.kind != RCC_IR_TYPE_FLOAT ||
+                instruction->type.bit_width != 32u) {
+                return ir_verify_error(
+                    verifier,
+                    "fptrunc requires a float64-to-float32 conversion");
             }
             return true;
         case RCC_IR_ICMP:
