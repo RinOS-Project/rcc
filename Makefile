@@ -2612,12 +2612,20 @@ test-cxx-static-local-exception-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-local-exception/x86.s
 	$(GREP) -F -q "__cxa_atexit" \
 		$(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(GREP) -F -q "__cxa_thread_atexit" \
+		$(TEST_OUT)/cxx-static-local-exception/x86.s
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" \
 		$(TEST_OUT)/cxx-static-local-exception/x86.s
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" \
 		$(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(GREP) -F -q "__rcc_static_3_value@NTPOFF" \
+		$(TEST_OUT)/cxx-static-local-exception/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-local-exception/x86.o \
 		$(TEST_OUT)/cxx-static-local-exception/x86.s
+	objdump -r $(TEST_OUT)/cxx-static-local-exception/x86.o \
+		> $(TEST_OUT)/cxx-static-local-exception/x86-reloc.log
+	$(GREP) -E -q "R_386_TLS_LE.*__rcc_static_3_value" \
+		$(TEST_OUT)/cxx-static-local-exception/x86-reloc.log
 	objdump -f $(TEST_OUT)/cxx-static-local-exception/x86.o \
 		> $(TEST_OUT)/cxx-static-local-exception/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
@@ -2627,12 +2635,19 @@ test-cxx-static-local-exception-posix: $(RCXX_TARGET)
 		tests/cxx_exceptions_i686_start.s
 	$(CC) -m32 -c \
 		-o $(TEST_OUT)/cxx-static-local-exception/x86-runtime.o \
-		tests/cxx_static_local_exception_runtime.c
+		-fno-stack-protector tests/cxx_static_local_exception_runtime.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-S \
+		-o $(TEST_OUT)/cxx-static-local-exception/x86-run.s \
+		tests/cxx_static_local_exception.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-static-local-exception/x86-run.o \
+		$(TEST_OUT)/cxx-static-local-exception/x86-run.s
 	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-static-local-exception/x86 \
 		$(TEST_OUT)/cxx-static-local-exception/x86-start.o \
 		$(TEST_OUT)/cxx-static-local-exception/x86-runtime.o \
-		$(TEST_OUT)/cxx-static-local-exception/x86.o
+		$(TEST_OUT)/cxx-static-local-exception/x86-run.o
 	$(TEST_OUT)/cxx-static-local-exception/x86
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-static-local-exception/x64.s \
@@ -2641,12 +2656,20 @@ test-cxx-static-local-exception-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-local-exception/x64.s
 	$(GREP) -F -q "__cxa_atexit" \
 		$(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(GREP) -F -q "__cxa_thread_atexit" \
+		$(TEST_OUT)/cxx-static-local-exception/x64.s
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" \
 		$(TEST_OUT)/cxx-static-local-exception/x64.s
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" \
 		$(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(GREP) -F -q "__rcc_static_3_value@TPOFF" \
+		$(TEST_OUT)/cxx-static-local-exception/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-static-local-exception/x64.o \
 		$(TEST_OUT)/cxx-static-local-exception/x64.s
+	objdump -r $(TEST_OUT)/cxx-static-local-exception/x64.o \
+		> $(TEST_OUT)/cxx-static-local-exception/x64-reloc.log
+	$(GREP) -E -q "R_X86_64_TPOFF32.*__rcc_static_3_value" \
+		$(TEST_OUT)/cxx-static-local-exception/x64-reloc.log
 	objdump -f $(TEST_OUT)/cxx-static-local-exception/x64.o \
 		> $(TEST_OUT)/cxx-static-local-exception/x64-arch.log
 	$(GREP) -F -q "elf64-x86-64" \
@@ -2656,14 +2679,21 @@ test-cxx-static-local-exception-posix: $(RCXX_TARGET)
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -c \
 		-o $(TEST_OUT)/cxx-static-local-exception/x64-runtime.o \
-		tests/cxx_static_local_exception_runtime.c
+		-fno-stack-protector tests/cxx_static_local_exception_runtime.c
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-S \
+		-o $(TEST_OUT)/cxx-static-local-exception/x64-run.s \
+		tests/cxx_static_local_exception.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-static-local-exception/x64-run.o \
+		$(TEST_OUT)/cxx-static-local-exception/x64-run.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-static-local-exception/x64 \
 		$(TEST_OUT)/cxx-static-local-exception/x64-start.o \
 		$(TEST_OUT)/cxx-static-local-exception/x64-runtime.o \
-		$(TEST_OUT)/cxx-static-local-exception/x64.o
+		$(TEST_OUT)/cxx-static-local-exception/x64-run.o
 	$(TEST_OUT)/cxx-static-local-exception/x64
-	@echo "C++ function-local static throw/retry and finalization passed for i686 and AMD64"
+	@echo "C++ static exception retry/finalization and local-exec TLS runtime/relocations passed for i686 and AMD64"
 
 test-cxx-static-reference-subobjects-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-subobjects)
@@ -2950,19 +2980,19 @@ test-cxx-static-local-exception: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-local-exception/x86.s tests/cxx_static_local_exception.cpp
 	$(GREP) -F -q "__cxa_guard_abort" $(TEST_OUT)/cxx-static-local-exception/x86.s
 	$(GREP) -F -q "__cxa_atexit" $(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(GREP) -F -q "__cxa_thread_atexit" $(TEST_OUT)/cxx-static-local-exception/x86.s
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/cxx-static-local-exception/x86.s
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/cxx-static-local-exception/x86.s
-	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-local-exception/x86.o $(TEST_OUT)/cxx-static-local-exception/x86.s
-	objdump -f $(TEST_OUT)/cxx-static-local-exception/x86.o > $(TEST_OUT)/cxx-static-local-exception/x86-arch.log
-	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-local-exception/x86-arch.log
+	$(GREP) -F -q ".section .tdata" $(TEST_OUT)/cxx-static-local-exception/x86.s
+	$(GREP) -F -q "@NTPOFF" $(TEST_OUT)/cxx-static-local-exception/x86.s
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-static-local-exception/x64.s tests/cxx_static_local_exception.cpp
 	$(GREP) -F -q "__cxa_guard_abort" $(TEST_OUT)/cxx-static-local-exception/x64.s
 	$(GREP) -F -q "__cxa_atexit" $(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(GREP) -F -q "__cxa_thread_atexit" $(TEST_OUT)/cxx-static-local-exception/x64.s
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/cxx-static-local-exception/x64.s
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/cxx-static-local-exception/x64.s
-	$(CC) -c -o $(TEST_OUT)/cxx-static-local-exception/x64.o $(TEST_OUT)/cxx-static-local-exception/x64.s
-	objdump -f $(TEST_OUT)/cxx-static-local-exception/x64.o > $(TEST_OUT)/cxx-static-local-exception/x64-arch.log
-	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-static-local-exception/x64-arch.log
+	$(GREP) -F -q ".section .tdata" $(TEST_OUT)/cxx-static-local-exception/x64.s
+	$(GREP) -F -q "@TPOFF" $(TEST_OUT)/cxx-static-local-exception/x64.s
 
 test-cxx-static-reference-subobjects: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-subobjects)

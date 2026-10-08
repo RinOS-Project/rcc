@@ -530,15 +530,24 @@
 - [ ] remaining full Itanium ABI、`type_info` API、complete static/TLS
       destructor semantics
 - [ ] static/TLS destructor and exception cleanup interaction. Both native
-      backends now use guarded first-use initialization for supported
+      backends use guarded first-use initialization for supported
       function-local static and destructible TLS objects, connect guard-abort
       callbacks against the dynamically active exception frame, and register
-      cleanup through `__cxa_atexit`/`__cxa_thread_atexit`; `build-rcc` and
-      `build-rcxx` pass.
+      cleanup through `__cxa_atexit`/`__cxa_thread_atexit`. Constructor-bearing
+      function-local TLS now takes the dynamic initialization path instead of
+      being mistaken for zero initialization.
   - [x] Throw from a function-local class-static constructor on its first
         attempt, verify current-frame guard abort and successful retry, then
         verify DSO-matched reverse `__cxa_atexit` destruction and idempotent
         finalization under the i686/AMD64 POSIX host exception harness.
+  - [x] Apply the same throw/retry/current-frame cleanup checks to a
+        function-local `thread_local` class, verify its constructor runs,
+        `__cxa_thread_atexit` receives registrations, and three TLS destructors
+        run once in reverse order on the i686/AMD64 POSIX host harness.
+  - [x] Emit local-exec TLS data and relocation records from `-S`, assemble
+        both target variants, and verify `R_386_TLS_LE` / `R_X86_64_TPOFF32`
+        records with the host object inspector before executing the generated
+        retry/finalization cases.
   - [x] Correct i686 cdecl argument order for function-local static
         `__cxa_atexit`; verified generated callback/object/DSO values and
         successful destructor execution.

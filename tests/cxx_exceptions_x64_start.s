@@ -19,6 +19,7 @@
 .globl rin_free
 .globl abort
 .extern _rcc_entry
+.weak rin_test_setup_tls
 
 .bss
 .align 8
@@ -334,6 +335,14 @@ abort:
     ud2
 
 _start:
+    movabs $rin_test_setup_tls, %rax
+    test %rax, %rax
+    jz 15f
+    mov %rsp, %rdi
+    call *%rax
+    test %eax, %eax
+    jne 16f
+15:
     call _rcc_entry
     test %eax, %eax
     jne 4f
@@ -344,3 +353,9 @@ _start:
     mov %eax, %edi
     mov $60, %eax
     syscall
+16:
+    mov $125, %edi
+    mov $60, %eax
+    syscall
+
+.section .note.GNU-stack,"",@progbits

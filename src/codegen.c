@@ -1694,8 +1694,10 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
         declaration->var_dynamic_initializer = false;
         if (declaration->var_init &&
             !declaration->var_reference_temporary_owner &&
-            !codegen_emit_tls_initializer(
-                mod, declaration->type, declaration->var_init, offset)) {
+            (codegen_runtime_global_constructor(
+                 declaration->type, declaration->var_init) ||
+             !codegen_emit_tls_initializer(
+                 mod, declaration->type, declaration->var_init, offset))) {
             if (declaration->var_reference_temporary_guard &&
                 (codegen_runtime_global_scalar(declaration->type) ||
                  codegen_runtime_global_constructor(

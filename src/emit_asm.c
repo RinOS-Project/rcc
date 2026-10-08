@@ -32,12 +32,16 @@ static const ModuleReloc* emit_asm_relocation(const Module* mod,
     return NULL;
 }
 
-static bool emit_asm_reloc(FILE* file, const ModuleReloc* relocation) {
+static bool emit_asm_reloc(FILE* file, const ModuleReloc* relocation,
+                           TargetArch architecture) {
     uint32_t width;
     if (!file || !relocation || !relocation->symbol_name) return false;
     width = relocation->is_relative || !relocation->is_64bit ? 4u : 8u;
     if (relocation->is_tls) {
-        return fprintf(file, ".long %s\n", relocation->symbol_name) >= 0;
+        const char* tls_offset = architecture == ARCH_X64
+            ? "TPOFF" : "NTPOFF";
+        return fprintf(file, ".long %s@%s\n", relocation->symbol_name,
+                       tls_offset) >= 0;
     }
     if (relocation->is_relative) {
         return fprintf(file, ".long %s + %u - . - 4\n",
@@ -77,7 +81,8 @@ static bool emit_asm_reloc_bytes(FILE* file, const Module* mod,
         if (relocation) {
             uint32_t width = relocation->is_relative || !relocation->is_64bit
                 ? 4u : 8u;
-            if (width > size - offset || !emit_asm_reloc(file, relocation)) {
+            if (width > size - offset ||
+                !emit_asm_reloc(file, relocation, g_opts.target_arch)) {
                 return false;
             }
             offset += width;
@@ -222,6 +227,23 @@ bool rcc_emit_asm(Module* mod, const char* outfile) {
         ok = fprintf(file, ".section .data\n.p2align 4\n") >= 0 &&
              emit_asm_reloc_bytes(file, mod, MODULE_SYMBOL_DATA,
                                   mod->data.data, mod->data.size, 0u);
+    }
+    if (ok && mod->tls.size > 0u) {
+        unsigned alignment = 0u;
+        uint32_t value = mod->tls_align;
+        while (value > 1u) {
+            if ((value & 1u) != 0u) {
+                alignment = 0u;
+                break;
+            }
+            value >>= 1;
+            ++alignment;
+        }
+        ok = fprintf(file,
+                     ".section .tdata,\"awT\",@progbits\n.p2align %u\n",
+                     alignment) >= 0 &&
+             emit_asm_reloc_bytes(file, mod, MODULE_SYMBOL_TLS,
+                                  mod->tls.data, mod->tls.size, 0u);
     }
     if (ok && mod->bss.size > 0u) {
         unsigned alignment = 0u;
