@@ -560,9 +560,9 @@
         const/non-const pointee、function signature、member owner、reference、
         deep pointerのidentityを実行テストし、両archの`.ro`/`.rin`を検証。
   - [ ] Give static typeinfo symbols collision-safe, cross-translation-unit
-        identities; keep this item open until the supported-type regressions
-        and golden outputs are refreshed and local/anonymous scope identity is
-        implemented where supported.
+        identities for every supported type; supported-type regressions and
+        golden outputs pass, while local-class member/template forms remain
+        unsupported.
     - [x] Replace the non-class 64-bit structural hash with a length-prefixed
           canonical encoding for represented structural types, including
           distinct plain `char`, `signed char`, and `char8_t` identities.
@@ -576,8 +576,17 @@
           `.ro` files for i686/AMD64, and validate the resulting `.rin` images.
     - [x] Resolve namespace-qualified enum type-ids and distinguish same-named
           enums from separate namespaces in `typeid` identity.
-    - [ ] Local/anonymous class and local enum scope identity is still not
-          represented by the parser.
+    - [x] Give block-scope and unnamed enum tags distinct parser identities,
+          restore bindings across nested blocks, and emit local typeinfo with
+          translation-unit-local linkage; verify repeated, sibling, and nested
+          enum identity with host execution and both target widths.
+    - [x] Include the translation-unit path in anonymous-namespace class and
+          enum typeinfo identities; compare same-named types with global types.
+    - [x] Give named data-only local C++ classes per-scope identities and
+          translation-unit-local typeinfo linkage; test repeat use, nested
+          shadowing, same-name functions and cross-translation-unit distinction.
+    - [ ] Local class member functions and local classes in function-template
+          scopes remain unsupported and are explicitly diagnosed.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

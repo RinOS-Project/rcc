@@ -192,6 +192,11 @@ struct CxxNamespace {
     const char* name;
     CxxNamespace* parent;
     bool is_inline_namespace;
+    /* Unnamed namespaces keep their source spelling for lookup/mangling, but
+     * RTTI needs a translation-unit identity so internal types never merge
+     * across object files. */
+    bool is_anonymous_namespace;
+    const char* anonymous_typeinfo_identity;
 
     /* Declarations in this namespace */
     DeclList* decls;
@@ -469,6 +474,7 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
 
 /* Namespace creation with source location */
 CxxNamespace* cxx_namespace_new(const char* name, SourceLoc loc);
+const char* cxx_namespace_typeinfo_identity(CxxNamespace* ns);
 
 /* Add class to namespace */
 void cxx_namespace_add_class(CxxNamespace* ns, CxxClass* cls);

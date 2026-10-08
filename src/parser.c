@@ -15,6 +15,7 @@ typedef struct {
 } Parser;
 
 Parser parser;  /* Non-static for C++ parser access */
+static bool check(TokenType type);
 
 /* The C frontend and C++ frontend share this parser translation unit.  Keep
  * the C-only executable independent of parser_cxx.c without providing fake
@@ -80,8 +81,13 @@ typedef struct ParserTagName {
     const char* cxx_namespace;
     TypeKind kind;
     Type* type;
+    struct ParserTagScope* scope;
     struct ParserTagName* next;
 } ParserTagName;
+
+typedef struct ParserTagScope {
+    struct ParserTagScope* parent;
+} ParserTagScope;
 
 typedef struct ParserEnumConstant {
     const char* name;
@@ -93,6 +99,9 @@ typedef struct ParserEnumConstant {
 
 static ParserTypeName* parser_type_names;
 static ParserTagName* parser_tag_names;
+static ParserTagScope* parser_tag_scope;
+static ParserTagScope* parser_tag_root_scope;
+static uint32_t parser_tag_identity_counter;
 static ParserEnumConstant* parser_enum_constants;
 static Type* parser_builtin_va_list_type;
 static int parser_pack_alignment;
@@ -103,6 +112,10 @@ static int parser_cxx_standard = 20;
 static bool parser_cxx_template_default_mode;
 static const char* parser_function_name;
 static const char* parser_function_name_stack[64];
+static ParserTypeName* parser_function_type_names_stack[64];
+static ParserTagName* parser_function_tag_names_stack[64];
+static ParserTagScope* parser_function_tag_scope_stack[64];
+static ParserEnumConstant* parser_function_enum_constants_stack[64];
 static int parser_function_scope_depth;
 static bool parser_last_declarator_parameter_pack;
 
@@ -148,17 +161,37 @@ void rcc_parser_function_scope_push(const char* name) {
               sizeof(parser_function_name_stack[0]))) {
         rcc_fatal("function scope nesting is too deep");
     }
-    parser_function_name_stack[parser_function_scope_depth++] =
+    parser_function_name_stack[parser_function_scope_depth] =
         parser_function_name;
+    parser_function_type_names_stack[parser_function_scope_depth] =
+        parser_type_names;
+    parser_function_tag_names_stack[parser_function_scope_depth] =
+        parser_tag_names;
+    parser_function_tag_scope_stack[parser_function_scope_depth] =
+        parser_tag_scope;
+    parser_function_enum_constants_stack[parser_function_scope_depth] =
+        parser_enum_constants;
+    ++parser_function_scope_depth;
     parser_function_name = name;
+    parser_tag_scope = ast_arena_alloc(sizeof(*parser_tag_scope));
+    parser_tag_scope->parent =
+        parser_function_tag_scope_stack[parser_function_scope_depth - 1];
 }
 
 void rcc_parser_function_scope_pop(void) {
     if (parser_function_scope_depth <= 0) {
         rcc_fatal("function scope stack underflow");
     }
-    parser_function_name =
-        parser_function_name_stack[--parser_function_scope_depth];
+    --parser_function_scope_depth;
+    parser_function_name = parser_function_name_stack[parser_function_scope_depth];
+    parser_type_names =
+        parser_function_type_names_stack[parser_function_scope_depth];
+    parser_tag_names =
+        parser_function_tag_names_stack[parser_function_scope_depth];
+    parser_tag_scope =
+        parser_function_tag_scope_stack[parser_function_scope_depth];
+    parser_enum_constants =
+        parser_function_enum_constants_stack[parser_function_scope_depth];
 }
 
 void rcc_parser_set_cxx_template_default_mode(bool enabled) {
@@ -251,8 +284,54 @@ static void parser_define_type(const char* name, Type* type) {
     parser_type_names = entry;
 }
 
+static bool parser_tag_scope_is_visible(ParserTagScope* scope) {
+    ParserTagScope* visible;
+    for (visible = parser_tag_scope; visible; visible = visible->parent) {
+        if (visible == scope) return true;
+    }
+    return false;
+}
+
+static bool parser_tag_has_definition(TypeKind kind) {
+    (void)kind;
+    return check(TOK_LBRACE);
+}
+
+static const char* parser_new_tag_scope_identity(void) {
+    char buffer[64];
+    int length;
+    if (parser_tag_identity_counter == UINT32_MAX) {
+        rcc_fatal("translation unit contains too many local tag types");
+    }
+    ++parser_tag_identity_counter;
+    length = snprintf(buffer, sizeof(buffer), "__rcc_tag_scope_%u",
+                      parser_tag_identity_counter);
+    if (length < 0 || (size_t)length >= sizeof(buffer)) {
+        rcc_fatal("local tag identity formatting failed");
+    }
+    return rcc_intern(buffer);
+}
+
+void rcc_parser_reset_type_scopes(void) {
+    parser_type_names = NULL;
+    parser_tag_names = NULL;
+    parser_tag_identity_counter = 0u;
+    parser_tag_root_scope = ast_arena_alloc(sizeof(*parser_tag_root_scope));
+    parser_tag_root_scope->parent = NULL;
+    parser_tag_scope = parser_tag_root_scope;
+    parser_enum_constants = NULL;
+    parser_function_name = NULL;
+    parser_function_scope_depth = 0;
+}
+
+const char* rcc_parser_new_local_type_identity(void) {
+    return parser_new_tag_scope_identity();
+}
+
 static Type* parser_tag_type(TypeKind kind, const char* name) {
     ParserTagName* entry;
+    ParserTagName* visible = NULL;
+    bool has_definition = parser_tag_has_definition(kind);
     const char* cxx_namespace = parser_cxx_mode &&
         rcc_parser_cxx_current_namespace_identity
         ? rcc_parser_cxx_current_namespace_identity() : NULL;
@@ -262,21 +341,31 @@ static Type* parser_tag_type(TypeKind kind, const char* name) {
                 (!entry->cxx_namespace && !cxx_namespace) ||
                 (entry->cxx_namespace && cxx_namespace &&
                  strcmp(entry->cxx_namespace, cxx_namespace) == 0);
-            if (entry->kind == kind && same_namespace &&
+            if (entry->kind == kind && same_namespace && entry->scope &&
+                parser_tag_scope_is_visible(entry->scope) &&
                 strcmp(entry->name, name) == 0) {
-                return entry->type;
+                visible = entry;
+                break;
             }
+        }
+        if (visible &&
+            (visible->scope == parser_tag_scope || !has_definition)) {
+            return visible->type;
         }
     }
     Type* type = kind == TYPE_STRUCT ? type_struct(name) :
                  kind == TYPE_UNION ? type_union(name) : type_enum(name);
     type->cxx_namespace = cxx_namespace;
+    if ((parser_tag_scope && parser_tag_scope->parent) || !name) {
+        type->cxx_scope_identity = parser_new_tag_scope_identity();
+    }
     if (name) {
         entry = ast_arena_alloc(sizeof(*entry));
         entry->name = name;
         entry->cxx_namespace = cxx_namespace;
         entry->kind = kind;
         entry->type = type;
+        entry->scope = parser_tag_scope;
         entry->next = parser_tag_names;
         parser_tag_names = entry;
     }
@@ -965,6 +1054,7 @@ Type* rcc_parser_lookup_type(const char* name) {
             for (tag = parser_tag_names; tag; tag = tag->next) {
                 if (tag->kind == TYPE_ENUM && tag->name &&
                     tag->cxx_namespace &&
+                    tag->scope == parser_tag_root_scope &&
                     strlen(tag->cxx_namespace) == namespace_length &&
                     memcmp(tag->cxx_namespace, qualified_name,
                            namespace_length) == 0 &&
@@ -3300,17 +3390,22 @@ static Type* parse_type_spec(void) {
         if (match(TOK_LBRACE)) parse_aggregate_body(t);
     } else if (match(TOK_ENUM)) {
         bool scoped = false;
+        bool has_underlying_type = false;
         Token* tag = NULL;
+        Type* underlying = NULL;
         if (parser_cxx_mode && (match(TOK_CLASS) || match(TOK_STRUCT))) {
             scoped = true;
         }
         if (check(TOK_IDENT)) {
             tag = advance();
         }
+        if (parser_cxx_mode && match(TOK_COLON)) {
+            has_underlying_type = true;
+            underlying = parse_type_spec();
+        }
         t = parser_tag_type(TYPE_ENUM, tag ? tag->value.str_val : NULL);
         t->enum_is_scoped = scoped;
-        if (parser_cxx_mode && match(TOK_COLON)) {
-            Type* underlying = parse_type_spec();
+        if (has_underlying_type) {
             if (!underlying || !type_is_integer(underlying)) {
                 rcc_error(previous()->loc,
                           "C++ enum underlying type must be an integer type");
@@ -3873,10 +3968,17 @@ static Stmt* parse_block(void) {
     StmtList* stmts = NULL;
     Token* preserved_recovery_boundary = NULL;
     ParserEnumConstant* saved_enum_constants = parser_enum_constants;
+    ParserTagName* saved_tag_names = parser_tag_names;
+    ParserTagScope* saved_tag_scope = parser_tag_scope;
+    ParserTagScope* block_tag_scope = ast_arena_alloc(
+        sizeof(*block_tag_scope));
     void* saved_type_names = rcc_parser_type_scope_mark();
     void* saved_cxx_using = parser_cxx_mode &&
                             rcc_parser_cxx_using_scope_mark
         ? rcc_parser_cxx_using_scope_mark() : NULL;
+
+    block_tag_scope->parent = parser_tag_scope;
+    parser_tag_scope = block_tag_scope;
 
     while (!check(TOK_RBRACE) && !at_end()) {
         Token* iteration_start = parser.cur;
@@ -3912,6 +4014,8 @@ static Stmt* parse_block(void) {
 
     expect(TOK_RBRACE, "}");
     parser_enum_constants = saved_enum_constants;
+    parser_tag_names = saved_tag_names;
+    parser_tag_scope = saved_tag_scope;
     rcc_parser_type_scope_restore(saved_type_names);
     if (parser_cxx_mode && rcc_parser_cxx_using_scope_restore) {
         rcc_parser_cxx_using_scope_restore(saved_cxx_using);
@@ -4789,11 +4893,7 @@ AST* rcc_parse(TokenList* tokens) {
     pending_weak_attribute = false;
     parser.cur = tokens->head;
     parser.prev = NULL;
-    parser_type_names = NULL;
-    parser_tag_names = NULL;
-    parser_enum_constants = NULL;
-    parser_function_name = NULL;
-    parser_function_scope_depth = 0;
+    rcc_parser_reset_type_scopes();
     parser_pack_alignment = 0;
     parser_pack_depth = 0;
 

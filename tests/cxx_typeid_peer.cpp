@@ -9,7 +9,14 @@ template <class T> struct TypeIdCrossTUBox { T value; };
 
 TypeIdCrossTUBox<int> type_id_peer_ordering_probe;
 TypeIdCrossTUBox<TypeIdCrossTU::Payload> type_id_peer_template_box;
+namespace {
+struct TypeIdInternalPayload { int value; };
+}
 
 extern "C" const void* cxx_typeid_peer_template_box() {
     return &typeid(type_id_peer_template_box);
+}
+
+extern "C" const void* cxx_typeid_peer_internal_payload() {
+    return &typeid(TypeIdInternalPayload);
 }

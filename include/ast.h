@@ -22,6 +22,7 @@ typedef struct CxxCatch CxxCatch;
 typedef struct CxxCleanupPlan CxxCleanupPlan;
 struct Token;
 struct CxxClass;
+struct CxxNamespace;
 struct CxxTemplate;
 
 /* ═══════════════════════════════════════
@@ -196,6 +197,8 @@ struct Type {
     /* Fully qualified namespace owning a C++ class type, or NULL for the
      * global namespace and non-class C types. */
     const char* cxx_namespace;
+    /* Unique translation-unit identity for local or unnamed tag types. */
+    const char* cxx_scope_identity;
     int cxx_vtable_size;
     const char* cxx_vtable_symbol;
     /* Stable translation-unit identity used by the bounded C++ RTTI table. */
@@ -278,6 +281,8 @@ void rcc_parser_set_cxx_standard(int standard);
 bool rcc_parser_cxx_standard_at_least(int standard);
 void rcc_parser_function_scope_push(const char* name);
 void rcc_parser_function_scope_pop(void);
+void rcc_parser_reset_type_scopes(void);
+const char* rcc_parser_new_local_type_identity(void);
 void rcc_parser_apply_pragma_pack(struct Token* directive);
 int rcc_parser_pack_alignment(void);
 int rcc_parser_parse_explicit_alignment(void);
@@ -1167,6 +1172,7 @@ struct Decl {
              * this in their qualified name; instantiated function templates
              * keep the source name for ABI mangling and need this sideband. */
             const char* func_cxx_namespace;
+            struct CxxNamespace* func_cxx_namespace_scope;
             Decl* func_overload_next;
         };
 

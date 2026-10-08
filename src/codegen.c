@@ -3084,6 +3084,7 @@ static void codegen_emit_cxx_vbase_tables_in_namespace(Module* mod,
 }
 
 void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
+    static const char local_prefix[] = "__rcc_typeinfo_local_type_";
     static const uint8_t zero[8] = {0};
     uint8_t hash_bytes[8];
     const char* name_symbol;
@@ -3094,8 +3095,11 @@ void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
     uint32_t name_offset;
     uint32_t name_pointer_offset;
     uint64_t hash = UINT64_C(1469598103934665603);
+    bool is_local;
     const ModuleSymbol* existing;
     if (!mod || !symbol || !symbol[0]) return;
+    is_local = strncmp(symbol, local_prefix,
+                       sizeof(local_prefix) - 1u) == 0;
     existing = module_lookup_symbol(mod, symbol);
     /* Code generation may have registered an undefined relocation symbol
      * before the namespace/vtable pass reaches this identity.  Only an
@@ -3114,8 +3118,8 @@ void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
     rcc_free(name_buffer);
     name_offset = emit_string(mod, symbol, strlen(symbol));
     module_add_symbol(mod, name_symbol, name_offset, true,
-                      MODULE_SYMBOL_RODATA, true);
-    module_mark_symbol_weak(mod, name_symbol);
+                      MODULE_SYMBOL_RODATA, !is_local);
+    if (!is_local) module_mark_symbol_weak(mod, name_symbol);
     for (const unsigned char* p = (const unsigned char*)symbol; *p; ++p) {
         hash ^= (uint64_t)*p;
         hash *= UINT64_C(1099511628211);
@@ -3135,8 +3139,8 @@ void codegen_emit_cxx_typeinfo_symbol(Module* mod, const char* symbol) {
     add_reloc(mod, MODULE_SYMBOL_RODATA, name_pointer_offset,
               pointer_size == 8u ? RIN_RELOC_ABS64 : RIN_RELOC_ABS32);
     module_add_symbol(mod, symbol, offset, true,
-                      MODULE_SYMBOL_RODATA, true);
-    module_mark_symbol_weak(mod, symbol);
+                      MODULE_SYMBOL_RODATA, !is_local);
+    if (!is_local) module_mark_symbol_weak(mod, symbol);
 }
 
 static void codegen_emit_cxx_typeinfo(Module* mod, CxxClass* cls) {
@@ -3146,11 +3150,9 @@ static void codegen_emit_cxx_typeinfo(Module* mod, CxxClass* cls) {
                   "C++ class has no typeinfo identity");
         return;
     }
-    /* A class type has one structural RTTI identity across translation units.
-     * Every TU that sees the definition may materialize the same metadata, so
-     * keep the external object weak just like an inline/COMDAT definition.
-     * This lets provider/consumer RLLs share the identity while preserving
-     * one address for runtime comparisons. */
+    /* Named class types share weak RTTI metadata across translation units.
+     * Anonymous-namespace classes carry the local-typeinfo prefix, which
+     * keeps their identity object private to this object file. */
     codegen_emit_cxx_typeinfo_symbol(
         mod, cls->type->cxx_typeinfo_symbol);
 }

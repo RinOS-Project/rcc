@@ -98,7 +98,8 @@ char* ast_arena_strdup(const char* text) {
       .is_char8 = false, .is_const = false, \
       .is_volatile = false, .is_atomic = false, .cxx_is_class = false, \
       .cxx_nontrivial = false, .cxx_class = NULL, \
-      .cxx_namespace = NULL, .cxx_vtable_size = 0, \
+      .cxx_namespace = NULL, .cxx_scope_identity = NULL, \
+      .cxx_vtable_size = 0, \
       .cxx_vtable_symbol = NULL, .cxx_typeinfo_symbol = NULL }
 
 static Type builtin_void   = BUILTIN_TYPE(TYPE_VOID,   0, 1, false);
@@ -195,6 +196,7 @@ Type* type_ptr(Type* base) {
     t->cxx_dependent = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_scope_identity = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
     t->cxx_typeinfo_symbol = NULL;
@@ -235,6 +237,7 @@ Type* type_array(Type* base, int len) {
     t->cxx_dependent = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_scope_identity = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
     t->cxx_typeinfo_symbol = NULL;
@@ -261,6 +264,7 @@ Type* type_vector(Type* base, int lanes, int vector_size) {
     t->cxx_dependent = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_scope_identity = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
     t->cxx_typeinfo_symbol = NULL;
@@ -283,6 +287,7 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic) {
     t->cxx_dependent = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_scope_identity = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
     t->cxx_typeinfo_symbol = NULL;
@@ -304,6 +309,7 @@ Type* type_struct(const char* tag) {
     t->cxx_dependent = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_scope_identity = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
     t->cxx_typeinfo_symbol = NULL;
@@ -325,6 +331,7 @@ Type* type_union(const char* tag) {
     t->cxx_dependent = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_scope_identity = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
     t->cxx_typeinfo_symbol = NULL;
@@ -348,6 +355,7 @@ Type* type_enum(const char* tag) {
     t->cxx_nontrivial = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
+    t->cxx_scope_identity = NULL;
     t->cxx_vtable_size = 0;
     t->cxx_vtable_symbol = NULL;
     t->cxx_typeinfo_symbol = NULL;
@@ -468,6 +476,10 @@ bool type_is_compatible(Type* a, Type* b) {
         }
         if (a->tag || b->tag) {
             return a->tag && b->tag && strcmp(a->tag, b->tag) == 0 &&
+                   ((!a->cxx_scope_identity && !b->cxx_scope_identity) ||
+                    (a->cxx_scope_identity && b->cxx_scope_identity &&
+                     strcmp(a->cxx_scope_identity,
+                            b->cxx_scope_identity) == 0)) &&
                    ((!a->cxx_namespace && !b->cxx_namespace) ||
                     (a->cxx_namespace && b->cxx_namespace &&
                      strcmp(a->cxx_namespace, b->cxx_namespace) == 0));
@@ -479,6 +491,10 @@ bool type_is_compatible(Type* a, Type* b) {
     if (a->kind == TYPE_ENUM) {
         return a->enum_tag && b->enum_tag &&
                strcmp(a->enum_tag, b->enum_tag) == 0 &&
+               ((!a->cxx_scope_identity && !b->cxx_scope_identity) ||
+                (a->cxx_scope_identity && b->cxx_scope_identity &&
+                 strcmp(a->cxx_scope_identity,
+                        b->cxx_scope_identity) == 0)) &&
                ((!a->cxx_namespace && !b->cxx_namespace) ||
                 (a->cxx_namespace && b->cxx_namespace &&
                  strcmp(a->cxx_namespace, b->cxx_namespace) == 0));
@@ -1246,6 +1262,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_is_auto_return = false;
     d->func_is_decltype_auto_return = false;
     d->func_cxx_namespace = NULL;
+    d->func_cxx_namespace_scope = NULL;
     d->func_overload_next = NULL;
     return d;
 }

@@ -1512,17 +1512,27 @@ static void cxx_typeinfo_identity_append_namespace(
     CxxTypeInfoIdentityBuilder* builder, CxxNamespace* ns) {
     CxxNamespace* stack[32];
     size_t count = 0u;
-    for (CxxNamespace* current = ns; current && current->name;
+    bool has_anonymous = false;
+    for (CxxNamespace* current = ns; current;
          current = current->parent) {
+        if (!current->name && !current->is_anonymous_namespace) break;
         if (count == sizeof(stack) / sizeof(stack[0])) {
             rcc_fatal("C++ typeinfo namespace nesting is too deep");
         }
+        if (current->is_anonymous_namespace) has_anonymous = true;
         stack[count++] = current;
     }
     cxx_typeinfo_identity_append_char(builder, 'N');
     cxx_typeinfo_identity_append_number(builder, (uint64_t)count);
     while (count != 0u) {
-        cxx_typeinfo_identity_append_text(builder, stack[--count]->name);
+        CxxNamespace* component = stack[--count];
+        if (has_anonymous) {
+            cxx_typeinfo_identity_append_char(
+                builder, component->is_anonymous_namespace ? 'A' : 'N');
+        }
+        cxx_typeinfo_identity_append_text(
+            builder, component->is_anonymous_namespace
+                ? component->anonymous_typeinfo_identity : component->name);
     }
 }
 
@@ -1569,6 +1579,11 @@ static void cxx_typeinfo_identity_append_class(
     cxx_typeinfo_identity_append_namespace(builder, cls->ns);
     cxx_typeinfo_identity_append_text(
         builder, tmpl && tmpl->name ? tmpl->name : cls->name);
+    if (cls->type && cls->type->cxx_scope_identity) {
+        cxx_typeinfo_identity_append_char(builder, 'L');
+        cxx_typeinfo_identity_append_text(
+            builder, cls->type->cxx_scope_identity);
+    }
     if (!tmpl) {
         cxx_typeinfo_identity_append_char(builder, 'N');
         return;
@@ -1724,13 +1739,28 @@ static void cxx_typeinfo_identity_append_type(
 }
 
 static const char* cxx_typeinfo_name(CxxClass* cls) {
-    static const char prefix[] = "__rcc_typeinfo_class_";
+    static const char external_prefix[] = "__rcc_typeinfo_class_";
+    static const char local_prefix[] = "__rcc_typeinfo_local_type_";
     CxxTypeInfoIdentityBuilder builder = {0};
+    const char* prefix;
     char buffer[1024];
     char* class_name;
+    bool has_local_scope;
     if (!cls || !cls->name) return NULL;
-    if (cls->templ || cls->template_identity_tmpl) {
-        cxx_typeinfo_identity_append(&builder, prefix, sizeof(prefix) - 1u);
+    has_local_scope = cls->type && cls->type->cxx_scope_identity;
+    bool has_anonymous_namespace = false;
+    for (CxxNamespace* ns = cls->ns; ns; ns = ns->parent) {
+        if (ns->is_anonymous_namespace) {
+            has_anonymous_namespace = true;
+            break;
+        }
+        if (!ns->name) break;
+    }
+    if (cls->templ || cls->template_identity_tmpl ||
+        has_anonymous_namespace || has_local_scope) {
+        prefix = has_anonymous_namespace || has_local_scope
+            ? local_prefix : external_prefix;
+        cxx_typeinfo_identity_append(&builder, prefix, strlen(prefix));
         cxx_typeinfo_identity_append_class(&builder, cls);
         return rcc_intern(builder.data);
     }
@@ -2024,6 +2054,8 @@ CxxNamespace* cxx_namespace_alloc(const char* name, CxxNamespace* parent) {
     ns->name = name ? rcc_strdup(name) : NULL;
     ns->parent = parent;
     ns->is_inline_namespace = false;
+    ns->is_anonymous_namespace = false;
+    ns->anonymous_typeinfo_identity = NULL;
     ns->decls = NULL;
     ns->classes = NULL;
     ns->class_count = 0;
@@ -3828,6 +3860,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             definition->func_is_decltype_auto_return;
         instance->func_cxx_namespace = tmpl->ns
             ? cxx_namespace_qualified_name(tmpl->ns) : NULL;
+        instance->func_cxx_namespace_scope = tmpl->ns;
         instance->func_is_template_instance = true;
         instance->func_has_cxx_linkage = true;
         instance->link_name = rcc_intern(cxx_mangle_function_template(
@@ -4088,6 +4121,37 @@ const char* cxx_namespace_qualified_name(CxxNamespace* ns) {
     return rcc_intern(buffer);
 }
 
+const char* cxx_namespace_typeinfo_identity(CxxNamespace* ns) {
+    CxxNamespace* stack[32];
+    CxxTypeInfoIdentityBuilder builder = {0};
+    size_t count = 0u;
+    bool has_anonymous = false;
+    const char* identity;
+    if (!ns) return NULL;
+    for (CxxNamespace* current = ns; current;
+         current = current->parent) {
+        if (!current->name && !current->is_anonymous_namespace) break;
+        if (count == sizeof(stack) / sizeof(stack[0])) {
+            rcc_fatal("C++ typeinfo namespace nesting is too deep");
+        }
+        if (current->is_anonymous_namespace) has_anonymous = true;
+        stack[count++] = current;
+    }
+    if (!has_anonymous) return cxx_namespace_qualified_name(ns);
+    cxx_typeinfo_identity_append_char(&builder, 'Q');
+    cxx_typeinfo_identity_append_number(&builder, (uint64_t)count);
+    while (count != 0u) {
+        CxxNamespace* component = stack[--count];
+        cxx_typeinfo_identity_append_char(
+            &builder, component->is_anonymous_namespace ? 'A' : 'N');
+        cxx_typeinfo_identity_append_text(
+            &builder, component->is_anonymous_namespace
+                ? component->anonymous_typeinfo_identity : component->name);
+    }
+    identity = rcc_intern(builder.data);
+    return identity;
+}
+
 void* cxx_template_instantiate(CxxTemplate* tmpl, Type** args, int arg_count) {
     return cxx_template_instantiate_with_values(tmpl, args, NULL, NULL,
                                                 arg_count);
@@ -4316,7 +4380,7 @@ CxxNamespace* cxx_namespace_new(const char* name, SourceLoc loc) {
 /* Add class to namespace */
 void cxx_namespace_add_class(CxxNamespace* ns, CxxClass* cls) {
     cls->ns = ns;
-    cls->type->cxx_namespace = cxx_namespace_qualified_name(ns);
+    cls->type->cxx_namespace = cxx_namespace_typeinfo_identity(ns);
     ns->classes = ast_arena_grow(
         ns->classes, sizeof(CxxClass*) * (size_t)ns->class_count,
         sizeof(CxxClass*) * (size_t)(ns->class_count + 1));

@@ -27,7 +27,7 @@ static CxxClass* active_class;
 static AST* active_ast;
 
 const char* rcc_parser_cxx_current_namespace_identity(void) {
-    return cxx_namespace_qualified_name(active_namespace);
+    return cxx_namespace_typeinfo_identity(active_namespace);
 }
 
 /* A leading alignas belongs to a class declaration only when its complete
@@ -5379,7 +5379,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
  * already been consumed.  Explicit template specializations use this same
  * path so their class body cannot be mistaken for a primary-template body. */
 static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
-                                       const char* class_name) {
+                                       const char* class_name,
+                                       const char* local_type_identity) {
     bool has_definition = false;
     bool is_final;
 
@@ -5390,6 +5391,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
     CxxClass* cls = cxx_class_new(class_name, loc);
     cls->is_struct = is_struct;
     cls->is_final = is_final;
+    cls->type->cxx_scope_identity = local_type_identity;
     cls->pack_alignment = rcc_parser_pack_alignment();
 
     /* Inheritance */
@@ -5533,7 +5535,7 @@ CxxClass* parse_cxx_class(void) {
     bool is_struct = previous()->type == TOK_STRUCT;
     Token* name_tok = expect(TOK_IDENT, "class name");
     const char* class_name = name_tok ? name_tok->value.str_val : "anonymous";
-    return parse_cxx_class_named(loc, is_struct, class_name);
+    return parse_cxx_class_named(loc, is_struct, class_name, NULL);
 }
 
 /* ═══════════════════════════════════════
@@ -5641,6 +5643,7 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
     set_cxx_link_name(declaration, ns, false);
     if (declaration->kind == DECL_FUNC && ns) {
         declaration->func_cxx_namespace = cxx_namespace_qualified_name(ns);
+        declaration->func_cxx_namespace_scope = ns;
     }
     qualified_name = namespace_qualified_decl_name(
         ns, declaration->name, declaration->loc);
@@ -5869,6 +5872,13 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
 
     CxxNamespace* ns = cxx_namespace_new(ns_name, loc);
     ns->is_inline_namespace = is_inline_namespace;
+    if (!ns_name) {
+        const char* translation_unit = g_opts.input_file[0]
+            ? g_opts.input_file
+            : (loc.filename ? loc.filename : "<translation-unit>");
+        ns->is_anonymous_namespace = true;
+        ns->anonymous_typeinfo_identity = rcc_intern(translation_unit);
+    }
     if (parent) cxx_namespace_add_namespace(parent, ns);
 
     /* C++17 permits a nested namespace definition to spell the namespace
@@ -7361,7 +7371,8 @@ CxxTemplate* parse_cxx_template(void) {
         tmpl->templated_class = NULL;
         specialized_class = parse_cxx_class_named(
             loc, is_struct,
-            name_token ? name_token->value.str_val : "specialization");
+            name_token ? name_token->value.str_val : "specialization",
+            NULL);
         if (specialized_class && explicit_class_alignment > 0) {
             cxx_class_apply_explicit_alignment(
                 specialized_class, explicit_class_alignment, loc);
@@ -7712,13 +7723,17 @@ static CxxClass* find_class(const char* qualified_name) {
     char* next;
     CxxNamespace* ns;
     const char* name = qualified_name;
+    bool explicitly_global;
 
     if (!name) return NULL;
+    explicitly_global = name[0] == ':' && name[1] == ':';
     while (name[0] == ':' && name[1] == ':') name += 2;
     if (!strstr(name, "::")) {
-        for (ns = active_namespace; ns; ns = ns->parent) {
-            CxxClass* result = namespace_class(ns, name);
-            if (result) return result;
+        if (!explicitly_global) {
+            for (ns = active_namespace; ns; ns = ns->parent) {
+                CxxClass* result = namespace_class(ns, name);
+                if (result) return result;
+            }
         }
         return namespace_class(g_global_namespace, name);
     }
@@ -11872,6 +11887,10 @@ static Type* parse_cxx_type_spec(void) {
             known_class = active_class;
         }
         Type* known_type = rcc_parser_lookup_type(name);
+        if (known_type && known_type->cxx_class &&
+            known_type->cxx_scope_identity) {
+            known_class = known_type->cxx_class;
+        }
         if (tmpl && !check(TOK_LT)) {
             bool direct_initialization = check(TOK_IDENT) &&
                 (check_next(TOK_LPAREN) || check_next(TOK_LBRACE));
@@ -13299,6 +13318,49 @@ static bool cxx_unsupported_module_directive(void) {
          cxx_identifier_is(parser.cur->next, "import"));
 }
 
+static bool cxx_local_class_definition_starts(void) {
+    Token* cursor = parser.cur;
+    if (!cursor || (cursor->type != TOK_CLASS &&
+                    cursor->type != TOK_STRUCT)) {
+        return false;
+    }
+    cursor = cursor->next;
+    if (!cursor || cursor->type != TOK_IDENT) return false;
+    cursor = cursor->next;
+    if (cursor && cursor->type == TOK_FINAL) cursor = cursor->next;
+    return cursor && (cursor->type == TOK_LBRACE ||
+                      cursor->type == TOK_COLON);
+}
+
+static Stmt* parse_cxx_local_class_definition(void) {
+    SourceLoc loc = peek()->loc;
+    bool is_struct = match(TOK_STRUCT);
+    Token* name;
+    CxxClass* cls;
+    if (!is_struct) expect(TOK_CLASS, "class");
+    name = expect(TOK_IDENT, "local class name");
+    if (!name) {
+        return stmt_null(loc);
+    }
+    cls = parse_cxx_class_named(
+        loc, is_struct, name->value.str_val,
+        rcc_parser_new_local_type_identity());
+    if (active_template) {
+        rcc_error(loc,
+                  "local class identities in function templates are not supported");
+    }
+    for (struct CxxMember* member = cls ? cls->members : NULL;
+         member; member = member->next) {
+        if (member->method ||
+            (member->decl && member->decl->kind == DECL_FUNC)) {
+            rcc_error(member->decl ? member->decl->loc : loc,
+                      "local class member functions are not supported");
+            break;
+        }
+    }
+    return stmt_null(loc);
+}
+
 static Stmt* parse_cxx_statement(void) {
     const char* coroutine_keyword = cxx_unsupported_coroutine_keyword();
     if (coroutine_keyword) {
@@ -13308,6 +13370,10 @@ static Stmt* parse_cxx_statement(void) {
                   coroutine_keyword);
         cxx_skip_unsupported_statement();
         return stmt_null(loc);
+    }
+
+    if (cxx_local_class_definition_starts()) {
+        return parse_cxx_local_class_definition();
     }
 
     if (check(TOK_CONSTEXPR)) return parse_declaration();
@@ -13597,6 +13663,7 @@ static bool cxx_abbreviated_function_starts(void) {
 /* Parse C++ translation unit */
 AST* rcc_parse_cxx(TokenList* tokens) {
     rcc_parser_set_cxx_mode(true);
+    rcc_parser_reset_type_scopes();
     rcc_parser_initialize_builtin_va_list_type();
     parser.cur = tokens->head;
     parser.prev = NULL;

@@ -180,6 +180,26 @@
           "drv": "7384ee994674934f67d7d030a50213379e3852b9ef9ac7783371db290ef0ed70"
         }
       }
+    },
+    {
+      "id": "cxx20-typeid-scopes",
+      "language": "C++20",
+      "source": "tests/cxx_typeid_named_types.cpp",
+      "flags": ["-std=c++20"],
+      "sha256": {
+        "i686-unknown-rinos": {
+          "ro": "e80cac8808007e7b31cd9e106dbff7b88e033674f2ecca25bd4e148c892b864b",
+          "rin": "e2e72810717e1603403f6def19924cfb91045ee7d9622721d7efea27162b5787",
+          "rll": "25781d1f71d4d40bc8db6ac6c34e6292ac869e5163c136a5d1a4058abe358dc3",
+          "drv": "51d96540df4dfa9a020886405d0de55ed018207b4eed3425c152e6a5d4558a5e"
+        },
+        "x86_64-unknown-rinos": {
+          "ro": "5bacc804fba1b057f848e7e34c585bc365cbcdd525a68a9661ecda9d0dc4689e",
+          "rin": "8c3d3ae36a7be2b4f4af59474f06efa26787fbf63f489ffe845955b90fd65ae8",
+          "rll": "f6c06a6e58b2d67e9ad81a5e1c8f4ebbea3485ff93153749b989767454c7548a",
+          "drv": "b565ed631a81e73753ebc29a058d834e076e6acd16f684293440c6cc8346d6a5"
+        }
+      }
     }
   ]
 }

@@ -6077,21 +6077,49 @@ test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-deep)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-named-types)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-composite)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-local-scope)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeinfo-api)
 	$(call CXX_WINDOWS_ENTRY_TWO_TU_TEST,cxx-typeid,cxx_typeid.cpp,cxx_typeid_peer.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-char-type-identity,cxx_char_type_identity.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid-deep,cxx_typeid_deep.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid-named-types,cxx_typeid_named_types.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid-composite,cxx_typeid_composite.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-typeid-local-scope/x86.s tests/cxx_typeid_local_scope.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-typeid-local-scope/x86-peer.s tests/cxx_typeid_local_scope_peer.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid-local-scope/x86.o $(TEST_OUT)/cxx-typeid-local-scope/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid-local-scope/x86-peer.o $(TEST_OUT)/cxx-typeid-local-scope/x86-peer.s
+	objdump -f $(TEST_OUT)/cxx-typeid-local-scope/x86.o > $(TEST_OUT)/cxx-typeid-local-scope/x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-typeid-local-scope/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-typeid-local-scope/x64.s tests/cxx_typeid_local_scope.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-typeid-local-scope/x64-peer.s tests/cxx_typeid_local_scope_peer.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-typeid-local-scope/x64.o $(TEST_OUT)/cxx-typeid-local-scope/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-typeid-local-scope/x64-peer.o $(TEST_OUT)/cxx-typeid-local-scope/x64-peer.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-typeid-local-scope/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-typeid-local-scope/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/cxx-typeid-local-scope/x64.o $(TEST_OUT)/cxx-typeid-local-scope/x64-peer.o
+	$(TEST_OUT)/cxx-typeid-local-scope/x64-host
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeinfo-api,cxx_typeinfo_api.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/x86.ro tests/cxx_typeid.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/x86-peer.ro tests/cxx_typeid_peer.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/x64.ro tests/cxx_typeid.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/x64-peer.ro tests/cxx_typeid_peer.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid-named-types/x86.ro tests/cxx_typeid_named_types.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid-named-types/x64.ro tests/cxx_typeid_named_types.cpp
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid/x86.rin $(TEST_OUT)/cxx-typeid/x86.ro $(TEST_OUT)/cxx-typeid/x86-peer.ro
 	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid/x64.rin $(TEST_OUT)/cxx-typeid/x64.ro $(TEST_OUT)/cxx-typeid/x64-peer.ro
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid-named-types/x86.rin $(TEST_OUT)/cxx-typeid-named-types/x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid-named-types/x64.rin $(TEST_OUT)/cxx-typeid-named-types/x64.ro
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned $(TEST_OUT)/cxx-typeid/x86.rin
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned $(TEST_OUT)/cxx-typeid/x64.rin
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid-local-scope/x86.ro tests/cxx_typeid_local_scope.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid-local-scope/x86-peer.ro tests/cxx_typeid_local_scope_peer.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid-local-scope/x64.ro tests/cxx_typeid_local_scope.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid-local-scope/x64-peer.ro tests/cxx_typeid_local_scope_peer.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid-local-scope/x86.rin $(TEST_OUT)/cxx-typeid-local-scope/x86.ro $(TEST_OUT)/cxx-typeid-local-scope/x86-peer.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 -e main -o $(TEST_OUT)/cxx-typeid-local-scope/x64.rin $(TEST_OUT)/cxx-typeid-local-scope/x64.ro $(TEST_OUT)/cxx-typeid-local-scope/x64-peer.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned $(TEST_OUT)/cxx-typeid-local-scope/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned $(TEST_OUT)/cxx-typeid-local-scope/x64.rin
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned $(TEST_OUT)/cxx-typeid-named-types/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned $(TEST_OUT)/cxx-typeid-named-types/x64.rin
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/invalid-x86.ro tests/cxx_typeid_polymorphic_invalid.cpp,$(TEST_OUT)/cxx-typeid/invalid-x86.log)
 	$(GREP) -F -q "typeid of a polymorphic expression requires a glvalue" $(TEST_OUT)/cxx-typeid/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/invalid-x64.ro tests/cxx_typeid_polymorphic_invalid.cpp,$(TEST_OUT)/cxx-typeid/invalid-x64.log)
@@ -6104,6 +6132,12 @@ test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(GREP) -F -q "type_info::hash_code() takes no arguments" $(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
 	$(GREP) -F -q "type_info::name() takes no arguments" $(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
 	$(GREP) -F -q "comparison requires arithmetic or pointer operands" $(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x86.ro tests/cxx_typeid_local_class_methods_invalid.cpp,$(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x86.log)
+	$(GREP) -F -q "local class member functions are not supported" $(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x86.log
+	$(GREP) -F -q "local class identities in function templates are not supported" $(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x64.ro tests/cxx_typeid_local_class_methods_invalid.cpp,$(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x64.log)
+	$(GREP) -F -q "local class member functions are not supported" $(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x64.log
+	$(GREP) -F -q "local class identities in function templates are not supported" $(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x64.log
 	@echo "C++ static typeid identity tests completed"
 else
 test-cxx-typeid: test-cxx-typeid-posix
@@ -6115,11 +6149,36 @@ test-cxx-typeid-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-deep)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-named-types)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-composite)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-local-scope)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeinfo-api)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-char-type-identity,cxx_char_type_identity.cpp)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-typeid-deep,cxx_typeid_deep.cpp)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-typeid-named-types,cxx_typeid_named_types.cpp)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-typeid-composite,cxx_typeid_composite.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-typeid-local-scope/x86.s \
+		tests/cxx_typeid_local_scope.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-typeid-local-scope/x86-peer.s \
+		tests/cxx_typeid_local_scope_peer.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid-local-scope/x86.o \
+		$(TEST_OUT)/cxx-typeid-local-scope/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-typeid-local-scope/x86-peer.o \
+		$(TEST_OUT)/cxx-typeid-local-scope/x86-peer.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-typeid-local-scope/x64.s \
+		tests/cxx_typeid_local_scope.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-typeid-local-scope/x64-peer.s \
+		tests/cxx_typeid_local_scope_peer.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-typeid-local-scope/x64.o \
+		$(TEST_OUT)/cxx-typeid-local-scope/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-typeid-local-scope/x64-peer.o \
+		$(TEST_OUT)/cxx-typeid-local-scope/x64-peer.s
+	$(CC) -no-pie -o $(TEST_OUT)/cxx-typeid-local-scope/x64 \
+		$(TEST_OUT)/cxx-typeid-local-scope/x64.o \
+		$(TEST_OUT)/cxx-typeid-local-scope/x64-peer.o
+	$(TEST_OUT)/cxx-typeid-local-scope/x64
 	$(call CXX_POSIX_ENTRY_TEST,cxx-typeinfo-api,cxx_typeinfo_api.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-typeid/x86.s tests/cxx_typeid.cpp
@@ -6151,6 +6210,12 @@ test-cxx-typeid-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/cxx-typeid/x64.ro tests/cxx_typeid.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-typeid/x64-peer.ro tests/cxx_typeid_peer.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-named-types/x86.ro \
+		tests/cxx_typeid_named_types.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-named-types/x64.ro \
+		tests/cxx_typeid_named_types.cpp
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-e main -o $(TEST_OUT)/cxx-typeid/x86.rin \
 		$(TEST_OUT)/cxx-typeid/x86.ro $(TEST_OUT)/cxx-typeid/x86-peer.ro
@@ -6161,6 +6226,40 @@ test-cxx-typeid-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/cxx-typeid/x86.rin
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
 		$(TEST_OUT)/cxx-typeid/x64.rin
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-local-scope/x86.ro \
+		tests/cxx_typeid_local_scope.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-local-scope/x86-peer.ro \
+		tests/cxx_typeid_local_scope_peer.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-local-scope/x64.ro \
+		tests/cxx_typeid_local_scope.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid-local-scope/x64-peer.ro \
+		tests/cxx_typeid_local_scope_peer.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e main -o $(TEST_OUT)/cxx-typeid-local-scope/x86.rin \
+		$(TEST_OUT)/cxx-typeid-local-scope/x86.ro \
+		$(TEST_OUT)/cxx-typeid-local-scope/x86-peer.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e main -o $(TEST_OUT)/cxx-typeid-local-scope/x64.rin \
+		$(TEST_OUT)/cxx-typeid-local-scope/x64.ro \
+		$(TEST_OUT)/cxx-typeid-local-scope/x64-peer.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid-local-scope/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid-local-scope/x64.rin
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e main -o $(TEST_OUT)/cxx-typeid-named-types/x86.rin \
+		$(TEST_OUT)/cxx-typeid-named-types/x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e main -o $(TEST_OUT)/cxx-typeid-named-types/x64.rin \
+		$(TEST_OUT)/cxx-typeid-named-types/x64.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid-named-types/x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/cxx-typeid-named-types/x64.rin
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-typeid/invalid-x86.ro \
 		tests/cxx_typeid_polymorphic_invalid.cpp \
@@ -6193,6 +6292,22 @@ test-cxx-typeid-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
 	$(GREP) -q "comparison requires arithmetic or pointer operands" \
 		$(TEST_OUT)/cxx-typeid/hash-invalid-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x86.ro \
+		tests/cxx_typeid_local_class_methods_invalid.cpp \
+		>$(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x86.log 2>&1
+	$(GREP) -q "local class member functions are not supported" \
+		$(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x86.log
+	$(GREP) -q "local class identities in function templates are not supported" \
+		$(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x64.ro \
+		tests/cxx_typeid_local_class_methods_invalid.cpp \
+		>$(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x64.log 2>&1
+	$(GREP) -q "local class member functions are not supported" \
+		$(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x64.log
+	$(GREP) -q "local class identities in function templates are not supported" \
+		$(TEST_OUT)/cxx-typeid/local-class-methods-invalid-x64.log
 	@echo "C++ static typeid identity tests completed"
 
 ifeq ($(OS),Windows_NT)

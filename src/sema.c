@@ -464,12 +464,16 @@ static void sema_cxx_typeinfo_name_append_type(
                     builder, type->cxx_namespace);
                 sema_cxx_typeinfo_name_append_text(builder, type->tag);
             }
+            sema_cxx_typeinfo_name_append_text(
+                builder, type->cxx_scope_identity);
             break;
         case TYPE_ENUM:
             sema_cxx_typeinfo_name_append_char(builder, 'E');
             sema_cxx_typeinfo_name_append_text(
                 builder, type->cxx_namespace);
             sema_cxx_typeinfo_name_append_text(builder, type->enum_tag);
+            sema_cxx_typeinfo_name_append_text(
+                builder, type->cxx_scope_identity);
             sema_cxx_typeinfo_name_append_char(
                 builder, type->enum_is_scoped ? 'C' : 'U');
             break;
@@ -498,10 +502,45 @@ static void sema_cxx_typeinfo_name_append_type(
     }
 }
 
+static bool sema_cxx_typeinfo_has_local_scope(const Type* type) {
+    const TypeParam* parameter;
+    if (!type) return false;
+    switch (type->kind) {
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+        case TYPE_ENUM:
+            return type->cxx_scope_identity != NULL;
+        case TYPE_PTR:
+            return sema_cxx_typeinfo_has_local_scope(type->base) ||
+                   (type->cxx_is_member_pointer &&
+                    sema_cxx_typeinfo_has_local_scope(
+                        type->cxx_member_pointer_owner));
+        case TYPE_ARRAY:
+        case TYPE_VECTOR:
+            return sema_cxx_typeinfo_has_local_scope(type->base);
+        case TYPE_FUNC:
+            if (sema_cxx_typeinfo_has_local_scope(type->ret_type)) {
+                return true;
+            }
+            for (parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                if (sema_cxx_typeinfo_has_local_scope(parameter->type)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return false;
+    }
+}
+
 static const char* sema_cxx_typeinfo_canonical_symbol(Type* type) {
-    static const char prefix[] = "__rcc_typeinfo_type_";
+    static const char external_prefix[] = "__rcc_typeinfo_type_";
+    static const char local_prefix[] = "__rcc_typeinfo_local_type_";
     CxxTypeInfoNameBuilder builder = {0};
-    size_t prefix_length = sizeof(prefix) - 1u;
+    const char* prefix = sema_cxx_typeinfo_has_local_scope(type)
+        ? local_prefix : external_prefix;
+    size_t prefix_length = strlen(prefix);
     const char* interned;
     sema_cxx_typeinfo_name_append(&builder, prefix, prefix_length);
     sema_cxx_typeinfo_name_append_type(&builder, type, true);
@@ -1289,6 +1328,9 @@ static Symbol* sema_cxx_lookup_name(const char* name, SourceLoc use_loc) {
 static CxxNamespace* sema_decl_namespace(Decl* decl) {
     CxxNamespace* global_namespace = sema_cxx_global_namespace();
     if (!global_namespace || !decl) return global_namespace;
+    if (decl->kind == DECL_FUNC && decl->func_cxx_namespace_scope) {
+        return decl->func_cxx_namespace_scope;
+    }
     if (decl->kind == DECL_FUNC && decl->func_cxx_namespace) {
         CxxNamespace* defining_namespace = cxx_namespace_find(
             global_namespace, decl->func_cxx_namespace);
