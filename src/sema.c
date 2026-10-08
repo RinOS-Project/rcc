@@ -319,6 +319,16 @@ static bool sema_cxx_is_polymorphic(Type* type) {
     return cls && (cls->vtable_size > 0 || cls->secondary_vtable_count > 0);
 }
 
+static uint64_t sema_cxx_typeinfo_hash_u64(uint64_t hash,
+                                           uint64_t value) {
+    unsigned byte;
+    for (byte = 0; byte < 8u; ++byte) {
+        hash ^= (uint8_t)(value >> (byte * 8u));
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
 static uint64_t sema_cxx_typeinfo_hash_text(uint64_t hash,
                                             const char* text) {
     if (!text) return hash ^ UINT64_C(0xff);
@@ -329,32 +339,56 @@ static uint64_t sema_cxx_typeinfo_hash_text(uint64_t hash,
     return hash ^ UINT64_C(0x9d);
 }
 
-static uint64_t sema_cxx_typeinfo_hash(const Type* type, unsigned depth) {
+static uint64_t sema_cxx_typeinfo_hash_type(const Type* type,
+                                            bool ignore_top_level_cv) {
     uint64_t hash;
-    if (!type || depth > 32u) return UINT64_C(0x4f1bbcdcaa55ee11);
+    const TypeParam* parameter;
+    uint64_t parameter_count = 0;
+    if (!type) return UINT64_C(0x4f1bbcdcaa55ee11);
     hash = UINT64_C(1469598103934665603);
-    hash ^= (uint64_t)type->kind;
-    hash *= UINT64_C(1099511628211);
-    hash ^= (uint64_t)(uint32_t)type->size;
-    hash *= UINT64_C(1099511628211);
-    hash ^= (uint64_t)(uint32_t)type->align;
-    hash *= UINT64_C(1099511628211);
-    hash ^= type->is_unsigned ? UINT64_C(0x31) : UINT64_C(0x17);
-    hash *= UINT64_C(1099511628211);
+    hash = sema_cxx_typeinfo_hash_u64(hash, (uint64_t)type->kind);
+    hash = sema_cxx_typeinfo_hash_u64(
+        hash, (uint64_t)(uint32_t)type->size);
+    hash = sema_cxx_typeinfo_hash_u64(
+        hash, (uint64_t)(uint32_t)type->align);
+    hash = sema_cxx_typeinfo_hash_u64(
+        hash, type->is_unsigned ? UINT64_C(1) : UINT64_C(0));
+    if (!ignore_top_level_cv) {
+        hash = sema_cxx_typeinfo_hash_u64(
+            hash, type->is_const ? UINT64_C(1) : UINT64_C(0));
+        hash = sema_cxx_typeinfo_hash_u64(
+            hash, type->is_volatile ? UINT64_C(1) : UINT64_C(0));
+    }
+    hash = sema_cxx_typeinfo_hash_u64(
+        hash, type->is_atomic ? UINT64_C(1) : UINT64_C(0));
+    hash = sema_cxx_typeinfo_hash_u64(
+        hash, type->is_restrict ? UINT64_C(1) : UINT64_C(0));
     switch (type->kind) {
         case TYPE_PTR:
+            hash = sema_cxx_typeinfo_hash_u64(
+                hash, type->cxx_is_member_pointer ? UINT64_C(1)
+                                                  : UINT64_C(0));
+            if (type->cxx_is_member_pointer) {
+                hash ^= sema_cxx_typeinfo_hash_type(
+                    type->cxx_member_pointer_owner, true);
+                hash *= UINT64_C(1099511628211);
+            }
+            hash ^= sema_cxx_typeinfo_hash_type(type->base, false);
+            hash *= UINT64_C(1099511628211);
+            break;
         case TYPE_ARRAY:
         case TYPE_VECTOR:
-            hash ^= sema_cxx_typeinfo_hash(type->base, depth + 1u);
+            hash ^= sema_cxx_typeinfo_hash_type(type->base, false);
             hash *= UINT64_C(1099511628211);
             if (type->kind == TYPE_ARRAY || type->kind == TYPE_VECTOR) {
-                hash ^= (uint64_t)(uint32_t)type->array_len;
-                hash *= UINT64_C(1099511628211);
+                hash = sema_cxx_typeinfo_hash_u64(
+                    hash, (uint64_t)(uint32_t)type->array_len);
             }
             break;
         case TYPE_STRUCT:
         case TYPE_UNION:
             hash = sema_cxx_typeinfo_hash_text(hash, type->tag);
+            hash = sema_cxx_typeinfo_hash_text(hash, type->cxx_namespace);
             if (type->cxx_typeinfo_symbol) {
                 hash = sema_cxx_typeinfo_hash_text(
                     hash, type->cxx_typeinfo_symbol);
@@ -362,10 +396,30 @@ static uint64_t sema_cxx_typeinfo_hash(const Type* type, unsigned depth) {
             break;
         case TYPE_ENUM:
             hash = sema_cxx_typeinfo_hash_text(hash, type->enum_tag);
+            hash = sema_cxx_typeinfo_hash_text(hash, type->cxx_namespace);
+            hash = sema_cxx_typeinfo_hash_u64(
+                hash, type->enum_is_scoped ? UINT64_C(1) : UINT64_C(0));
+            if (type->enum_underlying_type) {
+                hash ^= sema_cxx_typeinfo_hash_type(
+                    type->enum_underlying_type, true);
+                hash *= UINT64_C(1099511628211);
+            }
             break;
         case TYPE_FUNC:
-            hash ^= sema_cxx_typeinfo_hash(type->ret_type, depth + 1u);
+            hash ^= sema_cxx_typeinfo_hash_type(type->ret_type, false);
             hash *= UINT64_C(1099511628211);
+            hash = sema_cxx_typeinfo_hash_u64(
+                hash, type->has_prototype ? UINT64_C(1) : UINT64_C(0));
+            hash = sema_cxx_typeinfo_hash_u64(
+                hash, type->variadic ? UINT64_C(1) : UINT64_C(0));
+            for (parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                hash ^= sema_cxx_typeinfo_hash_type(
+                    parameter->type, true);
+                hash *= UINT64_C(1099511628211);
+                ++parameter_count;
+            }
+            hash = sema_cxx_typeinfo_hash_u64(hash, parameter_count);
             break;
         default:
             break;
@@ -373,10 +427,21 @@ static uint64_t sema_cxx_typeinfo_hash(const Type* type, unsigned depth) {
     return hash;
 }
 
+static uint64_t sema_cxx_typeinfo_hash(const Type* type) {
+    while (type && type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+    }
+    return sema_cxx_typeinfo_hash_type(type, true);
+}
+
 static const char* sema_cxx_typeinfo_symbol(Type* type, SourceLoc loc) {
     char* symbol;
     uint64_t hash;
     if (!type) return NULL;
+    while (type->kind == TYPE_PTR && type->is_reference) {
+        type = type->base;
+        if (!type) return NULL;
+    }
     if (type->cxx_typeinfo_symbol) return type->cxx_typeinfo_symbol;
     if (type->kind == TYPE_VOID || type->kind == TYPE_FUNC ||
         type->size <= 0) {
@@ -384,7 +449,7 @@ static const char* sema_cxx_typeinfo_symbol(Type* type, SourceLoc loc) {
                   "typeid requires a complete object type operand");
         return NULL;
     }
-    hash = sema_cxx_typeinfo_hash(type, 0u);
+    hash = sema_cxx_typeinfo_hash(type);
     symbol = ast_arena_alloc(32u);
     if (snprintf(symbol, 32u, "__rcc_typeinfo_%016llx",
                  (unsigned long long)hash) < 0) {

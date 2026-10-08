@@ -553,6 +553,11 @@
         placements on i686/AMD64.
   - [x] `typeid(T)`と非多相式の静的typeinfo identityをi686/AMD64で生成し、
         同一型のidentity共有・異なる型の分離を実行回帰。
+  - [x] static typeinfo identity hashで参照型と最上位cv修飾を正規化し、
+        入れ子のcv修飾・関数pointer引数signature・pointer-to-memberのowner
+        classを区別し、32段を超えるpointer型も末端まで識別する。
+        const/non-const pointee、function signature、member owner、reference、
+        deep pointerのidentityを実行テストし、両archの`.ro`/`.rin`を検証。
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

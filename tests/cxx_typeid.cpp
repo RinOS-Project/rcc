@@ -3,6 +3,24 @@ public:
     virtual int value() { return 7; }
 };
 
+struct TypeIdMemberOwnerA {
+    int value;
+};
+
+struct TypeIdMemberOwnerB {
+    int value;
+};
+
+typedef int **************************************** TypeIdDeepInt;
+typedef long **************************************** TypeIdDeepLong;
+
+int (*type_id_function_int)(int);
+int (*type_id_function_long)(long);
+int TypeIdMemberOwnerA::*type_id_member_a;
+int TypeIdMemberOwnerB::*type_id_member_b;
+TypeIdDeepInt type_id_deep_int;
+TypeIdDeepLong type_id_deep_long;
+
 extern "C" int main() {
     const char* int_name = typeid(int).name();
     const char* long_name = typeid(long).name();
@@ -27,6 +45,13 @@ extern "C" int main() {
             &typeid(int) != &typeid(long) &&
             &typeid(TypeIdBase) == &typeid(TypeIdBase) &&
             &typeid(1) == &typeid(int) &&
+            &typeid(const int*) != &typeid(int*) &&
+            &typeid(int* const) == &typeid(int*) &&
+            &typeid(int&) == &typeid(int) &&
+            &typeid(type_id_function_int) !=
+                &typeid(type_id_function_long) &&
+            &typeid(type_id_member_a) != &typeid(type_id_member_b) &&
+            &typeid(type_id_deep_int) != &typeid(type_id_deep_long) &&
             typeid(int) == typeid(int) &&
             typeid(int) != typeid(long) &&
             int_name && int_name[0] != '\0' &&
