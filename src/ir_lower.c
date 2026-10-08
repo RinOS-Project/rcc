@@ -402,11 +402,17 @@ static bool lower_type(const Type* type, RccIrType* result) {
             *result = rcc_ir_type_integer((uint16_t)(type->size * 8));
             return true;
         case TYPE_FLOAT:
-            if (type->size != 4) return false;
+            /* The verified backend currently uses SSE scalar FP operations
+             * only on x86-64; i686 x87 values stay on the full legacy path. */
+            if (g_opts.target_arch != ARCH_X64 || type->size != 4) {
+                return false;
+            }
             *result = rcc_ir_type_float(32u);
             return true;
         case TYPE_DOUBLE:
-            if (type->size != 8) return false;
+            if (g_opts.target_arch != ARCH_X64 || type->size != 8) {
+                return false;
+            }
             *result = rcc_ir_type_float(64u);
             return true;
         case TYPE_PTR:
