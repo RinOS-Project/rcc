@@ -404,6 +404,11 @@
         initializer expressions; dual-architecture generation and x64 pthread
         execution pass in `test-cxx-static-reference-temporaries-posix` and
         `make CC=gcc test-ci`.
+  - [x] Verify an automatic-duration `const Base&` bound through the same
+        conversion retains the complete `Derived` until scope exit and destroys
+        it derived-before-base. Both target objects compile and x64 pthread
+        execution checks cleanup before TLS destructors in
+        `test-cxx-static-reference-temporaries-posix`.
   - [x] Extend static-duration lifetime through direct member subobjects and
         explicit derived-to-base xvalue bindings, including virtual bases and
         class-prvalue sources selected by comma/conditional expressions.

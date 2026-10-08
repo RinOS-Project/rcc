@@ -106,6 +106,9 @@ extern "C" int cxx_static_reference_tls_worker(int value) {
         &thread_local_converted_base_reference;
     if (converted_first != converted_second ||
         converted_first->value != value + 40) return 3;
+    const ThreadLocalReferenceBase& local_converted_reference =
+        ThreadLocalReferenceConversionSource{value + 30};
+    if (local_converted_reference.value != value + 50) return 4;
     return 0;
 }
 #endif
