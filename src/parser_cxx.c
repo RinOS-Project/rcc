@@ -2556,6 +2556,34 @@ static bool cxx_is_empty_class_value_initializer(const Expr* initializer) {
            item->expr->kind == EXPR_INT_LIT && item->expr->int_val == 0;
 }
 
+/* Preserve a small direct-list initializer for a class member as constructor
+ * arguments.  Requiring scalar constants keeps the synthesized inherited
+ * constructor independent of the surrounding scope and makes both backends'
+ * existing argument binding sufficient. */
+static bool cxx_class_member_initializer_arguments(
+    Expr* initializer, ExprList** arguments, unsigned* argument_count) {
+    ExprList* item;
+    unsigned count = 0u;
+    if (!arguments || !argument_count) return false;
+    *arguments = NULL;
+    *argument_count = 0u;
+    if (!initializer || initializer->kind != EXPR_COMPOUND) return false;
+    if (initializer->compound_value_init) {
+        return cxx_is_empty_class_value_initializer(initializer);
+    }
+    for (item = initializer->compound_init; item; item = item->next) {
+        if (item->designator_kind != INIT_DESIGNATOR_NONE || !item->expr ||
+            !cxx_constructor_scalar_constant(item->expr) || count >= 31u) {
+            return false;
+        }
+        ++count;
+    }
+    if (count == 0u) return false;
+    *arguments = initializer->compound_init;
+    *argument_count = count;
+    return true;
+}
+
 static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
     if (!cls) return false;
     for (TypeParam* field = cls->fields; field; field = field->next) {
@@ -2563,12 +2591,23 @@ static bool cxx_inherited_constructor_member_supported(CxxClass* cls) {
         if (field->is_static) continue;
         if (type && type->cxx_class) {
             CxxClass* member_class = type->cxx_class;
-            if ((field->initializer &&
-                 !cxx_is_empty_class_value_initializer(field->initializer)) ||
-                !member_class->type ||
+            ExprList* initializer_arguments = NULL;
+            unsigned initializer_argument_count = 0u;
+            uint32_t constructor_mask;
+            if (field->initializer &&
+                !cxx_class_member_initializer_arguments(
+                    field->initializer, &initializer_arguments,
+                    &initializer_argument_count)) {
+                return false;
+            }
+            (void)initializer_arguments;
+            constructor_mask = lowerable_constructor_arity_mask(member_class);
+            if (!member_class->type ||
                 member_class->destructor_method ||
                 member_class->type->cleanup_function ||
-                (lowerable_constructor_arity_mask(member_class) & 1u) == 0u) {
+                initializer_argument_count >= 32u ||
+                (constructor_mask &
+                 (UINT32_C(1) << initializer_argument_count)) == 0u) {
                 return false;
             }
             continue;
@@ -2683,8 +2722,8 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
 
 /* Materialize only the bounded form of `using Base::Base`: public direct
  * non-virtual bases with scalar fields, safely lowerable class members, and
- * constant scalar or empty-brace class default member initializers.  The
- * synthesized constructor owns the derived object but delegates base
+ * constant scalar or bounded scalar-list class default member initializers.
+ * The synthesized constructor owns the derived object but delegates base
  * initialization to the original constructor, so no fake function body or
  * unresolved symbol is emitted. */
 static void cxx_materialize_inherited_constructors(CxxClass* cls) {
@@ -3098,12 +3137,25 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item->next = NULL;
             } else if (!item && field->type && field->type->cxx_class) {
                 CxxClass* member_class = field->type->cxx_class;
+                ExprList* member_arguments = NULL;
+                unsigned member_argument_count = 0u;
                 CxxConstructorInfo* member_constructor =
-                    cxx_find_base_constructor(member_class, 0);
+                    NULL;
+                if (field->initializer &&
+                    !cxx_class_member_initializer_arguments(
+                        field->initializer, &member_arguments,
+                        &member_argument_count)) {
+                    valid = false;
+                    break;
+                }
+                member_constructor = cxx_find_base_constructor(
+                    member_class, (int)member_argument_count);
                 if (!member_constructor || !member_class->type ||
                     member_class->destructor_method ||
                     member_class->type->cleanup_function ||
-                    (lowerable_constructor_arity_mask(member_class) & 1u) == 0u) {
+                    member_argument_count >= 32u ||
+                    (lowerable_constructor_arity_mask(member_class) &
+                     (UINT32_C(1) << member_argument_count)) == 0u) {
                     valid = false;
                     break;
                 }
@@ -3111,12 +3163,13 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 item->field = field->name;
                 item->base_type_pattern = NULL;
                 item->value = NULL;
-                item->arguments = NULL;
+                item->arguments = member_arguments;
                 item->constructor = member_constructor;
                 item->is_base_initializer = false;
                 item->is_virtual_base_initializer = false;
                 item->is_delegating_constructor = false;
-                item->is_default_member_initializer = false;
+                item->is_default_member_initializer =
+                    field->initializer != NULL;
                 item->is_pack_expansion = false;
                 item->next = NULL;
             }

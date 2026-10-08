@@ -336,7 +336,8 @@ tests or full relink were run for this metadata correction.
 2026-10-09 follow-up: inherited constructors now default-construct a derived
 class-type field when its zero-argument constructor is lowerable and the field
 has no destructor/cleanup obligation. Both target backends accept and emit this
-empty-argument member-constructor call. Empty-brace default member
-initializers for these fields use the same path. Arrays, non-empty class-field
-initializers, and destructor-bearing fields remain outside the bounded path.
+empty-argument member-constructor call. Empty-brace and scalar-constant
+direct-list default member initializers use the same path. Arrays, non-constant
+or non-scalar class-field initializers, and destructor-bearing fields remain
+outside the bounded path.
 `make SHELL=cmd.exe -B build-rcxx` passed; no tests or target objects were run.
