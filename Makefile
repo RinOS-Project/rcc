@@ -11894,6 +11894,16 @@ test-verified-cxx-reference-local: $(RCXX_TARGET)
 	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x64.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-reference-local-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-reference-local-x64.ro x64
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-reference-local)
 	$(call CXX_WINDOWS_ENTRY_TEST,verified-cxx-reference-local,verified_backend_cxx_reference_local.cpp)
 

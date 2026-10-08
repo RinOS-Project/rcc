@@ -1851,6 +1851,36 @@ static void verify_cxx_object(const char* path, bool execute)
     objfile_free(object);
 }
 
+static void verify_cxx_reference_local_object(const char* path,
+                                              uint16_t arch,
+                                              bool execute)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* entry_symbol;
+    size_t mapping_size;
+    void* memory;
+    void* address;
+    int (RINOS_ABI *entry)(void);
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    entry_symbol = objfile_find_symbol(object, "main");
+    assert(text != NULL && entry_symbol != NULL &&
+           entry_symbol->type == SYM_GLOBAL &&
+           entry_symbol->binding == BIND_CODE &&
+           entry_symbol->section == 0);
+    if (!execute) {
+        objfile_free(object);
+        return;
+    }
+    memory = map_text(object, text, &mapping_size);
+    address = symbol_address(memory, entry_symbol);
+    memcpy(&entry, &address, sizeof(entry));
+    assert(entry() == 0);
+    assert(verified_unmap(memory, mapping_size) == 0);
+    objfile_free(object);
+}
+
 static void verify_member_methods_object(const char* path, uint16_t arch,
                                          bool execute)
 {
@@ -2567,6 +2597,19 @@ static void verify_tls_object(const char* path, uint16_t arch,
 
 int main(int argc, char** argv)
 {
+    if (argc == 4 && strcmp(argv[1], "--cxx-reference-object") == 0) {
+        uint16_t arch;
+        if (strcmp(argv[3], "x86") == 0) {
+            arch = ARCH_X86;
+        } else {
+            assert(strcmp(argv[3], "x64") == 0);
+            arch = ARCH_X64;
+        }
+        verify_cxx_reference_local_object(
+            argv[2], arch, arch == ARCH_X64 && sizeof(void*) == 8u);
+        puts("Verified C++ local reference object passed");
+        return 0;
+    }
     if (argc == 4 &&
         (strcmp(argv[1], "--tls-object") == 0 ||
          strcmp(argv[1], "--tls-import-object") == 0)) {
