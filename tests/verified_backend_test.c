@@ -617,6 +617,10 @@ static void verify_sysv_va_aggregate_object(const char* path)
     ObjSymbol* mixed_aggregate_floating_call_symbol;
     ObjSymbol* mixed_aggregate_stack_call_symbol;
     ObjSymbol* mixed_aggregate_stack_integer_call_symbol;
+    ObjSymbol* named_mixed_aggregate_call_symbol;
+    ObjSymbol* named_mixed_aggregate_integer_call_symbol;
+    ObjSymbol* named_mixed_aggregate_stack_call_symbol;
+    ObjSymbol* named_mixed_aggregate_stack_integer_call_symbol;
     ObjSymbol* integer_overflow_symbol;
     ObjSymbol* mixed_overflow_symbol;
     ObjSymbol* mixed_sse_overflow_symbol;
@@ -642,6 +646,14 @@ static void verify_sysv_va_aggregate_object(const char* path)
         int, double, double, double, double, double,
         double, double, double, double);
     int (RINOS_ABI *mixed_aggregate_stack_integer_call)(
+        int, double, double, double, double, double,
+        double, double, double, double);
+    double (RINOS_ABI *named_mixed_aggregate_call)(int, double);
+    int (RINOS_ABI *named_mixed_aggregate_integer_call)(int, double);
+    double (RINOS_ABI *named_mixed_aggregate_stack_call)(
+        int, double, double, double, double, double,
+        double, double, double, double);
+    int (RINOS_ABI *named_mixed_aggregate_stack_integer_call)(
         int, double, double, double, double, double,
         double, double, double, double);
     int (RINOS_ABI *integer_overflow)(int, int, int, int, int, int, ...);
@@ -683,6 +695,14 @@ static void verify_sysv_va_aggregate_object(const char* path)
         object, "verified_sysv_va_mixed_aggregate_stack_call");
     mixed_aggregate_stack_integer_call_symbol = objfile_find_symbol(
         object, "verified_sysv_va_mixed_aggregate_stack_integer_call");
+    named_mixed_aggregate_call_symbol = objfile_find_symbol(
+        object, "verified_sysv_named_mixed_aggregate_call");
+    named_mixed_aggregate_integer_call_symbol = objfile_find_symbol(
+        object, "verified_sysv_named_mixed_aggregate_integer_call");
+    named_mixed_aggregate_stack_call_symbol = objfile_find_symbol(
+        object, "verified_sysv_named_mixed_aggregate_stack_call");
+    named_mixed_aggregate_stack_integer_call_symbol = objfile_find_symbol(
+        object, "verified_sysv_named_mixed_aggregate_stack_integer_call");
     integer_overflow_symbol = objfile_find_symbol(
         object, "verified_sysv_va_integer_aggregate_overflow");
     mixed_overflow_symbol = objfile_find_symbol(
@@ -735,6 +755,22 @@ static void verify_sysv_va_aggregate_object(const char* path)
            mixed_aggregate_stack_integer_call_symbol->type == SYM_GLOBAL &&
            mixed_aggregate_stack_integer_call_symbol->binding == BIND_CODE &&
            mixed_aggregate_stack_integer_call_symbol->section == 0);
+    assert(named_mixed_aggregate_call_symbol != NULL &&
+           named_mixed_aggregate_call_symbol->type == SYM_GLOBAL &&
+           named_mixed_aggregate_call_symbol->binding == BIND_CODE &&
+           named_mixed_aggregate_call_symbol->section == 0);
+    assert(named_mixed_aggregate_integer_call_symbol != NULL &&
+           named_mixed_aggregate_integer_call_symbol->type == SYM_GLOBAL &&
+           named_mixed_aggregate_integer_call_symbol->binding == BIND_CODE &&
+           named_mixed_aggregate_integer_call_symbol->section == 0);
+    assert(named_mixed_aggregate_stack_call_symbol != NULL &&
+           named_mixed_aggregate_stack_call_symbol->type == SYM_GLOBAL &&
+           named_mixed_aggregate_stack_call_symbol->binding == BIND_CODE &&
+           named_mixed_aggregate_stack_call_symbol->section == 0);
+    assert(named_mixed_aggregate_stack_integer_call_symbol != NULL &&
+           named_mixed_aggregate_stack_integer_call_symbol->type == SYM_GLOBAL &&
+           named_mixed_aggregate_stack_integer_call_symbol->binding == BIND_CODE &&
+           named_mixed_aggregate_stack_integer_call_symbol->section == 0);
     assert(integer_overflow_symbol != NULL &&
            integer_overflow_symbol->type == SYM_GLOBAL &&
            integer_overflow_symbol->binding == BIND_CODE &&
@@ -808,6 +844,19 @@ static void verify_sysv_va_aggregate_object(const char* path)
     address = symbol_address(memory, mixed_aggregate_stack_integer_call_symbol);
     memcpy(&mixed_aggregate_stack_integer_call, &address,
            sizeof(mixed_aggregate_stack_integer_call));
+    address = symbol_address(memory, named_mixed_aggregate_call_symbol);
+    memcpy(&named_mixed_aggregate_call, &address,
+           sizeof(named_mixed_aggregate_call));
+    address = symbol_address(memory, named_mixed_aggregate_integer_call_symbol);
+    memcpy(&named_mixed_aggregate_integer_call, &address,
+           sizeof(named_mixed_aggregate_integer_call));
+    address = symbol_address(memory, named_mixed_aggregate_stack_call_symbol);
+    memcpy(&named_mixed_aggregate_stack_call, &address,
+           sizeof(named_mixed_aggregate_stack_call));
+    address = symbol_address(
+        memory, named_mixed_aggregate_stack_integer_call_symbol);
+    memcpy(&named_mixed_aggregate_stack_integer_call, &address,
+           sizeof(named_mixed_aggregate_stack_integer_call));
     address = symbol_address(memory, integer_overflow_symbol);
     memcpy(&integer_overflow, &address, sizeof(integer_overflow));
     address = symbol_address(memory, mixed_overflow_symbol);
@@ -853,6 +902,14 @@ static void verify_sysv_va_aggregate_object(const char* path)
     assert(mixed_aggregate_stack_integer_call(
                19, 4.125, 1.0, 2.0, 3.0, 4.0,
                5.0, 6.0, 7.0, 8.0) == 19);
+    assert(named_mixed_aggregate_call(19, 4.125) == 4.125);
+    assert(named_mixed_aggregate_integer_call(19, 4.125) == 19);
+    assert(named_mixed_aggregate_stack_call(
+               19, 4.125, 1.0, 2.0, 3.0, 4.0,
+               5.0, 6.0, 7.0, 8.0) == 4.125);
+    assert(named_mixed_aggregate_stack_integer_call(
+               19, 4.125, 1.0, 2.0, 3.0, 4.0,
+               5.0, 6.0, 7.0, 8.0) == 19);
     assert(integer_overflow(1, 2, 3, 4, 5, 6, integer) == 137);
     assert(mixed_overflow(1, 2, 3, 4, 5, 6, mixed) == 4.125);
     assert(mixed_sse_overflow(
@@ -887,6 +944,8 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
     ObjSymbol* sse_symbol;
     ObjSymbol* mixed_gp_symbol;
     ObjSymbol* mixed_sse_symbol;
+    ObjSymbol* named_mixed_gp_symbol;
+    ObjSymbol* named_mixed_sse_symbol;
     size_t mapping_size;
     void* memory;
     void* address;
@@ -900,6 +959,11 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
     double (RINOS_ABI *mixed_sse_call)(
         double, double, double, double, double, double, double, double,
         int, double);
+    double (RINOS_ABI *named_mixed_gp_call)(
+        int, int, int, int, int, int, int, double);
+    double (RINOS_ABI *named_mixed_sse_call)(
+        double, double, double, double, double, double, double, double,
+        int, double);
     assert(object != NULL && object->arch == ARCH_X64 && sizeof(void*) == 8u);
     text = objfile_get_section(object, ".text");
     integer_symbol = objfile_find_symbol(
@@ -910,6 +974,10 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
         object, "verified_sysv_va_mixed_aggregate_gp_straddle_call");
     mixed_sse_symbol = objfile_find_symbol(
         object, "verified_sysv_va_mixed_aggregate_sse_straddle_call");
+    named_mixed_gp_symbol = objfile_find_symbol(
+        object, "verified_sysv_named_mixed_aggregate_gp_straddle_call");
+    named_mixed_sse_symbol = objfile_find_symbol(
+        object, "verified_sysv_named_mixed_aggregate_sse_straddle_call");
     assert(integer_symbol != NULL && integer_symbol->type == SYM_GLOBAL &&
            integer_symbol->binding == BIND_CODE && integer_symbol->section == 0);
     assert(sse_symbol != NULL && sse_symbol->type == SYM_GLOBAL &&
@@ -920,6 +988,14 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
     assert(mixed_sse_symbol != NULL && mixed_sse_symbol->type == SYM_GLOBAL &&
            mixed_sse_symbol->binding == BIND_CODE &&
            mixed_sse_symbol->section == 0);
+    assert(named_mixed_gp_symbol != NULL &&
+           named_mixed_gp_symbol->type == SYM_GLOBAL &&
+           named_mixed_gp_symbol->binding == BIND_CODE &&
+           named_mixed_gp_symbol->section == 0);
+    assert(named_mixed_sse_symbol != NULL &&
+           named_mixed_sse_symbol->type == SYM_GLOBAL &&
+           named_mixed_sse_symbol->binding == BIND_CODE &&
+           named_mixed_sse_symbol->section == 0);
     memory = map_text(object, text, &mapping_size);
     address = symbol_address(memory, integer_symbol);
     memcpy(&integer_call, &address, sizeof(integer_call));
@@ -929,10 +1005,18 @@ static void verify_sysv_va_aggregate_fallback_object(const char* path)
     memcpy(&mixed_gp_call, &address, sizeof(mixed_gp_call));
     address = symbol_address(memory, mixed_sse_symbol);
     memcpy(&mixed_sse_call, &address, sizeof(mixed_sse_call));
+    address = symbol_address(memory, named_mixed_gp_symbol);
+    memcpy(&named_mixed_gp_call, &address, sizeof(named_mixed_gp_call));
+    address = symbol_address(memory, named_mixed_sse_symbol);
+    memcpy(&named_mixed_sse_call, &address, sizeof(named_mixed_sse_call));
     assert(integer_call(1, 2, 3, 4, 5, 11, 47) == 47);
     assert(sse_call(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.5, 9.5) == 9.5);
     assert(mixed_gp_call(1, 2, 3, 4, 5, 6, 19, 4.125) == 23.125);
     assert(mixed_sse_call(
+               1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
+               19, 4.125) == 23.125);
+    assert(named_mixed_gp_call(1, 2, 3, 4, 5, 6, 19, 4.125) == 23.125);
+    assert(named_mixed_sse_call(
                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0,
                19, 4.125) == 23.125);
     assert(verified_unmap(memory, mapping_size) == 0);

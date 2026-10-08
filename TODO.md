@@ -896,13 +896,20 @@
         一方のbankだけが不足する境界ではaggregate全体を分割せずcomplete legacy objectへ
         fallbackし、C/C++の`-O0`/`-O2`でregister／全stack経路とlegacy境界経路を
         runtime検証。
+      - [x] nonvariadic x86_64 SysVのnamed trivial aggregate parameterをeightbyteごとの
+        INTEGER/SSE classでfunction entryとcall-site双方に分類する。C/C++の`-O0`/`-O2`で
+        register配置と全体stack配置を実行検証し、typed ABIで未対応のregister straddleは
+        complete legacy-object fallbackで実行確認。mixed GP/SSEのregister配置と両bank
+        exhaustion後のstack配置をfallbackなしで実行し、片bankだけの境界はlegacy objectで確認。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
         16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER
         eightbyte、最大2個のhomogeneous SSE eightbyte、または最大2個のmixed INTEGER/SSE
-        eightbyteを持つtrivial aggregateに限定される。MEMORY aggregate、
+        eightbyteを持つtrivial aggregateに限定される。nonvariadic named aggregate parametersも同じ
+        bounded INTEGER/SSE分類でregister／whole-stack loweringと実行検証を完了した。
+        MEMORY-class variadic caller、variadic functionのnamed aggregate parameters、
         3個以上のeightbyte、
-        FP/aggregate named parameter分類、残るadjusted-`va_list`形態は未実装であり、
+        bounded profile外のnamed aggregate layouts、残るadjusted-`va_list`形態は未実装であり、
         このparent checkboxは未完了のままにする。
   - [x] x86_64 SysVで`va_list*`を受け取るhelperの`va_arg(*p, T)`／
         `va_copy(local, *p)`をtyped SSAへlowerし、copy側の消費がsource cursorを

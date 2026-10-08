@@ -9,6 +9,79 @@ struct VerifiedSysvMixedAggregate {
     double floating;
 };
 
+double verified_sysv_named_mixed_aggregate_value(
+    struct VerifiedSysvMixedAggregate value)
+{
+    return value.floating;
+}
+
+int verified_sysv_named_mixed_aggregate_integer_value(
+    struct VerifiedSysvMixedAggregate value)
+{
+    return value.integer;
+}
+
+double verified_sysv_named_mixed_aggregate_call(int integer, double floating)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_named_mixed_aggregate_value(value);
+}
+
+int verified_sysv_named_mixed_aggregate_integer_call(
+    int integer, double floating)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_named_mixed_aggregate_integer_value(value);
+}
+
+double verified_sysv_named_mixed_aggregate_after_full_banks(
+    int a, int b, int c, int d, int e, int last,
+    double fa, double fb, double fc, double fd,
+    double fe, double ff, double fg, double flast,
+    struct VerifiedSysvMixedAggregate value)
+{
+    return value.floating;
+}
+
+int verified_sysv_named_mixed_aggregate_integer_after_full_banks(
+    int a, int b, int c, int d, int e, int last,
+    double fa, double fb, double fc, double fd,
+    double fe, double ff, double fg, double flast,
+    struct VerifiedSysvMixedAggregate value)
+{
+    return value.integer;
+}
+
+double verified_sysv_named_mixed_aggregate_stack_call(
+    int integer, double floating,
+    double fa, double fb, double fc, double fd,
+    double fe, double ff, double fg, double flast)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_named_mixed_aggregate_after_full_banks(
+        1, 2, 3, 4, 5, 6, fa, fb, fc, fd,
+        fe, ff, fg, flast, value);
+}
+
+int verified_sysv_named_mixed_aggregate_stack_integer_call(
+    int integer, double floating,
+    double fa, double fb, double fc, double fd,
+    double fe, double ff, double fg, double flast)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_named_mixed_aggregate_integer_after_full_banks(
+        1, 2, 3, 4, 5, 6, fa, fb, fc, fd,
+        fe, ff, fg, flast, value);
+}
+
 struct VerifiedSysvIntegerAggregate {
     int first;
     int second;

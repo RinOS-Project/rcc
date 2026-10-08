@@ -110,6 +110,44 @@ double verified_sysv_va_mixed_aggregate_sse_straddle_call(
         a, b, c, d, e, f, g, last, value);
 }
 
+double verified_sysv_named_mixed_aggregate_after_gp_full(
+    int a, int b, int c, int d, int e, int last,
+    struct VerifiedSysvMixedAggregate value)
+{
+    return (double)value.integer + value.floating;
+}
+
+double verified_sysv_named_mixed_aggregate_gp_straddle_call(
+    int a, int b, int c, int d, int e, int last,
+    int integer, double floating)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_named_mixed_aggregate_after_gp_full(
+        a, b, c, d, e, last, value);
+}
+
+double verified_sysv_named_mixed_aggregate_after_sse_full(
+    double a, double b, double c, double d,
+    double e, double f, double g, double last,
+    struct VerifiedSysvMixedAggregate value)
+{
+    return (double)value.integer + value.floating;
+}
+
+double verified_sysv_named_mixed_aggregate_sse_straddle_call(
+    double a, double b, double c, double d,
+    double e, double f, double g, double last,
+    int integer, double floating)
+{
+    struct VerifiedSysvMixedAggregate value;
+    value.integer = integer;
+    value.floating = floating;
+    return verified_sysv_named_mixed_aggregate_after_sse_full(
+        a, b, c, d, e, f, g, last, value);
+}
+
 #ifdef __cplusplus
 }
 #endif
