@@ -11915,6 +11915,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		>$(TEST_OUT)/verified-backend/member-methods-x86.log
 	$(GREP) -F -q 'Verified backend: 16 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/member-methods-x86.log
+	$(call CHECK_COUNT,incompatible return type,$(TEST_OUT)/verified-backend/member-methods-x86.log,0)
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/member-methods-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/member-methods-x64.ro \
@@ -11922,6 +11923,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		>$(TEST_OUT)/verified-backend/member-methods-x64.log
 	$(GREP) -F -q 'Verified backend: 16 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/member-methods-x64.log
+	$(call CHECK_COUNT,incompatible return type,$(TEST_OUT)/verified-backend/member-methods-x64.log,0)
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/member-methods-x64.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/virtual-dispatch-x86.ro \

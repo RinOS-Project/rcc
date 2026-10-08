@@ -1511,7 +1511,8 @@ static bool sema_cxx_same_glvalue_type(Type* left, Type* right,
 
 static bool is_modifiable_lvalue(Expr* expression) {
     Type* type;
-    if (!expression || !is_lvalue(expression)) return false;
+    if (!expression || (!is_lvalue(expression) &&
+        !(rcc_parser_is_cxx_mode() && is_xvalue(expression)))) return false;
     type = expression->type;
     return type && !type->is_const && type->kind != TYPE_ARRAY &&
            type->kind != TYPE_FUNC;
@@ -1529,6 +1530,12 @@ static bool is_modifiable_class_xvalue(Expr* expression) {
     }
     return type && !type->is_const &&
            (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
+}
+
+static bool is_modifiable_builtin_assignment_target(Expr* expression) {
+    if (!is_modifiable_lvalue(expression)) return false;
+    return !rcc_parser_is_cxx_mode() || !is_xvalue(expression) ||
+           is_modifiable_class_xvalue(expression);
 }
 
 static Type* get_pointer_base(Type* t) {
@@ -10437,6 +10444,7 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_ADDR: {
             Type* t = sema_expr(expr->unary_operand);
+            Type* addressed_type = t;
             bool materialized_implicit_object =
                 expr->cxx_implicit_object_address && t &&
                 (t->kind == TYPE_STRUCT || t->kind == TYPE_UNION);
@@ -10451,7 +10459,15 @@ static Type* sema_expr(Expr* expr) {
                 expr->unary_operand->member_field->is_bitfield) {
                 rcc_error(expr->loc, "cannot take address of a bit-field");
             }
-            expr->type = type_ptr(t);
+            /* A reference is an expression alias, not an addressable object
+             * layer.  In particular, &function_returning_reference() has
+             * pointer-to-referred-type, never pointer-to-reference type. */
+            if (rcc_parser_is_cxx_mode() && addressed_type &&
+                addressed_type->kind == TYPE_PTR &&
+                addressed_type->is_reference) {
+                addressed_type = addressed_type->base;
+            }
+            expr->type = type_ptr(addressed_type);
             break;
         }
 
@@ -10472,7 +10488,8 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_POSTINC:
         case EXPR_POSTDEC: {
             Type* t = sema_expr(expr->unary_operand);
-            if (!is_modifiable_lvalue(expr->unary_operand)) {
+            if (!is_modifiable_builtin_assignment_target(
+                    expr->unary_operand)) {
                 rcc_error(expr->loc,
                           "increment/decrement requires modifiable lvalue");
             }
@@ -11309,7 +11326,8 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_SUB_ASSIGN: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
-            if (!is_modifiable_lvalue(expr->binary_lhs)) {
+            if (!is_modifiable_builtin_assignment_target(
+                    expr->binary_lhs)) {
                 rcc_error(expr->loc,
                           "assignment requires modifiable lvalue");
             }
@@ -11332,7 +11350,8 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_DIV_ASSIGN: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
-            if (!is_modifiable_lvalue(expr->binary_lhs)) {
+            if (!is_modifiable_builtin_assignment_target(
+                    expr->binary_lhs)) {
                 rcc_error(expr->loc,
                           "assignment requires modifiable lvalue");
             }
@@ -11356,7 +11375,8 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_RSHIFT_ASSIGN: {
             Type* lt = sema_expr(expr->binary_lhs);
             Type* rt = sema_expr(expr->binary_rhs);
-            if (!is_modifiable_lvalue(expr->binary_lhs)) {
+            if (!is_modifiable_builtin_assignment_target(
+                    expr->binary_lhs)) {
                 rcc_error(expr->loc,
                           "assignment requires modifiable lvalue");
             }
@@ -11390,7 +11410,8 @@ static Type* sema_expr(Expr* expr) {
             } else {
                 rt = sema_expr(expr->binary_rhs);
             }
-            if (!is_modifiable_lvalue(expr->binary_lhs) &&
+            if (!is_modifiable_builtin_assignment_target(
+                    expr->binary_lhs) &&
                 !is_modifiable_class_xvalue(expr->binary_lhs)) {
                 rcc_error(expr->loc,
                           "assignment requires modifiable lvalue");
@@ -11882,10 +11903,11 @@ static Type* sema_expr(Expr* expr) {
                         sema_prepare_cxx_close_call(expr, method,
                                                     member->member_base);
                     }
-                    expr->type = method->return_type &&
-                        method->return_type->is_reference
-                        ? method->return_type->base
-                        : method->return_type;
+                    /* Reference-returning accessors denote the referenced
+                     * object, just like an ordinary reference-returning
+                     * function call.  Keep that type metadata so lvalue
+                     * checks and address-of preserve the source semantics. */
+                    expr->type = method->return_type;
                     break;
                 }
                 for (argument = expr->call_args; argument;
