@@ -9356,10 +9356,111 @@ static bool sema_cxx_class_declares_member_name(Type* aggregate,
     return false;
 }
 
+/* Resolve the single direct base selected by `using Base::member`.  Class
+ * template instantiation substitutes the dependent base spelling before
+ * semantic lookup, so this path intentionally accepts only a unique direct
+ * base and leaves unresolved or multiply-selected declarations on the normal
+ * ambiguity path. */
+static CxxClass* sema_cxx_using_base_member_owner(Type* aggregate,
+                                                  const char* name) {
+    CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
+    CxxClass* selected = NULL;
+    const char* member_tail = sema_cxx_unqualified_name(name);
+    bool found = false;
+    if (!cls || !name || !member_tail) return NULL;
+    for (int using_index = 0;
+         using_index < cls->using_base_member_count; ++using_index) {
+        const char* declared_member =
+            cls->using_base_members[using_index].member_name;
+        const char* declared_tail = sema_cxx_unqualified_name(declared_member);
+        const char* base_name = cls->using_base_members[using_index].base_name;
+        CxxClass* match = NULL;
+        if (!declared_tail || strcmp(declared_tail, member_tail) != 0) {
+            continue;
+        }
+        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+            CxxClass* base = cls->bases[base_index].base;
+            const char* base_tail = sema_cxx_unqualified_name(
+                base ? base->name : NULL);
+            const char* declared_base_tail =
+                sema_cxx_unqualified_name(base_name);
+            bool matches = base && base_name &&
+                ((base->name && strcmp(base->name, base_name) == 0) ||
+                 (cls->bases[base_index].base_name &&
+                  strcmp(cls->bases[base_index].base_name, base_name) == 0));
+            if (!matches && base_tail && declared_base_tail &&
+                strcmp(base_tail, declared_base_tail) == 0) {
+                matches = true;
+            }
+            if (!matches) continue;
+            if (match && match != base) return NULL;
+            match = base;
+        }
+        if (!match) return NULL;
+        if (found && selected != match) return NULL;
+        selected = match;
+        found = true;
+    }
+    return found ? selected : NULL;
+}
+
+/* Match a flattened field on the complete object to the corresponding field
+ * in a selected direct base.  Non-virtual fields use the direct base offset;
+ * virtual fields retain their virtual-base owner and in-base displacement. */
+static bool sema_cxx_field_matches_using_base(Type* aggregate,
+                                               CxxClass* using_base,
+                                               TypeField* base_field,
+                                               TypeField* field) {
+    CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
+    int base_index = -1;
+    if (!cls || !using_base || !base_field || !field) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (cls->bases[index].base == using_base) {
+            if (base_index >= 0) return false;
+            base_index = index;
+        }
+    }
+    if (base_index < 0) return false;
+    if (field->name == NULL || base_field->name == NULL ||
+        strcmp(field->name, base_field->name) != 0 ||
+        field->cxx_declaring_class != base_field->cxx_declaring_class) {
+        return false;
+    }
+    if (base_field->from_virtual_base) {
+        return field->from_virtual_base &&
+               field->virtual_base_owner == base_field->virtual_base_owner &&
+               field->virtual_base_member_offset ==
+                   base_field->virtual_base_member_offset;
+    }
+    if (cls->bases[base_index].is_virtual) {
+        return field->from_virtual_base &&
+               field->virtual_base_owner == using_base &&
+               field->virtual_base_member_offset == base_field->offset;
+    }
+    return !field->from_virtual_base && cls->base_offsets &&
+           cls->base_offsets[base_index] >= 0 &&
+           field->offset == cls->base_offsets[base_index] +
+                                base_field->offset;
+}
+
+static TypeField* sema_cxx_using_base_field(CxxClass* using_base,
+                                             const char* name) {
+    Type* type = using_base ? using_base->type : NULL;
+    if (!type || !name) return NULL;
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (field->name && strcmp(field->name, name) == 0) return field;
+    }
+    return NULL;
+}
+
 static bool sema_cxx_member_lookup_ambiguous(Type* aggregate,
                                               const char* name) {
     TypeField* first_field = NULL;
     bool has_method = false;
+    CxxClass* using_base = sema_cxx_using_base_member_owner(aggregate, name);
+    if (using_base) {
+        return sema_cxx_member_lookup_ambiguous(using_base->type, name);
+    }
     if (!aggregate || !aggregate->cxx_class || !name ||
         sema_cxx_class_declares_member_name(aggregate, name)) {
         return false;
@@ -12966,6 +13067,29 @@ static Type* sema_expr(Expr* expr) {
                 expr->type = type_int;
                 break;
             }
+            CxxClass* using_base = sema_cxx_using_base_member_owner(
+                bt, expr->member_name);
+            TypeField* using_base_field = using_base
+                ? sema_cxx_using_base_field(using_base, expr->member_name)
+                : NULL;
+            bool using_base_function = false;
+            if (using_base && !using_base_field) {
+                for (TypeMethod* method = using_base->type
+                         ? using_base->type->methods : NULL;
+                     method; method = method->next) {
+                    if (method->kind == TYPE_METHOD_FUNCTION &&
+                        method->name &&
+                        strcmp(method->name, expr->member_name) == 0) {
+                        rcc_error(expr->loc,
+                                  "member '%s' names a function, not a data member",
+                                  expr->member_name);
+                        expr->type = type_int;
+                        using_base_function = true;
+                        break;
+                    }
+                }
+                if (using_base_function) break;
+            }
             /* A declaration in the current class hides inherited names.
              * Otherwise, equal names from distinct base subobjects make the
              * member lookup ambiguous.  A shared virtual-base subobject is
@@ -12978,7 +13102,11 @@ static Type* sema_expr(Expr* expr) {
             /* Find member */
             TypeField* field = bt->fields;
             while (field) {
-                if (strcmp(field->name, expr->member_name) == 0) {
+                if (field->name &&
+                    strcmp(field->name, expr->member_name) == 0 &&
+                    (!using_base || (using_base_field &&
+                     sema_cxx_field_matches_using_base(
+                         bt, using_base, using_base_field, field)))) {
                     expr->member_field = field;
                     expr->type = field->type;
                     if (rcc_parser_is_cxx_mode() &&

@@ -85,6 +85,31 @@ struct DependentAccessPrefix {
 };
 
 template <typename T>
+struct DependentUsingBaseOne {
+    T value;
+
+    int choose(T) const {
+        return 1;
+    }
+};
+
+template <typename T>
+struct DependentUsingBaseTwo {
+    T value;
+
+    int choose(long) const {
+        return 2;
+    }
+};
+
+template <typename T>
+struct DependentUsingDerived : DependentUsingBaseOne<T>,
+                               DependentUsingBaseTwo<T> {
+    using DependentUsingBaseTwo<T>::value;
+    using DependentUsingBaseTwo<T>::choose;
+};
+
+template <typename T>
 struct DependentDmiMember {
     T value;
 
@@ -206,9 +231,14 @@ int main() {
     DependentDmiContainer<long long> dependent_dmi_wide{};
     DependentDmiReference<int> dependent_dmi_reference_integer{};
     DependentDmiReference<long long> dependent_dmi_reference_wide{};
+    DependentUsingDerived<int> dependent_using;
+    DependentUsingBaseOne<int>* dependent_using_base_one = &dependent_using;
+    DependentUsingBaseTwo<int>* dependent_using_base_two = &dependent_using;
     dependent_private_access.write(10);
     dependent_protected_access.write(20);
     dependent_hiding.write(30);
+    dependent_using_base_one->value = 10;
+    dependent_using_base_two->value = 20;
     return integer.read_twice() == 41 && wide.read_twice() == 45 &&
                    integer.read_unsigned_biases() == 0x100000002ULL &&
                    wide.read_unsigned_biases() == 0x100000002ULL &&
@@ -221,6 +251,8 @@ int main() {
                    dependent_private_access.read() == 42 &&
                    dependent_protected_access.read() == 82 &&
                    dependent_hiding.read() == 124 &&
+                   dependent_using.value == 20 &&
+                   dependent_using.choose(1) == 2 &&
                    dependent_dmi_integer.nested.value == 7 &&
                    dependent_dmi_integer.scaled == 12 &&
                    dependent_dmi_wide.nested.value == 7 &&

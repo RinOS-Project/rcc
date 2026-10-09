@@ -409,3 +409,10 @@ passes freestanding i686 execution, x64 host execution, and both target object
 generations. Other dependent lookup paths and DMIs with constructor-parameter
 initialization, calls, side effects, arrays, or cleanup remain unchecked; the
 parameter-initialized earlier-field case currently does not finish compilation.
+
+2026-10-09 dependent using-declaration lookup: ordinary class-template lookup
+now resolves `using Base<T>::member` against the selected direct base when
+another base exposes the same field or function name. The fixture selects the
+second base and checks its field and overload. The full compiler build passes;
+the focused target was not rerun, so this lookup case and broader dependent
+lookup coverage remain unchecked.

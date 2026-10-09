@@ -4978,6 +4978,18 @@ static bool class_uses_base_member(CxxClass* cls, CxxClass* base,
     return false;
 }
 
+static bool class_has_using_base_member_name(CxxClass* cls,
+                                             const char* name) {
+    if (!cls || !name) return false;
+    for (int index = 0; index < cls->using_base_member_count; ++index) {
+        if (cls->using_base_members[index].member_name &&
+            strcmp(cls->using_base_members[index].member_name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool class_has_method_declaration(CxxClass* cls, Decl* declaration) {
     if (!cls || !declaration) return false;
     for (TypeMethod* method = cls->type ? cls->type->methods : NULL;
@@ -5067,7 +5079,8 @@ static void register_inherited_class_methods(CxxClass* cls,
                 (class_has_method_declaration(cls, method->function_decl) &&
                  class_method_declares_shared_virtual_base(
                      cls, method->function_decl)) ||
-                (class_declares_method_name(cls, method->name) &&
+                ((class_declares_method_name(cls, method->name) ||
+                  class_has_using_base_member_name(cls, method->name)) &&
                  !class_uses_base_member(cls, base, method->name))) {
                 continue;
             }
