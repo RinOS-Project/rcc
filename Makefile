@@ -423,7 +423,7 @@ endif
 .PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
-.PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
+.PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-designated-initializer
 .PHONY: test-cxx-utf8-literals
 .PHONY: test-compiler-builtins
@@ -624,6 +624,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-inline-namespace \
 	test-cxx-nested-namespace \
 	test-cxx-namespace-alias \
+	test-cxx-namespace-extension \
 	test-cxx-friend-function \
 	test-cxx-nodiscard \
 	test-cxx-deprecated \
@@ -4662,6 +4663,37 @@ test-cxx-namespace-alias: $(RCXX_TARGET)
 	$(GREP) -F -q "unknown namespace alias target" $(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
 	$(GREP) -F -q "namespace alias 'api' conflicts" $(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
 
+test-cxx-namespace-extension: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-namespace-extension)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-namespace-extension,cxx_namespace_extension.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-namespace-extension/gcc.exe tests/cxx_namespace_extension.cpp
+	$(TEST_OUT)/cxx-namespace-extension/gcc.exe
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x86.ro tests/cxx_namespace_extension_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x86.log)
+	$(GREP) -F -q "cannot become inline after its first definition" $(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x64.ro tests/cxx_namespace_extension_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x64.log)
+	$(GREP) -F -q "cannot become inline after its first definition" $(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/alias-conflict-x86.ro tests/cxx_namespace_extension_alias_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/alias-conflict-x86.log)
+	$(GREP) -F -q "namespace alias 'exposed' conflicts" $(TEST_OUT)/cxx-namespace-extension/alias-conflict-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/alias-conflict-x64.ro tests/cxx_namespace_extension_alias_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/alias-conflict-x64.log)
+	$(GREP) -F -q "namespace alias 'exposed' conflicts" $(TEST_OUT)/cxx-namespace-extension/alias-conflict-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x86.ro tests/cxx_namespace_extension_alias_declaration_conflict_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x86.log)
+	$(GREP) -F -q "namespace alias 'exposed' conflicts" $(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x64.ro tests/cxx_namespace_extension_alias_declaration_conflict_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x64.log)
+	$(GREP) -F -q "namespace alias 'exposed' conflicts" $(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/ambiguous-x86.ro tests/cxx_namespace_extension_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/ambiguous-x86.log)
+	$(GREP) -F -q "ambiguous in the inline namespace set" $(TEST_OUT)/cxx-namespace-extension/ambiguous-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/ambiguous-x64.ro tests/cxx_namespace_extension_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/ambiguous-x64.log)
+	$(GREP) -F -q "ambiguous in the inline namespace set" $(TEST_OUT)/cxx-namespace-extension/ambiguous-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x86.ro tests/cxx_namespace_extension_alias_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x86.log)
+	$(GREP) -F -q "ambiguous in the inline namespace set" $(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x64.ro tests/cxx_namespace_extension_alias_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x64.log)
+	$(GREP) -F -q "ambiguous in the inline namespace set" $(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x64.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/gcc-ordinary-inline.log)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_alias_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/gcc-alias-conflict.log)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_alias_declaration_conflict_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/gcc-alias-declaration-conflict.log)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/gcc-ambiguous.log)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_alias_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/gcc-alias-ambiguous.log)
+
 test-cxx-friend-function: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-function)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-function,cxx_friend_function.cpp)
@@ -4829,6 +4861,7 @@ test-cxx-inline-variables: test-cxx-inline-variables-posix
 test-cxx-inline-namespace: test-cxx-inline-namespace-posix
 test-cxx-nested-namespace: test-cxx-nested-namespace-posix
 test-cxx-namespace-alias: test-cxx-namespace-alias-posix
+test-cxx-namespace-extension: test-cxx-namespace-extension-posix
 test-cxx-friend-function: test-cxx-friend-function-posix
 test-cxx-nodiscard: test-cxx-nodiscard-posix
 test-cxx-deprecated: test-cxx-deprecated-posix
@@ -5256,6 +5289,108 @@ test-cxx-namespace-alias-posix: $(RCXX_TARGET)
 	$(GREP) -q "namespace alias 'api' conflicts" \
 		$(TEST_OUT)/cxx-namespace-alias/invalid-x64.log
 	@echo "C++ namespace alias tests completed"
+
+test-cxx-namespace-extension-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-namespace-extension)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-namespace-extension/x86.s \
+		tests/cxx_namespace_extension.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-namespace-extension/x86.o \
+		$(TEST_OUT)/cxx-namespace-extension/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-namespace-extension/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-namespace-extension/x86 \
+		$(TEST_OUT)/cxx-namespace-extension/start-x86.o \
+		$(TEST_OUT)/cxx-namespace-extension/x86.o
+	$(TEST_OUT)/cxx-namespace-extension/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-namespace-extension/x64.s \
+		tests/cxx_namespace_extension.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-namespace-extension/x64.o \
+		$(TEST_OUT)/cxx-namespace-extension/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-namespace-extension/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-namespace-extension/x64 \
+		$(TEST_OUT)/cxx-namespace-extension/start-x64.o \
+		$(TEST_OUT)/cxx-namespace-extension/x64.o
+	$(TEST_OUT)/cxx-namespace-extension/x64
+	g++ -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-namespace-extension/gcc \
+		tests/cxx_namespace_extension.cpp
+	$(TEST_OUT)/cxx-namespace-extension/gcc
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x86.ro \
+		tests/cxx_namespace_extension_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x86.log 2>&1
+	$(GREP) -q "cannot become inline after its first definition" \
+		$(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x64.ro \
+		tests/cxx_namespace_extension_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x64.log 2>&1
+	$(GREP) -q "cannot become inline after its first definition" \
+		$(TEST_OUT)/cxx-namespace-extension/ordinary-inline-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/alias-conflict-x86.ro \
+		tests/cxx_namespace_extension_alias_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/alias-conflict-x86.log 2>&1
+	$(GREP) -q "namespace alias 'exposed' conflicts" \
+		$(TEST_OUT)/cxx-namespace-extension/alias-conflict-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/alias-conflict-x64.ro \
+		tests/cxx_namespace_extension_alias_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/alias-conflict-x64.log 2>&1
+	$(GREP) -q "namespace alias 'exposed' conflicts" \
+		$(TEST_OUT)/cxx-namespace-extension/alias-conflict-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x86.ro \
+		tests/cxx_namespace_extension_alias_declaration_conflict_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x86.log 2>&1
+	$(GREP) -q "namespace alias 'exposed' conflicts" \
+		$(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x64.ro \
+		tests/cxx_namespace_extension_alias_declaration_conflict_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x64.log 2>&1
+	$(GREP) -q "namespace alias 'exposed' conflicts" \
+		$(TEST_OUT)/cxx-namespace-extension/alias-declaration-conflict-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/ambiguous-x86.ro \
+		tests/cxx_namespace_extension_ambiguous_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/ambiguous-x86.log 2>&1
+	$(GREP) -q "ambiguous in the inline namespace set" \
+		$(TEST_OUT)/cxx-namespace-extension/ambiguous-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/ambiguous-x64.ro \
+		tests/cxx_namespace_extension_ambiguous_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/ambiguous-x64.log 2>&1
+	$(GREP) -q "ambiguous in the inline namespace set" \
+		$(TEST_OUT)/cxx-namespace-extension/ambiguous-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x86.ro \
+		tests/cxx_namespace_extension_alias_ambiguous_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x86.log 2>&1
+	$(GREP) -q "ambiguous in the inline namespace set" \
+		$(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x64.ro \
+		tests/cxx_namespace_extension_alias_ambiguous_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x64.log 2>&1
+	$(GREP) -q "ambiguous in the inline namespace set" \
+		$(TEST_OUT)/cxx-namespace-extension/alias-ambiguous-x64.log
+	! g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/gcc-ordinary-inline.log 2>&1
+	! g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_alias_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/gcc-alias-conflict.log 2>&1
+	! g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_alias_declaration_conflict_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/gcc-alias-declaration-conflict.log 2>&1
+	! g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_ambiguous_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/gcc-ambiguous.log 2>&1
+	! g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_alias_ambiguous_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/gcc-alias-ambiguous.log 2>&1
+	@echo "C++ namespace extension tests completed"
 
 test-cxx-friend-function-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-function)

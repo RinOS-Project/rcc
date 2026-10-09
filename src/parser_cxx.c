@@ -6692,11 +6692,9 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
         } else if (!target) {
             rcc_error(loc, "unknown namespace alias target '%s'",
                       target_name ? target_name : "");
-        } else if (cxx_namespace_lookup(parent, ns_name)) {
-            rcc_error(loc, "namespace alias '%s' conflicts with an existing namespace",
-                      ns_name);
         } else if (!cxx_namespace_add_alias(parent, ns_name, target)) {
-            rcc_error(loc, "failed to register namespace alias '%s'", ns_name);
+            rcc_error(loc, "namespace alias '%s' conflicts with an existing declaration",
+                      ns_name);
         }
         expect(TOK_SEMICOLON, ";");
         return NULL;

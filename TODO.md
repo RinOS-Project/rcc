@@ -325,16 +325,19 @@
         parameterの標準変換をdeduction後のviabilityへ分離し、候補間の
         conversion vectorを引数ごとに比較。直交したテンプレート候補の
         ambiguityと既存の両arch実行を回帰検証
-  - [ ] Namespace extension compatibility: verify reopened named and
+  - [x] Namespace extension compatibility: verify reopened named and
         translation-unit anonymous namespaces, lookup through the transitive
         inline-namespace set for both namespace definitions and qualified
         namespace lookup, rejection of changing an ordinary namespace to
         inline, and namespace-alias/ambiguous-name conflicts against the C++
-        standard. The parser now merges namespace owners and diagnoses invalid
-        definitions; shared namespace lookup returns the unique namespace
-        visible through inline sets and rejects ambiguous results. The `rcc++`
-        build passes, but no regression or standard comparison has been run for
-        this change.
+        standard. Named and translation-unit anonymous namespace definitions
+        share owners; namespace-definition and qualified lookup traverse
+        transitive inline sets and reject ambiguous results. Alias declarations
+        conflict with direct declarations, while an alias may coexist with a
+        same-named declaration injected from an inline namespace; later
+        qualified lookup is diagnosed as ambiguous. The focused
+        `test-cxx-namespace-extension` target passes on i686 and AMD64, executes
+        the valid fixture, and checks rejected cases against GCC C++20.
   - [ ] 標準C++の全conversion rank、ADL、two-phase lookup互換性
 - [x] C++ enumのfixed underlying typeを保持し、signed/unsigned各幅の明示列挙子と
       暗黙の次値が表現可能か検査。i686/AMD64で境界値を実行し、範囲外を診断する。

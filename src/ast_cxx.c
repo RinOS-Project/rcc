@@ -2235,9 +2235,61 @@ CxxNamespace* cxx_namespace_lookup(CxxNamespace* root, const char* name) {
     return lookup.matches == 1u ? lookup.result : NULL;
 }
 
+static bool cxx_name_has_final_component(const char* qualified_name,
+                                         const char* name) {
+    const char* component;
+    if (!qualified_name || !name) return false;
+    component = strrchr(qualified_name, ':');
+    if (component && component > qualified_name && component[-1] == ':') {
+        component++;
+    } else {
+        component = qualified_name;
+    }
+    return strcmp(component, name) == 0;
+}
+
+static bool cxx_namespace_has_direct_name(CxxNamespace* ns,
+                                          const char* name) {
+    if (!ns || !name) return false;
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (child->name && strcmp(child->name, name) == 0) return true;
+    }
+    for (DeclList* entry = ns->decls; entry; entry = entry->next) {
+        if (entry->decl && cxx_name_has_final_component(entry->decl->name,
+                                                        name)) {
+            return true;
+        }
+    }
+    for (int index = 0; index < ns->class_count; ++index) {
+        CxxClass* cls = ns->classes[index];
+        if (cls && cls->name && strcmp(cls->name, name) == 0) return true;
+    }
+    for (int index = 0; index < ns->template_count; ++index) {
+        CxxTemplate* tmpl = ns->templates[index];
+        if (tmpl && tmpl->name && strcmp(tmpl->name, name) == 0) return true;
+    }
+    for (int index = 0; index < ns->namespace_alias_count; ++index) {
+        if (ns->namespace_alias_names[index] &&
+            strcmp(ns->namespace_alias_names[index], name) == 0) {
+            return true;
+        }
+    }
+    for (int index = 0; index < ns->using_declaration_count; ++index) {
+        if (cxx_name_has_final_component(ns->using_declarations[index], name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool cxx_namespace_add_alias(CxxNamespace* ns, const char* name,
                              CxxNamespace* target) {
-    if (!ns || !name || !*name || !target || cxx_namespace_lookup(ns, name)) {
+    /* A declaration in an inline namespace is visible in the enclosing
+     * namespace, but that injected name does not prevent a namespace alias
+     * declaration there.  If the spellings collide, ordinary qualified
+     * lookup will correctly report the resulting ambiguity. */
+    if (!ns || !name || !*name || !target ||
+        cxx_namespace_has_direct_name(ns, name)) {
         return false;
     }
     ns->namespace_alias_names = ast_arena_grow(
