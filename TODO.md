@@ -89,6 +89,9 @@
         f64→f32 narrowingを実装。uint64→floatの丸めと、範囲内float→uint64を
         境界値および決定的512ケースのhost differentialで照合し、C/C++の
         x64通常/O2生成・実行でfallbackなしを検証
+  - [x] i686向け整数/floating conversion追加後もx86-64 unsigned 32-bit→floatが
+        zero-extensionを保つことを`UINT32_MAX`のtyped-SSA object executionで検証し、
+        `test-verified-backend`全体を再実行
 - [x] i686 runtimeのfloat/double x87算術・比較・cast・代入・前後置更新と、
       cdecl stack引数/スカラー戻り値lowering
 - [x] nested include、macro、条件付きpreprocess、`-MMD/-MF`
