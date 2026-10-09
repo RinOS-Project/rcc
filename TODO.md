@@ -286,6 +286,11 @@
   - [x] primary vptr、class vtable、local/global vptr初期化、virtual
         callの間接分岐を実装し、overrideを含むi686/AMD64実行を検証
   - [ ] 標準C++の全class layout、特殊メンバー、virtual ABI互換性
+    - [ ] Resolve nested `Class::Alias` type-ids in ordinary declarations and
+          correctly classify/access class data members declared through
+          function-pointer aliases. Unqualified class-scope alias type use now
+          parses, but qualified alias type-ids and object member access remain
+          incomplete.
 - [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target
@@ -401,6 +406,11 @@
   - [x] Reject non-template `int&` returns from prvalues and `int&&` returns
         from lvalues as hard C++ semantic errors; verify both cases, invalid
         reference initializers, and invalid ordinary calls for i686/AMD64.
+  - [x] Parse namespace and class-scope function-pointer alias type-ids with
+        reference return/parameter types, then preserve `int&`/`int&&` return
+        categories through indirect calls. GCC C++20 accepts the fixture;
+        `test-cxx-function-template-references` verifies i686/AMD64 objects,
+        PE-i386 output, and AMD64 host execution.
   - [x] Verify public implicit conversion functions returning class lvalue
         references, rvalue references, and class prvalues during class-reference
         binding, including derived-to-base adjustment and lifetime cleanup.

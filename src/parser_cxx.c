@@ -6903,6 +6903,8 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                     Type* alias_type;
                     advance();
                     alias_type = parse_cxx_type_spec();
+                    alias_type = rcc_parser_parse_cxx_declarator(
+                        alias_type, NULL, NULL);
                     if (!alias_type) {
                         rcc_error(using_loc,
                                   "nested type alias requires a type");
@@ -7319,6 +7321,8 @@ static void parse_cxx_using(CxxNamespace* ns) {
     }
     if (match(TOK_ASSIGN)) {
         Type* alias_type = parse_cxx_type_spec();
+        alias_type = rcc_parser_parse_cxx_declarator(
+            alias_type, NULL, NULL);
         if (!alias_type) {
             rcc_error(loc, "using-alias requires a type");
         } else {
@@ -14602,6 +14606,9 @@ static Type* parse_cxx_type_spec(void) {
     } else if (check(TOK_IDENT) || check(TOK_SCOPE)) {
         /* Class or namespace qualified type */
         const char* name = parse_qualified_name();
+        CxxTypeAlias* class_scope_alias = NULL;
+        bool class_alias_ambiguous = false;
+        bool class_alias_accessible = false;
         CxxTemplate* tmpl = find_class_template(name);
         CxxTemplate* alias_tmpl = check(TOK_LT)
             ? find_alias_template(name) : NULL;
@@ -14613,11 +14620,36 @@ static Type* parse_cxx_type_spec(void) {
             known_class = active_class;
         }
         Type* known_type = rcc_parser_lookup_type(name);
+        if (active_class && name && !strstr(name, "::")) {
+            class_scope_alias = cxx_class_find_inherited_type_alias(
+                active_class, name, active_class, &class_alias_ambiguous,
+                &class_alias_accessible);
+            if (class_scope_alias) {
+                if (class_alias_accessible) {
+                    t = class_scope_alias->type;
+                } else {
+                    rcc_error(loc,
+                              "nested type '%s' is inaccessible in class '%s'",
+                              name,
+                              active_class->name ? active_class->name
+                                                 : "<unnamed>");
+                    t = type_int;
+                }
+            } else if (class_alias_ambiguous) {
+                rcc_error(loc, "nested type '%s' is ambiguous in class '%s'",
+                          name, active_class->name ? active_class->name
+                                                   : "<unnamed>");
+                t = type_int;
+            }
+        }
         if (known_type && known_type->cxx_class &&
             known_type->cxx_scope_identity) {
             known_class = known_type->cxx_class;
         }
-        if (tmpl && !check(TOK_LT)) {
+        if (t) {
+            /* A class-scope alias was resolved above, before namespace types
+             * and class templates with the same unqualified spelling. */
+        } else if (tmpl && !check(TOK_LT)) {
             bool direct_initialization = check(TOK_IDENT) &&
                 (check_next(TOK_LPAREN) || check_next(TOK_LBRACE));
             if (!rcc_parser_cxx_standard_at_least(17)) {

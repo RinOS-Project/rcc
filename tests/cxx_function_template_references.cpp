@@ -58,6 +58,14 @@ int&& return_rvalue_reference(int&& value) {
     return static_cast<int&&>(value);
 }
 
+using LvalueReferenceFunction = int& (*)(int&);
+using RvalueReferenceFunction = int&& (*)(int&&);
+
+struct ReferenceFunctionAliases {
+    using RvalueReferenceFunction = int&& (*)(int&&);
+    RvalueReferenceFunction function;
+};
+
 int& select_conditional_lvalue(bool choose_first, int& first, int& second) {
     return choose_first ? first : second;
 }
@@ -403,6 +411,21 @@ int main() {
             static_cast<int&&>(mutable_value));
     rvalue_result += 2;
     if (mutable_value != 12) return 7;
+    int indirect_value = 70;
+    LvalueReferenceFunction lvalue_reference_function =
+            &return_lvalue_reference;
+    int& indirect_lvalue_result =
+            lvalue_reference_function(indirect_value);
+    indirect_lvalue_result += 1;
+    if (indirect_value != 71) return 34;
+    ReferenceFunctionAliases rvalue_reference_aliases;
+    (void)rvalue_reference_aliases;
+    RvalueReferenceFunction rvalue_reference_function =
+            &return_rvalue_reference;
+    int&& indirect_rvalue_result = rvalue_reference_function(
+            static_cast<int&&>(indirect_value));
+    indirect_rvalue_result += 2;
+    if (indirect_value != 73) return 35;
     int other_value = 20;
     int& selected_lvalue = select_conditional_lvalue(
             false, mutable_value, other_value);
