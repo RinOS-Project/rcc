@@ -443,7 +443,8 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-constexpr-pointer
 .PHONY: test-cxx-constexpr-pointer-mutation
 .PHONY: test-cxx-constexpr-pointer-aggregate
-.PHONY: test-cxx-noexcept-expression test-cxx-typeid test-cxx-typeid-dynamic
+.PHONY: test-cxx-noexcept-expression test-cxx-noexcept-redeclarations \
+	test-cxx-typeid test-cxx-typeid-dynamic
 .PHONY: test-cxx-auto-return test-cxx-decltype test-cxx-decltype-auto \
 	test-cxx-auto-local-refs test-cxx-auto-direct-list-invalid \
 	test-cxx-decltype-auto-local \
@@ -646,6 +647,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-constexpr-pointer-mutation \
 	test-cxx-constexpr-pointer-aggregate \
 	test-cxx-noexcept-expression \
+	test-cxx-noexcept-redeclarations \
 	test-cxx-typeid \
 	test-cxx-typeid-dynamic \
 	test-cxx-auto-return \
@@ -6275,6 +6277,28 @@ test-cxx-noexcept-expression-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-noexcept-expression/x64.ro \
 		tests/cxx_noexcept_expression.cpp
 	@echo "C++ noexcept expression tests completed"
+
+test-cxx-noexcept-redeclarations: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-noexcept-redeclarations)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-noexcept-redeclarations/match-x86.ro \
+		tests/cxx_noexcept_redeclaration_match.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-noexcept-redeclarations/match-x64.ro \
+		tests/cxx_noexcept_redeclaration_match.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-throwing-x86.ro tests/cxx_noexcept_redeclaration_mismatch_to_throwing.cpp,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-throwing-x86.log)
+	$(call CHECK_TEXT,different exception specification,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-throwing-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-throwing-x64.ro tests/cxx_noexcept_redeclaration_mismatch_to_throwing.cpp,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-throwing-x64.log)
+	$(call CHECK_TEXT,different exception specification,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-throwing-x64.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-nonthrowing-x86.ro tests/cxx_noexcept_redeclaration_mismatch_to_nonthrowing.cpp,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-nonthrowing-x86.log)
+	$(call CHECK_TEXT,different exception specification,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-nonthrowing-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-nonthrowing-x64.ro tests/cxx_noexcept_redeclaration_mismatch_to_nonthrowing.cpp,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-nonthrowing-x64.log)
+	$(call CHECK_TEXT,different exception specification,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-to-nonthrowing-x64.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-expression-x86.ro tests/cxx_noexcept_redeclaration_mismatch_expression.cpp,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-expression-x86.log)
+	$(call CHECK_TEXT,different exception specification,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-expression-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-expression-x64.ro tests/cxx_noexcept_redeclaration_mismatch_expression.cpp,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-expression-x64.log)
+	$(call CHECK_TEXT,different exception specification,$(TEST_OUT)/cxx-noexcept-redeclarations/mismatch-expression-x64.log)
+	@echo "C++ function redeclaration exception-specification tests completed"
 
 ifeq ($(OS),Windows_NT)
 test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)

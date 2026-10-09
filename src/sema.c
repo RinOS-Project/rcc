@@ -17603,6 +17603,7 @@ static void sema_decl(Decl* decl) {
             if (rcc_parser_is_cxx_mode()) {
                 current_cxx_namespace = sema_decl_namespace(decl);
             }
+            Decl* redeclaration_prior = NULL;
             if (decl->func_is_auto_return && !decl->func_body) {
                 rcc_error(decl->loc,
                           "auto return type requires a function definition");
@@ -17627,6 +17628,7 @@ static void sema_decl(Decl* decl) {
                     if (cxx_same_function_parameters(prior->type,
                                                      decl->type) &&
                         !distinct_template_instances) {
+                        redeclaration_prior = prior;
                         if (!type_is_compatible(prior->type->ret_type,
                                                 decl->type->ret_type)) {
                             rcc_error(decl->loc,
@@ -17660,6 +17662,7 @@ static void sema_decl(Decl* decl) {
                  * declared from a C++ translation unit still owns and
                  * accumulates default arguments in the surrounding scope. */
                 if (sym->decl) {
+                    redeclaration_prior = sym->decl;
                     sema_merge_cxx_default_arguments(sym->decl, decl);
                     sema_validate_cxx_default_suffix(decl);
                     cxx_defaults_merged = true;
@@ -17681,6 +17684,16 @@ static void sema_decl(Decl* decl) {
                           "weak function declaration requires external linkage");
             }
             sema_resolve_function_noexcept(decl);
+            if (rcc_parser_is_cxx_mode() && redeclaration_prior) {
+                if (!decl->func_is_template_instance &&
+                    !redeclaration_prior->func_is_template_instance &&
+                    decl->func_is_noexcept !=
+                        redeclaration_prior->func_is_noexcept) {
+                    rcc_error(decl->loc,
+                              "declaration of '%s' has a different exception specification",
+                              decl->name);
+                }
+            }
 
             if (decl->func_body) {
                 sym->is_defined = true;

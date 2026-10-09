@@ -262,6 +262,9 @@
 - [x] `rcc++` entrypointとC++20既定mode
 - [x] 明示的C++関数の`return`値有無・void式・変換可能性をsemaで検証し、
       不正なreference/scalar returnを両archで診断、void式returnをhost実行で検証
+- [x] 同一scopeのC++関数再宣言で、解決済み`noexcept`仕様の不一致を診断する。
+      省略仕様と`noexcept(false)`、bare `noexcept`と`noexcept(true)`の互換例、
+      両方向の不一致、およびconstant-expression specificationの差を両archで検証
 - [x] C frontendと共通のtarget/preprocessor CLI
 - [x] bounded class、継承、virtual dispatch実装
   - [x] 非static・非virtualメンバー関数の`this`引数、暗黙field参照、
