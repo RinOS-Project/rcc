@@ -98,6 +98,17 @@ struct DependentDmiContainer {
 };
 
 template <typename T>
+struct DependentDmiBase {};
+
+template <typename T>
+struct DependentDmiReference : DependentDmiBase<T> {
+    T scaled = 3 * 4;
+    T adjusted = this->scaled + 2;
+    T unqualified_adjusted = scaled + 3;
+    DependentDmiReference() {}
+};
+
+template <typename T>
 struct DependentAccessBase {
     T public_value;
 
@@ -144,15 +155,20 @@ struct DependentProtectedAccessDerived
 template <typename T>
 struct DependentHidingDerived : DependentAccessBase<T> {
     T public_value;
-    T public_read;
+    T public_extra;
 
     void write(T initial) {
         this->public_value = initial;
-        this->public_read = initial + 2;
+        this->public_extra = initial + 2;
+    }
+
+    T public_read() const {
+        return this->public_value + this->public_extra;
     }
 
     T read() const {
-        return this->public_value + this->public_read;
+        return this->public_value + this->public_extra +
+               this->public_read();
     }
 };
 
@@ -188,6 +204,8 @@ int main() {
         &virtual_dispatch_wide;
     DependentDmiContainer<int> dependent_dmi_integer{};
     DependentDmiContainer<long long> dependent_dmi_wide{};
+    DependentDmiReference<int> dependent_dmi_reference_integer{};
+    DependentDmiReference<long long> dependent_dmi_reference_wide{};
     dependent_private_access.write(10);
     dependent_protected_access.write(20);
     dependent_hiding.write(30);
@@ -202,11 +220,15 @@ int main() {
                    virtual_dispatch_wide_base->read() == 42 &&
                    dependent_private_access.read() == 42 &&
                    dependent_protected_access.read() == 82 &&
-                   dependent_hiding.read() == 62 &&
+                   dependent_hiding.read() == 124 &&
                    dependent_dmi_integer.nested.value == 7 &&
                    dependent_dmi_integer.scaled == 12 &&
                    dependent_dmi_wide.nested.value == 7 &&
-                   dependent_dmi_wide.scaled == 12
+                   dependent_dmi_wide.scaled == 12 &&
+                   dependent_dmi_reference_integer.adjusted == 14 &&
+                   dependent_dmi_reference_wide.adjusted == 14 &&
+                   dependent_dmi_reference_integer.unqualified_adjusted == 15 &&
+                   dependent_dmi_reference_wide.unqualified_adjusted == 15
                ? 0
                : 9;
 }

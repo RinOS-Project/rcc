@@ -8405,6 +8405,17 @@ static void sema_bind_cxx_constructor_expression(
         if (parameter) {
             expression->ident_decl = parameter;
             expression->type = parameter->type;
+        } else if (expression->ident_name &&
+                   strcmp(expression->ident_name, "this") == 0 &&
+                   (current_cxx_this_param ||
+                    (constructor && constructor->method &&
+                     constructor->method->decl &&
+                     constructor->method->decl->func_this_param))) {
+            parameter = current_cxx_this_param
+                ? current_cxx_this_param
+                : constructor->method->decl->func_this_param;
+            expression->ident_decl = parameter;
+            expression->type = parameter->type;
         }
         return;
     }
@@ -8852,7 +8863,20 @@ static void sema_resolve_cxx_constructor_initializers(
         }
         if (initializer->is_default_member_initializer &&
             initializer->value) {
-            Type* value_type = sema_expr(initializer->value);
+            Type* previous_method_owner = current_cxx_method_owner;
+            Decl* previous_this_param = current_cxx_this_param;
+            Type* value_type;
+            if (constructor->method && constructor->method->decl) {
+                current_cxx_method_owner = cls->type;
+                current_cxx_this_param = constructor->method->decl->func_this_param
+                    ? constructor->method->decl->func_this_param
+                    : decl_param("this", type_ptr(cls->type), -1, loc);
+            }
+            sema_bind_cxx_constructor_expression(
+                constructor, initializer->value);
+            value_type = sema_expr(initializer->value);
+            current_cxx_method_owner = previous_method_owner;
+            current_cxx_this_param = previous_this_param;
             if (!value_type || !implicit_cast(initializer->value,
                                                field->type)) {
                 rcc_error(initializer->value->loc,

@@ -5009,6 +5009,13 @@ static Expr* gen64_cxx_bind_constructor_argument(
     TypeParam* parameter = constructor ? constructor->parameters : NULL;
     ExprList* argument = arguments;
     if (!expression || expression->kind != EXPR_IDENT) return expression;
+    if (expression->ident_name &&
+        strcmp(expression->ident_name, "this") == 0) {
+        Expr* this_expression = expr_cxx_this(expression->loc);
+        this_expression->cxx_this_stack_offset = 0;
+        this_expression->type = expression->type;
+        return this_expression;
+    }
     while (parameter && argument) {
         if (parameter->name && expression->ident_name &&
             strcmp(parameter->name, expression->ident_name) == 0) {
@@ -5076,6 +5083,7 @@ static Expr* gen64_cxx_bind_constructor_expression(
                 constructor, expression->cast_expr, arguments);
             break;
         case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
             copy->member_base = gen64_cxx_bind_constructor_expression(
                 constructor, expression->member_base, arguments);
             if (constructor && constructor->method &&

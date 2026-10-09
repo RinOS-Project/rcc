@@ -2319,7 +2319,10 @@ static int cxx_constructor_argument_count(ExprList* arguments) {
     return count;
 }
 
+static bool cxx_constructor_scalar_type(Type* type);
 static bool cxx_constructor_scalar_constant(Expr* expression);
+static bool cxx_constructor_dmi_expression_is_lowerable(
+    CxxClass* cls, TypeParam* initialized_field, Expr* expression);
 
 /* Constructor default arguments are stored on both the declaration
  * parameters and the function type parameters.  Keep the parser-side
@@ -3136,13 +3139,11 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 !(class_object_member &&
                   cxx_is_empty_class_value_initializer(field->initializer))) {
                 Type* type = field->type;
-                if (!type || type->size <= 0 ||
-                    !(type_is_integer(type) || type->kind == TYPE_ENUM ||
-                      type->kind == TYPE_PTR ||
-                      type->kind == TYPE_NULLPTR ||
-                      type->kind == TYPE_FLOAT ||
-                      type->kind == TYPE_DOUBLE) ||
-                    !cxx_constructor_scalar_constant(field->initializer) ||
+                if (!type || (!type->cxx_dependent && type->size <= 0) ||
+                    (!cxx_constructor_scalar_type(type) &&
+                     !type->cxx_dependent) ||
+                    !cxx_constructor_dmi_expression_is_lowerable(
+                        cls, field, field->initializer) ||
                     (g_opts.target_arch == ARCH_X86 && type->size > 8) ||
                     (g_opts.target_arch == ARCH_X64 && type->size > 8)) {
                     valid = false;
@@ -3385,6 +3386,84 @@ static bool cxx_constructor_scalar_constant(Expr* expression) {
                    cxx_constructor_scalar_constant(expression->cond_else);
         case EXPR_CAST:
             return cxx_constructor_scalar_constant(expression->cast_expr);
+        default:
+            return false;
+    }
+}
+
+static bool cxx_constructor_dmi_field_is_earlier(
+    CxxClass* cls, TypeParam* initialized_field, const char* member_name) {
+    if (!cls || !initialized_field || !member_name) return false;
+    for (TypeParam* field = cls->fields;
+         field && field != initialized_field; field = field->next) {
+        if (!field->is_static && field->name &&
+            strcmp(field->name, member_name) == 0) {
+            return field->type &&
+                (cxx_constructor_scalar_type(field->type) ||
+                 field->type->cxx_dependent);
+        }
+    }
+    return false;
+}
+
+/* A bounded dynamic DMI may read an earlier scalar field and combine it with
+ * scalar constants. Calls, assignments, and reads of later fields stay out of
+ * the constructor subset until their evaluation order and effects are modeled. */
+static bool cxx_constructor_dmi_expression_is_lowerable(
+    CxxClass* cls, TypeParam* initialized_field, Expr* expression) {
+    if (!expression) return false;
+    if (cxx_constructor_scalar_constant(expression)) return true;
+    switch (expression->kind) {
+        case EXPR_IDENT:
+            return expression->ident_name &&
+                cxx_constructor_dmi_field_is_earlier(
+                    cls, initialized_field, expression->ident_name);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return expression->member_base &&
+                expression->member_base->kind == EXPR_IDENT &&
+                expression->member_base->ident_name &&
+                strcmp(expression->member_base->ident_name, "this") == 0 &&
+                cxx_constructor_dmi_field_is_earlier(
+                    cls, initialized_field, expression->member_name);
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            return cxx_constructor_dmi_expression_is_lowerable(
+                cls, initialized_field, expression->unary_operand);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return cxx_constructor_dmi_expression_is_lowerable(
+                       cls, initialized_field, expression->binary_lhs) &&
+                   cxx_constructor_dmi_expression_is_lowerable(
+                       cls, initialized_field, expression->binary_rhs);
+        case EXPR_COND:
+            return cxx_constructor_dmi_expression_is_lowerable(
+                       cls, initialized_field, expression->cond_test) &&
+                   cxx_constructor_dmi_expression_is_lowerable(
+                       cls, initialized_field, expression->cond_then) &&
+                   cxx_constructor_dmi_expression_is_lowerable(
+                       cls, initialized_field, expression->cond_else);
+        case EXPR_CAST:
+            return cxx_constructor_scalar_type(expression->cast_type) &&
+                   cxx_constructor_dmi_expression_is_lowerable(
+                       cls, initialized_field, expression->cast_expr);
         default:
             return false;
     }
@@ -3778,7 +3857,8 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 continue;
             }
             if (initializer->is_default_member_initializer) {
-                if (!cxx_constructor_scalar_constant(initializer->value) ||
+                if (!cxx_constructor_dmi_expression_is_lowerable(
+                        cls, field, initializer->value) ||
                     !field->type ||
                     !(type_is_integer(field->type) ||
                       field->type->kind == TYPE_ENUM ||

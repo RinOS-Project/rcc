@@ -400,9 +400,12 @@ to the derived override through the base pointer for `int` and `long long`.
 x64 host execution, and both target object generations. Access/ambiguity rules
 and other dependent initializer forms remain open ([TODO](TODO.md)).
 
-2026-10-09 dependent-lookup follow-up: mixed inherited field/function names now
-produce targeted ambiguity diagnostics for both field access and call lookup on
-i686 and AMD64. The positive fixture verifies that a direct derived field hides
-a same-named dependent base field. The focused target passed freestanding i686
-execution, x64 host execution, and object generation for both targets. Other
-dependent lookup paths and DMIs that read earlier members remain unchecked.
+2026-10-09 dependent-lookup/DMI follow-up: mixed inherited field/function names
+now produce targeted ambiguity diagnostics for both field access and call
+lookup on i686 and AMD64. Runtime checks cover direct derived field and function
+hiding. Scalar DMIs also read an earlier direct field through both `this->field`
+and unqualified lookup in a class with a dependent base. The focused target
+passes freestanding i686 execution, x64 host execution, and both target object
+generations. Other dependent lookup paths and DMIs with constructor-parameter
+initialization, calls, side effects, arrays, or cleanup remain unchecked; the
+parameter-initialized earlier-field case currently does not finish compilation.

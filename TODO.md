@@ -709,10 +709,15 @@
           runtime execution in `test-cxx-class-template-dependent-base`.
     - [ ] Cover additional dependent name-lookup paths beyond mixed-name
           ambiguity and direct-member hiding.
-    - [ ] Cover dependent DMIs beyond class-valued brace initialization and
-          scalar constant expressions, including references to earlier members.
-          Keep unsupported expressions and cleanup cases open until their
-          lowering and target behavior are implemented.
+    - [x] Evaluate bounded scalar DMIs that read an earlier direct scalar field
+          through either `this->field` or unqualified member lookup in a class
+          with a dependent base. Verify `int` and `long long` on freestanding
+          i686, x64 host execution, and both target object generations.
+    - [ ] Diagnose and support an earlier-member DMI when the preceding field
+          is initialized from a constructor parameter; the current focused
+          instantiation does not finish compilation. Also cover additional
+          dependent DMI forms such as arrays, calls, side effects, and
+          cleanup-bearing members. Unsupported cases remain unchecked.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の
