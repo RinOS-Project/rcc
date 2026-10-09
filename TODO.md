@@ -495,8 +495,9 @@
     - [x] Lower calls through supported nonvirtual member-function pointers
           into typed SSA by converting their pointer-width code-address value
           to the backend's indirect-call pointer type. Test dot/arrow and all
-          supported method cv forms on i686/AMD64; require exactly four
-          verified functions and zero fallback notices on each target.
+          supported method cv forms on i686/AMD64 at `-O0` and `-O2`; require
+          exactly four verified functions and zero fallback notices on each
+          target.
   - [x] Preserve member-pointee `const` through same-owner and combined
         derived-owner conversions, reject qualification removal, and require an
         lvalue for built-in scalar assignment through an xvalue-selected member.
