@@ -2409,6 +2409,34 @@ static bool cxx_template_redeclaration_expr_list_matches(
     return !left && !right;
 }
 
+static bool cxx_template_redeclaration_requires_matches(
+    const Expr* left, const CxxTemplate* left_template,
+    const Expr* right, const CxxTemplate* right_template, int depth) {
+    const TypeList* left_requirement;
+    const TypeList* right_requirement;
+    if (!left || !right || depth > 64 ||
+        left->kind != EXPR_CXX_REQUIRES ||
+        right->kind != EXPR_CXX_REQUIRES ||
+        left->cxx_requires_params || right->cxx_requires_params ||
+        left->cxx_requires_items || right->cxx_requires_items ||
+        left->cxx_requires_nested || right->cxx_requires_nested ||
+        left->cxx_requires_compound || right->cxx_requires_compound) {
+        return false;
+    }
+    left_requirement = left->cxx_requires_types;
+    right_requirement = right->cxx_requires_types;
+    while (left_requirement && right_requirement) {
+        if (!cxx_template_redeclaration_type_matches(
+                left_requirement->type, left_template,
+                right_requirement->type, right_template, depth + 1)) {
+            return false;
+        }
+        left_requirement = left_requirement->next;
+        right_requirement = right_requirement->next;
+    }
+    return !left_requirement && !right_requirement;
+}
+
 static bool cxx_template_redeclaration_expr_matches(
     const Expr* left, const CxxTemplate* left_template,
     const Expr* right, const CxxTemplate* right_template, int depth) {
@@ -2522,6 +2550,9 @@ static bool cxx_template_redeclaration_expr_matches(
                 cxx_template_redeclaration_expr_matches(
                        left->cast_expr, left_template,
                        right->cast_expr, right_template, depth + 1);
+        case EXPR_CXX_REQUIRES:
+            return cxx_template_redeclaration_requires_matches(
+                left, left_template, right, right_template, depth + 1);
         default:
             return false;
     }

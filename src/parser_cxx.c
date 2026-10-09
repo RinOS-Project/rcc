@@ -6005,6 +6005,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 static bool cxx_friend_function_template_starts(void) {
     Token* token;
     int depth = 0;
+    int brace_depth = 0;
     if (!check(TOK_TEMPLATE)) return false;
     token = parser.cur->next;
     if (!token || token->type != TOK_LT) return false;
@@ -6024,24 +6025,28 @@ static bool cxx_friend_function_template_starts(void) {
             }
         }
     }
-    if (token && token->type == TOK_REQUIRES) {
-        token = token->next;
-        if (token && token->type == TOK_LPAREN) {
-            int parentheses = 0;
-            do {
-                if (token->type == TOK_LPAREN) ++parentheses;
-                else if (token->type == TOK_RPAREN) --parentheses;
-                token = token->next;
-            } while (token && parentheses > 0);
-        } else {
-            while (token && token->type != TOK_FRIEND &&
-                   token->type != TOK_SEMICOLON &&
-                   token->type != TOK_LBRACE) {
-                token = token->next;
-            }
+    if (!token) return false;
+    if (token->type == TOK_FRIEND) return true;
+    if (token->type != TOK_REQUIRES) return false;
+    /* A requires-clause can itself contain a requires-expression with a
+     * braced requirement body. Scan through that body, but stop at a function
+     * body or declaration terminator so a later friend cannot claim this
+     * member template. */
+    while (token) {
+        if (token->type == TOK_LBRACE) {
+            ++brace_depth;
+        } else if (token->type == TOK_RBRACE && brace_depth > 0) {
+            --brace_depth;
+        } else if (brace_depth == 0 && token->type == TOK_FRIEND) {
+            return true;
+        } else if (brace_depth == 0 &&
+                   (token->type == TOK_SEMICOLON ||
+                    token->type == TOK_LBRACE)) {
+            return false;
         }
+        token = token->next;
     }
-    return token && token->type == TOK_FRIEND;
+    return false;
 }
 
 /* Parse the body and ABI metadata of a class after its source name has

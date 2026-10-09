@@ -233,6 +233,29 @@ int reveal_constrained_default_friend(V& host, int replacement) {
     return host.value;
 }
 
+template<class T>
+requires requires { typename T::value_type; }
+int reveal_type_requirement_friend(T& host, int replacement);
+
+class TypeRequirementFriendTemplateHost {
+public:
+    using value_type = int;
+
+private:
+    int value;
+
+    template<class U>
+    requires requires { typename U::value_type; }
+    friend int reveal_type_requirement_friend(U& host, int replacement);
+};
+
+template<class V>
+requires requires { typename V::value_type; }
+int reveal_type_requirement_friend(V& host, int replacement) {
+    host.value = replacement + 1;
+    return host.value;
+}
+
 class DerivedFriendTemplateHost : public FriendTemplateHost {};
 
 using FriendTemplateBox0 = FriendTemplateBox<FriendTemplateHost>;
@@ -297,6 +320,7 @@ int main() {
     TemplateTemplateDefaultFriendHost template_default_friend_host;
     LateTemplateTemplateDefaultFriendHost late_template_default_friend_host;
     ConstrainedDefaultFriendTemplateHost constrained_default_friend_host;
+    TypeRequirementFriendTemplateHost type_requirement_friend_host;
     DerivedFriendTemplateHost derived_host;
     FriendTemplateBox<FriendTemplateHost> box;
     FriendTemplateBox36 deep_box;
@@ -326,6 +350,8 @@ int main() {
                late_template_default_friend_host, 79) == 79 &&
            reveal_constrained_default_friend(
                constrained_default_friend_host, 83) == 84 &&
+           reveal_type_requirement_friend(
+               type_requirement_friend_host, 89) == 90 &&
            reveal(derived_host, 23) == 23 && reveal_box(box) == 29 &&
            reveal_box(deep_box) == 29 ? 0 : 1;
 }
