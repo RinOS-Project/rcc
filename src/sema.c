@@ -1238,35 +1238,77 @@ static void sema_cxx_adl_collect_symbol(
     }
 }
 
-static void sema_cxx_adl_collect_namespace(
-    const char* namespace_name, const char* name,
+static bool sema_cxx_adl_declaration_has_name(const Decl* declaration,
+                                               const char* name) {
+    const char* declared_name;
+    const char* separator;
+    if (!declaration || declaration->kind != DECL_FUNC ||
+        !declaration->name || !name) {
+        return false;
+    }
+    declared_name = declaration->name;
+    separator = strrchr(declared_name, ':');
+    if (separator && separator > declared_name && separator[-1] == ':') {
+        declared_name = separator + 1;
+    }
+    return strcmp(declared_name, name) == 0;
+}
+
+static void sema_cxx_adl_collect_namespace_direct(
+    CxxNamespace* namespace_node, const char* name,
     SemaCxxAdlCandidates* candidates,
     const SemaCxxAdlTypes* associated_types) {
-    char* qualified;
-    size_t namespace_length;
-    size_t name_length;
+    for (DeclList* item = namespace_node ? namespace_node->decls : NULL;
+         item; item = item->next) {
+        Decl* declaration = item->decl;
+        if (!sema_cxx_adl_declaration_has_name(declaration, name)) continue;
+        sema_cxx_adl_collect_symbol(
+            symtab_lookup(g_symtab, declaration->name), candidates,
+            associated_types);
+    }
+}
 
-    if (!name || !candidates) return;
-    if (!namespace_name || !*namespace_name) {
-        /* A class declared at global scope associates the global namespace,
-         * whose symbols use their unqualified spelling in the symbol table. */
-        sema_cxx_adl_collect_symbol(symtab_lookup(g_symtab, name),
-                                    candidates, associated_types);
-        return;
+/* ADL searches direct declarations in each associated namespace and the
+ * inline namespaces in that namespace's inline-namespace set.  Unlike
+ * ordinary lookup, using-directives and using-declarations are not followed. */
+static void sema_cxx_adl_collect_inline_namespace_set(
+    CxxNamespace* namespace_node, const char* name,
+    SemaCxxAdlCandidates* candidates,
+    const SemaCxxAdlTypes* associated_types) {
+    sema_cxx_adl_collect_namespace_direct(namespace_node, name, candidates,
+                                          associated_types);
+    for (CxxNamespace* child = namespace_node ? namespace_node->children : NULL;
+         child; child = child->next) {
+        if (!child->is_inline_namespace) continue;
+        sema_cxx_adl_collect_inline_namespace_set(
+            child, name, candidates, associated_types);
     }
-    namespace_length = strlen(namespace_name);
-    name_length = strlen(name);
-    if (name_length > SIZE_MAX - 3u ||
-        namespace_length > SIZE_MAX - name_length - 3u) {
-        rcc_fatal("ADL qualified name is too large");
+}
+
+static void sema_cxx_adl_collect_namespace(
+    CxxNamespace* namespace_node, const char* name,
+    SemaCxxAdlCandidates* candidates,
+    const SemaCxxAdlTypes* associated_types) {
+    if (!namespace_node || !name || !candidates) return;
+    /* An entity in an inline namespace associates its innermost enclosing
+     * non-inline namespace, plus that namespace's transitive inline set.
+     * Nested non-inline parent namespaces are deliberately not added. */
+    while (namespace_node->is_inline_namespace) {
+        namespace_node = namespace_node->parent;
+        if (!namespace_node) return;
     }
-    qualified = ast_arena_alloc(namespace_length + name_length + 3u);
-    memcpy(qualified, namespace_name, namespace_length);
-    qualified[namespace_length] = ':';
-    qualified[namespace_length + 1u] = ':';
-    memcpy(qualified + namespace_length + 2u, name, name_length + 1u);
-    sema_cxx_adl_collect_symbol(symtab_lookup(g_symtab, qualified),
-                                candidates, associated_types);
+    sema_cxx_adl_collect_inline_namespace_set(
+        namespace_node, name, candidates, associated_types);
+}
+
+static CxxNamespace* sema_cxx_adl_associated_namespace(Type* type) {
+    CxxNamespace* root = sema_cxx_global_namespace();
+    if (!type || !root) return NULL;
+    if (type->cxx_class && type->cxx_class->ns) {
+        return type->cxx_class->ns;
+    }
+    if (!type->cxx_namespace || !*type->cxx_namespace) return root;
+    return cxx_namespace_find(root, type->cxx_namespace);
 }
 
 static Symbol* sema_cxx_make_function_symbol(
@@ -1309,8 +1351,9 @@ static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
         Type* type = associated_types.types[index];
         CxxClass* class_info = type->cxx_class;
 
-        sema_cxx_adl_collect_namespace(type->cxx_namespace, name,
-                                       &candidates, &associated_types);
+        sema_cxx_adl_collect_namespace(
+            sema_cxx_adl_associated_namespace(type), name,
+            &candidates, &associated_types);
         if (type->kind == TYPE_ENUM || !class_info) continue;
 
         /* A class-template specialization contributes the associated entities

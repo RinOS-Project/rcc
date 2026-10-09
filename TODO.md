@@ -536,9 +536,16 @@
           36-level class-template argument chain is covered. The i686/AMD64
           friend-function gate and GCC C++20 comparison pass.
     - [ ] Complete constrained/defaulted/packed friend-template redeclaration,
-          associated-namespace ADL, general
+          general
           overload/redeclaration matching beyond the tested type-only form,
           and the remaining standard friend redeclaration cases.
+    - [x] Search the exact associated namespace and its transitive inline
+          namespace set for ADL declarations. Normalize inline-namespace
+          entities to their innermost enclosing non-inline namespace; do not
+          incorrectly search unrelated enclosing non-inline namespaces or
+          follow using-directives. Test nested-namespace and both inline-set
+          directions, plus an outer-namespace rejection. The i686/AMD64
+          friend-function gate and GCC C++20 comparison pass.
     - [x] Keep ordinary in-class non-template friend functions hidden from
           global ordinary and qualified lookup, admitting them only through
           ADL when an argument is the granting class or a derived class.
