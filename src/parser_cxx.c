@@ -5090,9 +5090,24 @@ static bool cxx_method_parameter_lists_match(const CxxMethod* left,
     return left_parameter == NULL && right_parameter == NULL;
 }
 
-/* C++ forbids mixing ref-qualified and unqualified declarations in one
- * overload set with the same name and explicit parameter types. */
-static void diagnose_mixed_cxx_method_ref_qualifiers(
+static bool cxx_method_exception_spec_value(const CxxMethod* method,
+                                            bool* value) {
+    int64_t expression_value;
+    if (!method || !method->decl || !value) return false;
+    if (!method->decl->func_noexcept_expr) {
+        *value = method->is_noexcept;
+        return true;
+    }
+    if (!expr_eval_integer_constant(method->decl->func_noexcept_expr,
+                                    &expression_value)) {
+        return false;
+    }
+    *value = expression_value != 0;
+    return true;
+}
+
+/* Diagnose invalid member declarations before treating them as overloads. */
+static void diagnose_invalid_cxx_method_redeclaration(
     CxxClass* cls, CxxMethod* method) {
     const char* name = cxx_method_source_name(method);
     if (!cls || !method || !name) return;
@@ -5105,6 +5120,22 @@ static void diagnose_mixed_cxx_method_ref_qualifiers(
         if (!previous_name || strcmp(name, previous_name) != 0 ||
             !cxx_method_parameter_lists_match(method, previous)) {
             continue;
+        }
+        if (method->is_static == previous->is_static &&
+            method->is_const == previous->is_const &&
+            method->is_volatile == previous->is_volatile &&
+            method->ref_qualifier == previous->ref_qualifier) {
+            bool method_noexcept;
+            bool previous_noexcept;
+            if (cxx_method_exception_spec_value(method, &method_noexcept) &&
+                cxx_method_exception_spec_value(previous,
+                                                &previous_noexcept) &&
+                method_noexcept != previous_noexcept) {
+                rcc_error(method->decl->loc,
+                          "declaration of member function '%s' has a different exception specification",
+                          name);
+                return;
+            }
         }
         if ((method->ref_qualifier == CXX_REF_QUAL_NONE) !=
             (previous->ref_qualifier == CXX_REF_QUAL_NONE)) {
@@ -5799,7 +5830,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             return;
         }
         method->owner = cls;
-        diagnose_mixed_cxx_method_ref_qualifiers(cls, method);
+        diagnose_invalid_cxx_method_redeclaration(cls, method);
 
         if (is_constructor) cls->has_user_constructor = true;
 
