@@ -2281,6 +2281,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
         tmpl->params = NULL;
     }
     tmpl->param_count = count;
+    tmpl->friend_access = NULL;
     tmpl->kind = TMPL_CLASS;
     tmpl->class_def = NULL;
     tmpl->alias_type = NULL;
