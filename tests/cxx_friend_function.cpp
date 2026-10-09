@@ -15,6 +15,24 @@ int declared_friend(FriendHost& host, int replacement) {
     return host.value + 2;
 }
 
+class DerivedFriendHost : public FriendHost {};
+
+namespace friend_visibility {
+class PriorVisibleHost;
+int prior_visible_friend(PriorVisibleHost& host);
+
+class PriorVisibleHost {
+    int value;
+
+    friend int prior_visible_friend(PriorVisibleHost& host);
+};
+
+int prior_visible_friend(PriorVisibleHost& host) {
+    host.value = 31;
+    return host.value;
+}
+}
+
 template<class T>
 class FriendTemplateBox {
 };
@@ -92,6 +110,8 @@ int reveal_declared(U& host, int replacement) {
 
 int main() {
     FriendHost ordinary;
+    DerivedFriendHost derived_ordinary;
+    friend_visibility::PriorVisibleHost prior_visible;
     FriendTemplateHost host;
     SecondFriendTemplateHost second_host;
     DerivedFriendTemplateHost derived_host;
@@ -100,6 +120,8 @@ int main() {
     int ordinary_result = inline_friend(ordinary, 4) +
                           declared_friend(ordinary, 5);
     return ordinary_result == 16 && reveal(host, 42) == 42 &&
+           inline_friend(derived_ordinary, 6) == 7 &&
+           friend_visibility::prior_visible_friend(prior_visible) == 31 &&
            reveal_declared(host, 37) == 37 &&
            reveal(second_host, 19) == 19 &&
            reveal(derived_host, 23) == 23 && reveal_box(box) == 29 &&

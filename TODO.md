@@ -538,7 +538,15 @@
     - [ ] Complete constrained/defaulted/packed friend-template redeclaration,
           associated-namespace ADL, general
           overload/redeclaration matching beyond the tested type-only form,
-          and ordinary non-template hidden friends.
+          and the remaining standard friend redeclaration cases.
+    - [x] Keep ordinary in-class non-template friend functions hidden from
+          global ordinary and qualified lookup, admitting them only through
+          ADL when an argument is the granting class or a derived class.
+          Preserve visibility when an ordinary namespace declaration precedes
+          the friend declaration.
+          The i686/AMD64 friend-function gate verifies accepted owner-class
+          calls, unrelated unqualified and qualified rejection, later
+          namespace-definition visibility, and GCC C++20 comparison.
     - [x] Implement defined, nonvirtual, non-overloaded member-function
           pointers for unqualified, `const`, `volatile`, and `const volatile`
           methods: preserve the owner and method cv in the type, form its code

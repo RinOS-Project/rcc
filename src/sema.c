@@ -1150,6 +1150,20 @@ static bool sema_cxx_adl_contains(const SemaCxxAdlCandidates* candidates,
     return false;
 }
 
+static bool sema_cxx_adl_hidden_friend_matches(
+    const Decl* declaration, const SemaCxxAdlTypes* associated_types) {
+    if (!declaration || !declaration->func_is_hidden_friend) return true;
+    if (!associated_types) return false;
+    for (const CxxFriendAccess* grant = declaration->func_friend_access;
+         grant; grant = grant->next) {
+        for (size_t index = 0; index < associated_types->count; ++index) {
+            Type* type = associated_types->types[index];
+            if (type && type->cxx_class == grant->owner) return true;
+        }
+    }
+    return false;
+}
+
 static void sema_cxx_adl_append_candidate(
     SemaCxxAdlCandidates* candidates, Decl* declaration) {
     size_t capacity;
@@ -1207,13 +1221,16 @@ static void sema_cxx_adl_append_type(SemaCxxAdlTypes* types, Type* type) {
 }
 
 static void sema_cxx_adl_collect_symbol(
-    Symbol* symbol, SemaCxxAdlCandidates* candidates) {
+    Symbol* symbol, SemaCxxAdlCandidates* candidates,
+    const SemaCxxAdlTypes* associated_types) {
     if (!symbol || symbol->kind != SYM_FUNC || !symbol->decl || !candidates) {
         return;
     }
     for (Decl* declaration = symbol->decl; declaration;
          declaration = declaration->func_overload_next) {
         if (declaration->kind != DECL_FUNC ||
+            !sema_cxx_adl_hidden_friend_matches(declaration,
+                                                associated_types) ||
             sema_cxx_adl_contains(candidates, declaration)) {
             continue;
         }
@@ -1223,7 +1240,8 @@ static void sema_cxx_adl_collect_symbol(
 
 static void sema_cxx_adl_collect_namespace(
     const char* namespace_name, const char* name,
-    SemaCxxAdlCandidates* candidates) {
+    SemaCxxAdlCandidates* candidates,
+    const SemaCxxAdlTypes* associated_types) {
     char* qualified;
     size_t namespace_length;
     size_t name_length;
@@ -1233,7 +1251,7 @@ static void sema_cxx_adl_collect_namespace(
         /* A class declared at global scope associates the global namespace,
          * whose symbols use their unqualified spelling in the symbol table. */
         sema_cxx_adl_collect_symbol(symtab_lookup(g_symtab, name),
-                                    candidates);
+                                    candidates, associated_types);
         return;
     }
     namespace_length = strlen(namespace_name);
@@ -1247,7 +1265,8 @@ static void sema_cxx_adl_collect_namespace(
     qualified[namespace_length] = ':';
     qualified[namespace_length + 1u] = ':';
     memcpy(qualified + namespace_length + 2u, name, name_length + 1u);
-    sema_cxx_adl_collect_symbol(symtab_lookup(g_symtab, qualified), candidates);
+    sema_cxx_adl_collect_symbol(symtab_lookup(g_symtab, qualified),
+                                candidates, associated_types);
 }
 
 static Symbol* sema_cxx_make_function_symbol(
@@ -1291,7 +1310,7 @@ static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
         CxxClass* class_info = type->cxx_class;
 
         sema_cxx_adl_collect_namespace(type->cxx_namespace, name,
-                                       &candidates);
+                                       &candidates, &associated_types);
         if (type->kind == TYPE_ENUM || !class_info) continue;
 
         /* A class-template specialization contributes the associated entities
@@ -1342,17 +1361,25 @@ static bool sema_cxx_declaration_visible_at(Decl* declaration,
 
 static Symbol* sema_cxx_visible_symbol(Symbol* symbol, SourceLoc use_loc) {
     SemaCxxAdlCandidates candidates = {0};
-    if (!symbol || !current_func_template_instance) return symbol;
+    bool filtered = false;
+    if (!symbol) return NULL;
     if (symbol->kind != SYM_FUNC) {
-        return sema_cxx_declaration_visible_at(symbol->decl, use_loc)
+        return !current_func_template_instance ||
+                       sema_cxx_declaration_visible_at(symbol->decl, use_loc)
             ? symbol : NULL;
     }
     for (Decl* declaration = symbol->decl; declaration;
          declaration = declaration->func_overload_next) {
-        if (!sema_cxx_declaration_visible_at(declaration, use_loc)) continue;
+        if (declaration->func_is_hidden_friend ||
+            (current_func_template_instance &&
+             !sema_cxx_declaration_visible_at(declaration, use_loc))) {
+            filtered = true;
+            continue;
+        }
         sema_cxx_adl_append_candidate(&candidates, declaration);
     }
     if (candidates.count == 0) return NULL;
+    if (!filtered) return symbol;
     return sema_cxx_make_function_symbol(symbol->name, &candidates);
 }
 
@@ -1390,7 +1417,8 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
                 symtab_lookup(g_symtab, qualified), use_loc);
         }
     } else {
-        result = symtab_lookup(g_symtab, name);
+        result = sema_cxx_visible_symbol(symtab_lookup(g_symtab, name),
+                                         use_loc);
     }
     if (result) {
         /* Preserve the established direct/using lookup precedence for
@@ -1400,7 +1428,7 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
             !sema_cxx_namespace_has_inline_child(ns)) {
             return result;
         }
-        sema_cxx_adl_collect_symbol(result, &function_candidates);
+        sema_cxx_adl_collect_symbol(result, &function_candidates, NULL);
     }
 
     for (int index = 0; index < ns->using_declaration_count; ++index) {
@@ -1412,7 +1440,7 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
                                          use_loc);
         if (!result) continue;
         if (result->kind == SYM_FUNC) {
-            sema_cxx_adl_collect_symbol(result, &function_candidates);
+            sema_cxx_adl_collect_symbol(result, &function_candidates, NULL);
         } else if (!non_function) {
             non_function = result;
         }
@@ -1422,7 +1450,7 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
                                            visited, visited_count, use_loc);
         if (!result) continue;
         if (result->kind == SYM_FUNC) {
-            sema_cxx_adl_collect_symbol(result, &function_candidates);
+            sema_cxx_adl_collect_symbol(result, &function_candidates, NULL);
         } else if (!non_function) {
             non_function = result;
         }
@@ -1433,7 +1461,7 @@ static Symbol* sema_cxx_lookup_namespace(CxxNamespace* ns,
                                            visited_count, use_loc);
         if (!result) continue;
         if (result->kind == SYM_FUNC) {
-            sema_cxx_adl_collect_symbol(result, &function_candidates);
+            sema_cxx_adl_collect_symbol(result, &function_candidates, NULL);
         } else if (!non_function) {
             non_function = result;
         }
@@ -17863,6 +17891,9 @@ static void sema_decl(Decl* decl) {
             sema_resolve_function_noexcept(decl);
             if (rcc_parser_is_cxx_mode() && redeclaration_prior) {
                 sema_cxx_merge_friend_access(decl, redeclaration_prior);
+                if (!redeclaration_prior->func_is_hidden_friend) {
+                    decl->func_is_hidden_friend = false;
+                }
                 if (!decl->func_is_template_instance &&
                     !redeclaration_prior->func_is_template_instance &&
                     decl->func_is_noexcept !=

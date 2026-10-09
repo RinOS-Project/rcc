@@ -5842,6 +5842,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
         if (is_friend) {
             method->owner = NULL;
+            method->decl->func_is_hidden_friend = true;
             CxxFriendAccess* friend_access =
                 ast_arena_alloc(sizeof(*friend_access));
             friend_access->owner = cls;
