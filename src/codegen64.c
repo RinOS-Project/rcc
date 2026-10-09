@@ -3452,6 +3452,29 @@ static void gen64_zero_local_storage(Module* mod, int32_t displacement,
     }
 }
 
+static int active_cxx_exception_cleanup_frame_offset64;
+/* Body-less constructor initializers save their implicit object pointer on
+ * the stack.  Calls allocate argument temporaries below that saved pointer,
+ * so EXPR_CXX_THIS stack references must account for the temporary depth. */
+static int active_cxx_constructor_this_stack_bias64;
+static void gen64_cxx_exception_change_subobject(
+    Module* mod, Type* object_type, int address_reg, int frame_offset,
+    bool unregister);
+
+/* Publish completed aggregate subobjects before the next initializer can
+ * throw; retire them only after the enclosing initializer succeeds. */
+static void gen64_cxx_exception_change_local_subobject(
+    Module* mod, Type* object_type, int32_t displacement, bool unregister) {
+    if (!mod || !object_type || !object_type->cxx_class ||
+        active_cxx_exception_cleanup_frame_offset64 == INT_MAX) {
+        return;
+    }
+    emit64_lea(mod, RCX, RBP, displacement);
+    gen64_cxx_exception_change_subobject(
+        mod, object_type, RCX,
+        active_cxx_exception_cleanup_frame_offset64, unregister);
+}
+
 static void gen64_cxx_call_constructor(Module* mod,
                                         CxxConstructorInfo* constructor,
                                         ExprList* arguments);
@@ -3570,6 +3593,23 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                                              (int32_t)item_offset)) {
                     return false;
                 }
+                gen64_cxx_exception_change_local_subobject(
+                    mod, type->base, (int32_t)item_offset, false);
+                ++cursor;
+            }
+            cursor = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                int64_t item_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                    cursor = item->designator_index;
+                }
+                item_offset = (int64_t)displacement +
+                              cursor * type->base->size;
+                if (item_offset >= INT32_MIN && item_offset <= INT32_MAX) {
+                    gen64_cxx_exception_change_local_subobject(
+                        mod, type->base, (int32_t)item_offset, true);
+                }
                 ++cursor;
             }
             return true;
@@ -3623,15 +3663,49 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                     }
                     target_offset = (int64_t)displacement + element_offset;
                     if (!element_type || target_offset < INT32_MIN ||
-                        target_offset > INT32_MAX ||
-                        (field && field->is_bitfield
-                             ? !gen64_bitfield_initializer(
-                                   mod, field, item->expr,
-                                   (int32_t)target_offset)
-                             : !gen64_local_initializer(
-                                   mod, element_type, item->expr,
-                                   (int32_t)target_offset))) {
+                        target_offset > INT32_MAX) {
                         return false;
+                    }
+                    if (field && field->is_bitfield) {
+                        if (!gen64_bitfield_initializer(
+                                mod, field, item->expr,
+                                (int32_t)target_offset)) {
+                            return false;
+                        }
+                    } else if (!gen64_local_initializer(
+                                   mod, element_type, item->expr,
+                                   (int32_t)target_offset)) {
+                        return false;
+                    }
+                    gen64_cxx_exception_change_local_subobject(
+                        mod, element_type, (int32_t)target_offset, false);
+                }
+                element_index = 0;
+                for (ExprList* item = initializer->compound_init; item;
+                     item = item->next) {
+                    Type* element_type = NULL;
+                    TypeField* field = NULL;
+                    int element_offset = 0;
+                    int64_t target_offset;
+                    if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                        field = ast_cxx_aggregate_member(
+                            type, item->designator_field);
+                        if (!field) return false;
+                        element_type = field->type;
+                        element_offset = field->offset;
+                    } else if (item->designator_kind !=
+                                   INIT_DESIGNATOR_NONE ||
+                               !ast_cxx_aggregate_element(
+                                   type, element_index++, &element_type,
+                                   &element_offset, &field)) {
+                        return false;
+                    }
+                    target_offset = (int64_t)displacement + element_offset;
+                    if (element_type && target_offset >= INT32_MIN &&
+                        target_offset <= INT32_MAX &&
+                        !(field && field->is_bitfield)) {
+                        gen64_cxx_exception_change_local_subobject(
+                            mod, element_type, (int32_t)target_offset, true);
                     }
                 }
                 return true;
@@ -3664,6 +3738,34 @@ static bool gen64_local_initializer(Module* mod, Type* type,
                                mod, field->type, item->expr,
                                (int32_t)field_offset))) {
                     return false;
+                }
+                if (!field->is_bitfield) {
+                    gen64_cxx_exception_change_local_subobject(
+                        mod, field->type, (int32_t)field_offset, false);
+                }
+                cursor = field->next;
+                ++initialized;
+            }
+            cursor = type->fields;
+            initialized = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                TypeField* field = cursor;
+                int64_t field_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                    field = gen64_initializer_field(
+                        type, item->designator_field);
+                }
+                if (!field || (type->kind == TYPE_UNION && initialized != 0 &&
+                               item->designator_kind ==
+                                   INIT_DESIGNATOR_NONE)) {
+                    return false;
+                }
+                field_offset = (int64_t)displacement + field->offset;
+                if (!field->is_bitfield && field_offset >= INT32_MIN &&
+                    field_offset <= INT32_MAX) {
+                    gen64_cxx_exception_change_local_subobject(
+                        mod, field->type, (int32_t)field_offset, true);
                 }
                 cursor = field->next;
                 ++initialized;
@@ -5434,31 +5536,30 @@ static void gen64_cxx_initialize_object_mode(
 static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
                                          CxxConstructorInfo* constructor,
                                          ExprList* arguments);
-static int active_cxx_exception_cleanup_frame_offset64;
 static void gen64_cxx_exception_change_subobject(
     Module* mod, Type* object_type, int address_reg, int frame_offset,
     bool unregister) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
     Decl* destructor = cls && cls->destructor_method
         ? cls->destructor_method->decl : NULL;
-    if (!mod || frame_offset == INT_MAX || !destructor ||
-        !destructor->func_body || !destructor->link_name) {
+    if (!mod || !destructor || !decl_link_name(destructor)) {
         return;
     }
+    (void)frame_offset;
     emit64_push_reg(mod, RAX);
     emit64_push_reg(mod, RCX);
     emit64_push_reg(mod, RDX);
-    emit64_mov_reg_reg(mod, RDX, address_reg);
+    emit64_mov_reg_reg(mod, RDX, address_reg); /* object */
     gen64_symbol_address(mod, decl_link_name(destructor), 0u);
-    emit64_mov_reg_reg(mod, RSI, RAX); /* destructor */
-    emit64_lea(mod, RDI, RBP, frame_offset); /* exception frame */
+    emit64_mov_reg_reg(mod, RDI, RAX); /* destructor */
+    emit64_mov_reg_reg(mod, RSI, RDX); /* object */
     emit_byte(mod, 0xE8);
     {
         uint32_t call_offset = code_offset(mod);
         emit_dword(mod, 0u);
         add_func_call_ref64(unregister
-                                ? "rin_cpp_exception_unregister_cleanup"
-                                : "rin_cpp_exception_register_cleanup",
+                                ? "rin_cpp_exception_unregister_current_cleanup"
+                                : "rin_cpp_exception_register_current_cleanup",
                             call_offset);
     }
     emit64_pop_reg(mod, RDX);
@@ -5485,8 +5586,7 @@ static void gen64_cxx_exception_change_array(
     Type* element_type = array_type ? array_type->base : NULL;
     if (!mod || !array_type || array_type->kind != TYPE_ARRAY ||
         !element_type || !element_type->cxx_class ||
-        array_type->array_len <= 0 || element_type->size <= 0 ||
-        frame_offset == INT_MAX) {
+        array_type->array_len <= 0 || element_type->size <= 0) {
         return;
     }
     loop_label = new_label64();
@@ -5515,7 +5615,7 @@ static void gen64_cxx_exception_change_direct_subobjects(
 static void gen64_cxx_exception_unregister_initializers(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
     bool initialize_virtual_bases, int frame_offset) {
-    if (!mod || frame_offset == INT_MAX || !object_type || !constructor) {
+    if (!mod || !object_type || !constructor) {
         return;
     }
     for (CxxConstructorInitializer* initializer = constructor->initializers;
@@ -5565,7 +5665,7 @@ static void gen64_cxx_exception_change_direct_subobjects(
     Module* mod, Type* object_type, int object_reg, int frame_offset,
     bool initialize_virtual_bases, bool unregister) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
-    if (!mod || !cls || frame_offset == INT_MAX) return;
+    if (!mod || !cls) return;
     if (initialize_virtual_bases) {
         for (int index = 0; index < cls->virtual_base_count; ++index) {
             CxxClass* base = cls->virtual_bases[index].base;
@@ -6942,7 +7042,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_CXX_THIS:
             if (expr->cxx_this_stack_offset >= 0) {
                 emit64_mov_reg_mem(mod, RAX, RSP,
-                                   expr->cxx_this_stack_offset);
+                                   expr->cxx_this_stack_offset +
+                                       active_cxx_constructor_this_stack_bias64);
             } else {
                 emit64_mov_reg_reg(mod, RAX, RCX);
             }
@@ -8074,7 +8175,10 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             /* Evaluate arguments into a private, contiguous temporary area.
              * This keeps source evaluation independent of register assignment
              * and lets mixed INTEGER/SSE aggregates be copied losslessly. */
-            if (temp_bytes) emit64_sub_reg_imm(mod, RSP, temp_bytes);
+            if (temp_bytes) {
+                emit64_sub_reg_imm(mod, RSP, temp_bytes);
+                active_cxx_constructor_this_stack_bias64 += temp_bytes;
+            }
             emit64_mov_reg_reg(mod, R10, RSP);
             for (i = argc - 1; i >= 0; i--) {
                 Expr* argument = args[i]->expr;
@@ -8151,6 +8255,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
             gen64_push_call_temporary_cleanup(
                 mod, NULL, expr->cxx_temporary_cleanups);
+            if (temp_bytes) {
+                active_cxx_constructor_this_stack_bias64 -= temp_bytes;
+            }
             if (stack_bytes + stack_padding) {
                 emit64_sub_reg_imm(mod, RSP, stack_bytes + stack_padding);
                 emit64_mov_reg_reg(mod, RAX, RSP);

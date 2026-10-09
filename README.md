@@ -505,3 +505,15 @@ target was invoked through native `cmd.exe` and failed while compiling its
 i686 startup assembly, before runtime execution; no cleanup result is claimed.
 The dependent `this->member` call-argument form still needs a focused
 regression.
+
+2026-10-10 dependent DMI verification: `this->member` now works as a scalar
+function-call argument in a dependent default member initializer. The focused
+regression passes freestanding i686 and x64 host execution for `int` and
+`long long`, and emits both target objects. Exception cleanup now has an x64
+host-runtime regression proving that a completed member is destroyed when a
+later DMI constructor throws, while the incompletely constructed member is not;
+a second case verifies a completed DMI member is destroyed once after a later
+statement throws. `test-cxx-exception-cleanup` emits both target objects and
+passes the x64 runtime checks. The complete
+`test-cxx-class-template-dependent-base` target also passes. Broader dependent
+name lookup paths remain open in [TODO](TODO.md).

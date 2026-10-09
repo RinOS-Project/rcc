@@ -9014,10 +9014,10 @@ static void gen_cxx_exception_change_subobject32(
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
     Decl* destructor = cls && cls->destructor_method
         ? cls->destructor_method->decl : NULL;
-    if (!mod || frame_offset == INT_MAX || !destructor ||
-        !destructor->func_body || !destructor->link_name) {
+    if (!mod || !destructor || !decl_link_name(destructor)) {
         return;
     }
+    (void)frame_offset;
     emit_push_reg(mod, EAX);
     emit_push_reg(mod, ECX);
     emit_push_reg(mod, EDX);
@@ -9025,19 +9025,16 @@ static void gen_cxx_exception_change_subobject32(
     emit_push_reg(mod, EAX); /* object */
     gen_symbol_address(mod, decl_link_name(destructor), 0u);
     emit_push_reg(mod, EAX); /* destructor */
-    emit_mov_reg_reg(mod, EAX, EBP);
-    emit_add_reg_imm(mod, EAX, (uint32_t)frame_offset);
-    emit_push_reg(mod, EAX); /* exception frame */
     emit_byte(mod, 0xE8);
     {
         uint32_t call_offset = code_offset(mod);
         emit_dword(mod, 0u);
         add_func_call_ref(unregister
-                              ? "rin_cpp_exception_unregister_cleanup"
-                              : "rin_cpp_exception_register_cleanup",
+                              ? "rin_cpp_exception_unregister_current_cleanup"
+                              : "rin_cpp_exception_register_current_cleanup",
                           call_offset);
     }
-    emit_add_reg_imm(mod, ESP, 12);
+    emit_add_reg_imm(mod, ESP, 8);
     emit_pop_reg(mod, EDX);
     emit_pop_reg(mod, ECX);
     emit_pop_reg(mod, EAX);
@@ -9062,8 +9059,7 @@ static void gen_cxx_exception_change_array32(
     Type* element_type = array_type ? array_type->base : NULL;
     if (!mod || !array_type || array_type->kind != TYPE_ARRAY ||
         !element_type || !element_type->cxx_class ||
-        array_type->array_len <= 0 || element_type->size <= 0 ||
-        frame_offset == INT_MAX) {
+        array_type->array_len <= 0 || element_type->size <= 0) {
         return;
     }
     loop_label = new_label();
@@ -9092,7 +9088,7 @@ static void gen_cxx_exception_change_direct_subobjects32(
 static void gen_cxx_exception_unregister_initializers32(
     Module* mod, Type* object_type, CxxConstructorInfo* constructor,
     bool initialize_virtual_bases, int frame_offset) {
-    if (!mod || frame_offset == INT_MAX || !object_type || !constructor) {
+    if (!mod || !object_type || !constructor) {
         return;
     }
     for (CxxConstructorInitializer* initializer = constructor->initializers;
@@ -9142,7 +9138,7 @@ static void gen_cxx_exception_change_direct_subobjects32(
     Module* mod, Type* object_type, int object_reg, int frame_offset,
     bool initialize_virtual_bases, bool unregister) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
-    if (!mod || !cls || frame_offset == INT_MAX) return;
+    if (!mod || !cls) return;
     if (initialize_virtual_bases) {
         for (int index = 0; index < cls->virtual_base_count; ++index) {
             CxxClass* base = cls->virtual_bases[index].base;
@@ -14479,6 +14475,22 @@ static void gen_zero_local_storage(Module* mod, int32_t displacement,
     }
 }
 
+/* Aggregate initialization must publish each completed class subobject
+ * before the next member can throw, then retire those entries on success. */
+static void gen_cxx_exception_change_local_subobject32(
+    Module* mod, Type* object_type, int32_t displacement, bool unregister) {
+    if (!mod || !object_type || !object_type->cxx_class ||
+        active_cxx_exception_cleanup_frame_offset == INT_MAX) {
+        return;
+    }
+    emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+    emit_byte(mod, modrm(2, EAX, EBP));
+    emit_dword(mod, (uint32_t)displacement);
+    gen_cxx_exception_change_subobject32(
+        mod, object_type, EAX, active_cxx_exception_cleanup_frame_offset,
+        unregister);
+}
+
 static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                   int32_t displacement) {
     Expr* string = codegen_character_array_string(type, initializer);
@@ -14606,6 +14618,23 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                            (int32_t)item_offset)) {
                     return false;
                 }
+                gen_cxx_exception_change_local_subobject32(
+                    mod, type->base, (int32_t)item_offset, false);
+                ++cursor;
+            }
+            cursor = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                int64_t item_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_INDEX) {
+                    cursor = item->designator_index;
+                }
+                item_offset = (int64_t)displacement +
+                              cursor * type->base->size;
+                if (item_offset >= INT32_MIN && item_offset <= INT32_MAX) {
+                    gen_cxx_exception_change_local_subobject32(
+                        mod, type->base, (int32_t)item_offset, true);
+                }
                 ++cursor;
             }
             return true;
@@ -14634,15 +14663,49 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                     }
                     field_offset = (int64_t)displacement + element_offset;
                     if (!element_type || field_offset < INT32_MIN ||
-                        field_offset > INT32_MAX ||
-                        (field && field->is_bitfield
-                             ? !gen_bitfield_initializer32(
-                                   mod, field, item->expr,
-                                   (int32_t)field_offset)
-                             : !gen_local_initializer(
-                                   mod, element_type, item->expr,
-                                   (int32_t)field_offset))) {
+                        field_offset > INT32_MAX) {
                         return false;
+                    }
+                    if (field && field->is_bitfield) {
+                        if (!gen_bitfield_initializer32(
+                                mod, field, item->expr,
+                                (int32_t)field_offset)) {
+                            return false;
+                        }
+                    } else if (!gen_local_initializer(
+                                   mod, element_type, item->expr,
+                                   (int32_t)field_offset)) {
+                        return false;
+                    }
+                    gen_cxx_exception_change_local_subobject32(
+                        mod, element_type, (int32_t)field_offset, false);
+                }
+                element_index = 0;
+                for (ExprList* item = initializer->compound_init; item;
+                     item = item->next) {
+                    Type* element_type = NULL;
+                    TypeField* field = NULL;
+                    int element_offset = 0;
+                    int64_t field_offset;
+                    if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                        field = ast_cxx_aggregate_member(
+                            type, item->designator_field);
+                        if (!field) return false;
+                        element_type = field->type;
+                        element_offset = field->offset;
+                    } else if (item->designator_kind !=
+                                   INIT_DESIGNATOR_NONE ||
+                               !ast_cxx_aggregate_element(
+                                   type, element_index++, &element_type,
+                                   &element_offset, &field)) {
+                        return false;
+                    }
+                    field_offset = (int64_t)displacement + element_offset;
+                    if (element_type && field_offset >= INT32_MIN &&
+                        field_offset <= INT32_MAX &&
+                        !(field && field->is_bitfield)) {
+                        gen_cxx_exception_change_local_subobject32(
+                            mod, element_type, (int32_t)field_offset, true);
                     }
                 }
                 return true;
@@ -14675,6 +14738,34 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
                                mod, field->type, item->expr,
                                (int32_t)field_offset))) {
                     return false;
+                }
+                if (!field->is_bitfield) {
+                    gen_cxx_exception_change_local_subobject32(
+                        mod, field->type, (int32_t)field_offset, false);
+                }
+                cursor = field->next;
+                ++initialized;
+            }
+            cursor = type->fields;
+            initialized = 0;
+            for (ExprList* item = initializer->compound_init; item;
+                 item = item->next) {
+                TypeField* field = cursor;
+                int64_t field_offset;
+                if (item->designator_kind == INIT_DESIGNATOR_FIELD) {
+                    field = codegen_initializer_field(
+                        type, item->designator_field);
+                }
+                if (!field || (type->kind == TYPE_UNION && initialized != 0 &&
+                               item->designator_kind ==
+                                   INIT_DESIGNATOR_NONE)) {
+                    return false;
+                }
+                field_offset = (int64_t)displacement + field->offset;
+                if (!field->is_bitfield && field_offset >= INT32_MIN &&
+                    field_offset <= INT32_MAX) {
+                    gen_cxx_exception_change_local_subobject32(
+                        mod, field->type, (int32_t)field_offset, true);
                 }
                 cursor = field->next;
                 ++initialized;

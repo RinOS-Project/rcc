@@ -163,6 +163,12 @@ ifeq ($(OS),Windows_NT)
 # Windows has no RinOS int 0x80/syscall runtime.  Compile the i686 image to a
 # PE object for target/ABI verification, then execute the x64 image through a
 # real native CRT adapter that calls the generated main function.
+CXX_WINDOWS_EXCEPTION_RUNTIME = $(TEST_OUT)/cxx-host-exception-runtime-x64.o
+
+$(CXX_WINDOWS_EXCEPTION_RUNTIME): tests/cxx_exceptions_x64_start.s
+	$(call MKDIR_P,$(TEST_OUT))
+	$(CC) -DRINOS_HOST_RUNTIME -x assembler-with-cpp -c -o $@ $<
+
 define CXX_WINDOWS_MAIN
 $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/$(2)-x86.s tests/$(3)
 $(CC) -m32 -c -o $(TEST_OUT)/$(1)/$(2)-x86.o $(TEST_OUT)/$(1)/$(2)-x86.s
@@ -171,7 +177,7 @@ $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/$(2)-x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/$(2)-x64.s tests/$(3)
 $(CC) -c -o $(TEST_OUT)/$(1)/$(2)-x64.o $(TEST_OUT)/$(1)/$(2)-x64.s
 $(OBJCOPY) --redefine-sym main=rcc_test_main $(TEST_OUT)/$(1)/$(2)-x64.o
-$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/$(2)-x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/$(2)-x64.o
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/$(2)-x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/$(2)-x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 $(TEST_OUT)/$(1)/$(2)-x64-host
 endef
 
@@ -185,7 +191,7 @@ objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
 $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
-$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/$(3) $(TEST_OUT)/$(1)/x64.o
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/$(3) $(TEST_OUT)/$(1)/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 $(TEST_OUT)/$(1)/x64-host
 endef
 
@@ -197,7 +203,7 @@ $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
 $(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/$(1)/x64.o
-$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/x64.o
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 $(TEST_OUT)/$(1)/x64-host
 endef
 
@@ -224,7 +230,7 @@ $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
 $(CC) -c -o $(TEST_OUT)/$(1)/x64-peer.o $(TEST_OUT)/$(1)/x64-peer.s
 $(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/$(1)/x64.o
 $(OBJCOPY) --redefine-sym .weak.__rcc_typeinfo_type_T9_0sPT4_0s_name._rcc_entry=.weak.peer_typeinfo_name --redefine-sym .weak.__rcc_typeinfo_type_T9_0sPT4_0s._rcc_entry=.weak.peer_typeinfo $(TEST_OUT)/$(1)/x64-peer.o
-$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64-peer.o
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_language_core_host.c $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64-peer.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 $(TEST_OUT)/$(1)/x64-host
 endef
 
@@ -257,7 +263,7 @@ objdump -f $(TEST_OUT)/$(1)/x86.o > $(TEST_OUT)/$(1)/x86-arch.log
 $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
-$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/$(3) $(TEST_OUT)/$(1)/x64.o
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/$(3) $(TEST_OUT)/$(1)/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 $(TEST_OUT)/$(1)/x64-host
 endef
 
@@ -269,7 +275,7 @@ $(GREP) -F -q "pe-i386" $(TEST_OUT)/$(1)/x86-arch.log
 $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/x64.s tests/$(2)
 $(CC) -c -o $(TEST_OUT)/$(1)/x64.o $(TEST_OUT)/$(1)/x64.s
 $(OBJCOPY) --redefine-sym main=rcc_cxx_constexpr_main $(TEST_OUT)/$(1)/x64.o
-$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_constexpr_host.c $(TEST_OUT)/$(1)/x64.o
+$(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_constexpr_host.c $(TEST_OUT)/$(1)/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 $(TEST_OUT)/$(1)/x64-host
 endef
 endif
@@ -672,6 +678,10 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-dynamic-cast-reference \
 	test-cxx-bitfields \
 	test-cxx-global-constructor
+
+ifeq ($(OS),Windows_NT)
+$(CXX_REGRESSION_TARGETS): $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+endif
 
 # The C17 profile is an explicit aggregate of the focused frontend, ABI, and
 # native-execution tests.  Keeping these as prerequisites makes the
@@ -3504,7 +3514,12 @@ test-cxx-class-template-specialization: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-specialization,cxx_class_template_specialization.cpp)
 
-test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-dependent-base-lookup-invalid test-cxx-class-template-dependent-nested-type
+test-cxx-dependent-dmi-call-argument: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-dmi-call-argument)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-dependent-dmi-call-argument,cxx_dependent_dmi_call_argument.cpp)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-dmi-call-argument/x86,$(TEST_OUT)/cxx-dependent-dmi-call-argument/x86.s)
+
+test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-dependent-base-lookup-invalid test-cxx-class-template-dependent-nested-type test-cxx-dependent-dmi-call-argument
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-base)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s tests/cxx_class_template_dependent_base.cpp
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s)
@@ -3521,7 +3536,12 @@ test-cxx-class-template-dependent-nested-type: $(RCXX_TARGET)
 else
 test-cxx-class-template-methods: test-cxx-class-template-methods-posix
 test-cxx-class-template-specialization: test-cxx-class-template-specialization-posix
-test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-dependent-base-lookup-invalid test-cxx-class-template-dependent-nested-type
+test-cxx-dependent-dmi-call-argument: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-dmi-call-argument)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-dependent-dmi-call-argument,cxx_dependent_dmi_call_argument.cpp)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-dmi-call-argument/x86,$(TEST_OUT)/cxx-dependent-dmi-call-argument/x86.s)
+
+test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-dependent-base-lookup-invalid test-cxx-class-template-dependent-nested-type test-cxx-dependent-dmi-call-argument
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-base)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s tests/cxx_class_template_dependent_base.cpp
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s)
@@ -8444,6 +8464,7 @@ endif
 .PHONY: test-cxx-class-template-methods
 .PHONY: test-cxx-class-template-specialization
 .PHONY: test-cxx-class-template-dependent-base
+.PHONY: test-cxx-dependent-dmi-call-argument
 .PHONY: test-cxx-class-template-dependent-nested-type
 .PHONY: test-cxx-class-template-dependent-base-lookup-invalid
 .PHONY: test-cxx-class-template-specialization-ambiguous
@@ -9669,6 +9690,10 @@ test-cxx-exception-cleanup: $(RCXX_TARGET)
 	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.o $(TEST_OUT)/cxx-exception-cleanup/x64.s
 	objdump -f $(TEST_OUT)/cxx-exception-cleanup/x64.o > $(TEST_OUT)/cxx-exception-cleanup/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exception-cleanup/x64-arch.log
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-exception-cleanup/runtime-x64.o tests/cxx_exceptions_x64_start.s
+	objcopy --redefine-sym main=rcc_test_main $(TEST_OUT)/cxx-exception-cleanup/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-exception-cleanup/x64-host tests/cxx_exception_cleanup_host.c $(TEST_OUT)/cxx-exception-cleanup/x64.o $(TEST_OUT)/cxx-exception-cleanup/runtime-x64.o
+	$(TEST_OUT)/cxx-exception-cleanup/x64-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s tests/cxx_exception_cleanup_call_rejected.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x86.o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s
 	objdump -f $(TEST_OUT)/cxx-exception-cleanup/call-x86.o > $(TEST_OUT)/cxx-exception-cleanup/call-x86-arch.log

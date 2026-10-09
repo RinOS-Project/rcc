@@ -123,6 +123,69 @@ private:
     NestedSecondExceptionGuard second_;
 };
 
+static int dependent_dmi_partial_cleanup_count;
+
+template <typename T>
+struct DependentDmiExceptionBase {};
+
+class DependentDmiCompletedMember final {
+public:
+    explicit DependentDmiCompletedMember(int value) : value_(value) {}
+
+    ~DependentDmiCompletedMember() {
+        dependent_dmi_partial_cleanup_count += value_;
+    }
+
+private:
+    int value_;
+};
+
+class DependentDmiThrowingMember final {
+public:
+    DependentDmiThrowingMember() {
+        throw 19;
+    }
+
+    ~DependentDmiThrowingMember() {
+        dependent_dmi_partial_cleanup_count += 1000;
+    }
+};
+
+template <typename T>
+class DependentDmiThrowAfterCompleted final : DependentDmiExceptionBase<T> {
+public:
+    DependentDmiCompletedMember completed{17};
+    DependentDmiThrowingMember later{};
+};
+
+class CompletedDmiThenThrow final {
+public:
+    DependentDmiCompletedMember completed{17};
+};
+
+extern "C" int cxx_exception_cleanup_dependent_dmi() {
+    int caught = 0;
+    dependent_dmi_partial_cleanup_count = 0;
+    try {
+        DependentDmiThrowAfterCompleted<int> failed;
+    } catch (int value) {
+        caught = value;
+    }
+    return caught + dependent_dmi_partial_cleanup_count * 100;
+}
+
+extern "C" int cxx_exception_cleanup_completed_dmi_then_throw() {
+    int caught = 0;
+    dependent_dmi_partial_cleanup_count = 0;
+    try {
+        CompletedDmiThenThrow completed;
+        throw 23;
+    } catch (int value) {
+        caught = value;
+    }
+    return caught + dependent_dmi_partial_cleanup_count * 100;
+}
+
 class ArrayDeleteThrowing final {
 public:
     explicit ArrayDeleteThrowing(int value) : value_(value) {}
@@ -195,6 +258,8 @@ extern "C" int main() {
                    cxx_exception_destructor_total == 2 &&
                    cxx_exception_cleanup_nested_members() == 21029 &&
                    cxx_exception_cleanup_delete_throw() == 21037 &&
+                   cxx_exception_cleanup_dependent_dmi() == 1719 &&
+                   cxx_exception_cleanup_completed_dmi_then_throw() == 1723 &&
                    cxx_exception_cleanup_array_delete_throw() == 21043
                ? 0
                : 1;
