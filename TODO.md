@@ -469,17 +469,28 @@
         exactly-once destruction through the shared host runtime. Keep this
         open until RinOS runtime integration is covered.
   - [ ] Complete remaining pointer-to-member conversions and contexts:
-        pointer-to-member function types/calls, hidden inherited member lookup,
-        non-public inherited members, and remaining access contexts. Unique
-        public inherited data members now form pointers whose owner is the class
-        that declared the member, including public virtual bases; positive
-        generation/execution coverage and negative checks for private
-        formation, ambiguous object paths, and ambiguous owner conversion run
-        in `test-cxx-member-pointer-data` on both targets. Conversions across
-        virtual bases are ill-formed under C++ `[conv.mem]`; preserve diagnostics
-        for them instead of treating them as an implementation feature. Keep
-        unsupported valid forms unchecked and explicit; do not substitute
-        placeholder lowering.
+        hidden inherited member lookup, non-public inherited members, and
+        remaining access contexts. Unique public inherited data members now
+        form pointers whose owner is the class that declared the member,
+        including public virtual bases; positive generation/execution coverage
+        and negative checks for private formation, ambiguous object paths, and
+        ambiguous owner conversion run in `test-cxx-member-pointer-data` on
+        both targets. Conversions across virtual bases are ill-formed under C++
+        `[conv.mem]`; preserve diagnostics for them instead of treating them as
+        an implementation feature.
+    - [x] Implement the first real member-function-pointer path for a defined,
+          unqualified, nonvirtual, non-overloaded method: preserve the owner in
+          the type, form its code address, and invoke it through both `.*` and
+          `->*` with an ABI-level implicit object argument. The focused
+          `test-cxx-member-pointer-functions` test generates i686/AMD64 code
+          and executes the AMD64 output.
+    - [ ] Extend member-function pointers to overload resolution, inherited
+          member lookup/access and owner conversions, cv/ref/noexcept-qualified
+          methods, virtual dispatch and the target's complete member-pointer
+          representation/this-adjustment ABI. Add typed-SSA coverage rather
+          than treating legacy fallback as verified support. Keep this parent
+          item open until the remaining valid C++ forms are implemented and
+          verified; do not substitute placeholder lowering.
   - [x] Preserve member-pointee `const` through same-owner and combined
         derived-owner conversions, reject qualification removal, and require an
         lvalue for built-in scalar assignment through an xvalue-selected member.

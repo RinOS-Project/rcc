@@ -10928,7 +10928,9 @@ static void gen_call(Module* mod, Expr* expr) {
     args = rcc_alloc((size_t)argc * sizeof(ExprList*));
     argument_types = rcc_alloc((size_t)argc * sizeof(Type*));
     reference_temp_offsets = rcc_alloc((size_t)argc * sizeof(int));
-    function_type = expr->call_func ? expr->call_func->type : NULL;
+    function_type = expr->call_abi_function_type
+        ? expr->call_abi_function_type
+        : (expr->call_func ? expr->call_func->type : NULL);
     if (function_type && function_type->kind == TYPE_PTR) {
         function_type = function_type->base;
     }

@@ -11070,7 +11070,41 @@ static Type* sema_expr(Expr* expr) {
                 addressed_type->is_reference) {
                 addressed_type = addressed_type->base;
             }
-            expr->type = type_ptr(addressed_type);
+            if (rcc_parser_is_cxx_mode() &&
+                expr->cxx_member_pointer_form &&
+                expr->unary_operand &&
+                expr->unary_operand->kind == EXPR_IDENT &&
+                expr->unary_operand->ident_decl &&
+                expr->unary_operand->ident_decl->func_is_cxx_method &&
+                expr->unary_operand->ident_decl->func_this_param &&
+                expr->unary_operand->ident_decl->func_method_owner) {
+                Decl* method = expr->unary_operand->ident_decl;
+                Type* signature = ast_arena_alloc(sizeof(*signature));
+                TypeParam* implicit_object = method->type
+                    ? method->type->params : NULL;
+                if (!method->type || !implicit_object ||
+                    implicit_object->type != method->func_this_param->type) {
+                    rcc_error(expr->loc,
+                              "member-function pointer method has incomplete object-parameter metadata");
+                    expr->type = type_ptr(addressed_type);
+                    break;
+                }
+                *signature = *method->type;
+                signature->params = implicit_object->next;
+                expr->type = type_ptr(signature);
+                expr->type->cxx_is_member_pointer = true;
+                expr->type->cxx_member_pointer_owner =
+                    method->func_method_owner;
+            } else {
+                expr->type = type_ptr(addressed_type);
+            }
+            if (rcc_parser_is_cxx_mode() &&
+                expr->cxx_member_pointer_form &&
+                !sema_cxx_member_pointer_form_accessible(expr)) {
+                rcc_error(expr->loc,
+                          "member-pointer formation is not accessible in this context");
+                expr->cxx_member_pointer_form = false;
+            }
             break;
         }
 
@@ -12109,6 +12143,74 @@ static Type* sema_expr(Expr* expr) {
             int argument_index = 1;
             bool reported_too_many = false;
             bool arguments_analyzed = false;
+            if (rcc_parser_is_cxx_mode() &&
+                !expr->call_abi_function_type && expr->call_func &&
+                (expr->call_func->kind == EXPR_CXX_MEMBER_PTR_DOT ||
+                 expr->call_func->kind == EXPR_CXX_MEMBER_PTR_ARROW)) {
+                Expr* application = expr->call_func;
+                Type* applied_type = sema_expr(application);
+                Type* member_pointer = application->binary_rhs
+                    ? application->binary_rhs->type : NULL;
+                Type* owner = member_pointer &&
+                    member_pointer->kind == TYPE_PTR &&
+                    member_pointer->cxx_is_member_pointer
+                    ? member_pointer->cxx_member_pointer_owner : NULL;
+                Type* member_function = member_pointer &&
+                    member_pointer->kind == TYPE_PTR &&
+                    member_pointer->cxx_is_member_pointer
+                    ? member_pointer->base : NULL;
+                if (applied_type && applied_type->kind == TYPE_FUNC &&
+                    member_function && member_function->kind == TYPE_FUNC &&
+                    owner && (owner->kind == TYPE_STRUCT ||
+                              owner->kind == TYPE_UNION)) {
+                    Type* this_type = type_ptr(owner);
+                    Type* abi_type = ast_arena_alloc(sizeof(*abi_type));
+                    TypeParam* this_parameter =
+                        ast_arena_alloc(sizeof(*this_parameter));
+                    Expr* this_argument;
+                    ExprList* implicit_argument;
+                    if (application->kind == EXPR_CXX_MEMBER_PTR_ARROW) {
+                        this_argument = application->binary_lhs;
+                    } else {
+                        this_argument = expr_unary(
+                            EXPR_ADDR, application->binary_lhs,
+                            application->loc);
+                        this_argument->cxx_implicit_object_address = true;
+                        if (!is_lvalue(application->binary_lhs)) {
+                            sema_prepare_class_prvalue_cleanup(
+                                application->binary_lhs,
+                                &expr->cxx_temporary_owner,
+                                &expr->cxx_temporary_cleanups, false,
+                                "member-function pointer receiver cleanup is unsupported");
+                            if (expr->cxx_temporary_owner) {
+                                expr->cxx_temporary_source =
+                                    application->binary_lhs;
+                            }
+                        }
+                    }
+                    sema_expr(this_argument);
+                    if (!implicit_cast(this_argument, this_type)) {
+                        rcc_error(expr->loc,
+                                  "member-function pointer receiver is not publicly convertible to its owner");
+                    }
+                    memset(this_parameter, 0, sizeof(*this_parameter));
+                    this_parameter->name = "this";
+                    this_parameter->type = this_type;
+                    this_parameter->cxx_access = ACCESS_PUBLIC;
+                    this_parameter->next = member_function->params;
+                    *abi_type = *member_function;
+                    abi_type->params = this_parameter;
+                    expr->call_abi_function_type = abi_type;
+                    implicit_argument = exprlist_new(this_argument);
+                    implicit_argument->designator_kind =
+                        INIT_DESIGNATOR_NONE;
+                    implicit_argument->designator_index = 0;
+                    implicit_argument->designator_field = NULL;
+                    implicit_argument->next = expr->call_args;
+                    expr->call_args = implicit_argument;
+                    expr->call_func = application->binary_rhs;
+                }
+            }
             if (expr->call_is_delete) {
                 Type* freed_type;
                 Type* object_type;
@@ -12672,6 +12774,9 @@ static Type* sema_expr(Expr* expr) {
             }
             ft = selected_overload
                 ? selected_overload->type : sema_expr(expr->call_func);
+            if (expr->call_abi_function_type) {
+                ft = expr->call_abi_function_type;
+            }
             if (!ft || ft->kind != TYPE_FUNC) {
                 /* Could be pointer to function */
                 if (ft && ft->kind == TYPE_PTR && ft->base && ft->base->kind == TYPE_FUNC) {
@@ -12860,7 +12965,7 @@ static Type* sema_expr(Expr* expr) {
                 member_pointer_type->kind != TYPE_PTR ||
                 !member_pointer_type->cxx_is_member_pointer) {
                 rcc_error(expr->loc,
-                          "pointer-to-member operator requires a data member pointer");
+                          "pointer-to-member operator requires a member pointer");
                 expr->type = type_int;
                 break;
             }
@@ -12923,10 +13028,14 @@ static Type* sema_expr(Expr* expr) {
                 }
             }
             member_type = member_pointer_type->base;
-            if (!member_type || member_type->kind == TYPE_FUNC) {
+            if (!member_type) {
                 rcc_error(expr->loc,
-                          "pointer-to-member function application is unsupported");
+                          "pointer-to-member type has no member type");
                 expr->type = type_int;
+                break;
+            }
+            if (member_type->kind == TYPE_FUNC) {
+                expr->type = member_type;
                 break;
             }
             expr->type = member_type;

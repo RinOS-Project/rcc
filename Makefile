@@ -479,6 +479,8 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-static-reference-conversions-posix
 .PHONY: test-cxx-member-pointer-data \
 	test-cxx-member-pointer-reference-lifetime \
+	test-cxx-member-pointer-functions \
+	test-cxx-member-pointer-functions-posix \
 	test-cxx-member-pointer-data-posix
 .PHONY: test-verified-volatile
 .PHONY: test-verified-cxx-temporary-cleanup
@@ -567,6 +569,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-static-reference-subobjects \
 	test-cxx-static-reference-conversions \
 	test-cxx-member-pointer-data \
+	test-cxx-member-pointer-functions \
 	test-cxx-member-pointer-reference-lifetime \
 	test-cxx-class-template-methods \
 	test-cxx-class-template-specialization \
@@ -2884,6 +2887,31 @@ test-cxx-member-pointer-data-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "assignment requires modifiable lvalue" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	@echo "C++ data member-pointer operations and static subobject lifetime tests passed"
 
+test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-functions)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-pointer-functions/x86.s \
+		tests/cxx_member_pointer_functions.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-pointer-functions/x86.o \
+		$(TEST_OUT)/cxx-member-pointer-functions/x86.s
+	objdump -f $(TEST_OUT)/cxx-member-pointer-functions/x86.o \
+		> $(TEST_OUT)/cxx-member-pointer-functions/x86-arch.log
+	$(GREP) -F -q "elf32-i386" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-pointer-functions/x64.s \
+		tests/cxx_member_pointer_functions.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-member-pointer-functions/x64.o \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.o
+	$(CC) $(CFLAGS) -no-pie \
+		-o $(TEST_OUT)/cxx-member-pointer-functions/x64-host \
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.o
+	$(TEST_OUT)/cxx-member-pointer-functions/x64-host
+	@echo "C++ non-virtual member-function pointer calls passed for i686 and AMD64"
+
 test-cxx-constraints-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -3208,6 +3236,11 @@ test-cxx-member-pointer-data: $(RCXX_TARGET)
 	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "assignment requires modifiable lvalue" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 
+test-cxx-member-pointer-functions: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-functions)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-member-pointer-functions,cxx_member_pointer_functions.cpp)
+	@echo "C++ non-virtual member-function pointer calls passed for i686 and AMD64"
+
 test-cxx-constraints: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-constraints,cxx_constraints.cpp)
@@ -3241,6 +3274,7 @@ test-cxx-static-local-exception: test-cxx-static-local-exception-posix
 test-cxx-static-reference-subobjects: test-cxx-static-reference-subobjects-posix
 test-cxx-static-reference-conversions: test-cxx-static-reference-conversions-posix
 test-cxx-member-pointer-data: test-cxx-member-pointer-data-posix
+test-cxx-member-pointer-functions: test-cxx-member-pointer-functions-posix
 test-cxx-constraints: test-cxx-constraints-posix
 test-cxx-named-concepts: test-cxx-named-concepts-posix
 test-cxx-alias-templates: test-cxx-alias-templates-posix

@@ -3652,6 +3652,7 @@ typedef struct ParsedPointerLevel {
     bool is_restrict;
     bool is_reference;
     bool is_rvalue_reference;
+    Type* member_pointer_owner;
     struct ParsedPointerLevel* next;
 } ParsedPointerLevel;
 
@@ -3672,6 +3673,20 @@ static bool parser_parenthesized_pointer_is_function(void) {
                 return token->next && token->next->type == TOK_LPAREN;
             }
         }
+    }
+    return false;
+}
+
+static bool parser_parenthesized_declarator_starts_member_pointer(void) {
+    Token* cursor = parser.cur ? parser.cur->next : NULL;
+    if (!parser_cxx_mode || !cursor || cursor->type != TOK_IDENT) {
+        return false;
+    }
+    while (cursor && cursor->type == TOK_IDENT && cursor->next &&
+           cursor->next->type == TOK_SCOPE && cursor->next->next) {
+        if (cursor->next->next->type == TOK_STAR) return true;
+        if (cursor->next->next->type != TOK_IDENT) return false;
+        cursor = cursor->next->next;
     }
     return false;
 }
@@ -3705,6 +3720,59 @@ static ParsedPointerLevel* parse_pointer_levels(void) {
     return levels;
 }
 
+/* Parse the pointer layer inside `int (Owner::*method)(Args...)`.  This is
+ * separate from ordinary pointer levels because the class owner is part of
+ * the pointer type's semantic identity. */
+static bool parse_member_pointer_level(ParsedPointerLevel** level_out) {
+    Token* cursor = parser.cur;
+    Token* star = NULL;
+    char owner_name[256];
+    size_t owner_length = 0u;
+    Type* owner;
+    ParsedPointerLevel* level;
+    if (level_out) *level_out = NULL;
+    if (!parser_cxx_mode || !cursor || cursor->type != TOK_IDENT) {
+        return false;
+    }
+    owner_name[0] = '\0';
+    while (cursor && cursor->type == TOK_IDENT && cursor->next &&
+           cursor->next->type == TOK_SCOPE && cursor->next->next) {
+        size_t length = strlen(cursor->value.str_val);
+        if (owner_length + length + 2u >= sizeof(owner_name)) return false;
+        memcpy(owner_name + owner_length, cursor->value.str_val, length);
+        owner_length += length;
+        if (cursor->next->next->type == TOK_STAR) {
+            star = cursor->next->next;
+            break;
+        }
+        if (cursor->next->next->type != TOK_IDENT) return false;
+        memcpy(owner_name + owner_length, "::", 2u);
+        owner_length += 2u;
+        cursor = cursor->next->next;
+    }
+    if (!star) return false;
+    owner_name[owner_length] = '\0';
+    owner = rcc_parser_lookup_type(owner_name);
+    if (!owner || (owner->kind != TYPE_STRUCT &&
+                   owner->kind != TYPE_UNION)) {
+        return false;
+    }
+    while (parser.cur != star->next) advance();
+    level = ast_arena_alloc(sizeof(*level));
+    level->member_pointer_owner = owner;
+    while (match(TOK_CONST) || match(TOK_VOLATILE) ||
+           match(TOK_RESTRICT)) {
+        if (previous()->type == TOK_CONST) level->is_const = true;
+        else if (previous()->type == TOK_VOLATILE) {
+            level->is_volatile = true;
+        } else {
+            level->is_restrict = true;
+        }
+    }
+    if (level_out) *level_out = level;
+    return true;
+}
+
 static Type* apply_pointer_levels(Type* type,
                                   ParsedPointerLevel* levels) {
     for (ParsedPointerLevel* level = levels; level; level = level->next) {
@@ -3712,6 +3780,10 @@ static Type* apply_pointer_levels(Type* type,
             ? type_reference(type, level->is_rvalue_reference)
             : type_ptr(type);
         if (!type) return NULL;
+        if (level->member_pointer_owner) {
+            type->cxx_is_member_pointer = true;
+            type->cxx_member_pointer_owner = level->member_pointer_owner;
+        }
         type->is_const = level->is_const;
         type->is_volatile = level->is_volatile;
         type->is_restrict = level->is_restrict;
@@ -3802,14 +3874,17 @@ static Type* parse_declarator(Type* base_type, const char** name,
     /* Function-pointer declarator: return_type (*name)(parameters). */
     if (check(TOK_LPAREN) && parser.cur->next &&
         (parser.cur->next->type == TOK_STAR ||
-         (parser_cxx_mode && parser.cur->next->type == TOK_AMP)) &&
+         (parser_cxx_mode && parser.cur->next->type == TOK_AMP) ||
+         parser_parenthesized_declarator_starts_member_pointer()) &&
         parser_parenthesized_pointer_is_function()) {
         ParsedPointerLevel* nested_pointers;
         DeclList* function_parameters = NULL;
         bool variadic = false;
         bool has_prototype;
         advance();
-        nested_pointers = parse_pointer_levels();
+        if (!parse_member_pointer_level(&nested_pointers)) {
+            nested_pointers = parse_pointer_levels();
+        }
         declarator_parameter_pack = parser_cxx_mode && match(TOK_ELLIPSIS);
         if (check(TOK_IDENT)) {
             Token* identifier = advance();
@@ -3840,9 +3915,12 @@ static Type* parse_declarator(Type* base_type, const char** name,
      * the pointer levels inside the group are applied afterwards. */
     if (check(TOK_LPAREN) && parser.cur->next &&
         (parser.cur->next->type == TOK_STAR ||
-         (parser_cxx_mode && parser.cur->next->type == TOK_AMP))) {
+         (parser_cxx_mode && parser.cur->next->type == TOK_AMP) ||
+         parser_parenthesized_declarator_starts_member_pointer())) {
         advance();
-        parenthesized_pointers = parse_pointer_levels();
+        if (!parse_member_pointer_level(&parenthesized_pointers)) {
+            parenthesized_pointers = parse_pointer_levels();
+        }
         declarator_parameter_pack = parser_cxx_mode && match(TOK_ELLIPSIS);
         if (check(TOK_IDENT)) {
             Token* identifier = advance();

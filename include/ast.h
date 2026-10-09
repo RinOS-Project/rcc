@@ -696,6 +696,10 @@ struct Expr {
             Expr* call_func;
             ExprList* call_args;
             int call_result_offset;  /* Aggregate return spill/sret slot. */
+            /* ABI signature for calls through a C++ pointer-to-member
+             * function.  The source-level member-function type omits the
+             * implicit object parameter; this call-local copy prepends it. */
+            Type* call_abi_function_type;
             TypeMethod* call_method; /* Validated inline C++ accessor. */
             bool call_is_virtual;
             int call_virtual_index;

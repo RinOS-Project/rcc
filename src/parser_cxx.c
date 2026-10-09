@@ -85,9 +85,11 @@ static bool cxx_inherited_nonfield_name(CxxClass* cls, const char* name,
     return false;
 }
 
-/* Parse `&Class::data_member` as a bounded data-member pointer constant.
- * Public unambiguous inherited fields retain their declaring-class owner;
- * function members and bit-fields remain outside this data-member ABI. */
+/* Parse `&Class::member` as a pointer-to-member constant.  Data members use
+ * the bounded offset representation below.  The initial function-member
+ * subset is restricted to one defined, non-virtual, non-overloaded method;
+ * its ordinary code address is paired with the implicit object argument at
+ * each call site. */
 Expr* rcc_parse_cxx_member_pointer_address(void) {
     Token* cursor = parser.cur;
     Token* segments[32];
@@ -155,8 +157,11 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         }
         for (struct CxxMember* member = owner->cxx_class->members;
              member; member = member->next) {
-            if (!member->decl || !member->decl->name ||
-                strcmp(member->decl->name, member_name) != 0) {
+            const char* declared_name = member->method
+                ? member->method->source_name
+                : (member->decl ? member->decl->name : NULL);
+            if (!declared_name ||
+                strcmp(declared_name, member_name) != 0) {
                 continue;
             }
             if (member->is_static) direct_static_name = true;
@@ -177,30 +182,78 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     }
     if (!field) {
         if (direct_static_name && !direct_nonstatic_method) return NULL;
-        TypeMethod* method = owner->methods;
-        while (method && (!method->name ||
-                          strcmp(method->name,
-                                 segments[segment_count - 1u]->value.str_val) != 0)) {
-            method = method->next;
+        if (direct_nonstatic_method) {
+            struct CxxMember* declaration = owner->cxx_class
+                ? owner->cxx_class->members : NULL;
+            struct CxxMember* selected_declaration = NULL;
+            TypeMethod* method = NULL;
+            Decl* function_decl = NULL;
+            int matching_methods = 0;
+            const char* member_name =
+                segments[segment_count - 1u]->value.str_val;
+            for (; declaration; declaration = declaration->next) {
+                TypeMethod* candidate;
+                if (!declaration->method || declaration->is_static ||
+                    !declaration->decl ||
+                    !declaration->method->source_name ||
+                    strcmp(declaration->method->source_name,
+                           member_name) != 0) {
+                    continue;
+                }
+                ++matching_methods;
+                selected_declaration = declaration;
+                function_decl = declaration->decl;
+                for (candidate = owner->methods; candidate;
+                     candidate = candidate->next) {
+                    if (candidate->function_decl == function_decl) {
+                        method = candidate;
+                        break;
+                    }
+                }
+            }
+            loc = segments[segment_count - 1u]->loc;
+            parser.prev = segments[segment_count - 1u];
+            parser.cur = parser.prev->next;
+            if (matching_methods != 1 || !method || !function_decl ||
+                !function_decl->func_this_param ||
+                !function_decl->link_name) {
+                rcc_error(loc,
+                          "pointer-to-member function requires one registered method overload");
+                return NULL;
+            }
+            if (method->is_virtual || method->ref_qualifier !=
+                    CXX_REF_QUAL_NONE || method->is_noexcept ||
+                !function_decl->func_this_param->type ||
+                !function_decl->func_this_param->type->base ||
+                function_decl->func_this_param->type->base->is_const ||
+                function_decl->func_this_param->type->base->is_volatile) {
+                rcc_error(loc,
+                          "pointer-to-member function requires an unqualified non-virtual method in the current ABI subset");
+                return NULL;
+            }
+            value = expr_unary(
+                EXPR_ADDR,
+                expr_ident(function_decl->name, loc), loc);
+            value->unary_operand->ident_decl = function_decl;
+            value->unary_operand->type = function_decl->type;
+            value->cxx_member_pointer_form = true;
+            value->cxx_member_pointer_form_access =
+                (unsigned char)selected_declaration->access;
+            value->cxx_member_pointer_form_declaring_class =
+                owner->cxx_class;
+            value->cxx_member_pointer_form_designating_class =
+                owner->cxx_class;
+            return value;
         }
-        if (!method) return NULL;
-        loc = segments[segment_count - 1u]->loc;
-        parser.prev = segments[segment_count - 1u];
-        parser.cur = parser.prev->next;
-        rcc_error(loc,
-                  "pointer-to-member functions are unsupported");
-        value = expr_int(0, loc);
-        value->type = type_int;
-        return value;
+        return NULL;
     }
     if (!direct_member && direct_nonstatic_method) {
         loc = segments[segment_count - 1u]->loc;
         parser.prev = segments[segment_count - 1u];
         parser.cur = parser.prev->next;
-        rcc_error(loc, "pointer-to-member functions are unsupported");
-        value = expr_int(0, loc);
-        value->type = type_int;
-        return value;
+        rcc_error(loc,
+                  "pointer-to-member function name could not be resolved");
+        return NULL;
     }
     if (!direct_member && direct_static_name) {
         return NULL;

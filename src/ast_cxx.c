@@ -3360,6 +3360,9 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->call_args = template_clone_expr_list(
                 tmpl, expression->call_args, args, arg_count,
                 value_args, value_present);
+            copy->call_abi_function_type = template_substitute_type(
+                tmpl, expression->call_abi_function_type, args, arg_count,
+                value_args, value_present);
             copy->call_method = NULL;
             copy->call_is_virtual = false;
             copy->call_virtual_index = -1;

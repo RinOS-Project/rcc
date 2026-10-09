@@ -7702,7 +7702,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             /* Collect arguments */
             ExprList** args = rcc_alloc(argc * sizeof(ExprList*));
             Type** argument_types = rcc_alloc(argc * sizeof(Type*));
-            function_type = expr->call_func ? expr->call_func->type : NULL;
+            function_type = expr->call_abi_function_type
+                ? expr->call_abi_function_type
+                : (expr->call_func ? expr->call_func->type : NULL);
             if (function_type && function_type->kind == TYPE_PTR) {
                 function_type = function_type->base;
             }

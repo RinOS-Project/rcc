@@ -6455,14 +6455,18 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         callee = expression->call_func->ident_decl;
         function_type = callee->type;
     } else {
-        function_type = expression->call_func->type;
-        if (!function_type || function_type->kind != TYPE_PTR ||
-            !function_type->base ||
-            function_type->base->kind != TYPE_FUNC) {
-            context->unsupported = true;
-            return lower_invalid_value();
+        if (expression->call_abi_function_type) {
+            function_type = expression->call_abi_function_type;
+        } else {
+            function_type = expression->call_func->type;
+            if (!function_type || function_type->kind != TYPE_PTR ||
+                !function_type->base ||
+                function_type->base->kind != TYPE_FUNC) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            function_type = function_type->base;
         }
-        function_type = function_type->base;
         callee_value = lower_expression(context, expression->call_func);
         if (!callee_value.valid ||
             callee_value.type.kind != RCC_IR_TYPE_POINTER) {
@@ -8378,13 +8382,17 @@ static bool lower_wide_scalar_call(
         callee = expression->call_func->ident_decl;
         function_type = callee->type;
     } else {
-        function_type = expression->call_func->type;
-        if (!function_type || function_type->kind != TYPE_PTR ||
-            !function_type->base ||
-            function_type->base->kind != TYPE_FUNC) {
-            return false;
+        if (expression->call_abi_function_type) {
+            function_type = expression->call_abi_function_type;
+        } else {
+            function_type = expression->call_func->type;
+            if (!function_type || function_type->kind != TYPE_PTR ||
+                !function_type->base ||
+                function_type->base->kind != TYPE_FUNC) {
+                return false;
+            }
+            function_type = function_type->base;
         }
-        function_type = function_type->base;
         indirect_callee = lower_expression(
             context, expression->call_func);
         if (!indirect_callee.valid ||
