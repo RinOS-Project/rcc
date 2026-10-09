@@ -13313,6 +13313,24 @@ static bool asm_parse_port(const char* text, bool* immediate, uint8_t* value) {
     return true;
 }
 
+static int asm_format_immediate(char* buffer, size_t capacity,
+                                int64_t value, char modifier)
+{
+    if (modifier == 'n') {
+        if (value > 0) {
+            return snprintf(buffer, capacity, "%lld", (long long)-value);
+        }
+        if (value < 0) {
+            uint64_t magnitude = (uint64_t)(-(value + 1)) + UINT64_C(1);
+            return snprintf(buffer, capacity, "%llu",
+                            (unsigned long long)magnitude);
+        }
+        return snprintf(buffer, capacity, "0");
+    }
+    return snprintf(buffer, capacity, modifier == 'c' ? "%lld" : "$%lld",
+                    (long long)value);
+}
+
 static char* asm_expand_template(const char* source, const int* registers,
                                   const int64_t* immediate_values,
                                   const bool* immediate_flags,
@@ -13347,7 +13365,8 @@ static char* asm_expand_template(const char* source, const int* registers,
         char modifier = 0;
         size_t index_start = read + 1u;
         if (source[index_start] == 'b' || source[index_start] == 'w' ||
-            source[index_start] == 'k' || source[index_start] == 'c') {
+            source[index_start] == 'k' || source[index_start] == 'c' ||
+            source[index_start] == 'n') {
             modifier = source[index_start++];
         }
         if (source[index_start] < '0' || source[index_start] > '9') {
@@ -13374,9 +13393,9 @@ static char* asm_expand_template(const char* source, const int* registers,
             }
             if (immediate_flags && immediate_flags[(size_t)index]) {
                 char immediate[32];
-                const char* format = modifier == 'c' ? "%lld" : "$%lld";
-                int written = snprintf(immediate, sizeof(immediate), format,
-                                       (long long)immediate_values[index]);
+                int written = asm_format_immediate(
+                    immediate, sizeof(immediate), immediate_values[index],
+                    modifier);
                 if (written < 0 || (size_t)written >= sizeof(immediate)) {
                     rcc_error(loc,
                               "i686 inline asm immediate operand is too large");
@@ -13389,9 +13408,10 @@ static char* asm_expand_template(const char* source, const int* registers,
                 read = digit;
                 continue;
             }
-            if (modifier == 'c') {
-                rcc_error(loc,
-                          "inline asm %%cN modifier requires a constant operand");
+            if (modifier == 'c' || modifier == 'n') {
+                rcc_error(loc, modifier == 'c'
+                    ? "inline asm %%cN modifier requires a constant operand"
+                    : "inline asm %%nN modifier requires a constant operand");
                 rcc_free(expanded);
                 return NULL;
             }

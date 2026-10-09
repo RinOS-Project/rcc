@@ -2415,10 +2415,10 @@ static void sema_asm_stmt(Stmt* stmt) {
             continue;
         }
         if (cursor[1] != 'b' && cursor[1] != 'w' && cursor[1] != 'k' &&
-            cursor[1] != 'q' && cursor[1] != 'c' &&
+            cursor[1] != 'q' && cursor[1] != 'c' && cursor[1] != 'n' &&
             (cursor[1] < '0' || cursor[1] > '9')) {
             rcc_error(stmt->loc,
-                      "inline asm placeholder must be %%, %%N, %%bN, %%wN, %%kN, %%qN, or %%cN");
+                      "inline asm placeholder must be %%, %%N, %%bN, %%wN, %%kN, %%qN, %%cN, or %%nN");
             ++cursor;
             continue;
         }
@@ -2426,7 +2426,7 @@ static void sema_asm_stmt(Stmt* stmt) {
             uint64_t index = 0u;
             const char* digit = cursor +
                 ((cursor[1] == 'b' || cursor[1] == 'w' || cursor[1] == 'k' ||
-                  cursor[1] == 'q' || cursor[1] == 'c')
+                  cursor[1] == 'q' || cursor[1] == 'c' || cursor[1] == 'n')
                      ? 2 : 1);
             if (*digit < '0' || *digit > '9') {
                 rcc_error(stmt->loc,

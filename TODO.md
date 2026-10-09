@@ -1620,6 +1620,9 @@
         emit integer constants without the target immediate prefix, reject
         register operands with an explicit diagnostic, and verify exact `int`
         bytes plus both-target negative cases in the inline-asm gates.
+  - [x] Support GCC `%nN` constant formatting in i686/AMD64 C/C++ inline asm,
+        including INT64_MIN-safe sign inversion, exact negative-immediate bytes,
+        and explicit diagnostics for register operands.
 - [x] driver modeでのFPU/SIMD禁止検査
 
 ## Aquamarine shader frontend

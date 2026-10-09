@@ -129,6 +129,15 @@ int main(int argc, char** argv)
     verify_pattern(argv[3], ARCH_X64, "asm_cpp_c_modifier_interrupt",
                    interrupt, sizeof(interrupt));
     {
+        static const uint8_t negated_interrupt[] = {0xcdu, 0xfbu};
+        verify_pattern(argv[1], ARCH_X86, "asm_n_modifier_interrupt",
+                       negated_interrupt, sizeof(negated_interrupt));
+        verify_pattern(argv[2], ARCH_X64, "asm_n_modifier_interrupt",
+                       negated_interrupt, sizeof(negated_interrupt));
+        verify_pattern(argv[3], ARCH_X64, "asm_cpp_n_modifier_interrupt",
+                       negated_interrupt, sizeof(negated_interrupt));
+    }
+    {
         static const uint8_t q_modifier[] = {0x48u, 0x89u, 0xd8u};
         verify_pattern(argv[2], ARCH_X64, "asm_x64_q_modifier",
                        q_modifier, sizeof(q_modifier));

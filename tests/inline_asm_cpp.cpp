@@ -48,6 +48,11 @@ extern "C" void asm_cpp_c_modifier_interrupt()
     asm volatile("int $%c0" : : "i"(0x80));
 }
 
+extern "C" void asm_cpp_n_modifier_interrupt()
+{
+    asm volatile("int $%n0" : : "i"(5));
+}
+
 extern "C" long long asm_cpp_x64_q_modifier(long long value)
 {
     long long result;
