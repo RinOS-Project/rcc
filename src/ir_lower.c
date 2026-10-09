@@ -6468,6 +6468,25 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             function_type = function_type->base;
         }
         callee_value = lower_expression(context, expression->call_func);
+        if (callee_value.valid &&
+            callee_value.type.kind == RCC_IR_TYPE_INTEGER &&
+            expression->call_func->type &&
+            expression->call_func->type->kind == TYPE_PTR &&
+            expression->call_func->type->cxx_is_member_pointer &&
+            expression->call_func->type->base &&
+            expression->call_func->type->base->kind == TYPE_FUNC &&
+            expression->call_func->type->size ==
+                (g_opts.target_arch == ARCH_X64 ? 8 : 4) &&
+            callee_value.type.bit_width ==
+                (g_opts.target_arch == ARCH_X64 ? 64u : 32u)) {
+            RccIrInstruction* code_pointer = lower_append(
+                context, RCC_IR_INT_TO_PTR,
+                rcc_ir_type_pointer(0u), &callee_value.value,
+                1u, NULL, 0u);
+            if (!code_pointer) return lower_invalid_value();
+            callee_value = lower_value(
+                code_pointer->result, rcc_ir_type_pointer(0u), true);
+        }
         if (!callee_value.valid ||
             callee_value.type.kind != RCC_IR_TYPE_POINTER) {
             context->unsupported = true;

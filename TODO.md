@@ -489,10 +489,14 @@
     - [ ] Extend member-function pointers to overload resolution, inherited
           member lookup/access and owner conversions, ref/noexcept-qualified
           methods, virtual dispatch and the target's complete member-pointer
-          representation/this-adjustment ABI. Add typed-SSA coverage rather
-          than treating legacy fallback as verified support. Keep this parent
-          item open until the remaining valid C++ forms are implemented and
-          verified; do not substitute placeholder lowering.
+          representation/this-adjustment ABI. Keep this parent item open until
+          the remaining valid C++ forms are implemented and verified; do not
+          substitute placeholder lowering.
+    - [x] Lower calls through supported nonvirtual member-function pointers
+          into typed SSA by converting their pointer-width code-address value
+          to the backend's indirect-call pointer type. Test dot/arrow and all
+          supported method cv forms on i686/AMD64; require exactly four
+          verified functions and zero fallback notices on each target.
   - [x] Preserve member-pointee `const` through same-owner and combined
         derived-owner conversions, reject qualification removal, and require an
         lvalue for built-in scalar assignment through an xvalue-selected member.
