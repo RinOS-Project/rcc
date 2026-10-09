@@ -707,13 +707,13 @@
           field access and function-call lookup on i686 and AMD64; verify a
           same-named direct derived field hides the dependent base field through
           runtime execution in `test-cxx-class-template-dependent-base`.
-    - [ ] Verify dependent `using Base<T>::member` selection when multiple
+    - [x] Verify dependent `using Base<T>::member` selection when multiple
           direct bases provide the same field or function name. The positive
-          fixture selects the second base; compiler build passed, but the
-          focused target has not been rerun for this change.
+          fixture selects the second base; `test-cxx-class-template-dependent-base`
+          passes freestanding i686 execution, x64 host execution, and both
+          target object generations.
     - [ ] Cover further dependent name-lookup paths beyond mixed-name
-          ambiguity, direct-member hiding, and the unverified using-selection
-          case.
+          ambiguity, direct-member hiding, and verified using-selection.
     - [x] Evaluate bounded scalar DMIs that read an earlier direct scalar field
           through either `this->field` or unqualified member lookup in a class
           with a dependent base. Verify `int` and `long long` on freestanding
