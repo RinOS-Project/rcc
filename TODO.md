@@ -468,9 +468,9 @@
         bindings through a member pointer verify retained values, lifetime, and
         exactly-once destruction through the shared host runtime. Keep this
         open until RinOS runtime integration is covered.
-  - [ ] Complete remaining pointer-to-member conversions and contexts:
-        hidden inherited member lookup, non-public inherited members, and
-        remaining access contexts. Unique public inherited data members now
+  - [ ] Complete remaining data-member-pointer conversions and contexts:
+        hidden inherited data-member lookup, non-public inherited data members,
+        and remaining access contexts. Unique public inherited data members now
         form pointers whose owner is the class that declared the member,
         including public virtual bases; positive generation/execution coverage
         and negative checks for private formation, ambiguous object paths, and
@@ -486,12 +486,18 @@
           repeated owner-type substitutions and rejection of dropped cv. The
           focused `test-cxx-member-pointer-functions` test generates i686/AMD64
           code and executes the AMD64 output; the full `test-cxx` suite passes.
-    - [ ] Extend member-function pointers to overload resolution, inherited
-          member lookup/access and owner conversions, ref/noexcept-qualified
+    - [ ] Extend member-function pointers to overload resolution, ambiguous
+          inherited lookup/access and owner conversions, ref/noexcept-qualified
           methods, virtual dispatch and the target's complete member-pointer
           representation/this-adjustment ABI. Keep this parent item open until
           the remaining valid C++ forms are implemented and verified; do not
           substitute placeholder lowering.
+    - [x] Resolve a unique inherited nonvirtual, non-overloaded method in
+          `&Derived::method` using the registered base method, preserve the
+          declaring base as the pointer owner, and apply inherited access
+          rules. Verify the Itanium function-signature name against GCC,
+          execute the derived-object call on the x64 host, and reject forming
+          a pointer through a private base on i686/AMD64.
     - [x] Lower calls through supported nonvirtual member-function pointers
           into typed SSA by converting their pointer-width code-address value
           to the backend's indirect-call pointer type. Test dot/arrow and all

@@ -22,6 +22,16 @@ struct MemberFunctionOwner {
     }
 };
 
+struct InheritedMemberFunctionBase {
+    int value;
+
+    int add(int amount) {
+        return value + amount;
+    }
+};
+
+struct InheritedMemberFunctionDerived : InheritedMemberFunctionBase {};
+
 int invoke_dot(MemberFunctionOwner& object,
                int (MemberFunctionOwner::*method)(int), int value) {
     return (object.*method)(value);
@@ -49,6 +59,12 @@ int invoke_cv(const volatile MemberFunctionOwner& object,
     return (object.*method)(value);
 }
 
+int invoke_inherited_member(
+    InheritedMemberFunctionDerived& object,
+    int (InheritedMemberFunctionBase::*method)(int), int value) {
+    return (object.*method)(value);
+}
+
 int main() {
     MemberFunctionOwner object;
     const MemberFunctionOwner const_object = {11};
@@ -58,6 +74,8 @@ int main() {
     int (MemberFunctionOwner::*const_method)(int) const;
     int (MemberFunctionOwner::*volatile_method)(int) volatile;
     int (MemberFunctionOwner::*cv_method)(int) const volatile;
+    InheritedMemberFunctionDerived inherited_object;
+    int (InheritedMemberFunctionBase::*inherited_method)(int);
 
     object.value = 7;
     method = &MemberFunctionOwner::add;
@@ -75,5 +93,10 @@ int main() {
     if (invoke_volatile(volatile_object, volatile_method, 7) != 20) return 7;
     cv_method = &MemberFunctionOwner::add_cv;
     if (invoke_cv(cv_object, cv_method, 9) != 26) return 8;
+    inherited_object.value = 23;
+    inherited_method = &InheritedMemberFunctionDerived::add;
+    if (invoke_inherited_member(inherited_object, inherited_method, 5) != 28) {
+        return 9;
+    }
     return 0;
 }

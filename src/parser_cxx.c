@@ -105,6 +105,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     SourceLoc loc;
     bool direct_member = false;
     bool direct_nonstatic_method = false;
+    bool inherited_nonstatic_method = false;
     bool direct_static_name = false;
     int matching_fields = 0;
 
@@ -173,6 +174,20 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
                 direct_static_name = true;
             }
         }
+        for (TypeMethod* method = owner->methods; method;
+             method = method->next) {
+            Decl* function = method->function_decl;
+            CxxClass* declaring_class = function &&
+                    function->func_method_owner
+                ? function->func_method_owner->cxx_class : NULL;
+            if (method->kind == TYPE_METHOD_FUNCTION && method->name &&
+                strcmp(method->name, member_name) == 0 && function &&
+                function->func_this_param && declaring_class &&
+                declaring_class != owner->cxx_class) {
+                inherited_nonstatic_method = true;
+                break;
+            }
+        }
     }
 
     field = owner->fields;
@@ -181,36 +196,29 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         field = field->next;
     }
     if (!field) {
-        if (direct_static_name && !direct_nonstatic_method) return NULL;
-        if (direct_nonstatic_method) {
-            struct CxxMember* declaration = owner->cxx_class
-                ? owner->cxx_class->members : NULL;
-            struct CxxMember* selected_declaration = NULL;
+        if (direct_static_name && !direct_nonstatic_method &&
+            !inherited_nonstatic_method) return NULL;
+        if (direct_nonstatic_method || inherited_nonstatic_method) {
             TypeMethod* method = NULL;
+            TypeMethod* selected_method = NULL;
             Decl* function_decl = NULL;
             int matching_methods = 0;
             const char* member_name =
                 segments[segment_count - 1u]->value.str_val;
-            for (; declaration; declaration = declaration->next) {
-                TypeMethod* candidate;
-                if (!declaration->method || declaration->is_static ||
-                    !declaration->decl ||
-                    !declaration->method->source_name ||
-                    strcmp(declaration->method->source_name,
-                           member_name) != 0) {
+            for (TypeMethod* candidate = owner->methods; candidate;
+                 candidate = candidate->next) {
+                if (candidate->kind != TYPE_METHOD_FUNCTION ||
+                    !candidate->name ||
+                    strcmp(candidate->name, member_name) != 0 ||
+                    !candidate->function_decl ||
+                    !candidate->function_decl->func_this_param) {
                     continue;
                 }
                 ++matching_methods;
-                selected_declaration = declaration;
-                function_decl = declaration->decl;
-                for (candidate = owner->methods; candidate;
-                     candidate = candidate->next) {
-                    if (candidate->function_decl == function_decl) {
-                        method = candidate;
-                        break;
-                    }
-                }
+                selected_method = candidate;
+                function_decl = candidate->function_decl;
             }
+            method = selected_method;
             loc = segments[segment_count - 1u]->loc;
             parser.prev = segments[segment_count - 1u];
             parser.cur = parser.prev->next;
@@ -236,9 +244,13 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
             value->unary_operand->type = function_decl->type;
             value->cxx_member_pointer_form = true;
             value->cxx_member_pointer_form_access =
-                (unsigned char)selected_declaration->access;
+                method->cxx_access;
             value->cxx_member_pointer_form_declaring_class =
-                owner->cxx_class;
+                method->cxx_access_owner
+                    ? method->cxx_access_owner
+                    : function_decl->func_method_owner
+                        ? function_decl->func_method_owner->cxx_class
+                        : owner->cxx_class;
             value->cxx_member_pointer_form_designating_class =
                 owner->cxx_class;
             return value;
