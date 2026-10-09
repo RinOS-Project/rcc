@@ -2352,6 +2352,8 @@ static bool cxx_function_template_redeclaration_matches(
     Type* right_type;
     TypeParam* left_parameter;
     TypeParam* right_parameter;
+    DeclList* left_declaration_parameter;
+    DeclList* right_declaration_parameter;
     if (!left || !right || left->kind != TMPL_FUNCTION ||
         right->kind != TMPL_FUNCTION || left->is_concept ||
         right->is_concept || !left->func_def || !right->func_def ||
@@ -2371,8 +2373,8 @@ static bool cxx_function_template_redeclaration_matches(
         const TemplateParam* right_template_parameter = &right->params[index];
         if (left_template_parameter->kind != TPARAM_TYPE ||
             right_template_parameter->kind != TPARAM_TYPE ||
-            left_template_parameter->is_pack ||
-            right_template_parameter->is_pack ||
+            left_template_parameter->is_pack !=
+                right_template_parameter->is_pack ||
             left_template_parameter->has_default ||
             right_template_parameter->has_default) {
             return false;
@@ -2392,15 +2394,30 @@ static bool cxx_function_template_redeclaration_matches(
     }
     left_parameter = left_type->params;
     right_parameter = right_type->params;
+    left_declaration_parameter = left->func_def->func_params;
+    right_declaration_parameter = right->func_def->func_params;
     while (left_parameter && right_parameter) {
+        if ((left_declaration_parameter &&
+             left_declaration_parameter->decl &&
+             left_declaration_parameter->decl->param_is_pack) !=
+            (right_declaration_parameter &&
+             right_declaration_parameter->decl &&
+             right_declaration_parameter->decl->param_is_pack)) {
+            return false;
+        }
         if (!cxx_template_redeclaration_type_matches(
                 left_parameter->type, left, right_parameter->type, right, 0)) {
             return false;
         }
         left_parameter = left_parameter->next;
         right_parameter = right_parameter->next;
+        left_declaration_parameter = left_declaration_parameter
+            ? left_declaration_parameter->next : NULL;
+        right_declaration_parameter = right_declaration_parameter
+            ? right_declaration_parameter->next : NULL;
     }
-    return !left_parameter && !right_parameter;
+    return !left_parameter && !right_parameter &&
+           !left_declaration_parameter && !right_declaration_parameter;
 }
 
 static void cxx_template_merge_friend_access(CxxTemplate* target,

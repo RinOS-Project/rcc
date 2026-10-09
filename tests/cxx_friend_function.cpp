@@ -94,6 +94,26 @@ class SecondFriendTemplateHost {
     friend int reveal(T& host, int replacement);
 };
 
+class PackFriendTemplateHostA {
+    int value;
+
+    template<class T, class... Rest>
+    friend int reveal_pack(T& host, int replacement, Rest... rest);
+};
+
+class PackFriendTemplateHostB {
+    int value;
+
+    template<class T, class... Rest>
+    friend int reveal_pack(T& host, int replacement, Rest... rest);
+};
+
+template<class U, class... Values>
+int reveal_pack(U& host, int replacement, Values... values) {
+    host.value = replacement;
+    return host.value;
+}
+
 class DerivedFriendTemplateHost : public FriendTemplateHost {};
 
 using FriendTemplateBox0 = FriendTemplateBox<FriendTemplateHost>;
@@ -149,6 +169,8 @@ int main() {
     friend_visibility::PriorVisibleHost prior_visible;
     FriendTemplateHost host;
     SecondFriendTemplateHost second_host;
+    PackFriendTemplateHostA pack_host_a;
+    PackFriendTemplateHostB pack_host_b;
     DerivedFriendTemplateHost derived_host;
     FriendTemplateBox<FriendTemplateHost> box;
     FriendTemplateBox36 deep_box;
@@ -162,6 +184,8 @@ int main() {
            friend_visibility::prior_visible_friend(prior_visible) == 31 &&
            reveal_declared(host, 37) == 37 &&
            reveal(second_host, 19) == 19 &&
+           reveal_pack(pack_host_a, 43, 1, 2) == 43 &&
+           reveal_pack(pack_host_b, 47, 1, 2, 3) == 47 &&
            reveal(derived_host, 23) == 23 && reveal_box(box) == 29 &&
            reveal_box(deep_box) == 29 ? 0 : 1;
 }

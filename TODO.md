@@ -535,10 +535,16 @@
           nested associated types without an artificial depth cutoff; a
           36-level class-template argument chain is covered. The i686/AMD64
           friend-function gate and GCC C++20 comparison pass.
-    - [ ] Complete constrained/defaulted/packed friend-template redeclaration,
-          general
-          overload/redeclaration matching beyond the tested type-only form,
-          and the remaining standard friend redeclaration cases.
+    - [ ] Complete constrained/defaulted friend-template redeclarations and
+          general overload/redeclaration matching beyond the tested type-only
+          and identical-pack forms, plus the remaining standard friend cases.
+    - [x] Merge matching friend function-template redeclarations whose
+          template parameter list contains the same type pack and whose
+          function parameter pack shapes match. Accumulate friendship granted
+          by two classes, then merge the namespace definition; execute calls
+          with multiple pack arguments for both granting classes. The
+          i686/AMD64 friend-function gate passes with x64 host execution, and
+          GCC C++20 compiles and executes the same fixture.
     - [x] Search the exact associated namespace and its transitive inline
           namespace set for ADL declarations. Normalize inline-namespace
           entities to their innermost enclosing non-inline namespace; do not
