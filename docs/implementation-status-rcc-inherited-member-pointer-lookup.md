@@ -26,5 +26,8 @@ method now waits for the completed class layout and lookup set. The focused
 host case uses a nonzero field offset and private access, and passes on
 i686/AMD64 generation and GCC C++20. Carrying these designators through class
 template cloning remains open, as do RinOS runtime integration for the data
-member-pointer parent and inline member-function-pointer resolution
-([TODO](../TODO.md)).
+member-pointer parent, overload/virtual/adjusting member-function-pointer ABI
+forms, and later-declared static member-function lookup in inline bodies
+([TODO](../TODO.md)). A unique supported nonvirtual member-function pointer in
+an inline body now resolves after method registration; the focused gate passes
+both targets, optimized verified IR, generated x64 execution, and GCC C++20.

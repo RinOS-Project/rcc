@@ -26,6 +26,24 @@ struct MemberFunctionOwner {
     }
 };
 
+class InlineMemberFunctionPointerOwner {
+    int value;
+
+    int add(int amount) {
+        return value + amount;
+    }
+
+public:
+    void set_value(int input) {
+        value = input;
+    }
+
+    int invoke(int amount) {
+        auto method = &InlineMemberFunctionPointerOwner::add;
+        return (this->*method)(amount);
+    }
+};
+
 struct InheritedMemberFunctionBase {
     int value;
 
@@ -77,6 +95,7 @@ int invoke_inherited_member(
 
 int main() {
     MemberFunctionOwner object;
+    InlineMemberFunctionPointerOwner inline_pointer_object;
     const MemberFunctionOwner const_object = {11};
     volatile MemberFunctionOwner volatile_object = {13};
     const volatile MemberFunctionOwner cv_object = {17};
@@ -90,6 +109,8 @@ int main() {
     int (InheritedMemberFunctionBase::*inherited_method)(int);
 
     object.value = 7;
+    inline_pointer_object.set_value(19);
+    if (inline_pointer_object.invoke(8) != 27) return 12;
     method = &MemberFunctionOwner::add;
     if (invoke_dot(object, method, 5) != 12) return 1;
     if (invoke_arrow(&object, method, 9) != 16) return 2;

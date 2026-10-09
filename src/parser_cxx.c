@@ -566,9 +566,6 @@ static void cxx_complete_pending_member_pointer_forms(CxxClass* cls) {
             }
         }
 
-        if (!expression->type || expression->type == type_int) {
-            expression->type = type_int;
-        }
         *link = pending->next;
     }
 }

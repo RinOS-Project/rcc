@@ -30,6 +30,14 @@ lookup for declarations before and after the inline body. Templated member
 cloning and the broader runtime-integration parent remain open
 ([TODO](TODO.md), [implementation status](docs/implementation-status-rcc-inherited-member-pointer-lookup.md)).
 
+2026-10-09 inline member-function pointer resolution: unique supported
+nonvirtual member-function addresses inside inline method bodies now wait for
+method registration before type deduction. `test-cxx-member-pointer-functions`
+passes target generation, verified IR at `-O0`/`-O2`, x64 host execution, and
+GCC C++20 comparison. Full overload/virtual/adjusting ABI forms remain open in
+[TODO](TODO.md). The Windows gate now converts the compiler executable path
+before shell redirection, so verified-IR checks run under `cmd.exe`.
+
 RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・アーカイバです。
 このrepositoryはRIN v3 toolchainの実装途中です。現時点でC17またはC++20への
 完全準拠、最適化pipeline、セルフホストを達成したとは扱いません。

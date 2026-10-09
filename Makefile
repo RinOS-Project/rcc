@@ -3364,16 +3364,16 @@ test-cxx-member-pointer-functions: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-member-pointer-functions,cxx_member_pointer_functions.cpp)
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-member-pointer-functions/gcc-x64.s tests/cxx_member_pointer_functions.cpp
 	$(GREP) -F -q "_Z22invoke_double_overloadR19MemberFunctionOwnerMS_FidEd" $(TEST_OUT)/cxx-member-pointer-functions/gcc-x64.s
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log 2>&1
+	$(subst /,\,$(RCXX_TARGET)) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log 2>&1
 	$(GREP) -F -q "Verified backend: 9 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.log 2>&1
+	$(subst /,\,$(RCXX_TARGET)) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.log 2>&1
 	$(GREP) -F -q "Verified backend: 9 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.log,0)
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.log 2>&1
+	$(subst /,\,$(RCXX_TARGET)) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.log 2>&1
 	$(GREP) -F -q "Verified backend: 9 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.log,0)
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.log 2>&1
+	$(subst /,\,$(RCXX_TARGET)) --target x86_64-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.log 2>&1
 	$(GREP) -F -q "Verified backend: 9 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.log,0)
 	$(GREP) -F -q "_Z10invoke_dotR19MemberFunctionOwnerMS_FiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x86.s
