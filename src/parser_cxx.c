@@ -26,6 +26,16 @@ static CxxNamespace* active_namespace;
 static CxxClass* active_class;
 static AST* active_ast;
 
+typedef struct CxxPendingMemberPointerForm {
+    Expr* expression;
+    CxxClass* owner;
+    const char* member_name;
+    SourceLoc location;
+    struct CxxPendingMemberPointerForm* next;
+} CxxPendingMemberPointerForm;
+
+static CxxPendingMemberPointerForm* pending_member_pointer_forms;
+
 const char* rcc_parser_cxx_current_namespace_identity(void) {
     return cxx_namespace_typeinfo_identity(active_namespace);
 }
@@ -56,6 +66,7 @@ static bool cxx_leading_alignas_class_starts(void) {
 
 static const char* cxx_method_source_name(CxxMethod* method);
 static CxxClass* find_class(const char* qualified_name);
+static void cxx_complete_pending_member_pointer_forms(CxxClass* cls);
 
 static bool cxx_inherited_nonfield_name(CxxClass* cls, const char* name,
                                         unsigned depth) {
@@ -358,6 +369,210 @@ static TypeField* cxx_member_pointer_using_field(
     return selected;
 }
 
+static bool cxx_decl_leaf_matches(const char* qualified_name,
+                                  const char* member_name) {
+    const char* separator;
+    const char* leaf;
+    if (!qualified_name || !member_name) return false;
+    separator = strrchr(qualified_name, ':');
+    leaf = separator && separator > qualified_name && separator[-1] == ':'
+        ? separator + 1 : qualified_name;
+    return strcmp(leaf, member_name) == 0;
+}
+
+static void cxx_replace_pending_form(Expr* pending, Expr* resolved) {
+    if (pending && resolved) *pending = *resolved;
+}
+
+static Expr* cxx_pending_address_of_decl(Decl* declaration,
+                                         SourceLoc location) {
+    Expr* identifier;
+    Expr* address;
+    if (!declaration || !declaration->name) return NULL;
+    identifier = expr_ident(declaration->name, location);
+    identifier->ident_decl = declaration;
+    identifier->type = declaration->type;
+    address = expr_unary(EXPR_ADDR, identifier, location);
+    return address;
+}
+
+static void cxx_complete_pending_member_pointer_forms(CxxClass* cls) {
+    CxxPendingMemberPointerForm** link = &pending_member_pointer_forms;
+    while (*link) {
+        CxxPendingMemberPointerForm* pending = *link;
+        Expr* expression = pending->expression;
+        TypeField* field = NULL;
+        TypeField* declaring_field = NULL;
+        Type* member_owner = NULL;
+        AccessSpec access = ACCESS_PUBLIC;
+        CxxClass* access_owner = NULL;
+        bool used_using = false;
+        bool ambiguous = false;
+        int method_count = 0;
+        int static_method_count = 0;
+        TypeMethod* selected_method = NULL;
+        TypeMethod* selected_static_method = NULL;
+        if (pending->owner != cls) {
+            link = &pending->next;
+            continue;
+        }
+
+        field = cxx_class_lookup_data_field(
+            cls, pending->member_name, &ambiguous, &access,
+            &access_owner, &used_using);
+        if (ambiguous) {
+            rcc_error(pending->location,
+                      "inherited data-member pointer form requires one unambiguous declaration");
+        } else if (field && field->cxx_declaring_class && field->type) {
+            CxxClass* declaring_class = field->cxx_declaring_class;
+            member_owner = declaring_class->type;
+            for (TypeField* candidate = member_owner
+                     ? member_owner->fields : NULL;
+                 candidate; candidate = candidate->next) {
+                if (candidate->name &&
+                    strcmp(candidate->name, pending->member_name) == 0 &&
+                    candidate->cxx_declaring_class == declaring_class) {
+                    declaring_field = candidate;
+                    break;
+                }
+            }
+            if (!declaring_field || field->is_bitfield ||
+                declaring_field->is_bitfield ||
+                field->type->is_reference) {
+                rcc_error(pending->location,
+                          "this data-member pointer form is unsupported");
+            } else {
+                Type* member_pointer_type = type_ptr(field->type);
+                member_pointer_type->cxx_is_member_pointer = true;
+                member_pointer_type->cxx_member_pointer_owner = member_owner;
+                expression->int_val = declaring_field->offset;
+                expression->type = member_pointer_type;
+                expression->cxx_member_pointer_form = true;
+                expression->cxx_member_pointer_form_access = used_using
+                    ? (unsigned char)access
+                    : declaring_field->cxx_access;
+                expression->cxx_member_pointer_form_declaring_class =
+                    used_using && access_owner ? access_owner
+                                               : declaring_class;
+                expression->cxx_member_pointer_form_designating_class = cls;
+            }
+        } else {
+            TypeParam* static_field = NULL;
+            Decl* static_declaration = NULL;
+            for (TypeParam* candidate = cls->fields;
+                 candidate; candidate = candidate->next) {
+                if (candidate->is_static && candidate->name &&
+                    strcmp(candidate->name, pending->member_name) == 0) {
+                    static_field = candidate;
+                    break;
+                }
+            }
+            if (static_field) {
+                for (struct CxxMember* member = cls->members;
+                     member; member = member->next) {
+                    if (!member->method && member->decl &&
+                        member->decl->kind == DECL_VAR &&
+                        cxx_decl_leaf_matches(member->decl->name,
+                                              pending->member_name)) {
+                        static_declaration = member->decl;
+                        break;
+                    }
+                }
+                if (static_declaration) {
+                    cxx_replace_pending_form(
+                        expression,
+                        cxx_pending_address_of_decl(static_declaration,
+                                                    pending->location));
+                } else {
+                    rcc_error(pending->location,
+                              "static data-member declaration is not available in this context");
+                }
+            } else {
+                for (TypeMethod* method = cls->type->methods;
+                     method; method = method->next) {
+                    if (method->kind == TYPE_METHOD_FUNCTION &&
+                        method->name &&
+                        strcmp(method->name, pending->member_name) == 0 &&
+                        method->function_decl) {
+                        if (method->function_decl->func_this_param) {
+                            selected_method = method;
+                            ++method_count;
+                        } else {
+                            selected_static_method = method;
+                            ++static_method_count;
+                        }
+                    }
+                }
+                if (method_count > 1) {
+                    Expr* address = expr_unary(
+                        EXPR_ADDR,
+                        expr_ident(pending->member_name, pending->location),
+                        pending->location);
+                    address->cxx_member_pointer_form = true;
+                    address->cxx_member_pointer_form_overload_set = true;
+                    address->cxx_member_pointer_form_designating_class = cls;
+                    cxx_replace_pending_form(expression, address);
+                } else if (method_count == 1 && selected_method &&
+                           selected_method->function_decl) {
+                    Decl* function_decl = selected_method->function_decl;
+                    if (selected_method->is_virtual ||
+                        selected_method->ref_qualifier != CXX_REF_QUAL_NONE ||
+                        selected_method->is_noexcept ||
+                        !function_decl->link_name) {
+                        rcc_error(
+                            pending->location,
+                            "pointer-to-member function requires a non-virtual method without ref-qualifier or noexcept in the current ABI subset");
+                    } else {
+                        Expr* address = cxx_pending_address_of_decl(
+                            function_decl, pending->location);
+                        address->cxx_member_pointer_form = true;
+                        address->cxx_member_pointer_form_access =
+                            selected_method->cxx_access;
+                        address->cxx_member_pointer_form_declaring_class =
+                            selected_method->cxx_access_owner
+                                ? selected_method->cxx_access_owner
+                                : function_decl->func_method_owner
+                                    ? function_decl->func_method_owner->cxx_class
+                                    : cls;
+                        address->cxx_member_pointer_form_designating_class =
+                            cls;
+                        cxx_replace_pending_form(expression, address);
+                    }
+                } else if (method_count == 0 &&
+                           static_method_count == 1 &&
+                           selected_static_method &&
+                           selected_static_method->function_decl) {
+                    cxx_replace_pending_form(
+                        expression,
+                        cxx_pending_address_of_decl(
+                            selected_static_method->function_decl,
+                            pending->location));
+                } else if (method_count == 0 && static_method_count > 1 &&
+                           selected_static_method &&
+                           selected_static_method->function_decl) {
+                    Expr* identifier = expr_ident(
+                        selected_static_method->function_decl->name,
+                        pending->location);
+                    cxx_replace_pending_form(
+                        expression,
+                        expr_unary(EXPR_ADDR, identifier,
+                                   pending->location));
+                } else {
+                    rcc_error(pending->location,
+                              "undefined identifier '%s::%s'",
+                              cls->name ? cls->name : "<class>",
+                              pending->member_name);
+                }
+            }
+        }
+
+        if (!expression->type || expression->type == type_int) {
+            expression->type = type_int;
+        }
+        *link = pending->next;
+    }
+}
+
 /* Parse `&Class::member` as a pointer-to-member constant.  Data members use
  * the bounded offset representation below.  The initial function-member
  * subset is restricted to one defined, non-virtual, non-overloaded method;
@@ -477,6 +692,28 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
                 break;
             }
         }
+    }
+
+    /* Member bodies are parsed before the complete class lookup set and
+     * field offsets exist.  Defer a current-class member designator until
+     * layout and method registration have published that information. */
+    if (owner_is_active_class && !direct_static_name) {
+        CxxPendingMemberPointerForm* pending;
+        Expr* deferred;
+        loc = segments[segment_count - 1u]->loc;
+        parser.prev = segments[segment_count - 1u];
+        parser.cur = parser.prev->next;
+        deferred = expr_int(0, loc);
+        deferred->type = type_int;
+        pending = ast_arena_alloc(sizeof(*pending));
+        pending->expression = deferred;
+        pending->owner = owner_class;
+        pending->member_name = rcc_intern(
+            segments[segment_count - 1u]->value.str_val);
+        pending->location = loc;
+        pending->next = pending_member_pointer_forms;
+        pending_member_pointer_forms = pending;
+        return deferred;
     }
 
     field = NULL;
@@ -6566,6 +6803,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
     diagnose_unlowered_destructors(cls);
     register_class_static_fields(cls);
     register_ordinary_class_methods(cls);
+    cxx_complete_pending_member_pointer_forms(cls);
 
     /* Aggregate classes and the validated one-field constructor subset can
      * reuse the common initializer/codegen backend.  Every complete class

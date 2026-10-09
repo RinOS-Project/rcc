@@ -21,8 +21,10 @@ and GCC C++20 host binaries, and checks ambiguity and access diagnostics. The
 temporary compatibility object adapts an unrelated in-progress debug-inline
 API migration in the shared checkout; it is not part of this change.
 
-Two limits remain explicitly open in [TODO](../TODO.md): forming a pointer to
-the current class's own field inside an inline member body still fails because
-the class layout is incomplete during parsing, and the enclosing data-member
-pointer parent requires RinOS runtime integration. Unsupported behavior is
-not marked complete.
+For non-template classes, an own field declared before or after the inline
+method now waits for the completed class layout and lookup set. The focused
+host case uses a nonzero field offset and private access, and passes on
+i686/AMD64 generation and GCC C++20. Carrying these designators through class
+template cloning remains open, as do RinOS runtime integration for the data
+member-pointer parent and inline member-function-pointer resolution
+([TODO](../TODO.md)).

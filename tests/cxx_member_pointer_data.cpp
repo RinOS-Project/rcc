@@ -257,6 +257,38 @@ public:
     }
 };
 
+class MemberPointerInlineOwnField {
+    int padding;
+    int value;
+
+public:
+    void set_value(int input) {
+        value = input;
+    }
+
+    int read_value() {
+        auto member = &MemberPointerInlineOwnField::value;
+        if (member == nullptr) return 0;
+        return this->*member;
+    }
+};
+
+class MemberPointerInlineLaterOwnField {
+public:
+    int read_value() {
+        auto member = &MemberPointerInlineLaterOwnField::value;
+        return this->*member;
+    }
+
+private:
+    int value;
+
+public:
+    void set_value(int input) {
+        value = input;
+    }
+};
+
 int MemberPointerHiddenFieldBase::*global_hidden_base_member =
     &MemberPointerHiddenFieldBase::hidden;
 
@@ -421,6 +453,10 @@ extern "C" int main() {
     MemberPointerProtectedInheritanceDerived protected_inheritance_derived;
     MemberPointerPrivateInheritanceDerived private_inheritance_derived;
     MemberPointerInlineUsingDerived inline_using_derived;
+    MemberPointerInlineOwnField inline_own_field;
+    inline_own_field.set_value(89);
+    MemberPointerInlineLaterOwnField inline_later_own_field;
+    inline_later_own_field.set_value(97);
 
     if (object.*value_member != 1 ||
         member_pointer_category((object.*value_member)) != 1) {
@@ -485,7 +521,9 @@ extern "C" int main() {
     if (shared_virtual_derived.*global_shared_virtual_member != 71 ||
         protected_inheritance_derived.read_inherited_member() != 53 ||
         read_private_inherited_member(private_inheritance_derived) != 57 ||
-        inline_using_derived.read_exposed() != 83) {
+        inline_using_derived.read_exposed() != 83 ||
+        inline_own_field.read_value() != 89 ||
+        inline_later_own_field.read_value() != 97) {
         return 29;
     }
     (virtual_derived.*virtual_member) = 37;

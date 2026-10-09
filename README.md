@@ -24,9 +24,10 @@ x64 host execution. The broader constructor/member ABI work remains open in
 handles direct hiding, field/function ambiguity, repeated non-virtual paths,
 transitive `using`, shared virtual bases, and access through public/protected/
 private inheritance. Inline inherited lookup and the invalid ambiguity/access
-cases pass in the focused i686/AMD64 and GCC C++20 gate. Direct `&CurrentClass::field`
-inside an inline member body remains unsupported because the class layout is
-not finalized yet; the broader runtime-integration parent remains open
+cases pass in the focused i686/AMD64 and GCC C++20 gate. In non-template
+classes, direct own-field formation resolves after layout and complete-class
+lookup for declarations before and after the inline body. Templated member
+cloning and the broader runtime-integration parent remain open
 ([TODO](TODO.md), [implementation status](docs/implementation-status-rcc-inherited-member-pointer-lookup.md)).
 
 RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・アーカイバです。
