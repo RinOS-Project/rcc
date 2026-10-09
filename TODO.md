@@ -971,9 +971,18 @@
           resolve aliases inherited from a direct public base. Diagnose
           conflicting aliases from multiple direct public bases. Gate the
           diagnostics and inherited-alias positive case on i686 and AMD64.
-    - [ ] Generalize inherited dependent nested-type lookup across multiple
+    - [x] Generalize inherited dependent nested-type lookup across multiple
           base levels, shared virtual base subobjects, and protected-access
           context; keep this separate from direct-base alias substitution.
+          Positive coverage includes non-template and class-template chains,
+          shared virtual and shared virtual template bases, protected access
+          from a derived template, and a function-template return type. Negative
+          coverage checks ambiguous inherited aliases and unrelated protected
+          access on i686/AMD64. The focused target passes i686 freestanding and
+          AMD64 host execution plus PE-i386/object generation; the broader
+          nested-type target and the requires/function-template fallback tests
+          pass too. Adjacent template-closing `>>` and a normal right-shift
+          expression are both covered.
     - [x] Treat missing or inaccessible dependent nested aliases in concrete
           function-template return/parameter signatures as substitution failure;
           preserve still-dependent names and requires-expression substitution,

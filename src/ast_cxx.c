@@ -3347,6 +3347,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         type->cxx_template_param_index < arg_count &&
         args[type->cxx_template_param_index]) {
         Type* owner = args[type->cxx_template_param_index];
+        bool alias_ambiguous = false;
+        bool alias_accessible = false;
         if (owner->cxx_dependent) {
             Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
             *unresolved = *type;
@@ -3360,17 +3362,19 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             }
             return unresolved;
         }
-        CxxTypeAlias* alias = owner->cxx_class
-            ? cxx_class_find_type_alias(owner->cxx_class,
-                                        type->cxx_dependent_member_name)
-            : NULL;
-        if (!alias && owner->cxx_class) {
-            bool ambiguous = false;
-            alias = cxx_class_find_direct_public_base_type_alias(
-                owner->cxx_class, type->cxx_dependent_member_name,
-                &ambiguous);
+        CxxClass* access_context = tmpl ? tmpl->active_class_instance : NULL;
+        if (!access_context && tmpl && tmpl->func_def &&
+            tmpl->func_def->func_method_owner) {
+            access_context =
+                tmpl->func_def->func_method_owner->cxx_class;
         }
-        if (alias && alias->access == ACCESS_PUBLIC) {
+        if (!access_context && tmpl) access_context = tmpl->templated_class;
+        CxxTypeAlias* alias = owner->cxx_class
+            ? cxx_class_find_inherited_type_alias(
+                  owner->cxx_class, type->cxx_dependent_member_name,
+                  access_context, &alias_ambiguous, &alias_accessible)
+            : NULL;
+        if (alias && alias_accessible) {
             return template_substitute_type(
                 tmpl, alias->type, args, arg_count, value_args,
                 value_present);
@@ -5482,6 +5486,160 @@ CxxTypeAlias* cxx_class_find_direct_public_base_type_alias(
         found = candidate;
     }
     return found;
+}
+
+typedef struct CxxTypeAliasClassPath {
+    CxxClass* cls;
+    const struct CxxTypeAliasClassPath* previous;
+} CxxTypeAliasClassPath;
+
+typedef struct CxxTypeAliasLookupResult {
+    CxxTypeAlias* alias;
+    CxxClass* declaring_class;
+    AccessSpec access;
+    bool found_non_alias;
+    bool ambiguous;
+} CxxTypeAliasLookupResult;
+
+static bool cxx_type_alias_class_path_contains(
+    const CxxTypeAliasClassPath* path, CxxClass* cls) {
+    for (; path; path = path->previous) {
+        if (path->cls == cls) return true;
+    }
+    return false;
+}
+
+static bool cxx_class_declares_non_alias_name(CxxClass* cls,
+                                               const char* name) {
+    for (struct CxxMember* member = cls ? cls->members : NULL; member;
+         member = member->next) {
+        const char* member_name = member->method
+            ? member->method->source_name
+            : (member->decl ? member->decl->name : NULL);
+        if (member_name && strcmp(member_name, name) == 0) return true;
+    }
+    for (TypeParam* field = cls ? cls->fields : NULL; field;
+         field = field->next) {
+        if (field->name && strcmp(field->name, name) == 0) return true;
+    }
+    return false;
+}
+
+static CxxTypeAliasLookupResult cxx_class_lookup_type_alias_recursive(
+    CxxClass* cls, const char* name, const CxxTypeAliasClassPath* path) {
+    CxxTypeAliasLookupResult result = { 0 };
+    CxxTypeAlias* own_alias;
+    CxxTypeAliasClassPath current_path;
+    if (!cls || !name) return result;
+    if (cxx_type_alias_class_path_contains(path, cls)) {
+        result.ambiguous = true;
+        return result;
+    }
+    current_path.cls = cls;
+    current_path.previous = path;
+    own_alias = cxx_class_find_type_alias(cls, name);
+    if (own_alias) {
+        result.alias = own_alias;
+        result.declaring_class = cls;
+        result.access = own_alias->access;
+        return result;
+    }
+    if (cxx_class_declares_non_alias_name(cls, name)) {
+        result.found_non_alias = true;
+        return result;
+    }
+
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        CxxTypeAliasLookupResult candidate;
+        AccessSpec access;
+        if (!base && cls->bases[index].type_pattern) {
+            base = cls->bases[index].type_pattern->cxx_class;
+        }
+        if (!base) continue;
+        candidate = cxx_class_lookup_type_alias_recursive(
+            base, name, &current_path);
+        if (candidate.ambiguous) {
+            result.ambiguous = true;
+            return result;
+        }
+        if (candidate.found_non_alias) {
+            if (result.alias) {
+                result.ambiguous = true;
+                return result;
+            }
+            result.found_non_alias = true;
+        }
+        if (!candidate.alias) continue;
+        if (result.found_non_alias) {
+            result.ambiguous = true;
+            return result;
+        }
+        access = candidate.access;
+        if (cls->bases[index].access > access) {
+            access = cls->bases[index].access;
+        }
+        if (!result.alias) {
+            result.alias = candidate.alias;
+            result.declaring_class = candidate.declaring_class;
+            result.access = access;
+        } else if (result.alias != candidate.alias) {
+            result.ambiguous = true;
+            return result;
+        } else if (access < result.access) {
+            /* The same declaration reached through a shared virtual base is
+             * one lookup result; retain its least restrictive access path. */
+            result.access = access;
+        }
+    }
+    return result;
+}
+
+static bool cxx_class_is_same_or_derived_from_recursive(
+    CxxClass* cls, CxxClass* target, const CxxTypeAliasClassPath* path) {
+    CxxTypeAliasClassPath current_path;
+    if (!cls || !target) return false;
+    if (cls == target) return true;
+    if (cxx_type_alias_class_path_contains(path, cls)) return false;
+    current_path.cls = cls;
+    current_path.previous = path;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base && cls->bases[index].type_pattern) {
+            base = cls->bases[index].type_pattern->cxx_class;
+        }
+        if (cxx_class_is_same_or_derived_from_recursive(
+                base, target, &current_path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+CxxTypeAlias* cxx_class_find_inherited_type_alias(
+    CxxClass* cls, const char* name, CxxClass* access_context,
+    bool* ambiguous, bool* accessible) {
+    CxxTypeAliasLookupResult result;
+    bool context_is_derived;
+    if (ambiguous) *ambiguous = false;
+    if (accessible) *accessible = false;
+    result = cxx_class_lookup_type_alias_recursive(cls, name, NULL);
+    if (ambiguous) *ambiguous = result.ambiguous;
+    if (!result.alias || result.ambiguous) return NULL;
+    if (accessible) {
+        if (result.alias->access == ACCESS_PUBLIC &&
+            result.access == ACCESS_PUBLIC) {
+            *accessible = true;
+        } else if (access_context == result.declaring_class) {
+            *accessible = true;
+        } else if (result.alias->access != ACCESS_PRIVATE &&
+                   result.access != ACCESS_PRIVATE) {
+            context_is_derived = cxx_class_is_same_or_derived_from_recursive(
+                access_context, result.declaring_class, NULL);
+            *accessible = context_is_derived;
+        }
+    }
+    return result.alias;
 }
 
 /* Add field to class */

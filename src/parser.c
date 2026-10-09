@@ -435,6 +435,26 @@ static Token* advance(void) {
     return previous();
 }
 
+static bool parser_split_cxx_template_close(void) {
+    Token* shift;
+    Token* second_close;
+    if (!parser_cxx_mode || !parser.cur || parser.cur->type != TOK_RSHIFT) {
+        return false;
+    }
+    shift = parser.cur;
+    second_close = token_new(TOK_GT, shift->loc);
+    if (!second_close) return false;
+    ++second_close->loc.column;
+    second_close->next = shift->next;
+    shift->type = TOK_GT;
+    shift->next = second_close;
+    return true;
+}
+
+bool rcc_parser_cxx_split_template_close(void) {
+    return parser_split_cxx_template_close();
+}
+
 static bool match(TokenType type) {
     if (check(type)) {
         advance();
@@ -444,6 +464,9 @@ static bool match(TokenType type) {
 }
 
 static Token* expect(TokenType type, const char* msg) {
+    if (type == TOK_GT && check(TOK_RSHIFT)) {
+        (void)parser_split_cxx_template_close();
+    }
     if (check(type)) {
         return advance();
     }

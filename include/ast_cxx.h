@@ -430,6 +430,9 @@ void cxx_class_add_friend_class(CxxClass* cls, const char* friend_name);
 void cxx_class_add_type_alias(CxxClass* cls, const char* name, Type* type,
                               AccessSpec access);
 CxxTypeAlias* cxx_class_find_type_alias(CxxClass* cls, const char* name);
+CxxTypeAlias* cxx_class_find_inherited_type_alias(
+    CxxClass* cls, const char* name, CxxClass* access_context,
+    bool* ambiguous, bool* accessible);
 CxxTypeAlias* cxx_class_find_direct_public_base_type_alias(
     CxxClass* cls, const char* name, bool* ambiguous);
 void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_static);

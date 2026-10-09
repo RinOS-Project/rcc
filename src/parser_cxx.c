@@ -18,6 +18,7 @@ typedef struct {
 
 extern Parser parser;
 extern void rcc_parser_set_cxx_template_default_mode(bool enabled);
+extern bool rcc_parser_cxx_split_template_close(void);
 
 /* The current template is only needed while parsing dependent declarations;
  * instantiated types are resolved by the later template semantic phase. */
@@ -1533,6 +1534,9 @@ static bool match(TokenType type) {
 }
 
 static Token* expect(TokenType type, const char* msg) {
+    if (type == TOK_GT && check(TOK_RSHIFT)) {
+        (void)rcc_parser_cxx_split_template_close();
+    }
     if (check(type)) {
         return advance();
     }
@@ -9894,17 +9898,17 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             return unresolved;
         }
         bool inherited_alias_ambiguous = false;
+        bool inherited_alias_accessible = false;
+        CxxClass* access_context = tmpl->active_class_instance
+            ? tmpl->active_class_instance : tmpl->templated_class;
         CxxTypeAlias* alias = owner->cxx_class
-            ? cxx_class_find_type_alias(owner->cxx_class,
-                                        type->cxx_dependent_member_name)
+            ? cxx_class_find_inherited_type_alias(
+                  owner->cxx_class, type->cxx_dependent_member_name,
+                  access_context, &inherited_alias_ambiguous,
+                  &inherited_alias_accessible)
             : NULL;
-        if (!alias && owner->cxx_class) {
-            alias = cxx_class_find_direct_public_base_type_alias(
-                owner->cxx_class, type->cxx_dependent_member_name,
-                &inherited_alias_ambiguous);
-        }
         if (alias) {
-            if (alias->access != ACCESS_PUBLIC) {
+            if (!inherited_alias_accessible) {
                 rcc_error(parser.cur ? parser.cur->loc
                                      : (SourceLoc){"<template>", 0, 0},
                           "dependent nested type '%s' is inaccessible in class '%s'",
@@ -13140,11 +13144,13 @@ static Type* cxx_function_template_find_dependent_nested_type(
 }
 
 static void cxx_report_function_template_nested_type_failure(
-    Type* unresolved, SourceLoc loc) {
+    Type* unresolved, CxxTemplate* tmpl, SourceLoc loc) {
     const char* member_name;
     CxxClass* owner;
     CxxTypeAlias* alias;
     bool ambiguous = false;
+    bool accessible = false;
+    CxxClass* access_context = tmpl ? tmpl->active_class_instance : NULL;
     if (!unresolved || !unresolved->cxx_dependent_member_name) return;
     member_name = unresolved->cxx_dependent_member_name;
     owner = unresolved->cxx_class;
@@ -13153,12 +13159,14 @@ static void cxx_report_function_template_nested_type_failure(
                   member_name);
         return;
     }
-    alias = cxx_class_find_type_alias(owner, member_name);
-    if (!alias) {
-        alias = cxx_class_find_direct_public_base_type_alias(
-            owner, member_name, &ambiguous);
+    if (!access_context && tmpl && tmpl->func_def &&
+        tmpl->func_def->func_method_owner) {
+        access_context = tmpl->func_def->func_method_owner->cxx_class;
     }
-    if (alias && alias->access != ACCESS_PUBLIC) {
+    if (!access_context && tmpl) access_context = tmpl->templated_class;
+    alias = cxx_class_find_inherited_type_alias(
+        owner, member_name, access_context, &ambiguous, &accessible);
+    if (alias && !accessible) {
         rcc_error(loc,
                   "dependent nested type '%s' is inaccessible in class '%s'",
                   member_name, owner->name ? owner->name : "<unnamed>");
@@ -13887,6 +13895,7 @@ Expr* rcc_parse_cxx_template_call(void) {
         bool constraint_invalid = false;
         bool constraint_unsupported = false;
         Type* substitution_failure_type = NULL;
+        CxxTemplate* substitution_failure_template = NULL;
         for (int index = 0; index < candidate_count; ++index) {
             CxxFunctionTemplateMatch candidate_match = { 0 };
             if (qualified_call &&
@@ -13911,6 +13920,8 @@ Expr* rcc_parse_cxx_template_call(void) {
                        candidate_match.substitution_failure_type) {
                 substitution_failure_type =
                     candidate_match.substitution_failure_type;
+                substitution_failure_template =
+                    candidate_templates[index];
             }
         }
         if (constraint_unsupported) {
@@ -13922,7 +13933,8 @@ Expr* rcc_parse_cxx_template_call(void) {
                 rcc_error(loc, "template constraints are not satisfied");
             } else if (substitution_failure_type) {
                 cxx_report_function_template_nested_type_failure(
-                    substitution_failure_type, loc);
+                    substitution_failure_type,
+                    substitution_failure_template, loc);
             } else if (unsafe_versioned_shape && candidate_count == 1) {
                 rcc_error(loc, "function template '%s' is not safely lowerable",
                           name);
