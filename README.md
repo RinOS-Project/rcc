@@ -406,15 +406,17 @@ lookup on i686 and AMD64. Runtime checks cover direct derived field and function
 hiding. Scalar DMIs also read an earlier direct field through both `this->field`
 and unqualified lookup in a class with a dependent base. The focused target
 passes freestanding i686 execution, x64 host execution, and both target object
-generations. Other dependent lookup paths and DMIs with constructor-parameter
-initialization, calls, side effects, arrays, or cleanup remain unchecked; the
-parameter-initialized earlier-field case currently does not finish compilation.
+generations. A separate focused regression now covers scalar DMIs that read an
+earlier member initialized from a constructor parameter, through both `this->`
+and unqualified lookup, for `int` and `long long`; the same target executes the
+i686 output and the x64 host output and verifies both object generations. Other
+dependent lookup paths and DMI forms involving calls, side effects, arrays, or
+cleanup remain unchecked.
 
 2026-10-09 dependent using-declaration lookup: ordinary class-template lookup
 now resolves `using Base<T>::member` against the selected direct base when
 another base exposes the same field or function name. The fixture selects the
 second base and checks its field and overload; the focused target passed
 freestanding i686 execution, x64 host execution, and both target object
-generations before the parameter-DMI reproducer was added. The expanded
-worktree target now stalls while compiling that separate DMI case, which stays
-unchecked along with broader dependent lookup coverage.
+generations. Its complete target also passes the separate parameter-DMI
+regression; broader dependent lookup coverage remains unchecked.

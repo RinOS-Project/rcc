@@ -709,22 +709,23 @@
           runtime execution in `test-cxx-class-template-dependent-base`.
     - [x] Verify dependent `using Base<T>::member` selection when multiple
           direct bases provide the same field or function name. The positive
-          fixture selects the second base; the focused target passed
+          fixture selects the second base; the complete focused target passes
           freestanding i686 execution, x64 host execution, and both target
-          object generations before the later parameter-DMI reproducer was
-          added. The expanded worktree target currently does not finish
-          compiling that separate DMI case; it remains unchecked below.
+          object generations, including the separate parameter-DMI regression.
     - [ ] Cover further dependent name-lookup paths beyond mixed-name
           ambiguity, direct-member hiding, and verified using-selection.
     - [x] Evaluate bounded scalar DMIs that read an earlier direct scalar field
           through either `this->field` or unqualified member lookup in a class
           with a dependent base. Verify `int` and `long long` on freestanding
           i686, x64 host execution, and both target object generations.
-    - [ ] Diagnose and support an earlier-member DMI when the preceding field
-          is initialized from a constructor parameter; the current focused
-          instantiation does not finish compilation. Also cover additional
-          dependent DMI forms such as arrays, calls, side effects, and
-          cleanup-bearing members. Unsupported cases remain unchecked.
+    - [x] Lower a dependent scalar DMI that reads an earlier member initialized
+          from a constructor parameter, through both `this->field` and
+          unqualified lookup. Verify `int` and `long long` by freestanding
+          i686 execution, x64 host execution, and both target object generations
+          in `test-cxx-class-template-dependent-base`.
+    - [ ] Cover additional dependent DMI forms such as arrays, calls, side
+          effects, and cleanup-bearing members. Unsupported cases remain
+          unchecked.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

@@ -3316,6 +3316,9 @@ test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-d
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-dependent-base,cxx_class_template_dependent_base.cpp)
 	$(call CXX_I686_WIDE_MEMBER_INITIALIZER_CHECK,cxx-class-template-dependent-base)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-dmi-parameter)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-dependent-dmi-parameter,cxx_dependent_dmi_parameter.cpp)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86-freestanding,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86.s)
 else
 test-cxx-class-template-methods: test-cxx-class-template-methods-posix
 test-cxx-class-template-specialization: test-cxx-class-template-specialization-posix
@@ -3325,6 +3328,9 @@ test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-d
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-class-template-dependent-base,cxx_class_template_dependent_base.cpp)
 	$(call CXX_I686_WIDE_MEMBER_INITIALIZER_CHECK,cxx-class-template-dependent-base)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-dmi-parameter)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-dependent-dmi-parameter,cxx_dependent_dmi_parameter.cpp)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86-freestanding,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86.s)
 endif
 
 test-cxx-class-template-dependent-base-lookup-invalid: $(RCXX_TARGET)
