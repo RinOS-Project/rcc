@@ -3434,6 +3434,52 @@ static bool cxx_constructor_expression_is_lowerable(
         }
         return true;
     }
+    if (expression->kind == EXPR_MEMBER && expression->member_base &&
+        expression->member_base->kind == EXPR_IDENT &&
+        expression->member_name) {
+        int index = cxx_constructor_parameter_index(
+            constructor, expression->member_base->ident_name);
+        TypeParam* parameter = constructor ? constructor->parameters : NULL;
+        Type* source_type;
+        Type* canonical_source_type;
+        TypeField* source_field;
+        for (int step = 0; parameter && step < index; ++step) {
+            parameter = parameter->next;
+        }
+        source_type = parameter
+            ? cxx_constructor_value_type(parameter->type) : NULL;
+        if (index < 0 || !parameter ||
+            !(parameter->type && parameter->type->kind == TYPE_PTR &&
+              parameter->type->is_reference) ||
+            !source_type ||
+            (source_type->kind != TYPE_STRUCT &&
+             source_type->kind != TYPE_UNION) ||
+            !constructor->method || !constructor->method->owner ||
+            source_type->cxx_class != constructor->method->owner) {
+            return false;
+        }
+        canonical_source_type = source_type->fields ? source_type
+            : source_type->cxx_class->type;
+        if (!canonical_source_type) return false;
+        for (source_field = canonical_source_type->fields; source_field;
+             source_field = source_field->next) {
+            if (source_field->name &&
+                strcmp(source_field->name, expression->member_name) == 0) {
+                break;
+            }
+        }
+        if (!source_field || !cxx_constructor_scalar_type(source_field->type) ||
+            (target_type &&
+             !type_is_compatible(
+                 cxx_constructor_value_type(source_field->type),
+                 cxx_constructor_value_type(target_type)))) {
+            return false;
+        }
+        if (parameter_used && index < (int)parameter_count) {
+            parameter_used[index] = true;
+        }
+        return true;
+    }
     switch (expression->kind) {
         case EXPR_INT_LIT:
         case EXPR_CHAR_LIT:
@@ -5747,6 +5793,13 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
     cls->is_final = is_final;
     cls->type->cxx_scope_identity = local_type_identity;
     cls->pack_alignment = rcc_parser_pack_alignment();
+    /* Make a local class's own type visible while parsing its members.
+     * In particular, constructor parameters such as `Local&&` must refer to
+     * this declaration so function-template substitution can retarget that
+     * self-reference to the concrete local-class instance. */
+    if (local_type_identity) {
+        rcc_parser_define_type(cls->name, cls->type);
+    }
 
     /* Inheritance */
     if (match(TOK_COLON)) {
@@ -8519,6 +8572,40 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
     Expr* array_bound;
     int parameter_index;
     if (!type) return NULL;
+    if (tmpl && tmpl->is_local_class_template &&
+        tmpl->local_class_pattern && tmpl->local_class_instance &&
+        tmpl->local_class_pattern->type &&
+        tmpl->local_class_instance->type &&
+        type->kind == TYPE_STRUCT &&
+        (type->cxx_class == tmpl->local_class_pattern ||
+         (!type->cxx_class && type->tag &&
+          tmpl->local_class_pattern->type->tag &&
+          strcmp(type->tag,
+                 tmpl->local_class_pattern->type->tag) == 0 &&
+          (!type->cxx_scope_identity ||
+           (tmpl->local_class_pattern->type->cxx_scope_identity &&
+            strcmp(type->cxx_scope_identity,
+                   tmpl->local_class_pattern->type->cxx_scope_identity) ==
+                0)) &&
+          ((!type->cxx_namespace &&
+            !tmpl->local_class_pattern->type->cxx_namespace) ||
+           (type->cxx_namespace &&
+            tmpl->local_class_pattern->type->cxx_namespace &&
+            strcmp(type->cxx_namespace,
+                   tmpl->local_class_pattern->type->cxx_namespace) ==
+                0))))) {
+        Type* instance_type = tmpl->local_class_instance->type;
+        if (type == tmpl->local_class_pattern->type) {
+            return instance_type;
+        }
+        substituted = ast_arena_alloc(sizeof(*substituted));
+        *substituted = *instance_type;
+        substituted->is_const = type->is_const;
+        substituted->is_volatile = type->is_volatile;
+        substituted->is_atomic = type->is_atomic;
+        substituted->is_restrict = type->is_restrict;
+        return substituted;
+    }
     if (type->cxx_dependent && type->cxx_dependent_member_name &&
         type->cxx_template_param_index >= 0 &&
         type->cxx_template_param_index < argument_count &&

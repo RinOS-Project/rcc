@@ -24,13 +24,21 @@ T local_class_template_constructor_member(T value) {
             bias = initial_bias + initial_item;
         }
 
+        Local(const Local& other)
+            : item(other.item), bias(other.bias) {}
+
+        Local(Local&& other)
+            : item(other.bias), bias(other.item) {}
+
         T sum(T extra) const {
-            return item + bias + extra;
+            return item + item + bias + extra;
         }
     };
 
     Local local(value, value);
-    return local.sum(value);
+    Local copied(local);
+    Local moved(static_cast<Local&&>(copied));
+    return moved.sum(value);
 }
 
 template <typename T>
@@ -246,8 +254,8 @@ const void* local_class_template_typeinfo() {
 int main() {
     if (local_class_template_value(13) != 26) return 1;
     if (local_class_template_value(19LL) != 38) return 2;
-    if (local_class_template_constructor_member(13) != 52) return 24;
-    if (local_class_template_constructor_member(19LL) != 76) return 25;
+    if (local_class_template_constructor_member(13) != 78) return 24;
+    if (local_class_template_constructor_member(19LL) != 114) return 25;
     if (local_class_template_virtual_member(17) != 34) return 26;
     if (local_class_template_virtual_member(23LL) != 46) return 27;
     if (local_class_template_destructor_calls != 0) return 28;

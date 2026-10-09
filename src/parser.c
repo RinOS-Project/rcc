@@ -1134,15 +1134,17 @@ void rcc_parser_validate_cxx_constructor_initializer(Type* type,
             cast_type->base && type_is_compatible(cast_type->base, type)) {
             TypeMethod* move = type->move_constructor_method;
             Expr* source = cast->cast_expr;
-            if (!move || !move->name || !source ||
-                source->kind != EXPR_IDENT) {
-                rcc_error(cast->loc,
-                          "C++ move construction requires a validated release constructor");
+            /* move_constructor_method records the SDK's structurally
+             * validated release()-based lowering, not the presence of an
+             * ordinary C++ move constructor.  Preserve every other xvalue
+             * initializer for normal constructor overload resolution. */
+            if (move && move->name && source &&
+                source->kind == EXPR_IDENT) {
+                initializer->compound_init->expr = expr_call(
+                    expr_member(source, move->name, cast->loc), NULL,
+                    cast->loc);
                 return;
             }
-            initializer->compound_init->expr = expr_call(
-                expr_member(source, move->name, cast->loc), NULL, cast->loc);
-            return;
         }
     }
     mask = rcc_parser_cxx_constructor_arity_mask(type);

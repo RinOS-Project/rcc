@@ -8597,6 +8597,24 @@ static Expr* gen_cxx_bind_constructor_expression32(
             copy->cast_expr = gen_cxx_bind_constructor_expression32(
                 constructor, expression->cast_expr, arguments);
             break;
+        case EXPR_MEMBER:
+            copy->member_base = gen_cxx_bind_constructor_expression32(
+                constructor, expression->member_base, arguments);
+            if (constructor && constructor->method &&
+                constructor->method->owner &&
+                constructor->method->owner->type && copy->member_name) {
+                for (TypeField* field =
+                         constructor->method->owner->type->fields;
+                     field; field = field->next) {
+                    if (field->name &&
+                        strcmp(field->name, copy->member_name) == 0) {
+                        copy->member_field = field;
+                        copy->type = field->type;
+                        break;
+                    }
+                }
+            }
+            break;
         default:
             rcc_free(copy);
             return expression;
