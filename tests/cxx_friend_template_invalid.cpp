@@ -6,6 +6,7 @@ class FriendTemplateHost {
         host.value = replacement;
         return host.value;
     }
+
 };
 
 class Unrelated {

@@ -8391,6 +8391,47 @@ static int find_function_template_candidates(const char* qualified_name,
     return namespace_function_templates(ns, component, results, capacity);
 }
 
+static bool cxx_class_is_associated_with(CxxClass* actual,
+                                         CxxClass* granting_class,
+                                         int depth) {
+    if (!actual || !granting_class || depth > 32) return false;
+    if (actual == granting_class) return true;
+    for (int index = 0; index < actual->base_count; ++index) {
+        if (cxx_class_is_associated_with(actual->bases[index].base,
+                                         granting_class, depth + 1)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Hidden friend templates are admitted only when an argument contributes the
+ * class that declared the friend (or one of its associated base classes).
+ * A later namespace-scope redeclaration clears is_hidden_friend in the AST
+ * registry and returns the template to ordinary lookup. */
+static bool cxx_hidden_friend_template_matches_adl(
+    CxxTemplate* tmpl, ExprList* arguments) {
+    if (!tmpl || !tmpl->is_hidden_friend) return true;
+    for (CxxFriendAccess* grant = tmpl->friend_access; grant;
+         grant = grant->next) {
+        for (ExprList* argument = arguments; argument;
+             argument = argument->next) {
+            Type* type = cxx_parser_expression_type(argument->expr);
+            while (type && (type->kind == TYPE_PTR ||
+                            type->kind == TYPE_ARRAY) &&
+                   !type->cxx_is_member_pointer) {
+                type = type->base;
+            }
+            if (type && type->cxx_class &&
+                cxx_class_is_associated_with(type->cxx_class,
+                                             grant->owner, 0)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 Expr* rcc_parse_cxx_concept_expression(void) {
     Token* saved_cur = parser.cur;
     Token* saved_prev = parser.prev;
@@ -12553,6 +12594,7 @@ Expr* rcc_parse_cxx_template_call(void) {
     CxxTemplate* tmpl;
     CxxTemplate* candidate_templates[32];
     int candidate_count;
+    bool qualified_call;
     Type* argument;
     TypeField* size_field;
     TypeField* version_field;
@@ -12562,6 +12604,7 @@ Expr* rcc_parse_cxx_template_call(void) {
 
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
     name = parse_qualified_name();
+    qualified_call = strstr(name, "::") != NULL;
     candidate_count = find_function_template_candidates(
         name, candidate_templates,
         (int)(sizeof(candidate_templates) / sizeof(candidate_templates[0])));
@@ -12676,7 +12719,8 @@ Expr* rcc_parse_cxx_template_call(void) {
     tmpl = candidate_templates[0];
     unsafe_versioned_shape = template_has_unsupported_versioned_shape(tmpl);
     if (candidate_count != 1 ||
-        tmpl->function_lowering != TMPL_FUNCTION_VERSIONED_STRUCT) {
+        tmpl->function_lowering != TMPL_FUNCTION_VERSIONED_STRUCT ||
+        tmpl->is_hidden_friend) {
         CxxParsedTemplateArgument explicit_arguments[32];
         int explicit_argument_count = 0;
         ExprList* call_arguments = NULL;
@@ -12763,6 +12807,14 @@ Expr* rcc_parse_cxx_template_call(void) {
         bool constraint_invalid = false;
         bool constraint_unsupported = false;
         for (int index = 0; index < candidate_count; ++index) {
+            if (qualified_call &&
+                candidate_templates[index]->is_hidden_friend) {
+                continue;
+            }
+            if (!cxx_hidden_friend_template_matches_adl(
+                    candidate_templates[index], call_arguments)) {
+                continue;
+            }
             if (template_has_unsupported_versioned_shape(
                     candidate_templates[index])) {
                 continue;

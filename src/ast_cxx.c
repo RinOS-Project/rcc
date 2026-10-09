@@ -2433,7 +2433,12 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
             !cxx_function_template_redeclaration_matches(existing, tmpl)) {
             continue;
         }
+        bool had_friend_declaration = existing->friend_access != NULL;
+        bool has_friend_declaration = tmpl->friend_access != NULL;
         cxx_template_merge_friend_access(existing, tmpl);
+        if (had_friend_declaration && !has_friend_declaration) {
+            existing->is_hidden_friend = false;
+        }
         if (existing->func_def->func_body && tmpl->func_def->func_body) {
             rcc_error(tmpl->func_def->loc,
                       "redefinition of function template '%s'", tmpl->name);
@@ -2455,6 +2460,7 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
         }
         return;
     }
+    tmpl->is_hidden_friend = tmpl->friend_access != NULL;
     ns->templates = ast_arena_grow(
         ns->templates, sizeof(CxxTemplate*) * (size_t)ns->template_count,
         sizeof(CxxTemplate*) * (size_t)(ns->template_count + 1));
@@ -2496,6 +2502,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     }
     tmpl->param_count = count;
     tmpl->friend_access = NULL;
+    tmpl->is_hidden_friend = false;
     tmpl->kind = TMPL_CLASS;
     tmpl->class_def = NULL;
     tmpl->alias_type = NULL;

@@ -4659,9 +4659,17 @@ test-cxx-friend-function: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-function)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-function,cxx_friend_function.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/template-invalid-x86.ro tests/cxx_friend_template_invalid.cpp,$(TEST_OUT)/cxx-friend-function/template-invalid-x86.log)
-	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-friend-function/template-invalid-x86.log
+	$(GREP) -F -q "no matching function template overload for 'reveal'" $(TEST_OUT)/cxx-friend-function/template-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/template-invalid-x64.ro tests/cxx_friend_template_invalid.cpp,$(TEST_OUT)/cxx-friend-function/template-invalid-x64.log)
-	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-friend-function/template-invalid-x64.log
+	$(GREP) -F -q "no matching function template overload for 'reveal'" $(TEST_OUT)/cxx-friend-function/template-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x86.ro tests/cxx_friend_template_qualified_invalid.cpp,$(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x86.log)
+	$(GREP) -F -q "no matching function template overload for 'friend_ns::reveal'" $(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x64.ro tests/cxx_friend_template_qualified_invalid.cpp,$(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x64.log)
+	$(GREP) -F -q "no matching function template overload for 'friend_ns::reveal'" $(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/template-access-invalid-x86.ro tests/cxx_friend_template_access_invalid.cpp,$(TEST_OUT)/cxx-friend-function/template-access-invalid-x86.log)
+	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-friend-function/template-access-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/template-access-invalid-x64.ro tests/cxx_friend_template_access_invalid.cpp,$(TEST_OUT)/cxx-friend-function/template-access-invalid-x64.log)
+	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-friend-function/template-access-invalid-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/template-redefinition-x86.ro tests/cxx_friend_template_duplicate_invalid.cpp,$(TEST_OUT)/cxx-friend-function/template-redefinition-x86.log)
 	$(GREP) -F -q "redefinition of function template 'duplicate_reveal'" $(TEST_OUT)/cxx-friend-function/template-redefinition-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/template-redefinition-x64.ro tests/cxx_friend_template_duplicate_invalid.cpp,$(TEST_OUT)/cxx-friend-function/template-redefinition-x64.log)
@@ -5208,14 +5216,38 @@ test-cxx-friend-function-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-friend-function/template-invalid-x86.ro \
 		tests/cxx_friend_template_invalid.cpp \
 		>$(TEST_OUT)/cxx-friend-function/template-invalid-x86.log 2>&1
-	$(GREP) -F -q "member 'value' is not accessible" \
+	$(GREP) -F -q "no matching function template overload for 'reveal'" \
 		$(TEST_OUT)/cxx-friend-function/template-invalid-x86.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x86.ro \
+		tests/cxx_friend_template_qualified_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x86.log 2>&1
+	$(GREP) -F -q "no matching function template overload for 'friend_ns::reveal'" \
+		$(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x86.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/template-access-invalid-x86.ro \
+		tests/cxx_friend_template_access_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-function/template-access-invalid-x86.log 2>&1
+	$(GREP) -F -q "member 'value' is not accessible" \
+		$(TEST_OUT)/cxx-friend-function/template-access-invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-friend-function/template-invalid-x64.ro \
 		tests/cxx_friend_template_invalid.cpp \
 		>$(TEST_OUT)/cxx-friend-function/template-invalid-x64.log 2>&1
-	$(GREP) -F -q "member 'value' is not accessible" \
+	$(GREP) -F -q "no matching function template overload for 'reveal'" \
 		$(TEST_OUT)/cxx-friend-function/template-invalid-x64.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x64.ro \
+		tests/cxx_friend_template_qualified_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x64.log 2>&1
+	$(GREP) -F -q "no matching function template overload for 'friend_ns::reveal'" \
+		$(TEST_OUT)/cxx-friend-function/template-qualified-invalid-x64.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/template-access-invalid-x64.ro \
+		tests/cxx_friend_template_access_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-function/template-access-invalid-x64.log 2>&1
+	$(GREP) -F -q "member 'value' is not accessible" \
+		$(TEST_OUT)/cxx-friend-function/template-access-invalid-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-friend-function/template-redefinition-x86.ro \
 		tests/cxx_friend_template_duplicate_invalid.cpp \

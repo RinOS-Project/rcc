@@ -279,6 +279,9 @@ struct CxxTemplate {
      * attached to each instantiated function declaration so normal member
      * access checking applies to that specialization. */
     CxxFriendAccess* friend_access;
+    /* Class-scope friends are found by ADL until a namespace declaration
+     * makes the template visible to ordinary lookup. */
+    bool is_hidden_friend;
 
     /* Template body - either class or function */
     enum {

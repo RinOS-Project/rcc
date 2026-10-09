@@ -523,9 +523,19 @@
     - [x] Diagnose a duplicate definition for a matching in-class friend
           function template when its namespace-scope definition is repeated;
           the diagnostic is checked for i686 and AMD64.
+    - [x] Keep an in-class friend function template hidden from ordinary and
+          qualified namespace lookup until a matching namespace-scope
+          declaration is present. Admit it through bounded ADL only when an
+          argument has the granting class or a derived class whose base chain
+          includes it. Verify direct and derived arguments, reject unrelated
+          unqualified and qualified calls, and verify that a later namespace
+          definition restores ordinary lookup without granting access to
+          unrelated specializations. The i686/AMD64 friend-function gate and
+          GCC C++20 comparison pass.
     - [ ] Complete constrained/defaulted/packed friend-template redeclaration,
-          hidden-friend namespace visibility, and overload/redeclaration
-          matching beyond the tested type-only form.
+          associated-namespace and template-argument ADL, general
+          overload/redeclaration matching beyond the tested type-only form,
+          and ordinary non-template hidden friends.
     - [x] Implement defined, nonvirtual, non-overloaded member-function
           pointers for unqualified, `const`, `volatile`, and `const volatile`
           methods: preserve the owner and method cv in the type, form its code

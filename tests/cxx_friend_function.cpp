@@ -35,6 +35,8 @@ class SecondFriendTemplateHost {
     friend int reveal(T& host, int replacement);
 };
 
+class DerivedFriendTemplateHost : public FriendTemplateHost {};
+
 template<class U>
 int reveal_declared(U& host, int replacement) {
     host.value = replacement;
@@ -45,9 +47,11 @@ int main() {
     FriendHost ordinary;
     FriendTemplateHost host;
     SecondFriendTemplateHost second_host;
+    DerivedFriendTemplateHost derived_host;
     int ordinary_result = inline_friend(ordinary, 4) +
                           declared_friend(ordinary, 5);
     return ordinary_result == 16 && reveal(host, 42) == 42 &&
            reveal_declared(host, 37) == 37 &&
-           reveal(second_host, 19) == 19 ? 0 : 1;
+           reveal(second_host, 19) == 19 &&
+           reveal(derived_host, 23) == 23 ? 0 : 1;
 }
