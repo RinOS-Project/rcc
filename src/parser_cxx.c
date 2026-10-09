@@ -5825,6 +5825,11 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
         if (is_friend) {
             method->owner = NULL;
+            CxxFriendAccess* friend_access =
+                ast_arena_alloc(sizeof(*friend_access));
+            friend_access->owner = cls;
+            friend_access->next = method->decl->func_friend_access;
+            method->decl->func_friend_access = friend_access;
             if (active_ast) {
                 add_namespace_declaration(active_ast,
                                           active_namespace ? active_namespace
@@ -9150,6 +9155,7 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->decl->func_has_local_linkage =
         method->decl->func_has_local_linkage;
     copy->decl->func_is_cxx_method = method->decl->func_is_cxx_method;
+    copy->decl->func_friend_access = method->decl->func_friend_access;
     copy->decl->func_is_constexpr = method->decl->func_is_constexpr;
     copy->decl->func_is_consteval = method->decl->func_is_consteval;
     copy->decl->func_is_noreturn = method->decl->func_is_noreturn;

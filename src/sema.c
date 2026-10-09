@@ -59,6 +59,7 @@ static unsigned static_local_counter = 0u;
 static unsigned cxx_exception_frame_counter = 0u;
 static Type* current_cxx_method_owner = NULL;
 static Decl* current_cxx_this_param = NULL;
+static Decl* current_cxx_function_decl = NULL;
 static CxxNamespace* current_cxx_namespace = NULL;
 static AST* current_ast = NULL;
 
@@ -188,6 +189,42 @@ static bool sema_cxx_class_derives_from(const CxxClass* derived,
     return false;
 }
 
+static bool sema_cxx_function_is_friend_of(const CxxClass* target) {
+    if (!target || !current_cxx_function_decl) return false;
+    for (CxxFriendAccess* access =
+             current_cxx_function_decl->func_friend_access;
+         access; access = access->next) {
+        if (access->owner == target) return true;
+    }
+    return false;
+}
+
+static void sema_cxx_merge_friend_access(Decl* declaration,
+                                          const Decl* previous) {
+    if (!declaration || declaration->kind != DECL_FUNC || !previous ||
+        previous->kind != DECL_FUNC) {
+        return;
+    }
+    for (const CxxFriendAccess* source = previous->func_friend_access;
+         source; source = source->next) {
+        bool already_present = false;
+        if (!source->owner) continue;
+        for (CxxFriendAccess* current = declaration->func_friend_access;
+             current; current = current->next) {
+            if (current->owner == source->owner) {
+                already_present = true;
+                break;
+            }
+        }
+        if (!already_present) {
+            CxxFriendAccess* copy = ast_arena_alloc(sizeof(*copy));
+            copy->owner = source->owner;
+            copy->next = declaration->func_friend_access;
+            declaration->func_friend_access = copy;
+        }
+    }
+}
+
 static bool sema_cxx_member_accessible(CxxClass* target,
                                        unsigned char access) {
     CxxClass* context;
@@ -199,7 +236,19 @@ static bool sema_cxx_member_accessible(CxxClass* target,
         sema_cxx_class_derives_from(context, target, 0u)) {
         return true;
     }
-    return target && sema_cxx_class_is_friend(target, context);
+    if (target && sema_cxx_class_is_friend(target, context)) return true;
+    if (!current_cxx_function_decl) return false;
+    for (CxxFriendAccess* friend_access =
+             current_cxx_function_decl->func_friend_access;
+         friend_access; friend_access = friend_access->next) {
+        CxxClass* friend_class = friend_access->owner;
+        if (friend_class == target ||
+            (access == ACCESS_PROTECTED &&
+             sema_cxx_class_derives_from(target, friend_class, 0u))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static CxxClass* sema_cxx_protected_member_pointer_friend_class(
@@ -221,6 +270,104 @@ static CxxClass* sema_cxx_protected_member_pointer_friend_class(
         if (access_class) return access_class;
     }
     return NULL;
+}
+
+static CxxClass* sema_cxx_protected_member_pointer_function_friend_class(
+    CxxClass* candidate, CxxClass* declaring, unsigned depth) {
+    if (!candidate || !declaring || depth > 32u) return NULL;
+    if ((candidate == declaring ||
+         sema_cxx_class_derives_from(candidate, declaring, 0u)) &&
+        sema_cxx_function_is_friend_of(candidate)) {
+        return candidate;
+    }
+    for (int index = 0; index < candidate->base_count; ++index) {
+        CxxClass* access_class =
+            sema_cxx_protected_member_pointer_function_friend_class(
+                candidate->bases[index].base, declaring, depth + 1u);
+        if (access_class) return access_class;
+    }
+    return NULL;
+}
+
+static TypeField* sema_cxx_declared_data_member(CxxClass* declaring,
+                                                const TypeField* field) {
+    Type* type = declaring ? declaring->type : NULL;
+    if (!type || !field || !field->name) return NULL;
+    for (TypeField* candidate = type->fields; candidate;
+         candidate = candidate->next) {
+        if (candidate->name &&
+            strcmp(candidate->name, field->name) == 0 &&
+            candidate->cxx_declaring_class == declaring) {
+            return candidate;
+        }
+    }
+    return NULL;
+}
+
+static bool sema_cxx_protected_field_object_accessible(
+    CxxClass* declaring, CxxClass* aggregate) {
+    CxxClass* context = current_cxx_method_owner
+        ? current_cxx_method_owner->cxx_class : NULL;
+    CxxClass* access_class;
+    if (!declaring || !aggregate) return false;
+    if (context && (context == declaring ||
+                    sema_cxx_class_derives_from(context, declaring, 0u))) {
+        return aggregate == context ||
+               sema_cxx_class_derives_from(aggregate, context, 0u);
+    }
+    if (context) {
+        access_class = sema_cxx_protected_member_pointer_friend_class(
+            aggregate, declaring, context, 0u);
+        if (access_class) {
+            return aggregate == access_class ||
+                   sema_cxx_class_derives_from(aggregate, access_class, 0u);
+        }
+    }
+    for (CxxFriendAccess* friend_access =
+             current_cxx_function_decl
+                 ? current_cxx_function_decl->func_friend_access : NULL;
+         friend_access; friend_access = friend_access->next) {
+        CxxClass* access_class = friend_access->owner;
+        if (access_class &&
+            (access_class == declaring ||
+             sema_cxx_class_derives_from(access_class, declaring, 0u)) &&
+            (aggregate == access_class ||
+             sema_cxx_class_derives_from(aggregate, access_class, 0u))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sema_cxx_field_accessible(CxxClass* aggregate,
+                                       TypeField* field) {
+    CxxClass* declaring = field ? field->cxx_declaring_class : NULL;
+    TypeField* declared_field;
+    unsigned char declared_access;
+    CxxClass* context;
+    if (!aggregate || !field || !declaring) {
+        return sema_cxx_member_accessible(aggregate,
+                                          field ? field->cxx_access
+                                                : ACCESS_PUBLIC);
+    }
+    declared_field = sema_cxx_declared_data_member(declaring, field);
+    declared_access = declared_field
+        ? declared_field->cxx_access : field->cxx_access;
+    context = current_cxx_method_owner
+        ? current_cxx_method_owner->cxx_class : NULL;
+    if (declared_access == ACCESS_PUBLIC) {
+        return sema_cxx_member_accessible(aggregate, field->cxx_access);
+    }
+    if (declared_access == ACCESS_PRIVATE) {
+        return context == declaring ||
+               sema_cxx_class_is_friend(declaring, context) ||
+               sema_cxx_function_is_friend_of(declaring);
+    }
+    if (declared_access == ACCESS_PROTECTED) {
+        return sema_cxx_protected_field_object_accessible(declaring,
+                                                          aggregate);
+    }
+    return false;
 }
 
 /* A data-member pointer formation also has a constraint on the class named
@@ -247,16 +394,18 @@ static bool sema_cxx_member_pointer_form_accessible(const Expr* expression) {
 
     context = current_cxx_method_owner
         ? current_cxx_method_owner->cxx_class : NULL;
-    if (!context) return false;
-    if (context == declaring ||
-        sema_cxx_class_derives_from(context, declaring, 0u)) {
+    if (context && (context == declaring ||
+                    sema_cxx_class_derives_from(context, declaring, 0u))) {
         access_class = context;
-    } else {
-        /* A friend function/class uses the class that granted friendship as
-         * C in [class.protected], not the lexical class of the friend body.
-         * The granting class may itself inherit the protected declaration. */
+    } else if (context) {
+        /* A friend class's protected-access class is the class that names it
+         * as a friend, not the lexical class containing the friend body. */
         access_class = sema_cxx_protected_member_pointer_friend_class(
             designating, declaring, context, 0u);
+    } else {
+        access_class =
+            sema_cxx_protected_member_pointer_function_friend_class(
+                designating, declaring, 0u);
     }
     if (!access_class) return false;
     return designating == access_class ||
@@ -13452,8 +13601,7 @@ static Type* sema_expr(Expr* expr) {
                                                  bt->is_volatile;
                         expr->type = qualified;
                     }
-                    if (!sema_cxx_member_accessible(
-                            bt->cxx_class, field->cxx_access)) {
+                    if (!sema_cxx_field_accessible(bt->cxx_class, field)) {
                         rcc_error(expr->loc, "member '%s' is not accessible",
                                   expr->member_name);
                     }
@@ -17641,6 +17789,7 @@ static void sema_decl(Decl* decl) {
             bool cxx_defaults_merged = false;
             Type* previous_method_owner = current_cxx_method_owner;
             Decl* previous_this_param = current_cxx_this_param;
+            Decl* previous_cxx_function_decl = current_cxx_function_decl;
             sema_validate_restrict_type(decl->type, decl->loc);
             sema_analyze_cxx_default_arguments(decl);
             if (sym && sym->kind == SYM_FUNC &&
@@ -17713,6 +17862,7 @@ static void sema_decl(Decl* decl) {
             }
             sema_resolve_function_noexcept(decl);
             if (rcc_parser_is_cxx_mode() && redeclaration_prior) {
+                sema_cxx_merge_friend_access(decl, redeclaration_prior);
                 if (!decl->func_is_template_instance &&
                     !redeclaration_prior->func_is_template_instance &&
                     decl->func_is_noexcept !=
@@ -17776,6 +17926,7 @@ static void sema_decl(Decl* decl) {
                 }
                 current_cxx_method_owner = decl->func_method_owner;
                 current_cxx_this_param = decl->func_this_param;
+                current_cxx_function_decl = decl;
                 for (DeclList* p = decl->func_params; p; p = p->next) {
                     if (p->decl && p->decl->param_array_type) {
                         sema_validate_array_parameter_type(
@@ -17828,6 +17979,7 @@ static void sema_decl(Decl* decl) {
                 current_func_last_param = NULL;
                 current_cxx_method_owner = previous_method_owner;
                 current_cxx_this_param = previous_this_param;
+                current_cxx_function_decl = previous_cxx_function_decl;
             }
             current_cxx_namespace = saved_cxx_namespace;
             break;

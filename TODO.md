@@ -493,9 +493,17 @@
           inherited data member during `&Derived::name` lookup; check the
           member-function pointer is invoked (not the hidden base field) on the
           host and compile both target architectures against GCC C++20.
+    - [x] Preserve access granted to an ordinary non-template friend free
+          function from its in-class declaration through the matching
+          out-of-class definition. Verify direct private access, inherited
+          protected object/member-pointer access, rejection of invalid
+          protected designators, and rejection of a derived friend accessing a
+          base-private member on i686/AMD64 plus host execution.
     - [ ] Complete inherited name lookup for hidden/ambiguous paths and the
           remaining inheritance/access combinations; retain this parent item
           as open until those cases are implemented and tested.
+    - [ ] Cover friend function templates and remaining namespace/overload
+          redeclaration combinations.
     - [x] Implement defined, nonvirtual, non-overloaded member-function
           pointers for unqualified, `const`, `volatile`, and `const volatile`
           methods: preserve the owner and method cv in the type, form its code

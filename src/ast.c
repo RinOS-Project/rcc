@@ -1255,6 +1255,7 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_body = body;
     d->func_this_param = NULL;
     d->func_method_owner = NULL;
+    d->func_friend_access = NULL;
     d->func_is_inline = false;
     d->func_is_defined = (body != NULL);
     d->func_is_template_instance = false;

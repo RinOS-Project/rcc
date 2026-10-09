@@ -3303,9 +3303,13 @@ test-cxx-member-pointer-data: $(RCXX_TARGET)
 	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "assignment requires modifiable lvalue" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/protected-designator-x86.ro tests/cxx_member_pointer_data_protected_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/protected-designator-x86.log)
-	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/protected-designator-x86.log
+	$(call CHECK_COUNT,data-member pointer formation is not accessible in this context,$(TEST_OUT)/cxx-member-pointer-data/protected-designator-x86.log,2)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/protected-designator-x64.ro tests/cxx_member_pointer_data_protected_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/protected-designator-x64.log)
-	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/protected-designator-x64.log
+	$(call CHECK_COUNT,data-member pointer formation is not accessible in this context,$(TEST_OUT)/cxx-member-pointer-data/protected-designator-x64.log,2)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/private-inherited-access-x86.ro tests/cxx_member_pointer_data_private_inherited_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-inherited-access-x86.log)
+	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-member-pointer-data/private-inherited-access-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/private-inherited-access-x64.ro tests/cxx_member_pointer_data_private_inherited_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-inherited-access-x64.log)
+	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-member-pointer-data/private-inherited-access-x64.log
 
 test-cxx-member-pointer-functions: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-functions)

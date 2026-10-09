@@ -68,6 +68,35 @@ struct MemberPointerProtectedReader {
     }
 };
 
+struct MemberPointerFreeFriendBase {
+protected:
+    int inherited_protected;
+};
+
+struct MemberPointerFreeFriendDerived : MemberPointerFreeFriendBase {
+    friend int read_inherited_protected_friend(
+        MemberPointerFreeFriendDerived& object);
+};
+
+int read_inherited_protected_friend(
+    MemberPointerFreeFriendDerived& object) {
+    auto member = &MemberPointerFreeFriendDerived::inherited_protected;
+    object.inherited_protected = 49;
+    return object.*member;
+}
+
+struct MemberPointerFreePrivateOwner {
+private:
+    int value;
+
+    friend int read_private_free_friend(MemberPointerFreePrivateOwner& object);
+};
+
+int read_private_free_friend(MemberPointerFreePrivateOwner& object) {
+    object.value = 51;
+    return object.value;
+}
+
 struct MemberPointerHiddenDataBase {
     int hidden;
 };
@@ -257,6 +286,12 @@ extern "C" int main() {
         MemberPointerProtectedReader::read_protected_member() != 47) {
         return 20;
     }
+    MemberPointerFreeFriendDerived free_friend_object;
+    if (read_inherited_protected_friend(free_friend_object) != 49) {
+        return 22;
+    }
+    MemberPointerFreePrivateOwner free_private_object;
+    if (read_private_free_friend(free_private_object) != 51) return 23;
     MemberPointerHiddenDataDerived hidden_data_object;
     if (invoke_hidden_data_name_method(hidden_data_object, 4) != 57) {
         return 21;
