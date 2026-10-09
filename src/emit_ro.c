@@ -4059,13 +4059,28 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
          * words.  The CIE's return-address rule remains CFA - 1 word. */
         debug_line_uleb(frame, 2u);
         if (prologue_kind == DEBUG_FRAME_PROLOGUE_I686_ALIGNED) {
-            /* The aligned i686 prologue copies the saved EBP and return
-             * address to the newly aligned stack before establishing EBP.
-             * Once those copies complete, the new ESP is a valid CFA base. */
-            debug_frame_advance(frame, 20u);
+            /* `and esp, mask` changes the stack base at PC 14, before the
+             * saved EBP and return address are copied to the aligned stack.
+             * During that window EAX and EDX hold those caller values, so
+             * describe them as register rules rather than stale stack slots. */
+            debug_frame_advance(frame, 13u);
             section_add_byte(frame, 0x0cu); /* DW_CFA_def_cfa */
             debug_line_uleb(frame, stack_register);
             debug_line_uleb(frame, pointer_size * 2u);
+            section_add_byte(frame, 0x09u); /* DW_CFA_register */
+            debug_line_uleb(frame, frame_register);
+            debug_line_uleb(frame, 0u); /* saved EBP is in EAX */
+            section_add_byte(frame, 0x09u); /* DW_CFA_register */
+            debug_line_uleb(frame, return_register);
+            debug_line_uleb(frame, 2u); /* return address is in EDX */
+            /* Both values are now in their aligned stack slots. */
+            debug_frame_advance(frame, 7u);
+            section_add_byte(frame,
+                             (uint8_t)(0x80u + frame_register));
+            debug_line_uleb(frame, 2u);
+            section_add_byte(frame,
+                             (uint8_t)(0xc0u + return_register));
+            /* Establish EBP as the stable CFA base after mov ebp,esp. */
             debug_frame_advance(frame, 2u);
         } else {
             /* mov fp, sp: subsequent locals use the stable frame register. */

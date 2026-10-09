@@ -2138,11 +2138,22 @@ static void verify_i686_aligned_frame_fde(const ObjSection* frame)
     assert(frame->data[instruction_offset++] == 0x08u);
     assert(frame->data[instruction_offset++] == 0x85u);
     assert(frame->data[instruction_offset++] == 2u);
-    /* The aligned copy sequence completes at offset 21. */
-    assert(frame->data[instruction_offset++] == 0x54u);
+    /* After `and esp`, EBP and the return address temporarily live in EAX
+     * and EDX until the aligned stack copies complete at offset 21. */
+    assert(frame->data[instruction_offset++] == 0x4du);
     assert(frame->data[instruction_offset++] == 0x0cu);
     assert(frame->data[instruction_offset++] == 0x04u);
     assert(frame->data[instruction_offset++] == 0x08u);
+    assert(frame->data[instruction_offset++] == 0x09u);
+    assert(frame->data[instruction_offset++] == 0x05u);
+    assert(frame->data[instruction_offset++] == 0x00u);
+    assert(frame->data[instruction_offset++] == 0x09u);
+    assert(frame->data[instruction_offset++] == 0x08u);
+    assert(frame->data[instruction_offset++] == 0x02u);
+    assert(frame->data[instruction_offset++] == 0x47u);
+    assert(frame->data[instruction_offset++] == 0x85u);
+    assert(frame->data[instruction_offset++] == 0x02u);
+    assert(frame->data[instruction_offset++] == 0xc8u);
     /* mov ebp,esp: use the stable aligned frame register thereafter. */
     assert(frame->data[instruction_offset++] == 0x42u);
     assert(frame->data[instruction_offset++] == 0x0du);
