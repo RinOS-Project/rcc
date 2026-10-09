@@ -72,6 +72,79 @@ struct ReferenceFunctionAliasBase {
 };
 
 struct InheritedReferenceFunctionAliases : ReferenceFunctionAliasBase {};
+struct QualifiedReferenceFunctionAlias : ReferenceFunctionAliasBase {};
+using ReferenceFunctionAliasOwner = ReferenceFunctionAliases;
+
+ReferenceFunctionAliases::RvalueReferenceFunction
+        qualified_rvalue_reference_function = &return_rvalue_reference;
+ReferenceFunctionAliasOwner::RvalueReferenceFunction
+        alias_owner_qualified_rvalue_reference_function =
+            &return_rvalue_reference;
+QualifiedReferenceFunctionAlias::Function
+        inherited_qualified_rvalue_reference_function =
+            &return_rvalue_reference;
+
+namespace ReferenceFunctionAliasNamespace {
+struct Holder {
+    using Function = int& (*)(int&);
+};
+
+template <typename T>
+struct TemplateHolder {
+    using Function = T& (*)(T&);
+};
+
+template <typename T>
+using AliasTemplateHolder = TemplateHolder<T>;
+}
+
+template <typename T>
+struct QualifiedFunctionAliasTemplate {
+    using Function = T&& (*)(T&&);
+};
+
+template <typename T>
+struct QualifiedAliasTemplateTarget {
+    using value_type = T;
+};
+
+template <typename T>
+using QualifiedAliasTemplateOwner = QualifiedAliasTemplateTarget<T>;
+
+template <typename T>
+struct QualifiedAliasCarrier {};
+
+template <typename T>
+struct QualifiedAliasNestedTemplate {
+    using value_type = T;
+};
+
+ReferenceFunctionAliasNamespace::Holder::Function
+        namespace_qualified_lvalue_reference_function =
+            &return_lvalue_reference;
+typename ReferenceFunctionAliasNamespace::Holder::Function
+        typename_namespace_qualified_lvalue_reference_function =
+            &return_lvalue_reference;
+QualifiedFunctionAliasTemplate<int>::Function
+        template_qualified_rvalue_reference_function =
+            &return_rvalue_reference;
+typename QualifiedFunctionAliasTemplate<int>::Function
+        typename_qualified_rvalue_reference_function =
+            &return_rvalue_reference;
+ReferenceFunctionAliasNamespace::TemplateHolder<int>::Function
+        namespace_template_qualified_lvalue_reference_function =
+            &return_lvalue_reference;
+typename ReferenceFunctionAliasNamespace::TemplateHolder<int>::Function
+        namespace_template_typename_lvalue_reference_function =
+            &return_lvalue_reference;
+ReferenceFunctionAliasNamespace::AliasTemplateHolder<int>::Function
+        namespace_alias_template_qualified_lvalue_reference_function =
+            &return_lvalue_reference;
+QualifiedAliasTemplateOwner<int>::value_type alias_template_owner_value = 53;
+typename QualifiedAliasTemplateOwner<int>::value_type
+        typename_alias_template_owner_value = 59;
+QualifiedAliasNestedTemplate<QualifiedAliasCarrier<int>>::value_type
+        doubly_closed_qualified_alias;
 
 int& select_conditional_lvalue(bool choose_first, int& first, int& second) {
     return choose_first ? first : second;
@@ -449,6 +522,59 @@ int main() {
             static_cast<int&&>(indirect_value));
     inherited_rvalue_result += 1;
     if (indirect_value != 77) return 38;
+    ReferenceFunctionAliases::RvalueReferenceFunction
+            local_qualified_rvalue_function =
+                qualified_rvalue_reference_function;
+    int&& qualified_rvalue_result = local_qualified_rvalue_function(
+            static_cast<int&&>(indirect_value));
+    qualified_rvalue_result += 1;
+    if (indirect_value != 78) return 39;
+    int& namespace_qualified_lvalue_result =
+            namespace_qualified_lvalue_reference_function(indirect_value);
+    namespace_qualified_lvalue_result += 1;
+    if (indirect_value != 79) return 40;
+    int& typename_namespace_qualified_lvalue_result =
+            typename_namespace_qualified_lvalue_reference_function(
+                    indirect_value);
+    typename_namespace_qualified_lvalue_result += 1;
+    if (indirect_value != 80) return 46;
+    int&& inherited_qualified_rvalue_result =
+            inherited_qualified_rvalue_reference_function(
+                    static_cast<int&&>(indirect_value));
+    inherited_qualified_rvalue_result += 1;
+    if (indirect_value != 81) return 41;
+    int&& template_qualified_rvalue_result =
+            template_qualified_rvalue_reference_function(
+                    static_cast<int&&>(indirect_value));
+    template_qualified_rvalue_result += 1;
+    if (indirect_value != 82) return 42;
+    int& namespace_template_qualified_lvalue_result =
+            namespace_template_qualified_lvalue_reference_function(
+                    indirect_value);
+    namespace_template_qualified_lvalue_result += 1;
+    if (indirect_value != 83) return 43;
+    int& namespace_template_typename_result =
+            namespace_template_typename_lvalue_reference_function(
+                    indirect_value);
+    namespace_template_typename_result += 1;
+    if (indirect_value != 84) return 47;
+    int&& alias_owner_qualified_rvalue_result =
+            alias_owner_qualified_rvalue_reference_function(
+                    static_cast<int&&>(indirect_value));
+    alias_owner_qualified_rvalue_result += 1;
+    if (indirect_value != 85) return 44;
+    int&& typename_qualified_rvalue_result =
+            typename_qualified_rvalue_reference_function(
+                    static_cast<int&&>(indirect_value));
+    typename_qualified_rvalue_result += 1;
+    if (indirect_value != 86) return 45;
+    int& namespace_alias_template_owner_result =
+            namespace_alias_template_qualified_lvalue_reference_function(
+                    indirect_value);
+    namespace_alias_template_owner_result += 1;
+    if (indirect_value != 87) return 48;
+    if (alias_template_owner_value != 53 ||
+        typename_alias_template_owner_value != 59) return 49;
     int other_value = 20;
     int& selected_lvalue = select_conditional_lvalue(
             false, mutable_value, other_value);

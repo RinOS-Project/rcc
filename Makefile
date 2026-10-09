@@ -2631,6 +2631,15 @@ test-cxx-function-template-references-posix: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-function-template-references/invalid.log 2>&1
 	$(GREP) -q "no matching function template overload for 'read_rvalue'" \
 		$(TEST_OUT)/cxx-function-template-references/invalid.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid.ro \
+		tests/cxx_qualified_nested_alias_invalid.cpp \
+		>$(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid.log 2>&1
+	$(GREP) -q "nested type .* is inaccessible" \
+		$(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid.log
+	$(GREP) -q "nested type .* is ambiguous" \
+		$(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid.ro)
 	@echo "RCC++ function-template reference and function-pointer deduction tests completed"
 
 test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
@@ -3192,6 +3201,14 @@ test-cxx-function-template-references: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/non-template-invalid-x64.ro tests/cxx_reference_binding_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/non-template-invalid-x64.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/invalid.ro tests/cxx_function_template_references_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/invalid.log)
 	$(GREP) -F -q "no matching function template overload for 'read_rvalue'" $(TEST_OUT)/cxx-function-template-references/invalid.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid-x86.ro tests/cxx_qualified_nested_alias_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid-x86.log)
+	$(GREP) -F -q "is inaccessible" $(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid-x86.log
+	$(GREP) -q "nested type .* is ambiguous" $(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid-x64.ro tests/cxx_qualified_nested_alias_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid-x64.log)
+	$(GREP) -F -q "is inaccessible" $(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid-x64.log
+	$(GREP) -q "nested type .* is ambiguous" $(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-references/qualified-alias-invalid-x64.ro)
 
 test-cxx-return-semantics: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-return-semantics)

@@ -9485,6 +9485,125 @@ static CxxClass* find_class(const char* qualified_name) {
     return namespace_class(ns, component);
 }
 
+/* Resolve a non-dependent qualified nested type-id such as
+ * `Namespace::Owner::value_type`.  The parser's ordinary type table does not
+ * contain class-scope aliases, so qualified names must consult the class
+ * alias registry and preserve its access/ambiguity result. */
+static CxxTypeAlias* find_qualified_class_type_alias(
+    const char* qualified_name, CxxClass** owner_out,
+    bool* ambiguous, bool* accessible) {
+    const char* separator;
+    size_t owner_length;
+    char owner_name[512];
+    CxxClass* owner;
+    Type* owner_type;
+
+    if (owner_out) *owner_out = NULL;
+    if (ambiguous) *ambiguous = false;
+    if (accessible) *accessible = false;
+    if (!qualified_name) return NULL;
+    separator = strrchr(qualified_name, ':');
+    if (!separator || separator <= qualified_name || separator[-1] != ':') {
+        return NULL;
+    }
+    owner_length = (size_t)(separator - qualified_name - 1);
+    if (owner_length == 0u || owner_length >= sizeof(owner_name)) return NULL;
+    memcpy(owner_name, qualified_name, owner_length);
+    owner_name[owner_length] = '\0';
+    owner = find_class(owner_name);
+    if (!owner) {
+        owner_type = rcc_parser_lookup_type(owner_name);
+        if (owner_type && (owner_type->kind == TYPE_STRUCT ||
+                           owner_type->kind == TYPE_UNION)) {
+            owner = owner_type->cxx_class;
+        }
+    }
+    if (!owner) return NULL;
+    if (owner_out) *owner_out = owner;
+    return cxx_class_find_inherited_type_alias(
+        owner, separator + 1, active_class, ambiguous, accessible);
+}
+
+/* A template-id can itself be the owner of a nested type-id, for example
+ * `Box<int>::value_type` or an alias-template specialization naming a class.
+ * Balance the tokenized argument list only to distinguish that form from a
+ * standalone template-id. */
+static bool cxx_template_id_followed_by_scope(const char** name_out) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    const char* template_name;
+    Token* token;
+    int depth = 0;
+    int parentheses = 0;
+    int brackets = 0;
+    int braces = 0;
+    bool followed_by_scope = false;
+
+    if (name_out) *name_out = NULL;
+    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return false;
+    template_name = parse_qualified_name();
+    if (!check(TOK_LT) ||
+        (!find_class_template(template_name) &&
+         !find_alias_template(template_name))) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return false;
+    }
+    for (token = parser.cur; token && token->type != TOK_EOF;
+         token = token->next) {
+        if (token->type == TOK_LPAREN) {
+            ++parentheses;
+            continue;
+        }
+        if (token->type == TOK_RPAREN && parentheses > 0) {
+            --parentheses;
+            continue;
+        }
+        if (token->type == TOK_LBRACKET) {
+            ++brackets;
+            continue;
+        }
+        if (token->type == TOK_RBRACKET && brackets > 0) {
+            --brackets;
+            continue;
+        }
+        if (token->type == TOK_LBRACE) {
+            ++braces;
+            continue;
+        }
+        if (token->type == TOK_RBRACE && braces > 0) {
+            --braces;
+            continue;
+        }
+        if (parentheses || brackets || braces) continue;
+        if (token->type == TOK_LT) {
+            ++depth;
+        } else if (token->type == TOK_GT) {
+            if (depth > 0) --depth;
+            if (depth == 0) {
+                followed_by_scope = token->next &&
+                                    token->next->type == TOK_SCOPE;
+                break;
+            }
+        } else if (token->type == TOK_RSHIFT) {
+            /* If this candidate starts inside another template argument,
+             * the second character in `>>` closes that surrounding argument;
+             * it is not followed immediately by `::` for this template-id. */
+            if (depth < 2) break;
+            depth -= 2;
+            if (depth == 0) {
+                followed_by_scope = token->next &&
+                                    token->next->type == TOK_SCOPE;
+                break;
+            }
+        }
+    }
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    if (followed_by_scope && name_out) *name_out = template_name;
+    return followed_by_scope;
+}
+
 /* Semantic analysis needs the declaring class for qualified static-member
  * expressions so protected/private access is checked after ordinary symbol
  * lookup.  Keep the class registry private to this frontend while exposing a
@@ -9754,6 +9873,14 @@ bool rcc_parse_cxx_type_start(void) {
     result = is_active_template_type(name) || find_class(name) != NULL ||
              find_class_template(name) != NULL ||
              rcc_parser_lookup_type(name) != NULL;
+    if (!result && strstr(name, "::")) {
+        bool ambiguous = false;
+        bool accessible = false;
+        CxxTypeAlias* alias = find_qualified_class_type_alias(
+            name, NULL, &ambiguous, &accessible);
+        result = alias != NULL || ambiguous;
+        (void)accessible;
+    }
     if (check(TOK_LT) &&
         (find_class_template(name) || find_alias_template(name) ||
          active_template_template_parameter_index(name) >= 0)) {
@@ -14481,84 +14608,175 @@ static Type* parse_cxx_type_spec(void) {
         CxxTypeAlias* member_alias = NULL;
         const char* owner_name = NULL;
         const char* member_name = NULL;
-        if (check(TOK_IDENT) && parser.cur->next &&
-            parser.cur->next->type == TOK_LT) {
-            bool is_current_class_template = active_class &&
-                active_template && active_template->kind == TMPL_CLASS &&
-                active_class->name &&
-                strcmp(peek()->value.str_val, active_class->name) == 0;
-            if (is_current_class_template) {
-                /* The primary class template is not registered until its
-                 * body has been parsed.  Parse its self-specialization from
-                 * the active template context instead of treating the class
-                 * name as an ordinary dependent identifier. */
-                advance();
-                owner_type = parse_class_template_specialization(
-                    active_template, loc);
+        const char* owner_template_name = NULL;
+        bool alias_ambiguous = false;
+        bool alias_accessible = false;
+        bool typename_resolved = false;
+
+        if (cxx_template_id_followed_by_scope(&owner_template_name)) {
+            CxxTemplate* owner_template;
+            CxxTemplate* owner_alias_template;
+            CxxClass* owner_class;
+            (void)parse_qualified_name();
+            owner_template = find_class_template(owner_template_name);
+            owner_alias_template = owner_template
+                ? NULL : find_alias_template(owner_template_name);
+            owner_type = owner_template
+                ? parse_class_template_specialization(owner_template, loc)
+                : owner_alias_template
+                    ? parse_alias_template_specialization(
+                          owner_alias_template, loc)
+                    : NULL;
+            if (!owner_type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
+                rcc_error(loc,
+                          "typename must name a nested type of a class type");
+                t = type_int;
             } else {
-                owner_type = parse_cxx_type_spec();
-            }
-        } else if (check(TOK_IDENT)) {
-            Token* owner_token = advance();
-            owner_name = rcc_intern(owner_token->value.str_val);
-            if (active_class) {
-                owner_alias = cxx_class_find_type_alias(
-                    active_class, owner_name);
-            }
-            owner_type = owner_alias ? owner_alias->type
-                                     : rcc_parser_lookup_type(owner_name);
-            if (!owner_type && is_active_template_type(owner_name)) {
-                owner_type = type_struct(owner_name);
-                owner_type->cxx_dependent = true;
-                owner_type->cxx_template_param_index =
-                    active_template_type_index(owner_name);
-            }
-        }
-        if (!owner_type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
-            rcc_error(loc,
-                      "typename must name a nested type of a class type");
-            t = type_int;
-        } else {
-            CxxClass* owner_class = owner_type->cxx_class;
-            if (!owner_class && owner_type->cxx_template &&
-                owner_type->cxx_template->kind == TMPL_CLASS) {
-                owner_class = owner_type->cxx_template->templated_class;
-            }
-            if (!owner_class && active_class && active_template &&
-                owner_type->cxx_template == active_template) {
-                owner_class = active_class;
-            }
-            member_name = rcc_intern(advance()->value.str_val);
-            member_alias = owner_class
-                ? cxx_class_find_type_alias(owner_class, member_name)
-                : NULL;
-            if (member_alias && member_alias->access == ACCESS_PUBLIC) {
-                t = member_alias->type;
-            } else if (owner_type->cxx_dependent &&
-                       owner_type->cxx_template_param_index >= 0) {
-                char dependent_name[512];
-                int written = snprintf(dependent_name,
-                                       sizeof(dependent_name),
-                                       "%s::%s",
-                                       owner_name ? owner_name
-                                                  : owner_type->tag,
-                                       member_name);
-                if (written < 0 ||
-                    (size_t)written >= sizeof(dependent_name)) {
-                    rcc_error(loc, "dependent nested type name is too long");
+                member_name = rcc_intern(advance()->value.str_val);
+                owner_class = owner_type->cxx_class;
+                if (!owner_class && owner_type->cxx_template &&
+                    owner_type->cxx_template->kind == TMPL_CLASS) {
+                    owner_class = owner_type->cxx_template->templated_class;
+                }
+                if (!owner_class && active_class && active_template &&
+                    owner_type->cxx_template == active_template) {
+                    owner_class = active_class;
+                }
+                member_alias = owner_class
+                    ? cxx_class_find_inherited_type_alias(
+                          owner_class, member_name, active_class,
+                          &alias_ambiguous, &alias_accessible)
+                    : NULL;
+                if (member_alias && alias_accessible) {
+                    t = member_alias->type;
+                } else if (member_alias) {
+                    rcc_error(loc,
+                              "nested type '%s' is inaccessible in class '%s'",
+                              member_name,
+                              owner_class->name ? owner_class->name
+                                                : "<unnamed>");
+                    t = type_int;
+                } else if (alias_ambiguous) {
+                    rcc_error(loc,
+                              "nested type '%s' is ambiguous in class '%s'",
+                              member_name,
+                              owner_class && owner_class->name
+                                  ? owner_class->name : owner_template_name);
                     t = type_int;
                 } else {
-                    t = type_struct(rcc_intern(dependent_name));
-                    t->cxx_dependent = true;
-                    t->cxx_template_param_index =
-                        owner_type->cxx_template_param_index;
-                    t->cxx_dependent_member_name = member_name;
+                    rcc_error(loc,
+                              "unknown or inaccessible nested type '%s'",
+                              member_name);
+                    t = type_int;
                 }
-            } else {
-                rcc_error(loc,
-                          "unknown or inaccessible nested type '%s'",
-                          member_name);
+            }
+            typename_resolved = true;
+        } else if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+            Token* saved_cur = parser.cur;
+            Token* saved_prev = parser.prev;
+            const char* qualified_name = parse_qualified_name();
+            CxxTypeAlias* qualified_alias = find_qualified_class_type_alias(
+                qualified_name, NULL, &alias_ambiguous, &alias_accessible);
+            if (qualified_alias && alias_accessible) {
+                t = qualified_alias->type;
+                typename_resolved = true;
+            } else if (qualified_alias) {
+                rcc_error(loc, "nested type '%s' is inaccessible",
+                          qualified_name);
                 t = type_int;
+                typename_resolved = true;
+            } else if (alias_ambiguous) {
+                rcc_error(loc, "nested type '%s' is ambiguous",
+                          qualified_name);
+                t = type_int;
+                typename_resolved = true;
+            }
+            if (!typename_resolved) {
+                parser.cur = saved_cur;
+                parser.prev = saved_prev;
+            }
+        }
+
+        if (!typename_resolved) {
+            if (check(TOK_IDENT) && parser.cur->next &&
+                parser.cur->next->type == TOK_LT) {
+                bool is_current_class_template = active_class &&
+                    active_template && active_template->kind == TMPL_CLASS &&
+                    active_class->name &&
+                    strcmp(peek()->value.str_val, active_class->name) == 0;
+                if (is_current_class_template) {
+                    /* The primary class template is not registered until its
+                     * body has been parsed.  Parse its self-specialization
+                     * from the active template context. */
+                    advance();
+                    owner_type = parse_class_template_specialization(
+                        active_template, loc);
+                } else {
+                    owner_type = parse_cxx_type_spec();
+                }
+            } else if (check(TOK_IDENT)) {
+                Token* owner_token = advance();
+                owner_name = rcc_intern(owner_token->value.str_val);
+                if (active_class) {
+                    owner_alias = cxx_class_find_type_alias(
+                        active_class, owner_name);
+                }
+                owner_type = owner_alias ? owner_alias->type
+                                         : rcc_parser_lookup_type(owner_name);
+                if (!owner_type && is_active_template_type(owner_name)) {
+                    owner_type = type_struct(owner_name);
+                    owner_type->cxx_dependent = true;
+                    owner_type->cxx_template_param_index =
+                        active_template_type_index(owner_name);
+                }
+            }
+            if (!owner_type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
+                rcc_error(loc,
+                          "typename must name a nested type of a class type");
+                t = type_int;
+            } else {
+                CxxClass* owner_class = owner_type->cxx_class;
+                if (!owner_class && owner_type->cxx_template &&
+                    owner_type->cxx_template->kind == TMPL_CLASS) {
+                    owner_class = owner_type->cxx_template->templated_class;
+                }
+                if (!owner_class && active_class && active_template &&
+                    owner_type->cxx_template == active_template) {
+                    owner_class = active_class;
+                }
+                member_name = rcc_intern(advance()->value.str_val);
+                member_alias = owner_class
+                    ? cxx_class_find_type_alias(owner_class, member_name)
+                    : NULL;
+                if (member_alias && member_alias->access == ACCESS_PUBLIC) {
+                    t = member_alias->type;
+                } else if (owner_type->cxx_dependent &&
+                           owner_type->cxx_template_param_index >= 0) {
+                    char dependent_name[512];
+                    int written = snprintf(dependent_name,
+                                           sizeof(dependent_name),
+                                           "%s::%s",
+                                           owner_name ? owner_name
+                                                      : owner_type->tag,
+                                           member_name);
+                    if (written < 0 ||
+                        (size_t)written >= sizeof(dependent_name)) {
+                        rcc_error(loc,
+                                  "dependent nested type name is too long");
+                        t = type_int;
+                    } else {
+                        t = type_struct(rcc_intern(dependent_name));
+                        t->cxx_dependent = true;
+                        t->cxx_template_param_index =
+                            owner_type->cxx_template_param_index;
+                        t->cxx_dependent_member_name = member_name;
+                    }
+                } else {
+                    rcc_error(loc,
+                              "unknown or inaccessible nested type '%s'",
+                              member_name);
+                    t = type_int;
+                }
             }
         }
     } else if (check(TOK_DECLTYPE)) {
@@ -14603,12 +14821,65 @@ static Type* parse_cxx_type_spec(void) {
             rcc_error(loc, "unknown C++ class type '%s'", name);
             t = type_int;
         }
+    } else if ((!parser.prev || parser.prev->type != TOK_TYPENAME) &&
+               cxx_template_id_followed_by_scope(NULL)) {
+        const char* template_name = parse_qualified_name();
+        CxxTemplate* owner_template = find_class_template(template_name);
+        CxxTemplate* owner_alias_template = owner_template
+            ? NULL : find_alias_template(template_name);
+        Type* owner_type = owner_template
+            ? parse_class_template_specialization(owner_template, loc)
+            : owner_alias_template
+                ? parse_alias_template_specialization(owner_alias_template,
+                                                      loc)
+                : NULL;
+        CxxClass* owner_class = owner_type ? owner_type->cxx_class : NULL;
+        CxxTypeAlias* member_alias = NULL;
+        bool alias_ambiguous = false;
+        bool alias_accessible = false;
+        const char* member_name = NULL;
+
+        if (!match(TOK_SCOPE) || !check(TOK_IDENT)) {
+            rcc_error(loc,
+                      "template-id qualified type must name a nested type");
+            t = type_int;
+        } else {
+            member_name = rcc_intern(advance()->value.str_val);
+            if (owner_class) {
+                member_alias = cxx_class_find_inherited_type_alias(
+                    owner_class, member_name, active_class,
+                    &alias_ambiguous, &alias_accessible);
+            }
+            if (member_alias && alias_accessible) {
+                t = member_alias->type;
+            } else if (member_alias) {
+                rcc_error(loc,
+                          "nested type '%s' is inaccessible in class '%s'",
+                          member_name,
+                          owner_class->name ? owner_class->name : "<unnamed>");
+                t = type_int;
+            } else if (alias_ambiguous) {
+                rcc_error(loc, "nested type '%s' is ambiguous in class '%s'",
+                          member_name,
+                          owner_class && owner_class->name
+                              ? owner_class->name : template_name);
+                t = type_int;
+            } else {
+                rcc_error(loc,
+                          "class template '%s' has no accessible nested type '%s'",
+                          template_name, member_name);
+                t = type_int;
+            }
+        }
     } else if (check(TOK_IDENT) || check(TOK_SCOPE)) {
         /* Class or namespace qualified type */
         const char* name = parse_qualified_name();
         CxxTypeAlias* class_scope_alias = NULL;
+        CxxTypeAlias* qualified_class_alias = NULL;
         bool class_alias_ambiguous = false;
         bool class_alias_accessible = false;
+        bool qualified_alias_ambiguous = false;
+        bool qualified_alias_accessible = false;
         CxxTemplate* tmpl = find_class_template(name);
         CxxTemplate* alias_tmpl = check(TOK_LT)
             ? find_alias_template(name) : NULL;
@@ -14639,6 +14910,25 @@ static Type* parse_cxx_type_spec(void) {
                 rcc_error(loc, "nested type '%s' is ambiguous in class '%s'",
                           name, active_class->name ? active_class->name
                                                    : "<unnamed>");
+                t = type_int;
+            }
+        }
+        if (!t && name && strstr(name, "::")) {
+            CxxClass* alias_owner = NULL;
+            qualified_class_alias = find_qualified_class_type_alias(
+                name, &alias_owner, &qualified_alias_ambiguous,
+                &qualified_alias_accessible);
+            if (qualified_class_alias && qualified_alias_accessible) {
+                t = qualified_class_alias->type;
+            } else if (qualified_class_alias) {
+                rcc_error(loc,
+                          "nested type '%s' is inaccessible in class '%s'",
+                          name,
+                          alias_owner && alias_owner->name
+                              ? alias_owner->name : "<unnamed>");
+                t = type_int;
+            } else if (qualified_alias_ambiguous) {
+                rcc_error(loc, "nested type '%s' is ambiguous", name);
                 t = type_int;
             }
         }

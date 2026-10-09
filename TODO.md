@@ -286,9 +286,14 @@
   - [x] primary vptr、class vtable、local/global vptr初期化、virtual
         callの間接分岐を実装し、overrideを含むi686/AMD64実行を検証
   - [ ] 標準C++の全class layout、特殊メンバー、virtual ABI互換性
-    - [ ] Resolve qualified nested `Class::Alias` type-ids in ordinary
-          declarations; unqualified class-scope alias type use parses, while
-          qualified alias type-ids remain incomplete.
+    - [x] Resolve non-dependent qualified class-scope alias type-ids in
+          ordinary declarations, including namespace-qualified and inherited
+          aliases, concrete class-template and alias-template owners, optional
+          `typename`, and nested `>>` closers. Verify private/ambiguous lookup
+          diagnostics, i686/AMD64 output, PE-i386 objects, and AMD64 execution.
+    - [ ] Support class-scope alias-template specializations in qualified
+          type-ids (`Owner::template Alias<T>`) and broaden dependent-owner
+          lookup beyond the currently covered function/class-template paths.
 - [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target
