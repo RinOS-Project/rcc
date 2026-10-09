@@ -392,10 +392,12 @@
 - [ ] Complete ordinary non-template rvalue-reference binding and value-category
       semantics. Named xvalue local binding and alias-preserving `int&`/`int&&`
       function returns now have regressions that compile for both targets and
-      execute on the x64 host. Source-level reference collapsing is covered;
-      converted class xvalues, and broader call/return ABI interactions still
-      need systematic coverage; a direct thread-local class-prvalue reference
-      now has dedicated per-thread host coverage below.
+      execute on the x64 host. Source-level reference collapsing and the public
+      conversion-function cases returning class `T&`, `T&&`, or class prvalues
+      are covered by `test-cxx-function-template-references` on both targets
+      and the x64 host. Broader call/return ABI interactions still need
+      systematic coverage; a direct thread-local class-prvalue reference has
+      dedicated per-thread host coverage below.
   - [x] Reject non-template `int&` returns from prvalues and `int&&` returns
         from lvalues as hard C++ semantic errors; verify both cases, invalid
         reference initializers, and invalid ordinary calls for i686/AMD64.
