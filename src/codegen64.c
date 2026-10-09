@@ -7041,9 +7041,19 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 
         case EXPR_CXX_THIS:
             if (expr->cxx_this_stack_offset >= 0) {
+                int32_t stack_offset = expr->cxx_this_stack_offset;
+                /* Body-less constructor substitution stores `this` at the
+                 * current stack top and uses offset zero; nested call
+                 * temporaries move that saved pointer by the active bias.
+                 * gen64_cxx_call_constructor supplies a nonzero, explicit
+                 * offset to its own saved slot, which already includes the
+                 * call argument area and must not be biased a second time. */
+                if (stack_offset == 0) {
+                    stack_offset +=
+                        active_cxx_constructor_this_stack_bias64;
+                }
                 emit64_mov_reg_mem(mod, RAX, RSP,
-                                   expr->cxx_this_stack_offset +
-                                       active_cxx_constructor_this_stack_bias64);
+                                   stack_offset);
             } else {
                 emit64_mov_reg_reg(mod, RAX, RCX);
             }

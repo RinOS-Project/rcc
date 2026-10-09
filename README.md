@@ -517,3 +517,15 @@ statement throws. `test-cxx-exception-cleanup` emits both target objects and
 passes the x64 runtime checks. The complete
 `test-cxx-class-template-dependent-base` target also passes. Broader dependent
 name lookup paths remain open in [TODO](TODO.md).
+
+2026-10-10 transitive dependent lookup: ordinary class-template lookup now
+resolves inherited fields through two dependent nonvirtual bases with nonzero
+base offsets, selects inherited overloads for `int` and `long long`, and
+resolves a shared virtual-base diamond. Repeated transitive nonvirtual bases
+produce field and method ambiguity diagnostics. The dedicated positive and
+negative regressions and the complete
+`test-cxx-class-template-dependent-base` target pass freestanding i686 and x64
+host execution, with both target objects generated. The x64 constructor `this`
+stack-offset adjustment also avoids applying the active temporary bias twice
+to explicit saved-slot offsets; `test-cxx-inline-aggregates` and the complete
+dependent-base target pass with that correction.

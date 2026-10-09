@@ -893,9 +893,12 @@
         `this->` field and method lookup. The `int`/`long long` regression
         emits both target widths and executes on x64 in
         `test-cxx-class-template-dependent-base`.
-  - [ ] Complete ordinary class-template dependent inheritance coverage for
+  - [x] Complete ordinary class-template dependent inheritance coverage for
         base packs, dependent virtual bases/overrides, access and ambiguity
-        rules, and remaining dependent default-member initializer forms.
+        rules, remaining dependent default-member initializer forms, and
+        transitive dependent member lookup. The complete focused target passes
+        freestanding i686 execution, x64 host execution, diagnostics, and both
+        target object generations.
     - [x] Run the ordinary dependent-base regression with signed and unsigned
           64-bit scalar default member initializers on i686 and AMD64, checking
           high-word preservation and narrow-to-wide sign/zero extension.
@@ -937,8 +940,14 @@
           fixture selects the second base; the complete focused target passes
           freestanding i686 execution, x64 host execution, and both target
           object generations, including the separate parameter-DMI regression.
-    - [ ] Cover further dependent name-lookup paths beyond mixed-name
-          ambiguity, direct-member hiding, and verified using-selection.
+    - [x] Cover further dependent name-lookup paths beyond mixed-name
+          ambiguity, direct-member hiding, and verified using-selection:
+          inherited fields through two dependent nonvirtual bases with
+          nonzero offsets, inherited overload selection, and a shared virtual
+          base diamond for int and long long; diagnose repeated transitive
+          nonvirtual-base ambiguity for fields and methods. The dedicated
+          positive/negative targets and complete parent target pass on i686
+          and AMD64.
     - [x] Resolve dependent nested aliases through both `Base<T>::value_type`
           and `T::value_type`; verify return types, local declarations, and
           runtime values for i686 and AMD64 with
