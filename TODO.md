@@ -513,14 +513,19 @@
           remaining inheritance/access combinations; retain this parent item
           as open until those cases are implemented and tested.
     - [x] Parse an in-class-defined friend function template as a namespace
-          template, propagate its granting class to instantiated declarations,
-          and test successful private access plus rejection for an unrelated
-          specialization. The i686/AMD64 `test-cxx-friend-function` gate and
-          an isolated GCC C++20 syntax comparison pass.
-    - [ ] Merge friend function-template declarations with later namespace
-          declarations/definitions, preserve grants across multiple friend
-          classes, and complete namespace visibility and overload/redeclaration
-          rules.
+          template and propagate its granting classes to instances. Merge an
+          identical unconstrained type-parameter declaration with its later
+          namespace definition and with matching friend declarations from a
+          second class. Test private writes through both grants, external
+          definition lookup, and unauthorized access rejection. The
+          i686/AMD64 `test-cxx-friend-function` gate passes, and GCC C++20
+          accepts the positive fixture.
+    - [x] Diagnose a duplicate definition for a matching in-class friend
+          function template when its namespace-scope definition is repeated;
+          the diagnostic is checked for i686 and AMD64.
+    - [ ] Complete constrained/defaulted/packed friend-template redeclaration,
+          hidden-friend namespace visibility, and overload/redeclaration
+          matching beyond the tested type-only form.
     - [x] Implement defined, nonvirtual, non-overloaded member-function
           pointers for unqualified, `const`, `volatile`, and `const volatile`
           methods: preserve the owner and method cv in the type, form its code

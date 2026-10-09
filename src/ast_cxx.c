@@ -2238,9 +2238,223 @@ void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {
     ns->decls = node;
 }
 
+static int cxx_template_redeclaration_parameter_index(
+    Type* type, const CxxTemplate* tmpl) {
+    if (!type || !tmpl) return -1;
+    if (!type->cxx_dependent_member_name &&
+        type->cxx_template_arg_count == 0 &&
+        (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) && type->tag) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            const TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_TYPE && parameter->name &&
+                strcmp(parameter->name, type->tag) == 0) {
+                return index;
+            }
+        }
+    }
+    if (type->cxx_template_param_index < 0 ||
+        type->cxx_template_param_index >= tmpl->param_count ||
+        tmpl->params[type->cxx_template_param_index].kind != TPARAM_TYPE) {
+        return -1;
+    }
+    return type->cxx_template_param_index;
+}
+
+static bool cxx_template_redeclaration_type_matches(
+    Type* left, const CxxTemplate* left_template,
+    Type* right, const CxxTemplate* right_template, int depth) {
+    if (!left || !right || depth > 64 || left->kind != right->kind ||
+        left->is_const != right->is_const ||
+        left->is_volatile != right->is_volatile ||
+        left->is_atomic != right->is_atomic ||
+        left->is_restrict != right->is_restrict ||
+        left->is_reference != right->is_reference ||
+        left->is_rvalue_reference != right->is_rvalue_reference ||
+        left->is_unsigned != right->is_unsigned ||
+        left->cxx_is_member_pointer != right->cxx_is_member_pointer) {
+        return false;
+    }
+    if (left->cxx_dependent || right->cxx_dependent) {
+        int left_index = cxx_template_redeclaration_parameter_index(
+            left, left_template);
+        int right_index = cxx_template_redeclaration_parameter_index(
+            right, right_template);
+        if (!left->cxx_dependent || !right->cxx_dependent ||
+            left_index < 0 || right_index != left_index ||
+            ((left->cxx_dependent_member_name ||
+              right->cxx_dependent_member_name) &&
+             (!left->cxx_dependent_member_name ||
+              !right->cxx_dependent_member_name ||
+              strcmp(left->cxx_dependent_member_name,
+                     right->cxx_dependent_member_name) != 0)) ||
+            left->cxx_template_arg_count != right->cxx_template_arg_count ||
+            (left->cxx_template_arg_count > 0 &&
+             (!left->cxx_template_args || !right->cxx_template_args))) {
+            return false;
+        }
+        for (int index = 0; index < left->cxx_template_arg_count; ++index) {
+            if (!cxx_template_redeclaration_type_matches(
+                    left->cxx_template_args[index], left_template,
+                    right->cxx_template_args[index], right_template,
+                    depth + 1)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (left->cxx_is_member_pointer &&
+        !cxx_template_redeclaration_type_matches(
+            left->cxx_member_pointer_owner, left_template,
+            right->cxx_member_pointer_owner, right_template, depth + 1)) {
+        return false;
+    }
+    switch (left->kind) {
+        case TYPE_PTR:
+        case TYPE_ARRAY:
+        case TYPE_VECTOR:
+            if (left->kind == TYPE_ARRAY &&
+                left->array_len != right->array_len) return false;
+            if (left->kind == TYPE_VECTOR &&
+                (left->size != right->size ||
+                 left->array_len != right->array_len)) return false;
+            return cxx_template_redeclaration_type_matches(
+                left->base, left_template, right->base, right_template,
+                depth + 1);
+        case TYPE_FUNC: {
+            TypeParam* left_parameter = left->params;
+            TypeParam* right_parameter = right->params;
+            if (left->variadic != right->variadic ||
+                left->has_prototype != right->has_prototype ||
+                !cxx_template_redeclaration_type_matches(
+                    left->ret_type, left_template, right->ret_type,
+                    right_template, depth + 1)) {
+                return false;
+            }
+            while (left_parameter && right_parameter) {
+                if (!cxx_template_redeclaration_type_matches(
+                        left_parameter->type, left_template,
+                        right_parameter->type, right_template, depth + 1)) {
+                    return false;
+                }
+                left_parameter = left_parameter->next;
+                right_parameter = right_parameter->next;
+            }
+            return !left_parameter && !right_parameter;
+        }
+        default:
+            return type_is_compatible(left, right);
+    }
+}
+
+static bool cxx_function_template_redeclaration_matches(
+    const CxxTemplate* left, const CxxTemplate* right) {
+    Type* left_type;
+    Type* right_type;
+    TypeParam* left_parameter;
+    TypeParam* right_parameter;
+    if (!left || !right || left->kind != TMPL_FUNCTION ||
+        right->kind != TMPL_FUNCTION || left->is_concept ||
+        right->is_concept || !left->func_def || !right->func_def ||
+        !left->name || !right->name || strcmp(left->name, right->name) != 0 ||
+        left->param_count != right->param_count || left->constraint ||
+        right->constraint || left->function_lowering != right->function_lowering ||
+        left->is_noexcept != right->is_noexcept ||
+        left->func_def->func_noexcept_expr ||
+        right->func_def->func_noexcept_expr ||
+        left->is_constexpr != right->is_constexpr ||
+        left->func_def->func_is_consteval !=
+            right->func_def->func_is_consteval) {
+        return false;
+    }
+    for (int index = 0; index < left->param_count; ++index) {
+        const TemplateParam* left_template_parameter = &left->params[index];
+        const TemplateParam* right_template_parameter = &right->params[index];
+        if (left_template_parameter->kind != TPARAM_TYPE ||
+            right_template_parameter->kind != TPARAM_TYPE ||
+            left_template_parameter->is_pack ||
+            right_template_parameter->is_pack ||
+            left_template_parameter->has_default ||
+            right_template_parameter->has_default) {
+            return false;
+        }
+    }
+    left_type = left->func_def->type;
+    right_type = right->func_def->type;
+    if (!left_type || !right_type || left_type->kind != TYPE_FUNC ||
+        right_type->kind != TYPE_FUNC ||
+        !cxx_template_redeclaration_type_matches(
+            left_type->ret_type, left, right_type->ret_type, right, 0)) {
+        return false;
+    }
+    if (left_type->variadic != right_type->variadic ||
+        left_type->has_prototype != right_type->has_prototype) {
+        return false;
+    }
+    left_parameter = left_type->params;
+    right_parameter = right_type->params;
+    while (left_parameter && right_parameter) {
+        if (!cxx_template_redeclaration_type_matches(
+                left_parameter->type, left, right_parameter->type, right, 0)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return !left_parameter && !right_parameter;
+}
+
+static void cxx_template_merge_friend_access(CxxTemplate* target,
+                                             const CxxTemplate* source) {
+    for (CxxFriendAccess* grant = source->friend_access; grant;
+         grant = grant->next) {
+        bool present = false;
+        for (CxxFriendAccess* existing = target->friend_access; existing;
+             existing = existing->next) {
+            if (existing->owner == grant->owner) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) {
+            CxxFriendAccess* copy = ast_arena_alloc(sizeof(*copy));
+            copy->owner = grant->owner;
+            copy->next = target->friend_access;
+            target->friend_access = copy;
+        }
+    }
+}
+
 void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
     if (!ns || !tmpl) return;
     tmpl->ns = ns;
+    for (int index = 0; index < ns->template_count; ++index) {
+        CxxTemplate* existing = ns->templates[index];
+        if ((!existing->friend_access && !tmpl->friend_access) ||
+            !cxx_function_template_redeclaration_matches(existing, tmpl)) {
+            continue;
+        }
+        cxx_template_merge_friend_access(existing, tmpl);
+        if (existing->func_def->func_body && tmpl->func_def->func_body) {
+            rcc_error(tmpl->func_def->loc,
+                      "redefinition of function template '%s'", tmpl->name);
+            return;
+        }
+        if (!existing->func_def->func_body && tmpl->func_def->func_body) {
+            if (existing->instance_count != 0) {
+                rcc_error(tmpl->func_def->loc,
+                          "function template '%s' is defined after an earlier "
+                          "specialization was instantiated",
+                          tmpl->name);
+                return;
+            }
+            existing->func_def = tmpl->func_def;
+            existing->params = tmpl->params;
+            existing->param_count = tmpl->param_count;
+            existing->is_constexpr = tmpl->is_constexpr;
+            existing->is_noexcept = tmpl->is_noexcept;
+        }
+        return;
+    }
     ns->templates = ast_arena_grow(
         ns->templates, sizeof(CxxTemplate*) * (size_t)ns->template_count,
         sizeof(CxxTemplate*) * (size_t)(ns->template_count + 1));
