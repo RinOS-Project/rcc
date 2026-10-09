@@ -493,6 +493,10 @@
           inherited data member during `&Derived::name` lookup; check the
           member-function pointer is invoked (not the hidden base field) on the
           host and compile both target architectures against GCC C++20.
+    - [x] Select a directly declared derived data field over an inherited
+          same-named field during `&Derived::name`; execute both pointers and
+          verify the base and derived subobjects retain distinct values on the
+          host after i686/AMD64 generation and GCC C++20 acceptance.
     - [x] Preserve access granted to an ordinary non-template friend free
           function from its in-class declaration through the matching
           out-of-class definition. Verify direct private access, inherited

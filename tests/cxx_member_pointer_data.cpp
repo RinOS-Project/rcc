@@ -138,6 +138,23 @@ static int invoke_hidden_data_name_method(
     return (object.*method)(input);
 }
 
+struct MemberPointerHiddenFieldBase {
+    int hidden;
+};
+
+struct MemberPointerHiddenFieldDerived : MemberPointerHiddenFieldBase {
+    int hidden;
+};
+
+int MemberPointerHiddenFieldBase::*global_hidden_base_member =
+    &MemberPointerHiddenFieldBase::hidden;
+
+static int read_hidden_derived_member_pointer(
+    MemberPointerHiddenFieldDerived& object) {
+    auto member = &MemberPointerHiddenFieldDerived::hidden;
+    return object.*member;
+}
+
 struct MemberPointerDerived : MemberPointerPadding, MemberPointerBase {
     int tail;
 };
@@ -327,6 +344,13 @@ extern "C" int main() {
     MemberPointerHiddenDataDerived hidden_data_object;
     if (invoke_hidden_data_name_method(hidden_data_object, 4) != 57) {
         return 21;
+    }
+    MemberPointerHiddenFieldDerived hidden_field_object;
+    hidden_field_object.*global_hidden_base_member = 59;
+    hidden_field_object.hidden = 61;
+    if (read_hidden_derived_member_pointer(hidden_field_object) != 61 ||
+        hidden_field_object.*global_hidden_base_member != 59) {
+        return 25;
     }
     (derived.*inherited_member) = 19;
     if (derived.inherited != 19 || derived.tail != 3) return 11;

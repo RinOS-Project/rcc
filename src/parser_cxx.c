@@ -190,10 +190,27 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         }
     }
 
-    field = owner->fields;
-    while (field && strcmp(field->name, segments[segment_count - 1u]
-                                           ->value.str_val) != 0) {
-        field = field->next;
+    field = NULL;
+    if (direct_member && owner->cxx_class) {
+        /* Base fields are laid out before derived fields, but ordinary member
+         * lookup selects a directly declared member that hides the base one. */
+        for (TypeField* candidate = owner->fields; candidate;
+             candidate = candidate->next) {
+            if (candidate->name &&
+                strcmp(candidate->name, segments[segment_count - 1u]
+                                             ->value.str_val) == 0 &&
+                candidate->cxx_declaring_class == owner->cxx_class &&
+                !candidate->from_virtual_base) {
+                field = candidate;
+                break;
+            }
+        }
+    } else {
+        field = owner->fields;
+        while (field && strcmp(field->name, segments[segment_count - 1u]
+                                               ->value.str_val) != 0) {
+            field = field->next;
+        }
     }
     /* The completed TypeField list still contains inherited storage even
      * when a declaration in the designating class hides that name.  In
