@@ -1110,8 +1110,14 @@ static RccIrLowerValue lower_cast(RccIrLowerContext* context,
             source.type.bit_width == 64u) {
             return lower_unsigned64_to_float(context, source, target);
         }
-        if (source.is_unsigned && source.type.bit_width < 32u) {
-            conversion_type = rcc_ir_type_integer(32u);
+        if (source.is_unsigned &&
+            ((g_opts.target_arch == ARCH_X64 &&
+              source.type.bit_width < 64u) ||
+             (g_opts.target_arch == ARCH_X86 &&
+              source.type.bit_width < 32u))) {
+            conversion_type = g_opts.target_arch == ARCH_X64
+                ? rcc_ir_type_integer(64u)
+                : rcc_ir_type_integer(32u);
             extension_opcode = RCC_IR_ZEXT;
         } else if (!source.is_unsigned && source.type.bit_width < 32u) {
             conversion_type = rcc_ir_type_integer(32u);
