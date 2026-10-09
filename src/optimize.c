@@ -964,7 +964,7 @@ static const Expr* inline_scalar_return_tree(const Stmt* statement,
         const StmtList* item = statement->block_stmts;
         if (!item || item->next) return NULL;
         only = item->stmt;
-        return inline_scalar_return_tree(only, depth + 1u);
+        return inline_scalar_return_tree(only, depth);
     }
     if (statement->kind == STMT_RETURN) {
         return statement->return_val &&
@@ -974,7 +974,7 @@ static const Expr* inline_scalar_return_tree(const Stmt* statement,
     }
     if (statement->kind != STMT_IF || !statement->if_cond ||
         !type_is_scalar(statement->if_cond->type) || !statement->if_then ||
-        !statement->if_else) {
+        !statement->if_else || depth >= INLINE_SCALAR_RETURN_BRANCH_LIMIT) {
         return NULL;
     }
     then_value = inline_scalar_return_tree(statement->if_then, depth + 1u);
