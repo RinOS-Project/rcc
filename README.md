@@ -44,6 +44,9 @@ debug鍵はRinOSのdebug build profileからpathとして渡し、release鍵はr
   経路。算術、比較、shift、narrow integer／pointer cast、conditional phi、
   cdecl引数とEDX:EAX戻り値までpairを維持し、scalar i64の誤った32-bit
   MIR流入を拒否します（[実装状況](docs/implementation-status-i686-wide-scalar-ssa-v1.md)）。
+- i686 verified SSAの`float`／`double`加減乗除をx87でlowerし、値をstack slotに
+  保持したままcdecl引数・ST0戻り値と外部callを扱います。C/C++ `-O0`/`-O2`の
+  fallbackなしi686実行を検証済みです（[実装状況](docs/implementation-status-i686-typed-fp-arithmetic-v1.md)）。
 - direct RIN/NDRVとobject linkでのDATA/CODE/BSS symbol relocation、関数ポインタ
 - 文字列literalのread-only `.rodata`分離と独立RVA mapping
 - `.ro/.ra v2` reader/writer、typed import、依存libraryを扱う`rld`
@@ -112,6 +115,7 @@ make test-cxx-function-template-references
 make test-global-finalizers
 make test-atomic-builtins
 make test-x86-wide-scalar
+make test-verified-i686-floating-arithmetic
 make test-link
 make test-archive
 make test-archive-link
@@ -153,6 +157,10 @@ signed/unsigned比較、SHLD/SHRD shift、multiply、software divide/modulo、
 内部関数callを32-bit host processで
 直接実行します。未実装のwide演算は下位32-bitへ
 暗黙切り詰めせずdiagnosticにします。
+`test-verified-i686-floating-arithmetic`はi686 verified backendの`float`／`double`
+加減乗除、cdecl stack引数・ST0戻り値、外部C callをC/C++ `-O0`/`-O2`でfallbackなしに
+生成し、host上のi686 processで実行します。比較/truth、conversion、unary、compound
+update、conditional selectはこの完了範囲に含まず、対応するTODOを残しています。
 `test-integer-literals`はC17のdecimal/octal/hex候補型、`U/L/LL` suffix、ILP32/LP64
 の型差、unsigned定数式の比較・wrap、64-bit即値codegenを両archで直接実行し、
 候補型なし、64-bit overflow、不正suffixを各段階で拒否します。

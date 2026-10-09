@@ -51,8 +51,9 @@ static bool x86_type_supported_for_target(RccMirType type,
     if (type.kind == RCC_MIR_TYPE_VOID ||
         type.kind == RCC_MIR_TYPE_POINTER) return true;
     if (type.kind == RCC_MIR_TYPE_FLOAT) {
-        return target == RCC_X86_TARGET_X86_64 &&
-            (type.bit_width == 32u || type.bit_width == 64u);
+        return (target == RCC_X86_TARGET_I686 ||
+                target == RCC_X86_TARGET_X86_64) &&
+               (type.bit_width == 32u || type.bit_width == 64u);
     }
     return type.kind == RCC_MIR_TYPE_INTEGER &&
         type.bit_width <= maximum_width;
@@ -673,7 +674,8 @@ bool rcc_x86_verify_function(
                  instruction->opcode != RCC_X86_SELECT &&
                  !x86_is_float_binary(instruction->opcode)) ||
                 (x86_is_float_binary(instruction->opcode) &&
-                 (function->target != RCC_X86_TARGET_X86_64 ||
+                 ((function->target != RCC_X86_TARGET_I686 &&
+                   function->target != RCC_X86_TARGET_X86_64) ||
                   instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
                   instruction->operand_count != 2u ||
                   !rcc_mir_type_equal(

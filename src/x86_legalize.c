@@ -25,6 +25,12 @@ static uint16_t x86_legal_type_size(
     return (uint16_t)(type.bit_width / 8u);
 }
 
+static size_t x86_legal_stack_argument_slots(
+    RccMirType type, const RccX86Abi* abi) {
+    size_t size = x86_legal_type_size(type, abi);
+    return (size + abi->pointer_size - 1u) / abi->pointer_size;
+}
+
 static bool x86_legal_align(uint32_t value, uint16_t alignment,
                             uint32_t* result) {
     uint32_t mask;
@@ -47,7 +53,8 @@ static bool x86_legal_native_scalar(
 static bool x86_legal_abi_scalar_parameter(
     RccMirType type, const RccX86Abi* abi) {
     return x86_legal_native_scalar(type, abi) ||
-        (abi->target == RCC_X86_TARGET_X86_64 &&
+        ((abi->target == RCC_X86_TARGET_I686 ||
+          abi->target == RCC_X86_TARGET_X86_64) &&
          type.kind == RCC_MIR_TYPE_FLOAT &&
          (type.bit_width == 32u || type.bit_width == 64u));
 }
@@ -57,7 +64,8 @@ static bool x86_legal_type_supported(
     if (type.kind == RCC_MIR_TYPE_VOID) return type.bit_width == 0u;
     if (type.kind == RCC_MIR_TYPE_POINTER) return type.bit_width == 0u;
     if (type.kind == RCC_MIR_TYPE_FLOAT) {
-        return abi->target == RCC_X86_TARGET_X86_64 &&
+        return (abi->target == RCC_X86_TARGET_I686 ||
+                abi->target == RCC_X86_TARGET_X86_64) &&
             (type.bit_width == 32u || type.bit_width == 64u);
     }
     if (!x86_legal_native_scalar(type, abi)) return false;
@@ -240,8 +248,10 @@ static bool x86_legal_resolve_location(
     if (location.kind == RCC_MIR_LOCATION_PHYSICAL) {
         if (location.register_class == RCC_MIR_REGCLASS_FPR &&
             type.kind == RCC_MIR_TYPE_FLOAT &&
-            abi->target == RCC_X86_TARGET_X86_64 &&
-            location.physical_register < abi->fpr_count) {
+            ((abi->target == RCC_X86_TARGET_X86_64 &&
+              location.physical_register < abi->fpr_count) ||
+             (abi->target == RCC_X86_TARGET_I686 &&
+              location.physical_register == 0u))) {
             value->kind = RCC_X86_VALUE_FPR;
             value->fpr = location.physical_register;
             value->size = x86_legal_type_size(type, abi);
@@ -580,7 +590,8 @@ static bool x86_legal_native_type(
 
 static bool x86_legal_float_type(
     RccMirType type, const RccX86Abi* abi) {
-    return abi->target == RCC_X86_TARGET_X86_64 &&
+    return (abi->target == RCC_X86_TARGET_I686 ||
+            abi->target == RCC_X86_TARGET_X86_64) &&
         type.kind == RCC_MIR_TYPE_FLOAT &&
         (type.bit_width == 32u || type.bit_width == 64u);
 }
@@ -684,7 +695,10 @@ static bool x86_legal_call_stack_bytes(
         }
         if (instruction->operand_types[index].kind == RCC_MIR_TYPE_FLOAT) {
             if (floating_index >= abi->floating_argument_count) {
-                ++stack_count;
+                size_t slots = x86_legal_stack_argument_slots(
+                    instruction->operand_types[index], abi);
+                if (slots > SIZE_MAX - stack_count) return false;
+                stack_count += slots;
             }
             ++floating_index;
         } else {
@@ -918,17 +932,22 @@ static bool x86_legalize_parameters(
             ++integer_index;
         }
         if (!in_register && !memory_parameter) {
-            if (incoming_offset > UINT32_MAX - abi->pointer_size) {
-                rcc_free(sources);
-                rcc_free(destinations);
-                return x86_legal_error(
-                    error, error_size,
-                    "x86 incoming argument area exceeds 32 bits");
+            {
+                uint32_t argument_size = (uint32_t)(
+                    x86_legal_stack_argument_slots(type, abi) *
+                    abi->pointer_size);
+                if (incoming_offset > UINT32_MAX - argument_size) {
+                    rcc_free(sources);
+                    rcc_free(destinations);
+                    return x86_legal_error(
+                        error, error_size,
+                        "x86 incoming argument area exceeds 32 bits");
+                }
+                sources[index] = x86_legal_argument_value(
+                    RCC_X86_VALUE_INCOMING_ARGUMENT,
+                    incoming_offset, type, abi);
+                incoming_offset += argument_size;
             }
-            sources[index] = x86_legal_argument_value(
-                RCC_X86_VALUE_INCOMING_ARGUMENT,
-                incoming_offset, type, abi);
-            incoming_offset += abi->pointer_size;
         }
         if (!x86_legal_resolve_location(
                 selected->parameters[index], type, abi,
@@ -1192,7 +1211,11 @@ static bool x86_legalize_call(
                 ++integer_index;
             }
             if (!in_register) {
-                if (stack_index > UINT32_MAX / abi->pointer_size) {
+                size_t stack_slots = x86_legal_stack_argument_slots(
+                    type, abi);
+                if (stack_index > UINT32_MAX / abi->pointer_size ||
+                    stack_slots > UINT32_MAX / abi->pointer_size -
+                        stack_index) {
                     rcc_free(argument_destinations);
                     rcc_free(operands);
                     return x86_legal_error(
@@ -1204,7 +1227,7 @@ static bool x86_legalize_call(
                     function->outgoing_stack_offset +
                         stack_index * abi->pointer_size,
                     type, abi);
-                ++stack_index;
+                stack_index += (uint32_t)stack_slots;
             }
         }
         if (!x86_legal_schedule_parallel_copies(
@@ -1322,8 +1345,10 @@ static bool x86_legal_value_valid(
         return x86_legal_gpr_allowed(value.gpr, abi);
     }
     if (value.kind == RCC_X86_VALUE_FPR) {
-        return abi->target == RCC_X86_TARGET_X86_64 &&
-            value.fpr < abi->fpr_count &&
+        return ((abi->target == RCC_X86_TARGET_X86_64 &&
+                 value.fpr < abi->fpr_count) ||
+                (abi->target == RCC_X86_TARGET_I686 &&
+                 value.fpr == 0u)) &&
             (value.size == 4u || value.size == 8u) &&
             value.alignment == value.size;
     }
@@ -1349,7 +1374,8 @@ static bool x86_legal_value_valid(
     }
     return value.kind == RCC_X86_VALUE_INCOMING_ARGUMENT &&
         value.alignment == abi->pointer_size &&
-        value.size <= abi->pointer_size &&
+        value.size <= (abi->pointer_size < 8u
+            ? 8u : abi->pointer_size) &&
         value.frame_offset <= UINT32_MAX - value.size;
 }
 

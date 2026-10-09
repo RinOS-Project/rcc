@@ -63,9 +63,12 @@ void rcc_mir_register_policy_i686(RccMirRegisterPolicy* policy) {
     if (!policy) return;
     memset(policy, 0, sizeof(*policy));
     policy->allocatable_gpr_mask = UINT64_C(0x3f);
-    policy->allocatable_fpr_mask = UINT64_C(0xff);
+    /* i686 scalar FP values stay in typed spill slots.  The encoder uses the
+     * x87 register stack transiently, so mapping virtual values to stable
+     * physical x87 register numbers would not be a valid allocation. */
+    policy->allocatable_fpr_mask = 0u;
     policy->caller_saved_gpr_mask = UINT64_C(0x07);
-    policy->caller_saved_fpr_mask = UINT64_C(0xff);
+    policy->caller_saved_fpr_mask = 0u;
     policy->division_fixed_gpr_mask = UINT64_C(0x05);
     policy->shift_count_fixed_gpr_mask = UINT64_C(0x02);
     policy->pointer_size = 4u;

@@ -417,14 +417,111 @@ static bool x86_emit_xmm_gpr_bits(
         3u, xmm_register, (unsigned)gpr));
 }
 
+static bool x86_i686_memory_value(RccX86Value value) {
+    return value.kind == RCC_X86_VALUE_FRAME ||
+        value.kind == RCC_X86_VALUE_INCOMING_ARGUMENT ||
+        value.kind == RCC_X86_VALUE_OUTGOING_ARGUMENT;
+}
+
+static bool x86_emit_x87_memory(
+    RccX86Encoder* encoder, uint16_t width, unsigned extension,
+    RccX86Value memory) {
+    int32_t displacement;
+    uint8_t opcode = width == 4u ? 0xd9u : 0xddu;
+    if (encoder->function->target != RCC_X86_TARGET_I686 ||
+        (width != 4u && width != 8u) || extension > 7u ||
+        !x86_i686_memory_value(memory) ||
+        !x86_value_displacement(encoder, memory, &displacement) ||
+        !x86_emit_u8(encoder, opcode) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            2u, extension, RCC_X86_GPR_BP))) {
+        return x86_encode_error(
+            encoder, "i686 x87 memory operand is invalid");
+    }
+    return x86_emit_u32(encoder, (uint32_t)displacement);
+}
+
+static bool x86_i686_offset_value(
+    RccX86Encoder* encoder, RccX86Value value, uint32_t offset,
+    RccX86Value* result) {
+    if (!result || !x86_i686_memory_value(value) ||
+        value.frame_offset > UINT32_MAX - offset) {
+        return x86_encode_error(
+            encoder, "i686 floating memory-copy offset overflows");
+    }
+    *result = value;
+    result->frame_offset += offset;
+    result->size = 4u;
+    result->alignment = 4u;
+    return true;
+}
+
+static bool x86_emit_i686_memory_copy(
+    RccX86Encoder* encoder, RccX86Value source,
+    RccX86Value destination, uint16_t size) {
+    if (encoder->function->target != RCC_X86_TARGET_I686 ||
+        !x86_i686_memory_value(source) ||
+        !x86_i686_memory_value(destination) ||
+        (size != 4u && size != 8u)) {
+        return x86_encode_error(
+            encoder, "i686 floating memory copy is invalid");
+    }
+    for (uint32_t offset = 0u; offset < size; offset += 4u) {
+        RccX86Value source_word = {0};
+        RccX86Value destination_word = {0};
+        if (!x86_i686_offset_value(
+                encoder, source, offset, &source_word) ||
+            !x86_i686_offset_value(
+                encoder, destination, offset, &destination_word) ||
+            !x86_emit_push(encoder, RCC_X86_GPR_AX) ||
+            !x86_emit_load(
+                encoder, RCC_X86_GPR_AX, source_word, 4u) ||
+            !x86_emit_store(
+                encoder, destination_word, RCC_X86_GPR_AX, 4u) ||
+            !x86_emit_pop(encoder, RCC_X86_GPR_AX)) return false;
+    }
+    return true;
+}
+
 static bool x86_emit_copy(RccX86Encoder* encoder,
                           RccX86Value source,
                           RccX86Value destination, uint16_t size) {
-    if (size == 0u || size > encoder->function->pointer_size) {
+    bool i686_wide_float_memory =
+        encoder->function->target == RCC_X86_TARGET_I686 && size == 8u &&
+        ((source.kind == RCC_X86_VALUE_FPR &&
+          x86_i686_memory_value(destination)) ||
+         (destination.kind == RCC_X86_VALUE_FPR &&
+          x86_i686_memory_value(source)) ||
+         (x86_i686_memory_value(source) &&
+          x86_i686_memory_value(destination)));
+    if (size == 0u ||
+        (size > encoder->function->pointer_size &&
+         !i686_wide_float_memory)) {
         return x86_encode_error(encoder,
                                 "x86 copy width is not native");
     }
     if (x86_value_equal(source, destination)) return true;
+    if (encoder->function->target == RCC_X86_TARGET_I686 &&
+        (source.kind == RCC_X86_VALUE_FPR ||
+         destination.kind == RCC_X86_VALUE_FPR)) {
+        if ((size != 4u && size != 8u) ||
+            (source.kind == RCC_X86_VALUE_FPR && source.fpr != 0u) ||
+            (destination.kind == RCC_X86_VALUE_FPR &&
+             destination.fpr != 0u)) {
+            return x86_encode_error(
+                encoder, "i686 x87 ABI transfer is invalid");
+        }
+        if (source.kind == RCC_X86_VALUE_FPR) {
+            return x86_emit_x87_memory(
+                encoder, size, 3u, destination); /* FSTP m32/m64 */
+        }
+        return x86_emit_x87_memory(
+            encoder, size, 0u, source); /* FLD m32/m64 */
+    }
+    if (i686_wide_float_memory) {
+        return x86_emit_i686_memory_copy(
+            encoder, source, destination, size);
+    }
     if (source.kind == RCC_X86_VALUE_FPR ||
         destination.kind == RCC_X86_VALUE_FPR) {
         if (size != 4u && size != 8u) {
@@ -582,6 +679,29 @@ static bool x86_emit_float_binary(
     RccX86Value destination = instruction->destination;
     RccX86Value source = instruction->operands[0];
     uint16_t size = destination.size;
+    if (encoder->function->target == RCC_X86_TARGET_I686) {
+        uint8_t operation;
+        if (!x86_i686_memory_value(destination) ||
+            !x86_i686_memory_value(source) ||
+            (size != 4u && size != 8u) || source.size != size) {
+            return x86_encode_error(
+                encoder, "i686 x87 arithmetic operands are invalid");
+        }
+        switch (instruction->selected_opcode) {
+            case RCC_X86_FADD: operation = 0xc1u; break; /* FADDP ST1,ST0 */
+            case RCC_X86_FSUB: operation = 0xe9u; break; /* FSUBP ST1,ST0 */
+            case RCC_X86_FMUL: operation = 0xc9u; break; /* FMULP ST1,ST0 */
+            case RCC_X86_FDIV: operation = 0xf9u; break; /* FDIVP ST1,ST0 */
+            default:
+                return x86_encode_error(
+                    encoder, "i686 x87 arithmetic opcode is invalid");
+        }
+        return x86_emit_x87_memory(encoder, size, 0u, destination) &&
+            x86_emit_x87_memory(encoder, size, 0u, source) &&
+            x86_emit_u8(encoder, 0xdeu) &&
+            x86_emit_u8(encoder, operation) &&
+            x86_emit_x87_memory(encoder, size, 3u, destination);
+    }
     if (destination.kind == RCC_X86_VALUE_FPR) {
         return x86_emit_float_binary_register(
             encoder, instruction->selected_opcode, destination.fpr,
@@ -1412,6 +1532,19 @@ static bool x86_emit_indirect_load(
     return x86_emit_indirect_modrm(encoder, destination, address);
 }
 
+static bool x86_emit_indirect_load_displacement(
+    RccX86Encoder* encoder, RccX86HardwareGpr destination,
+    RccX86HardwareGpr address, int32_t displacement, uint16_t size) {
+    if (!x86_emit_prefix(encoder, size, destination, address,
+                         size == 1u) ||
+        !x86_emit_u8(encoder, size == 1u ? 0x8au : 0x8bu) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            2u, destination, address))) return false;
+    if (((unsigned)address & 7u) == 4u &&
+        !x86_emit_u8(encoder, 0x24u)) return false;
+    return x86_emit_u32(encoder, (uint32_t)displacement);
+}
+
 static bool x86_emit_indirect_store(
     RccX86Encoder* encoder, RccX86HardwareGpr address,
     RccX86HardwareGpr source, uint16_t size) {
@@ -1550,6 +1683,38 @@ static bool x86_emit_pointer_load(
     RccX86HardwareGpr address_register;
     RccX86HardwareGpr result_register;
     bool preserve_address = address.kind != RCC_X86_VALUE_GPR;
+    if (encoder->function->target == RCC_X86_TARGET_I686 &&
+        instruction->type.kind == RCC_MIR_TYPE_FLOAT &&
+        (destination.size == 4u || destination.size == 8u) &&
+        x86_i686_memory_value(destination)) {
+        result_register = x86_choose_scratch_three(
+            address, destination,
+            preserve_address ? x86_choose_scratch(address, destination)
+                             : address.gpr);
+        address_register = preserve_address
+            ? x86_choose_scratch(address, destination) : address.gpr;
+        if ((preserve_address && !x86_emit_push(
+                 encoder, address_register)) ||
+            !x86_emit_push(encoder, result_register) ||
+            (preserve_address && !x86_emit_load(
+                 encoder, address_register, address,
+                 encoder->function->pointer_size))) return false;
+        for (uint32_t offset = 0u; offset < destination.size; offset += 4u) {
+            RccX86Value destination_word = {0};
+            if (!x86_i686_offset_value(
+                    encoder, destination, offset, &destination_word) ||
+                !x86_emit_indirect_load_displacement(
+                    encoder, result_register, address_register,
+                    (int32_t)offset, 4u) ||
+                !x86_emit_store(
+                    encoder, destination_word, result_register, 4u)) {
+                return false;
+            }
+        }
+        return x86_emit_pop(encoder, result_register) &&
+            (!preserve_address ||
+             x86_emit_pop(encoder, address_register));
+    }
     if (instruction->type.kind == RCC_MIR_TYPE_FLOAT &&
         destination.kind == RCC_X86_VALUE_FPR) {
         address_register = preserve_address
@@ -1601,6 +1766,34 @@ static bool x86_emit_pointer_store(
     RccX86HardwareGpr address_register;
     RccX86HardwareGpr value_register;
     bool preserve_address = address.kind != RCC_X86_VALUE_GPR;
+    if (encoder->function->target == RCC_X86_TARGET_I686 &&
+        instruction->operand_types[0].kind == RCC_MIR_TYPE_FLOAT &&
+        (value.size == 4u || value.size == 8u) &&
+        x86_i686_memory_value(value)) {
+        address_register = preserve_address
+            ? x86_choose_scratch(address, value) : address.gpr;
+        value_register = x86_choose_scratch_three(
+            address, value, address_register);
+        if ((preserve_address && !x86_emit_push(
+                 encoder, address_register)) ||
+            !x86_emit_push(encoder, value_register) ||
+            (preserve_address && !x86_emit_load(
+                 encoder, address_register, address,
+                 encoder->function->pointer_size))) return false;
+        for (uint32_t offset = 0u; offset < value.size; offset += 4u) {
+            RccX86Value source_word = {0};
+            if (!x86_i686_offset_value(
+                    encoder, value, offset, &source_word) ||
+                !x86_emit_load(
+                    encoder, value_register, source_word, 4u) ||
+                !x86_emit_indirect_store_displacement(
+                    encoder, address_register, (int32_t)offset,
+                    value_register, 4u)) return false;
+        }
+        return x86_emit_pop(encoder, value_register) &&
+            (!preserve_address ||
+             x86_emit_pop(encoder, address_register));
+    }
     if (instruction->operand_types[0].kind == RCC_MIR_TYPE_FLOAT &&
         value.kind == RCC_X86_VALUE_FPR) {
         address_register = preserve_address

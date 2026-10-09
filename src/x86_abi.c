@@ -125,7 +125,8 @@ bool rcc_x86_abi_verify_policy(
     }
     expected_gpr_mask = (UINT64_C(1) << abi->gpr_count) - 1u;
     expected_fpr_mask = (UINT64_C(1) << abi->fpr_count) - 1u;
-    expected_allocatable_fpr_mask = expected_fpr_mask;
+    expected_allocatable_fpr_mask = abi->target == RCC_X86_TARGET_I686
+        ? 0u : expected_fpr_mask;
     if (abi->target == RCC_X86_TARGET_X86_64) {
         expected_allocatable_fpr_mask &= ~(UINT64_C(1) << 15u);
     }

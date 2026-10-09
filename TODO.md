@@ -1058,12 +1058,16 @@
         branch selectionをtyped SSAへlowerし、C/C++ `-O0`/`-O2`でmember抽出を含む
         実行とsigned zero／infinity／NaN payloadのbit-exact保存をfallbackなしで
         検証。nontrivial conditional、mixed-classおよび複数eightbyte returnは未対応。
-  - [ ] typed SSAのi686 scalar floating arithmeticをx87 register-stack規約と
+  - [x] typed SSAのi686 scalar floating arithmeticをx87 register-stack規約と
         cdecl引数／戻り値ABIに合わせて実装し、C/C++の`-O0`/`-O2`を実機以外で
         fallbackなし実行検証する。
-    - [x] x87 typed arithmeticが未実装のi686ではfloat/double型をlowering前に
+    - [x] x87 typed arithmetic実装前のi686でfloat/double型をlowering前に
           legacy backendへ戻し、最適化で定数式になった関数がx86 selectorで
-          late failureしないことをC/C++ `test-optimize`で検証。
+          late failureしないことをC/C++ `test-optimize`で検証した。
+    - [ ] typed SSAのi686 scalar floating comparison/truth、conversion、unary、
+          compound update、conditional selectをx87 semanticsへlowerし、
+          C/C++ `-O0`/`-O2`でfallbackなしのobject・runtime結果を検証する。
+          未対応演算のfallbackは残し、親の算術項目の完了とはみなさない。
   - [x] i686 wide-scalarの代入、複合代入、pre/post incrementをpair
         load/storeとcarry/borrow付き演算へlowerし、両archのobject・x64
         実行回帰で検証

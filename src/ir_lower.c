@@ -411,15 +411,15 @@ static bool lower_type(const Type* type, RccIrType* result) {
             *result = rcc_ir_type_integer((uint16_t)(type->size * 8));
             return true;
         case TYPE_FLOAT:
-            /* The verified backend currently uses SSE scalar FP operations
-             * only on x86-64; i686 x87 values stay on the full legacy path. */
-            if (g_opts.target_arch != ARCH_X64 || type->size != 4) {
+            if ((g_opts.target_arch != ARCH_X86 &&
+                 g_opts.target_arch != ARCH_X64) || type->size != 4) {
                 return false;
             }
             *result = rcc_ir_type_float(32u);
             return true;
         case TYPE_DOUBLE:
-            if (g_opts.target_arch != ARCH_X64 || type->size != 8) {
+            if ((g_opts.target_arch != ARCH_X86 &&
+                 g_opts.target_arch != ARCH_X64) || type->size != 8) {
                 return false;
             }
             *result = rcc_ir_type_float(64u);
@@ -735,6 +735,19 @@ static RccIrInstruction* lower_append(
     const RccIrBlockId* targets, size_t target_count) {
     RccIrInstruction* instruction;
     if (!context || !context->current || context->terminated) return NULL;
+    if (g_opts.target_arch == ARCH_X86 &&
+        (opcode == RCC_IR_FCMP || opcode == RCC_IR_SITOFP ||
+         opcode == RCC_IR_FPTOSI || opcode == RCC_IR_FPTRUNC ||
+         opcode == RCC_IR_FPEXT ||
+         (opcode == RCC_IR_SELECT &&
+          type.kind == RCC_IR_TYPE_FLOAT))) {
+        /* The i686 verified path keeps values in spill slots and uses x87
+         * only for arithmetic and ABI transfers.  Comparisons, conversions,
+         * and floating selects remain on the complete legacy path until
+         * their x87 flag/rounding semantics have dedicated legalization. */
+        context->unsupported = true;
+        return NULL;
+    }
     instruction = rcc_ir_append(context->current, opcode, type, operands,
                                 operand_count, targets, target_count);
     if (!instruction) {
@@ -5039,7 +5052,9 @@ static RccIrLowerValue lower_float_binary(
     RccIrValue operands[2];
     RccIrInstruction* instruction;
     RccIrOpcode opcode;
-    if (!context || !expression || g_opts.target_arch != ARCH_X64 ||
+    if (!context || !expression ||
+        (g_opts.target_arch != ARCH_X86 &&
+         g_opts.target_arch != ARCH_X64) ||
         !expression->type ||
         (expression->type->kind != TYPE_FLOAT &&
          expression->type->kind != TYPE_DOUBLE) ||
@@ -10538,7 +10553,8 @@ static bool lower_abi_native_scalar_type(
         ir_type->kind == RCC_IR_TYPE_VOID) return false;
     if (ir_type->kind == RCC_IR_TYPE_POINTER) return true;
     if (ir_type->kind == RCC_IR_TYPE_FLOAT) {
-        return g_opts.target_arch == ARCH_X64 &&
+        return (g_opts.target_arch == ARCH_X86 ||
+                g_opts.target_arch == ARCH_X64) &&
             (ir_type->bit_width == 32u || ir_type->bit_width == 64u);
     }
     return ir_type->kind == RCC_IR_TYPE_INTEGER &&

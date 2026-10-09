@@ -2727,6 +2727,89 @@ static void verify_float_binary_object(const char* path)
     objfile_free(object);
 }
 
+static bool bytes_contain(const uint8_t* bytes, size_t size,
+                          const uint8_t* pattern, size_t pattern_size)
+{
+    if (!bytes || !pattern || pattern_size == 0u || pattern_size > size) {
+        return false;
+    }
+    for (size_t offset = 0u; offset <= size - pattern_size; ++offset) {
+        if (memcmp(bytes + offset, pattern, pattern_size) == 0) return true;
+    }
+    return false;
+}
+
+static void verify_i686_float_arithmetic_object(const char* path)
+{
+    static const struct {
+        const char* name;
+        uint8_t arithmetic_opcode;
+        uint8_t memory_opcode;
+    } cases[] = {
+        {"verified_i686_add_f32", 0xc1u, 0xd9u},
+        {"verified_i686_sub_f32", 0xe9u, 0xd9u},
+        {"verified_i686_mul_f32", 0xc9u, 0xd9u},
+        {"verified_i686_div_f32", 0xf9u, 0xd9u},
+        {"verified_i686_add_f64", 0xc1u, 0xddu},
+        {"verified_i686_sub_f64", 0xe9u, 0xddu},
+        {"verified_i686_mul_f64", 0xc9u, 0xddu},
+        {"verified_i686_div_f64", 0xf9u, 0xddu},
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    bool found_f32_call = false;
+    bool found_f64_call = false;
+    bool found_mixed_call = false;
+
+    assert(object != NULL && object->arch == ARCH_X86);
+    text = objfile_get_section(object, ".text");
+    assert(text != NULL && text->size != 0u &&
+           (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
+               (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
+
+    for (size_t index = 0u;
+         index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        ObjSymbol* symbol = objfile_find_symbol(object, cases[index].name);
+        uint8_t add_or_sub[2] = {0xdeu, cases[index].arithmetic_opcode};
+        uint8_t load[2] = {cases[index].memory_opcode, 0x85u};
+        uint8_t store_pop[2] = {cases[index].memory_opcode, 0x9du};
+        const uint8_t* function_bytes;
+        size_t function_size;
+
+        assert(symbol != NULL && symbol->type == SYM_GLOBAL &&
+               symbol->binding == BIND_CODE && symbol->section == 0 &&
+               symbol->size != 0u && symbol->value <= text->size &&
+               symbol->size <= text->size - symbol->value);
+        function_bytes = text->data + (size_t)symbol->value;
+        function_size = (size_t)symbol->size;
+        assert(bytes_contain(function_bytes, function_size,
+                             add_or_sub, sizeof(add_or_sub)));
+        assert(bytes_contain(function_bytes, function_size,
+                             load, sizeof(load)));
+        assert(bytes_contain(function_bytes, function_size,
+                             store_pop, sizeof(store_pop)));
+    }
+
+    for (ObjReloc* relocation = text->relocs; relocation;
+         relocation = relocation->next) {
+        if (relocation->symbol_name &&
+            strcmp(relocation->symbol_name,
+                   "verified_i686_external_add_f32") == 0) {
+            found_f32_call = true;
+        } else if (relocation->symbol_name &&
+                   strcmp(relocation->symbol_name,
+                          "verified_i686_external_add_f64") == 0) {
+            found_f64_call = true;
+        } else if (relocation->symbol_name &&
+                   strcmp(relocation->symbol_name,
+                          "verified_i686_external_mix") == 0) {
+            found_mixed_call = true;
+        }
+    }
+    assert(found_f32_call && found_f64_call && found_mixed_call);
+    objfile_free(object);
+}
+
 static void verify_native_execution(const char* path, uint16_t arch)
 {
     ObjectFile* object = objfile_read(path);
@@ -4230,6 +4313,12 @@ int main(int argc, char** argv)
     if (argc == 3 && strcmp(argv[1], "--float-binary-object") == 0) {
         verify_float_binary_object(argv[2]);
         puts("Verified typed floating binary object passed");
+        return 0;
+    }
+    if (argc == 3 &&
+        strcmp(argv[1], "--i686-float-arithmetic-object") == 0) {
+        verify_i686_float_arithmetic_object(argv[2]);
+        puts("Verified i686 typed x87 arithmetic object passed");
         return 0;
     }
     if (argc == 3 && strcmp(argv[1], "--sysv-va-aggregate-object") == 0) {
