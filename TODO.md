@@ -1861,3 +1861,19 @@
   target object formats and native AMD64 SysV execution.
 - [ ] Broader call-graph/cost modeling, recursive and aggregate/exception
   inlining, and general loop transformations remain open.
+
+## Native Windows bootstrap verification (2026-10-10)
+
+- [x] Reproduce the `scripts/bootstrap_gate.sh` core phase with the native
+  `rcc-ci.exe`: compile all 38 `CORE_SOURCES` twice for i686 and x86_64 and
+  verify all 76 source/target object pairs are byte-identical.
+- [x] Reproduce the stage1 link phase with native `rld-ci.exe`: link the 33
+  listed RCC objects with all 77 runtime imports twice per target and verify
+  identical unsigned-v3 RIN images for i686 and x86_64.
+- [x] Run the focused C++20 dependent nested-type target with the Windows
+  `SHELL=cmd.exe` recipe: freestanding i686 execution, PE-i386 object check,
+  and AMD64 host-adapter execution all pass.
+
+These focused checks do not complete current-revision `test-ci`, stage1
+execution, or stage2 bootstrap; the full host gate remains subject to the
+separately recorded WSL startup failure.
