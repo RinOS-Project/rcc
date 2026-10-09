@@ -21,11 +21,14 @@ are emitted with zero verified-backend fallback, checks x87 opcodes and
 external relocations, then executes the generated i686 code in a host process.
 All four configurations passed on 2026-10-09.
 
+The separate `test-verified-i686-floating-comparisons` target covers all six
+ordered predicates for `float` and `double`, NaN unordered behavior, signed
+zero, and truth conversion. It also passes in C/C++ at `-O0` and `-O2` without
+verified-backend fallback, including host execution of the generated i686 code.
+
 ## Remaining work
 
-Floating comparisons and truth conversion, integer/floating conversion,
-unary operations, compound updates, and conditional selection are not part of
-this implementation. The verified lowering continues to route unsupported
-operations to the legacy backend. Their i686 typed-SSA implementation and
-fallback-free execution remain unchecked in `TODO.md`; this status does not
-claim them complete.
+Integer/floating conversion, unary operations, compound updates, and floating
+conditional selection remain outside these completed paths. The verified
+lowering keeps their complete legacy-backend behavior; i686 typed-SSA lowering
+and fallback-free execution remain open in `TODO.md`.

@@ -736,15 +736,14 @@ static RccIrInstruction* lower_append(
     RccIrInstruction* instruction;
     if (!context || !context->current || context->terminated) return NULL;
     if (g_opts.target_arch == ARCH_X86 &&
-        (opcode == RCC_IR_FCMP || opcode == RCC_IR_SITOFP ||
-         opcode == RCC_IR_FPTOSI || opcode == RCC_IR_FPTRUNC ||
+        (opcode == RCC_IR_SITOFP || opcode == RCC_IR_FPTOSI ||
+         opcode == RCC_IR_FPTRUNC ||
          opcode == RCC_IR_FPEXT ||
          (opcode == RCC_IR_SELECT &&
           type.kind == RCC_IR_TYPE_FLOAT))) {
-        /* The i686 verified path keeps values in spill slots and uses x87
-         * only for arithmetic and ABI transfers.  Comparisons, conversions,
-         * and floating selects remain on the complete legacy path until
-         * their x87 flag/rounding semantics have dedicated legalization. */
+        /* Comparisons and truth conversion have dedicated x87 lowering.
+         * Numeric conversions and floating selects still use the complete
+         * legacy path until their rounding/selection semantics are lowered. */
         context->unsupported = true;
         return NULL;
     }
@@ -1163,6 +1162,25 @@ static RccIrLowerValue lower_truth(RccIrLowerContext* context,
         RccIrType integer_type;
         RccIrLowerValue mask;
         uint64_t magnitude_mask;
+        if (g_opts.target_arch == ARCH_X86) {
+            Type* source_type;
+            if (source.type.bit_width != 32u &&
+                source.type.bit_width != 64u) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            source_type = source.type.bit_width == 32u
+                ? type_float : type_double;
+            zero = lower_float_constant(context, source_type, 0.0);
+            if (!zero.valid) return lower_invalid_value();
+            operands[0] = source.value;
+            operands[1] = zero.value;
+            compare = lower_append(
+                context, RCC_IR_FCMP, i1, operands, 2u, NULL, 0u);
+            if (!compare) return lower_invalid_value();
+            rcc_ir_set_predicate(compare, RCC_IR_ICMP_NE);
+            return lower_value(compare->result, i1, true);
+        }
         if (g_opts.target_arch != ARCH_X64 ||
             (source.type.bit_width != 32u &&
              source.type.bit_width != 64u)) {
@@ -5179,7 +5197,8 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
     if (comparison_type &&
         (comparison_type->kind == TYPE_FLOAT ||
          comparison_type->kind == TYPE_DOUBLE)) {
-        if (g_opts.target_arch != ARCH_X64) {
+        if (g_opts.target_arch != ARCH_X86 &&
+            g_opts.target_arch != ARCH_X64) {
             context->unsupported = true;
             return lower_invalid_value();
         }

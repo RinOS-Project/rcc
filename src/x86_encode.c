@@ -1116,10 +1116,29 @@ static bool x86_emit_float_compare_flags(
     RccX86Value left = instruction->operands[0];
     RccX86Value right = instruction->operands[1];
     unsigned left_register;
-    if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
-        (size != 4u && size != 8u)) {
+    if ((size != 4u && size != 8u)) {
         return x86_encode_error(
             encoder, "x86 scalar floating comparison width is invalid");
+    }
+    if (encoder->function->target == RCC_X86_TARGET_I686) {
+        if (!x86_i686_memory_value(left) ||
+            !x86_i686_memory_value(right)) {
+            return x86_encode_error(
+                encoder, "i686 x87 comparison operands are invalid");
+        }
+        /* Load rhs first so FUCOMIP compares lhs (ST0) against rhs (ST1).
+         * FUCOMIP sets EFLAGS, pops lhs, and FSTP ST0 removes rhs without
+         * changing those flags.  This preserves unordered/NaN conditions. */
+        return x86_emit_x87_memory(encoder, size, 0u, right) &&
+            x86_emit_x87_memory(encoder, size, 0u, left) &&
+            x86_emit_u8(encoder, 0xdfu) &&
+            x86_emit_u8(encoder, 0xe9u) && /* FUCOMIP ST0, ST1 */
+            x86_emit_u8(encoder, 0xddu) &&
+            x86_emit_u8(encoder, 0xd8u); /* FSTP ST0 */
+    }
+    if (encoder->function->target != RCC_X86_TARGET_X86_64) {
+        return x86_encode_error(
+            encoder, "x86 scalar floating comparison target is invalid");
     }
     if (left.kind == RCC_X86_VALUE_FPR) {
         left_register = left.fpr;

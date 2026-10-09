@@ -685,7 +685,8 @@ bool rcc_x86_verify_function(
                 (instruction->opcode == RCC_X86_COMPARE_SET &&
                  instruction->operand_count == 2u &&
                  instruction->operand_types[0].kind == RCC_MIR_TYPE_FLOAT &&
-                 (function->target != RCC_X86_TARGET_X86_64 ||
+                 ((function->target != RCC_X86_TARGET_I686 &&
+                   function->target != RCC_X86_TARGET_X86_64) ||
                   !rcc_mir_type_equal(
                       instruction->type, rcc_mir_type_integer(1u)) ||
                   !rcc_mir_type_equal(

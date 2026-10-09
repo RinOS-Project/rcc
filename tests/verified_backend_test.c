@@ -2810,6 +2810,54 @@ static void verify_i686_float_arithmetic_object(const char* path)
     objfile_free(object);
 }
 
+static void verify_i686_float_comparison_object(const char* path)
+{
+    static const char* compare_names[] = {
+        "verified_i686_compare_f32",
+        "verified_i686_compare_f64",
+    };
+    static const char* truth_names[] = {
+        "verified_i686_truth_f32",
+        "verified_i686_truth_f64",
+    };
+    static const uint8_t fucomip[] = {0xdfu, 0xe9u};
+    static const uint8_t fstp_st0[] = {0xddu, 0xd8u};
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+
+    assert(object != NULL && object->arch == ARCH_X86);
+    text = objfile_get_section(object, ".text");
+    assert(text != NULL && text->size != 0u &&
+           (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
+               (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
+    for (size_t index = 0u;
+         index < sizeof(compare_names) / sizeof(compare_names[0]); ++index) {
+        ObjSymbol* symbol = objfile_find_symbol(object, compare_names[index]);
+        const uint8_t* bytes;
+        size_t size;
+        assert(symbol != NULL && symbol->type == SYM_GLOBAL &&
+               symbol->binding == BIND_CODE && symbol->section == 0 &&
+               symbol->size != 0u && symbol->value <= text->size &&
+               symbol->size <= text->size - symbol->value);
+        bytes = text->data + (size_t)symbol->value;
+        size = (size_t)symbol->size;
+        assert(bytes_contain(bytes, size, fucomip, sizeof(fucomip)));
+        assert(bytes_contain(bytes, size, fstp_st0, sizeof(fstp_st0)));
+    }
+    for (size_t index = 0u;
+         index < sizeof(truth_names) / sizeof(truth_names[0]); ++index) {
+        ObjSymbol* symbol = objfile_find_symbol(object, truth_names[index]);
+        assert(symbol != NULL && symbol->type == SYM_GLOBAL &&
+               symbol->binding == BIND_CODE && symbol->section == 0 &&
+               symbol->size != 0u && symbol->value <= text->size &&
+               symbol->size <= text->size - symbol->value);
+        assert(bytes_contain(
+            text->data + (size_t)symbol->value, (size_t)symbol->size,
+            fucomip, sizeof(fucomip)));
+    }
+    objfile_free(object);
+}
+
 static void verify_native_execution(const char* path, uint16_t arch)
 {
     ObjectFile* object = objfile_read(path);
@@ -4319,6 +4367,12 @@ int main(int argc, char** argv)
         strcmp(argv[1], "--i686-float-arithmetic-object") == 0) {
         verify_i686_float_arithmetic_object(argv[2]);
         puts("Verified i686 typed x87 arithmetic object passed");
+        return 0;
+    }
+    if (argc == 3 &&
+        strcmp(argv[1], "--i686-float-comparison-object") == 0) {
+        verify_i686_float_comparison_object(argv[2]);
+        puts("Verified i686 typed x87 comparison object passed");
         return 0;
     }
     if (argc == 3 && strcmp(argv[1], "--sysv-va-aggregate-object") == 0) {

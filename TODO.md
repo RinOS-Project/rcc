@@ -1064,10 +1064,12 @@
     - [x] x87 typed arithmetic実装前のi686でfloat/double型をlowering前に
           legacy backendへ戻し、最適化で定数式になった関数がx86 selectorで
           late failureしないことをC/C++ `test-optimize`で検証した。
-    - [ ] typed SSAのi686 scalar floating comparison/truth、conversion、unary、
-          compound update、conditional selectをx87 semanticsへlowerし、
-          C/C++ `-O0`/`-O2`でfallbackなしのobject・runtime結果を検証する。
-          未対応演算のfallbackは残し、親の算術項目の完了とはみなさない。
+    - [x] typed SSAのi686 scalar `float`/`double`比較とtruth conversionを
+          `FUCOMIP`のunordered flagsを保ってlowerし、NaNの`!=`/ordered predicate、
+          ±0、真偽値をC/C++ `-O0`/`-O2`のfallbackなし実行で検証する。
+    - [ ] typed SSAのi686 scalar floating conversion、unary、compound update、
+          conditional selectをx87 semanticsへlowerし、C/C++ `-O0`/`-O2`で
+          fallbackなしのobject・runtime結果を検証する。未対応演算のfallbackは残す。
   - [x] i686 wide-scalarの代入、複合代入、pre/post incrementをpair
         load/storeとcarry/borrow付き演算へlowerし、両archのobject・x64
         実行回帰で検証
