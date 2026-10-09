@@ -553,18 +553,16 @@
           default. The i686/AMD64 friend-function gate passes with x64 host
           execution; GCC C++20 accepts the positive fixture and rejects all
           five invalid fixtures.
-    - [x] Match constrained friend-template redeclarations with equivalent
-          integral requires-clause trees, no-parameter type requirements, and
-          local-parameter expression requirements (`sizeof` and member access)
-          with renamed outer and local parameters. Preserve both constraint
-          scopes, execute positive friend calls, and reject an unsatisfied integral
-          constraint, a missing required type, and an invalid required member
-          expression on both targets. The focused friend gate and
-          `test-cxx-constraints` pass; GCC C++20 accepts the positive fixtures
-          and rejects the invalid ones.
-    - [ ] Complete constraint equivalence for additional local-parameter
-          expression forms, nested/compound requirements, and the full standard
-          constraint model; template-template defaults/signatures
+    - [x] Match constrained friend-template redeclarations across simple,
+          type, nested, and compound requirements in source order. Map renamed
+          requires-expression parameters by nested scope and position, including
+          a nested requires-expression that refers to an outer local parameter.
+          Execute the positive friend call and reject a declaration whose
+          requirement order differs on i686/AMD64; the focused friend gate and
+          GCC C++20 comparison pass.
+    - [ ] Complete constraint equivalence for remaining expression forms,
+          compound return-type requirements, concept normalization, and the full
+          standard constraint model; template-template defaults/signatures
           beyond the one-type-parameter form, non-type defaults outside the
           supported integral constant-expression evaluator, general overload/redeclaration
           matching beyond the tested type/integral-non-type and identical-pack

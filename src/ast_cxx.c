@@ -2390,39 +2390,70 @@ static int cxx_template_redeclaration_parameter_named(
     return -1;
 }
 
-static int cxx_template_redeclaration_requires_parameter_index(
-    const DeclList* parameters, const Expr* expression) {
-    int index = 0;
-    if (!expression) return -1;
-    for (const DeclList* parameter = parameters; parameter;
-         parameter = parameter->next, ++index) {
-        if (parameter->decl && parameter->decl == expression->ident_decl) {
-            return index;
+typedef struct CxxRequiresParameterScope {
+    const DeclList* parameters;
+    const struct CxxRequiresParameterScope* parent;
+} CxxRequiresParameterScope;
+
+static bool cxx_template_redeclaration_requires_parameter_location(
+    const CxxRequiresParameterScope* scope, const Expr* expression,
+    int* scope_depth, int* parameter_index) {
+    int current_depth = 0;
+    if (!expression) return false;
+    for (; scope; scope = scope->parent, ++current_depth) {
+        int index = 0;
+        for (const DeclList* parameter = scope->parameters; parameter;
+             parameter = parameter->next, ++index) {
+            if (parameter->decl && parameter->decl == expression->ident_decl) {
+                *scope_depth = current_depth;
+                *parameter_index = index;
+                return true;
+            }
+        }
+        index = 0;
+        for (const DeclList* parameter = scope->parameters; parameter;
+             parameter = parameter->next, ++index) {
+            if (parameter->decl && parameter->decl->name &&
+                expression->ident_name &&
+                strcmp(parameter->decl->name, expression->ident_name) == 0) {
+                *scope_depth = current_depth;
+                *parameter_index = index;
+                return true;
+            }
         }
     }
-    index = 0;
-    for (const DeclList* parameter = parameters; parameter;
-         parameter = parameter->next, ++index) {
-        if (parameter->decl && parameter->decl->name &&
-            expression->ident_name &&
-            strcmp(parameter->decl->name, expression->ident_name) == 0) {
-            return index;
-        }
-    }
-    return -1;
+    return false;
+}
+
+static bool cxx_template_redeclaration_requires_parameter_matches(
+    const CxxRequiresParameterScope* left_scope, const Expr* left,
+    const CxxRequiresParameterScope* right_scope, const Expr* right,
+    bool* is_local) {
+    int left_depth = -1;
+    int right_depth = -1;
+    int left_index = -1;
+    int right_index = -1;
+    bool left_local = cxx_template_redeclaration_requires_parameter_location(
+        left_scope, left, &left_depth, &left_index);
+    bool right_local = cxx_template_redeclaration_requires_parameter_location(
+        right_scope, right, &right_depth, &right_index);
+    *is_local = left_local || right_local;
+    return !*is_local ||
+        (left_local && right_local && left_depth == right_depth &&
+         left_index == right_index);
 }
 
 static bool cxx_template_redeclaration_expr_matches(
     const Expr* left, const CxxTemplate* left_template,
-    const DeclList* left_requires_params,
+    const CxxRequiresParameterScope* left_requires_params,
     const Expr* right, const CxxTemplate* right_template,
-    const DeclList* right_requires_params, int depth);
+    const CxxRequiresParameterScope* right_requires_params, int depth);
 
 static bool cxx_template_redeclaration_expr_list_matches(
     const ExprList* left, const CxxTemplate* left_template,
-    const DeclList* left_requires_params,
+    const CxxRequiresParameterScope* left_requires_params,
     const ExprList* right, const CxxTemplate* right_template,
-    const DeclList* right_requires_params, int depth) {
+    const CxxRequiresParameterScope* right_requires_params, int depth) {
     while (left && right) {
         if (!cxx_template_redeclaration_expr_matches(
                 left->expr, left_template, left_requires_params,
@@ -2435,21 +2466,111 @@ static bool cxx_template_redeclaration_expr_list_matches(
     return !left && !right;
 }
 
+typedef enum {
+    CXX_REDECL_REQUIREMENT_EXPRESSION,
+    CXX_REDECL_REQUIREMENT_NESTED,
+    CXX_REDECL_REQUIREMENT_TYPE,
+    CXX_REDECL_REQUIREMENT_COMPOUND,
+} CxxRedeclarationRequirementKind;
+
+typedef struct {
+    const ExprList* expressions;
+    const ExprList* nested;
+    const TypeList* types;
+    const CxxCompoundRequirement* compounds;
+} CxxRedeclarationRequirementCursor;
+
+typedef struct {
+    CxxRedeclarationRequirementKind kind;
+    const Expr* expression;
+    Type* type;
+    const CxxCompoundRequirement* compound;
+    SourceLoc loc;
+} CxxRedeclarationRequirement;
+
+static bool cxx_template_redeclaration_loc_before(SourceLoc left,
+                                                   SourceLoc right) {
+    return left.line < right.line ||
+        (left.line == right.line && left.column < right.column);
+}
+
+static bool cxx_template_redeclaration_next_requirement(
+    const CxxRedeclarationRequirementCursor* cursor,
+    CxxRedeclarationRequirement* requirement) {
+    bool found = false;
+    if (cursor->expressions) {
+        requirement->kind = CXX_REDECL_REQUIREMENT_EXPRESSION;
+        requirement->expression = cursor->expressions->expr;
+        requirement->type = NULL;
+        requirement->compound = NULL;
+        requirement->loc = cursor->expressions->expr->loc;
+        found = true;
+    }
+    if (cursor->nested && (!found || cxx_template_redeclaration_loc_before(
+            cursor->nested->expr->loc, requirement->loc))) {
+        requirement->kind = CXX_REDECL_REQUIREMENT_NESTED;
+        requirement->expression = cursor->nested->expr;
+        requirement->type = NULL;
+        requirement->compound = NULL;
+        requirement->loc = cursor->nested->expr->loc;
+        found = true;
+    }
+    if (cursor->types && (!found || cxx_template_redeclaration_loc_before(
+            cursor->types->loc, requirement->loc))) {
+        requirement->kind = CXX_REDECL_REQUIREMENT_TYPE;
+        requirement->expression = NULL;
+        requirement->type = cursor->types->type;
+        requirement->compound = NULL;
+        requirement->loc = cursor->types->loc;
+        found = true;
+    }
+    if (cursor->compounds && (!found || cxx_template_redeclaration_loc_before(
+            cursor->compounds->loc, requirement->loc))) {
+        requirement->kind = CXX_REDECL_REQUIREMENT_COMPOUND;
+        requirement->expression = NULL;
+        requirement->type = NULL;
+        requirement->compound = cursor->compounds;
+        requirement->loc = cursor->compounds->loc;
+        found = true;
+    }
+    return found;
+}
+
+static void cxx_template_redeclaration_advance_requirement(
+    CxxRedeclarationRequirementCursor* cursor,
+    CxxRedeclarationRequirementKind kind) {
+    switch (kind) {
+        case CXX_REDECL_REQUIREMENT_EXPRESSION:
+            cursor->expressions = cursor->expressions->next;
+            break;
+        case CXX_REDECL_REQUIREMENT_NESTED:
+            cursor->nested = cursor->nested->next;
+            break;
+        case CXX_REDECL_REQUIREMENT_TYPE:
+            cursor->types = cursor->types->next;
+            break;
+        case CXX_REDECL_REQUIREMENT_COMPOUND:
+            cursor->compounds = cursor->compounds->next;
+            break;
+    }
+}
+
 static bool cxx_template_redeclaration_requires_matches(
     const Expr* left, const CxxTemplate* left_template,
-    const DeclList* left_outer_requires_params,
+    const CxxRequiresParameterScope* left_outer_requires_params,
     const Expr* right, const CxxTemplate* right_template,
-    const DeclList* right_outer_requires_params, int depth) {
+    const CxxRequiresParameterScope* right_outer_requires_params, int depth) {
     const DeclList* left_parameter;
     const DeclList* right_parameter;
-    const TypeList* left_requirement;
-    const TypeList* right_requirement;
+    CxxRequiresParameterScope left_scope;
+    CxxRequiresParameterScope right_scope;
+    CxxRedeclarationRequirementCursor left_cursor;
+    CxxRedeclarationRequirementCursor right_cursor;
+    CxxRedeclarationRequirement left_requirement;
+    CxxRedeclarationRequirement right_requirement;
     if (!left || !right || depth > 64 ||
         left->kind != EXPR_CXX_REQUIRES ||
-        right->kind != EXPR_CXX_REQUIRES ||
-        left_outer_requires_params || right_outer_requires_params ||
-        left->cxx_requires_nested || right->cxx_requires_nested ||
-        left->cxx_requires_compound || right->cxx_requires_compound) {
+        right->kind != EXPR_CXX_REQUIRES) {
         return false;
     }
     left_parameter = left->cxx_requires_params;
@@ -2466,33 +2587,84 @@ static bool cxx_template_redeclaration_requires_matches(
         left_parameter = left_parameter->next;
         right_parameter = right_parameter->next;
     }
-    if (left_parameter || right_parameter ||
-        !cxx_template_redeclaration_expr_list_matches(
-            left->cxx_requires_items, left_template,
-            left->cxx_requires_params,
-            right->cxx_requires_items, right_template,
-            right->cxx_requires_params, depth + 1)) {
-        return false;
-    }
-    left_requirement = left->cxx_requires_types;
-    right_requirement = right->cxx_requires_types;
-    while (left_requirement && right_requirement) {
-        if (!cxx_template_redeclaration_type_matches(
-                left_requirement->type, left_template,
-                right_requirement->type, right_template, depth + 1)) {
+    if (left_parameter || right_parameter) return false;
+
+    left_scope.parameters = left->cxx_requires_params;
+    left_scope.parent = left_outer_requires_params;
+    right_scope.parameters = right->cxx_requires_params;
+    right_scope.parent = right_outer_requires_params;
+    left_cursor.expressions = left->cxx_requires_items;
+    left_cursor.nested = left->cxx_requires_nested;
+    left_cursor.types = left->cxx_requires_types;
+    left_cursor.compounds = left->cxx_requires_compound;
+    right_cursor.expressions = right->cxx_requires_items;
+    right_cursor.nested = right->cxx_requires_nested;
+    right_cursor.types = right->cxx_requires_types;
+    right_cursor.compounds = right->cxx_requires_compound;
+    while (left_cursor.expressions || left_cursor.nested || left_cursor.types ||
+           left_cursor.compounds) {
+        if (!cxx_template_redeclaration_next_requirement(
+                &left_cursor, &left_requirement) ||
+            !cxx_template_redeclaration_next_requirement(
+                &right_cursor, &right_requirement) ||
+            left_requirement.kind != right_requirement.kind) {
             return false;
         }
-        left_requirement = left_requirement->next;
-        right_requirement = right_requirement->next;
+        switch (left_requirement.kind) {
+            case CXX_REDECL_REQUIREMENT_EXPRESSION:
+            case CXX_REDECL_REQUIREMENT_NESTED:
+                if (!cxx_template_redeclaration_expr_matches(
+                        left_requirement.expression, left_template, &left_scope,
+                        right_requirement.expression, right_template,
+                        &right_scope, depth + 1)) {
+                    return false;
+                }
+                break;
+            case CXX_REDECL_REQUIREMENT_TYPE:
+                if (!cxx_template_redeclaration_type_matches(
+                        left_requirement.type, left_template,
+                        right_requirement.type, right_template, depth + 1)) {
+                    return false;
+                }
+                break;
+            case CXX_REDECL_REQUIREMENT_COMPOUND: {
+                const CxxCompoundRequirement* left_compound =
+                    left_requirement.compound;
+                const CxxCompoundRequirement* right_compound =
+                    right_requirement.compound;
+                if (left_compound->is_noexcept != right_compound->is_noexcept ||
+                    left_compound->return_type_convertible !=
+                        right_compound->return_type_convertible ||
+                    (!!left_compound->return_type !=
+                        !!right_compound->return_type) ||
+                    !cxx_template_redeclaration_expr_matches(
+                        left_compound->expr, left_template, &left_scope,
+                        right_compound->expr, right_template, &right_scope,
+                        depth + 1) ||
+                    (left_compound->return_type &&
+                     !cxx_template_redeclaration_type_matches(
+                        left_compound->return_type, left_template,
+                        right_compound->return_type, right_template,
+                        depth + 1))) {
+                    return false;
+                }
+                break;
+            }
+        }
+        cxx_template_redeclaration_advance_requirement(
+            &left_cursor, left_requirement.kind);
+        cxx_template_redeclaration_advance_requirement(
+            &right_cursor, right_requirement.kind);
     }
-    return !left_requirement && !right_requirement;
+    return !right_cursor.expressions && !right_cursor.nested &&
+        !right_cursor.types && !right_cursor.compounds;
 }
 
 static bool cxx_template_redeclaration_expr_matches(
     const Expr* left, const CxxTemplate* left_template,
-    const DeclList* left_requires_params,
+    const CxxRequiresParameterScope* left_requires_params,
     const Expr* right, const CxxTemplate* right_template,
-    const DeclList* right_requires_params, int depth) {
+    const CxxRequiresParameterScope* right_requires_params, int depth) {
     if (!left || !right || depth > 64 || left->kind != right->kind) {
         return false;
     }
@@ -2513,16 +2685,11 @@ static bool cxx_template_redeclaration_expr_matches(
                     left->type, left_template, right->type, right_template,
                     depth + 1);
         case EXPR_IDENT: {
-            int left_local_index =
-                cxx_template_redeclaration_requires_parameter_index(
-                    left_requires_params, left);
-            int right_local_index =
-                cxx_template_redeclaration_requires_parameter_index(
-                    right_requires_params, right);
-            if (left_local_index >= 0 || right_local_index >= 0) {
-                return left_local_index >= 0 &&
-                    right_local_index == left_local_index;
-            }
+            bool is_local;
+            if (!cxx_template_redeclaration_requires_parameter_matches(
+                    left_requires_params, left, right_requires_params, right,
+                    &is_local)) return false;
+            if (is_local) return true;
             int left_index = cxx_template_redeclaration_parameter_named(
                 left_template, left->ident_name);
             int right_index = cxx_template_redeclaration_parameter_named(
@@ -2555,18 +2722,15 @@ static bool cxx_template_redeclaration_expr_matches(
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
             if (left->sizeof_pack_name || right->sizeof_pack_name) {
-                int left_local_index =
-                    cxx_template_redeclaration_requires_parameter_index(
-                        left_requires_params,
-                        &(Expr){.ident_name = left->sizeof_pack_name});
-                int right_local_index =
-                    cxx_template_redeclaration_requires_parameter_index(
-                        right_requires_params,
-                        &(Expr){.ident_name = right->sizeof_pack_name});
-                if (left_local_index >= 0 || right_local_index >= 0) {
-                    return left_local_index >= 0 &&
-                        right_local_index == left_local_index;
+                Expr left_pack = {.ident_name = left->sizeof_pack_name};
+                Expr right_pack = {.ident_name = right->sizeof_pack_name};
+                bool is_local;
+                if (!cxx_template_redeclaration_requires_parameter_matches(
+                        left_requires_params, &left_pack,
+                        right_requires_params, &right_pack, &is_local)) {
+                    return false;
                 }
+                if (is_local) return true;
                 int left_index = cxx_template_redeclaration_parameter_named(
                     left_template, left->sizeof_pack_name);
                 int right_index = cxx_template_redeclaration_parameter_named(

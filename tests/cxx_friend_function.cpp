@@ -257,23 +257,48 @@ int reveal_type_requirement_friend(V& host, int replacement) {
 }
 
 template<class T>
-requires requires(T candidate) { candidate.marker; sizeof(candidate); }
+requires requires(T candidate) {
+    candidate.marker;
+    typename T::value_type;
+    requires sizeof(T) > 0;
+    requires requires(int nested) {
+        sizeof(candidate) >= sizeof(nested);
+    };
+    { candidate.marker } noexcept;
+}
 int reveal_local_requirement_friend(T& host, int replacement);
 
 class LocalRequirementFriendTemplateHost {
 public:
+    using value_type = int;
     int marker;
 
 private:
     int value;
 
     template<class U>
-    requires requires(U probe) { probe.marker; sizeof(probe); }
+    requires requires(U probe) {
+        probe.marker;
+        typename U::value_type;
+        requires sizeof(U) > 0;
+        requires requires(int nested) {
+            sizeof(probe) >= sizeof(nested);
+        };
+        { probe.marker } noexcept;
+    }
     friend int reveal_local_requirement_friend(U& host, int replacement);
 };
 
 template<class V>
-requires requires(V item) { item.marker; sizeof(item); }
+requires requires(V item) {
+    item.marker;
+    typename V::value_type;
+    requires sizeof(V) > 0;
+    requires requires(int nested) {
+        sizeof(item) >= sizeof(nested);
+    };
+    { item.marker } noexcept;
+}
 int reveal_local_requirement_friend(V& host, int replacement) {
     host.value = replacement + 2;
     return host.value;
