@@ -12,8 +12,10 @@ rebind generic/requires operands, lambda captures, pack-expansion patterns,
 temporary cleanup plans, validated move/close metadata, and the shared result
 expression used by temporary receiver cleanup. Resolved declaration identity
 prevents same-name local/requires parameters from being replaced. Unknown
-future expression kinds produce a diagnostic. This source follow-up was not
-built or tested; the broader constructor/member ABI work remains open in
+future expression kinds produce a diagnostic. The focused
+`test-cxx-inline-aggregates` and complete `test-cxx` suites pass after this
+follow-up, including i686/AMD64 object generation, i686 object inspection, and
+x64 host execution. The broader constructor/member ABI work remains open in
 [TODO](TODO.md).
 
 # rcc / rcc++ / aqc

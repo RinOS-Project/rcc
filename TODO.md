@@ -549,7 +549,13 @@
         resolved parameter declaration so nested scopes cannot capture them by
         name. Unknown future expression kinds emit a diagnostic instead of
         lowering with stale constructor references. The focused build and
-        runtime regression were not run for this follow-up.
+        runtime regression pass in `test-cxx-inline-aggregates`; the complete
+        `test-cxx` suite also passes after this follow-up. The i686 and AMD64
+        objects are generated, i686 cleanup symbols/sections are inspected,
+        and the x64 host executes the observed custom-move regression. The
+        aggregate `test-ci` remains incomplete here because its WSL bootstrap
+        command is denied by the host (`E_ACCESSDENIED`); do not treat this as
+        a complete production-gate result.
   - [x] Verify reverse-order runtime finalization for large defined
         namespace-scope arrays using 4101-element explicit-empty and
         no-initializer arrays; verify reverse element and declaration order on
