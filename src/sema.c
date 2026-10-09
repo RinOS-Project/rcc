@@ -11091,6 +11091,10 @@ static Type* sema_expr(Expr* expr) {
                 }
                 *signature = *method->type;
                 signature->params = implicit_object->next;
+                signature->is_const =
+                    method->func_this_param->type->base->is_const;
+                signature->is_volatile =
+                    method->func_this_param->type->base->is_volatile;
                 expr->type = type_ptr(signature);
                 expr->type->cxx_is_member_pointer = true;
                 expr->type->cxx_member_pointer_owner =
@@ -12163,12 +12167,22 @@ static Type* sema_expr(Expr* expr) {
                     member_function && member_function->kind == TYPE_FUNC &&
                     owner && (owner->kind == TYPE_STRUCT ||
                               owner->kind == TYPE_UNION)) {
-                    Type* this_type = type_ptr(owner);
+                    Type* object_owner = owner;
+                    Type* this_type;
                     Type* abi_type = ast_arena_alloc(sizeof(*abi_type));
                     TypeParam* this_parameter =
                         ast_arena_alloc(sizeof(*this_parameter));
                     Expr* this_argument;
                     ExprList* implicit_argument;
+                    if (member_function->is_const ||
+                        member_function->is_volatile) {
+                        object_owner = ast_arena_alloc(sizeof(*object_owner));
+                        *object_owner = *owner;
+                        object_owner->is_const |= member_function->is_const;
+                        object_owner->is_volatile |=
+                            member_function->is_volatile;
+                    }
+                    this_type = type_ptr(object_owner);
                     if (application->kind == EXPR_CXX_MEMBER_PTR_ARROW) {
                         this_argument = application->binary_lhs;
                     } else {

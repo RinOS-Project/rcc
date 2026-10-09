@@ -224,11 +224,9 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
             if (method->is_virtual || method->ref_qualifier !=
                     CXX_REF_QUAL_NONE || method->is_noexcept ||
                 !function_decl->func_this_param->type ||
-                !function_decl->func_this_param->type->base ||
-                function_decl->func_this_param->type->base->is_const ||
-                function_decl->func_this_param->type->base->is_volatile) {
+                !function_decl->func_this_param->type->base) {
                 rcc_error(loc,
-                          "pointer-to-member function requires an unqualified non-virtual method in the current ABI subset");
+                          "pointer-to-member function requires a non-virtual method without ref-qualifier or noexcept in the current ABI subset");
                 return NULL;
             }
             value = expr_unary(

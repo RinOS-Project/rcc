@@ -439,6 +439,10 @@ bool type_is_compatible(Type* a, Type* b) {
                type_is_compatible(a->base, b->base);
     }
     if (a->kind == TYPE_FUNC) {
+        /* C++ pointer-to-member function types retain the member function's
+         * cv qualification on this function-type carrier. */
+        if (a->is_const != b->is_const ||
+            a->is_volatile != b->is_volatile) return false;
         if (!type_is_compatible(a->ret_type, b->ret_type)) return false;
         if (!a->has_prototype || !b->has_prototype) {
             Type* prototype = a->has_prototype ? a : b;

@@ -478,14 +478,16 @@
         both targets. Conversions across virtual bases are ill-formed under C++
         `[conv.mem]`; preserve diagnostics for them instead of treating them as
         an implementation feature.
-    - [x] Implement the first real member-function-pointer path for a defined,
-          unqualified, nonvirtual, non-overloaded method: preserve the owner in
-          the type, form its code address, and invoke it through both `.*` and
-          `->*` with an ABI-level implicit object argument. The focused
-          `test-cxx-member-pointer-functions` test generates i686/AMD64 code
-          and executes the AMD64 output.
+    - [x] Implement defined, nonvirtual, non-overloaded member-function
+          pointers for unqualified, `const`, `volatile`, and `const volatile`
+          methods: preserve the owner and method cv in the type, form its code
+          address, and invoke it through `.*` and `->*` with an ABI-level
+          implicit object argument. Verify Itanium names against GCC, including
+          repeated owner-type substitutions and rejection of dropped cv. The
+          focused `test-cxx-member-pointer-functions` test generates i686/AMD64
+          code and executes the AMD64 output; the full `test-cxx` suite passes.
     - [ ] Extend member-function pointers to overload resolution, inherited
-          member lookup/access and owner conversions, cv/ref/noexcept-qualified
+          member lookup/access and owner conversions, ref/noexcept-qualified
           methods, virtual dispatch and the target's complete member-pointer
           representation/this-adjustment ABI. Add typed-SSA coverage rather
           than treating legacy fallback as verified support. Keep this parent

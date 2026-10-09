@@ -3904,6 +3904,12 @@ static Type* parse_declarator(Type* base_type, const char** name,
                          parser_type_params(function_parameters, &variadic),
                          variadic);
         type->has_prototype = has_prototype;
+        if (nested_pointers && nested_pointers->member_pointer_owner) {
+            while (match(TOK_CONST) || match(TOK_VOLATILE)) {
+                if (previous()->type == TOK_CONST) type->is_const = true;
+                else type->is_volatile = true;
+            }
+        }
         type = apply_pointer_levels(type, nested_pointers);
         if (parameters) *parameters = function_parameters;
         parser_last_declarator_parameter_pack = declarator_parameter_pack;

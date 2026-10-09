@@ -104,7 +104,14 @@ static void mangle_name(char* buf, size_t* pos, const char* name) {
                              (unsigned long)len, name);
 }
 
+typedef struct CxxMangleContext {
+    Type** class_types;
+    size_t class_type_count;
+} CxxMangleContext;
+
 static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type);
+static void cxx_mangle_type_append_context(
+    char* buf, size_t* pos, Type* type, CxxMangleContext* context);
 static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls);
 
 static void mangle_nested_prefix(char* buf, size_t* pos,
@@ -334,16 +341,63 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
     buf[(*pos)++] = 'E';
 }
 
+static size_t cxx_mangle_find_class_substitution(
+    const CxxMangleContext* context, Type* type) {
+    if (!context || !type) return (size_t)-1;
+    for (size_t index = 0; index < context->class_type_count; ++index) {
+        if (type_is_compatible(context->class_types[index], type)) {
+            return index;
+        }
+    }
+    return (size_t)-1;
+}
+
+static void cxx_mangle_append_substitution(char* buf, size_t* pos,
+                                           size_t index) {
+    static const char digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    char encoded[sizeof(size_t) * 8u];
+    size_t count = 0u;
+    size_t value;
+    cxx_mangle_type_char(buf, pos, 'S');
+    if (index == 0u) {
+        cxx_mangle_type_char(buf, pos, '_');
+        return;
+    }
+    value = index - 1u;
+    do {
+        encoded[count++] = digits[value % 36u];
+        value /= 36u;
+    } while (value != 0u);
+    while (count > 0u) {
+        cxx_mangle_type_char(buf, pos, encoded[--count]);
+    }
+    cxx_mangle_type_char(buf, pos, '_');
+}
+
+static void cxx_mangle_record_class_type(CxxMangleContext* context,
+                                         Type* type) {
+    if (!context || !type ||
+        cxx_mangle_find_class_substitution(context, type) != (size_t)-1) {
+        return;
+    }
+    context->class_types = ast_arena_grow(
+        context->class_types,
+        context->class_type_count * sizeof(*context->class_types),
+        (context->class_type_count + 1u) * sizeof(*context->class_types));
+    context->class_types[context->class_type_count++] = type;
+}
+
 /* Append a type without recursively reusing the public static result buffer.
- * A type can contain another function type (for example `int (*)(int)`), so
- * every recursive call must keep writing at the caller's current position. */
-static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type) {
+ * The function-signature context retains repeated class-type substitutions
+ * across parameters, as required by the Itanium ABI. */
+static void cxx_mangle_type_append_context(
+    char* buf, size_t* pos, Type* type, CxxMangleContext* context) {
     if (!type) {
         cxx_mangle_type_char(buf, pos, 'v');
         return;
     }
 
-    while (type->kind == TYPE_PTR) {
+    while (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) {
         cxx_mangle_type_char(buf, pos,
                              type->is_reference
                                  ? (type->is_rvalue_reference ? 'O' : 'R')
@@ -351,7 +405,27 @@ static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type) {
         type = type->base;
     }
 
-    if (type->is_const) cxx_mangle_type_char(buf, pos, 'K');
+    if (type->kind == TYPE_PTR && type->cxx_is_member_pointer) {
+        size_t owner_substitution = cxx_mangle_find_class_substitution(
+            context, type->cxx_member_pointer_owner);
+        cxx_mangle_type_char(buf, pos, 'M');
+        if (owner_substitution != (size_t)-1) {
+            cxx_mangle_append_substitution(buf, pos, owner_substitution);
+        } else {
+            cxx_mangle_type_append_context(
+                buf, pos, type->cxx_member_pointer_owner, context);
+        }
+        cxx_mangle_type_append_context(buf, pos, type->base, context);
+        return;
+    }
+
+    if (type->kind == TYPE_FUNC) {
+        if (type->is_volatile) cxx_mangle_type_char(buf, pos, 'V');
+        if (type->is_const) cxx_mangle_type_char(buf, pos, 'K');
+    } else {
+        if (type->is_volatile) cxx_mangle_type_char(buf, pos, 'V');
+        if (type->is_const) cxx_mangle_type_char(buf, pos, 'K');
+    }
 
     switch (type->kind) {
         case TYPE_VOID:   cxx_mangle_type_char(buf, pos, 'v'); break;
@@ -384,7 +458,7 @@ static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type) {
                 rcc_fatal("C++ vector type name is too long");
             }
             *pos += (size_t)written;
-            cxx_mangle_type_append(buf, pos, type->base);
+            cxx_mangle_type_append_context(buf, pos, type->base, context);
             break;
         }
         case TYPE_NULLPTR:
@@ -393,14 +467,26 @@ static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type) {
             break;
         case TYPE_STRUCT:
         case TYPE_UNION:
-            if (!type->tag) rcc_fatal("C++ anonymous type cannot be mangled");
-            mangle_name(buf, pos, type->tag);
+            {
+                size_t substitution = cxx_mangle_find_class_substitution(
+                    context, type);
+                if (substitution != (size_t)-1) {
+                    cxx_mangle_append_substitution(buf, pos, substitution);
+                    break;
+                }
+                if (!type->tag) {
+                    rcc_fatal("C++ anonymous type cannot be mangled");
+                }
+                mangle_name(buf, pos, type->tag);
+                cxx_mangle_record_class_type(context, type);
+            }
             break;
         case TYPE_ARRAY: {
             char base_mangled[256];
             size_t base_pos = 0u;
             int written;
-            cxx_mangle_type_append(base_mangled, &base_pos, type->base);
+            cxx_mangle_type_append_context(
+                base_mangled, &base_pos, type->base, context);
             base_mangled[base_pos] = '\0';
             written = type->array_len >= 0
                 ? snprintf(buf + *pos, 256u - *pos, "A%d%s",
@@ -414,11 +500,13 @@ static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type) {
         }
         case TYPE_FUNC:
             cxx_mangle_type_char(buf, pos, 'F');
-            cxx_mangle_type_append(buf, pos, type->ret_type);
+            cxx_mangle_type_append_context(
+                buf, pos, type->ret_type, context);
             if (type->params) {
                 for (TypeParam* parameter = type->params; parameter;
                      parameter = parameter->next) {
-                    cxx_mangle_type_append(buf, pos, parameter->type);
+                    cxx_mangle_type_append_context(
+                        buf, pos, parameter->type, context);
                 }
             } else {
                 cxx_mangle_type_char(buf, pos, 'v');
@@ -429,6 +517,10 @@ static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type) {
         default:
             rcc_fatal("unsupported C++ type in name mangling");
     }
+}
+
+static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type) {
+    cxx_mangle_type_append_context(buf, pos, type, NULL);
 }
 
 /* Mangle a type */
@@ -467,6 +559,7 @@ char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls) {
 char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     static char buf[1024];
     size_t pos = 0;
+    CxxMangleContext mangle_context = {0};
     bool is_const_method = false;
     bool is_volatile_method = false;
     CxxRefQualifier ref_qualifier = CXX_REF_QUAL_NONE;
@@ -530,8 +623,18 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     /* Add parameter types */
     if (func->func_params) {
         for (DeclList* p = func->func_params; p; p = p->next) {
-            char* type_mangled = cxx_mangle_type(p->decl->type);
-            pos += snprintf(buf + pos, sizeof(buf) - pos, "%s", type_mangled);
+            char type_mangled[256];
+            size_t type_length = 0u;
+            cxx_mangle_type_append_context(
+                type_mangled, &type_length, p->decl->type,
+                &mangle_context);
+            if (type_length >= sizeof(type_mangled) ||
+                pos + type_length >= sizeof(buf)) {
+                rcc_fatal("C++ mangled function signature is too long");
+            }
+            type_mangled[type_length] = '\0';
+            memcpy(buf + pos, type_mangled, type_length + 1u);
+            pos += type_length;
         }
     } else {
         /* No parameters = void */

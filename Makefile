@@ -2898,9 +2898,19 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 		> $(TEST_OUT)/cxx-member-pointer-functions/x86-arch.log
 	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x86-arch.log
+	$(GREP) -F -q "_Z10invoke_dotR19MemberFunctionOwnerMS_FiiEi" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x86.s
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-member-pointer-functions/x64.s \
 		tests/cxx_member_pointer_functions.cpp
+	$(GREP) -F -q "_Z12invoke_arrowP19MemberFunctionOwnerMS_FiiEi" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
+	$(GREP) -F -q "_Z12invoke_constRK19MemberFunctionOwnerMS_KFiiEi" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
+	$(GREP) -F -q "_Z15invoke_volatileRV19MemberFunctionOwnerMS_VFiiEi" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
+	$(GREP) -F -q "_Z9invoke_cvRVK19MemberFunctionOwnerMS_VKFiiEi" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-member-pointer-functions/x64.o \
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
@@ -2910,6 +2920,10 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 		tests/cxx_language_core_host.c \
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.o
 	$(TEST_OUT)/cxx-member-pointer-functions/x64-host
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/invalid-x86.ro tests/cxx_member_pointer_functions_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/invalid-x86.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-functions/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/invalid-x64.ro tests/cxx_member_pointer_functions_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/invalid-x64.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-functions/invalid-x64.log
 	@echo "C++ non-virtual member-function pointer calls passed for i686 and AMD64"
 
 test-cxx-constraints-posix: $(RCXX_TARGET)
@@ -3239,6 +3253,15 @@ test-cxx-member-pointer-data: $(RCXX_TARGET)
 test-cxx-member-pointer-functions: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-functions)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-member-pointer-functions,cxx_member_pointer_functions.cpp)
+	$(GREP) -F -q "_Z10invoke_dotR19MemberFunctionOwnerMS_FiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x86.s
+	$(GREP) -F -q "_Z12invoke_arrowP19MemberFunctionOwnerMS_FiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x64.s
+	$(GREP) -F -q "_Z12invoke_constRK19MemberFunctionOwnerMS_KFiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x64.s
+	$(GREP) -F -q "_Z15invoke_volatileRV19MemberFunctionOwnerMS_VFiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x64.s
+	$(GREP) -F -q "_Z9invoke_cvRVK19MemberFunctionOwnerMS_VKFiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x64.s
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/invalid-x86.ro tests/cxx_member_pointer_functions_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/invalid-x86.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-functions/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/invalid-x64.ro tests/cxx_member_pointer_functions_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/invalid-x64.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-functions/invalid-x64.log
 	@echo "C++ non-virtual member-function pointer calls passed for i686 and AMD64"
 
 test-cxx-constraints: $(RCXX_TARGET)
