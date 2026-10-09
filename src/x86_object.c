@@ -83,7 +83,8 @@ bool rcc_x86_object_add_function(
         if (!binding_valid) {
             return x86_object_error(
                 error, error_size,
-                "x86 relocation target has incompatible binding");
+                "x86 relocation target '%s' has incompatible binding (%d)",
+                relocation->symbol, (int)target->binding);
         }
     }
     text = objfile_get_section(object, ".text");

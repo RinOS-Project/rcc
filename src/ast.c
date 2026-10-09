@@ -203,6 +203,22 @@ Type* type_ptr(Type* base) {
     return t;
 }
 
+void type_cxx_member_pointer(Type* pointer, Type* owner) {
+    int word_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
+    if (!pointer || pointer->kind != TYPE_PTR || !owner) return;
+    pointer->cxx_is_member_pointer = true;
+    pointer->cxx_member_pointer_owner = owner;
+    pointer->size = pointer->base && pointer->base->kind == TYPE_FUNC
+        ? word_size * 2 : word_size;
+    pointer->align = word_size;
+}
+
+bool type_is_cxx_member_function_pointer(const Type* type) {
+    return type && type->kind == TYPE_PTR &&
+           type->cxx_is_member_pointer && type->base &&
+           type->base->kind == TYPE_FUNC;
+}
+
 Type* type_reference(Type* base, bool rvalue_reference) {
     Type* reference;
     while (base && base->kind == TYPE_PTR && base->is_reference) {
@@ -278,6 +294,8 @@ Type* type_func(Type* ret, TypeParam* params, bool variadic) {
     t->align = 1;
     t->has_explicit_alignment = false;
     t->is_atomic = false;
+    t->function_is_noexcept = false;
+    t->function_ref_qualifier = CXX_REF_QUAL_NONE;
     t->ret_type = ret;
     t->params = params;
     t->variadic = variadic;
@@ -442,7 +460,11 @@ bool type_is_compatible(Type* a, Type* b) {
         /* C++ pointer-to-member function types retain the member function's
          * cv qualification on this function-type carrier. */
         if (a->is_const != b->is_const ||
-            a->is_volatile != b->is_volatile) return false;
+            a->is_volatile != b->is_volatile ||
+            a->function_is_noexcept != b->function_is_noexcept ||
+            a->function_ref_qualifier != b->function_ref_qualifier) {
+            return false;
+        }
         if (!type_is_compatible(a->ret_type, b->ret_type)) return false;
         if (!a->has_prototype || !b->has_prototype) {
             Type* prototype = a->has_prototype ? a : b;
@@ -807,6 +829,7 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_args = args;
     e->call_result_offset = 0;
     e->call_abi_function_type = NULL;
+    e->call_member_pointer_application = NULL;
     e->call_method = NULL;
     e->cxx_call_is_noexcept = false;
     e->cxx_temporary_source = NULL;

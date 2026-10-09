@@ -2989,7 +2989,7 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.ro \
 		tests/cxx_member_pointer_functions_ir.cpp \
 		> $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log 2>&1
-	$(GREP) -F -q "Verified backend: 9 function(s) emitted" \
+	$(GREP) -F -q "Verified backend: 12 function(s) emitted" \
 		$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
@@ -2997,7 +2997,7 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.ro \
 		tests/cxx_member_pointer_functions_ir.cpp \
 		> $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.log 2>&1
-	$(GREP) -F -q "Verified backend: 9 function(s) emitted" \
+	$(GREP) -F -q "Verified backend: 12 function(s) emitted" \
 		$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
@@ -3005,7 +3005,7 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.ro \
 		tests/cxx_member_pointer_functions_ir.cpp \
 		> $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.log 2>&1
-	$(GREP) -F -q "Verified backend: 9 function(s) emitted" \
+	$(GREP) -F -q "Verified backend: 12 function(s) emitted" \
 		$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
@@ -3013,7 +3013,7 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.ro \
 		tests/cxx_member_pointer_functions_ir.cpp \
 		> $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.log 2>&1
-	$(GREP) -F -q "Verified backend: 9 function(s) emitted" \
+	$(GREP) -F -q "Verified backend: 12 function(s) emitted" \
 		$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.log,0)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/invalid-x86.ro tests/cxx_member_pointer_functions_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/invalid-x86.log)
@@ -3024,13 +3024,21 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "member-pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.ro tests/cxx_member_pointer_functions_inherited_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.log)
 	$(GREP) -F -q "member-pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x86.ro tests/cxx_member_pointer_functions_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x86.log)
+	$(GREP) -F -q "ambiguous inherited member-function name 'apply'" $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x64.ro tests/cxx_member_pointer_functions_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x64.log)
+	$(GREP) -F -q "ambiguous inherited member-function name 'apply'" $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x86.ro tests/cxx_member_pointer_functions_virtual_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x86.log)
+	$(GREP) -F -q "static_cast requires one public non-virtual owner base path" $(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x64.ro tests/cxx_member_pointer_functions_virtual_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x64.log)
+	$(GREP) -F -q "static_cast requires one public non-virtual owner base path" $(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.ro tests/cxx_member_pointer_functions_overload_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log)
 	$(GREP) -F -q "no matching member-function overload 'apply' for member-pointer target" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log
 	$(GREP) -F -q "overloaded member-function address requires a member-pointer target type" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.ro tests/cxx_member_pointer_functions_overload_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log)
 	$(GREP) -F -q "no matching member-function overload 'apply' for member-pointer target" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log
 	$(GREP) -F -q "overloaded member-function address requires a member-pointer target type" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log
-	@echo "C++ non-virtual member-function pointer calls passed for i686 and AMD64"
+	@echo "C++ member-function pointer ABI calls passed for i686 and AMD64"
 
 test-cxx-constraints-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
@@ -3376,16 +3384,16 @@ test-cxx-member-pointer-functions: $(RCXX_TARGET)
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-member-pointer-functions/gcc-x64.s tests/cxx_member_pointer_functions.cpp
 	$(GREP) -F -q "_Z22invoke_double_overloadR19MemberFunctionOwnerMS_FidEd" $(TEST_OUT)/cxx-member-pointer-functions/gcc-x64.s
 	$(subst /,\,$(RCXX_TARGET)) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log 2>&1
-	$(GREP) -F -q "Verified backend: 9 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log
+	$(GREP) -F -q "Verified backend: 12 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log,0)
 	$(subst /,\,$(RCXX_TARGET)) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.log 2>&1
-	$(GREP) -F -q "Verified backend: 9 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.log
+	$(GREP) -F -q "Verified backend: 12 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64.log,0)
 	$(subst /,\,$(RCXX_TARGET)) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.log 2>&1
-	$(GREP) -F -q "Verified backend: 9 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.log
+	$(GREP) -F -q "Verified backend: 12 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86-o2.log,0)
 	$(subst /,\,$(RCXX_TARGET)) --target x86_64-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.log 2>&1
-	$(GREP) -F -q "Verified backend: 9 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.log
+	$(GREP) -F -q "Verified backend: 12 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x64-o2.log,0)
 	$(GREP) -F -q "_Z10invoke_dotR19MemberFunctionOwnerMS_FiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x86.s
 	$(GREP) -F -q "_Z12invoke_arrowP19MemberFunctionOwnerMS_FiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x64.s
@@ -3402,13 +3410,21 @@ test-cxx-member-pointer-functions: $(RCXX_TARGET)
 	$(GREP) -F -q "member-pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.ro tests/cxx_member_pointer_functions_inherited_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.log)
 	$(GREP) -F -q "member-pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x86.ro tests/cxx_member_pointer_functions_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x86.log)
+	$(GREP) -F -q "ambiguous inherited member-function name 'apply'" $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x64.ro tests/cxx_member_pointer_functions_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x64.log)
+	$(GREP) -F -q "ambiguous inherited member-function name 'apply'" $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x86.ro tests/cxx_member_pointer_functions_virtual_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x86.log)
+	$(GREP) -F -q "static_cast requires one public non-virtual owner base path" $(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x64.ro tests/cxx_member_pointer_functions_virtual_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x64.log)
+	$(GREP) -F -q "static_cast requires one public non-virtual owner base path" $(TEST_OUT)/cxx-member-pointer-functions/virtual-owner-invalid-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.ro tests/cxx_member_pointer_functions_overload_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log)
 	$(GREP) -F -q "no matching member-function overload 'apply' for member-pointer target" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log
 	$(GREP) -F -q "overloaded member-function address requires a member-pointer target type" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.ro tests/cxx_member_pointer_functions_overload_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log)
 	$(GREP) -F -q "no matching member-function overload 'apply' for member-pointer target" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log
 	$(GREP) -F -q "overloaded member-function address requires a member-pointer target type" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log
-	@echo "C++ non-virtual member-function pointer calls passed for i686 and AMD64"
+	@echo "C++ member-function pointer ABI calls passed for i686 and AMD64"
 
 test-cxx-constraints: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constraints)
@@ -3448,6 +3464,25 @@ test-cxx-constraints: test-cxx-constraints-posix
 test-cxx-named-concepts: test-cxx-named-concepts-posix
 test-cxx-alias-templates: test-cxx-alias-templates-posix
 endif
+
+test-cxx-member-pointer-functions: test-cxx-member-pointer-functions-invalid
+
+test-cxx-member-pointer-functions-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-functions)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-owner-invalid-x86.ro tests/cxx_member_pointer_functions_ambiguous_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/ambiguous-owner-invalid-x86.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-owner-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-owner-invalid-x64.ro tests/cxx_member_pointer_functions_ambiguous_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/ambiguous-owner-invalid-x64.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-functions/ambiguous-owner-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/access-invalid-x86.ro tests/cxx_member_pointer_functions_access_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/access-invalid-x86.log)
+	$(GREP) -F -q "member-pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-functions/access-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/access-invalid-x64.ro tests/cxx_member_pointer_functions_access_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/access-invalid-x64.log)
+	$(GREP) -F -q "member-pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-functions/access-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/qualifier-invalid-x86.ro tests/cxx_member_pointer_functions_qualifier_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/qualifier-invalid-x86.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-functions/qualifier-invalid-x86.log
+	$(GREP) -F -q "member-function pointer receiver does not satisfy the method ref-qualifier" $(TEST_OUT)/cxx-member-pointer-functions/qualifier-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/qualifier-invalid-x64.ro tests/cxx_member_pointer_functions_qualifier_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/qualifier-invalid-x64.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-functions/qualifier-invalid-x64.log
+	$(GREP) -F -q "member-function pointer receiver does not satisfy the method ref-qualifier" $(TEST_OUT)/cxx-member-pointer-functions/qualifier-invalid-x64.log
 
 test-cxx-class-template-methods-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-methods)

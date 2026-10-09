@@ -16,6 +16,8 @@ typedef struct {
 
 Parser parser;  /* Non-static for C++ parser access */
 static bool check(TokenType type);
+static bool parser_parenthesized_pointer_is_function(void);
+static bool parser_parenthesized_declarator_starts_member_pointer(void);
 
 /* The C frontend and C++ frontend share this parser translation unit.  Keep
  * the C-only executable independent of parser_cxx.c without providing fake
@@ -1907,6 +1909,11 @@ static Expr* parse_unary(void) {
                 rcc_error(peek()->loc, "C++ named cast requires a type name");
                 cast_type = type_int;
             }
+            if (check(TOK_LPAREN) &&
+                parser_parenthesized_declarator_starts_member_pointer() &&
+                parser_parenthesized_pointer_is_function()) {
+                cast_type = parse_declarator(cast_type, NULL, NULL);
+            }
         } else if (!is_type_start()) {
             rcc_error(peek()->loc, "C++ named cast requires a type name");
             cast_type = type_int;
@@ -3781,8 +3788,7 @@ static Type* apply_pointer_levels(Type* type,
             : type_ptr(type);
         if (!type) return NULL;
         if (level->member_pointer_owner) {
-            type->cxx_is_member_pointer = true;
-            type->cxx_member_pointer_owner = level->member_pointer_owner;
+            type_cxx_member_pointer(type, level->member_pointer_owner);
         }
         type->is_const = level->is_const;
         type->is_volatile = level->is_volatile;
@@ -3856,8 +3862,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
                           owner->kind == TYPE_UNION)) {
                 while (parser.cur != star->next) advance();
                 type = type_ptr(type);
-                type->cxx_is_member_pointer = true;
-                type->cxx_member_pointer_owner = owner;
+                type_cxx_member_pointer(type, owner);
                 while (match(TOK_CONST) || match(TOK_VOLATILE) ||
                        match(TOK_RESTRICT)) {
                     if (previous()->type == TOK_CONST) type->is_const = true;
@@ -3908,6 +3913,29 @@ static Type* parse_declarator(Type* base_type, const char** name,
             while (match(TOK_CONST) || match(TOK_VOLATILE)) {
                 if (previous()->type == TOK_CONST) type->is_const = true;
                 else type->is_volatile = true;
+            }
+            if (match(TOK_AMP)) {
+                type->function_ref_qualifier = CXX_REF_QUAL_LVALUE;
+            } else if (match(TOK_AND)) {
+                type->function_ref_qualifier = CXX_REF_QUAL_RVALUE;
+            }
+            if (match(TOK_NOEXCEPT)) {
+                type->function_is_noexcept = true;
+                if (match(TOK_LPAREN)) {
+                    Expr* noexcept_expression = parse_expression();
+                    int64_t noexcept_value = 0;
+                    expect(TOK_RPAREN, ")");
+                    if (!noexcept_expression ||
+                        !eval_integer_constant(noexcept_expression,
+                                               &noexcept_value)) {
+                        rcc_error(noexcept_expression
+                                      ? noexcept_expression->loc
+                                      : previous()->loc,
+                                  "member-function pointer noexcept requires an integral constant expression");
+                    } else {
+                        type->function_is_noexcept = noexcept_value != 0;
+                    }
+                }
             }
         }
         type = apply_pointer_levels(type, nested_pointers);

@@ -66,6 +66,12 @@ static AST* current_ast = NULL;
 static Type* sema_decltype_auto_return_type(Expr* expression);
 static bool sema_pointee_qualification_preserved(
     const Type* source, const Type* target);
+static bool sema_cxx_exact_function_signature(Type* candidate,
+                                               Type* target);
+static bool sema_cxx_member_function_signature_convertible(
+    Type* source, Type* target);
+static bool sema_cxx_member_method_lookup_ambiguous(
+    Type* aggregate, const char* name);
 
 static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
     if (!expression) return false;
@@ -446,8 +452,7 @@ static bool sema_cxx_resolve_deferred_member_pointer_form(Expr* expression) {
         return false;
     }
     member_pointer_type = type_ptr(field->type);
-    member_pointer_type->cxx_is_member_pointer = true;
-    member_pointer_type->cxx_member_pointer_owner = owner->type;
+    type_cxx_member_pointer(member_pointer_type, owner->type);
     expression->int_val = field->offset;
     expression->type = member_pointer_type;
     expression->cxx_member_pointer_form_deferred = false;
@@ -2553,9 +2558,12 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
         if (source->kind != TYPE_PTR || target->kind != TYPE_PTR ||
             !source->cxx_is_member_pointer ||
             !target->cxx_is_member_pointer || !source->base ||
-            !target->base || source->base->kind == TYPE_FUNC ||
-            target->base->kind == TYPE_FUNC ||
-            !type_is_compatible(source->base, target->base) ||
+            !target->base ||
+            !(type_is_cxx_member_function_pointer(source) &&
+                      type_is_cxx_member_function_pointer(target)
+                  ? sema_cxx_member_function_signature_convertible(
+                        source->base, target->base)
+                  : type_is_compatible(source->base, target->base)) ||
             !sema_pointee_qualification_preserved(source->base,
                                                   target->base)) {
             return -1;
@@ -2851,14 +2859,21 @@ reference_binding_validated:
             Type* target_owner = target->cxx_member_pointer_owner;
             int owner_adjustment = 0;
             int paths = 0;
+            bool member_function_types =
+                type_is_cxx_member_function_pointer(e->type) &&
+                type_is_cxx_member_function_pointer(target);
+            bool compatible_member_types = e->type->base && target->base &&
+                (member_function_types
+                    ? sema_cxx_member_function_signature_convertible(
+                          e->type->base, target->base)
+                    : type_is_compatible(e->type->base, target->base));
             if (e->is_cxx_nullptr) {
                 e->type = target;
                 return target;
             }
-            if (e->type->base && target->base &&
-                e->type->base->kind != TYPE_FUNC &&
-                target->base->kind != TYPE_FUNC &&
-                type_is_compatible(e->type->base, target->base) &&
+            if (type_is_cxx_member_function_pointer(e->type) ==
+                    type_is_cxx_member_function_pointer(target) &&
+                compatible_member_types &&
                 sema_pointee_qualification_preserved(
                     e->type->base, target->base) &&
                 source_owner && target_owner &&
@@ -2901,7 +2916,14 @@ reference_binding_validated:
         if (e->type->kind == TYPE_PTR && target->kind == TYPE_PTR &&
             e->type->cxx_is_member_pointer &&
             target->cxx_is_member_pointer &&
-            type_is_compatible(e->type, target) &&
+            (type_is_cxx_member_function_pointer(e->type) &&
+             type_is_cxx_member_function_pointer(target)
+                ? type_is_compatible(
+                      e->type->cxx_member_pointer_owner,
+                      target->cxx_member_pointer_owner) &&
+                  sema_cxx_member_function_signature_convertible(
+                      e->type->base, target->base)
+                : type_is_compatible(e->type, target)) &&
             sema_pointee_qualification_preserved(e->type->base,
                                                  target->base)) {
             return target;
@@ -7547,9 +7569,12 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         if (source->kind != TYPE_PTR || target->kind != TYPE_PTR ||
             !source->cxx_is_member_pointer ||
             !target->cxx_is_member_pointer || !source->base ||
-            !target->base || source->base->kind == TYPE_FUNC ||
-            target->base->kind == TYPE_FUNC ||
-            !type_is_compatible(source->base, target->base) ||
+            !target->base ||
+            !(type_is_cxx_member_function_pointer(source) &&
+                      type_is_cxx_member_function_pointer(target)
+                  ? sema_cxx_member_function_signature_convertible(
+                        source->base, target->base)
+                  : type_is_compatible(source->base, target->base)) ||
             !sema_pointee_qualification_preserved(source->base,
                                                   target->base)) {
             return -1;
@@ -7617,6 +7642,10 @@ static bool sema_cxx_exact_function_signature(Type* candidate,
         target->kind != TYPE_FUNC ||
         candidate->is_const != target->is_const ||
         candidate->is_volatile != target->is_volatile ||
+        candidate->function_ref_qualifier !=
+            target->function_ref_qualifier ||
+        (target->function_is_noexcept &&
+         !candidate->function_is_noexcept) ||
         candidate->variadic != target->variadic ||
         !type_is_compatible(candidate->ret_type, target->ret_type)) {
         return false;
@@ -7632,6 +7661,24 @@ static bool sema_cxx_exact_function_signature(Type* candidate,
         target_parameter = target_parameter->next;
     }
     return !candidate_parameter && !target_parameter;
+}
+
+static bool sema_cxx_member_function_signature_convertible(
+    Type* source, Type* target) {
+    Type source_signature;
+    Type target_signature;
+    if (!source || !target || source->kind != TYPE_FUNC ||
+        target->kind != TYPE_FUNC ||
+        (target->function_is_noexcept &&
+         !source->function_is_noexcept)) {
+        return false;
+    }
+    source_signature = *source;
+    target_signature = *target;
+    source_signature.function_is_noexcept = false;
+    target_signature.function_is_noexcept = false;
+    return sema_cxx_exact_function_signature(
+        &source_signature, &target_signature);
 }
 
 /* An overloaded function used as a value has no call arguments from which to
@@ -7663,12 +7710,22 @@ static bool sema_cxx_select_function_pointer_overload(
             address->type = type_int;
             return true;
         }
+        if (sema_cxx_member_method_lookup_ambiguous(
+                designating->type, name->ident_name)) {
+            rcc_error(expression->loc,
+                      "ambiguous inherited member-function name '%s'",
+                      name->ident_name);
+            name->type = type_int;
+            address->type = type_int;
+            return true;
+        }
         for (TypeMethod* method = designating->type->methods; method;
              method = method->next) {
             Decl* candidate = method->function_decl;
             Type* signature;
             Type* owner_type;
             TypeParam* implicit_object;
+            bool owner_conversion;
             if (method->kind != TYPE_METHOD_FUNCTION || !method->name ||
                 strcmp(method->name, name->ident_name) != 0 || !candidate ||
                 !candidate->func_this_param ||
@@ -7693,9 +7750,13 @@ static bool sema_cxx_select_function_pointer_overload(
             signature->is_volatile =
                 candidate->func_this_param->type->base->is_volatile;
             owner_type = candidate->func_method_owner->cxx_class->type;
+            owner_conversion = !type_is_compatible(
+                owner_type, target->cxx_member_pointer_owner);
             if (!sema_cxx_exact_function_signature(signature, target->base) ||
-                !type_is_compatible(owner_type,
-                                    target->cxx_member_pointer_owner)) {
+                (owner_conversion &&
+                 !sema_cxx_unique_public_nonvirtual_member_owner_path(
+                     target->cxx_member_pointer_owner, owner_type,
+                     NULL))) {
                 continue;
             }
             if (selected) {
@@ -7717,17 +7778,9 @@ static bool sema_cxx_select_function_pointer_overload(
             address->type = type_int;
             return true;
         }
-        if (selected_method->is_virtual ||
-            selected_method->ref_qualifier != CXX_REF_QUAL_NONE ||
-            selected_method->is_noexcept) {
-            rcc_error(expression->loc,
-                      "pointer-to-member function requires a non-virtual method without ref-qualifier or noexcept in the current ABI subset");
-            name->type = type_int;
-            address->type = type_int;
-            return true;
-        }
         name->ident_decl = selected;
         name->type = selected->type;
+        address->cxx_member_function_pointer_method = selected_method;
         address->cxx_member_pointer_form_overload_set = false;
         address->cxx_member_pointer_form_access =
             selected_method->cxx_access;
@@ -11513,9 +11566,20 @@ static Type* sema_expr(Expr* expr) {
                 signature->is_volatile =
                     method->func_this_param->type->base->is_volatile;
                 expr->type = type_ptr(signature);
-                expr->type->cxx_is_member_pointer = true;
-                expr->type->cxx_member_pointer_owner =
-                    method->func_method_owner;
+                type_cxx_member_pointer(
+                    expr->type, method->func_method_owner);
+                if (!expr->cxx_member_function_pointer_method) {
+                    for (TypeMethod* candidate =
+                             method->func_method_owner->methods;
+                         candidate; candidate = candidate->next) {
+                        if (candidate->kind == TYPE_METHOD_FUNCTION &&
+                            candidate->function_decl == method) {
+                            expr->cxx_member_function_pointer_method =
+                                candidate;
+                            break;
+                        }
+                    }
+                }
             } else {
                 expr->type = type_ptr(addressed_type);
             }
@@ -11732,13 +11796,17 @@ static Type* sema_expr(Expr* expr) {
                     break;
                 }
                 if (!source->base || !target->base ||
-                    source->base->kind == TYPE_FUNC ||
-                    target->base->kind == TYPE_FUNC ||
-                    !type_is_compatible(source->base, target->base) ||
+                    type_is_cxx_member_function_pointer(source) !=
+                        type_is_cxx_member_function_pointer(target) ||
+            !(type_is_cxx_member_function_pointer(source) &&
+                      type_is_cxx_member_function_pointer(target)
+                  ? sema_cxx_member_function_signature_convertible(
+                        source->base, target->base)
+                  : type_is_compatible(source->base, target->base)) ||
                     !sema_pointee_qualification_preserved(
                         source->base, target->base)) {
                     rcc_error(expr->loc,
-                              "static_cast requires compatible data-member pointer types");
+                              "static_cast requires compatible member-pointer types");
                     break;
                 }
                 if (expr->cast_expr->is_cxx_nullptr) {
@@ -12596,6 +12664,21 @@ static Type* sema_expr(Expr* expr) {
                         ast_arena_alloc(sizeof(*this_parameter));
                     Expr* this_argument;
                     ExprList* implicit_argument;
+                    expr->call_member_pointer_application = application;
+                    expr->cxx_call_is_noexcept =
+                        member_function->function_is_noexcept;
+                    bool receiver_is_lvalue =
+                        application->kind == EXPR_CXX_MEMBER_PTR_ARROW ||
+                        is_lvalue(application->binary_lhs);
+                    if ((member_function->function_ref_qualifier ==
+                             CXX_REF_QUAL_LVALUE &&
+                         !receiver_is_lvalue) ||
+                        (member_function->function_ref_qualifier ==
+                             CXX_REF_QUAL_RVALUE &&
+                         receiver_is_lvalue)) {
+                        rcc_error(expr->loc,
+                                  "member-function pointer receiver does not satisfy the method ref-qualifier");
+                    }
                     if (member_function->is_const ||
                         member_function->is_volatile) {
                         object_owner = ast_arena_alloc(sizeof(*object_owner));
@@ -18011,7 +18094,9 @@ static void sema_decl(Decl* decl) {
                     decl->type && decl->type->ret_type &&
                     (decl->type->ret_type->kind == TYPE_STRUCT ||
                      decl->type->ret_type->kind == TYPE_UNION ||
-                     decl->type->ret_type->kind == TYPE_VECTOR)) {
+                     decl->type->ret_type->kind == TYPE_VECTOR ||
+                     type_is_cxx_member_function_pointer(
+                         decl->type->ret_type))) {
                     param_offset += 4; /* Hidden aggregate-result pointer. */
                 }
                 if (decl->func_this_param) {

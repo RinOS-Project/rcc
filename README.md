@@ -38,6 +38,16 @@ GCC C++20 comparison. Full overload/virtual/adjusting ABI forms remain open in
 [TODO](TODO.md). The Windows gate now converts the compiler executable path
 before shell redirection, so verified-IR checks run under `cmd.exe`.
 
+2026-10-10 member-function pointer ABI completion: member-function pointers
+now use the two-word Itanium `<ptr, adj>` layout in native i686/AMD64 codegen
+and typed SSA. Target-typed overload selection, inherited access and owner
+conversion, ref/noexcept qualifiers, null/equality and ABI argument/return
+passing, `this` adjustment, virtual dispatch, and calls through virtual-base
+objects are covered. The focused gate passes i686/AMD64 generation, generated
+x64 execution, GCC C++20 name comparison, and 12 verified-SSA functions with
+zero fallback at `-O0` and `-O2` on both targets. See the
+[implementation status](docs/implementation-status-rcc-member-function-pointer-abi.md).
+
   2026-10-09 template data-member pointer resolution: inline member bodies in
   class-template specializations now resolve member identity and displacement
   after specialization layout. The `int`/`double` regression exercises distinct
@@ -348,17 +358,17 @@ formation. It generates i686 and AMD64 objects, executes AMD64 output on the
 host, and verifies all seven typed-IR functions on both targets. The same test
 checks global and block-static reference lifetime extension through a
 pointer-to-member-selected subobject and final destruction. Remaining work
-includes member-function pointers, broader inherited/access-authorized forms,
-virtual-base owner conversions, and further ABI/context coverage; see
-[`TODO.md`](TODO.md).
+includes data-member-pointer runtime integration and other unchecked contexts;
+member-function-pointer ABI coverage is recorded in the
+[implementation status](docs/implementation-status-rcc-member-function-pointer-abi.md).
 
 The same regression now checks `&Derived::member` for a unique public member
 inherited through both non-virtual and virtual bases, and verifies that the
 result retains the declaring class as its pointer-to-member owner. Its negative
 companion checks inaccessible member formation, ambiguous object application,
-and ambiguous owner conversion on both targets. Member-function pointers,
-hidden/non-public inherited lookup, and the broader access-context matrix still
-need coverage. Owner conversions across virtual bases are ill-formed in C++.
+and ambiguous owner conversion on both targets. Hidden/non-public inherited
+lookup and the broader data-member-pointer access-context matrix still need
+coverage. Owner conversions across virtual bases are ill-formed in C++.
 
 The regression also checks member-pointee `const` addition (including a
 derived-owner conversion), rejects const removal, requires an lvalue for

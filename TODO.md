@@ -640,17 +640,20 @@
           repeated owner-type substitutions and rejection of dropped cv. The
           focused `test-cxx-member-pointer-functions` test generates i686/AMD64
           code and executes the AMD64 output; the full `test-cxx` suite passes.
-    - [ ] Extend member-function pointers to full overload resolution,
-          ambiguous inherited lookup/access and owner conversions,
-          ref/noexcept-qualified methods, and virtual dispatch. For the
-          GCC-compatible Itanium ABI target, replace the current one-word
-          code-address approximation with the `<ptr, adj>` representation;
-          cover `sizeof`, null/equality, parameter/return passing, owner
-          conversions, and `this` adjustment before claiming ABI support.
-          Keep this parent item open until the remaining valid C++ forms are
-          implemented and verified; do not substitute placeholder lowering.
-          Supported inline-body member-address cases are recorded in the
-          checked children below; full ABI and overload coverage remain open.
+    - [x] Extend member-function pointers to target-typed overload resolution,
+          inherited lookup/access and owner conversions, ref/noexcept-qualified
+          methods, and virtual dispatch. Both native backends and typed SSA use
+          the Itanium `<ptr, adj>` representation, including direct and virtual
+          method encoding, null-preserving adjustment, ABI arguments/returns,
+          receiver adjustment, virtual-base object lookup, and virtual dispatch.
+          `test-cxx-member-pointer-functions` covers size, null/equality,
+          parameter/return passing, multiple-inheritance owner conversion and
+          round-trip equality, ref/noexcept conversions, friend access, private
+          and ambiguous lookup, invalid repeated/virtual owner paths, and
+          virtual dispatch. i686/AMD64 object generation passes; generated x64
+          execution and GCC C++20 name comparison pass. The typed-SSA fixture
+          emits 12 functions with zero fallback notices at `-O0` and `-O2` on
+          both targets. No placeholder lowering is used.
     - [x] Resolve a unique supported nonvirtual member-function address inside
           an inline member body after the class methods are registered; form
           the same pointer type as an out-of-class `&Class::method` and execute
@@ -680,9 +683,10 @@
           expanded gate below checks the exact function count and zero fallback
           notices on each target.
     - [x] Include overloaded member-function address selection, local
-          pointer initialization, and a typed function-argument context in the
-          verified-SSA regression. Require nine emitted functions and zero
-          fallback notices on i686/AMD64 at `-O0` and `-O2`.
+          pointer initialization, typed function-argument and return contexts,
+          indirect calls, and null round trips in the verified-SSA regression.
+          Require twelve emitted functions and zero fallback notices on
+          i686/AMD64 at `-O0` and `-O2`.
   - [x] Preserve member-pointee `const` through same-owner and combined
         derived-owner conversions, reject qualification removal, and require an
         lvalue for built-in scalar assignment through an xvalue-selected member.

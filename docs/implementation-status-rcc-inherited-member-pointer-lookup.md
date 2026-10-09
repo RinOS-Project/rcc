@@ -34,6 +34,8 @@ nonvirtual member-function pointer in an inline body now resolves after method
 registration; its focused gate passes both targets, optimized verified IR,
 generated x64 execution, and GCC C++20. A later-declared in-class static method
 address in an inline body resolves as an ordinary function pointer, verified by
-the same member-function gate. The broader data-member-pointer parent remains
-open until RinOS runtime integration is covered; overload/virtual/adjusting
-member-function-pointer ABI forms remain open ([TODO](../TODO.md)).
+the same member-function gate. Full overload, virtual, owner-adjusting, and
+ref/noexcept member-function-pointer forms are now implemented in the native
+backends and typed SSA ([status](implementation-status-rcc-member-function-pointer-abi.md)).
+The broader data-member-pointer parent remains open until RinOS runtime
+integration and its other unchecked contexts are covered ([TODO](../TODO.md)).

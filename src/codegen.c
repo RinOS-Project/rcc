@@ -1124,6 +1124,43 @@ static bool codegen_emit_static_pointer(Module* mod, Type* type,
         return false;
     }
     if (type->cxx_is_member_pointer) {
+        if (type_is_cxx_member_function_pointer(type)) {
+            TypeMethod* method =
+                initializer->cxx_member_function_pointer_method;
+            Decl* function = initializer->kind == EXPR_ADDR &&
+                    initializer->unary_operand
+                ? initializer->unary_operand->ident_decl : NULL;
+            if (initializer->is_cxx_nullptr ||
+                (initializer->type &&
+                 initializer->type->kind == TYPE_NULLPTR) ||
+                (initializer->kind == EXPR_INT_LIT &&
+                 initializer->int_val == 0)) {
+                memset(mod->data.data + offset, 0, (size_t)type->size);
+                return true;
+            }
+            if (!method ||
+                (!method->is_virtual &&
+                 (!function || !function->link_name)) ||
+                (method->is_virtual && method->vtable_index < 0)) {
+                return false;
+            }
+            if (method->is_virtual) {
+                integer = (int64_t)method->vtable_index * (int64_t)width + 1;
+                for (uint32_t byte = 0u; byte < width; ++byte) {
+                    mod->data.data[offset + byte] =
+                        (uint8_t)((uint64_t)integer >> (byte * 8u));
+                }
+            } else {
+                module_add_relocation(mod, MODULE_SYMBOL_DATA, offset, 0u,
+                                      false, width == 8u,
+                                      decl_link_name(function));
+                add_reloc(mod, MODULE_SYMBOL_DATA, offset,
+                          width == 8u ? RIN_RELOC_ABS64
+                                      : RIN_RELOC_ABS32);
+            }
+            memset(mod->data.data + offset + width, 0, width);
+            return true;
+        }
         uint64_t bits;
         if (initializer->is_cxx_nullptr ||
             (initializer->type &&
@@ -1529,6 +1566,43 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
     if (type->kind == TYPE_PTR) {
         int64_t constant;
         if (type->cxx_is_member_pointer) {
+            if (type_is_cxx_member_function_pointer(type)) {
+                TypeMethod* method =
+                    initializer->cxx_member_function_pointer_method;
+                Decl* function = initializer->kind == EXPR_ADDR &&
+                        initializer->unary_operand
+                    ? initializer->unary_operand->ident_decl : NULL;
+                if (initializer->is_cxx_nullptr ||
+                    (initializer->type &&
+                     initializer->type->kind == TYPE_NULLPTR) ||
+                    (initializer->kind == EXPR_INT_LIT &&
+                     initializer->int_val == 0)) {
+                    memset(mod->tls.data + offset, 0,
+                           (size_t)type->size);
+                    return true;
+                }
+                if (!method ||
+                    (!method->is_virtual &&
+                     (!function || !function->link_name)) ||
+                    (method->is_virtual && method->vtable_index < 0)) {
+                    return false;
+                }
+                if (method->is_virtual) {
+                    constant = (int64_t)method->vtable_index * 4 + 1;
+                    for (uint32_t byte = 0u; byte < 4u; ++byte) {
+                        mod->tls.data[offset + byte] =
+                            (uint8_t)((uint64_t)constant >> (byte * 8u));
+                    }
+                } else {
+                    module_add_relocation(mod, MODULE_SYMBOL_TLS, offset,
+                                          0u, false, false,
+                                          decl_link_name(function));
+                    add_reloc(mod, MODULE_SYMBOL_TLS, offset,
+                              RIN_RELOC_ABS32);
+                }
+                memset(mod->tls.data + offset + 4u, 0, 4u);
+                return true;
+            }
             if (initializer->is_cxx_nullptr ||
                 (initializer->type &&
                  initializer->type->kind == TYPE_NULLPTR)) {
@@ -1811,7 +1885,8 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
         memset(mod->tls.data + offset, 0, size);
         if (!declaration->var_init &&
             declaration->type->kind == TYPE_PTR &&
-            declaration->type->cxx_is_member_pointer) {
+            declaration->type->cxx_is_member_pointer &&
+            !type_is_cxx_member_function_pointer(declaration->type)) {
             memset(mod->tls.data + offset, 0xFF, size);
         }
         mod->tls.size = (size_t)aligned + size;
@@ -1846,7 +1921,8 @@ static bool codegen_emit_static_local(Module* mod, Decl* declaration) {
     if (!declaration->var_init) {
         if (declaration->type->kind == TYPE_PTR &&
             declaration->type->cxx_is_member_pointer &&
-            !declaration->type->is_reference) {
+            !declaration->type->is_reference &&
+            !type_is_cxx_member_function_pointer(declaration->type)) {
             while ((mod->data.size & (alignment - 1u)) != 0u) {
                 emit_data(mod, zero, 1u);
             }
@@ -2024,7 +2100,8 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
             memset(mod->tls.data + offset, 0, size);
             if (!declaration->var_init &&
                 declaration->type->kind == TYPE_PTR &&
-                declaration->type->cxx_is_member_pointer) {
+                declaration->type->cxx_is_member_pointer &&
+                !type_is_cxx_member_function_pointer(declaration->type)) {
                 memset(mod->tls.data + offset, 0xFF, size);
             }
             mod->tls.size = (size_t)aligned + size;
@@ -2134,7 +2211,8 @@ void codegen_emit_global_data(Module* mod, AST* ast) {
         if (!declaration->var_init) {
             if (declaration->type->kind == TYPE_PTR &&
                 declaration->type->cxx_is_member_pointer &&
-                !declaration->type->is_reference) {
+                !declaration->type->is_reference &&
+                !type_is_cxx_member_function_pointer(declaration->type)) {
                 uint64_t aligned = ((uint64_t)mod->data.size + alignment - 1u) &
                                    ~((uint64_t)alignment - 1u);
                 if (aligned > UINT32_MAX || size > UINT32_MAX - aligned) {
@@ -6701,7 +6779,8 @@ static bool gen_inline_method_integer64(Module* mod, Expr* expr);
 static bool gen_aggregate_type32(const Type* type) {
     return type && (type->kind == TYPE_STRUCT ||
                     type->kind == TYPE_UNION ||
-                    type->kind == TYPE_VECTOR);
+                    type->kind == TYPE_VECTOR ||
+                    type_is_cxx_member_function_pointer(type));
 }
 
 static bool gen_expr_is_lvalue(Expr* expression) {
@@ -6949,7 +7028,17 @@ static void gen_lvalue(Module* mod, Expr* expr) {
             break;
 
         case EXPR_INDEX:
-            gen_expr(mod, expr->index_base);
+            if (expr->index_base &&
+                ((expr->index_base->type &&
+                  expr->index_base->type->kind == TYPE_ARRAY) ||
+                 (expr->index_base->kind == EXPR_IDENT &&
+                  expr->index_base->ident_decl &&
+                  expr->index_base->ident_decl->type &&
+                  expr->index_base->ident_decl->type->kind == TYPE_ARRAY))) {
+                gen_lvalue(mod, expr->index_base);
+            } else {
+                gen_expr(mod, expr->index_base);
+            }
             emit_push_reg(mod, EAX);
             gen_expr(mod, expr->index_expr);
             /* Multiply by element size */
@@ -11204,6 +11293,75 @@ static void gen_cxx_reference_adjustment32_force(Module* mod,
     gen_cxx_reference_adjustment32_impl(mod, expression, false);
 }
 
+static bool gen_prepare_member_function_pointer_call32(Module* mod,
+                                                       Expr* call) {
+    Expr* application = call ? call->call_member_pointer_application : NULL;
+    Expr* object;
+    Expr* pointer;
+    int done_label;
+    if (!application) return false;
+    if (call->call_member_pointer_value_offset >= 0 ||
+        call->call_member_pointer_this_offset >= 0 ||
+        !application->binary_lhs || !application->binary_rhs) {
+        rcc_error(call->loc,
+                  "member-function pointer call has incomplete ABI frame metadata");
+        return true;
+    }
+    object = application->binary_lhs;
+    pointer = application->binary_rhs;
+    gen_expr(mod, object);
+    if (application->cxx_virtual_base_member_access) {
+        if (!application->cxx_virtual_base_source_class ||
+            application->cxx_virtual_base_pointer_offset < 0 ||
+            application->cxx_virtual_base_index < 0 ||
+            application->cxx_virtual_base_index >=
+                application->cxx_virtual_base_source_class
+                    ->virtual_base_count) {
+            rcc_error(application->loc,
+                      "member-function pointer virtual-base receiver metadata is incomplete");
+            return true;
+        }
+        emit_mov_reg_mem(mod, EDX, EAX,
+                         application->cxx_virtual_base_pointer_offset);
+        emit_mov_reg_mem(mod, ECX, EDX,
+                         application->cxx_virtual_base_index * 4);
+        emit_add_reg_reg(mod, EAX, ECX);
+        if (application->cxx_virtual_base_nested_adjustment != 0) {
+            emit_add_reg_imm(
+                mod, EAX,
+                application->cxx_virtual_base_nested_adjustment);
+        }
+    } else if (application->cxx_pointer_adjustment_valid &&
+               application->cxx_pointer_adjustment != 0) {
+        emit_add_reg_imm(mod, EAX,
+                         application->cxx_pointer_adjustment);
+    }
+    emit_mov_mem_reg(mod, EBP,
+                     call->call_member_pointer_this_offset, EAX);
+    gen_expr(mod, pointer);
+    emit_mov_reg_reg(mod, ECX, EAX);
+    emit_mov_reg_mem(mod, EAX, ECX, 0);
+    emit_mov_mem_reg(mod, EBP,
+                     call->call_member_pointer_value_offset, EAX);
+    emit_mov_reg_mem(mod, ECX, ECX, 4);
+    emit_mov_mem_reg(mod, EBP,
+                     call->call_member_pointer_value_offset + 4, ECX);
+    emit_mov_reg_mem(mod, ECX, EBP,
+                     call->call_member_pointer_value_offset);
+    emit_mov_reg_mem(mod, EDX, EBP,
+                     call->call_member_pointer_this_offset);
+    emit_test_reg_reg(mod, ECX, ECX);
+    done_label = new_label();
+    emit_jcc_label(mod, CC_E, done_label);
+    emit_mov_reg_mem(mod, ECX, EBP,
+                     call->call_member_pointer_value_offset + 4);
+    emit_add_reg_reg(mod, EDX, ECX);
+    emit_label(mod, done_label);
+    emit_mov_mem_reg(mod, EBP,
+                     call->call_member_pointer_this_offset, EDX);
+    return true;
+}
+
 static void gen_call(Module* mod, Expr* expr) {
     int argument_bytes = 0;
     int temporary_bytes = 0;
@@ -11236,6 +11394,9 @@ static void gen_call(Module* mod, Expr* expr) {
     if (gen_inline_method_call(mod, expr)) return;
     if (gen_compiler_builtin(mod, expr)) return;
     if (gen_atomic_builtin(mod, expr)) return;
+    if (expr->call_member_pointer_application) {
+        (void)gen_prepare_member_function_pointer_call32(mod, expr);
+    }
 
     argc = exprlist_len(expr->call_args);
     args = rcc_alloc((size_t)argc * sizeof(ExprList*));
@@ -11369,7 +11530,19 @@ static void gen_call(Module* mod, Expr* expr) {
         }
         if (passed_type && gen_aggregate_type32(passed_type)) {
             int units = (passed_type->size + 3) / 4;
-            if (argument->kind == EXPR_VA_ARG) {
+            if (type_is_cxx_member_function_pointer(passed_type) &&
+                (argument->is_cxx_nullptr ||
+                 (argument->type &&
+                  argument->type->kind == TYPE_NULLPTR))) {
+                emit_mov_reg_imm(mod, EAX, 0u);
+                for (int unit = 0; unit < units; ++unit) {
+                    emit_push_reg(mod, EAX);
+                }
+                argument_bytes += units * 4;
+                continue;
+            }
+            if (argument->kind == EXPR_VA_ARG ||
+                !gen_expr_is_lvalue(argument)) {
                 gen_expr(mod, argument);
             } else {
                 gen_lvalue(mod, argument);
@@ -11394,7 +11567,13 @@ static void gen_call(Module* mod, Expr* expr) {
             }
             continue;
         }
-        gen_expr(mod, argument);
+        if (expr->call_member_pointer_application && i == 0) {
+            emit_mov_reg_mem(
+                mod, EAX, EBP,
+                expr->call_member_pointer_this_offset);
+        } else {
+            gen_expr(mod, argument);
+        }
         if (gen_is_integer64(passed_type)) {
             if (!gen_is_integer64(argument->type)) {
                 emit_extend_eax_to_integer64(mod, argument->type);
@@ -11441,7 +11620,27 @@ static void gen_call(Module* mod, Expr* expr) {
     rcc_free(reference_temp_offsets);
 
     func_expr = expr->call_func;
-    if (expr->call_is_virtual && expr->call_virtual_index >= 0) {
+    if (expr->call_member_pointer_application) {
+        int direct_label = new_label();
+        int done_label = new_label();
+        emit_mov_reg_mem(mod, EAX, EBP,
+                         expr->call_member_pointer_value_offset);
+        emit_test_reg_imm(mod, EAX, 1u);
+        emit_jcc_label(mod, CC_E, direct_label);
+        emit_mov_reg_mem(mod, ECX, EBP,
+                         expr->call_member_pointer_this_offset);
+        emit_mov_reg_mem(mod, ECX, ECX, 0);
+        emit_sub_reg_imm(mod, EAX, 1u);
+        emit_add_reg_reg(mod, EAX, ECX);
+        emit_mov_reg_mem(mod, EAX, EAX, 0);
+        emit_byte(mod, 0xFF);
+        emit_byte(mod, modrm(3, 2, EAX));
+        emit_jmp_label(mod, done_label);
+        emit_label(mod, direct_label);
+        emit_byte(mod, 0xFF);
+        emit_byte(mod, modrm(3, 2, EAX));
+        emit_label(mod, done_label);
+    } else if (expr->call_is_virtual && expr->call_virtual_index >= 0) {
         int this_offset = argument_bytes - 4;
         emit_mov_reg_mem(mod, EAX, ESP, this_offset);
         emit_mov_reg_mem(mod, EAX, EAX, 0);
@@ -11589,7 +11788,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 if (expr->type && expr->type->kind != TYPE_ARRAY &&
                     expr->type->kind != TYPE_STRUCT &&
                     expr->type->kind != TYPE_UNION &&
-                    expr->type->kind != TYPE_VECTOR) {
+                    expr->type->kind != TYPE_VECTOR &&
+                    !type_is_cxx_member_function_pointer(expr->type)) {
                     if (gen_is_floating(expr->type)) {
                         emit_load_floating_raw(mod, expr->type, EAX, 0);
                     } else {
@@ -11598,13 +11798,19 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 }
             } else if (decl->var_is_thread_local) {
                 gen_lvalue(mod, expr);
-                if (gen_is_floating(decl->type)) {
+                if (decl->type && decl->type->kind == TYPE_ARRAY) {
+                    /* Array expressions decay to the address of element 0. */
+                } else if (gen_aggregate_type32(decl->type)) {
+                    /* Two-word member-function pointers are returned as an
+                     * address by the expression path, like other aggregates. */
+                } else if (gen_is_floating(decl->type)) {
                     emit_load_floating_raw(mod, decl->type, EAX, 0);
                 } else {
                     emit_load_typed32(mod, EAX, EAX, 0, decl->type);
                 }
-            } else if (decl->type && (decl->type->kind == TYPE_ARRAY ||
-                                      decl->type->kind == TYPE_VECTOR)) {
+            } else if (decl->type && decl->type->kind == TYPE_ARRAY) {
+                gen_lvalue(mod, expr);
+            } else if (decl->type && gen_aggregate_type32(decl->type)) {
                 gen_lvalue(mod, expr);
             } else if (decl->var_is_global) {
                 gen_symbol_address(mod, decl_link_name(decl), 0u);
@@ -11656,7 +11862,46 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_ADDR:
-            gen_lvalue(mod, expr->unary_operand);
+            if (type_is_cxx_member_function_pointer(expr->type)) {
+                TypeMethod* method =
+                    expr->cxx_member_function_pointer_method;
+                Decl* function = expr->unary_operand
+                    ? expr->unary_operand->ident_decl : NULL;
+                if (!method && expr->type->cxx_member_pointer_owner) {
+                    for (TypeMethod* candidate =
+                             expr->type->cxx_member_pointer_owner->methods;
+                         candidate; candidate = candidate->next) {
+                        if (candidate->function_decl == function) {
+                            method = candidate;
+                            break;
+                        }
+                    }
+                }
+                if (expr->aggregate_offset >= 0 || !method ||
+                    (!method->is_virtual &&
+                     (!function || !function->link_name)) ||
+                    (method->is_virtual && method->vtable_index < 0)) {
+                    rcc_error(expr->loc,
+                              "member-function pointer address has no ABI result storage or selected method");
+                    break;
+                }
+                if (method->is_virtual) {
+                    emit_mov_reg_imm(
+                        mod, EAX,
+                        (uint32_t)method->vtable_index * 4u + 1u);
+                } else {
+                    gen_symbol_address(mod, decl_link_name(function), 0u);
+                }
+                emit_mov_mem_reg(mod, EBP, expr->aggregate_offset, EAX);
+                emit_mov_reg_imm(mod, EDX, 0u);
+                emit_mov_mem_reg(mod, EBP,
+                                 expr->aggregate_offset + 4, EDX);
+                emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
+                emit_byte(mod, modrm(2, EAX, EBP));
+                emit_dword(mod, (uint32_t)expr->aggregate_offset);
+            } else {
+                gen_lvalue(mod, expr->unary_operand);
+            }
             break;
 
         case EXPR_DEREF:
@@ -11668,7 +11913,8 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             if (expr->type && (expr->type->kind == TYPE_ARRAY ||
                                expr->type->kind == TYPE_STRUCT ||
                                expr->type->kind == TYPE_UNION ||
-                               expr->type->kind == TYPE_VECTOR)) {
+                               expr->type->kind == TYPE_VECTOR ||
+                               type_is_cxx_member_function_pointer(expr->type))) {
                 break;
             }
             if (expr->type && expr->type->is_atomic) {
@@ -12143,6 +12389,53 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE: {
+            if (type_is_cxx_member_function_pointer(
+                    expr->binary_lhs->type) ||
+                type_is_cxx_member_function_pointer(
+                    expr->binary_rhs->type)) {
+                emit_push_reg(mod, ESI);
+                emit_push_reg(mod, EDI);
+                emit_sub_reg_imm(mod, ESP, 8);
+                emit_mov_reg_imm(mod, EAX, 0u);
+                emit_mov_mem_reg(mod, ESP, 0, EAX);
+                emit_mov_mem_reg(mod, ESP, 4, EAX);
+                if (expr->binary_lhs->is_cxx_nullptr ||
+                    (expr->binary_lhs->type &&
+                     expr->binary_lhs->type->kind == TYPE_NULLPTR)) {
+                    emit_mov_reg_reg(mod, EAX, ESP);
+                } else if (expr->binary_lhs->kind == EXPR_CALL) {
+                    gen_lvalue(mod, expr->binary_lhs);
+                } else {
+                    gen_expr(mod, expr->binary_lhs);
+                }
+                emit_mov_reg_reg(mod, ESI, EAX);
+                if (expr->binary_rhs->is_cxx_nullptr ||
+                    (expr->binary_rhs->type &&
+                     expr->binary_rhs->type->kind == TYPE_NULLPTR)) {
+                    emit_mov_reg_reg(mod, EAX, ESP);
+                } else if (expr->binary_rhs->kind == EXPR_CALL) {
+                    gen_lvalue(mod, expr->binary_rhs);
+                } else {
+                    gen_expr(mod, expr->binary_rhs);
+                }
+                emit_mov_reg_reg(mod, EDI, EAX);
+                emit_mov_reg_mem(mod, EAX, ESI, 0);
+                emit_mov_reg_mem(mod, ECX, EDI, 0);
+                emit_xor_reg_reg(mod, EAX, ECX);
+                emit_mov_reg_mem(mod, EDX, ESI, 4);
+                emit_mov_reg_mem(mod, ECX, EDI, 4);
+                emit_xor_reg_reg(mod, EDX, ECX);
+                emit_or_reg_reg(mod, EAX, EDX);
+                emit_test_reg_reg(mod, EAX, EAX);
+                emit_setcc(mod, expr->kind == EXPR_EQ ? CC_E : CC_NE, EAX);
+                emit_byte(mod, 0x0F);
+                emit_byte(mod, 0xB6);
+                emit_byte(mod, modrm(3, EAX, EAX));
+                emit_add_reg_imm(mod, ESP, 8);
+                emit_pop_reg(mod, EDI);
+                emit_pop_reg(mod, ESI);
+                break;
+            }
             if (gen_is_floating(expr->binary_lhs->type) ||
                 gen_is_floating(expr->binary_rhs->type)) {
                 Type* comparison_type = type_common(
@@ -12762,7 +13055,9 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             if (!expr->type || (expr->type->kind != TYPE_ARRAY &&
                                 expr->type->kind != TYPE_STRUCT &&
                                 expr->type->kind != TYPE_UNION &&
-                                expr->type->kind != TYPE_VECTOR)) {
+                                expr->type->kind != TYPE_VECTOR &&
+                                !type_is_cxx_member_function_pointer(
+                                    expr->type))) {
                 if (gen_is_floating(expr->type)) {
                     emit_load_floating_raw(mod, expr->type, EAX, 0);
                 } else {
@@ -13897,7 +14192,8 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
     if (expression->kind == EXPR_CALL && expression->type &&
         (expression->type->kind == TYPE_STRUCT ||
          expression->type->kind == TYPE_UNION ||
-         expression->type->kind == TYPE_VECTOR)) {
+         expression->type->kind == TYPE_VECTOR ||
+         type_is_cxx_member_function_pointer(expression->type))) {
         int size = expression->type->size;
         int alignment = expression->type->align;
         int64_t extent;
@@ -13914,7 +14210,8 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
     if (expression->kind == EXPR_VA_ARG && expression->va_arg_type &&
         (expression->va_arg_type->kind == TYPE_STRUCT ||
          expression->va_arg_type->kind == TYPE_UNION ||
-         expression->va_arg_type->kind == TYPE_VECTOR)) {
+         expression->va_arg_type->kind == TYPE_VECTOR ||
+         type_is_cxx_member_function_pointer(expression->va_arg_type))) {
         int size = expression->va_arg_type->size;
         int alignment = expression->va_arg_type->align;
         int64_t extent;
@@ -13926,6 +14223,55 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
         } else {
             *bytes = codegen_align_frame_bytes((int)extent, alignment);
             expression->va_arg_result_offset = -*bytes;
+        }
+    }
+    if (type_is_cxx_member_function_pointer(expression->type) &&
+        expression->aggregate_offset == 0 &&
+        (expression->kind == EXPR_ADDR ||
+         expression->kind == EXPR_CAST ||
+         expression->cxx_member_pointer_adjustment_valid ||
+         expression->is_cxx_nullptr)) {
+        int size = expression->type->size;
+        int alignment = expression->type->align;
+        int64_t extent;
+        if (alignment < stack_alignment) alignment = stack_alignment;
+        if (size <= 0) size = 1;
+        extent = (int64_t)*bytes + size;
+        if (extent > INT_MAX) {
+            *bytes = INT_MAX;
+        } else {
+            *bytes = codegen_align_frame_bytes((int)extent, alignment);
+            expression->aggregate_offset = -*bytes;
+        }
+    }
+    if (expression->kind == EXPR_CALL &&
+        expression->call_member_pointer_application &&
+        expression->call_member_pointer_value_offset == 0) {
+        Type* member_pointer_type =
+            expression->call_member_pointer_application->binary_rhs
+                ? expression->call_member_pointer_application
+                      ->binary_rhs->type
+                : NULL;
+        int member_pointer_size = member_pointer_type
+            ? member_pointer_type->size : 0;
+        if (member_pointer_size < stack_alignment) {
+            member_pointer_size = stack_alignment;
+        }
+        int64_t extent = (int64_t)*bytes + member_pointer_size;
+        if (extent > INT_MAX) {
+            *bytes = INT_MAX;
+        } else {
+            *bytes = codegen_align_frame_bytes((int)extent,
+                                               stack_alignment);
+            expression->call_member_pointer_value_offset = -*bytes;
+            extent = (int64_t)*bytes + stack_alignment;
+            if (extent > INT_MAX) {
+                *bytes = INT_MAX;
+            } else {
+                *bytes = codegen_align_frame_bytes((int)extent,
+                                                   stack_alignment);
+                expression->call_member_pointer_this_offset = -*bytes;
+            }
         }
     }
 
@@ -14068,6 +14414,9 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
             }
             codegen_assign_compound_expr(expression->call_func, bytes,
                                          stack_alignment);
+            codegen_assign_compound_expr(
+                expression->call_member_pointer_application, bytes,
+                stack_alignment);
             for (ExprList* argument = expression->call_args; argument;
                  argument = argument->next) {
                 codegen_assign_compound_expr(argument->expr, bytes,
@@ -14529,6 +14878,24 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
         return true;
     }
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
+    if (type_is_cxx_member_function_pointer(type) &&
+        (initializer->is_cxx_nullptr ||
+         (initializer->type &&
+          initializer->type->kind == TYPE_NULLPTR) ||
+         (initializer->kind == EXPR_INT_LIT &&
+          initializer->int_val == 0))) {
+        gen_zero_local_storage(mod, displacement, (size_t)type->size);
+        return true;
+    }
+    if (type_is_cxx_member_function_pointer(type) && !type->is_reference) {
+        gen_expr(mod, initializer);
+        emit_mov_reg_reg(mod, EDX, EAX);
+        emit_byte(mod, 0x8D); /* LEA ECX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, ECX, EBP));
+        emit_dword(mod, (uint32_t)displacement);
+        gen_copy_aggregate_to_address32(mod, ECX, EDX, type->size);
+        return true;
+    }
     if (initializer->kind == EXPR_COMPOUND && type->kind == TYPE_VECTOR) {
         int64_t cursor = 0;
         for (ExprList* item = initializer->compound_init; item;
@@ -14938,10 +15305,54 @@ static void gen_expr_impl(Module* mod, Expr* expr) {
         gen_expr64_pair(mod, expr);
         return;
     }
+    if (type_is_cxx_member_function_pointer(expr->type) &&
+        (expr->is_cxx_nullptr ||
+         (expr->type && expr->type->kind == TYPE_NULLPTR))) {
+        if (expr->aggregate_offset >= 0) {
+            rcc_error(expr->loc,
+                      "null member-function pointer has no automatic result slot");
+            return;
+        }
+        emit_mov_reg_imm(mod, EAX, 0u);
+        emit_mov_mem_reg(mod, EBP, expr->aggregate_offset, EAX);
+        emit_mov_mem_reg(mod, EBP, expr->aggregate_offset + 4, EAX);
+        emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, EAX, EBP));
+        emit_dword(mod, (uint32_t)expr->aggregate_offset);
+        return;
+    }
     gen_expr_raw(mod, expr);
-    if (expr->cxx_member_pointer_adjustment_valid &&
+    if (type_is_cxx_member_function_pointer(expr->type) &&
+        expr->cxx_member_pointer_adjustment_valid) {
+        int null_label = new_label();
+        int done_label = new_label();
+        if (expr->aggregate_offset >= 0) {
+            rcc_error(expr->loc,
+                      "converted member-function pointer has no automatic result slot");
+            return;
+        }
+        emit_mov_reg_reg(mod, ECX, EAX);
+        emit_mov_reg_mem(mod, EAX, ECX, 0);
+        emit_mov_reg_mem(mod, EDX, ECX, 4);
+        emit_test_reg_reg(mod, EAX, EAX);
+        emit_jcc_label(mod, CC_E, null_label);
+        if (expr->cxx_member_pointer_adjustment != 0) {
+            emit_add_reg_imm(mod, EDX,
+                             expr->cxx_member_pointer_adjustment);
+        }
+        emit_jmp_label(mod, done_label);
+        emit_label(mod, null_label);
+        emit_mov_reg_imm(mod, EDX, 0u);
+        emit_label(mod, done_label);
+        emit_mov_mem_reg(mod, EBP, expr->aggregate_offset, EAX);
+        emit_mov_mem_reg(mod, EBP, expr->aggregate_offset + 4, EDX);
+        emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
+        emit_byte(mod, modrm(2, EAX, EBP));
+        emit_dword(mod, (uint32_t)expr->aggregate_offset);
+    } else if (expr->cxx_member_pointer_adjustment_valid &&
         expr->type && expr->type->kind == TYPE_PTR &&
-        expr->type->cxx_is_member_pointer) {
+        expr->type->cxx_is_member_pointer &&
+        !type_is_cxx_member_function_pointer(expr->type)) {
         int done_label = new_label();
         emit_cmp_reg_imm(mod, EAX, -1);
         emit_jcc_label(mod, CC_E, done_label);
@@ -16823,9 +17234,13 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 } else if (current_function_return_type &&
                     (current_function_return_type->kind == TYPE_STRUCT ||
                      current_function_return_type->kind == TYPE_UNION ||
-                     current_function_return_type->kind == TYPE_VECTOR)) {
+                     current_function_return_type->kind == TYPE_VECTOR ||
+                     type_is_cxx_member_function_pointer(
+                         current_function_return_type))) {
                     int offset = 0;
-                    if (current_function_return_type->kind == TYPE_VECTOR) {
+                    if (current_function_return_type->kind == TYPE_VECTOR ||
+                        type_is_cxx_member_function_pointer(
+                            current_function_return_type)) {
                         gen_expr(mod, stmt->return_val);
                     } else if (stmt->return_val->kind == EXPR_VA_ARG) {
                         gen_expr(mod, stmt->return_val);
@@ -17220,6 +17635,11 @@ Module* rcc_codegen(AST* ast) {
     /* Second pass: generate code for each defined function */
     for (DeclList* d = ast->decls; d; d = d->next) {
         if (d->decl->kind == DECL_FUNC && d->decl->func_body) {
+            /* Itanium member-function pointers reserve the low bit of a
+             * direct function address to distinguish virtual slots. */
+            if ((code_offset(mod) & 1u) != 0u) {
+                emit_byte(mod, 0x90);
+            }
             /* Record function start offset */
             uint32_t func_start = code_offset(mod);
 

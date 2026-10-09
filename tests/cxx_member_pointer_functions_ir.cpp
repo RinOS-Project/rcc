@@ -6,6 +6,8 @@ struct MemberFunctionIrOwner {
     int add(double amount) { return value + static_cast<int>(amount); }
 };
 
+typedef int (MemberFunctionIrOwner::*MemberFunctionIrMethod)(int);
+
 int invoke_member_dot(
     MemberFunctionIrOwner& object,
     int (MemberFunctionIrOwner::*method)(int), int value) {
@@ -40,4 +42,19 @@ int invoke_member_overloaded_local(MemberFunctionIrOwner& object,
     int (MemberFunctionIrOwner::*method)(int) =
         &MemberFunctionIrOwner::add;
     return (object.*method)(value);
+}
+
+MemberFunctionIrMethod identity_member_function_ir(
+    MemberFunctionIrMethod method) {
+    return method;
+}
+
+int invoke_returned_member_function_ir(MemberFunctionIrOwner& object,
+                                       MemberFunctionIrMethod method,
+                                       int value) {
+    return (object.*identity_member_function_ir(method))(value);
+}
+
+bool null_member_function_round_trip_ir() {
+    return identity_member_function_ir(nullptr) == nullptr;
 }

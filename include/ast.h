@@ -170,6 +170,9 @@ struct Type {
     bool is_restrict;
     bool is_reference;        /* C++ lvalue/rvalue reference ABI carrier. */
     bool is_rvalue_reference;
+    /* Function-type qualifiers retained for C++ member-function pointers. */
+    bool function_is_noexcept;
+    CxxRefQualifier function_ref_qualifier;
     bool cxx_is_member_pointer;
     Type* cxx_member_pointer_owner;
     bool cxx_is_class;
@@ -335,6 +338,11 @@ char* ast_arena_strdup(const char* text);
 
 /* Type constructors */
 Type* type_ptr(Type* base);
+/* Mark a pointer type as a C++ pointer-to-member and assign its target ABI
+ * size. Data-member pointers are one target word; Itanium member-function
+ * pointers are a function address/virtual-slot word plus `this` adjustment. */
+void type_cxx_member_pointer(Type* pointer, Type* owner);
+bool type_is_cxx_member_function_pointer(const Type* type);
 /* Construct a C++ reference type and apply the standard reference-collapse
  * rule when `base` is already a reference type. */
 Type* type_reference(Type* base, bool rvalue_reference);
@@ -560,6 +568,9 @@ struct Expr {
      * adds the base-subobject offset to the stored member displacement. */
     bool cxx_member_pointer_adjustment_valid;
     int32_t cxx_member_pointer_adjustment;
+    /* Automatic frame slots for Itanium member-function-pointer calls. */
+    int call_member_pointer_value_offset;
+    int call_member_pointer_this_offset;
     /* The parser records the declaring/access classes for a bounded
      * `&Class::member` expression so sema can apply private/protected access
      * rules after the enclosing function context is known. */
@@ -572,6 +583,8 @@ struct Expr {
     unsigned char cxx_member_pointer_form_access;
     struct CxxClass* cxx_member_pointer_form_declaring_class;
     struct CxxClass* cxx_member_pointer_form_designating_class;
+    /* Selected member-function designator for Itanium PMF encoding. */
+    TypeMethod* cxx_member_function_pointer_method;
     /* A bounded dynamic_cast downcast carries the expected complete-object
      * vtable identity.  Code generation returns a null pointer when the
      * source subobject does not contain that exact table. */
@@ -705,6 +718,7 @@ struct Expr {
              * function.  The source-level member-function type omits the
              * implicit object parameter; this call-local copy prepends it. */
             Type* call_abi_function_type;
+            Expr* call_member_pointer_application;
             TypeMethod* call_method; /* Validated inline C++ accessor. */
             bool call_is_virtual;
             int call_virtual_index;

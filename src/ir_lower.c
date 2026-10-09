@@ -216,6 +216,9 @@ static bool lower_union_type_supported(const Type* type);
 static bool lower_copy_union_storage(
     RccIrLowerContext* context, RccIrValue destination,
     RccIrValue source, const Type* type);
+static bool lower_copy_abi_aggregate_storage(
+    RccIrLowerContext* context, RccIrValue destination,
+    RccIrValue source, const Type* type);
 static bool lower_zero_union_storage(
     RccIrLowerContext* context, RccIrValue base,
     const Type* type);
@@ -2332,6 +2335,192 @@ static bool lower_store_address(RccIrLowerContext* context,
         rcc_ir_set_volatile_access(store, address.volatile_access);
         return true;
     }
+}
+
+static RccIrType lower_member_function_pointer_word_type(void) {
+    return rcc_ir_type_integer(
+        (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u));
+}
+
+static RccIrLowerValue lower_allocate_member_function_pointer(
+    RccIrLowerContext* context, RccIrLowerValue pointer,
+    RccIrLowerValue adjustment) {
+    RccIrInstruction* allocation;
+    RccIrLowerValue address;
+    RccIrLowerValue adjustment_address;
+    if (!context || !pointer.valid || !adjustment.valid ||
+        pointer.type.kind != RCC_IR_TYPE_INTEGER ||
+        adjustment.type.kind != RCC_IR_TYPE_INTEGER ||
+        !rcc_ir_type_equal(pointer.type, adjustment.type) ||
+        !rcc_ir_type_equal(pointer.type,
+                           lower_member_function_pointer_word_type())) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    allocation = lower_append(
+        context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!allocation) return lower_invalid_value();
+    rcc_ir_set_immediate(
+        allocation, (uint64_t)(g_opts.target_arch == ARCH_X64 ? 16 : 8));
+    allocation->alignment =
+        (uint32_t)(g_opts.target_arch == ARCH_X64 ? 8 : 4);
+    address = lower_value(
+        allocation->result, rcc_ir_type_pointer(0u), true);
+    adjustment_address = lower_byte_offset_address(
+        context, address,
+        (uint64_t)(g_opts.target_arch == ARCH_X64 ? 8u : 4u));
+    if (!adjustment_address.valid ||
+        !lower_store_address(context, address, pointer) ||
+        !lower_store_address(context, adjustment_address, adjustment)) {
+        return lower_invalid_value();
+    }
+    return address;
+}
+
+static RccIrLowerValue lower_zero_member_function_pointer(
+    RccIrLowerContext* context) {
+    RccIrType word_type = lower_member_function_pointer_word_type();
+    RccIrLowerValue zero = lower_integer_constant(
+        context, word_type, true, 0u);
+    return lower_allocate_member_function_pointer(context, zero, zero);
+}
+
+static bool lower_copy_member_function_pointer_storage(
+    RccIrLowerContext* context, RccIrValue destination,
+    RccIrValue source, const Type* type) {
+    size_t word_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    RccIrType word_type = lower_member_function_pointer_word_type();
+    RccIrLowerValue source_base = lower_value(
+        source, rcc_ir_type_pointer(0u), true);
+    RccIrLowerValue destination_base = lower_value(
+        destination, rcc_ir_type_pointer(0u), true);
+    if (!type_is_cxx_member_function_pointer(type) ||
+        type->size != (int)(word_size * 2u) ||
+        !source_base.valid || !destination_base.valid) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    for (size_t index = 0u; index < 2u; ++index) {
+        uint64_t offset = (uint64_t)(index * word_size);
+        RccIrLowerValue source_word = lower_byte_offset_address(
+            context, source_base, offset);
+        RccIrLowerValue destination_word = lower_byte_offset_address(
+            context, destination_base, offset);
+        RccIrLowerValue value = lower_load_address(
+            context, source_word,
+            word_size == 8u ? type_ulong : type_uint);
+        if (!source_word.valid || !destination_word.valid ||
+            !value.valid || !rcc_ir_type_equal(value.type, word_type) ||
+            !lower_store_address(context, destination_word, value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static RccIrLowerValue lower_adjust_member_function_pointer(
+    RccIrLowerContext* context, RccIrLowerValue source,
+    int32_t adjustment) {
+    size_t word_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    RccIrType word_type = lower_member_function_pointer_word_type();
+    RccIrLowerValue pointer_address;
+    RccIrLowerValue adjustment_address;
+    RccIrLowerValue pointer;
+    RccIrLowerValue current_adjustment;
+    RccIrLowerValue nonnull;
+    RccIrLowerValue delta;
+    RccIrLowerValue adjusted;
+    RccIrValue operands[3];
+    RccIrInstruction* instruction;
+    if (!source.valid || source.type.kind != RCC_IR_TYPE_POINTER) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    pointer_address = source;
+    adjustment_address = lower_byte_offset_address(
+        context, source, (uint64_t)word_size);
+    pointer = lower_load_address(
+        context, pointer_address,
+        word_size == 8u ? type_ulong : type_uint);
+    current_adjustment = lower_load_address(
+        context, adjustment_address,
+        word_size == 8u ? type_ulong : type_uint);
+    if (!pointer.valid || !current_adjustment.valid) {
+        return lower_invalid_value();
+    }
+    if (adjustment == 0) {
+        return lower_allocate_member_function_pointer(
+            context, pointer, current_adjustment);
+    }
+    {
+        RccIrLowerValue zero = lower_integer_constant(
+            context, word_type, true, 0u);
+        if (!zero.valid) return lower_invalid_value();
+        operands[0] = pointer.value;
+        operands[1] = zero.value;
+        instruction = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            operands, 2u, NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        rcc_ir_set_predicate(instruction, RCC_IR_ICMP_NE);
+        nonnull = lower_value(
+            instruction->result, rcc_ir_type_integer(1u), true);
+    }
+    delta = lower_integer_constant(
+        context, word_type, true, (uint64_t)(int64_t)adjustment);
+    if (!delta.valid) return lower_invalid_value();
+    operands[0] = current_adjustment.value;
+    operands[1] = delta.value;
+    instruction = lower_append(
+        context, RCC_IR_ADD, word_type, operands, 2u, NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    adjusted = lower_value(instruction->result, word_type, true);
+    operands[0] = nonnull.value;
+    operands[1] = adjusted.value;
+    operands[2] = current_adjustment.value;
+    instruction = lower_append(
+        context, RCC_IR_SELECT, word_type, operands, 3u, NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    adjusted = lower_value(instruction->result, word_type, true);
+    return lower_allocate_member_function_pointer(
+        context, pointer, adjusted);
+}
+
+static RccIrLowerValue lower_member_function_pointer_address(
+    RccIrLowerContext* context, const Expr* expression) {
+    const TypeMethod* method = expression
+        ? expression->cxx_member_function_pointer_method : NULL;
+    RccIrType word_type = lower_member_function_pointer_word_type();
+    RccIrLowerValue pointer;
+    RccIrLowerValue adjustment;
+    if (!context || !expression || !method || !method->function_decl) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (method->is_virtual) {
+        uint64_t slot = (uint64_t)method->vtable_index *
+            (uint64_t)(g_opts.target_arch == ARCH_X64 ? 8u : 4u) + 1u;
+        pointer = lower_integer_constant(context, word_type, true, slot);
+    } else {
+        RccIrInstruction* symbol = lower_append(
+            context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
+            NULL, 0u, NULL, 0u);
+        RccIrInstruction* converted;
+        if (!symbol) return lower_invalid_value();
+        rcc_ir_set_callee(
+            symbol, decl_link_name(method->function_decl));
+        symbol->symbol_is_code = true;
+        converted = lower_append(
+            context, RCC_IR_PTR_TO_INT, word_type,
+            &symbol->result, 1u, NULL, 0u);
+        if (!converted) return lower_invalid_value();
+        pointer = lower_value(converted->result, word_type, true);
+    }
+    adjustment = lower_integer_constant(context, word_type, true, 0u);
+    if (!pointer.valid || !adjustment.valid) return lower_invalid_value();
+    return lower_allocate_member_function_pointer(
+        context, pointer, adjustment);
 }
 
 static bool lower_store_lvalue(RccIrLowerContext* context,
@@ -5561,6 +5750,92 @@ static RccIrLowerValue lower_comparison(RccIrLowerContext* context,
     RccIrValue operands[2];
     RccIrInstruction* compare;
     RccIrLowerValue result;
+    if (expression->kind == EXPR_EQ || expression->kind == EXPR_NE) {
+        const Type* left_type = expression->binary_lhs
+            ? expression->binary_lhs->type : NULL;
+        const Type* right_type = expression->binary_rhs
+            ? expression->binary_rhs->type : NULL;
+        if (type_is_cxx_member_function_pointer(left_type) ||
+            type_is_cxx_member_function_pointer(right_type)) {
+            size_t word_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+            RccIrType word_type = lower_member_function_pointer_word_type();
+            RccIrLowerValue left_pointer;
+            RccIrLowerValue right_pointer;
+            RccIrLowerValue left_adjustment_address;
+            RccIrLowerValue right_adjustment_address;
+            RccIrLowerValue left_adjustment;
+            RccIrLowerValue right_adjustment;
+            RccIrLowerValue pointer_equal;
+            RccIrLowerValue adjustment_equal;
+            RccIrInstruction* field_compare;
+            RccIrInstruction* combined;
+            if (!type_is_cxx_member_function_pointer(left_type) ||
+                !type_is_cxx_member_function_pointer(right_type)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            left_pointer = lower_expression(context, expression->binary_lhs);
+            right_pointer = lower_expression(context, expression->binary_rhs);
+            if (!left_pointer.valid || !right_pointer.valid ||
+                left_pointer.type.kind != RCC_IR_TYPE_POINTER ||
+                right_pointer.type.kind != RCC_IR_TYPE_POINTER) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            left_adjustment_address = lower_byte_offset_address(
+                context, left_pointer, (uint64_t)word_size);
+            right_adjustment_address = lower_byte_offset_address(
+                context, right_pointer, (uint64_t)word_size);
+            left_pointer = lower_load_address(
+                context, left_pointer,
+                word_size == 8u ? type_ulong : type_uint);
+            right_pointer = lower_load_address(
+                context, right_pointer,
+                word_size == 8u ? type_ulong : type_uint);
+            left_adjustment = lower_load_address(
+                context, left_adjustment_address,
+                word_size == 8u ? type_ulong : type_uint);
+            right_adjustment = lower_load_address(
+                context, right_adjustment_address,
+                word_size == 8u ? type_ulong : type_uint);
+            if (!left_pointer.valid || !right_pointer.valid ||
+                !left_adjustment.valid || !right_adjustment.valid ||
+                !rcc_ir_type_equal(left_pointer.type, word_type) ||
+                !rcc_ir_type_equal(right_pointer.type, word_type)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            operands[0] = left_pointer.value;
+            operands[1] = right_pointer.value;
+            field_compare = lower_append(
+                context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+                operands, 2u, NULL, 0u);
+            if (!field_compare) return lower_invalid_value();
+            rcc_ir_set_predicate(field_compare, expression->kind == EXPR_EQ
+                ? RCC_IR_ICMP_EQ : RCC_IR_ICMP_NE);
+            pointer_equal = lower_value(
+                field_compare->result, rcc_ir_type_integer(1u), true);
+            operands[0] = left_adjustment.value;
+            operands[1] = right_adjustment.value;
+            field_compare = lower_append(
+                context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+                operands, 2u, NULL, 0u);
+            if (!field_compare) return lower_invalid_value();
+            rcc_ir_set_predicate(field_compare, expression->kind == EXPR_EQ
+                ? RCC_IR_ICMP_EQ : RCC_IR_ICMP_NE);
+            adjustment_equal = lower_value(
+                field_compare->result, rcc_ir_type_integer(1u), true);
+            operands[0] = pointer_equal.value;
+            operands[1] = adjustment_equal.value;
+            combined = lower_append(
+                context, expression->kind == EXPR_EQ ? RCC_IR_AND : RCC_IR_OR,
+                rcc_ir_type_integer(1u), operands, 2u, NULL, 0u);
+            if (!combined) return lower_invalid_value();
+            result = lower_value(
+                combined->result, rcc_ir_type_integer(1u), true);
+            return lower_cast(context, result, expression->type);
+        }
+    }
     if (typeinfo_equality) {
         left = lower_expression(context, expression->binary_lhs);
         right = lower_expression(context, expression->binary_rhs);
@@ -5728,12 +6003,10 @@ static RccIrLowerValue lower_assignment(RccIrLowerContext* context,
         return lower_invalid_value();
     }
     if (expression->binary_lhs && expression->binary_lhs->type &&
-        (expression->binary_lhs->type->kind == TYPE_STRUCT ||
-         expression->binary_lhs->type->kind == TYPE_UNION)) {
+        lower_abi_is_aggregate(expression->binary_lhs->type)) {
         RccIrLowerValue destination;
         if (!expression->binary_rhs || !expression->binary_rhs->type ||
-            expression->binary_rhs->type->kind !=
-                expression->binary_lhs->type->kind ||
+            !lower_abi_is_aggregate(expression->binary_rhs->type) ||
             !type_is_compatible(expression->binary_lhs->type,
                                 expression->binary_rhs->type)) {
             context->unsupported = true;
@@ -5746,15 +6019,9 @@ static RccIrLowerValue lower_assignment(RccIrLowerContext* context,
             value.type.kind != RCC_IR_TYPE_POINTER) {
             return lower_invalid_value();
         }
-        if (expression->binary_lhs->type->kind == TYPE_STRUCT) {
-            if (!lower_copy_struct_storage(
-                    context, destination.value, value.value,
-                    expression->binary_lhs->type)) {
-                return lower_invalid_value();
-            }
-        } else if (!lower_copy_union_storage(
-                       context, destination.value, value.value,
-                       expression->binary_lhs->type)) {
+        if (!lower_copy_abi_aggregate_storage(
+                context, destination.value, value.value,
+                expression->binary_lhs->type)) {
             return lower_invalid_value();
         }
         return destination;
@@ -6413,6 +6680,191 @@ static bool lower_sysv_call_memory_arguments(
     return true;
 }
 
+static bool lower_member_function_pointer_call_target(
+    RccIrLowerContext* context, const Expr* call,
+    RccIrLowerValue* callee_out, RccIrLowerValue* receiver_out) {
+    const Expr* application = call
+        ? call->call_member_pointer_application : NULL;
+    const Expr* object_expression;
+    const Expr* pointer_expression;
+    const Type* pointer_type;
+    size_t word_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    RccIrType word_type = lower_member_function_pointer_word_type();
+    RccIrLowerValue object;
+    RccIrLowerValue member_pointer;
+    RccIrLowerValue adjustment_address;
+    RccIrLowerValue encoded_pointer;
+    RccIrLowerValue adjustment;
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    if (!context || !application || !callee_out || !receiver_out ||
+        !application->binary_lhs || !application->binary_rhs) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    object_expression = application->binary_lhs;
+    pointer_expression = application->binary_rhs;
+    pointer_type = pointer_expression->type;
+    if (!type_is_cxx_member_function_pointer(pointer_type)) {
+        context->unsupported = true;
+        return false;
+    }
+    if (application->kind == EXPR_CXX_MEMBER_PTR_ARROW) {
+        object = lower_expression(context, object_expression);
+    } else if (object_expression->kind == EXPR_CALL ||
+               object_expression->kind == EXPR_VA_ARG) {
+        object = lower_expression(context, object_expression);
+    } else {
+        object = lower_lvalue_address(context, object_expression);
+    }
+    if (!object.valid || object.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return false;
+    }
+    if (application->cxx_virtual_base_member_access) {
+        object = lower_virtual_base_member_pointer_object(
+            context, object,
+            application->cxx_virtual_base_pointer_offset,
+            application->cxx_virtual_base_index,
+            application->cxx_virtual_base_nested_adjustment);
+    } else if (application->cxx_pointer_adjustment_valid) {
+        object = lower_adjusted_pointer(
+            context, object, application->cxx_pointer_adjustment);
+    }
+    member_pointer = lower_expression(context, pointer_expression);
+    if (!object.valid || !member_pointer.valid ||
+        member_pointer.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return false;
+    }
+    adjustment_address = lower_byte_offset_address(
+        context, member_pointer, (uint64_t)word_size);
+    encoded_pointer = lower_load_address(
+        context, member_pointer,
+        word_size == 8u ? type_ulong : type_uint);
+    adjustment = lower_load_address(
+        context, adjustment_address,
+        word_size == 8u ? type_ulong : type_uint);
+    if (!adjustment_address.valid || !encoded_pointer.valid ||
+        !adjustment.valid ||
+        !rcc_ir_type_equal(encoded_pointer.type, word_type) ||
+        !rcc_ir_type_equal(adjustment.type, word_type)) {
+        context->unsupported = true;
+        return false;
+    }
+    *receiver_out = lower_dynamic_byte_offset_address(
+        context, object, adjustment);
+    if (!receiver_out->valid) return false;
+
+    /* The low bit distinguishes an encoded virtual-table byte offset from a
+     * direct function address. Keep the indirect load on the virtual edge so
+     * a direct PMF never dereferences its code address as a vtable slot. */
+    {
+        RccIrLowerValue marker = lower_integer_constant(
+            context, word_type, true, 1u);
+        RccIrLowerValue marker_bits;
+        RccIrLowerValue zero;
+        RccIrLowerValue is_virtual;
+        RccIrLowerValue slot_offset;
+        RccIrLowerValue vtable_address;
+        RccIrLowerValue vtable;
+        RccIrLowerValue slot_address;
+        RccIrLowerValue virtual_target;
+        RccIrLowerValue direct_target;
+        RccIrBlock* virtual_block;
+        RccIrBlock* direct_block;
+        RccIrBlock* merge_block;
+        RccIrBlock* virtual_end;
+        RccIrBlock* direct_end;
+        RccIrValue phi_operands[2];
+        RccIrBlockId phi_predecessors[2];
+        RccIrInstruction* phi;
+        if (!marker.valid) return false;
+        operands[0] = encoded_pointer.value;
+        operands[1] = marker.value;
+        instruction = lower_append(
+            context, RCC_IR_AND, word_type, operands, 2u, NULL, 0u);
+        if (!instruction) return false;
+        marker_bits = lower_value(instruction->result, word_type, true);
+        zero = lower_integer_constant(context, word_type, true, 0u);
+        if (!zero.valid) return false;
+        operands[0] = marker_bits.value;
+        operands[1] = zero.value;
+        instruction = lower_append(
+            context, RCC_IR_ICMP, rcc_ir_type_integer(1u),
+            operands, 2u, NULL, 0u);
+        if (!instruction) return false;
+        rcc_ir_set_predicate(instruction, RCC_IR_ICMP_NE);
+        is_virtual = lower_value(
+            instruction->result, rcc_ir_type_integer(1u), true);
+        virtual_block = rcc_ir_block_add(
+            context->function, "member.pmf.virtual");
+        direct_block = rcc_ir_block_add(
+            context->function, "member.pmf.direct");
+        merge_block = rcc_ir_block_add(
+            context->function, "member.pmf.target");
+        if (!virtual_block || !direct_block || !merge_block ||
+            !lower_conditional_branch(
+                context, is_virtual, virtual_block->id,
+                direct_block->id)) return false;
+
+        context->current = virtual_block;
+        context->terminated = false;
+        vtable_address = lower_value(
+            object.value, rcc_ir_type_pointer(0u), true);
+        instruction = lower_append(
+            context, RCC_IR_LOAD, rcc_ir_type_pointer(0u),
+            &vtable_address.value, 1u, NULL, 0u);
+        if (!instruction) return false;
+        vtable = lower_value(
+            instruction->result, rcc_ir_type_pointer(0u), true);
+        operands[0] = encoded_pointer.value;
+        operands[1] = marker.value;
+        instruction = lower_append(
+            context, RCC_IR_SUB, word_type, operands, 2u, NULL, 0u);
+        if (!instruction) return false;
+        slot_offset = lower_value(instruction->result, word_type, true);
+        slot_address = lower_dynamic_byte_offset_address(
+            context, vtable, slot_offset);
+        if (!slot_address.valid) return false;
+        instruction = lower_append(
+            context, RCC_IR_LOAD, rcc_ir_type_pointer(0u),
+            &slot_address.value, 1u, NULL, 0u);
+        if (!instruction) return false;
+        virtual_target = lower_value(
+            instruction->result, rcc_ir_type_pointer(0u), true);
+        virtual_end = context->current;
+        if (context->terminated ||
+            !lower_branch(context, merge_block->id)) return false;
+
+        context->current = direct_block;
+        context->terminated = false;
+        instruction = lower_append(
+            context, RCC_IR_INT_TO_PTR, rcc_ir_type_pointer(0u),
+            &encoded_pointer.value, 1u, NULL, 0u);
+        if (!instruction) return false;
+        direct_target = lower_value(
+            instruction->result, rcc_ir_type_pointer(0u), true);
+        direct_end = context->current;
+        if (context->terminated ||
+            !lower_branch(context, merge_block->id)) return false;
+
+        context->current = merge_block;
+        context->terminated = false;
+        phi_operands[0] = virtual_target.value;
+        phi_operands[1] = direct_target.value;
+        phi_predecessors[0] = virtual_end->id;
+        phi_predecessors[1] = direct_end->id;
+        phi = lower_append(
+            context, RCC_IR_PHI, rcc_ir_type_pointer(0u),
+            phi_operands, 2u, phi_predecessors, 2u);
+        if (!phi) return false;
+        *callee_out = lower_value(
+            phi->result, rcc_ir_type_pointer(0u), true);
+    }
+    return callee_out->valid;
+}
+
 static RccIrLowerValue lower_call(RccIrLowerContext* context,
                                   const Expr* expression) {
     const Decl* callee = NULL;
@@ -6438,8 +6890,11 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     RccIrType hidden_type = rcc_ir_type_pointer(0u);
     RccIrLowerValue aggregate_address = lower_invalid_value();
     RccIrLowerValue callee_value = lower_invalid_value();
+    RccIrLowerValue member_pointer_receiver = lower_invalid_value();
     int return_kind = LOWER_ABI_RETURN_SCALAR;
     bool indirect = false;
+    bool member_pointer_call = expression &&
+        expression->call_member_pointer_application != NULL;
     bool use_aggregate_result_destination = false;
     RccIrInstruction* call;
     if (expression && expression->call_method) {
@@ -6449,7 +6904,17 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         context->unsupported = true;
         return lower_invalid_value();
     }
-    if (expression->call_func->kind == EXPR_IDENT &&
+    if (member_pointer_call) {
+        function_type = expression->call_abi_function_type;
+        if (!function_type || function_type->kind != TYPE_FUNC ||
+            !lower_member_function_pointer_call_target(
+                context, expression, &callee_value,
+                &member_pointer_receiver)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        indirect = true;
+    } else if (expression->call_func->kind == EXPR_IDENT &&
         expression->call_func->ident_decl &&
         expression->call_func->ident_decl->kind == DECL_FUNC) {
         callee = expression->call_func->ident_decl;
@@ -6468,25 +6933,6 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             function_type = function_type->base;
         }
         callee_value = lower_expression(context, expression->call_func);
-        if (callee_value.valid &&
-            callee_value.type.kind == RCC_IR_TYPE_INTEGER &&
-            expression->call_func->type &&
-            expression->call_func->type->kind == TYPE_PTR &&
-            expression->call_func->type->cxx_is_member_pointer &&
-            expression->call_func->type->base &&
-            expression->call_func->type->base->kind == TYPE_FUNC &&
-            expression->call_func->type->size ==
-                (g_opts.target_arch == ARCH_X64 ? 8 : 4) &&
-            callee_value.type.bit_width ==
-                (g_opts.target_arch == ARCH_X64 ? 64u : 32u)) {
-            RccIrInstruction* code_pointer = lower_append(
-                context, RCC_IR_INT_TO_PTR,
-                rcc_ir_type_pointer(0u), &callee_value.value,
-                1u, NULL, 0u);
-            if (!code_pointer) return lower_invalid_value();
-            callee_value = lower_value(
-                code_pointer->result, rcc_ir_type_pointer(0u), true);
-        }
         if (!callee_value.valid ||
             callee_value.type.kind != RCC_IR_TYPE_POINTER) {
             context->unsupported = true;
@@ -6712,7 +7158,9 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                 ++sysv_flatten_gp_arguments_used;
             }
         }
-        if (parameter && parameter->type &&
+        if (member_pointer_call && argument == expression->call_args) {
+            value = member_pointer_receiver;
+        } else if (parameter && parameter->type &&
             parameter->type->kind == TYPE_PTR &&
             parameter->type->is_reference) {
             /* A reference parameter is an address in the target ABI.  Keep
@@ -8550,6 +8998,13 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
     }
     switch (expression->kind) {
         case EXPR_INT_LIT:
+            if (type_is_cxx_member_function_pointer(expression->type)) {
+                if (expression->int_val != 0) {
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                return lower_zero_member_function_pointer(context);
+            }
             if (!lower_type(expression->type, &type) ||
                 type.kind != RCC_IR_TYPE_INTEGER) {
                 context->unsupported = true;
@@ -8593,7 +9048,8 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             if (expression->type &&
                 (expression->type->kind == TYPE_ARRAY ||
                  expression->type->kind == TYPE_STRUCT ||
-                 expression->type->kind == TYPE_UNION)) {
+                 expression->type->kind == TYPE_UNION ||
+                 type_is_cxx_member_function_pointer(expression->type))) {
                 return lower_lvalue_address(context, expression);
             }
             return lower_load_lvalue(context, expression);
@@ -8748,11 +9204,16 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             return lower_value(instruction->result, operand.type,
                                operand.is_unsigned);
         case EXPR_ADDR:
+            if (type_is_cxx_member_function_pointer(expression->type)) {
+                return lower_member_function_pointer_address(
+                    context, expression);
+            }
             return lower_lvalue_address(context, expression->unary_operand);
         case EXPR_DEREF:
             if (expression->type &&
                 (expression->type->kind == TYPE_STRUCT ||
-                 expression->type->kind == TYPE_UNION)) {
+                 expression->type->kind == TYPE_UNION ||
+                 type_is_cxx_member_function_pointer(expression->type))) {
                 return lower_lvalue_address(context, expression);
             }
             return lower_load_lvalue(context, expression);
@@ -8762,6 +9223,32 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
         case EXPR_POSTDEC:
             return lower_increment(context, expression);
         case EXPR_CAST:
+            if (type_is_cxx_member_function_pointer(expression->type)) {
+                RccIrLowerValue source;
+                int64_t integer_value;
+                if (expression->is_cxx_nullptr ||
+                    (expression->cast_expr &&
+                     expression->cast_expr->type &&
+                     expression->cast_expr->type->kind == TYPE_NULLPTR) ||
+                    (expression->cast_expr && expr_eval_integer_constant(
+                        (Expr*)expression->cast_expr, &integer_value) &&
+                     integer_value == 0)) {
+                    return lower_zero_member_function_pointer(context);
+                }
+                if (!expression->cast_expr ||
+                    !type_is_cxx_member_function_pointer(
+                        expression->cast_expr->type)) {
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                source = lower_expression(context, expression->cast_expr);
+                if (!source.valid ||
+                    source.type.kind != RCC_IR_TYPE_POINTER) {
+                    context->unsupported = true;
+                    return lower_invalid_value();
+                }
+                return source;
+            }
             if (expression->type && expression->type->is_reference &&
                 (expression->cxx_cast_kind == CXX_CAST_NONE ||
                  expression->cxx_cast_kind == CXX_CAST_STATIC ||
@@ -9057,7 +9544,10 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             }
             if (expression->type->kind == TYPE_ARRAY ||
                 expression->type->kind == TYPE_STRUCT ||
-                expression->type->kind == TYPE_UNION) return address;
+                expression->type->kind == TYPE_UNION ||
+                type_is_cxx_member_function_pointer(expression->type)) {
+                return address;
+            }
             return lower_load_address(
                 context, address, expression->type);
         }
@@ -9067,7 +9557,8 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             if (expression->type &&
                 (expression->type->kind == TYPE_ARRAY ||
                  expression->type->kind == TYPE_STRUCT ||
-                 expression->type->kind == TYPE_UNION)) {
+                 expression->type->kind == TYPE_UNION ||
+                 type_is_cxx_member_function_pointer(expression->type))) {
                 return lower_lvalue_address(context, expression);
             }
             return lower_load_lvalue(context, expression);
@@ -9076,7 +9567,8 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             if (expression->type &&
                 (expression->type->kind == TYPE_ARRAY ||
                  expression->type->kind == TYPE_STRUCT ||
-                 expression->type->kind == TYPE_UNION)) {
+                 expression->type->kind == TYPE_UNION ||
+                 type_is_cxx_member_function_pointer(expression->type))) {
                 return lower_lvalue_address(context, expression);
             }
             return lower_load_lvalue(context, expression);
@@ -9085,7 +9577,8 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             if (expression->type &&
                 (expression->type->kind == TYPE_ARRAY ||
                  expression->type->kind == TYPE_STRUCT ||
-                 expression->type->kind == TYPE_UNION)) {
+                 expression->type->kind == TYPE_UNION ||
+                 type_is_cxx_member_function_pointer(expression->type))) {
                 return lower_lvalue_address(context, expression);
             }
             return lower_load_lvalue(context, expression);
@@ -9223,13 +9716,9 @@ static RccIrLowerValue lower_conditional_expression(
             then_value.type.kind == RCC_IR_TYPE_POINTER && then_type &&
             type_is_compatible((Type*)expression->type, (Type*)then_type) &&
             (already_in_destination ||
-             (expression->type->kind == TYPE_STRUCT
-                 ? lower_copy_struct_storage(
-                       context, aggregate_storage.value,
-                       then_value.value, expression->type)
-                 : lower_copy_union_storage(
-                       context, aggregate_storage.value,
-                       then_value.value, expression->type)));
+             lower_copy_abi_aggregate_storage(
+                 context, aggregate_storage.value,
+                 then_value.value, expression->type));
         if (!copied) {
             context->unsupported = true;
             return lower_invalid_value();
@@ -9270,13 +9759,9 @@ static RccIrLowerValue lower_conditional_expression(
             else_value.type.kind == RCC_IR_TYPE_POINTER && else_type &&
             type_is_compatible((Type*)expression->type, (Type*)else_type) &&
             (already_in_destination ||
-             (expression->type->kind == TYPE_STRUCT
-                 ? lower_copy_struct_storage(
-                       context, aggregate_storage.value,
-                       else_value.value, expression->type)
-                 : lower_copy_union_storage(
-                       context, aggregate_storage.value,
-                       else_value.value, expression->type)));
+             lower_copy_abi_aggregate_storage(
+                 context, aggregate_storage.value,
+                 else_value.value, expression->type));
         if (!copied) {
             context->unsupported = true;
             return lower_invalid_value();
@@ -9446,6 +9931,10 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
     if (!value.valid || !expression ||
         !expression->cxx_member_pointer_adjustment_valid) {
         return value;
+    }
+    if (type_is_cxx_member_function_pointer(expression->type)) {
+        return lower_adjust_member_function_pointer(
+            context, value, expression->cxx_member_pointer_adjustment);
     }
     if (!expression->type || expression->type->kind != TYPE_PTR ||
         !expression->type->cxx_is_member_pointer ||
@@ -10695,6 +11184,10 @@ static bool lower_copy_scalar_storage(
         destination, rcc_ir_type_pointer(0u), true);
     source_address = lower_value(
         source, rcc_ir_type_pointer(0u), true);
+    if (type_is_cxx_member_function_pointer(type)) {
+        return lower_copy_member_function_pointer_storage(
+            context, destination, source, type);
+    }
     if (lower_i686_wide_scalar_type(type)) {
         RccIrLowerWideValue value;
         if (!lower_wide_scalar_load(
@@ -10720,6 +11213,19 @@ static bool lower_zero_scalar_storage(
         return false;
     }
     address = lower_value(address_value, rcc_ir_type_pointer(0u), true);
+    if (type_is_cxx_member_function_pointer(type)) {
+        size_t word_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+        RccIrType word_type = lower_member_function_pointer_word_type();
+        RccIrLowerValue zero = lower_integer_constant(
+            context, word_type, true, 0u);
+        for (size_t index = 0u; index < 2u; ++index) {
+            RccIrLowerValue slot = lower_byte_offset_address(
+                context, address, (uint64_t)(index * word_size));
+            if (!zero.valid || !slot.valid ||
+                !lower_store_address(context, slot, zero)) return false;
+        }
+        return true;
+    }
     if (lower_i686_wide_scalar_type(type)) {
         RccIrLowerWideValue zero;
         zero.low = lower_integer_constant(
@@ -10745,6 +11251,41 @@ static bool lower_initialize_scalar_storage(
     if (!type || !initializer || type->size <= 0) {
         if (context) context->unsupported = true;
         return false;
+    }
+    if (type_is_cxx_member_function_pointer(type)) {
+        const Expr* member_initializer = lower_scalar_initializer_expression(
+            initializer);
+        int64_t integer_value;
+        if (!member_initializer && initializer->kind == EXPR_COMPOUND &&
+            !initializer->compound_init) {
+            return lower_zero_scalar_storage(
+                context, address_value, type);
+        }
+        if (!member_initializer) {
+            context->unsupported = true;
+            return false;
+        }
+        if (member_initializer->is_cxx_nullptr ||
+            (member_initializer->type &&
+             member_initializer->type->kind == TYPE_NULLPTR) ||
+            (expr_eval_integer_constant(
+                 (Expr*)member_initializer, &integer_value) &&
+             integer_value == 0)) {
+            return lower_zero_scalar_storage(
+                context, address_value, type);
+        }
+        if (!type_is_cxx_member_function_pointer(
+                member_initializer->type)) {
+            context->unsupported = true;
+            return false;
+        }
+        {
+            RccIrLowerValue source = lower_expression(
+                context, member_initializer);
+            return source.valid && source.type.kind == RCC_IR_TYPE_POINTER &&
+                lower_copy_member_function_pointer_storage(
+                    context, address_value, source.value, type);
+        }
     }
     expression = lower_scalar_initializer_expression(initializer);
     if (!expression) {
@@ -10807,6 +11348,11 @@ static bool lower_storage_type_supported_internal(
         }
         return true;
     }
+    if (type_is_cxx_member_function_pointer(type)) {
+        int pointer_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
+        return type->size == pointer_size * 2 &&
+            type->align == pointer_size;
+    }
     if (lower_i686_wide_scalar_type(type)) return true;
     return lower_type(type, &ir_type) &&
         ir_type.kind != RCC_IR_TYPE_VOID;
@@ -10814,7 +11360,8 @@ static bool lower_storage_type_supported_internal(
 
 static bool lower_abi_is_aggregate(const Type* type) {
     return type && (type->kind == TYPE_STRUCT ||
-                    type->kind == TYPE_UNION);
+                    type->kind == TYPE_UNION ||
+                    type_is_cxx_member_function_pointer(type));
 }
 
 static bool lower_abi_naturally_aligned_internal(
@@ -10914,6 +11461,19 @@ static bool lower_sysv_classify_type_at(
             if (!lower_sysv_classify_type_at(
                     type->base, offset, depth + 1u, result)) return false;
             if (result->memory) return true;
+        }
+        return true;
+    }
+    if (type_is_cxx_member_function_pointer(type)) {
+        first = base_offset / 8u;
+        last = (base_offset + (uint64_t)type->size - 1u) / 8u;
+        if (last >= 2u) {
+            result->memory = true;
+            return true;
+        }
+        for (uint64_t index = first; index <= last; ++index) {
+            result->classes[index] = lower_sysv_merge_class(
+                result->classes[index], LOWER_SYSV_CLASS_INTEGER);
         }
         return true;
     }
@@ -11487,6 +12047,25 @@ static bool lower_copy_struct_storage(
     return true;
 }
 
+static bool lower_copy_abi_aggregate_storage(
+    RccIrLowerContext* context, RccIrValue destination,
+    RccIrValue source, const Type* type) {
+    if (type_is_cxx_member_function_pointer(type)) {
+        return lower_copy_member_function_pointer_storage(
+            context, destination, source, type);
+    }
+    if (type && type->kind == TYPE_STRUCT) {
+        return lower_copy_struct_storage(
+            context, destination, source, type);
+    }
+    if (type && type->kind == TYPE_UNION) {
+        return lower_copy_union_storage(
+            context, destination, source, type);
+    }
+    if (context) context->unsupported = true;
+    return false;
+}
+
 static const TypeField* lower_struct_field(
     const Type* type, const char* name) {
     const TypeField* field;
@@ -11745,6 +12324,11 @@ static RccIrLowerValue lower_compound_literal_address(
                 context, allocation->result, type, expression)) {
             return lower_invalid_value();
         }
+    } else if (type_is_cxx_member_function_pointer(type)) {
+        if (!lower_initialize_scalar_storage(
+                context, allocation->result, type, expression)) {
+            return lower_invalid_value();
+        }
     } else {
         const Expr* initializer = lower_scalar_initializer_expression(
             expression);
@@ -11781,6 +12365,10 @@ static bool lower_declaration(RccIrLowerContext* context,
         declaration->type->kind == TYPE_STRUCT;
     bool is_union = declaration->type &&
         declaration->type->kind == TYPE_UNION;
+    bool is_member_function_pointer = declaration->type &&
+        type_is_cxx_member_function_pointer(declaration->type);
+    bool is_aggregate = is_array || is_struct || is_union ||
+        is_member_function_pointer;
     bool wide_scalar = declaration->type &&
         lower_i686_wide_scalar_type(declaration->type);
     bool wide_ssa = wide_scalar && !declaration->type->is_volatile &&
@@ -11796,7 +12384,7 @@ static bool lower_declaration(RccIrLowerContext* context,
         declaration->storage == STORAGE_EXTERN ||
         declaration->storage == STORAGE_STATIC || declaration->var_cleanup ||
         declaration->var_cleanups ||
-        ((is_array || is_struct || is_union)
+        (is_aggregate
              ? (declaration->type->size <= 0 ||
                 declaration->type->is_reference ||
                 declaration->type->is_volatile ||
@@ -11804,9 +12392,12 @@ static bool lower_declaration(RccIrLowerContext* context,
                 (is_struct &&
                  !lower_struct_type_supported(declaration->type)) ||
                 (is_union &&
-                 !lower_union_type_supported(declaration->type)))
+                 !lower_union_type_supported(declaration->type)) ||
+                (is_member_function_pointer &&
+                 !lower_storage_type_supported_internal(
+                     declaration->type, 0u)))
              : (!wide_scalar && !lower_type(declaration->type, &type))) ||
-        (!is_array && !is_struct && !is_union &&
+        (!is_aggregate &&
          !wide_scalar && type.kind == RCC_IR_TYPE_VOID)) {
         context->unsupported = true;
         return false;
@@ -11820,7 +12411,7 @@ static bool lower_declaration(RccIrLowerContext* context,
     allocation->alignment = declaration->type->align > 0
         ? (uint32_t)declaration->type->align : 0u;
     allocation->source_declaration = declaration;
-    if (is_array || is_struct || is_union || wide_scalar) {
+    if (is_aggregate || wide_scalar) {
         type = rcc_ir_type_pointer(0u);
     }
     if (!lower_add_local(context, declaration, allocation->result, type)) {
@@ -11839,6 +12430,11 @@ static bool lower_declaration(RccIrLowerContext* context,
     }
     if (is_union && declaration->var_init) {
         return lower_initialize_union_storage(
+            context, allocation->result,
+            declaration->type, declaration->var_init);
+    }
+    if (is_member_function_pointer && declaration->var_init) {
+        return lower_initialize_scalar_storage(
             context, allocation->result,
             declaration->type, declaration->var_init);
     }
@@ -12503,13 +13099,9 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                     return_count = 2u;
                 } else if (context->aggregate_return_kind ==
                            LOWER_ABI_RETURN_SRET) {
-                    bool copied = context->ast_return_type->kind == TYPE_STRUCT
-                        ? lower_copy_struct_storage(
-                              context, context->aggregate_return_address,
-                              source.value, context->ast_return_type)
-                        : lower_copy_union_storage(
-                              context, context->aggregate_return_address,
-                              source.value, context->ast_return_type);
+                    bool copied = lower_copy_abi_aggregate_storage(
+                        context, context->aggregate_return_address,
+                        source.value, context->ast_return_type);
                     if (!copied) return false;
                     result = lower_value(
                         context->aggregate_return_address,

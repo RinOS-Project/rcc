@@ -1466,7 +1466,8 @@ static Gen64AggregateClass gen64_classify_aggregate(const Type* type) {
     Gen64AggregateClass result = {{GEN64_CLASS_NONE, GEN64_CLASS_NONE}, 0,
                                   false};
     if (!type || (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION &&
-                  type->kind != TYPE_VECTOR) ||
+                  type->kind != TYPE_VECTOR &&
+                  !type_is_cxx_member_function_pointer(type)) ||
         type->size <= 0 || type->size > 16 ||
         !gen64_classify_type_at(type, 0, &result)) {
         result.memory = true;
@@ -1489,7 +1490,8 @@ static Gen64AggregateClass gen64_classify_aggregate(const Type* type) {
 static bool gen64_is_aggregate(const Type* type) {
     return type && (type->kind == TYPE_STRUCT ||
                     type->kind == TYPE_UNION ||
-                    type->kind == TYPE_VECTOR);
+                    type->kind == TYPE_VECTOR ||
+                    type_is_cxx_member_function_pointer(type));
 }
 
 static int gen64_aggregate_storage(const Type* type) {
@@ -3528,6 +3530,22 @@ static bool gen64_local_initializer(Module* mod, Type* type,
         return true;
     }
     if (gen64_aggregate_zero_initializer(type, initializer)) return true;
+    if (type_is_cxx_member_function_pointer(type) &&
+        (initializer->is_cxx_nullptr ||
+         (initializer->type &&
+          initializer->type->kind == TYPE_NULLPTR) ||
+         (initializer->kind == EXPR_INT_LIT &&
+          initializer->int_val == 0))) {
+        gen64_zero_local_storage(mod, displacement, (size_t)type->size);
+        return true;
+    }
+    if (type_is_cxx_member_function_pointer(type) && !type->is_reference) {
+        gen64_expr(mod, initializer);
+        emit64_mov_reg_reg(mod, RDX, RAX);
+        emit64_lea(mod, RCX, RBP, displacement);
+        gen64_copy_memory(mod, RCX, 0, RDX, 0, type->size);
+        return true;
+    }
     if (type->kind == TYPE_PTR && type->is_reference) {
         gen64_lvalue(mod, initializer);
         gen64_cxx_reference_adjustment(mod, initializer);
@@ -4332,7 +4350,17 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
             break;
 
         case EXPR_INDEX:
-            gen64_expr(mod, expr->index_base);
+            if (expr->index_base &&
+                ((expr->index_base->type &&
+                  expr->index_base->type->kind == TYPE_ARRAY) ||
+                 (expr->index_base->kind == EXPR_IDENT &&
+                  expr->index_base->ident_decl &&
+                  expr->index_base->ident_decl->type &&
+                  expr->index_base->ident_decl->type->kind == TYPE_ARRAY))) {
+                gen64_lvalue(mod, expr->index_base);
+            } else {
+                gen64_expr(mod, expr->index_base);
+            }
             emit64_push_reg(mod, RAX);
             gen64_expr(mod, expr->index_expr);
             if (gen64_type_has_vla(expr->type)) {
@@ -7083,14 +7111,20 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 if (expr->type && expr->type->kind != TYPE_ARRAY &&
                     expr->type->kind != TYPE_STRUCT &&
                     expr->type->kind != TYPE_UNION &&
-                    expr->type->kind != TYPE_VECTOR) {
+                    expr->type->kind != TYPE_VECTOR &&
+                    !type_is_cxx_member_function_pointer(expr->type)) {
                     emit64_load_typed(mod, RAX, RAX, 0, expr->type);
                 }
             } else if (decl->var_is_thread_local) {
                 gen64_lvalue(mod, expr);
-                emit64_load_typed(mod, RAX, RAX, 0, decl->type);
-            } else if (decl->type && (decl->type->kind == TYPE_ARRAY ||
-                                      decl->type->kind == TYPE_VECTOR)) {
+                if (decl->type && decl->type->kind == TYPE_ARRAY) {
+                    /* Array expressions decay to the address of element 0. */
+                } else if (!gen64_is_aggregate(decl->type)) {
+                    emit64_load_typed(mod, RAX, RAX, 0, decl->type);
+                }
+            } else if (decl->type && decl->type->kind == TYPE_ARRAY) {
+                gen64_lvalue(mod, expr);
+            } else if (decl->type && gen64_is_aggregate(decl->type)) {
                 gen64_lvalue(mod, expr);
             } else if (decl->var_is_global) {
                 gen64_symbol_address(mod, decl_link_name(decl), 0u);
@@ -7135,7 +7169,45 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_ADDR:
-            gen64_lvalue(mod, expr->unary_operand);
+            if (type_is_cxx_member_function_pointer(expr->type)) {
+                TypeMethod* method =
+                    expr->cxx_member_function_pointer_method;
+                Decl* function = expr->unary_operand
+                    ? expr->unary_operand->ident_decl : NULL;
+                if (!method && expr->type->cxx_member_pointer_owner) {
+                    for (TypeMethod* candidate =
+                             expr->type->cxx_member_pointer_owner->methods;
+                         candidate; candidate = candidate->next) {
+                        if (candidate->function_decl == function) {
+                            method = candidate;
+                            break;
+                        }
+                    }
+                }
+                if (expr->aggregate_offset >= 0 || !method ||
+                    (!method->is_virtual &&
+                     (!function || !function->link_name)) ||
+                    (method->is_virtual && method->vtable_index < 0)) {
+                    rcc_error(expr->loc,
+                              "member-function pointer address has no ABI result storage or selected method");
+                    break;
+                }
+                if (method->is_virtual) {
+                    emit64_mov_reg_imm64(
+                        mod, RAX,
+                        (uint64_t)method->vtable_index * 8u + 1u);
+                } else {
+                    gen64_symbol_address(
+                        mod, decl_link_name(function), 0u);
+                }
+                emit64_mov_mem_reg(mod, RBP, expr->aggregate_offset, RAX);
+                emit64_mov_reg_imm32(mod, RDX, 0u);
+                emit64_mov_mem_reg(mod, RBP,
+                                   expr->aggregate_offset + 8, RDX);
+                emit64_lea(mod, RAX, RBP, expr->aggregate_offset);
+            } else {
+                gen64_lvalue(mod, expr->unary_operand);
+            }
             break;
 
         case EXPR_DEREF:
@@ -7147,7 +7219,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             if (expr->type && (expr->type->kind == TYPE_ARRAY ||
                                expr->type->kind == TYPE_STRUCT ||
                                expr->type->kind == TYPE_UNION ||
-                               expr->type->kind == TYPE_VECTOR)) {
+                               expr->type->kind == TYPE_VECTOR ||
+                               type_is_cxx_member_function_pointer(expr->type))) {
                 break;
             }
             if (expr->type && expr->type->is_atomic) {
@@ -7572,6 +7645,52 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE: {
+            if (type_is_cxx_member_function_pointer(
+                    expr->binary_lhs->type) ||
+                type_is_cxx_member_function_pointer(
+                    expr->binary_rhs->type)) {
+                emit64_push_reg(mod, R12);
+                emit64_push_reg(mod, R13);
+                emit64_sub_reg_imm(mod, RSP, 16);
+                emit64_mov_reg_imm32(mod, RAX, 0u);
+                emit64_mov_mem_reg(mod, RSP, 0, RAX);
+                emit64_mov_mem_reg(mod, RSP, 8, RAX);
+                if (expr->binary_lhs->is_cxx_nullptr ||
+                    (expr->binary_lhs->type &&
+                     expr->binary_lhs->type->kind == TYPE_NULLPTR)) {
+                    emit64_mov_reg_reg(mod, RAX, RSP);
+                } else if (expr->binary_lhs->kind == EXPR_CALL) {
+                    gen64_lvalue(mod, expr->binary_lhs);
+                } else {
+                    gen64_expr(mod, expr->binary_lhs);
+                }
+                emit64_mov_reg_reg(mod, R12, RAX);
+                if (expr->binary_rhs->is_cxx_nullptr ||
+                    (expr->binary_rhs->type &&
+                     expr->binary_rhs->type->kind == TYPE_NULLPTR)) {
+                    emit64_mov_reg_reg(mod, RAX, RSP);
+                } else if (expr->binary_rhs->kind == EXPR_CALL) {
+                    gen64_lvalue(mod, expr->binary_rhs);
+                } else {
+                    gen64_expr(mod, expr->binary_rhs);
+                }
+                emit64_mov_reg_reg(mod, R13, RAX);
+                emit64_mov_reg_mem(mod, RAX, R12, 0);
+                emit64_mov_reg_mem(mod, RCX, R13, 0);
+                emit64_xor_reg_reg(mod, RAX, RCX);
+                emit64_mov_reg_mem(mod, RDX, R12, 8);
+                emit64_mov_reg_mem(mod, RCX, R13, 8);
+                emit64_xor_reg_reg(mod, RDX, RCX);
+                emit64_or_reg_reg(mod, RAX, RDX);
+                emit64_test_reg_reg(mod, RAX, RAX);
+                emit64_setcc(mod, expr->kind == EXPR_EQ ? CC64_E : CC64_NE,
+                             RAX);
+                emit64_movzx_r64_r8(mod, RAX, RAX);
+                emit64_add_reg_imm(mod, RSP, 16);
+                emit64_pop_reg(mod, R13);
+                emit64_pop_reg(mod, R12);
+                break;
+            }
             if (gen64_is_floating(expr->binary_lhs->type) ||
                 gen64_is_floating(expr->binary_rhs->type)) {
                 gen64_float_compare(mod, expr);
@@ -7677,15 +7796,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_mov_reg_reg(mod, RAX, RCX);
                 break;
             }
-            if (expr->binary_lhs->type &&
-                (expr->binary_lhs->type->kind == TYPE_STRUCT ||
-                 expr->binary_lhs->type->kind == TYPE_UNION)) {
+            if (gen64_is_aggregate(expr->binary_lhs->type)) {
                 int offset = 0;
-                if (expr->binary_rhs->kind == EXPR_ASSIGN ||
-                    expr->binary_rhs->kind == EXPR_VA_ARG) {
-                    gen64_expr(mod, expr->binary_rhs);
-                } else {
+                if (gen64_expr_is_lvalue(expr->binary_rhs)) {
                     gen64_lvalue(mod, expr->binary_rhs);
+                } else {
+                    gen64_expr(mod, expr->binary_rhs);
                 }
                 emit64_push_reg(mod, RAX);
                 gen64_lvalue(mod, expr->binary_lhs);
@@ -8045,6 +8161,77 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             if (gen64_inline_method_call(mod, expr)) break;
             if (gen64_compiler_builtin(mod, expr)) break;
             if (gen64_atomic_builtin(mod, expr)) break;
+            if (expr->call_member_pointer_application) {
+                Expr* application = expr->call_member_pointer_application;
+                if (expr->call_member_pointer_value_offset >= 0 ||
+                    expr->call_member_pointer_this_offset >= 0 ||
+                    !application->binary_lhs || !application->binary_rhs) {
+                    rcc_error(expr->loc,
+                              "member-function pointer call has incomplete ABI frame metadata");
+                    break;
+                }
+                gen64_expr(mod, application->binary_lhs);
+                if (application->cxx_virtual_base_member_access) {
+                    if (!application->cxx_virtual_base_source_class ||
+                        application->cxx_virtual_base_pointer_offset < 0 ||
+                        application->cxx_virtual_base_index < 0 ||
+                        application->cxx_virtual_base_index >=
+                            application->cxx_virtual_base_source_class
+                                ->virtual_base_count) {
+                        rcc_error(application->loc,
+                                  "member-function pointer virtual-base receiver metadata is incomplete");
+                        break;
+                    }
+                    emit64_mov_reg_mem(
+                        mod, RDX, RAX,
+                        application->cxx_virtual_base_pointer_offset);
+                    emit64_mov_reg_mem(
+                        mod, RCX, RDX,
+                        application->cxx_virtual_base_index * 8);
+                    emit64_add_reg_reg(mod, RAX, RCX);
+                    if (application->cxx_virtual_base_nested_adjustment !=
+                        0) {
+                        emit64_add_reg_imm(
+                            mod, RAX,
+                            application->cxx_virtual_base_nested_adjustment);
+                    }
+                } else if (application->cxx_pointer_adjustment_valid &&
+                           application->cxx_pointer_adjustment != 0) {
+                    emit64_add_reg_imm(
+                        mod, RAX,
+                        application->cxx_pointer_adjustment);
+                }
+                emit64_mov_mem_reg(
+                    mod, RBP, expr->call_member_pointer_this_offset, RAX);
+                gen64_expr(mod, application->binary_rhs);
+                emit64_mov_reg_reg(mod, RCX, RAX);
+                emit64_mov_reg_mem(mod, RDX, RCX, 0);
+                emit64_mov_mem_reg(
+                    mod, RBP, expr->call_member_pointer_value_offset, RDX);
+                emit64_mov_reg_mem(mod, RCX, RCX, 8);
+                emit64_mov_mem_reg(
+                    mod, RBP,
+                    expr->call_member_pointer_value_offset + 8, RCX);
+                emit64_mov_reg_mem(
+                    mod, RCX, RBP,
+                    expr->call_member_pointer_value_offset);
+                emit64_test_reg_reg(mod, RCX, RCX);
+                int null_pointer_label = new_label64();
+                int receiver_ready_label = new_label64();
+                emit64_jcc_label(mod, CC64_E, null_pointer_label);
+                emit64_mov_reg_mem(
+                    mod, RCX, RBP,
+                    expr->call_member_pointer_value_offset + 8);
+                emit64_mov_reg_mem(
+                    mod, RDX, RBP, expr->call_member_pointer_this_offset);
+                emit64_add_reg_reg(mod, RDX, RCX);
+                emit64_jmp_label(mod, receiver_ready_label);
+                emit64_label(mod, null_pointer_label);
+                emit64_mov_reg_imm32(mod, RDX, 0u);
+                emit64_label(mod, receiver_ready_label);
+                emit64_mov_mem_reg(
+                    mod, RBP, expr->call_member_pointer_this_offset, RDX);
+            }
             /* x86-64 System V ABI: RDI, RSI, RDX, RCX, R8, R9 */
             int arg_regs[] = {RDI, RSI, RDX, RCX, R8, R9};
             int argc = exprlist_len(expr->call_args);
@@ -8195,7 +8382,18 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 Type* passed_type = argument_types[i];
                 Gen64CallArg* layout = &call_arguments[i];
                 if (layout->is_aggregate) {
-                    if (argument->kind == EXPR_VA_ARG) {
+                    if (type_is_cxx_member_function_pointer(passed_type) &&
+                        (argument->is_cxx_nullptr ||
+                         (argument->type &&
+                          argument->type->kind == TYPE_NULLPTR))) {
+                        emit64_mov_reg_imm32(mod, RAX, 0u);
+                        emit64_mov_mem_reg(mod, RSP, layout->temp_offset,
+                                           RAX);
+                        emit64_mov_mem_reg(mod, RSP,
+                                           layout->temp_offset + 8, RAX);
+                        continue;
+                    } else if (argument->kind == EXPR_VA_ARG ||
+                        !gen64_expr_is_lvalue(argument)) {
                         gen64_expr(mod, argument);
                     } else {
                         gen64_lvalue(mod, argument);
@@ -8244,7 +8442,13 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                         emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
                     }
                 } else {
-                    gen64_expr(mod, argument);
+                    if (expr->call_member_pointer_application && i == 0) {
+                        emit64_mov_reg_mem(
+                            mod, RAX, RBP,
+                            expr->call_member_pointer_this_offset);
+                    } else {
+                        gen64_expr(mod, argument);
+                    }
                     if (gen64_is_floating(passed_type)) {
                         /* Sema records the source expression type and the
                          * call ABI type separately.  This matters for both
@@ -8348,7 +8552,35 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
 
             /* Direct calls use rel32 and produce a .ro relocation only when
              * the definition is external to this translation unit. */
-            if (expr->call_is_virtual && expr->call_virtual_index >= 0) {
+            if (expr->call_member_pointer_application) {
+                int direct_member_pointer_label = new_label64();
+                int member_pointer_call_label = new_label64();
+                emit64_mov_reg_mem(
+                    mod, RAX, RBP,
+                    expr->call_member_pointer_value_offset);
+                emit64_mov_reg_imm32(mod, RCX, 1u);
+                emit64_test_reg_reg(mod, RAX, RCX);
+                emit64_jcc_label(mod, CC64_E,
+                                 direct_member_pointer_label);
+                emit64_mov_reg_mem(
+                    mod, RCX, RBP,
+                    expr->call_member_pointer_this_offset);
+                emit64_mov_reg_mem(mod, RCX, RCX, 0);
+                emit64_sub_reg_imm(mod, RAX, 1);
+                emit64_add_reg_reg(mod, RAX, RCX);
+                emit64_mov_reg_mem(mod, R11, RAX, 0);
+                emit64_jmp_label(mod, member_pointer_call_label);
+                emit64_label(mod, direct_member_pointer_label);
+                emit64_mov_reg_reg(mod, R11, RAX);
+                emit64_label(mod, member_pointer_call_label);
+                if (function_type && function_type->kind == TYPE_FUNC &&
+                    function_type->variadic) {
+                    emit64_mov_reg_imm32(mod, RAX, (uint32_t)fp_cursor);
+                }
+                emit_rex(mod, false, 2, 0, R11);
+                emit_byte(mod, 0xFF);  /* CALL R11 */
+                emit_byte(mod, modrm64(3, 2, R11));
+            } else if (expr->call_is_virtual && expr->call_virtual_index >= 0) {
                 /* The implicit this argument is always the first GP
                  * argument.  Load the most-derived function from its vptr
                  * after all source arguments have been evaluated. */
@@ -8411,6 +8643,14 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             if (temp_bytes + stack_bytes + stack_padding) {
                 emit64_add_reg_imm(mod, RSP,
                                    temp_bytes + stack_bytes + stack_padding);
+            }
+            if (aggregate_result && !memory_result) {
+                if (expr->call_result_offset >= 0) {
+                    rcc_error(expr->loc,
+                              "aggregate call has no automatic result slot");
+                } else {
+                    emit64_lea(mod, RAX, RBP, expr->call_result_offset);
+                }
             }
             rcc_free(call_arguments);
             break;
@@ -8681,10 +8921,50 @@ static void gen64_expr(Module* mod, Expr* expr) {
 
 static void gen64_expr_impl(Module* mod, Expr* expr) {
     if (!expr) return;
+    if (type_is_cxx_member_function_pointer(expr->type) &&
+        (expr->is_cxx_nullptr ||
+         (expr->type && expr->type->kind == TYPE_NULLPTR))) {
+        if (expr->aggregate_offset >= 0) {
+            rcc_error(expr->loc,
+                      "null member-function pointer has no automatic result slot");
+            return;
+        }
+        emit64_mov_reg_imm32(mod, RAX, 0u);
+        emit64_mov_mem_reg(mod, RBP, expr->aggregate_offset, RAX);
+        emit64_mov_mem_reg(mod, RBP, expr->aggregate_offset + 8, RAX);
+        emit64_lea(mod, RAX, RBP, expr->aggregate_offset);
+        return;
+    }
     gen64_expr_raw(mod, expr);
-    if (expr->cxx_member_pointer_adjustment_valid &&
+    if (type_is_cxx_member_function_pointer(expr->type) &&
+        expr->cxx_member_pointer_adjustment_valid) {
+        int null_label = new_label64();
+        int done_label = new_label64();
+        if (expr->aggregate_offset >= 0) {
+            rcc_error(expr->loc,
+                      "converted member-function pointer has no automatic result slot");
+            return;
+        }
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_mov_reg_mem(mod, RDX, RCX, 0);
+        emit64_mov_reg_mem(mod, R8, RCX, 8);
+        emit64_test_reg_reg(mod, RDX, RDX);
+        emit64_jcc_label(mod, CC64_E, null_label);
+        if (expr->cxx_member_pointer_adjustment != 0) {
+            emit64_add_reg_imm(mod, R8,
+                               expr->cxx_member_pointer_adjustment);
+        }
+        emit64_jmp_label(mod, done_label);
+        emit64_label(mod, null_label);
+        emit64_mov_reg_imm32(mod, R8, 0u);
+        emit64_label(mod, done_label);
+        emit64_mov_mem_reg(mod, RBP, expr->aggregate_offset, RDX);
+        emit64_mov_mem_reg(mod, RBP, expr->aggregate_offset + 8, R8);
+        emit64_lea(mod, RAX, RBP, expr->aggregate_offset);
+    } else if (expr->cxx_member_pointer_adjustment_valid &&
         expr->type && expr->type->kind == TYPE_PTR &&
-        expr->type->cxx_is_member_pointer) {
+        expr->type->cxx_is_member_pointer &&
+        !type_is_cxx_member_function_pointer(expr->type)) {
         int done_label = new_label64();
         emit64_compare_constant(mod, RAX, -1);
         emit64_jcc_label(mod, CC64_E, done_label);
@@ -9530,6 +9810,14 @@ static bool gen64_global_initializer(Module* mod, Decl* declaration) {
         gen64_cxx_initialize_object(
             mod, type, initializer->compound_constructor,
             initializer->compound_init);
+        return true;
+    }
+    if (type_is_cxx_member_function_pointer(type)) {
+        gen64_expr(mod, initializer);
+        emit64_mov_reg_reg(mod, RDX, RAX);
+        gen64_decl_storage_address(mod, declaration);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        gen64_copy_memory(mod, RCX, 0, RDX, 0, type->size);
         return true;
     }
     gen64_expr(mod, initializer);
@@ -11394,12 +11682,16 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 } else if (current_function_return_type64 &&
                     (current_function_return_type64->kind == TYPE_STRUCT ||
                      current_function_return_type64->kind == TYPE_UNION ||
-                     current_function_return_type64->kind == TYPE_VECTOR)) {
+                     current_function_return_type64->kind == TYPE_VECTOR ||
+                     type_is_cxx_member_function_pointer(
+                         current_function_return_type64))) {
                     int size = current_function_return_type64->size;
                     Gen64AggregateClass return_class =
                         gen64_classify_aggregate(
                             current_function_return_type64);
-                    if (current_function_return_type64->kind == TYPE_VECTOR) {
+                    if (current_function_return_type64->kind == TYPE_VECTOR ||
+                        type_is_cxx_member_function_pointer(
+                            current_function_return_type64)) {
                         gen64_expr(mod, stmt->return_val);
                     } else if (stmt->return_val->kind == EXPR_VA_ARG) {
                         gen64_expr(mod, stmt->return_val);
@@ -11798,7 +12090,8 @@ static void gen64_function(Module* mod, Decl* decl) {
         int aggregate = value->type &&
             (value->type->kind == TYPE_STRUCT ||
              value->type->kind == TYPE_UNION ||
-             value->type->kind == TYPE_ARRAY);
+             value->type->kind == TYPE_ARRAY ||
+             type_is_cxx_member_function_pointer(value->type));
         int units = aggregate ? (size + 7) / 8 : 1;
         int64_t storage = aggregate ? (int64_t)units * 8
                                     : ((int64_t)size + 3) & ~INT64_C(3);
@@ -12122,6 +12415,11 @@ Module* rcc_codegen64(AST* ast) {
     /* Second pass: generate code for each defined function */
     for (DeclList* d = ast->decls; d; d = d->next) {
         if (d->decl->kind == DECL_FUNC && d->decl->func_body) {
+            /* Itanium member-function pointers reserve the low bit of a
+             * direct function address to distinguish virtual slots. */
+            if ((code_offset(mod) & 1u) != 0u) {
+                emit_byte(mod, 0x90);
+            }
             /* Record function start offset */
             uint32_t func_start = code_offset(mod);
 

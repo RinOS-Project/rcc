@@ -435,8 +435,7 @@ static void cxx_complete_pending_member_pointer_forms(CxxClass* cls) {
                     continue;
                 }
                 Type* member_pointer_type = type_ptr(template_field->type);
-                member_pointer_type->cxx_is_member_pointer = true;
-                member_pointer_type->cxx_member_pointer_owner = cls->type;
+                type_cxx_member_pointer(member_pointer_type, cls->type);
                 expression->type = member_pointer_type;
                 expression->cxx_member_pointer_form = true;
                 expression->cxx_member_pointer_form_deferred = true;
@@ -476,8 +475,7 @@ static void cxx_complete_pending_member_pointer_forms(CxxClass* cls) {
                           "this data-member pointer form is unsupported");
             } else {
                 Type* member_pointer_type = type_ptr(field->type);
-                member_pointer_type->cxx_is_member_pointer = true;
-                member_pointer_type->cxx_member_pointer_owner = member_owner;
+                type_cxx_member_pointer(member_pointer_type, member_owner);
                 expression->int_val = declaring_field->offset;
                 expression->type = member_pointer_type;
                 expression->cxx_member_pointer_form = true;
@@ -548,13 +546,10 @@ static void cxx_complete_pending_member_pointer_forms(CxxClass* cls) {
                 } else if (method_count == 1 && selected_method &&
                            selected_method->function_decl) {
                     Decl* function_decl = selected_method->function_decl;
-                    if (selected_method->is_virtual ||
-                        selected_method->ref_qualifier != CXX_REF_QUAL_NONE ||
-                        selected_method->is_noexcept ||
-                        !function_decl->link_name) {
+                    if (!function_decl->link_name) {
                         rcc_error(
                             pending->location,
-                            "pointer-to-member function requires a non-virtual method without ref-qualifier or noexcept in the current ABI subset");
+                            "pointer-to-member function has no emitted method symbol");
                     } else {
                         Expr* address = cxx_pending_address_of_decl(
                             function_decl, pending->location);
@@ -569,6 +564,8 @@ static void cxx_complete_pending_member_pointer_forms(CxxClass* cls) {
                                     : cls;
                         address->cxx_member_pointer_form_designating_class =
                             cls;
+                        address->cxx_member_function_pointer_method =
+                            selected_method;
                         cxx_replace_pending_form(expression, address);
                     }
                 } else if (method_count == 0 &&
@@ -818,12 +815,10 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
                           "pointer-to-member function requires one registered method overload");
                 return NULL;
             }
-            if (method->is_virtual || method->ref_qualifier !=
-                    CXX_REF_QUAL_NONE || method->is_noexcept ||
-                !function_decl->func_this_param->type ||
+            if (!function_decl->func_this_param->type ||
                 !function_decl->func_this_param->type->base) {
                 rcc_error(loc,
-                          "pointer-to-member function requires a non-virtual method without ref-qualifier or noexcept in the current ABI subset");
+                          "pointer-to-member function has incomplete object qualification metadata");
                 return NULL;
             }
             value = expr_unary(
@@ -842,6 +837,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
                         : owner_class;
             value->cxx_member_pointer_form_designating_class =
                 owner_class;
+            value->cxx_member_function_pointer_method = method;
             return value;
         }
         return NULL;
@@ -926,8 +922,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     parser.cur = parser.prev->next;
     value = expr_int(declaring_field->offset, loc);
     member_pointer_type = type_ptr(field->type);
-    member_pointer_type->cxx_is_member_pointer = true;
-    member_pointer_type->cxx_member_pointer_owner = member_owner;
+    type_cxx_member_pointer(member_pointer_type, member_owner);
     value->type = member_pointer_type;
     value->cxx_member_pointer_form = true;
     value->cxx_member_pointer_form_access = used_base_member
@@ -6471,6 +6466,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
         /* Create method */
         CxxMethod* method = cxx_method_new(name, type, params, body, loc);
+        method->decl->type->is_const = is_const;
+        method->decl->type->is_volatile = is_volatile;
+        method->decl->type->function_ref_qualifier = ref_qualifier;
+        method->decl->type->function_is_noexcept = is_noexcept;
         method->access = current_access;
         method->is_virtual = is_virtual;
         method->is_static = is_static;
@@ -14633,8 +14632,7 @@ static Type* parse_cxx_type_spec(void) {
                           "invalid C++ pointer-to-member type");
                 return type_int;
             }
-            member_pointer->cxx_is_member_pointer = true;
-            member_pointer->cxx_member_pointer_owner = member_owner;
+            type_cxx_member_pointer(member_pointer, member_owner);
             while (match(TOK_CONST) || match(TOK_VOLATILE) ||
                    match(TOK_RESTRICT)) {
                 if (previous()->type == TOK_CONST) {
