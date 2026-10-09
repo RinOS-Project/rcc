@@ -448,6 +448,9 @@ CxxClassAliasTemplate* cxx_class_add_alias_template(
     SourceLoc loc);
 CxxClassAliasTemplate* cxx_class_find_alias_template(
     CxxClass* cls, const char* name);
+CxxClassAliasTemplate* cxx_class_find_inherited_alias_template(
+    CxxClass* cls, const char* name, CxxClass* access_context,
+    CxxClass** declaring_class, bool* ambiguous, bool* accessible);
 bool cxx_class_is_same_or_derived_from(CxxClass* cls, CxxClass* target);
 CxxTypeAlias* cxx_class_find_inherited_type_alias(
     CxxClass* cls, const char* name, CxxClass* access_context,

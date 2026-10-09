@@ -79,6 +79,49 @@ dependent_alias_owner(T* value) {
     return value;
 }
 
+struct AliasTemplatePublicBase {
+    template<typename U>
+    using Pointer = U*;
+};
+
+struct AliasTemplatePublicMiddle : public AliasTemplatePublicBase {};
+
+struct AliasTemplatePublicDerived : public AliasTemplatePublicMiddle {};
+
+struct AliasTemplateProtectedBase {
+protected:
+    template<typename U>
+    using Pointer = U*;
+};
+
+struct AliasTemplateProtectedDerived : public AliasTemplateProtectedBase {
+    static int read(int* value) {
+        Pointer<int> pointer = value;
+        return *pointer;
+    }
+};
+
+struct AliasTemplatePrivateBase {
+    template<typename U>
+    using Pointer = U*;
+};
+
+struct AliasTemplatePrivateDerived : private AliasTemplatePrivateBase {
+    static int read(int* value) {
+        Pointer<int> pointer = value;
+        return *pointer;
+    }
+};
+
+template<typename T>
+struct AliasTemplateGenericBase {
+    template<typename U>
+    using Pointer = T*;
+};
+
+template<typename T>
+struct AliasTemplateGenericDerived : public AliasTemplateGenericBase<T> {};
+
 int main() {
     int outer_value = 13;
     long inner_value = 29;
@@ -112,6 +155,11 @@ int main() {
     ExplicitAliasOwner<int>::Pointer<long> explicit_pointer = &explicit_value;
     int dependent_value = 59;
     int* dependent_pointer = dependent_alias_owner(&dependent_value);
+    int inherited_value = 61;
+    AliasTemplatePublicDerived::Pointer<int> inherited_pointer =
+        &inherited_value;
+    AliasTemplateGenericDerived<int>::Pointer<long> generic_inherited_pointer =
+        &inherited_value;
     return *outer_pointer == 13 && *defaulted_pointer == 13 &&
                    *inner_pointer == 29 &&
                    wide_arguments == 43 &&
@@ -120,6 +168,9 @@ int main() {
                    nested_owner_pointer->value == 41 &&
                    *namespace_pointer == 37 && *partial_pointer == 47 &&
                    partial_values[1] == 19 && *explicit_pointer == 53 &&
-                   *dependent_pointer == 59
+                   *dependent_pointer == 59 && *inherited_pointer == 61 &&
+                   *generic_inherited_pointer == 61 &&
+                   AliasTemplateProtectedDerived::read(&inherited_value) == 61 &&
+                   AliasTemplatePrivateDerived::read(&inherited_value) == 61
                ? 0 : 1;
 }

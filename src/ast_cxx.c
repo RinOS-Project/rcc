@@ -5700,6 +5700,176 @@ CxxTypeAlias* cxx_class_find_inherited_type_alias(
     return result.alias;
 }
 
+typedef struct CxxAliasTemplateClassPath {
+    CxxClass* cls;
+    const struct CxxAliasTemplateClassPath* previous;
+} CxxAliasTemplateClassPath;
+
+typedef struct CxxAliasTemplateLookupResult {
+    CxxClassAliasTemplate* alias_template;
+    CxxClass* declaring_class;
+    AccessSpec access;
+    bool found_non_alias;
+    bool ambiguous;
+} CxxAliasTemplateLookupResult;
+
+static bool cxx_alias_template_class_path_contains(
+    const CxxAliasTemplateClassPath* path, CxxClass* cls) {
+    for (; path; path = path->previous) {
+        if (path->cls == cls) return true;
+    }
+    return false;
+}
+
+static CxxAliasTemplateLookupResult cxx_class_lookup_alias_template_recursive(
+    CxxClass* cls, const char* name,
+    const CxxAliasTemplateClassPath* path) {
+    CxxAliasTemplateLookupResult result = { 0 };
+    CxxClassAliasTemplate* own_alias;
+    CxxClass* declaring_class = cls;
+    CxxClassAliasTemplate* alias_template;
+    CxxAliasTemplateClassPath current_path;
+    if (!cls || !name) return result;
+    if (cxx_alias_template_class_path_contains(path, cls)) {
+        result.ambiguous = true;
+        return result;
+    }
+    current_path.cls = cls;
+    current_path.previous = path;
+
+    own_alias = cxx_class_find_alias_template(cls, name);
+    alias_template = own_alias;
+    if (!alias_template && cls->templ && cls->templ->templated_class &&
+        cls->templ->templated_class != cls) {
+        alias_template = cxx_class_find_alias_template(
+            cls->templ->templated_class, name);
+    }
+    if (alias_template) {
+        result.alias_template = alias_template;
+        result.declaring_class = declaring_class;
+        result.access = alias_template->access;
+        return result;
+    }
+    if (cxx_class_find_type_alias(cls, name) ||
+        cxx_class_declares_non_alias_name(cls, name) ||
+        (cls->templ && cls->templ->templated_class &&
+         cls->templ->templated_class != cls &&
+         (cxx_class_find_type_alias(cls->templ->templated_class, name) ||
+          cxx_class_declares_non_alias_name(cls->templ->templated_class,
+                                            name)))) {
+        result.found_non_alias = true;
+        return result;
+    }
+
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        CxxAliasTemplateLookupResult candidate;
+        AccessSpec access;
+        if (!base && cls->bases[index].type_pattern) {
+            base = cls->bases[index].type_pattern->cxx_class;
+            if (!base && cls->bases[index].type_pattern->cxx_template) {
+                base = cls->bases[index].type_pattern->cxx_template
+                           ->templated_class;
+            }
+        }
+        if (!base) continue;
+        candidate = cxx_class_lookup_alias_template_recursive(
+            base, name, &current_path);
+        if (candidate.ambiguous) {
+            result.ambiguous = true;
+            return result;
+        }
+        if (candidate.found_non_alias) {
+            if (result.alias_template) {
+                result.ambiguous = true;
+                return result;
+            }
+            result.found_non_alias = true;
+        }
+        if (!candidate.alias_template) continue;
+        if (result.found_non_alias) {
+            result.ambiguous = true;
+            return result;
+        }
+        access = candidate.access;
+        if (cls->bases[index].access > access) {
+            access = cls->bases[index].access;
+        }
+        if (!result.alias_template) {
+            result.alias_template = candidate.alias_template;
+            result.declaring_class = candidate.declaring_class;
+            result.access = access;
+        } else if (result.alias_template != candidate.alias_template) {
+            result.ambiguous = true;
+            return result;
+        } else if (access < result.access) {
+            result.access = access;
+        }
+    }
+    return result;
+}
+
+/* Protected class members are available to derived classes only when the
+ * derivation path is accessible from the current access context.  In
+ * particular, a descendant must not inherit access through a private base
+ * edge declared by an intermediate class. */
+static bool cxx_class_alias_access_context_is_derived_from(
+    CxxClass* context, CxxClass* target, CxxClass* access_context,
+    unsigned depth) {
+    if (!context || !target || depth > 64u) return false;
+    if (context == target) return true;
+    for (int index = 0; index < context->base_count; ++index) {
+        CxxClass* base = context->bases[index].base;
+        if (!base && context->bases[index].type_pattern) {
+            base = context->bases[index].type_pattern->cxx_class;
+        }
+        if (!base) continue;
+        if (context != access_context &&
+            context->bases[index].access == ACCESS_PRIVATE) {
+            continue;
+        }
+        if (cxx_class_alias_access_context_is_derived_from(
+                base, target, access_context, depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+CxxClassAliasTemplate* cxx_class_find_inherited_alias_template(
+    CxxClass* cls, const char* name, CxxClass* access_context,
+    CxxClass** declaring_class, bool* ambiguous, bool* accessible) {
+    CxxAliasTemplateLookupResult result;
+    if (declaring_class) *declaring_class = NULL;
+    if (ambiguous) *ambiguous = false;
+    if (accessible) *accessible = false;
+    result = cxx_class_lookup_alias_template_recursive(cls, name, NULL);
+    if (ambiguous) *ambiguous = result.ambiguous;
+    if (declaring_class && result.alias_template && !result.ambiguous) {
+        *declaring_class = result.declaring_class;
+    }
+    if (!result.alias_template || result.ambiguous) return NULL;
+    if (accessible) {
+        if (result.alias_template->access == ACCESS_PUBLIC &&
+            result.access == ACCESS_PUBLIC) {
+            *accessible = true;
+        } else if (access_context == result.declaring_class) {
+            *accessible = true;
+        } else if (access_context == cls &&
+                   result.alias_template->access != ACCESS_PRIVATE) {
+            /* A class may use a public/protected member inherited through
+             * its own private base; that edge restricts descendants, not the
+             * class that declared the inheritance. */
+            *accessible = true;
+        } else if (result.alias_template->access != ACCESS_PRIVATE &&
+                   result.access != ACCESS_PRIVATE) {
+            *accessible = cxx_class_alias_access_context_is_derived_from(
+                access_context, result.declaring_class, access_context, 0u);
+        }
+    }
+    return result.alias_template;
+}
+
 /* Add field to class */
 void cxx_class_add_field_initializer(CxxClass* cls, const char* name,
                                      Type* type, AccessSpec access,

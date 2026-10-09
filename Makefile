@@ -3235,7 +3235,11 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log
 	$(GREP) -F -q "nested alias template 'ProtectedAlias' is inaccessible" \
 		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log,2)
+	$(GREP) -F -q "nested alias template 'InheritedAlias' is inaccessible" \
+		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log
+	$(GREP) -F -q "nested alias template 'AmbiguousAlias' is ambiguous" \
+		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log,4)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.ro)
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.ro \
@@ -3245,7 +3249,11 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log
 	$(GREP) -F -q "nested alias template 'ProtectedAlias' is inaccessible" \
 		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log,2)
+	$(GREP) -F -q "nested alias template 'InheritedAlias' is inaccessible" \
+		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log
+	$(GREP) -F -q "nested alias template 'AmbiguousAlias' is ambiguous" \
+		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log,4)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.ro)
 	@echo "RCC++ bounded alias template tests completed"
 
@@ -3545,12 +3553,16 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.ro tests/cxx_class_template_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log)
 	$(GREP) -F -q "nested alias template 'PrivateAlias' is inaccessible" $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log
 	$(GREP) -F -q "nested alias template 'ProtectedAlias' is inaccessible" $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log,2)
+	$(GREP) -F -q "nested alias template 'InheritedAlias' is inaccessible" $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log
+	$(GREP) -F -q "nested alias template 'AmbiguousAlias' is ambiguous" $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log,4)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.ro tests/cxx_class_template_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log)
 	$(GREP) -F -q "nested alias template 'PrivateAlias' is inaccessible" $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log
 	$(GREP) -F -q "nested alias template 'ProtectedAlias' is inaccessible" $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log,2)
+	$(GREP) -F -q "nested alias template 'InheritedAlias' is inaccessible" $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log
+	$(GREP) -F -q "nested alias template 'AmbiguousAlias' is ambiguous" $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log,4)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.ro)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.s tests/cxx_alias_templates.cpp
 	gcc -m32 -c -o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.s

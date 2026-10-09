@@ -309,8 +309,15 @@
           inner parameters, i686/AMD64 output, PE-i386 objects, C++11 parsing,
           AMD64 execution, exact error counts, and no invalid object output in
           `test-cxx-alias-templates`.
-    - [ ] Add inherited/friend alias-template lookup and substitute dependent
-          non-type arguments from class-template owners.
+    - [x] Resolve inherited alias templates through public, protected, and
+          private base paths, including multi-level and specialized class-
+          template bases; preserve access boundaries and diagnose ambiguous
+          lookup. `test-cxx-alias-templates` verifies the valid cases on
+          i686/AMD64, C++11/C++20 generation, PE-i386 output, AMD64 execution,
+          and exact private/protected/ambiguous diagnostics with no invalid
+          object output.
+    - [ ] Friend access for inherited alias templates and dependent integral
+          non-type substitution from class-template owners remain open.
 - [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target
