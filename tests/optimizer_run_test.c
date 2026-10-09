@@ -2524,8 +2524,8 @@ int main(int argc, char** argv)
                31365u);
         assert(strength_reduce_unsigned_257(123u) == 31611u);
         assert(strength_reduce_unsigned_1023(123u) == 125829u);
-        assert(strength_reduce_unsigned_65535(123u) == 8052945u);
-        assert(preserve_dense_unsigned_multiplier(123u) == 2683155u);
+        assert(strength_reduce_unsigned_65535(123u) == 123u * 65535u);
+        assert(preserve_dense_unsigned_multiplier(123u) == 123u * 21845u);
         assert(strength_reduce_unsigned_32_high_plus_one(123u) ==
                123u * UINT32_C(0x80000001));
         assert(strength_reduce_unsigned_32_high_minus_one(123u) ==
@@ -2535,7 +2535,7 @@ int main(int argc, char** argv)
         assert(strength_reduce_unsigned_two_hundred_fifty_five(
                    UINT32_MAX) == UINT32_MAX - 254u);
         assert(strength_reduce_unsigned_257(UINT32_MAX) ==
-               UINT32_MAX - 255u);
+               UINT32_MAX * 257u);
         assert(strength_reduce_unsigned_1023(UINT32_MAX) ==
                UINT32_MAX - 1022u);
         assert(strength_reduce_unsigned_65535(UINT32_MAX) ==
