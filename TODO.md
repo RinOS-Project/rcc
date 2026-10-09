@@ -974,9 +974,13 @@
     - [ ] Generalize inherited dependent nested-type lookup across multiple
           base levels, shared virtual base subobjects, and protected-access
           context; keep this separate from direct-base alias substitution.
-    - [ ] Diagnose missing or inaccessible dependent nested aliases in
-          function-template instantiations outside requires-expressions while
-          preserving requires-expression substitution failure.
+    - [x] Treat missing or inaccessible dependent nested aliases in concrete
+          function-template return/parameter signatures as substitution failure;
+          preserve still-dependent names and requires-expression substitution,
+          and continue overload resolution to a viable fallback. Verify precise
+          diagnostics and fallback compilation on i686/AMD64 with
+          `test-cxx-function-template-dependent-nested-type` and
+          `test-cxx-requires-type`.
     - [x] Evaluate bounded scalar DMIs that read an earlier direct scalar field
           through either `this->field` or unqualified member lookup in a class
           with a dependent base. Verify `int` and `long long` on freestanding

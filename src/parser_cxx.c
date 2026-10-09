@@ -12994,6 +12994,7 @@ typedef struct CxxFunctionTemplateMatch {
     int conversion_ranks[32];
     int conversion_rank_count;
     Decl* instance;
+    Type* substitution_failure_type;
 } CxxFunctionTemplateMatch;
 
 static int cxx_parser_type_pack_index(CxxTemplate* tmpl, Type* pattern) {
@@ -13095,6 +13096,84 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
         return 2;
     }
     return -1;
+}
+
+static Type* cxx_function_template_find_dependent_nested_type(
+    Type* type, unsigned depth, bool unresolved_only) {
+    Type* unresolved;
+    if (!type || depth > 64u) return NULL;
+    if (type->cxx_dependent && type->cxx_dependent_member_name &&
+        (!unresolved_only || type->cxx_template_param_index < 0)) {
+        return type;
+    }
+    if (type->cxx_is_member_pointer && type->cxx_member_pointer_owner) {
+        unresolved = cxx_function_template_find_dependent_nested_type(
+            type->cxx_member_pointer_owner, depth + 1u, unresolved_only);
+        if (unresolved) return unresolved;
+    }
+    switch (type->kind) {
+        case TYPE_PTR:
+        case TYPE_ARRAY:
+        case TYPE_VECTOR:
+            return cxx_function_template_find_dependent_nested_type(
+                type->base, depth + 1u, unresolved_only);
+        case TYPE_FUNC:
+            unresolved = cxx_function_template_find_dependent_nested_type(
+                type->ret_type, depth + 1u, unresolved_only);
+            if (unresolved) return unresolved;
+            for (TypeParam* parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                unresolved = cxx_function_template_find_dependent_nested_type(
+                    parameter->type, depth + 1u, unresolved_only);
+                if (unresolved) return unresolved;
+            }
+            return NULL;
+        default:
+            for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+                unresolved = cxx_function_template_find_dependent_nested_type(
+                    type->cxx_template_args[index], depth + 1u,
+                    unresolved_only);
+                if (unresolved) return unresolved;
+            }
+            return NULL;
+    }
+}
+
+static void cxx_report_function_template_nested_type_failure(
+    Type* unresolved, SourceLoc loc) {
+    const char* member_name;
+    CxxClass* owner;
+    CxxTypeAlias* alias;
+    bool ambiguous = false;
+    if (!unresolved || !unresolved->cxx_dependent_member_name) return;
+    member_name = unresolved->cxx_dependent_member_name;
+    owner = unresolved->cxx_class;
+    if (!owner) {
+        rcc_error(loc, "dependent nested type '%s' cannot be resolved",
+                  member_name);
+        return;
+    }
+    alias = cxx_class_find_type_alias(owner, member_name);
+    if (!alias) {
+        alias = cxx_class_find_direct_public_base_type_alias(
+            owner, member_name, &ambiguous);
+    }
+    if (alias && alias->access != ACCESS_PUBLIC) {
+        rcc_error(loc,
+                  "dependent nested type '%s' is inaccessible in class '%s'",
+                  member_name, owner->name ? owner->name : "<unnamed>");
+    } else if (!alias && ambiguous) {
+        rcc_error(loc, "nested type '%s' is ambiguous in class '%s'",
+                  member_name, owner->name ? owner->name : "<unnamed>");
+    } else if (!alias) {
+        rcc_error(loc,
+                  "class '%s' has no unique accessible nested type '%s'",
+                  owner->name ? owner->name : "<unnamed>", member_name);
+    } else {
+        rcc_error(loc,
+                  "dependent nested type '%s' could not be substituted in class '%s'",
+                  member_name, owner->name ? owner->name : "<unnamed>");
+    }
 }
 
 static bool cxx_function_template_instance_viable(
@@ -13278,6 +13357,8 @@ static bool prepare_cxx_function_template_match(
                     match->value_present, &specificity);
                 if (!actual ||
                     (!deduced &&
+                     !cxx_function_template_find_dependent_nested_type(
+                         parameter->decl->type, 0u, false) &&
                      (cxx_function_template_type_contains_parameter(
                           tmpl, parameter->decl->type) ||
                       cxx_parser_template_conversion_rank(
@@ -13363,6 +13444,20 @@ static bool prepare_cxx_function_template_match(
     tmpl->pending_pack_values = NULL;
     tmpl->pending_pack_value_present = NULL;
     tmpl->pending_pack_count = -1;
+    if (match->instance && match->instance->type &&
+        match->instance->type->kind == TYPE_FUNC) {
+        match->substitution_failure_type =
+            cxx_function_template_find_dependent_nested_type(
+                match->instance->type->ret_type, 0u, true);
+        for (TypeParam* parameter = match->instance->type->params;
+             !match->substitution_failure_type && parameter;
+             parameter = parameter->next) {
+            match->substitution_failure_type =
+                cxx_function_template_find_dependent_nested_type(
+                    parameter->type, 0u, true);
+        }
+        if (match->substitution_failure_type) return false;
+    }
     if (!cxx_function_template_instance_viable(
             match->instance, call_arguments, match->conversion_ranks,
             (int)(sizeof(match->conversion_ranks) /
@@ -13791,7 +13886,9 @@ Expr* rcc_parse_cxx_template_call(void) {
         int match_count = 0;
         bool constraint_invalid = false;
         bool constraint_unsupported = false;
+        Type* substitution_failure_type = NULL;
         for (int index = 0; index < candidate_count; ++index) {
+            CxxFunctionTemplateMatch candidate_match = { 0 };
             if (qualified_call &&
                 candidate_templates[index]->is_hidden_friend) {
                 continue;
@@ -13807,9 +13904,13 @@ Expr* rcc_parse_cxx_template_call(void) {
             if (prepare_cxx_function_template_match(
                     candidate_templates[index], call_arguments,
                     explicit_template_arguments ? explicit_arguments : NULL,
-                    explicit_argument_count, &matches[match_count],
+                    explicit_argument_count, &candidate_match,
                     &constraint_invalid, &constraint_unsupported)) {
-                ++match_count;
+                matches[match_count++] = candidate_match;
+            } else if (!substitution_failure_type &&
+                       candidate_match.substitution_failure_type) {
+                substitution_failure_type =
+                    candidate_match.substitution_failure_type;
             }
         }
         if (constraint_unsupported) {
@@ -13819,6 +13920,9 @@ Expr* rcc_parse_cxx_template_call(void) {
         if (match_count == 0) {
             if (constraint_invalid) {
                 rcc_error(loc, "template constraints are not satisfied");
+            } else if (substitution_failure_type) {
+                cxx_report_function_template_nested_type_failure(
+                    substitution_failure_type, loc);
             } else if (unsafe_versioned_shape && candidate_count == 1) {
                 rcc_error(loc, "function template '%s' is not safely lowerable",
                           name);

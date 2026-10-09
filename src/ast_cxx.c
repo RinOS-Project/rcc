@@ -3347,6 +3347,19 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         type->cxx_template_param_index < arg_count &&
         args[type->cxx_template_param_index]) {
         Type* owner = args[type->cxx_template_param_index];
+        if (owner->cxx_dependent) {
+            Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
+            *unresolved = *type;
+            unresolved->cxx_class = owner->cxx_class;
+            /* Keep the nested name dependent when substitution itself still
+             * yields a dependent owner.  A concrete missing/private alias is
+             * distinguished by the cleared parameter index below. */
+            if (owner->cxx_template_param_index >= 0) {
+                unresolved->cxx_template_param_index =
+                    owner->cxx_template_param_index;
+            }
+            return unresolved;
+        }
         CxxTypeAlias* alias = owner->cxx_class
             ? cxx_class_find_type_alias(owner->cxx_class,
                                         type->cxx_dependent_member_name)
