@@ -2871,6 +2871,10 @@ test-cxx-member-pointer-data-posix: $(RCXX_TARGET)
 		tests/cxx_static_reference_host.c \
 		$(TEST_OUT)/cxx-member-pointer-data/x64.o
 	$(TEST_OUT)/cxx-member-pointer-data/x64-host
+	g++ -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-member-pointer-data/gcc-host \
+		tests/cxx_member_pointer_data.cpp
+	$(TEST_OUT)/cxx-member-pointer-data/gcc-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-member-pointer-data/ir-x86.ro \
@@ -2895,6 +2899,36 @@ test-cxx-member-pointer-data-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "assignment requires modifiable lvalue" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-member-pointer-data/using-invalid-x86.ro \
+		tests/cxx_member_pointer_data_using_invalid.cpp \
+		>$(TEST_OUT)/cxx-member-pointer-data/using-invalid-x86.log 2>&1
+	$(GREP) -q "inherited data-member pointer form requires one unambiguous declaration" \
+		$(TEST_OUT)/cxx-member-pointer-data/using-invalid-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-member-pointer-data/using-invalid-x64.ro \
+		tests/cxx_member_pointer_data_using_invalid.cpp \
+		>$(TEST_OUT)/cxx-member-pointer-data/using-invalid-x64.log 2>&1
+	$(GREP) -q "inherited data-member pointer form requires one unambiguous declaration" \
+		$(TEST_OUT)/cxx-member-pointer-data/using-invalid-x64.log
+	! g++ -std=c++20 -fsyntax-only \
+		tests/cxx_member_pointer_data_using_invalid.cpp \
+		>$(TEST_OUT)/cxx-member-pointer-data/using-invalid-gcc.log 2>&1
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x86.ro \
+		tests/cxx_member_pointer_data_using_private_invalid.cpp \
+		>$(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x86.log 2>&1
+	$(GREP) -q "data-member pointer formation is not accessible in this context" \
+		$(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x64.ro \
+		tests/cxx_member_pointer_data_using_private_invalid.cpp \
+		>$(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x64.log 2>&1
+	$(GREP) -q "data-member pointer formation is not accessible in this context" \
+		$(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x64.log
+	! g++ -std=c++20 -fsyntax-only \
+		tests/cxx_member_pointer_data_using_private_invalid.cpp \
+		>$(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-gcc.log 2>&1
 	@echo "C++ data member-pointer operations and static subobject lifetime tests passed"
 
 test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
@@ -3288,18 +3322,14 @@ test-cxx-member-pointer-data: $(RCXX_TARGET)
 		tests/cxx_static_reference_host.c \
 		$(TEST_OUT)/cxx-member-pointer-data/x64.o
 	$(TEST_OUT)/cxx-member-pointer-data/lifetime-host
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend \
-		-v -c -o $(TEST_OUT)/cxx-member-pointer-data/ir-x86.ro \
-		tests/cxx_member_pointer_ir.cpp \
-		> $(TEST_OUT)/cxx-member-pointer-data/ir-x86.log
-	$(GREP) -F -q "Verified backend: 7 function(s) emitted" \
-		$(TEST_OUT)/cxx-member-pointer-data/ir-x86.log
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend \
-		-v -c -o $(TEST_OUT)/cxx-member-pointer-data/ir-x64.ro \
-		tests/cxx_member_pointer_ir.cpp \
-		> $(TEST_OUT)/cxx-member-pointer-data/ir-x64.log
-	$(GREP) -F -q "Verified backend: 7 function(s) emitted" \
-		$(TEST_OUT)/cxx-member-pointer-data/ir-x64.log
+	g++ -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-member-pointer-data/gcc-host.exe \
+		tests/cxx_member_pointer_data.cpp
+	$(TEST_OUT)/cxx-member-pointer-data/gcc-host.exe
+	$(subst /,\,$(RCXX_TARGET)) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-data/ir-x86.ro tests/cxx_member_pointer_ir.cpp > $(TEST_OUT)/cxx-member-pointer-data/ir-x86.log
+	$(GREP) -F -q "Verified backend: 7 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-data/ir-x86.log
+	$(subst /,\,$(RCXX_TARGET)) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-data/ir-x64.ro tests/cxx_member_pointer_ir.cpp > $(TEST_OUT)/cxx-member-pointer-data/ir-x64.log
+	$(GREP) -F -q "Verified backend: 7 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-data/ir-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.ro tests/cxx_member_pointer_data_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log)
 	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
 	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x86.log
@@ -3318,6 +3348,16 @@ test-cxx-member-pointer-data: $(RCXX_TARGET)
 	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-member-pointer-data/private-inherited-access-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/private-inherited-access-x64.ro tests/cxx_member_pointer_data_private_inherited_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-inherited-access-x64.log)
 	$(GREP) -F -q "member 'value' is not accessible" $(TEST_OUT)/cxx-member-pointer-data/private-inherited-access-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/using-invalid-x86.ro tests/cxx_member_pointer_data_using_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/using-invalid-x86.log)
+	$(GREP) -F -q "inherited data-member pointer form requires one unambiguous declaration" $(TEST_OUT)/cxx-member-pointer-data/using-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/using-invalid-x64.ro tests/cxx_member_pointer_data_using_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/using-invalid-x64.log)
+	$(GREP) -F -q "inherited data-member pointer form requires one unambiguous declaration" $(TEST_OUT)/cxx-member-pointer-data/using-invalid-x64.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_member_pointer_data_using_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/using-invalid-gcc.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x86.ro tests/cxx_member_pointer_data_using_private_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x86.log)
+	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x64.ro tests/cxx_member_pointer_data_using_private_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x64.log)
+	$(GREP) -F -q "data-member pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-x64.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_member_pointer_data_using_private_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/using-private-invalid-gcc.log)
 
 test-cxx-member-pointer-functions: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-functions)

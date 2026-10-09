@@ -55,14 +55,17 @@ static bool cxx_leading_alignas_class_starts(void) {
 }
 
 static const char* cxx_method_source_name(CxxMethod* method);
+static CxxClass* find_class(const char* qualified_name);
 
 static bool cxx_inherited_nonfield_name(CxxClass* cls, const char* name,
                                         unsigned depth) {
     if (!cls || !name || depth > 32u) return false;
     for (struct CxxMember* member = cls->members; member;
          member = member->next) {
-        if (member->decl && member->decl->name &&
-            strcmp(member->decl->name, name) == 0) {
+        const char* member_name = member->method
+            ? cxx_method_source_name(member->method)
+            : (member->decl ? member->decl->name : NULL);
+        if (member_name && strcmp(member_name, name) == 0) {
             return true;
         }
     }
@@ -85,6 +88,276 @@ static bool cxx_inherited_nonfield_name(CxxClass* cls, const char* name,
     return false;
 }
 
+static bool cxx_fields_are_same_subobject(TypeField* left,
+                                          TypeField* right) {
+    if (!left || !right ||
+        left->cxx_declaring_class != right->cxx_declaring_class ||
+        left->from_virtual_base != right->from_virtual_base) {
+        return false;
+    }
+    if (left->from_virtual_base) {
+        return left->virtual_base_owner == right->virtual_base_owner &&
+               left->virtual_base_member_offset ==
+                   right->virtual_base_member_offset;
+    }
+    return left->offset == right->offset;
+}
+
+static bool cxx_fields_are_same_virtual_subobject(TypeField* left,
+                                                  TypeField* right) {
+    return left && right && left->from_virtual_base &&
+           right->from_virtual_base &&
+           left->cxx_declaring_class == right->cxx_declaring_class &&
+           left->virtual_base_owner == right->virtual_base_owner &&
+           left->virtual_base_member_offset ==
+               right->virtual_base_member_offset;
+}
+
+static bool cxx_class_layout_ready(CxxClass* cls) {
+    if (!cls) return false;
+    if (cls->base_count == 0) return true;
+    if (!cls->base_offsets) return false;
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (cls->base_offsets[index] < 0) return false;
+    }
+    return true;
+}
+
+static int cxx_class_direct_base_index(CxxClass* cls, CxxClass* target) {
+    int selected = -1;
+    if (!cls || !target) return -1;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        Type* pattern = cls->bases[index].type_pattern;
+        const char* base_name = cls->bases[index].base_name;
+        if (!base && pattern) base = pattern->cxx_class;
+        if (base != target &&
+            !(base_name && target->name &&
+              strcmp(base_name, target->name) == 0)) {
+            continue;
+        }
+        if (selected >= 0) return -1;
+        selected = index;
+    }
+    return selected;
+}
+
+static bool cxx_field_matches_direct_base(CxxClass* aggregate,
+                                          CxxClass* base,
+                                          TypeField* base_field,
+                                          TypeField* field) {
+    int base_index;
+    if (!aggregate || !base || !base_field || !field) return false;
+    base_index = cxx_class_direct_base_index(aggregate, base);
+    if (base_index < 0 || !field->name || !base_field->name ||
+        strcmp(field->name, base_field->name) != 0 ||
+        field->cxx_declaring_class != base_field->cxx_declaring_class) {
+        return false;
+    }
+    if (base_field->from_virtual_base) {
+        return field->from_virtual_base &&
+               field->virtual_base_owner == base_field->virtual_base_owner &&
+               field->virtual_base_member_offset ==
+                   base_field->virtual_base_member_offset;
+    }
+    if (aggregate->bases[base_index].is_virtual) {
+        return field->from_virtual_base &&
+               field->virtual_base_owner == base &&
+               field->virtual_base_member_offset == base_field->offset;
+    }
+    if (field->from_virtual_base) return false;
+    if (!aggregate->base_offsets || aggregate->base_offsets[base_index] < 0) {
+        /* In-class member bodies are parsed before the enclosing class's
+         * complete layout assigns base offsets.  The caller still rejects
+         * repeated matches, so this fallback remains unique-path only. */
+        return true;
+    }
+    return field->offset == aggregate->base_offsets[base_index] +
+                                base_field->offset;
+}
+
+static TypeField* cxx_class_lookup_data_field(
+    CxxClass* cls, const char* name, bool* ambiguous, AccessSpec* access,
+    CxxClass** access_owner, bool* used_using);
+
+static TypeField* cxx_member_pointer_using_field(
+    CxxClass* owner, const char* name, AccessSpec* access,
+    CxxClass** access_owner, bool* declaration_found);
+
+static TypeField* cxx_class_lookup_data_field(
+    CxxClass* cls, const char* name, bool* ambiguous, AccessSpec* access,
+    CxxClass** access_owner, bool* used_using) {
+    TypeField* selected = NULL;
+    CxxClass* selected_base = NULL;
+    AccessSpec selected_access = ACCESS_PUBLIC;
+    CxxClass* selected_access_owner = NULL;
+    bool selected_using = false;
+    bool using_found = false;
+    bool layout_ready = cxx_class_layout_ready(cls);
+    if (ambiguous) *ambiguous = false;
+    if (used_using) *used_using = false;
+    if (!cls || !cls->type || !name) return NULL;
+    for (TypeField* field = cls->type->fields; field; field = field->next) {
+        if (field->name && strcmp(field->name, name) == 0 &&
+            field->cxx_declaring_class == cls) {
+            if (access) *access = (AccessSpec)field->cxx_access;
+            if (access_owner) *access_owner = cls;
+            return field;
+        }
+    }
+
+    selected = cxx_member_pointer_using_field(
+        cls, name, &selected_access, &selected_access_owner, &using_found);
+    if (using_found) {
+        if (!selected && ambiguous) *ambiguous = true;
+        if (selected) {
+            if (access) *access = selected_access;
+            if (access_owner) *access_owner = selected_access_owner;
+            if (used_using) *used_using = true;
+        }
+        return selected;
+    }
+
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        const char* member_name = member->method
+            ? cxx_method_source_name(member->method)
+            : (member->decl ? member->decl->name : NULL);
+        if (member_name && strcmp(member_name, name) == 0) return NULL;
+    }
+    for (TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static && field->name &&
+            strcmp(field->name, name) == 0) {
+            return NULL;
+        }
+    }
+    for (CxxTypeAlias* alias = cls->type_aliases; alias;
+         alias = alias->next) {
+        if (alias->name && strcmp(alias->name, name) == 0) return NULL;
+    }
+
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        TypeField* base_field;
+        TypeField* mapped = NULL;
+        AccessSpec base_access = ACCESS_PUBLIC;
+        CxxClass* base_access_owner = NULL;
+        bool base_ambiguous = false;
+        bool base_used_using = false;
+        int mapping_count = 0;
+        if (!base && cls->bases[base_index].base_name) {
+            base = find_class(cls->bases[base_index].base_name);
+        }
+        if (!base) continue;
+        base_field = cxx_class_lookup_data_field(
+            base, name, &base_ambiguous, &base_access,
+            &base_access_owner, &base_used_using);
+        if (base_ambiguous) {
+            if (ambiguous) *ambiguous = true;
+            return NULL;
+        }
+        if (!base_field) continue;
+        for (TypeField* candidate = cls->type->fields; candidate;
+             candidate = candidate->next) {
+            if (cxx_field_matches_direct_base(cls, base, base_field,
+                                              candidate)) {
+                mapped = candidate;
+                ++mapping_count;
+            }
+        }
+        if (mapping_count == 0 && !layout_ready) {
+            /* Member bodies may be parsed before inherited fields have been
+             * copied into the incomplete class layout.  The base declaration
+             * still identifies its member type and access metadata. */
+            mapped = base_field;
+            mapping_count = 1;
+        }
+        if (mapping_count != 1 || !mapped) {
+            if (ambiguous) *ambiguous = true;
+            return NULL;
+        }
+        if (cls->bases[base_index].access > base_access) {
+            base_access = cls->bases[base_index].access;
+            base_access_owner = cls;
+        }
+        if (!selected) {
+            selected = mapped;
+            selected_base = base;
+            selected_access = base_access;
+            selected_access_owner = base_access_owner;
+            selected_using = base_used_using;
+        } else if (!layout_ready) {
+            if (selected_base != base &&
+                !cxx_fields_are_same_virtual_subobject(selected, mapped)) {
+                if (ambiguous) *ambiguous = true;
+                return NULL;
+            }
+        } else if (!cxx_fields_are_same_subobject(selected, mapped)) {
+                if (ambiguous) *ambiguous = true;
+                return NULL;
+        }
+    }
+
+    if (selected && cxx_inherited_nonfield_name(cls, name, 0u)) {
+        if (ambiguous) *ambiguous = true;
+        return NULL;
+    }
+    if (!selected) return NULL;
+    if (access) *access = selected_access;
+    if (access_owner) *access_owner = selected_access_owner;
+    if (used_using) *used_using = selected_using;
+    return selected;
+}
+
+static TypeField* cxx_member_pointer_using_field(
+    CxxClass* owner, const char* name, AccessSpec* access,
+    CxxClass** access_owner, bool* declaration_found) {
+    TypeField* selected = NULL;
+    CxxClass* selected_access_owner = NULL;
+    if (declaration_found) *declaration_found = false;
+    if (!owner || !name || !owner->type) return NULL;
+    for (int index = 0; index < owner->using_base_member_count; ++index) {
+        const char* using_name = owner->using_base_members[index].member_name;
+        const char* base_name = owner->using_base_members[index].base_name;
+        Type* base_pattern = owner->using_base_members[index].base_type_pattern;
+        CxxClass* base = base_pattern ? base_pattern->cxx_class : NULL;
+        TypeField* base_field;
+        TypeField* owner_field = NULL;
+        AccessSpec base_access = ACCESS_PUBLIC;
+        CxxClass* base_access_owner = NULL;
+        bool ambiguous_base_member = false;
+        bool base_used_using = false;
+        int owner_matches = 0;
+        if (!using_name || strcmp(using_name, name) != 0) continue;
+        if (declaration_found) *declaration_found = true;
+        if (!base && base_name) base = find_class(base_name);
+        if (!base) return NULL;
+        if (cxx_class_direct_base_index(owner, base) < 0) return NULL;
+        base_field = cxx_class_lookup_data_field(
+            base, name, &ambiguous_base_member, &base_access,
+            &base_access_owner, &base_used_using);
+        if (!base_field || ambiguous_base_member) return NULL;
+        for (TypeField* candidate = owner->type->fields;
+             candidate; candidate = candidate->next) {
+            if (cxx_field_matches_direct_base(owner, base, base_field,
+                                              candidate)) {
+                owner_field = candidate;
+                ++owner_matches;
+            }
+        }
+        if (owner_matches == 0 && !cxx_class_layout_ready(owner)) {
+            owner_field = base_field;
+            owner_matches = 1;
+        }
+        if (owner_matches != 1 || !owner_field || selected) return NULL;
+        selected = owner_field;
+        selected_access_owner = owner;
+        if (access) *access = owner->using_base_members[index].access;
+    }
+    if (selected && access_owner) *access_owner = selected_access_owner;
+    return selected;
+}
+
 /* Parse `&Class::member` as a pointer-to-member constant.  Data members use
  * the bounded offset representation below.  The initial function-member
  * subset is restricted to one defined, non-virtual, non-overloaded method;
@@ -97,16 +370,22 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     char owner_name[256];
     size_t owner_length = 0u;
     Type* owner;
+    CxxClass* owner_class;
     Type* member_owner;
     TypeField* field;
     TypeField* declaring_field = NULL;
     Expr* value;
     Type* member_pointer_type;
     SourceLoc loc;
+    bool owner_is_active_class = false;
     bool direct_member = false;
     bool direct_nonstatic_method = false;
     bool inherited_nonstatic_method = false;
     bool direct_static_name = false;
+    bool used_base_member = false;
+    bool inherited_lookup_ambiguous = false;
+    AccessSpec lookup_access = ACCESS_PUBLIC;
+    CxxClass* lookup_access_owner = NULL;
     int matching_fields = 0;
 
     if (!cursor || cursor->type != TOK_IDENT) return NULL;
@@ -140,15 +419,25 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     }
     owner_name[owner_length] = '\0';
     owner = rcc_parser_lookup_type(owner_name);
+    if (active_class && active_class->type && active_class->name &&
+        strcmp(owner_name, active_class->name) == 0) {
+        owner = active_class->type;
+        owner_is_active_class = true;
+    } else if (owner && active_class &&
+               owner == active_class->type) {
+        owner_is_active_class = true;
+    }
     if (!owner || (owner->kind != TYPE_STRUCT &&
-                   owner->kind != TYPE_UNION) || !owner->is_complete) {
+                   owner->kind != TYPE_UNION) ||
+        (!owner->is_complete && !owner_is_active_class)) {
         return NULL;
     }
+    owner_class = owner_is_active_class ? active_class : owner->cxx_class;
 
-    if (owner->cxx_class) {
+    if (owner_class) {
         const char* member_name =
             segments[segment_count - 1u]->value.str_val;
-        for (TypeParam* declared = owner->cxx_class->fields;
+        for (TypeParam* declared = owner_class->fields;
              declared; declared = declared->next) {
             if (declared->name && strcmp(declared->name, member_name) == 0) {
                 if (declared->is_static) direct_static_name = true;
@@ -156,7 +445,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
                 break;
             }
         }
-        for (struct CxxMember* member = owner->cxx_class->members;
+        for (struct CxxMember* member = owner_class->members;
              member; member = member->next) {
             const char* declared_name = member->method
                 ? member->method->source_name
@@ -168,7 +457,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
             if (member->is_static) direct_static_name = true;
             else direct_nonstatic_method = true;
         }
-        for (CxxTypeAlias* alias = owner->cxx_class->type_aliases; alias;
+        for (CxxTypeAlias* alias = owner_class->type_aliases; alias;
              alias = alias->next) {
             if (alias->name && strcmp(alias->name, member_name) == 0) {
                 direct_static_name = true;
@@ -183,7 +472,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
             if (method->kind == TYPE_METHOD_FUNCTION && method->name &&
                 strcmp(method->name, member_name) == 0 && function &&
                 function->func_this_param && declaring_class &&
-                declaring_class != owner->cxx_class) {
+                declaring_class != owner_class) {
                 inherited_nonstatic_method = true;
                 break;
             }
@@ -191,21 +480,23 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     }
 
     field = NULL;
-    if (direct_member && owner->cxx_class) {
-        /* Base fields are laid out before derived fields, but ordinary member
-         * lookup selects a directly declared member that hides the base one. */
-        for (TypeField* candidate = owner->fields; candidate;
-             candidate = candidate->next) {
-            if (candidate->name &&
-                strcmp(candidate->name, segments[segment_count - 1u]
-                                             ->value.str_val) == 0 &&
-                candidate->cxx_declaring_class == owner->cxx_class &&
-                !candidate->from_virtual_base) {
-                field = candidate;
-                break;
-            }
+    if (!direct_static_name && !direct_nonstatic_method &&
+        owner_class) {
+        field = cxx_class_lookup_data_field(
+            owner_class, segments[segment_count - 1u]->value.str_val,
+            &inherited_lookup_ambiguous, &lookup_access,
+            &lookup_access_owner, &used_base_member);
+        if (inherited_lookup_ambiguous) {
+            loc = segments[segment_count - 1u]->loc;
+            parser.prev = segments[segment_count - 1u];
+            parser.cur = parser.prev->next;
+            rcc_error(loc,
+                      "inherited data-member pointer form requires one unambiguous declaration");
+            value = expr_int(0, loc);
+            value->type = type_int;
+            return value;
         }
-    } else {
+    } else if (!direct_static_name && !direct_nonstatic_method) {
         field = owner->fields;
         while (field && strcmp(field->name, segments[segment_count - 1u]
                                                ->value.str_val) != 0) {
@@ -250,7 +541,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
                 value->cxx_member_pointer_form = true;
                 value->cxx_member_pointer_form_overload_set = true;
                 value->cxx_member_pointer_form_designating_class =
-                    owner->cxx_class;
+                    owner_class;
                 return value;
             }
             if (matching_methods != 1 || !method || !function_decl ||
@@ -281,9 +572,9 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
                     ? method->cxx_access_owner
                     : function_decl->func_method_owner
                         ? function_decl->func_method_owner->cxx_class
-                        : owner->cxx_class;
+                        : owner_class;
             value->cxx_member_pointer_form_designating_class =
-                owner->cxx_class;
+                owner_class;
             return value;
         }
         return NULL;
@@ -300,24 +591,23 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         return NULL;
     }
     if (!direct_member) {
-        matching_fields = 0;
-        for (TypeField* candidate = owner->fields; candidate;
-             candidate = candidate->next) {
-            if (!candidate->name ||
-                strcmp(candidate->name,
-                       segments[segment_count - 1u]->value.str_val) != 0) {
-                continue;
+        if (owner_class) {
+            matching_fields = 1;
+        } else {
+            matching_fields = 0;
+            for (TypeField* candidate = owner->fields; candidate;
+                 candidate = candidate->next) {
+                if (!candidate->name ||
+                    strcmp(candidate->name,
+                           segments[segment_count - 1u]->value.str_val) != 0) {
+                    continue;
+                }
+                field = candidate;
+                ++matching_fields;
             }
-            field = candidate;
-            ++matching_fields;
         }
         if (matching_fields != 1 || !field ||
-            !field->cxx_declaring_class ||
-            (owner->cxx_class &&
-             cxx_inherited_nonfield_name(owner->cxx_class,
-                                         segments[segment_count - 1u]
-                                             ->value.str_val,
-                                         0u))) {
+            !field->cxx_declaring_class) {
             loc = segments[segment_count - 1u]->loc;
             parser.prev = segments[segment_count - 1u];
             parser.cur = parser.prev->next;
@@ -373,9 +663,13 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     member_pointer_type->cxx_member_pointer_owner = member_owner;
     value->type = member_pointer_type;
     value->cxx_member_pointer_form = true;
-    value->cxx_member_pointer_form_access = declaring_field->cxx_access;
+    value->cxx_member_pointer_form_access = used_base_member
+        ? (unsigned char)lookup_access
+        : declaring_field->cxx_access;
     value->cxx_member_pointer_form_declaring_class =
-        member_owner->cxx_class;
+        used_base_member
+            ? (lookup_access_owner ? lookup_access_owner : owner_class)
+            : member_owner->cxx_class;
     value->cxx_member_pointer_form_designating_class = owner->cxx_class;
     return value;
 }

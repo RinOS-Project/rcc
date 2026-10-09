@@ -522,9 +522,25 @@
           free function declared as a friend by two classes can access both
           private members from its later definition; GCC accepts, and the RCC
           `test-cxx-member-pointer-data` and full `test-cxx` gates pass.
-    - [ ] Complete inherited name lookup for hidden/ambiguous paths and the
-          remaining inheritance/access combinations; retain this parent item
-          as open until those cases are implemented and tested.
+    - [x] Complete inherited name lookup for hidden/ambiguous paths and the
+          remaining inheritance/access combinations. Direct hiding and
+          non-field names, inherited field/function ambiguity, repeated
+          non-virtual subobjects, `using` disambiguation/re-exposure (including
+          transitive `using`), shared virtual bases, and public/protected/private
+          inheritance access are covered. Inline inherited lookup is exercised
+          in a member body. `make SHELL=cmd.exe
+          RCXX_TARGET=build/namespace-rcc++.exe
+          LDFLAGS=build/debug-inline-compat.o test-cxx-member-pointer-data`
+          passed, including i686/AMD64 generation, verified IR, generated x64
+          and GCC C++20 host execution, and expected ambiguity/access errors.
+          The temporary linker compatibility object only bridges an unrelated
+          in-progress debug-inline API edit in the shared checkout.
+    - [ ] Resolve a directly declared data member named by an in-class inline
+          member body, such as `&CurrentClass::field`. The active class has no
+          finalized field layout while its inline body is parsed; this currently
+          fails as an undefined qualified identifier. Defer or otherwise resolve
+          the member identity against the completed class, then test both
+          targets and host execution.
     - [x] Parse an in-class-defined friend function template as a namespace
           template and propagate its granting classes to instances. Merge an
           identical unconstrained type-parameter declaration with its later

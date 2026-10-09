@@ -20,6 +20,15 @@ x64 host execution. The broader constructor/member ABI work remains open in
 
 # rcc / rcc++ / aqc
 
+2026-10-09 inherited data-member pointer lookup: inherited name lookup now
+handles direct hiding, field/function ambiguity, repeated non-virtual paths,
+transitive `using`, shared virtual bases, and access through public/protected/
+private inheritance. Inline inherited lookup and the invalid ambiguity/access
+cases pass in the focused i686/AMD64 and GCC C++20 gate. Direct `&CurrentClass::field`
+inside an inline member body remains unsupported because the class layout is
+not finalized yet; the broader runtime-integration parent remains open
+([TODO](TODO.md), [implementation status](docs/implementation-status-rcc-inherited-member-pointer-lookup.md)).
+
 RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・アーカイバです。
 このrepositoryはRIN v3 toolchainの実装途中です。現時点でC17またはC++20への
 完全準拠、最適化pipeline、セルフホストを達成したとは扱いません。

@@ -146,6 +146,117 @@ struct MemberPointerHiddenFieldDerived : MemberPointerHiddenFieldBase {
     int hidden;
 };
 
+struct MemberPointerUsingFirst {
+    int selected;
+};
+
+struct MemberPointerUsingSecond {
+    int selected;
+};
+
+struct MemberPointerUsingDerived : MemberPointerUsingFirst,
+                                   MemberPointerUsingSecond {
+    using MemberPointerUsingFirst::selected;
+};
+
+struct MemberPointerUsingNestedFirst {
+    int selected;
+};
+
+struct MemberPointerUsingNestedSecond {
+    int selected;
+};
+
+struct MemberPointerUsingNestedMiddle : MemberPointerUsingNestedFirst,
+                                        MemberPointerUsingNestedSecond {
+    using MemberPointerUsingNestedFirst::selected;
+};
+
+struct MemberPointerUsingNestedOther {
+    int selected;
+};
+
+struct MemberPointerUsingNestedDerived : MemberPointerUsingNestedMiddle,
+                                         MemberPointerUsingNestedOther {
+    using MemberPointerUsingNestedMiddle::selected;
+};
+
+struct MemberPointerUsingNestedFurther
+    : MemberPointerUsingNestedDerived {};
+
+struct MemberPointerUsingProtectedBase {
+protected:
+    int exposed;
+};
+
+struct MemberPointerUsingProtectedDerived : MemberPointerUsingProtectedBase {
+public:
+    using MemberPointerUsingProtectedBase::exposed;
+
+    void set_exposed(int value) {
+        exposed = value;
+    }
+};
+
+struct MemberPointerProtectedInheritanceBase {
+    int inherited;
+};
+
+struct MemberPointerProtectedInheritanceDerived
+    : protected MemberPointerProtectedInheritanceBase {
+    int read_inherited_member() {
+        auto member = &MemberPointerProtectedInheritanceDerived::inherited;
+        if (member == nullptr) return 0;
+        inherited = 53;
+        return inherited;
+    }
+};
+
+struct MemberPointerPrivateInheritanceBase {
+    int inherited;
+};
+
+struct MemberPointerPrivateInheritanceDerived
+    : private MemberPointerPrivateInheritanceBase {
+    friend int read_private_inherited_member(
+        MemberPointerPrivateInheritanceDerived& object);
+};
+
+int read_private_inherited_member(
+    MemberPointerPrivateInheritanceDerived& object) {
+    auto member = &MemberPointerPrivateInheritanceDerived::inherited;
+    if (member == nullptr) return 0;
+    object.inherited = 57;
+    return object.inherited;
+}
+
+struct MemberPointerSharedVirtualBase {
+    int shared;
+};
+
+struct MemberPointerSharedVirtualLeft : virtual MemberPointerSharedVirtualBase {};
+struct MemberPointerSharedVirtualRight : virtual MemberPointerSharedVirtualBase {};
+
+struct MemberPointerSharedVirtualDerived : MemberPointerSharedVirtualLeft,
+                                           MemberPointerSharedVirtualRight {};
+
+struct MemberPointerInlineUsingBase {
+protected:
+    int exposed;
+};
+
+struct MemberPointerInlineUsingDerived : MemberPointerInlineUsingBase {
+public:
+    using MemberPointerInlineUsingBase::exposed;
+
+    int read_exposed() {
+        auto member = &MemberPointerInlineUsingDerived::exposed;
+        if (member == nullptr) return 0;
+        exposed = 83;
+        return exposed;
+    }
+};
+
 int MemberPointerHiddenFieldBase::*global_hidden_base_member =
     &MemberPointerHiddenFieldBase::hidden;
 
@@ -216,6 +327,16 @@ int MemberPointerVirtualBase::*virtual_member =
     &MemberPointerVirtualBase::virtual_value;
 int MemberPointerVirtualBase::*virtual_member_formed_from_derived =
     &MemberPointerVirtualDerived::virtual_value;
+int MemberPointerUsingFirst::*global_using_inherited_member =
+    &MemberPointerUsingDerived::selected;
+int MemberPointerUsingProtectedBase::*global_using_protected_member =
+    &MemberPointerUsingProtectedDerived::exposed;
+int MemberPointerUsingNestedFirst::*global_nested_using_member =
+    &MemberPointerUsingNestedDerived::selected;
+int MemberPointerUsingNestedFirst::*global_inherited_nested_using_member =
+    &MemberPointerUsingNestedFurther::selected;
+int MemberPointerSharedVirtualBase::*global_shared_virtual_member =
+    &MemberPointerSharedVirtualDerived::shared;
 
 const int& global_member_pointer_reference =
     MemberPointerOwner{3, 1.5}.*global_value_member;
@@ -276,6 +397,30 @@ extern "C" int main() {
     virtual_derived.virtual_value = 31;
     virtual_derived.mid = 8;
     virtual_derived.tail = 9;
+    MemberPointerUsingDerived using_derived;
+    MemberPointerUsingFirst& using_first = using_derived;
+    MemberPointerUsingSecond& using_second = using_derived;
+    using_first.selected = 41;
+    using_second.selected = 43;
+    MemberPointerUsingProtectedDerived using_protected_derived;
+    using_protected_derived.set_exposed(47);
+    MemberPointerUsingNestedDerived nested_using_derived;
+    MemberPointerUsingNestedFirst& nested_using_first = nested_using_derived;
+    MemberPointerUsingNestedSecond& nested_using_second = nested_using_derived;
+    MemberPointerUsingNestedOther& nested_using_other = nested_using_derived;
+    nested_using_first.selected = 59;
+    nested_using_second.selected = 61;
+    nested_using_other.selected = 63;
+    MemberPointerUsingNestedFurther nested_using_further;
+    MemberPointerUsingNestedFirst& nested_further_first = nested_using_further;
+    MemberPointerUsingNestedSecond& nested_further_second = nested_using_further;
+    nested_further_first.selected = 67;
+    nested_further_second.selected = 69;
+    MemberPointerSharedVirtualDerived shared_virtual_derived;
+    shared_virtual_derived.shared = 71;
+    MemberPointerProtectedInheritanceDerived protected_inheritance_derived;
+    MemberPointerPrivateInheritanceDerived private_inheritance_derived;
+    MemberPointerInlineUsingDerived inline_using_derived;
 
     if (object.*value_member != 1 ||
         member_pointer_category((object.*value_member)) != 1) {
@@ -320,6 +465,28 @@ extern "C" int main() {
         (&virtual_derived)->*virtual_member != 31 ||
         virtual_derived.*virtual_member_formed_from_derived != 31) {
         return 16;
+    }
+    using_derived.*global_using_inherited_member = 45;
+    if (using_first.selected != 45 || using_second.selected != 43) {
+        return 26;
+    }
+    if (using_protected_derived.*global_using_protected_member != 47) {
+        return 27;
+    }
+    nested_using_derived.*global_nested_using_member = 73;
+    nested_using_further.*global_inherited_nested_using_member = 79;
+    if (nested_using_first.selected != 73 ||
+        nested_using_second.selected != 61 ||
+        nested_using_other.selected != 63 ||
+        nested_further_first.selected != 79 ||
+        nested_further_second.selected != 69) {
+        return 28;
+    }
+    if (shared_virtual_derived.*global_shared_virtual_member != 71 ||
+        protected_inheritance_derived.read_inherited_member() != 53 ||
+        read_private_inherited_member(private_inheritance_derived) != 57 ||
+        inline_using_derived.read_exposed() != 83) {
+        return 29;
     }
     (virtual_derived.*virtual_member) = 37;
     if (virtual_derived.virtual_value != 37 ||
