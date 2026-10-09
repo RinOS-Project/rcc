@@ -412,6 +412,51 @@ static bool sema_cxx_member_pointer_form_accessible(const Expr* expression) {
            sema_cxx_class_derives_from(designating, access_class, 0u);
 }
 
+static bool sema_cxx_resolve_deferred_member_pointer_form(Expr* expression) {
+    CxxClass* owner;
+    TypeField* field;
+    Type* member_pointer_type;
+    if (!expression || !expression->cxx_member_pointer_form_deferred) {
+        return true;
+    }
+    owner = current_cxx_method_owner
+        ? current_cxx_method_owner->cxx_class : NULL;
+    /* The dependent primary-template body is checked before it is cloned.
+     * Keep the designator unresolved there; its concrete method clone will
+     * carry the specialization as current_cxx_method_owner. */
+    if (owner && owner == expression->cxx_member_pointer_form_designating_class) {
+        return true;
+    }
+    for (field = owner && owner->type ? owner->type->fields : NULL;
+         field; field = field->next) {
+        if (field->name && expression->cxx_member_pointer_form_name &&
+            strcmp(field->name,
+                   expression->cxx_member_pointer_form_name) == 0 &&
+            field->cxx_declaring_class == owner) {
+            break;
+        }
+    }
+    if (!field || !field->type || field->is_bitfield ||
+        field->type->is_reference) {
+        rcc_error(expression->loc,
+                  "deferred data-member pointer did not resolve to a supported field in the class specialization");
+        expression->cxx_member_pointer_form_deferred = false;
+        expression->cxx_member_pointer_form = false;
+        expression->type = type_int;
+        return false;
+    }
+    member_pointer_type = type_ptr(field->type);
+    member_pointer_type->cxx_is_member_pointer = true;
+    member_pointer_type->cxx_member_pointer_owner = owner->type;
+    expression->int_val = field->offset;
+    expression->type = member_pointer_type;
+    expression->cxx_member_pointer_form_deferred = false;
+    expression->cxx_member_pointer_form_access = field->cxx_access;
+    expression->cxx_member_pointer_form_declaring_class = owner;
+    expression->cxx_member_pointer_form_designating_class = owner;
+    return true;
+}
+
 static bool sema_cxx_check_qualified_member_access(const char* name,
                                                    Decl* declaration,
                                                    SourceLoc loc) {
@@ -11182,6 +11227,7 @@ static Type* sema_expr(Expr* expr) {
 
     switch (expr->kind) {
         case EXPR_INT_LIT:
+            (void)sema_cxx_resolve_deferred_member_pointer_form(expr);
             if (!expr->type) expr->type = type_int;
             if (rcc_parser_is_cxx_mode() &&
                 expr->cxx_member_pointer_form &&

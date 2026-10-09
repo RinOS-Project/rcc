@@ -24,6 +24,7 @@ extern void rcc_parser_set_cxx_template_default_mode(bool enabled);
 static CxxTemplate* active_template;
 static CxxNamespace* active_namespace;
 static CxxClass* active_class;
+static CxxClass* active_template_class_definition;
 static AST* active_ast;
 
 typedef struct CxxPendingMemberPointerForm {
@@ -420,6 +421,38 @@ static void cxx_complete_pending_member_pointer_forms(CxxClass* cls) {
         field = cxx_class_lookup_data_field(
             cls, pending->member_name, &ambiguous, &access,
             &access_owner, &used_using);
+        /* A dependent class-template field cannot be assigned a stable
+         * pointer-to-member displacement until its specialization is laid
+         * out. Preserve the designator for semantic resolution after cloning
+         * instead of baking in the primary template's provisional offset. */
+        if (active_template_class_definition == cls) {
+            TypeParam* template_field;
+            for (template_field = cls->fields; template_field;
+                 template_field = template_field->next) {
+                if (template_field->is_static || !template_field->name ||
+                    strcmp(template_field->name,
+                           pending->member_name) != 0) {
+                    continue;
+                }
+                Type* member_pointer_type = type_ptr(template_field->type);
+                member_pointer_type->cxx_is_member_pointer = true;
+                member_pointer_type->cxx_member_pointer_owner = cls->type;
+                expression->type = member_pointer_type;
+                expression->cxx_member_pointer_form = true;
+                expression->cxx_member_pointer_form_deferred = true;
+                expression->cxx_member_pointer_form_name =
+                    pending->member_name;
+                expression->cxx_member_pointer_form_access =
+                    template_field->cxx_access;
+                expression->cxx_member_pointer_form_declaring_class = cls;
+                expression->cxx_member_pointer_form_designating_class = cls;
+                break;
+            }
+            if (template_field) {
+                *link = pending->next;
+                continue;
+            }
+        }
         if (ambiguous) {
             rcc_error(pending->location,
                       "inherited data-member pointer form requires one unambiguous declaration");
@@ -6619,6 +6652,12 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
         cls = existing;
     }
     if (!cls) cls = cxx_class_new(class_name, loc);
+    if (active_template && active_template->kind == TMPL_CLASS &&
+        active_template->param_count > 0 &&
+        !active_template->templated_class &&
+        !active_template_class_definition) {
+        active_template_class_definition = cls;
+    }
     cls->is_struct = is_struct;
     cls->is_final = is_final;
     cls->type->cxx_scope_identity = local_type_identity;
@@ -8781,6 +8820,8 @@ CxxTemplate* parse_cxx_template(void) {
         Expr* value_arguments[32] = { NULL };
         int argument_count = 0;
         CxxClass* specialized_class;
+        CxxClass* outer_template_class_definition =
+            active_template_class_definition;
         CxxTemplate* outer_template = active_template;
 
         if (!is_struct) expect(TOK_CLASS, "class or struct");
@@ -8819,10 +8860,12 @@ CxxTemplate* parse_cxx_template(void) {
         tmpl->kind = TMPL_CLASS;
         tmpl->primary_template = primary;
         tmpl->templated_class = NULL;
+        active_template_class_definition = NULL;
         specialized_class = parse_cxx_class_named(
             loc, is_struct,
             name_token ? name_token->value.str_val : "specialization",
             NULL);
+        active_template_class_definition = outer_template_class_definition;
         if (specialized_class && explicit_class_alignment > 0) {
             cxx_class_apply_explicit_alignment(
                 specialized_class, explicit_class_alignment, loc);
@@ -8873,8 +8916,13 @@ CxxTemplate* parse_cxx_template(void) {
         }
     } else if (match(TOK_CLASS) || match(TOK_STRUCT)) {
         CxxTemplate* outer_template = active_template;
+        CxxClass* outer_template_class_definition =
+            active_template_class_definition;
         active_template = tmpl;
+        tmpl->kind = TMPL_CLASS;
+        active_template_class_definition = NULL;
         tmpl->templated_class = parse_cxx_class();
+        active_template_class_definition = outer_template_class_definition;
         if (tmpl->templated_class && explicit_class_alignment > 0) {
             cxx_class_apply_explicit_alignment(
                 tmpl->templated_class, explicit_class_alignment, loc);
@@ -10314,6 +10362,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     uint32_t constructor_mask;
     bool has_value_parameters = false;
     CxxClass* saved_local_class_instance;
+    CxxClass* saved_active_class_instance;
     int pack_index = cxx_class_pack_index(tmpl);
 
     if (!tmpl || tmpl->kind != TMPL_CLASS || !tmpl->templated_class ||
@@ -10631,6 +10680,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     Type** saved_pending_pack_args = tmpl->pending_pack_args;
     int64_t* saved_pending_pack_values = tmpl->pending_pack_values;
     bool* saved_pending_pack_value_present = tmpl->pending_pack_value_present;
+    saved_active_class_instance = tmpl->active_class_instance;
+    tmpl->active_class_instance = instance;
     saved_local_class_instance = tmpl->local_class_instance;
     if (tmpl->is_local_class_template) {
         tmpl->local_class_instance = instance;
@@ -10986,6 +11037,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         }
     }
     tmpl->local_class_instance = saved_local_class_instance;
+    tmpl->active_class_instance = saved_active_class_instance;
     tmpl->pending_pack_args = saved_pending_pack_args;
     tmpl->pending_pack_values = saved_pending_pack_values;
     tmpl->pending_pack_value_present = saved_pending_pack_value_present;

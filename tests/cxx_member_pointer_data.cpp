@@ -289,6 +289,23 @@ public:
     }
 };
 
+template<class T>
+class MemberPointerTemplateInlineField {
+    T prefix;
+    T value;
+
+public:
+    void set_values(T first, T second) {
+        prefix = first;
+        value = second;
+    }
+
+    T read_value() {
+        auto member = &MemberPointerTemplateInlineField::value;
+        return this->*member;
+    }
+};
+
 int MemberPointerHiddenFieldBase::*global_hidden_base_member =
     &MemberPointerHiddenFieldBase::hidden;
 
@@ -457,6 +474,10 @@ extern "C" int main() {
     inline_own_field.set_value(89);
     MemberPointerInlineLaterOwnField inline_later_own_field;
     inline_later_own_field.set_value(97);
+    MemberPointerTemplateInlineField<int> template_inline_int;
+    template_inline_int.set_values(101, 103);
+    MemberPointerTemplateInlineField<double> template_inline_double;
+    template_inline_double.set_values(107.0, 109.0);
 
     if (object.*value_member != 1 ||
         member_pointer_category((object.*value_member)) != 1) {
@@ -523,7 +544,9 @@ extern "C" int main() {
         read_private_inherited_member(private_inheritance_derived) != 57 ||
         inline_using_derived.read_exposed() != 83 ||
         inline_own_field.read_value() != 89 ||
-        inline_later_own_field.read_value() != 97) {
+        inline_later_own_field.read_value() != 97 ||
+        template_inline_int.read_value() != 103 ||
+        template_inline_double.read_value() != 109.0) {
         return 29;
     }
     (virtual_derived.*virtual_member) = 37;

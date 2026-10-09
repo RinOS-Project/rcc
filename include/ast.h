@@ -565,6 +565,10 @@ struct Expr {
      * rules after the enclosing function context is known. */
     bool cxx_member_pointer_form;
     bool cxx_member_pointer_form_overload_set;
+    /* A member address in a class-template body is resolved after the class
+     * specialization has its final field layout. */
+    bool cxx_member_pointer_form_deferred;
+    const char* cxx_member_pointer_form_name;
     unsigned char cxx_member_pointer_form_access;
     struct CxxClass* cxx_member_pointer_form_declaring_class;
     struct CxxClass* cxx_member_pointer_form_designating_class;

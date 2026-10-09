@@ -38,6 +38,14 @@ GCC C++20 comparison. Full overload/virtual/adjusting ABI forms remain open in
 [TODO](TODO.md). The Windows gate now converts the compiler executable path
 before shell redirection, so verified-IR checks run under `cmd.exe`.
 
+  2026-10-09 template data-member pointer resolution: inline member bodies in
+  class-template specializations now resolve member identity and displacement
+  after specialization layout. The `int`/`double` regression exercises distinct
+  offsets and passes i686/AMD64 generation, generated x64 execution, and GCC
+  C++20 in `test-cxx-member-pointer-data`. The broader data-member-pointer
+  runtime-integration parent remains open ([TODO](TODO.md), [implementation
+  status](docs/implementation-status-rcc-inherited-member-pointer-lookup.md)).
+
 RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・アーカイバです。
 このrepositoryはRIN v3 toolchainの実装途中です。現時点でC17またはC++20への
 完全準拠、最適化pipeline、セルフホストを達成したとは扱いません。

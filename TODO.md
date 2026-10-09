@@ -540,11 +540,13 @@
           completed layout and lookup set, covering private fields declared
           before and after the body. The focused i686/AMD64 gate, nonzero-offset
           generated x64 host execution, and GCC C++20 host execution pass.
-    - [ ] Carry inline data-member-pointer designators through class-template
-          member cloning and specialization. `&InlineTemplateMember::value`
-          inside a templated inline method still diagnoses the dependent field
-          as undefined; resolve the specialization's final field identity and
-          offset before semantic analysis/code generation.
+    - [x] Carry inline data-member-pointer designators through class-template
+          member cloning and specialization. Resolve the field and its final
+          offset against the concrete specialization before semantic analysis;
+          substitute the member-pointer owner in cloned `auto` declarations as
+          well. `test-cxx-member-pointer-data` covers `int` and `double`
+          specializations with distinct offsets and passes i686/AMD64
+          generation, generated x64 host execution, and GCC C++20.
     - [x] Parse an in-class-defined friend function template as a namespace
           template and propagate its granting classes to instances. Merge an
           identical unconstrained type-parameter declaration with its later
@@ -647,11 +649,14 @@
           conversions, and `this` adjustment before claiming ABI support.
           Keep this parent item open until the remaining valid C++ forms are
           implemented and verified; do not substitute placeholder lowering.
-          A unique nonstatic member-function address formed inside an inline
-          body is still unresolved while the class is active; the regression
-          `&InlineMethodPointer::target` currently fails member-pointer
-          initialization. Complete-class lookup of a later-declared static
-          member-function address in an inline body also remains unsupported.
+          Complete-class lookup of a later-declared static member-function
+          address in an inline body remains unsupported.
+    - [x] Resolve a unique supported nonvirtual member-function address inside
+          an inline member body after the class methods are registered; form
+          the same pointer type as an out-of-class `&Class::method` and execute
+          it through `.*` on i686/AMD64 generation and x64 host execution;
+          compare the fixture with GCC C++20. `test-cxx-member-pointer-functions`
+          passes.
     - [x] Resolve a unique inherited nonvirtual, non-overloaded method in
           `&Derived::method` using the registered base method, preserve the
           declaring base as the pointer owner, and apply inherited access

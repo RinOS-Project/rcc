@@ -333,6 +333,8 @@ struct CxxTemplate {
     bool is_local_class_template;
     CxxClass* local_class_pattern;
     CxxClass* local_class_instance;
+    /* Concrete class currently receiving substituted fields and methods. */
+    CxxClass* active_class_instance;
 
     CxxDeductionGuide* deduction_guides;
 

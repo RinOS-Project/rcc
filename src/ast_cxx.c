@@ -3273,6 +3273,19 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
 
     if (!type) return NULL;
     if (tmpl && type->cxx_class) {
+        if (tmpl->active_class_instance &&
+            tmpl->templated_class == type->cxx_class) {
+            replacement = tmpl->active_class_instance->type;
+            if (type->is_const || type->is_volatile) {
+                Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                *qualified = *replacement;
+                qualified->is_const = qualified->is_const || type->is_const;
+                qualified->is_volatile = qualified->is_volatile ||
+                                          type->is_volatile;
+                return qualified;
+            }
+            return replacement;
+        }
         if (tmpl->local_class_pattern == type->cxx_class &&
             tmpl->local_class_instance) {
             replacement = tmpl->local_class_instance->type;
