@@ -2190,21 +2190,49 @@ CxxNamespace* cxx_namespace_alloc(const char* name, CxxNamespace* parent) {
     return ns;
 }
 
-CxxNamespace* cxx_namespace_lookup(CxxNamespace* root, const char* name) {
-    if (!root || !name) return NULL;
+typedef struct {
+    CxxNamespace* result;
+    size_t matches;
+} CxxNamespaceLookup;
 
-    for (CxxNamespace* ns = root->children; ns; ns = ns->next) {
-        if (ns->name && strcmp(ns->name, name) == 0) {
-            return ns;
+/* Members of an inline namespace participate in lookup in its enclosing
+ * namespace.  Only descend through inline children; ordinary nested
+ * namespaces are separate lookup scopes.  Keep a match count so a name made
+ * visible by multiple inline branches is rejected as ambiguous instead of
+ * depending on sibling insertion order. */
+static void cxx_namespace_lookup_collect(CxxNamespace* scope,
+                                         const char* name,
+                                         CxxNamespaceLookup* lookup) {
+    CxxNamespace* child;
+    if (!scope || !name || !lookup || lookup->matches > 1u) return;
+    for (child = scope->children; child; child = child->next) {
+        if (child->name && strcmp(child->name, name) == 0) {
+            lookup->result = child;
+            ++lookup->matches;
+            if (lookup->matches > 1u) return;
         }
     }
-    for (int index = 0; index < root->namespace_alias_count; ++index) {
-        if (root->namespace_alias_names[index] &&
-            strcmp(root->namespace_alias_names[index], name) == 0) {
-            return root->namespace_alias_targets[index];
+    for (int index = 0; index < scope->namespace_alias_count; ++index) {
+        if (scope->namespace_alias_names[index] &&
+            strcmp(scope->namespace_alias_names[index], name) == 0) {
+            lookup->result = scope->namespace_alias_targets[index];
+            ++lookup->matches;
+            if (lookup->matches > 1u) return;
         }
     }
-    return NULL;
+    for (child = scope->children; child; child = child->next) {
+        if (child->is_inline_namespace) {
+            cxx_namespace_lookup_collect(child, name, lookup);
+            if (lookup->matches > 1u) return;
+        }
+    }
+}
+
+CxxNamespace* cxx_namespace_lookup(CxxNamespace* root, const char* name) {
+    CxxNamespaceLookup lookup = { 0 };
+    if (!root || !name) return NULL;
+    cxx_namespace_lookup_collect(root, name, &lookup);
+    return lookup.matches == 1u ? lookup.result : NULL;
 }
 
 bool cxx_namespace_add_alias(CxxNamespace* ns, const char* name,

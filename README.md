@@ -79,9 +79,10 @@ debug鍵はRinOSのdebug build profileからpathとして渡し、release鍵はr
   x64 hostで確認します。
 - C++ namespace parser now reuses namespace owners for later definitions, finds
   extension targets through inline-namespace sets, and reopens the translation
-  unit's anonymous namespace. It rejects changing a previously ordinary
-  namespace to inline and diagnoses alias/ambiguous-name conflicts. The
-  `rcc++` build passes; regression evidence is pending
+  unit's anonymous namespace. Shared qualified namespace lookup also follows
+  inline namespace sets and rejects ambiguous results. It rejects changing a
+  previously ordinary namespace to inline and diagnoses alias conflicts. The
+  forced `rcc++` rebuild passes; regression evidence is pending
   ([status](docs/implementation-status-rcc-namespace-extension.md)).
 
 `-O1`以上には整数constant folding、短絡式・定数分岐の除去、bounded inline等があり、
