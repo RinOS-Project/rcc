@@ -545,6 +545,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-delegating-constructor \
 	test-cxx-converting-constructor \
 	test-cxx-inherited-constructor \
+	test-cxx-new-array \
 	test-cxx-static-members \
 	test-cxx-static-data-members \
 	test-cxx-static-member-tls \

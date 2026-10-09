@@ -1529,6 +1529,10 @@
 - [x] production validatorによる署名付き成果物検査
 - [ ] frontend/sema/IR/pass/backend単体試験の体系化
 - [x] C17/C++20 aggregate、IR/MIR、verified backend、optimizerをhost CIでgate
+- [x] C++ `new[]`の基本／constructor initializer、両target object、AMD64 host
+      execution、および不正なparenthesized initializer診断を検証する
+      `test-cxx-new-array`を`CXX_REGRESSION_TARGETS`へ追加し、`test-cxx`経由で
+      production `test-ci`に含める。既存focused targetはWindows hostでpass。
 - [x] CI workflowでfull `test-ci` production gateをGCC/Clang双方に設定し、
       C17/C++20、IR/MIR、verified backend、optimizer、ABI、image、bootstrapを
       matrix実行。Makefileの環境変数／command-line `CC`保持と、built-in `cc`
