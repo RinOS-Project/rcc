@@ -91,6 +91,7 @@ typedef struct ModuleDebugInlineCall {
     SourceLoc call_location;
     uint32_t code_start;
     uint32_t code_end;
+    size_t parent_index_plus_one;
 } ModuleDebugInlineCall;
 
 /* Module relocation entry (for object files) */
@@ -176,6 +177,7 @@ typedef struct Module {
     ModuleDebugInlineCall* debug_inline_calls;
     size_t debug_inline_call_count;
     size_t debug_inline_call_capacity;
+    size_t debug_inline_active_call_plus_one;
 
     /* Relocation table for object files */
     ModuleReloc* relocs_arr;
@@ -211,9 +213,12 @@ struct CxxNamespace;
 /* Code generation functions */
 Module* codegen_new(void);
 void codegen_free(Module* mod);
-void module_add_debug_inline_call(Module* mod, const Decl* caller,
-                                  const Decl* callee, SourceLoc call_location,
-                                  uint32_t code_start, uint32_t code_end);
+size_t module_begin_debug_inline_call(
+    Module* mod, const Decl* caller, const Decl* callee,
+    SourceLoc call_location, uint32_t code_start,
+    size_t parent_index_plus_one);
+void module_end_debug_inline_call(Module* mod, size_t call_index,
+                                  uint32_t code_end);
 
 /* Emit functions */
 void emit_byte(Module* mod, uint8_t b);

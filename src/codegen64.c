@@ -8282,6 +8282,8 @@ static void gen64_expr(Module* mod, Expr* expr) {
     const Decl* callee = NULL;
     SourceLoc call_location = {NULL, 0, 0};
     uint32_t start;
+    size_t parent_index_plus_one;
+    size_t inline_call_index;
     uint32_t end;
     if (!expr) return;
     if (!g_opts.debug_info ||
@@ -8291,10 +8293,18 @@ static void gen64_expr(Module* mod, Expr* expr) {
         return;
     }
     start = code_offset(mod);
+    parent_index_plus_one = mod->debug_inline_active_call_plus_one;
+    inline_call_index = module_begin_debug_inline_call(
+        mod, caller, callee, call_location, start,
+        parent_index_plus_one);
+    if (inline_call_index == SIZE_MAX) {
+        rcc_fatal("DWARF inline-call index exceeds addressable range");
+    }
+    mod->debug_inline_active_call_plus_one = inline_call_index + 1u;
     gen64_expr_impl(mod, expr);
     end = code_offset(mod);
-    module_add_debug_inline_call(mod, caller, callee, call_location,
-                                 start, end);
+    mod->debug_inline_active_call_plus_one = parent_index_plus_one;
+    module_end_debug_inline_call(mod, inline_call_index, end);
 }
 
 static void gen64_expr_impl(Module* mod, Expr* expr) {

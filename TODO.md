@@ -1523,6 +1523,10 @@
         callへcalleeのabstract-origin DIEとcall-site PC range、宣言元・呼出元
         file/line/columnを出力。header定義を別sourceから呼ぶ`-g -O1`回帰で
         origin参照・PC relocation・DWARF file indexを両archで検証
+  - [x] nested bounded inline expansionを親子の`DW_TAG_inlined_subroutine`
+        DIEとして出力し、abstract-originにformal parameter DIEを含める。
+        `test-debug-info`で両archのnested parent/child、PC range包含、宣言元
+        parameterのname/type/locationを検証
   - [ ] `.debug_info`の全inline attribution／全scopeの宣言開始・終了に一致する
         location lists、register・piece location追跡、非標準prologueを含む
         完全なCFI/unwind

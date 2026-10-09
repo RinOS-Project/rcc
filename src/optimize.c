@@ -90,6 +90,9 @@ typedef struct InlineDebugOrigin {
     SourceLoc call_location;
 } InlineDebugOrigin;
 
+static const Decl* inline_debug_clone_owner;
+static const Decl* inline_debug_clone_caller;
+
 static InlineDebugOrigin* inline_debug_origins;
 static size_t inline_debug_origin_count;
 static size_t inline_debug_origin_capacity;
@@ -124,6 +127,28 @@ static void inline_debug_origin_add(const Expr* expression,
     origin->caller = caller;
     origin->callee = callee;
     origin->call_location = call_location;
+}
+
+static void inline_debug_origin_copy_to_clone(const Expr* source,
+                                              Expr* clone) {
+    if (!source || !clone || !inline_debug_clone_owner ||
+        !inline_debug_clone_caller) {
+        return;
+    }
+    for (size_t index = 0u; index < inline_debug_origin_count; ++index) {
+        const InlineDebugOrigin* origin = &inline_debug_origins[index];
+        const Decl* callee;
+        SourceLoc call_location;
+        if (origin->expression != source ||
+            origin->caller != inline_debug_clone_owner) {
+            continue;
+        }
+        callee = origin->callee;
+        call_location = origin->call_location;
+        inline_debug_origin_add(clone, inline_debug_clone_caller, callee,
+                                call_location);
+        return;
+    }
 }
 
 bool rcc_optimize_inline_debug_info(const Expr* expression,
@@ -1490,6 +1515,7 @@ static Expr* clone_inline_scalar_expression(
                 expression->loc);
             if (!clone->unary_operand) return NULL;
             clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         case EXPR_INDEX: {
             Expr* base = clone_inline_scalar_expression(
@@ -1499,6 +1525,7 @@ static Expr* clone_inline_scalar_expression(
             if (!base || !index) return NULL;
             clone = expr_index(base, index, expression->loc);
             clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         }
         case EXPR_MEMBER:
@@ -1511,6 +1538,7 @@ static Expr* clone_inline_scalar_expression(
             clone->kind = expression->kind;
             clone->member_field = expression->member_field;
             clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         case EXPR_CAST:
             clone = expr_cast(
@@ -1521,6 +1549,7 @@ static Expr* clone_inline_scalar_expression(
             if (!clone->cast_expr) return NULL;
             clone->type = expression->type;
             clone->cxx_cast_kind = expression->cxx_cast_kind;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         case EXPR_ADD:
         case EXPR_SUB:
@@ -1549,6 +1578,7 @@ static Expr* clone_inline_scalar_expression(
             clone = expr_binary(expression->kind, left, right,
                                 expression->loc);
             clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         }
         case EXPR_COND:
@@ -1563,6 +1593,7 @@ static Expr* clone_inline_scalar_expression(
             if (!clone->cond_test || !clone->cond_then ||
                 !clone->cond_else) return NULL;
             clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         default:
             return NULL;
@@ -1597,6 +1628,7 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
                     expression->unary_operand), expression->loc);
             if (!clone->unary_operand) return NULL;
             clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         case EXPR_INDEX: {
             Expr* base = clone_inline_pure_scalar_expression(
@@ -1606,6 +1638,7 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
             if (!base || !index) return NULL;
             clone = expr_index(base, index, expression->loc);
             clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         }
         case EXPR_MEMBER:
@@ -1617,6 +1650,7 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
             clone->kind = expression->kind;
             clone->member_field = expression->member_field;
             clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         case EXPR_CAST:
             clone = expr_cast(
@@ -1626,6 +1660,7 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
             if (!clone->cast_expr) return NULL;
             clone->type = expression->type;
             clone->cxx_cast_kind = expression->cxx_cast_kind;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         case EXPR_ADD:
         case EXPR_SUB:
@@ -1654,6 +1689,7 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
                     expression->binary_rhs), expression->loc);
             if (!clone->binary_lhs || !clone->binary_rhs) return NULL;
             clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         case EXPR_COND:
             clone = expr_cond(
@@ -1664,10 +1700,40 @@ static Expr* clone_inline_pure_scalar_expression(const Expr* expression) {
             if (!clone->cond_test || !clone->cond_then ||
                 !clone->cond_else) return NULL;
             clone->type = expression->type;
+            inline_debug_origin_copy_to_clone(expression, clone);
             return clone;
         default:
             return NULL;
     }
+}
+
+static Expr* clone_inline_scalar_expansion(
+    const Expr* expression, const InlineScalarBinding* bindings,
+    size_t binding_count, const Decl* owner, const Decl* caller) {
+    const Decl* previous_owner = inline_debug_clone_owner;
+    const Decl* previous_caller = inline_debug_clone_caller;
+    Expr* clone;
+    inline_debug_clone_owner = owner;
+    inline_debug_clone_caller = caller;
+    clone = clone_inline_scalar_expression(expression, bindings,
+                                           binding_count);
+    inline_debug_clone_owner = previous_owner;
+    inline_debug_clone_caller = previous_caller;
+    return clone;
+}
+
+static Expr* clone_inline_pure_expansion(const Expr* expression,
+                                         const Decl* owner,
+                                         const Decl* caller) {
+    const Decl* previous_owner = inline_debug_clone_owner;
+    const Decl* previous_caller = inline_debug_clone_caller;
+    Expr* clone;
+    inline_debug_clone_owner = owner;
+    inline_debug_clone_caller = caller;
+    clone = clone_inline_pure_scalar_expression(expression);
+    inline_debug_clone_owner = previous_owner;
+    inline_debug_clone_caller = previous_caller;
+    return clone;
 }
 
 static size_t inline_pure_scalar_expression_cost(const Expr* expression) {
@@ -1889,8 +1955,9 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             if (local_binding >= binding_count) {
                 return false;
             }
-            previous_value = clone_inline_pure_scalar_expression(
-                bindings[local_binding].argument);
+            previous_value = clone_inline_pure_expansion(
+                bindings[local_binding].argument, function,
+                optimize_inline_caller);
             if (!previous_value) return false;
             one = type_is_floating(operation->declaration->type)
                 ? expr_float(1.0, operation->expression->loc)
@@ -1918,8 +1985,9 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                                              binding_count)) {
             return false;
         }
-        value = clone_inline_scalar_expression(
-            operation->expression, bindings, binding_count);
+        value = clone_inline_scalar_expansion(
+            operation->expression, bindings, binding_count, function,
+            optimize_inline_caller);
         if (!value) return false;
         if (operation->kind != INLINE_SCALAR_LOCAL_COMPOUND_ASSIGNMENT) {
             value->type = operation->declaration->type;
@@ -1950,8 +2018,9 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                     operation->assignment_operator, &binary_operator)) {
                 return false;
             }
-            previous_value = clone_inline_pure_scalar_expression(
-                bindings[local_binding].argument);
+            previous_value = clone_inline_pure_expansion(
+                bindings[local_binding].argument, function,
+                optimize_inline_caller);
             if (!previous_value) return false;
             combined = expr_binary(binary_operator, previous_value, value,
                                    operation->expression->loc);
@@ -2015,9 +2084,11 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     }
     {
         Expr* clone = binding_count == 0u
-            ? clone_inline_pure_scalar_expression(returned)
-            : clone_inline_scalar_expression(returned, bindings,
-                                             binding_count);
+            ? clone_inline_pure_expansion(returned, function,
+                                          optimize_inline_caller)
+            : clone_inline_scalar_expansion(
+                  returned, bindings, binding_count, function,
+                  optimize_inline_caller);
         if (!clone) return false;
         clone->type = expression->type;
         inline_caller_budget_charge(optimize_inline_caller, expansion_cost);
@@ -5758,6 +5829,8 @@ void rcc_optimize(AST* ast) {
     inline_debug_origins_clear();
     inline_caller_budgets_clear();
     optimize_inline_caller = NULL;
+    inline_debug_clone_owner = NULL;
+    inline_debug_clone_caller = NULL;
     if (!ast || g_opts.opt_level <= 0) return;
     optimize_inline_ast = ast;
     for (pass = 0u; pass < OPTIMIZE_INLINE_PASSES; ++pass) {
@@ -5777,6 +5850,8 @@ void rcc_optimize(AST* ast) {
     }
     optimize_inline_caller = NULL;
     optimize_inline_ast = NULL;
+    inline_debug_clone_owner = NULL;
+    inline_debug_clone_caller = NULL;
     inline_caller_budgets_clear();
     if (!rcc_ir_verify_ast_subset(ast, &lowered_functions, ir_error,
                                   sizeof(ir_error))) {

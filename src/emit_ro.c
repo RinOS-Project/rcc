@@ -1181,6 +1181,14 @@ static void debug_collect_inline_files(const Module* mod,
             debug_file_add(files, file_count, file_capacity,
                            call->callee->loc.filename);
         }
+        for (const DeclList* parameter = call->callee
+                 ? call->callee->func_params : NULL;
+             parameter; parameter = parameter->next) {
+            if (parameter->decl && parameter->decl->loc.line > 0) {
+                debug_file_add(files, file_count, file_capacity,
+                               parameter->decl->loc.filename);
+            }
+        }
     }
 }
 
@@ -3053,6 +3061,123 @@ static DebugInlineOrigin* debug_inline_origin_find(
     return NULL;
 }
 
+static void debug_emit_inline_call_tree(
+    ObjectFile* obj, ObjSection* info, const char* const* files,
+    int file_count, const char* filename, int info_section,
+    const Module* mod, const ModuleSymbol* function,
+    const Decl* function_decl, DebugInlineOrigin* origins,
+    size_t origin_count, bool* emitted, size_t call_index) {
+    const ModuleDebugInlineCall* call;
+    DebugInlineOrigin* origin;
+    uint64_t function_end;
+    uint64_t address_offset;
+    const char* relocation_symbol;
+    char* scoped_relocation_symbol = NULL;
+    int call_file_index;
+    size_t child_index;
+
+    if (!obj || !info || !mod || !function || !function_decl || !emitted ||
+        call_index >= mod->debug_inline_call_count || emitted[call_index]) {
+        return;
+    }
+    call = &mod->debug_inline_calls[call_index];
+    function_end = (uint64_t)function->offset +
+                   debug_function_size(mod, function);
+    if (call->caller != function_decl ||
+        call->code_start < function->offset ||
+        call->code_end <= call->code_start ||
+        (uint64_t)call->code_end > function_end ||
+        !call->call_location.filename || call->call_location.line <= 0 ||
+        call->call_location.column < 0) {
+        return;
+    }
+    origin = debug_inline_origin_find(origins, origin_count, call->callee);
+    call_file_index = debug_line_file_index(
+        files, file_count, call->call_location.filename);
+    if (!origin || call_file_index <= 0 || info->size > UINT32_MAX) return;
+
+    emitted[call_index] = true;
+    section_add_byte(info, 41u);
+    debug_line_u32(info, origin->die_offset);
+    address_offset = info->size;
+    for (int byte = 0;
+         byte < (g_opts.target_arch == ARCH_X64 ? 8 : 4); ++byte) {
+        section_add_byte(info, 0u);
+    }
+    relocation_symbol = function->name;
+    if (!function->is_global) {
+        scoped_relocation_symbol = module_scoped_symbol(
+            filename, function->name);
+        relocation_symbol = scoped_relocation_symbol;
+    }
+    objfile_add_reloc(
+        obj, info_section, address_offset, relocation_symbol,
+        g_opts.target_arch == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U,
+        (int64_t)(call->code_start - function->offset));
+    rcc_free(scoped_relocation_symbol);
+    debug_line_u32(info, call->code_end - call->code_start);
+    debug_line_u32(info, (uint32_t)call_file_index);
+    debug_line_u32(info, (uint32_t)call->call_location.line);
+    debug_line_u32(info, (uint32_t)call->call_location.column);
+
+    for (child_index = 0u;
+         child_index < mod->debug_inline_call_count; ++child_index) {
+        const ModuleDebugInlineCall* child =
+            &mod->debug_inline_calls[child_index];
+        if (child->parent_index_plus_one != call_index + 1u ||
+            child->code_start < call->code_start ||
+            child->code_end > call->code_end) {
+            continue;
+        }
+        debug_emit_inline_call_tree(
+            obj, info, files, file_count, filename, info_section, mod,
+            function, function_decl, origins, origin_count, emitted,
+            child_index);
+    }
+    section_add_byte(info, 0u);
+}
+
+static void debug_emit_inline_calls(
+    ObjectFile* obj, ObjSection* info, const char* const* files,
+    int file_count, const char* filename, int info_section,
+    const Module* mod, const ModuleSymbol* function,
+    const Decl* function_decl, DebugInlineOrigin* origins,
+    size_t origin_count) {
+    bool* emitted;
+    if (!mod || mod->debug_inline_call_count == 0u) return;
+    if (mod->debug_inline_call_count > SIZE_MAX / sizeof(*emitted)) {
+        rcc_fatal("DWARF inline-call emission table is too large");
+    }
+    emitted = rcc_alloc(mod->debug_inline_call_count * sizeof(*emitted));
+    memset(emitted, 0,
+           mod->debug_inline_call_count * sizeof(*emitted));
+    for (size_t index = 0u;
+         index < mod->debug_inline_call_count; ++index) {
+        const ModuleDebugInlineCall* call = &mod->debug_inline_calls[index];
+        if (call->caller == function_decl &&
+            call->parent_index_plus_one == 0u) {
+            debug_emit_inline_call_tree(
+                obj, info, files, file_count, filename, info_section, mod,
+                function, function_decl, origins, origin_count, emitted,
+                index);
+        }
+    }
+    /* If an inner range could not be nested in its recorded parent (for
+     * example, because the parent emitted no machine code), preserve that
+     * attribution at the nearest representable function scope. */
+    for (size_t index = 0u;
+         index < mod->debug_inline_call_count; ++index) {
+        const ModuleDebugInlineCall* call = &mod->debug_inline_calls[index];
+        if (call->caller == function_decl && !emitted[index]) {
+            debug_emit_inline_call_tree(
+                obj, info, files, file_count, filename, info_section, mod,
+                function, function_decl, origins, origin_count, emitted,
+                index);
+        }
+    }
+    rcc_free(emitted);
+}
+
 static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                                    const char* filename) {
     const ModuleSymbol** functions;
@@ -3131,7 +3256,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                                          inline_origin_count, callee)) {
                 continue;
             }
-            debug_type_collect(&types, callee->type->ret_type);
+            debug_collect_function_types(&types, (Decl*)callee);
             inline_origins[inline_origin_count].declaration = callee;
             inline_origins[inline_origin_count].die_offset = 0u;
             ++inline_origin_count;
@@ -3735,7 +3860,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
      * each concrete call-site DIE below points back here. */
     debug_line_uleb(abbrev, 40u);
     debug_line_uleb(abbrev, 0x2eu);    /* DW_TAG_subprogram */
-    section_add_byte(abbrev, 0u);
+    section_add_byte(abbrev, 1u);
     debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
     debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
@@ -3756,7 +3881,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 41u);
     debug_line_uleb(abbrev, 0x1du);    /* DW_TAG_inlined_subroutine */
-    section_add_byte(abbrev, 0u);
+    section_add_byte(abbrev, 1u);
     debug_line_uleb(abbrev, 0x31u);    /* DW_AT_abstract_origin */
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x11u);    /* DW_AT_low_pc */
@@ -3768,6 +3893,21 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x59u);    /* DW_AT_call_line */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x57u);    /* DW_AT_call_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 42u);
+    debug_line_uleb(abbrev, 0x05u);    /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
@@ -3814,6 +3954,28 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         debug_line_u32(info, return_type->offset);
         section_add_byte(info, 1u); /* DW_INL_inlined */
         section_add_byte(info, callee->type->has_prototype ? 1u : 0u);
+        for (const DeclList* parameter = callee->func_params; parameter;
+             parameter = parameter->next) {
+            const Decl* declaration = parameter->decl;
+            DebugTypeEntry* parameter_type;
+            int parameter_file_index;
+            if (!declaration || declaration->kind != DECL_PARAM ||
+                !declaration->name || declaration->loc.line <= 0 ||
+                declaration->loc.column < 0) {
+                continue;
+            }
+            parameter_type = debug_type_find(&types, declaration->type);
+            parameter_file_index = debug_line_file_index(
+                files, file_count, declaration->loc.filename);
+            if (!parameter_type || parameter_file_index <= 0) continue;
+            section_add_byte(info, 42u);
+            debug_line_u32(info, debug_str_add(strings, declaration->name));
+            debug_line_u32(info, parameter_type->offset);
+            debug_line_u32(info, (uint32_t)parameter_file_index);
+            debug_line_u32(info, (uint32_t)declaration->loc.line);
+            debug_line_u32(info, (uint32_t)declaration->loc.column);
+        }
+        section_add_byte(info, 0u); /* end of abstract-origin parameters */
     }
 
     for (DeclList* item = mod->debug_ast ? mod->debug_ast->decls : NULL;
@@ -3943,56 +4105,9 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
             obj, info, strings, &types, files, file_count, mod, filename,
             info_section, function,
             g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86);
-        for (size_t inline_index = 0u;
-             inline_index < mod->debug_inline_call_count; ++inline_index) {
-            const ModuleDebugInlineCall* call =
-                &mod->debug_inline_calls[inline_index];
-            DebugInlineOrigin* origin;
-            uint64_t function_end = (uint64_t)function->offset +
-                                    debug_function_size(mod, function);
-            uint64_t address_offset;
-            const char* relocation_symbol = function->name;
-            char* scoped_relocation_symbol = NULL;
-            int call_file_index;
-            if (call->caller != function_decl ||
-                call->code_start < function->offset ||
-                call->code_end <= call->code_start ||
-                (uint64_t)call->code_end > function_end ||
-                !call->call_location.filename ||
-                call->call_location.line <= 0 ||
-                call->call_location.column < 0) {
-                continue;
-            }
-            origin = debug_inline_origin_find(
-                inline_origins, inline_origin_count, call->callee);
-            call_file_index = debug_line_file_index(
-                files, file_count, call->call_location.filename);
-            if (!origin || call_file_index <= 0 ||
-                info->size > UINT32_MAX) {
-                continue;
-            }
-            section_add_byte(info, 41u);
-            debug_line_u32(info, origin->die_offset);
-            address_offset = info->size;
-            for (int byte = 0;
-                 byte < (g_opts.target_arch == ARCH_X64 ? 8 : 4); ++byte) {
-                section_add_byte(info, 0u);
-            }
-            if (!function->is_global) {
-                scoped_relocation_symbol = module_scoped_symbol(
-                    filename, function->name);
-                relocation_symbol = scoped_relocation_symbol;
-            }
-            objfile_add_reloc(
-                obj, info_section, address_offset, relocation_symbol,
-                g_opts.target_arch == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U,
-                (int64_t)(call->code_start - function->offset));
-            rcc_free(scoped_relocation_symbol);
-            debug_line_u32(info, call->code_end - call->code_start);
-            debug_line_u32(info, (uint32_t)call_file_index);
-            debug_line_u32(info, (uint32_t)call->call_location.line);
-            debug_line_u32(info, (uint32_t)call->call_location.column);
-        }
+        debug_emit_inline_calls(
+            obj, info, files, file_count, filename, info_section, mod,
+            function, function_decl, inline_origins, inline_origin_count);
         section_add_byte(info, 0u);    /* end of subprogram children */
     }
     section_add_byte(info, 0u);        /* end of compile-unit children */

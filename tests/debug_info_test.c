@@ -1551,6 +1551,7 @@ static bool line_table_file_matches(const ObjSection* line,
 static void verify_debug_abbreviation(const ObjSection* abbrev,
                                       uint64_t expected_code,
                                       uint64_t expected_tag,
+                                      uint8_t expected_children,
                                       const uint8_t* expected_attributes,
                                       size_t expected_attribute_count)
 {
@@ -1582,7 +1583,8 @@ static void verify_debug_abbreviation(const ObjSection* abbrev,
             ++attribute_index;
         }
         if (code == expected_code) {
-            assert(tag == expected_tag && has_children == 0u);
+            assert(tag == expected_tag &&
+                   has_children == expected_children);
             assert(attribute_index * 2u == expected_attribute_count);
             return;
         }
@@ -1601,13 +1603,22 @@ static void verify_inline_debug_object(const char* path,
         0x31u, 0x13u, 0x11u, 0x01u, 0x12u, 0x06u,
         0x58u, 0x06u, 0x59u, 0x06u, 0x57u, 0x06u
     };
+    static const uint8_t parameter_attributes[] = {
+        0x03u, 0x0eu, 0x49u, 0x13u, 0x3au, 0x06u,
+        0x3bu, 0x06u, 0x39u, 0x06u
+    };
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* abbrev;
     ObjSection* strings;
     ObjSection* line;
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
-    bool found = false;
+    uint64_t outer_die = UINT64_MAX;
+    uint64_t inner_die = UINT64_MAX;
+    uint64_t outer_start = 0u;
+    uint64_t outer_end = 0u;
+    uint64_t inner_start = 0u;
+    uint64_t inner_end = 0u;
 
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
@@ -1616,10 +1627,16 @@ static void verify_inline_debug_object(const char* path,
     line = objfile_get_section(object, ".debug_line");
     assert(info != NULL && abbrev != NULL && strings != NULL && line != NULL);
     verify_debug_abbreviation(abbrev, 40u, 0x2eu,
+                              1u,
                               origin_attributes,
                               sizeof(origin_attributes));
     verify_debug_abbreviation(abbrev, 41u, 0x1du,
+                              1u,
                               call_attributes, sizeof(call_attributes));
+    verify_debug_abbreviation(abbrev, 42u, 0x05u,
+                              0u,
+                              parameter_attributes,
+                              sizeof(parameter_attributes));
 
     for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 12u <=
          info->size; ++die) {
@@ -1634,6 +1651,12 @@ static void verify_inline_debug_object(const char* path,
         uint32_t call_column;
         uint64_t low_pc_offset;
         uint64_t cursor;
+        uint64_t parameter_die;
+        uint32_t parameter_name;
+        uint32_t parameter_type;
+        uint32_t parameter_file;
+        const char* inline_name;
+        uint64_t call_length;
         bool has_call_relocation = false;
         if (info->data[die] != 41u) continue;
         if (die + 1u + 4u + address_size + 4u + 12u > info->size) continue;
@@ -1642,44 +1665,92 @@ static void verify_inline_debug_object(const char* path,
             continue;
         }
         name_offset = read_u32(info->data, origin_offset + 1u);
+        if (name_offset >= strings->size) continue;
+        inline_name = (const char*)strings->data + name_offset;
+        if (strcmp(inline_name, "debug_declared_inline") != 0 &&
+            strcmp(inline_name, "debug_nested_inline") != 0) {
+            continue;
+        }
         origin_file = read_u32(info->data, origin_offset + 5u);
         origin_line = read_u32(info->data, origin_offset + 9u);
         origin_column = read_u32(info->data, origin_offset + 13u);
         type_offset = read_u32(info->data, origin_offset + 21u);
-        assert(name_offset < strings->size &&
-               strcmp((const char*)strings->data + name_offset,
-                      "debug_declared_inline") == 0);
         assert(origin_file > 0u && origin_line > 0u && origin_column > 0u);
         assert(info->data[origin_offset + 25u] == 1u &&
                info->data[origin_offset + 26u] == 1u);
         assert(type_offset < info->size && info->data[type_offset] == 5u);
+        parameter_die = (uint64_t)origin_offset + 27u;
+        assert(parameter_die + 22u <= info->size &&
+               info->data[parameter_die] == 42u);
+        parameter_name = read_u32(info->data, parameter_die + 1u);
+        parameter_type = read_u32(info->data, parameter_die + 5u);
+        parameter_file = read_u32(info->data, parameter_die + 9u);
+        assert(parameter_name < strings->size &&
+               strcmp((const char*)strings->data + parameter_name,
+                      "value") == 0);
+        assert(parameter_type < info->size &&
+               info->data[parameter_type] == 5u);
+        assert(parameter_file > 0u &&
+               read_u32(info->data, parameter_die + 13u) > 0u &&
+               read_u32(info->data, parameter_die + 17u) > 0u);
+        assert(line_table_file_matches(line, parameter_file,
+                                       "tests/debug_info_inline.h"));
+        assert(info->data[parameter_die + 21u] == 0u);
 
         low_pc_offset = die + 1u + 4u;
         cursor = low_pc_offset + address_size + 4u;
         call_file = read_u32(info->data, cursor);
         call_line = read_u32(info->data, cursor + 4u);
         call_column = read_u32(info->data, cursor + 8u);
-        assert(read_u32(info->data, low_pc_offset + address_size) > 0u);
+        call_length = read_u32(info->data,
+                               low_pc_offset + address_size);
+        assert(call_length > 0u);
         assert(call_file > 0u && call_line > 0u && call_column > 0u);
-        assert(line_table_file_matches(line, call_file,
-                                       "tests/debug_info.c"));
+        assert(line_table_file_matches(
+            line, call_file,
+            strcmp(inline_name, "debug_declared_inline") == 0
+                ? "tests/debug_info.c"
+                : "tests/debug_info_inline.h"));
         assert(line_table_file_matches(line, origin_file,
                                        "tests/debug_info_inline.h"));
 
         for (const ObjReloc* relocation = info->relocs; relocation;
              relocation = relocation->next) {
+            bool root_call;
             if (relocation->offset != low_pc_offset) continue;
-            assert(relocation->symbol_name != NULL &&
-                   strcmp(relocation->symbol_name,
-                          "debug_inline_entry") == 0);
+            assert(relocation->symbol_name != NULL);
+            root_call = strcmp(relocation->symbol_name,
+                               "debug_inline_entry") == 0;
+            assert(root_call ||
+                   (strcmp(relocation->symbol_name,
+                           "debug_declared_inline") == 0 &&
+                    strcmp(inline_name,
+                           "debug_nested_inline") == 0));
             assert(relocation->addend > 0);
             has_call_relocation = true;
+            if (root_call &&
+                strcmp(inline_name, "debug_declared_inline") == 0 &&
+                outer_die == UINT64_MAX) {
+                outer_die = die;
+                outer_start = (uint64_t)relocation->addend;
+                outer_end = outer_start + call_length;
+            } else if (root_call &&
+                       strcmp(inline_name, "debug_nested_inline") == 0 &&
+                       inner_die == UINT64_MAX) {
+                inner_die = die;
+                inner_start = (uint64_t)relocation->addend;
+                inner_end = inner_start + call_length;
+            }
             break;
         }
         assert(has_call_relocation);
-        found = true;
     }
-    assert(found);
+    assert(outer_die != UINT64_MAX && inner_die != UINT64_MAX);
+    assert(outer_start <= inner_start && inner_end <= outer_end &&
+           inner_end < outer_end);
+    assert(inner_die == outer_die + 1u + 4u + address_size + 4u + 12u);
+    assert(info->data[inner_die + 1u + 4u + address_size + 4u + 12u] == 0u);
+    assert(info->data[inner_die + 1u + 4u + address_size + 4u + 13u] == 0u);
     objfile_free(object);
 }
 

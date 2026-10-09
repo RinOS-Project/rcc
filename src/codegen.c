@@ -120,6 +120,7 @@ Module* codegen_new(void) {
     mod->debug_inline_calls = NULL;
     mod->debug_inline_call_count = 0u;
     mod->debug_inline_call_capacity = 0u;
+    mod->debug_inline_active_call_plus_one = 0u;
     mod->relocs_arr = NULL;
     mod->reloc_count = 0;
     mod->reloc_capacity = 0;
@@ -141,11 +142,16 @@ Module* codegen_new(void) {
     return mod;
 }
 
-void module_add_debug_inline_call(Module* mod, const Decl* caller,
-                                  const Decl* callee, SourceLoc call_location,
-                                  uint32_t code_start, uint32_t code_end) {
+size_t module_begin_debug_inline_call(
+    Module* mod, const Decl* caller, const Decl* callee,
+    SourceLoc call_location, uint32_t code_start,
+    size_t parent_index_plus_one) {
     size_t next_capacity;
-    if (!mod || !caller || !callee || code_end <= code_start) return;
+    size_t call_index;
+    if (!mod || !caller || !callee ||
+        parent_index_plus_one > mod->debug_inline_call_count) {
+        rcc_fatal("invalid DWARF inline-call scope");
+    }
     if (mod->debug_inline_call_count == mod->debug_inline_call_capacity) {
         next_capacity = mod->debug_inline_call_capacity < 8u
             ? 8u : mod->debug_inline_call_capacity * 2u;
@@ -158,13 +164,24 @@ void module_add_debug_inline_call(Module* mod, const Decl* caller,
             next_capacity * sizeof(*mod->debug_inline_calls));
         mod->debug_inline_call_capacity = next_capacity;
     }
-    ModuleDebugInlineCall* call =
-        &mod->debug_inline_calls[mod->debug_inline_call_count++];
+    call_index = mod->debug_inline_call_count++;
+    ModuleDebugInlineCall* call = &mod->debug_inline_calls[call_index];
     call->caller = caller;
     call->callee = callee;
     call->call_location = call_location;
     call->code_start = code_start;
-    call->code_end = code_end;
+    call->code_end = code_start;
+    call->parent_index_plus_one = parent_index_plus_one;
+    return call_index;
+}
+
+void module_end_debug_inline_call(Module* mod, size_t call_index,
+                                  uint32_t code_end) {
+    if (!mod || call_index >= mod->debug_inline_call_count ||
+        code_end < mod->debug_inline_calls[call_index].code_start) {
+        rcc_fatal("invalid DWARF inline-call range");
+    }
+    mod->debug_inline_calls[call_index].code_end = code_end;
 }
 
 void codegen_free(Module* mod) {
@@ -14531,6 +14548,8 @@ static void gen_expr(Module* mod, Expr* expr) {
     const Decl* callee = NULL;
     SourceLoc call_location = {NULL, 0, 0};
     uint32_t start;
+    size_t parent_index_plus_one;
+    size_t inline_call_index;
     uint32_t end;
     if (!expr) return;
     if (!g_opts.debug_info ||
@@ -14540,10 +14559,18 @@ static void gen_expr(Module* mod, Expr* expr) {
         return;
     }
     start = code_offset(mod);
+    parent_index_plus_one = mod->debug_inline_active_call_plus_one;
+    inline_call_index = module_begin_debug_inline_call(
+        mod, caller, callee, call_location, start,
+        parent_index_plus_one);
+    if (inline_call_index == SIZE_MAX) {
+        rcc_fatal("DWARF inline-call index exceeds addressable range");
+    }
+    mod->debug_inline_active_call_plus_one = inline_call_index + 1u;
     gen_expr_impl(mod, expr);
     end = code_offset(mod);
-    module_add_debug_inline_call(mod, caller, callee, call_location,
-                                 start, end);
+    mod->debug_inline_active_call_plus_one = parent_index_plus_one;
+    module_end_debug_inline_call(mod, inline_call_index, end);
 }
 
 static void gen_expr_impl(Module* mod, Expr* expr) {
