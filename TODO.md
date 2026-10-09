@@ -482,6 +482,16 @@
         both targets. Conversions across virtual bases are ill-formed under C++
         `[conv.mem]`; preserve diagnostics for them instead of treating them as
         an implementation feature.
+    - [x] Check non-public inherited-member pointer formation in friend
+          contexts against the declaring access and the C++ protected
+          designating-class rule. Cover a base friend naming an inherited
+          private member, a derived-class friend naming an inherited protected
+          member, and rejection of `&Base::protected_member` from a derived
+          member on i686/AMD64; `test-cxx-member-pointer-data` also executes
+          both positive cases on the host.
+    - [ ] Complete inherited name lookup for hidden/ambiguous paths and the
+          remaining inheritance/access combinations; retain this parent item
+          as open until those cases are implemented and tested.
     - [x] Implement defined, nonvirtual, non-overloaded member-function
           pointers for unqualified, `const`, `volatile`, and `const volatile`
           methods: preserve the owner and method cv in the type, form its code

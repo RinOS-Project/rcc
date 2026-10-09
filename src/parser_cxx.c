@@ -291,7 +291,6 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
         }
         if (matching_fields != 1 || !field ||
             !field->cxx_declaring_class ||
-            field->cxx_access != ACCESS_PUBLIC ||
             (owner->cxx_class &&
              cxx_inherited_nonfield_name(owner->cxx_class,
                                          segments[segment_count - 1u]
@@ -301,7 +300,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
             parser.prev = segments[segment_count - 1u];
             parser.cur = parser.prev->next;
             rcc_error(loc,
-                      "inherited data-member pointer form requires one public declaration");
+                      "inherited data-member pointer form requires one unambiguous declaration");
             value = expr_int(0, loc);
             value->type = type_int;
             return value;

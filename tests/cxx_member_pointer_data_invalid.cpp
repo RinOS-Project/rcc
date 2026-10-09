@@ -6,6 +6,28 @@ private:
 int MemberPointerPrivateOwnerRejected::*invalid_private_member =
     &MemberPointerPrivateOwnerRejected::private_value;
 
+struct MemberPointerPrivateInheritedBase {
+private:
+    int inherited_private;
+};
+
+struct MemberPointerPrivateInheritedDerived
+    : MemberPointerPrivateInheritedBase {};
+
+int MemberPointerPrivateInheritedBase::*invalid_private_inherited_member =
+    &MemberPointerPrivateInheritedDerived::inherited_private;
+
+struct MemberPointerProtectedInheritedBase {
+protected:
+    int inherited_protected;
+};
+
+struct MemberPointerProtectedInheritedDerived
+    : MemberPointerProtectedInheritedBase {};
+
+int MemberPointerProtectedInheritedBase::*invalid_protected_inherited_member =
+    &MemberPointerProtectedInheritedDerived::inherited_protected;
+
 struct MemberPointerAmbiguousBase {
     int value;
 };

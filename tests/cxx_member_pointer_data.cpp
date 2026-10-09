@@ -29,6 +29,45 @@ struct MemberPointerBase {
     int inherited;
 };
 
+struct MemberPointerInheritedPrivateBase {
+private:
+    int inherited_private;
+
+    friend struct MemberPointerInheritedPrivateReader;
+};
+
+struct MemberPointerInheritedPrivateDerived
+    : MemberPointerInheritedPrivateBase {};
+
+struct MemberPointerInheritedPrivateReader {
+    static int read_private_member() {
+        auto member =
+            &MemberPointerInheritedPrivateDerived::inherited_private;
+        MemberPointerInheritedPrivateDerived object;
+        MemberPointerInheritedPrivateBase& base = object;
+        base.inherited_private = 43;
+        return object.*member;
+    }
+};
+
+struct MemberPointerProtectedBase {
+protected:
+    int inherited_protected;
+};
+
+struct MemberPointerProtectedDerived : MemberPointerProtectedBase {
+    friend struct MemberPointerProtectedReader;
+};
+
+struct MemberPointerProtectedReader {
+    static int read_protected_member() {
+        auto member = &MemberPointerProtectedDerived::inherited_protected;
+        MemberPointerProtectedDerived object;
+        object.inherited_protected = 47;
+        return object.*member;
+    }
+};
+
 struct MemberPointerDerived : MemberPointerPadding, MemberPointerBase {
     int tail;
 };
@@ -199,6 +238,10 @@ extern "C" int main() {
     if (virtual_derived.virtual_value != 37 ||
         MemberPointerPrivateReader::read_private_member() != 29) {
         return 17;
+    }
+    if (MemberPointerInheritedPrivateReader::read_private_member() != 43 ||
+        MemberPointerProtectedReader::read_protected_member() != 47) {
+        return 20;
     }
     (derived.*inherited_member) = 19;
     if (derived.inherited != 19 || derived.tail != 3) return 11;

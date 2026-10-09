@@ -202,6 +202,27 @@ static bool sema_cxx_member_accessible(CxxClass* target,
     return target && sema_cxx_class_is_friend(target, context);
 }
 
+static CxxClass* sema_cxx_protected_member_pointer_friend_class(
+    CxxClass* candidate, CxxClass* declaring, CxxClass* friend_class,
+    unsigned depth) {
+    if (!candidate || !declaring || !friend_class || depth > 32u) {
+        return NULL;
+    }
+    if ((candidate == declaring ||
+         sema_cxx_class_derives_from(candidate, declaring, 0u)) &&
+        sema_cxx_class_is_friend(candidate, friend_class)) {
+        return candidate;
+    }
+    for (int index = 0; index < candidate->base_count; ++index) {
+        CxxClass* access_class =
+            sema_cxx_protected_member_pointer_friend_class(
+                candidate->bases[index].base, declaring, friend_class,
+                depth + 1u);
+        if (access_class) return access_class;
+    }
+    return NULL;
+}
+
 /* A data-member pointer formation also has a constraint on the class named
  * to the left of `::`.  For protected members, that class must be the access
  * class (or one derived from it); merely being inside a derived method does
@@ -218,18 +239,25 @@ static bool sema_cxx_member_pointer_form_accessible(const Expr* expression) {
     designating = expression->cxx_member_pointer_form_designating_class;
     access = expression->cxx_member_pointer_form_access;
     if (access == ACCESS_PUBLIC) return true;
-    if (!declaring || !designating ||
-        !sema_cxx_member_accessible(declaring, access)) {
-        return false;
+    if (!declaring) return false;
+    if (access != ACCESS_PROTECTED) {
+        return sema_cxx_member_accessible(declaring, access);
     }
-    if (access != ACCESS_PROTECTED) return true;
+    if (!designating) return false;
 
     context = current_cxx_method_owner
         ? current_cxx_method_owner->cxx_class : NULL;
-    /* C in the protected-member pointer rule is the class containing the
-     * member or friend function. For a friend class this is the friend class,
-     * not the class that granted friendship. */
-    access_class = context;
+    if (!context) return false;
+    if (context == declaring ||
+        sema_cxx_class_derives_from(context, declaring, 0u)) {
+        access_class = context;
+    } else {
+        /* A friend function/class uses the class that granted friendship as
+         * C in [class.protected], not the lexical class of the friend body.
+         * The granting class may itself inherit the protected declaration. */
+        access_class = sema_cxx_protected_member_pointer_friend_class(
+            designating, declaring, context, 0u);
+    }
     if (!access_class) return false;
     return designating == access_class ||
            sema_cxx_class_derives_from(designating, access_class, 0u);
