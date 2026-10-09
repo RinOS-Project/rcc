@@ -300,9 +300,17 @@
           `test-cxx-alias-templates` verifies i686/AMD64 output, AMD64
           execution, C++11 parsing/code generation, exact negative diagnostic
           counts, and no invalid object output.
-    - [ ] Support alias templates owned by class-template specializations,
-          including outer-parameter substitution, inherited/friend lookup, and
-          dependent owners; keep these distinct from the concrete-class path.
+    - [x] Resolve alias templates owned by concrete specializations of primary
+          class templates, substituting enclosing type and integral non-type
+          parameters alongside the alias's own arguments, including inner
+          defaults that refer to enclosing parameters. Cover
+          namespace-qualified owners, nested template closers, optional
+          `typename`/`template`, private/protected diagnostics, i686/AMD64
+          output, PE-i386 objects, C++11 parsing, AMD64 execution, exact error
+          counts, and no invalid object output in `test-cxx-alias-templates`.
+    - [ ] Resolve alias templates owned by explicit/partial class-template
+          specializations and support inherited/friend lookup plus genuinely
+          dependent owners (including dependent non-type arguments).
 - [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target

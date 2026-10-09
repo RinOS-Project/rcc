@@ -8616,14 +8616,86 @@ static CxxTemplate* cxx_template_snapshot_parameter_scope(
     return snapshot;
 }
 
+static bool cxx_template_declaration_is_alias(void) {
+    Token* token = parser.cur;
+    int angle_depth = 0;
+    int parentheses = 0;
+    int brackets = 0;
+    bool has_requires_clause = false;
+    int requires_braces = 0;
+
+    if (!token || token->type != TOK_LT) return false;
+    for (; token && token->type != TOK_EOF; token = token->next) {
+        if (token->type == TOK_LPAREN) {
+            ++parentheses;
+        } else if (token->type == TOK_RPAREN && parentheses > 0) {
+            --parentheses;
+        } else if (token->type == TOK_LBRACKET) {
+            ++brackets;
+        } else if (token->type == TOK_RBRACKET && brackets > 0) {
+            --brackets;
+        } else if (!parentheses && !brackets && token->type == TOK_LT) {
+            ++angle_depth;
+        } else if (!parentheses && !brackets && token->type == TOK_GT) {
+            if (--angle_depth == 0) {
+                token = token->next;
+                break;
+            }
+        } else if (!parentheses && !brackets &&
+                   token->type == TOK_RSHIFT) {
+            angle_depth -= 2;
+            if (angle_depth <= 0) {
+                token = token->next;
+                break;
+            }
+        }
+    }
+    for (; token && token->type != TOK_EOF; token = token->next) {
+        if (token->type == TOK_REQUIRES) {
+            has_requires_clause = true;
+        } else if (token->type == TOK_USING && !parentheses && !brackets &&
+                   requires_braces == 0) {
+            return true;
+        } else if (token->type == TOK_SEMICOLON && !parentheses &&
+                   !brackets && requires_braces == 0) {
+            return false;
+        } else if ((token->type == TOK_CLASS || token->type == TOK_STRUCT ||
+                    token->type == TOK_ENUM) && !parentheses && !brackets &&
+                   requires_braces == 0) {
+            return false;
+        } else if (token->type == TOK_LPAREN) {
+            ++parentheses;
+        } else if (token->type == TOK_RPAREN && parentheses > 0) {
+            --parentheses;
+        } else if (token->type == TOK_LBRACKET) {
+            ++brackets;
+        } else if (token->type == TOK_RBRACKET && brackets > 0) {
+            --brackets;
+        } else if (token->type == TOK_LBRACE && has_requires_clause) {
+            ++requires_braces;
+        } else if (token->type == TOK_RBRACE && requires_braces > 0) {
+            --requires_braces;
+        } else if (token->type == TOK_LBRACE && !has_requires_clause) {
+            return false;
+        }
+    }
+    return false;
+}
+
 CxxTemplate* parse_cxx_template(void) {
     SourceLoc loc = previous()->loc;
     CxxTemplate* parameter_outer_template = active_template;
     int explicit_class_alignment = 0;
+    bool is_alias_template = active_class && parameter_outer_template &&
+        parameter_outer_template->kind == TMPL_CLASS &&
+        cxx_template_declaration_is_alias();
 
     expect(TOK_LT, "<");
 
     CxxTemplate* tmpl = cxx_template_new(loc);
+    if (is_alias_template) {
+        tmpl->enclosing_template = parameter_outer_template;
+    }
     active_template = tmpl;
 
     /* Parse template parameters */
@@ -8945,6 +9017,10 @@ CxxTemplate* parse_cxx_template(void) {
         Token* alias_name = expect(TOK_IDENT, "alias template name");
         Type* alias_type;
         tmpl->kind = TMPL_ALIAS;
+        if (active_class && parameter_outer_template &&
+            parameter_outer_template->kind == TMPL_CLASS) {
+            tmpl->enclosing_template = parameter_outer_template;
+        }
         tmpl->name = ast_arena_strdup(
             alias_name ? alias_name->value.str_val : "<alias>");
         if (tmpl->param_count == 0) {
@@ -9953,6 +10029,16 @@ static int template_parameter_index(CxxTemplate* tmpl, Type* type) {
             return index;
         }
     }
+    if (tmpl->enclosing_template) {
+        CxxTemplate* enclosing = tmpl->enclosing_template;
+        for (index = 0; index < enclosing->param_count; ++index) {
+            if (enclosing->params[index].kind == TPARAM_TYPE &&
+                enclosing->params[index].name &&
+                strcmp(enclosing->params[index].name, type->tag) == 0) {
+                return tmpl->param_count + index;
+            }
+        }
+    }
     return -1;
 }
 
@@ -9968,6 +10054,16 @@ static int active_template_template_parameter_index(const char* name) {
         if (parameter->kind == TPARAM_TEMPLATE && parameter->name &&
             strcmp(parameter->name, name) == 0) {
             return index;
+        }
+    }
+    if (active_template->enclosing_template) {
+        CxxTemplate* enclosing = active_template->enclosing_template;
+        for (int index = 0; index < enclosing->param_count; ++index) {
+            TemplateParam* parameter = &enclosing->params[index];
+            if (parameter->kind == TPARAM_TEMPLATE && parameter->name &&
+                strcmp(parameter->name, name) == 0) {
+                return active_template->param_count + index;
+            }
         }
     }
     return -1;
@@ -12858,6 +12954,21 @@ static bool eval_template_integer_expression(Expr* expression,
                 return true;
             }
         }
+        if (tmpl->enclosing_template) {
+            CxxTemplate* enclosing = tmpl->enclosing_template;
+            for (int index = 0; index < enclosing->param_count; ++index) {
+                TemplateParam* parameter = &enclosing->params[index];
+                int substitution_index;
+                if (index > INT_MAX - tmpl->param_count) continue;
+                substitution_index = tmpl->param_count + index;
+                if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                    value_present[substitution_index] &&
+                    strcmp(parameter->name, expression->ident_name) == 0) {
+                    *result = values[substitution_index];
+                    return true;
+                }
+            }
+        }
         return false;
     }
     if (expression->kind == EXPR_CALL && expression->cxx_concept_template) {
@@ -13053,21 +13164,86 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
 }
 
 static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
-                                                  SourceLoc loc) {
-    Type* arguments[32] = { NULL };
-    int64_t values[32] = { 0 };
-    bool value_present[32] = { false };
+                                                  SourceLoc loc,
+                                                  Type* owner_type) {
+    Type** arguments = NULL;
+    int64_t* values = NULL;
+    bool* value_present = NULL;
+    CxxClass* owner_instance = owner_type ? owner_type->cxx_class : NULL;
+    CxxTemplate* owner_template = owner_instance
+        ? owner_instance->templ
+        : owner_type ? owner_type->cxx_template : NULL;
+    Type** owner_arguments = NULL;
+    int64_t* owner_values = NULL;
+    bool* owner_value_present = NULL;
     int argument_count = 0;
+    int owner_argument_count = 0;
+    int substitution_argument_count;
+    int declared_argument_count;
+    size_t substitution_slot_count;
 
     if (!tmpl || tmpl->kind != TMPL_ALIAS || !tmpl->alias_type) {
         rcc_error(loc, "invalid alias template declaration");
         return type_int;
     }
+    if (tmpl->enclosing_template &&
+        owner_template == tmpl->enclosing_template) {
+        if (owner_instance) {
+            owner_argument_count = owner_instance->template_arg_count;
+            owner_arguments = owner_instance->template_args;
+            owner_values = owner_instance->template_value_args;
+            owner_value_present = owner_instance->template_value_present;
+        } else if (owner_type && owner_type->cxx_dependent) {
+            owner_argument_count = owner_type->cxx_template_arg_count;
+            owner_arguments = owner_type->cxx_template_args;
+        }
+        if (owner_argument_count != tmpl->enclosing_template->param_count ||
+            (owner_argument_count > 0 && !owner_arguments)) {
+            rcc_error(loc,
+                      "class alias-template owner arguments are incomplete");
+            return type_int;
+        }
+    }
+    if (tmpl->param_count < 0 || owner_argument_count < 0 ||
+        owner_argument_count > INT_MAX - tmpl->param_count) {
+        rcc_error(loc, "alias template argument count overflow");
+        return type_int;
+    }
+    substitution_argument_count = tmpl->param_count + owner_argument_count;
+    declared_argument_count = tmpl->param_count;
+    if (tmpl->enclosing_template) {
+        if (tmpl->enclosing_template->param_count < 0 ||
+            tmpl->enclosing_template->param_count >
+                INT_MAX - declared_argument_count) {
+            rcc_error(loc, "alias template argument count overflow");
+            return type_int;
+        }
+        declared_argument_count += tmpl->enclosing_template->param_count;
+    }
+    substitution_slot_count = (size_t)(substitution_argument_count >
+                                               declared_argument_count
+                                           ? substitution_argument_count
+                                           : declared_argument_count);
+    if (substitution_slot_count == 0u) substitution_slot_count = 1u;
+    if (substitution_slot_count > SIZE_MAX / sizeof(*arguments) ||
+        substitution_slot_count > SIZE_MAX / sizeof(*values) ||
+        substitution_slot_count > SIZE_MAX / sizeof(*value_present)) {
+        rcc_error(loc, "alias template argument storage size overflow");
+        return type_int;
+    }
+    arguments = ast_arena_alloc(sizeof(*arguments) * substitution_slot_count);
+    values = ast_arena_alloc(sizeof(*values) * substitution_slot_count);
+    value_present =
+        ast_arena_alloc(sizeof(*value_present) * substitution_slot_count);
+    memset(arguments, 0, sizeof(*arguments) * substitution_slot_count);
+    memset(values, 0, sizeof(*values) * substitution_slot_count);
+    memset(value_present, 0,
+           sizeof(*value_present) * substitution_slot_count);
     expect(TOK_LT, "<");
     if (!check(TOK_GT)) {
         do {
             TemplateParam* parameter;
-            if (argument_count >= 32 || argument_count >= tmpl->param_count) {
+            if (argument_count >= tmpl->param_count) {
                 rcc_error(peek()->loc, "too many alias template arguments");
                 while (!check(TOK_COMMA) && !check(TOK_GT) && !at_end()) {
                     advance();
@@ -13100,13 +13276,26 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
             ++argument_count;
         } while (match(TOK_COMMA));
     }
+    if (owner_argument_count > 0) {
+        memcpy(arguments + tmpl->param_count, owner_arguments,
+               sizeof(arguments[0]) * (size_t)owner_argument_count);
+        if (owner_values && owner_value_present) {
+            memcpy(values + tmpl->param_count,
+                   owner_values,
+                   sizeof(values[0]) * (size_t)owner_argument_count);
+            memcpy(value_present + tmpl->param_count,
+                   owner_value_present,
+                   sizeof(value_present[0]) *
+                       (size_t)owner_argument_count);
+        }
+    }
     while (argument_count < tmpl->param_count &&
            tmpl->params[argument_count].has_default) {
         TemplateParam* parameter = &tmpl->params[argument_count];
         if (parameter->kind == TPARAM_TYPE && parameter->default_type) {
             arguments[argument_count] = substitute_template_type(
-                tmpl, parameter->default_type, arguments, tmpl->param_count,
-                values, value_present);
+                tmpl, parameter->default_type, arguments,
+                substitution_argument_count, values, value_present);
         } else if (parameter->kind == TPARAM_NONTYPE &&
                    parameter->default_value) {
             int64_t value;
@@ -13146,8 +13335,8 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
     }
     {
         Type* result = substitute_template_type(
-            tmpl, tmpl->alias_type, arguments, tmpl->param_count, values,
-            value_present);
+            tmpl, tmpl->alias_type, arguments, substitution_argument_count,
+            values, value_present);
         if (!result) {
             rcc_error(loc, "alias template '%s' could not be substituted",
                       tmpl->name ? tmpl->name : "<alias>");
@@ -13217,13 +13406,115 @@ static bool consume_cxx_class_alias_template_owner(
     return true;
 }
 
+static bool cxx_class_template_id_owner_starts(void) {
+    Token* token = parser.cur;
+    if (token && token->type == TOK_SCOPE) token = token->next;
+    while (token && token->type == TOK_IDENT) {
+        if (token->next && token->next->type == TOK_LT) return true;
+        if (!token->next || token->next->type != TOK_SCOPE ||
+            !token->next->next || token->next->next->type != TOK_IDENT) {
+            return false;
+        }
+        token = token->next->next;
+    }
+    return false;
+}
+
+static bool cxx_class_template_alias_template_starts(
+    const char** owner_template_name_out) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    const char* owner_template_name = NULL;
+    CxxTemplate* owner_template;
+    Token* token;
+    int depth = 0;
+    int parentheses = 0;
+    int brackets = 0;
+    int braces = 0;
+    bool starts = false;
+
+    if (owner_template_name_out) *owner_template_name_out = NULL;
+    if (!cxx_class_template_id_owner_starts() ||
+        !cxx_template_id_followed_by_scope(&owner_template_name)) {
+        goto done;
+    }
+    owner_template = find_class_template(owner_template_name);
+    if (!owner_template && active_template &&
+        active_template->kind == TMPL_CLASS && active_template->name &&
+        strcmp(active_template->name, owner_template_name) == 0) {
+        owner_template = active_template;
+    }
+    if (!owner_template) goto done;
+
+    (void)parse_qualified_name();
+    for (token = parser.cur; token && token->type != TOK_EOF;
+         token = token->next) {
+        if (token->type == TOK_LPAREN) {
+            ++parentheses;
+            continue;
+        }
+        if (token->type == TOK_RPAREN && parentheses > 0) {
+            --parentheses;
+            continue;
+        }
+        if (token->type == TOK_LBRACKET) {
+            ++brackets;
+            continue;
+        }
+        if (token->type == TOK_RBRACKET && brackets > 0) {
+            --brackets;
+            continue;
+        }
+        if (token->type == TOK_LBRACE) {
+            ++braces;
+            continue;
+        }
+        if (token->type == TOK_RBRACE && braces > 0) {
+            --braces;
+            continue;
+        }
+        if (parentheses || brackets || braces) continue;
+        if (token->type == TOK_LT) {
+            ++depth;
+        } else if (token->type == TOK_GT) {
+            if (depth > 0) --depth;
+            if (depth == 0) {
+                token = token->next;
+                break;
+            }
+        } else if (token->type == TOK_RSHIFT) {
+            depth -= 2;
+            if (depth <= 0) {
+                token = token->next;
+                break;
+            }
+        }
+    }
+    if (token && token->type == TOK_SCOPE) {
+        token = token->next;
+        if (token && token->type == TOK_TEMPLATE) token = token->next;
+        starts = token && token->type == TOK_IDENT && token->next &&
+                 token->next->type == TOK_LT;
+    }
+done:
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    if (starts && owner_template_name_out) {
+        *owner_template_name_out = owner_template_name;
+    }
+    return starts;
+}
+
 static bool cxx_qualified_class_alias_template_starts(void) {
     Token* saved_cur = parser.cur;
     Token* saved_prev = parser.prev;
     bool starts = false;
     const char* owner_name = NULL;
 
-    if (consume_cxx_class_alias_template_owner(&owner_name) && owner_name) {
+    if (cxx_class_template_alias_template_starts(NULL)) {
+        starts = true;
+    } else if (consume_cxx_class_alias_template_owner(&owner_name) &&
+               owner_name) {
         bool has_template_keyword;
         CxxClass* owner;
         if (match(TOK_SCOPE)) {
@@ -13286,13 +13577,78 @@ static bool cxx_class_alias_template_accessible(
 }
 
 static Type* parse_qualified_class_alias_template_type(SourceLoc loc) {
+    const char* owner_template_name = NULL;
     const char* owner_name = NULL;
     const char* alias_name;
     CxxClass* owner;
+    CxxClass* owner_instance;
     CxxClassAliasTemplate* alias_template;
     Type* owner_type;
     Type* result;
     bool accessible;
+
+    if (cxx_class_template_alias_template_starts(&owner_template_name)) {
+        CxxTemplate* owner_class_template =
+            find_class_template(owner_template_name);
+        CxxClass* owner_definition;
+        if (!owner_class_template && active_template &&
+            active_template->kind == TMPL_CLASS && active_template->name &&
+            strcmp(active_template->name, owner_template_name) == 0) {
+            owner_class_template = active_template;
+        }
+        (void)parse_qualified_name();
+        if (!owner_class_template) {
+            rcc_error(loc, "unknown class-template alias owner '%s'",
+                      owner_template_name);
+            return type_int;
+        }
+        owner_type = parse_class_template_specialization(
+            owner_class_template, loc);
+        if (!match(TOK_SCOPE)) {
+            rcc_error(peek()->loc, "expected :: before nested alias template");
+            return type_int;
+        }
+        (void)match(TOK_TEMPLATE);
+        if (!check(TOK_IDENT)) {
+            rcc_error(peek()->loc, "expected nested alias template name");
+            return type_int;
+        }
+        alias_name = rcc_intern(advance()->value.str_val);
+        owner_instance = owner_type ? owner_type->cxx_class : NULL;
+        owner_definition = owner_instance && owner_instance->templ &&
+                owner_instance->templ->templated_class
+            ? owner_instance->templ->templated_class
+            : owner_class_template->templated_class;
+        if (!owner_definition && active_class &&
+            active_template == owner_class_template) {
+            owner_definition = active_class;
+        }
+        alias_template = cxx_class_find_alias_template(
+            owner_definition, alias_name);
+        if (!alias_template || !alias_template->declaration) {
+            rcc_error(loc,
+                      "class-template specialization '%s' has no nested alias template '%s'",
+                      owner_template_name, alias_name);
+            skip_cxx_template_arguments();
+            return type_int;
+        }
+        accessible = owner_instance
+            ? cxx_class_alias_template_accessible(owner_instance,
+                                                  alias_template)
+            : alias_template->access == ACCESS_PUBLIC ||
+                  active_class == owner_definition;
+        result = parse_alias_template_specialization(
+            alias_template->declaration, loc, owner_type);
+        if (!accessible) {
+            rcc_error(loc,
+                      "nested alias template '%s' is inaccessible in class '%s'",
+                      alias_name,
+                      owner_definition->name ? owner_definition->name
+                                              : owner_template_name);
+            return type_int;
+        }
+        return result;
+    }
 
     if (!consume_cxx_class_alias_template_owner(&owner_name) ||
         !owner_name) {
@@ -13328,7 +13684,7 @@ static Type* parse_qualified_class_alias_template_type(SourceLoc loc) {
     }
     accessible = cxx_class_alias_template_accessible(owner, alias_template);
     result = parse_alias_template_specialization(
-        alias_template->declaration, loc);
+        alias_template->declaration, loc, owner->type);
     if (!accessible) {
         rcc_error(loc,
                   "nested alias template '%s' is inaccessible in class '%s'",
@@ -14858,7 +15214,7 @@ static Type* parse_cxx_type_spec(void) {
                 ? parse_class_template_specialization(owner_template, loc)
                 : owner_alias_template
                     ? parse_alias_template_specialization(
-                          owner_alias_template, loc)
+                          owner_alias_template, loc, NULL)
                     : NULL;
             if (!owner_type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
                 rcc_error(loc,
@@ -15066,7 +15422,7 @@ static Type* parse_cxx_type_spec(void) {
             ? parse_class_template_specialization(owner_template, loc)
             : owner_alias_template
                 ? parse_alias_template_specialization(owner_alias_template,
-                                                      loc)
+                                                      loc, NULL)
                 : NULL;
         CxxClass* owner_class = owner_type ? owner_type->cxx_class : NULL;
         CxxTypeAlias* member_alias = NULL;
@@ -15272,7 +15628,7 @@ static Type* parse_cxx_type_spec(void) {
             }
             t = dependent;
         } else if (alias_tmpl) {
-            t = parse_alias_template_specialization(alias_tmpl, loc);
+            t = parse_alias_template_specialization(alias_tmpl, loc, NULL);
         } else if (tmpl) {
             t = parse_class_template_specialization(tmpl, loc);
         } else if (known_class && active_template &&
@@ -15599,6 +15955,16 @@ static bool is_active_template_type(const char* name) {
             return true;
         }
     }
+    if (active_template->enclosing_template) {
+        CxxTemplate* enclosing = active_template->enclosing_template;
+        for (index = 0; index < enclosing->param_count; ++index) {
+            TemplateParam* parameter = &enclosing->params[index];
+            if (parameter->kind == TPARAM_TYPE && parameter->name &&
+                strcmp(parameter->name, name) == 0) {
+                return true;
+            }
+        }
+    }
     return false;
 }
 
@@ -15872,6 +16238,16 @@ static int active_template_type_index(const char* name) {
         if (parameter->kind == TPARAM_TYPE && parameter->name &&
             strcmp(parameter->name, name) == 0) {
             return index;
+        }
+    }
+    if (active_template->enclosing_template) {
+        CxxTemplate* enclosing = active_template->enclosing_template;
+        for (int index = 0; index < enclosing->param_count; ++index) {
+            TemplateParam* parameter = &enclosing->params[index];
+            if (parameter->kind == TPARAM_TYPE && parameter->name &&
+                strcmp(parameter->name, name) == 0) {
+                return active_template->param_count + index;
+            }
         }
     }
     return -1;
