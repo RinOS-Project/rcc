@@ -963,10 +963,15 @@
           instances with freestanding i686 execution, x64 host execution, and
           both target object generations in
           `test-cxx-class-template-dependent-nested-type`.
-    - [ ] Support the remaining dependent DMI forms, including `this->member`
-          inside a call argument and cleanup of already-constructed members
-          when a later DMI constructor throws. These cases remain unsupported
-          and unchecked.
+    - [ ] Support and verify the remaining dependent DMI forms, including
+          `this->member` inside a call argument and cleanup of already-
+          constructed members when a later DMI constructor throws. Both native
+          code generators now register completed destructor-bearing bases and
+          members (including fixed class-array elements) with the active
+          exception frame and remove those registrations after successful
+          construction. Runtime behavior is still unverified, and the
+          dependent call-argument form still needs a focused regression; keep
+          this item open until both are covered.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

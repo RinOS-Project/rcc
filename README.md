@@ -496,5 +496,12 @@ also verifies bounded scalar-return calls, comma side effects, fixed
 one- and two-dimensional scalar-array DMIs, and destruction of a class-valued
 DMI member. It passes freestanding i686 execution, x64 host execution, and
 object generation for both target widths. `this->member` inside DMI call
-arguments and cleanup after a later DMI constructor throws remain unsupported
-and unchecked ([TODO](TODO.md)).
+arguments and cleanup after a later DMI constructor throws remain unchecked
+([TODO](TODO.md)). The native code generators now register completed
+destructor-bearing subobjects with an active exception frame and remove those
+registrations after the containing constructor returns successfully. A C
+syntax-only check passes for both backends. The POSIX-only exception execution
+target was invoked through native `cmd.exe` and failed while compiling its
+i686 startup assembly, before runtime execution; no cleanup result is claimed.
+The dependent `this->member` call-argument form still needs a focused
+regression.

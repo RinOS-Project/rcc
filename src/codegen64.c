@@ -5434,6 +5434,176 @@ static void gen64_cxx_initialize_object_mode(
 static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
                                          CxxConstructorInfo* constructor,
                                          ExprList* arguments);
+static int active_cxx_exception_cleanup_frame_offset64;
+static void gen64_cxx_exception_change_subobject(
+    Module* mod, Type* object_type, int address_reg, int frame_offset,
+    bool unregister) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (!mod || frame_offset == INT_MAX || !destructor ||
+        !destructor->func_body || !destructor->link_name) {
+        return;
+    }
+    emit64_push_reg(mod, RAX);
+    emit64_push_reg(mod, RCX);
+    emit64_push_reg(mod, RDX);
+    emit64_mov_reg_reg(mod, RDX, address_reg);
+    gen64_symbol_address(mod, decl_link_name(destructor), 0u);
+    emit64_mov_reg_reg(mod, RSI, RAX); /* destructor */
+    emit64_lea(mod, RDI, RBP, frame_offset); /* exception frame */
+    emit_byte(mod, 0xE8);
+    {
+        uint32_t call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64(unregister
+                                ? "rin_cpp_exception_unregister_cleanup"
+                                : "rin_cpp_exception_register_cleanup",
+                            call_offset);
+    }
+    emit64_pop_reg(mod, RDX);
+    emit64_pop_reg(mod, RCX);
+    emit64_pop_reg(mod, RAX);
+}
+
+static void gen64_cxx_exception_change_at_offset(
+    Module* mod, Type* object_type, int object_reg, int offset,
+    int frame_offset, bool unregister) {
+    emit64_push_reg(mod, RAX);
+    emit64_mov_reg_reg(mod, RAX, object_reg);
+    if (offset != 0) emit64_add_reg_imm(mod, RAX, offset);
+    gen64_cxx_exception_change_subobject(
+        mod, object_type, RAX, frame_offset, unregister);
+    emit64_pop_reg(mod, RAX);
+}
+
+static void gen64_cxx_exception_change_array(
+    Module* mod, Type* array_type, int object_reg, int offset,
+    int frame_offset, bool unregister) {
+    int loop_label;
+    int done_label;
+    Type* element_type = array_type ? array_type->base : NULL;
+    if (!mod || !array_type || array_type->kind != TYPE_ARRAY ||
+        !element_type || !element_type->cxx_class ||
+        array_type->array_len <= 0 || element_type->size <= 0 ||
+        frame_offset == INT_MAX) {
+        return;
+    }
+    loop_label = new_label64();
+    done_label = new_label64();
+    emit64_push_reg(mod, object_reg);
+    if (offset != 0) emit64_add_reg_imm(mod, object_reg, offset);
+    emit64_mov_reg_imm32(mod, RDX, (uint32_t)array_type->array_len);
+    emit64_label(mod, loop_label);
+    emit64_cmp_reg_imm(mod, RDX, 0);
+    emit64_jcc_label(mod, CC64_E, done_label);
+    emit64_push_reg(mod, RDX);
+    gen64_cxx_exception_change_subobject(
+        mod, element_type, object_reg, frame_offset, unregister);
+    emit64_pop_reg(mod, RDX);
+    emit64_add_reg_imm(mod, object_reg, element_type->size);
+    emit64_sub_reg_imm(mod, RDX, 1);
+    emit64_jmp_label(mod, loop_label);
+    emit64_label(mod, done_label);
+    emit64_pop_reg(mod, object_reg);
+}
+
+static void gen64_cxx_exception_change_direct_subobjects(
+    Module* mod, Type* object_type, int object_reg, int frame_offset,
+    bool initialize_virtual_bases, bool unregister);
+
+static void gen64_cxx_exception_unregister_initializers(
+    Module* mod, Type* object_type, CxxConstructorInfo* constructor,
+    bool initialize_virtual_bases, int frame_offset) {
+    if (!mod || frame_offset == INT_MAX || !object_type || !constructor) {
+        return;
+    }
+    for (CxxConstructorInitializer* initializer = constructor->initializers;
+         initializer; initializer = initializer->next) {
+        Type* base_type = NULL;
+        int base_offset;
+        if (initializer->is_delegating_constructor) {
+            gen64_cxx_exception_change_direct_subobjects(
+                mod, object_type, RCX, frame_offset,
+                initialize_virtual_bases, true);
+            return;
+        }
+        if (initializer->is_base_initializer) {
+            if (initializer->is_virtual_base_initializer) {
+                if (!initialize_virtual_bases) continue;
+                base_offset = gen64_cxx_constructor_virtual_base(
+                    object_type, initializer->field, &base_type);
+            } else {
+                base_offset = gen64_cxx_constructor_base(
+                    object_type, initializer->field, &base_type);
+            }
+            if (base_offset >= 0 && base_type) {
+                gen64_cxx_exception_change_at_offset(
+                    mod, base_type, RCX, base_offset,
+                    frame_offset, true);
+            }
+            continue;
+        }
+        {
+            TypeField* field = gen64_cxx_constructor_field(
+                object_type, initializer->field);
+            if (!field || !field->type) continue;
+            if (field->type->kind == TYPE_ARRAY) {
+                gen64_cxx_exception_change_array(
+                    mod, field->type, RCX, field->offset,
+                    frame_offset, true);
+            } else if (field->type->cxx_class) {
+                gen64_cxx_exception_change_at_offset(
+                    mod, field->type, RCX, field->offset,
+                    frame_offset, true);
+            }
+        }
+    }
+}
+
+static void gen64_cxx_exception_change_direct_subobjects(
+    Module* mod, Type* object_type, int object_reg, int frame_offset,
+    bool initialize_virtual_bases, bool unregister) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    if (!mod || !cls || frame_offset == INT_MAX) return;
+    if (initialize_virtual_bases) {
+        for (int index = 0; index < cls->virtual_base_count; ++index) {
+            CxxClass* base = cls->virtual_bases[index].base;
+            if (base && base->type) {
+                gen64_cxx_exception_change_at_offset(
+                    mod, base->type, object_reg,
+                    cls->virtual_bases[index].offset,
+                    frame_offset, unregister);
+            }
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base || !base->type || cls->bases[index].is_virtual ||
+            !cls->base_offsets || cls->base_offsets[index] < 0) {
+            continue;
+        }
+        gen64_cxx_exception_change_at_offset(
+            mod, base->type, object_reg, cls->base_offsets[index],
+            frame_offset, unregister);
+    }
+    for (TypeParam* parameter = cls->fields; parameter;
+         parameter = parameter->next) {
+        TypeField* field;
+        if (parameter->is_static || !parameter->type) continue;
+        field = gen64_cxx_constructor_field(object_type, parameter->name);
+        if (!field) continue;
+        if (field->type && field->type->kind == TYPE_ARRAY) {
+            gen64_cxx_exception_change_array(
+                mod, field->type, object_reg, field->offset,
+                frame_offset, unregister);
+        } else if (field->type && field->type->cxx_class) {
+            gen64_cxx_exception_change_at_offset(
+                mod, field->type, object_reg, field->offset,
+                frame_offset, unregister);
+        }
+    }
+}
 
 /* Execute a validated mem-initializer list before a non-empty constructor
  * body.  The constructor function owns this prologue, keeping automatic,
@@ -5476,6 +5646,9 @@ static void gen64_cxx_initialize_member_initializers(
             gen64_cxx_zero_object(mod, base_type, RCX);
         }
         emit64_pop_reg(mod, RCX);
+        gen64_cxx_exception_change_at_offset(
+            mod, base_type, RCX, base_offset,
+            active_cxx_exception_cleanup_frame_offset64, false);
     }
     for (CxxConstructorInitializer* initializer = constructor->initializers;
          initializer; initializer = initializer->next) {
@@ -5491,6 +5664,10 @@ static void gen64_cxx_initialize_member_initializers(
                 gen64_cxx_bind_constructor_arguments(
                     constructor, initializer->arguments, arguments),
                 initialize_virtual_bases);
+            gen64_cxx_exception_change_direct_subobjects(
+                mod, object_type, RCX,
+                active_cxx_exception_cleanup_frame_offset64,
+                initialize_virtual_bases, false);
             continue;
         }
         if (initializer->is_base_initializer) {
@@ -5521,6 +5698,9 @@ static void gen64_cxx_initialize_member_initializers(
                 gen64_cxx_zero_object(mod, base_type, RCX);
             }
             emit64_pop_reg(mod, RCX);
+            gen64_cxx_exception_change_at_offset(
+                mod, base_type, RCX, base_offset,
+                active_cxx_exception_cleanup_frame_offset64, false);
             continue;
         }
         TypeField* field = gen64_cxx_constructor_field(
@@ -5563,6 +5743,11 @@ static void gen64_cxx_initialize_member_initializers(
             gen64_cxx_initialize_object_mode(
                 mod, element_type, initializer->constructor, NULL, true);
             emit64_pop_reg(mod, RCX);
+            emit64_push_reg(mod, RCX);
+            gen64_cxx_exception_change_subobject(
+                mod, element_type, RCX,
+                active_cxx_exception_cleanup_frame_offset64, false);
+            emit64_pop_reg(mod, RCX);
             emit64_pop_reg(mod, RDX);
             emit64_add_reg_imm(mod, RCX, element_type->size);
             emit64_sub_reg_imm(mod, RDX, 1);
@@ -5584,6 +5769,9 @@ static void gen64_cxx_initialize_member_initializers(
                 gen64_cxx_bind_constructor_arguments(
                     constructor, initializer->arguments, arguments), true);
             emit64_pop_reg(mod, RCX);
+            gen64_cxx_exception_change_at_offset(
+                mod, field->type, RCX, field->offset,
+                active_cxx_exception_cleanup_frame_offset64, false);
             continue;
         }
         if (field->type && field->type->kind == TYPE_ARRAY &&
@@ -5637,10 +5825,15 @@ static void gen64_cxx_initialize_object_mode(
         return;
     }
     if (!constructor->body_is_empty) {
+        emit64_push_reg(mod, RCX);
         gen64_cxx_initialize_member_initializers(
             mod, object_type, constructor, arguments,
             initialize_virtual_bases);
         gen64_cxx_call_constructor(mod, constructor, arguments);
+        emit64_pop_reg(mod, RCX);
+        gen64_cxx_exception_unregister_initializers(
+            mod, object_type, constructor, initialize_virtual_bases,
+            active_cxx_exception_cleanup_frame_offset64);
         return;
     }
     if (constructor->initializers &&
@@ -5704,6 +5897,9 @@ static void gen64_cxx_initialize_object_mode(
                 gen64_cxx_zero_object(mod, base_type, address_reg);
             }
             emit64_pop_reg(mod, address_reg);
+            gen64_cxx_exception_change_at_offset(
+                mod, base_type, address_reg, base_offset,
+                active_cxx_exception_cleanup_frame_offset64, false);
         }
         for (initializer = constructor->initializers; initializer;
              initializer = initializer->next) {
@@ -5738,6 +5934,9 @@ static void gen64_cxx_initialize_object_mode(
                     gen64_cxx_zero_object(mod, base_type, address_reg);
                 }
                 emit64_pop_reg(mod, address_reg);
+                gen64_cxx_exception_change_at_offset(
+                    mod, base_type, address_reg, base_offset,
+                    active_cxx_exception_cleanup_frame_offset64, false);
                 continue;
             }
             field = gen64_cxx_constructor_field(
@@ -5780,6 +5979,11 @@ static void gen64_cxx_initialize_object_mode(
                 gen64_cxx_initialize_object_mode(
                     mod, element_type, initializer->constructor, NULL, true);
                 emit64_pop_reg(mod, address_reg);
+                emit64_push_reg(mod, address_reg);
+                gen64_cxx_exception_change_subobject(
+                    mod, element_type, address_reg,
+                    active_cxx_exception_cleanup_frame_offset64, false);
+                emit64_pop_reg(mod, address_reg);
                 emit64_pop_reg(mod, RDX);
                 emit64_add_reg_imm(mod, address_reg, element_type->size);
                 emit64_sub_reg_imm(mod, RDX, 1);
@@ -5804,6 +6008,9 @@ static void gen64_cxx_initialize_object_mode(
                     mod, field->type, initializer->constructor,
                     bound_arguments, true);
                 emit64_pop_reg(mod, address_reg);
+                gen64_cxx_exception_change_at_offset(
+                    mod, field->type, address_reg, field->offset,
+                    active_cxx_exception_cleanup_frame_offset64, false);
             } else if (field->type &&
                        field->type->kind == TYPE_ARRAY &&
                        field->type->base &&
@@ -5848,6 +6055,9 @@ static void gen64_cxx_initialize_object_mode(
                                    RAX, field->type);
             }
         }
+        gen64_cxx_exception_unregister_initializers(
+            mod, object_type, constructor, initialize_virtual_bases,
+            active_cxx_exception_cleanup_frame_offset64);
         return;
     }
     if (constructor->parameter_count == 0) {
@@ -5885,8 +6095,6 @@ static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
 }
 
 static void gen64_cxx_destroy_complete(Module* mod, Type* object_type);
-static int active_cxx_exception_cleanup_frame_offset64;
-
 /* Keep direct member destructors registered while a deleting destructor is
  * running.  If that destructor throws, the target runtime unwinds this list;
  * on normal return the list is removed before the ordinary member walk. */
