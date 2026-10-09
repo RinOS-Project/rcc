@@ -914,6 +914,39 @@ static void execute_inline_budget_case(const char* path)
     puts("Windows AMD64 SysV inline-budget execution passed");
 }
 
+static void execute_inline_namespace_case(const char* path)
+{
+    typedef int (__attribute__((sysv_abi)) *SysvIntUnary)(int);
+    ObjectFile* object = objfile_read(path);
+    ObjSection* code;
+    ObjSymbol* symbol;
+    uint8_t* mapping;
+    DWORD previous_protection;
+    uintptr_t address;
+    SysvIntUnary function;
+    assert(object != NULL && object->arch == ARCH_X64);
+    if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
+        objfile_free(object);
+        return;
+    }
+    code = code_section(object);
+    symbol = function_symbol(object, "inline_scope_collision_entry");
+    assert(code != NULL && code->data != NULL && code->size != 0u);
+    mapping = VirtualAlloc(NULL, code->size, MEM_RESERVE | MEM_COMMIT,
+                           PAGE_READWRITE);
+    assert(mapping != NULL);
+    memcpy(mapping, code->data, code->size);
+    assert(VirtualProtect(mapping, code->size, PAGE_EXECUTE_READ,
+                          &previous_protection));
+    assert(FlushInstructionCache(GetCurrentProcess(), mapping, code->size));
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&function, &address, sizeof(function));
+    assert(function(2) == 202);
+    assert(VirtualFree(mapping, 0u, MEM_RELEASE));
+    objfile_free(object);
+    puts("Windows AMD64 C++ inline namespace identity execution passed");
+}
+
 static void execute_signed_negative_power_of_two_cases(const char* path) {
     typedef int (__attribute__((sysv_abi)) *SysvIntUnary)(int);
     typedef int (__attribute__((sysv_abi)) *SysvIntUnaryPointer)(int*);
@@ -1083,6 +1116,35 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
 #endif
 
 #if !defined(_WIN32) && defined(__x86_64__)
+static void execute_inline_namespace_case(const char* path)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* code;
+    ObjSymbol* symbol;
+    uint8_t* mapping;
+    uintptr_t address;
+    int (*function)(int);
+    assert(object != NULL && object->arch == ARCH_X64);
+    if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
+        objfile_free(object);
+        return;
+    }
+    code = code_section(object);
+    symbol = function_symbol(object, "inline_scope_collision_entry");
+    assert(code != NULL && code->data != NULL && code->size != 0u);
+    mapping = mmap(NULL, code->size, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(mapping != MAP_FAILED);
+    memcpy(mapping, code->data, code->size);
+    assert(mprotect(mapping, code->size, PROT_READ | PROT_EXEC) == 0);
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&function, &address, sizeof(function));
+    assert(function(2) == 202);
+    assert(munmap(mapping, code->size) == 0);
+    objfile_free(object);
+    puts("AMD64 C++ inline namespace identity execution passed");
+}
+
 static void execute_signed_negative_power_of_two_64_cases(const char* path) {
     ObjectFile* object = objfile_read(path);
     ObjSection* code;
@@ -2918,8 +2980,10 @@ int main(int argc, char** argv)
     }
 #elif defined(_WIN32) && defined(__x86_64__)
     execute_inline_budget_case(argv[4]);
+    execute_inline_namespace_case(argv[4]);
     execute_signed_negative_power_of_two_cases(argv[4]);
 #elif !defined(_WIN32) && defined(__x86_64__)
+    execute_inline_namespace_case(argv[4]);
     execute_signed_negative_power_of_two_64_cases(argv[4]);
 #endif
     return 0;

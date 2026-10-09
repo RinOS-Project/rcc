@@ -1744,3 +1744,14 @@
       shared C++ declaration parser instead of treating their identifiers as
       unknown type names; verify the fix through the dual-architecture C++20
       atomic fixture.
+
+## Optimizer continuation (2026-10-09, C++ inline definition identity)
+
+- [x] Resolve a deferred inline body using the declaration's ABI/link symbol
+  in addition to source name, function type, and language linkage. This keeps
+  a same-name/same-type global `static` function from being substituted for
+  an anonymous-namespace function. The regression failed before the fix
+  (returning 102 instead of 202), then passed with `test-optimize` on both
+  target object formats and native AMD64 SysV execution.
+- [ ] Broader call-graph/cost modeling, recursive and aggregate/exception
+  inlining, and general loop transformations remain open.

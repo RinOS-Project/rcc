@@ -1758,19 +1758,31 @@ static size_t inline_pure_scalar_expression_cost(const Expr* expression) {
 }
 
 static Decl* resolve_inline_function_definition(Decl* function) {
+    const char* function_link_name;
     if (!function || function->func_body || !optimize_inline_ast ||
         !function->name || !function->type) {
         return function;
     }
+    function_link_name = decl_link_name(function);
+    if (!function_link_name) return function;
     for (DeclList* item = optimize_inline_ast->decls; item;
          item = item->next) {
         Decl* candidate = item->decl;
+        const char* candidate_link_name;
         if (!candidate || candidate == function ||
             candidate->kind != DECL_FUNC || !candidate->func_body ||
             !candidate->name ||
             strcmp(candidate->name, function->name) != 0 ||
             candidate->func_has_cxx_linkage != function->func_has_cxx_linkage ||
             !type_is_compatible(candidate->type, function->type)) {
+            continue;
+        }
+        /* Source-level names may omit ABI scopes (notably an unnamed
+         * namespace), so a same-name/same-type declaration is not enough to
+         * identify the definition that code generation will call. */
+        candidate_link_name = decl_link_name(candidate);
+        if (!candidate_link_name ||
+            strcmp(candidate_link_name, function_link_name) != 0) {
             continue;
         }
         return candidate;
