@@ -75,7 +75,91 @@ static bool while_body_constant_step(const Stmt* body, const Decl* induction,
 static bool unroll_constant_loop(Stmt* statement, unsigned count);
 static bool fold_constant_switch(Stmt* statement);
 
-enum { INLINE_SCALAR_RETURN_BRANCH_LIMIT = 8 };
+enum {
+    INLINE_SCALAR_RETURN_BRANCH_LIMIT = 8,
+    INLINE_SCALAR_SWITCH_CASE_LIMIT = 16
+};
+
+static const Expr* inline_scalar_return_tree(const Stmt* statement,
+                                            unsigned depth);
+
+static const Expr* inline_scalar_switch_return_tree(const Stmt* statement,
+                                                    unsigned depth) {
+    const Stmt* case_statements[INLINE_SCALAR_SWITCH_CASE_LIMIT];
+    const Expr* case_values[INLINE_SCALAR_SWITCH_CASE_LIMIT];
+    const Expr* case_returns[INLINE_SCALAR_SWITCH_CASE_LIMIT];
+    const Expr* default_return = NULL;
+    const Expr* result;
+    const StmtList* item;
+    size_t case_count = 0u;
+    if (!statement || statement->kind != STMT_SWITCH ||
+        !statement->switch_expr || !statement->switch_body ||
+        statement->switch_body->kind != STMT_BLOCK ||
+        depth >= INLINE_SCALAR_RETURN_BRANCH_LIMIT ||
+        !statement->switch_expr->type ||
+        (!type_is_integer(statement->switch_expr->type) &&
+         statement->switch_expr->type->kind != TYPE_ENUM)) {
+        return NULL;
+    }
+    for (item = statement->switch_body->block_stmts; item;
+         item = item->next) {
+        const Stmt* label = item->stmt;
+        if (!label) return NULL;
+        if (label->kind == STMT_CASE) {
+            int64_t ignored_value;
+            const Expr* branch;
+            if (case_count >= INLINE_SCALAR_SWITCH_CASE_LIMIT ||
+                !label->case_val ||
+                !type_is_compatible(statement->switch_expr->type,
+                                    label->case_val->type) ||
+                !constant_integer_expression(label->case_val,
+                                             &ignored_value)) {
+                return NULL;
+            }
+            branch = inline_scalar_return_tree(label->case_stmt,
+                                               depth + 1u);
+            if (!branch ||
+                (default_return &&
+                 !type_is_compatible(default_return->type, branch->type)) ||
+                (case_count != 0u &&
+                 !type_is_compatible(case_returns[0]->type, branch->type))) {
+                return NULL;
+            }
+            case_statements[case_count] = label;
+            case_values[case_count] = label->case_val;
+            case_returns[case_count] = branch;
+            ++case_count;
+        } else if (label->kind == STMT_DEFAULT) {
+            if (default_return) return NULL;
+            default_return = inline_scalar_return_tree(
+                label->default_stmt, depth + 1u);
+            if (!default_return ||
+                (case_count != 0u &&
+                 !type_is_compatible(case_returns[0]->type,
+                                     default_return->type))) {
+                return NULL;
+            }
+        } else {
+            return NULL;
+        }
+    }
+    if (!default_return) return NULL;
+    result = default_return;
+    while (case_count != 0u) {
+        Expr* comparison;
+        Expr* conditional;
+        size_t index = --case_count;
+        comparison = expr_binary(
+            EXPR_EQ, (Expr*)statement->switch_expr,
+            (Expr*)case_values[index], case_values[index]->loc);
+        comparison->type = type_bool;
+        conditional = expr_cond(comparison, (Expr*)case_returns[index],
+                                (Expr*)result, case_statements[index]->loc);
+        conditional->type = result->type;
+        result = conditional;
+    }
+    return result;
+}
 
 enum {
     INLINE_PURE_SCALAR_EXPANSION_LIMIT = 64,
@@ -972,6 +1056,9 @@ static const Expr* inline_scalar_return_tree(const Stmt* statement,
                    ? statement->return_val
                    : NULL;
     }
+    if (statement->kind == STMT_SWITCH) {
+        return inline_scalar_switch_return_tree(statement, depth);
+    }
     if (statement->kind != STMT_IF || !statement->if_cond ||
         !type_is_scalar(statement->if_cond->type) || !statement->if_then ||
         !statement->if_else || depth >= INLINE_SCALAR_RETURN_BRANCH_LIMIT) {
@@ -1128,7 +1215,8 @@ static bool collect_inline_scalar_body(
             ++*operation_count;
             continue;
         }
-        if (statement->kind == STMT_IF && *returned == NULL) {
+        if ((statement->kind == STMT_IF ||
+             statement->kind == STMT_SWITCH) && *returned == NULL) {
             *returned = inline_scalar_return_tree(statement, 0u);
             if (!*returned) return false;
             continue;

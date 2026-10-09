@@ -296,6 +296,18 @@ static void verify_smaller(const char* unoptimized_path,
         optimized, "preserved_side_effecting_conditional_return_call",
         0xe8u));
     assert(function_contains_byte(
+        unoptimized, "inlined_switch_return_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_switch_return_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "preserved_switch_without_default_call", 0xe8u));
+    assert(function_contains_byte(
+        optimized, "preserved_switch_without_default_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "preserved_switch_side_effect_call", 0xe8u));
+    assert(function_contains_byte(
+        optimized, "preserved_switch_side_effect_call", 0xe8u));
+    assert(function_contains_byte(
         unoptimized, "preserved_local_mutation_side_effect_call", 0xe8u));
     assert(function_contains_byte(
         optimized, "preserved_local_mutation_side_effect_call", 0xe8u));
@@ -1491,6 +1503,9 @@ int main(int argc, char** argv)
         int (*inlined_nested_conditional_return_call)(int);
         int (*preserved_incomplete_conditional_return_call)(int);
         int (*preserved_side_effecting_conditional_return_call)(int*);
+        int (*inlined_switch_return_call)(int);
+        int (*preserved_switch_without_default_call)(int);
+        int (*preserved_switch_side_effect_call)(int*);
         int (*preserved_local_mutation_side_effect_call)(int*);
         int (*preserved_local_side_effect_call)(volatile int*);
         int (*inlined_repeated_argument_call)(int);
@@ -2055,6 +2070,27 @@ int main(int argc, char** argv)
             memcpy(&preserved_side_effecting_conditional_return_call,
                    &address,
                    sizeof(preserved_side_effecting_conditional_return_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_switch_return_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_switch_return_call, &address,
+                   sizeof(inlined_switch_return_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "preserved_switch_without_default_call");
+            address = mapping + symbol->value;
+            memcpy(&preserved_switch_without_default_call, &address,
+                   sizeof(preserved_switch_without_default_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "preserved_switch_side_effect_call");
+            address = mapping + symbol->value;
+            memcpy(&preserved_switch_side_effect_call, &address,
+                   sizeof(preserved_switch_side_effect_call));
         }
         {
             ObjSymbol* symbol = function_symbol(
@@ -2685,6 +2721,17 @@ int main(int argc, char** argv)
             assert(preserved_side_effecting_conditional_return_call(
                        &side_effect_value) == 19);
             assert(side_effect_value == 2);
+        }
+        assert(inlined_switch_return_call(-2) == 12);
+        assert(inlined_switch_return_call(0) == 17);
+        assert(inlined_switch_return_call(6) == 9);
+        assert(inlined_switch_return_call(8) == 7);
+        assert(preserved_switch_without_default_call(0) == 21);
+        assert(preserved_switch_without_default_call(2) == 6);
+        {
+            int switch_value = 0;
+            assert(preserved_switch_side_effect_call(&switch_value) == 17);
+            assert(switch_value == 1);
         }
         {
             int mutation_value = 4;

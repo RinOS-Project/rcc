@@ -453,6 +453,47 @@ int preserved_side_effecting_conditional_return_call(int* value)
     return inline_side_effecting_conditional_return(value);
 }
 
+static int inline_switch_return(int value)
+{
+    switch (value) {
+        case -2: return 12;
+        case 0: return 17;
+        case 6: return value + 3;
+        default: return value - 1;
+    }
+}
+
+int inlined_switch_return_call(int value)
+{
+    return inline_switch_return(value);
+}
+
+static int inline_switch_without_default(int value)
+{
+    switch (value) {
+        case 0: return 21;
+    }
+    return value + 4;
+}
+
+int preserved_switch_without_default_call(int value)
+{
+    return inline_switch_without_default(value);
+}
+
+static int inline_switch_side_effect(int* value)
+{
+    switch ((*value)++) {
+        case 0: return 17;
+        default: return 19;
+    }
+}
+
+int preserved_switch_side_effect_call(int* value)
+{
+    return inline_switch_side_effect(value);
+}
+
 static int inline_local_mutation_side_effect(int* value)
 {
     int result = *value;
