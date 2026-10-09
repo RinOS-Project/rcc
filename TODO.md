@@ -535,21 +535,21 @@
           nested associated types without an artificial depth cutoff; a
           36-level class-template argument chain is covered. The i686/AMD64
           friend-function gate and GCC C++20 comparison pass.
-    - [x] Merge defaults for matching type template parameters across friend
-          and namespace-scope redeclarations, including defaults that refer to
-          an earlier parameter and declarations whose parameter names differ.
-          Preserve an earlier default when the friend is later made visible;
-          allow a default to be introduced only after an intervening
-          namespace-scope declaration without one. Reject a default on a
-          non-defining friend declaration, one introduced on the first
-          namespace declaration after a hidden friend, and a repeated default.
-          The i686/AMD64 friend-function gate passes with x64 host execution;
-          GCC C++20 accepts the positive fixture and rejects all three invalid
-          fixtures.
-    - [ ] Complete constrained friend-template redeclarations, non-type and
-          template-template default merging, general overload/redeclaration
-          matching beyond the tested type-only and identical-pack forms, and
-          the remaining standard friend cases.
+    - [x] Merge defaults for matching type and bounded integral non-type
+          template parameters across friend and namespace-scope redeclarations,
+          including `U = T` and `M = N + 2` with renamed parameters. Preserve
+          earlier defaults when the friend is later made visible; allow a
+          default to be introduced only after an intervening namespace-scope
+          declaration without one. Reject defaults on a non-defining friend,
+          on the first namespace declaration after a hidden friend, and
+          repeated type or integral non-type defaults. The i686/AMD64
+          friend-function gate passes with x64 host execution; GCC C++20
+          accepts the positive fixture and rejects all four invalid fixtures.
+    - [ ] Complete constrained friend-template redeclarations,
+          template-template defaults, non-type defaults outside the supported
+          integral constant-expression evaluator, general overload/redeclaration
+          matching beyond the tested type/integral-non-type and identical-pack
+          forms, and the remaining standard friend cases.
     - [x] Merge matching friend function-template redeclarations whose
           template parameter list contains the same type pack and whose
           function parameter pack shapes match. Accumulate friendship granted

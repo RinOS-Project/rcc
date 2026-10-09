@@ -146,6 +146,38 @@ int reveal_default_later(X& host, int replacement) {
     return host.value;
 }
 
+template<class T, int N = 5, int M = N + 2>
+int reveal_non_type_default_before(T& host, int replacement);
+
+class NonTypeDefaultFriendTemplateHost {
+    int value;
+
+    template<class A, int First, int Second>
+    friend int reveal_non_type_default_before(A& host, int replacement);
+};
+
+template<class U, int Count, int Extra>
+int reveal_non_type_default_before(U& host, int replacement) {
+    host.value = replacement + Extra;
+    return host.value;
+}
+
+class LateNonTypeDefaultFriendTemplateHost {
+    int value;
+
+    template<class A, int Count>
+    friend int reveal_non_type_default_later(A& host, int replacement);
+};
+
+template<class T, int N>
+int reveal_non_type_default_later(T& host, int replacement);
+
+template<class U, int Count = 11>
+int reveal_non_type_default_later(U& host, int replacement) {
+    host.value = replacement + Count;
+    return host.value;
+}
+
 class DerivedFriendTemplateHost : public FriendTemplateHost {};
 
 using FriendTemplateBox0 = FriendTemplateBox<FriendTemplateHost>;
@@ -205,6 +237,8 @@ int main() {
     PackFriendTemplateHostB pack_host_b;
     DefaultFriendTemplateHost default_friend_host;
     LateDefaultFriendTemplateHost late_default_friend_host;
+    NonTypeDefaultFriendTemplateHost non_type_default_friend_host;
+    LateNonTypeDefaultFriendTemplateHost late_non_type_default_friend_host;
     DerivedFriendTemplateHost derived_host;
     FriendTemplateBox<FriendTemplateHost> box;
     FriendTemplateBox36 deep_box;
@@ -222,6 +256,10 @@ int main() {
            reveal_pack(pack_host_b, 47, 1, 2, 3) == 47 &&
            reveal_default_before(default_friend_host, 53) == 53 &&
            reveal_default_later(late_default_friend_host, 59) == 59 &&
+           reveal_non_type_default_before(
+               non_type_default_friend_host, 61) == 68 &&
+           reveal_non_type_default_later(
+               late_non_type_default_friend_host, 67) == 78 &&
            reveal(derived_host, 23) == 23 && reveal_box(box) == 29 &&
            reveal_box(deep_box) == 29 ? 0 : 1;
 }

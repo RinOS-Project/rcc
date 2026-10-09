@@ -7915,6 +7915,19 @@ CxxTemplate* parse_cxx_template(void) {
                         rcc_parser_set_cxx_template_default_mode(true);
                         tmpl->params[parameter_index].default_value =
                             parse_assignment_expression();
+                        {
+                            CxxTemplate* default_context =
+                                ast_arena_alloc(sizeof(*default_context));
+                            *default_context = *tmpl;
+                            default_context->params = ast_arena_alloc(
+                                sizeof(*default_context->params) *
+                                (size_t)tmpl->param_count);
+                            memcpy(default_context->params, tmpl->params,
+                                   sizeof(*default_context->params) *
+                                   (size_t)tmpl->param_count);
+                            tmpl->params[parameter_index].default_context =
+                                default_context;
+                        }
                         rcc_parser_set_cxx_template_default_mode(false);
                     }
                 }
@@ -10675,8 +10688,15 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
         } else if (parameter->kind == TPARAM_NONTYPE &&
                    parameter->default_value) {
             int64_t value;
+            if (parameter->default_context) {
+                parameter->default_context->pending_pack_count =
+                    tmpl->pending_pack_count;
+            }
             if (!eval_template_integer_expression(
-                    parameter->default_value, tmpl, values, value_present,
+                    parameter->default_value,
+                    parameter->default_context
+                        ? parameter->default_context : tmpl,
+                    values, value_present,
                     &value)) {
                 rcc_error(loc,
                           "class template non-type default must be an "
@@ -12008,8 +12028,15 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
         } else if (parameter->kind == TPARAM_NONTYPE &&
                    parameter->default_value) {
             int64_t value;
+            if (parameter->default_context) {
+                parameter->default_context->pending_pack_count =
+                    tmpl->pending_pack_count;
+            }
             if (!eval_template_integer_expression(
-                    parameter->default_value, tmpl, values, value_present,
+                    parameter->default_value,
+                    parameter->default_context
+                        ? parameter->default_context : tmpl,
+                    values, value_present,
                     &value)) {
                 rcc_error(loc,
                           "alias template non-type default must be an "
@@ -12309,9 +12336,16 @@ static bool prepare_cxx_function_template_match(
                     tmpl, parameter->default_type, match->arguments,
                     tmpl->param_count, match->values, match->value_present);
             } else {
+                if (parameter->default_context) {
+                    parameter->default_context->pending_pack_count =
+                        tmpl->pending_pack_count;
+                }
                 if (!parameter->default_value ||
                     !eval_template_integer_expression(
-                        parameter->default_value, tmpl, match->values,
+                        parameter->default_value,
+                        parameter->default_context
+                            ? parameter->default_context : tmpl,
+                        match->values,
                         match->value_present, &match->values[index])) {
                     return false;
                 }
@@ -12376,6 +12410,21 @@ static bool prepare_cxx_function_template_match(
                     match->arguments[index] = type_void;
                 }
             } else if (parameter->kind == TPARAM_NONTYPE) {
+                if (!match->value_present[index] && parameter->has_default &&
+                    parameter->default_context) {
+                    parameter->default_context->pending_pack_count =
+                        tmpl->pending_pack_count;
+                }
+                if (!match->value_present[index] && parameter->has_default &&
+                    parameter->default_value &&
+                    eval_template_integer_expression(
+                        parameter->default_value,
+                        parameter->default_context
+                            ? parameter->default_context : tmpl,
+                        match->values, match->value_present,
+                        &match->values[index])) {
+                    match->value_present[index] = true;
+                }
                 if (!match->value_present[index]) return false;
                 match->arguments[index] = parameter->type;
             } else if (!match->arguments[index] && parameter->has_default &&

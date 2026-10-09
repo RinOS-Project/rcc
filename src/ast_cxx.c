@@ -2371,10 +2371,17 @@ static bool cxx_function_template_redeclaration_matches(
     for (int index = 0; index < left->param_count; ++index) {
         const TemplateParam* left_template_parameter = &left->params[index];
         const TemplateParam* right_template_parameter = &right->params[index];
-        if (left_template_parameter->kind != TPARAM_TYPE ||
-            right_template_parameter->kind != TPARAM_TYPE ||
+        if (left_template_parameter->kind != right_template_parameter->kind ||
             left_template_parameter->is_pack !=
                 right_template_parameter->is_pack) {
+            return false;
+        }
+        if (left_template_parameter->kind == TPARAM_TYPE) continue;
+        if (left_template_parameter->kind != TPARAM_NONTYPE ||
+            left_template_parameter->is_pack ||
+            !cxx_template_redeclaration_type_matches(
+                left_template_parameter->type, left,
+                right_template_parameter->type, right, 0)) {
             return false;
         }
     }
@@ -2475,8 +2482,10 @@ static void cxx_template_merge_default_arguments(CxxTemplate* target,
         target_parameter->has_default = true;
         if (target_parameter->kind == TPARAM_TYPE) {
             target_parameter->default_type = source_parameter->default_type;
-        } else {
+        } else if (target_parameter->kind == TPARAM_NONTYPE) {
             target_parameter->default_value = source_parameter->default_value;
+            target_parameter->default_context =
+                source_parameter->default_context;
         }
     }
 }
@@ -5009,6 +5018,7 @@ void cxx_template_add_type_param(CxxTemplate* tmpl, const char* name) {
     tmpl->params[tmpl->param_count].is_pack = false;
     tmpl->params[tmpl->param_count].has_default = false;
     tmpl->params[tmpl->param_count].template_signature = NULL;
+    tmpl->params[tmpl->param_count].default_context = NULL;
     tmpl->params[tmpl->param_count].default_type = NULL;
     tmpl->param_count++;
 }
@@ -5024,6 +5034,7 @@ void cxx_template_add_value_param(CxxTemplate* tmpl, const char* name, Type* typ
     tmpl->params[tmpl->param_count].is_pack = false;
     tmpl->params[tmpl->param_count].has_default = false;
     tmpl->params[tmpl->param_count].template_signature = NULL;
+    tmpl->params[tmpl->param_count].default_context = NULL;
     tmpl->params[tmpl->param_count].default_value = NULL;
     tmpl->param_count++;
 }
