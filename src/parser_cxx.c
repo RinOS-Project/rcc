@@ -8392,13 +8392,12 @@ static int find_function_template_candidates(const char* qualified_name,
 }
 
 static bool cxx_class_is_associated_with(CxxClass* actual,
-                                         CxxClass* granting_class,
-                                         int depth) {
-    if (!actual || !granting_class || depth > 32) return false;
+                                         CxxClass* granting_class) {
+    if (!actual || !granting_class) return false;
     if (actual == granting_class) return true;
     for (int index = 0; index < actual->base_count; ++index) {
         if (cxx_class_is_associated_with(actual->bases[index].base,
-                                         granting_class, depth + 1)) {
+                                         granting_class)) {
             return true;
         }
     }
@@ -8406,27 +8405,25 @@ static bool cxx_class_is_associated_with(CxxClass* actual,
 }
 
 static bool cxx_type_is_associated_with(Type* type,
-                                        CxxClass* granting_class,
-                                        int depth) {
-    if (!type || !granting_class || depth > 32) return false;
+                                        CxxClass* granting_class) {
+    if (!type || !granting_class) return false;
     if (type->cxx_is_member_pointer &&
         type->cxx_member_pointer_owner &&
         cxx_class_is_associated_with(
-            type->cxx_member_pointer_owner->cxx_class, granting_class, 0)) {
+            type->cxx_member_pointer_owner->cxx_class, granting_class)) {
         return true;
     }
     if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
         !type->cxx_is_member_pointer) {
-        return cxx_type_is_associated_with(type->base, granting_class,
-                                           depth + 1);
+        return cxx_type_is_associated_with(type->base, granting_class);
     }
     if (type->cxx_class &&
-        cxx_class_is_associated_with(type->cxx_class, granting_class, 0)) {
+        cxx_class_is_associated_with(type->cxx_class, granting_class)) {
         return true;
     }
     for (int index = 0; index < type->cxx_template_arg_count; ++index) {
         if (cxx_type_is_associated_with(type->cxx_template_args[index],
-                                        granting_class, depth + 1)) {
+                                        granting_class)) {
             return true;
         }
     }
@@ -8437,8 +8434,7 @@ static bool cxx_type_is_associated_with(Type* type,
         int argument_count = cls->template_identity_tmpl
             ? cls->template_identity_arg_count : cls->template_arg_count;
         for (int index = 0; arguments && index < argument_count; ++index) {
-            if (cxx_type_is_associated_with(arguments[index], granting_class,
-                                            depth + 1)) {
+            if (cxx_type_is_associated_with(arguments[index], granting_class)) {
                 return true;
             }
         }
@@ -8459,7 +8455,7 @@ static bool cxx_hidden_friend_template_matches_adl(
         for (ExprList* argument = arguments; argument;
              argument = argument->next) {
             Type* type = cxx_parser_expression_type(argument->expr);
-            if (cxx_type_is_associated_with(type, grant->owner, 0)) {
+            if (cxx_type_is_associated_with(type, grant->owner)) {
                 return true;
             }
         }

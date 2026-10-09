@@ -17,8 +17,6 @@ int declared_friend(FriendHost& host, int replacement) {
 
 template<class T>
 class FriendTemplateBox {
-public:
-    T inner;
 };
 
 class FriendTemplateHost {
@@ -48,6 +46,44 @@ class SecondFriendTemplateHost {
 
 class DerivedFriendTemplateHost : public FriendTemplateHost {};
 
+using FriendTemplateBox0 = FriendTemplateBox<FriendTemplateHost>;
+using FriendTemplateBox1 = FriendTemplateBox<FriendTemplateBox0>;
+using FriendTemplateBox2 = FriendTemplateBox<FriendTemplateBox1>;
+using FriendTemplateBox3 = FriendTemplateBox<FriendTemplateBox2>;
+using FriendTemplateBox4 = FriendTemplateBox<FriendTemplateBox3>;
+using FriendTemplateBox5 = FriendTemplateBox<FriendTemplateBox4>;
+using FriendTemplateBox6 = FriendTemplateBox<FriendTemplateBox5>;
+using FriendTemplateBox7 = FriendTemplateBox<FriendTemplateBox6>;
+using FriendTemplateBox8 = FriendTemplateBox<FriendTemplateBox7>;
+using FriendTemplateBox9 = FriendTemplateBox<FriendTemplateBox8>;
+using FriendTemplateBox10 = FriendTemplateBox<FriendTemplateBox9>;
+using FriendTemplateBox11 = FriendTemplateBox<FriendTemplateBox10>;
+using FriendTemplateBox12 = FriendTemplateBox<FriendTemplateBox11>;
+using FriendTemplateBox13 = FriendTemplateBox<FriendTemplateBox12>;
+using FriendTemplateBox14 = FriendTemplateBox<FriendTemplateBox13>;
+using FriendTemplateBox15 = FriendTemplateBox<FriendTemplateBox14>;
+using FriendTemplateBox16 = FriendTemplateBox<FriendTemplateBox15>;
+using FriendTemplateBox17 = FriendTemplateBox<FriendTemplateBox16>;
+using FriendTemplateBox18 = FriendTemplateBox<FriendTemplateBox17>;
+using FriendTemplateBox19 = FriendTemplateBox<FriendTemplateBox18>;
+using FriendTemplateBox20 = FriendTemplateBox<FriendTemplateBox19>;
+using FriendTemplateBox21 = FriendTemplateBox<FriendTemplateBox20>;
+using FriendTemplateBox22 = FriendTemplateBox<FriendTemplateBox21>;
+using FriendTemplateBox23 = FriendTemplateBox<FriendTemplateBox22>;
+using FriendTemplateBox24 = FriendTemplateBox<FriendTemplateBox23>;
+using FriendTemplateBox25 = FriendTemplateBox<FriendTemplateBox24>;
+using FriendTemplateBox26 = FriendTemplateBox<FriendTemplateBox25>;
+using FriendTemplateBox27 = FriendTemplateBox<FriendTemplateBox26>;
+using FriendTemplateBox28 = FriendTemplateBox<FriendTemplateBox27>;
+using FriendTemplateBox29 = FriendTemplateBox<FriendTemplateBox28>;
+using FriendTemplateBox30 = FriendTemplateBox<FriendTemplateBox29>;
+using FriendTemplateBox31 = FriendTemplateBox<FriendTemplateBox30>;
+using FriendTemplateBox32 = FriendTemplateBox<FriendTemplateBox31>;
+using FriendTemplateBox33 = FriendTemplateBox<FriendTemplateBox32>;
+using FriendTemplateBox34 = FriendTemplateBox<FriendTemplateBox33>;
+using FriendTemplateBox35 = FriendTemplateBox<FriendTemplateBox34>;
+using FriendTemplateBox36 = FriendTemplateBox<FriendTemplateBox35>;
+
 template<class U>
 int reveal_declared(U& host, int replacement) {
     host.value = replacement;
@@ -60,10 +96,12 @@ int main() {
     SecondFriendTemplateHost second_host;
     DerivedFriendTemplateHost derived_host;
     FriendTemplateBox<FriendTemplateHost> box;
+    FriendTemplateBox36 deep_box;
     int ordinary_result = inline_friend(ordinary, 4) +
                           declared_friend(ordinary, 5);
     return ordinary_result == 16 && reveal(host, 42) == 42 &&
            reveal_declared(host, 37) == 37 &&
            reveal(second_host, 19) == 19 &&
-           reveal(derived_host, 23) == 23 && reveal_box(box) == 29 ? 0 : 1;
+           reveal(derived_host, 23) == 23 && reveal_box(box) == 29 &&
+           reveal_box(deep_box) == 29 ? 0 : 1;
 }

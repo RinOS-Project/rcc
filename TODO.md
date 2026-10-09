@@ -531,8 +531,10 @@
           Verify direct, derived, and template-argument ADL; reject unrelated
           unqualified, qualified, and unrelated-template-argument calls; and
           verify that a later namespace definition restores ordinary lookup
-          without granting access to unrelated specializations. The
-          i686/AMD64 friend-function gate and GCC C++20 comparison pass.
+          without granting access to unrelated specializations. Traverse
+          nested associated types without an artificial depth cutoff; a
+          36-level class-template argument chain is covered. The i686/AMD64
+          friend-function gate and GCC C++20 comparison pass.
     - [ ] Complete constrained/defaulted/packed friend-template redeclaration,
           associated-namespace ADL, general
           overload/redeclaration matching beyond the tested type-only form,
