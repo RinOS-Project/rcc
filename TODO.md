@@ -965,6 +965,18 @@
           and `T::value_type`; verify return types, local declarations, and
           runtime values for i686 and AMD64 with
           `make SHELL=cmd.exe test-cxx-class-template-dependent-nested-type`.
+    - [x] At concrete class-template substitution, diagnose missing and
+          inaccessible dependent nested aliases instead of retaining an
+          unresolved layout type; keep still-dependent names deferred and
+          resolve aliases inherited from a direct public base. Diagnose
+          conflicting aliases from multiple direct public bases. Gate the
+          diagnostics and inherited-alias positive case on i686 and AMD64.
+    - [ ] Generalize inherited dependent nested-type lookup across multiple
+          base levels, shared virtual base subobjects, and protected-access
+          context; keep this separate from direct-base alias substitution.
+    - [ ] Diagnose missing or inaccessible dependent nested aliases in
+          function-template instantiations outside requires-expressions while
+          preserving requires-expression substitution failure.
     - [x] Evaluate bounded scalar DMIs that read an earlier direct scalar field
           through either `this->field` or unqualified member lookup in a class
           with a dependent base. Verify `int` and `long long` on freestanding

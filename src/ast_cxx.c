@@ -3351,6 +3351,12 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             ? cxx_class_find_type_alias(owner->cxx_class,
                                         type->cxx_dependent_member_name)
             : NULL;
+        if (!alias && owner->cxx_class) {
+            bool ambiguous = false;
+            alias = cxx_class_find_direct_public_base_type_alias(
+                owner->cxx_class, type->cxx_dependent_member_name,
+                &ambiguous);
+        }
         if (alias && alias->access == ACCESS_PUBLIC) {
             return template_substitute_type(
                 tmpl, alias->type, args, arg_count, value_args,
@@ -5443,6 +5449,26 @@ CxxTypeAlias* cxx_class_find_type_alias(CxxClass* cls, const char* name) {
         if (strcmp(alias->name, name) == 0) return alias;
     }
     return NULL;
+}
+
+CxxTypeAlias* cxx_class_find_direct_public_base_type_alias(
+    CxxClass* cls, const char* name, bool* ambiguous) {
+    CxxTypeAlias* found = NULL;
+    if (ambiguous) *ambiguous = false;
+    if (!cls || !name) return NULL;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        CxxTypeAlias* candidate;
+        if (cls->bases[index].access != ACCESS_PUBLIC || !base) continue;
+        candidate = cxx_class_find_type_alias(base, name);
+        if (!candidate) continue;
+        if (found && found != candidate) {
+            if (ambiguous) *ambiguous = true;
+            return NULL;
+        }
+        found = candidate;
+    }
+    return found;
 }
 
 /* Add field to class */

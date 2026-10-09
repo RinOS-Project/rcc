@@ -3568,11 +3568,26 @@ test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-d
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-dmi-parameter)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-dependent-dmi-parameter,cxx_dependent_dmi_parameter.cpp)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86-freestanding,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86.s)
-test-cxx-class-template-dependent-nested-type: $(RCXX_TARGET)
+test-cxx-class-template-dependent-nested-type: $(RCXX_TARGET) test-cxx-class-template-dependent-nested-type-invalid test-cxx-dependent-nested-alias-inheritance
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-nested-type)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s tests/cxx_class_template_dependent_nested_type.cpp
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-dependent-nested-type,cxx_class_template_dependent_nested_type.cpp)
+test-cxx-dependent-nested-alias-inheritance: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-nested-alias-inheritance)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-dependent-nested-alias-inheritance/x86-freestanding.s tests/cxx_dependent_nested_alias_inheritance.cpp
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-nested-alias-inheritance/x86-freestanding,$(TEST_OUT)/cxx-dependent-nested-alias-inheritance/x86-freestanding.s)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-dependent-nested-alias-inheritance,cxx_dependent_nested_alias_inheritance.cpp)
+test-cxx-class-template-dependent-nested-type-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-nested-type)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x86.ro tests/cxx_dependent_nested_typename_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x86.log)
+	$(GREP) -q "class 'MissingNestedType' has no unique accessible nested type 'value_type'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x86.log
+	$(GREP) -q "dependent nested type 'value_type' is inaccessible in class 'PrivateNestedType'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x86.log
+	$(GREP) -q "nested type 'value_type' is ambiguous in class 'AmbiguousNestedType'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.ro tests/cxx_dependent_nested_typename_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log)
+	$(GREP) -q "class 'MissingNestedType' has no unique accessible nested type 'value_type'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log
+	$(GREP) -q "dependent nested type 'value_type' is inaccessible in class 'PrivateNestedType'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log
+	$(GREP) -q "nested type 'value_type' is ambiguous in class 'AmbiguousNestedType'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log
 else
 test-cxx-class-template-methods: test-cxx-class-template-methods-posix
 test-cxx-class-template-specialization: test-cxx-class-template-specialization-posix
@@ -3595,11 +3610,26 @@ test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-d
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-dmi-parameter)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-dependent-dmi-parameter,cxx_dependent_dmi_parameter.cpp)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86-freestanding,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86.s)
-test-cxx-class-template-dependent-nested-type: $(RCXX_TARGET)
+test-cxx-class-template-dependent-nested-type: $(RCXX_TARGET) test-cxx-class-template-dependent-nested-type-invalid test-cxx-dependent-nested-alias-inheritance
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-nested-type)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s tests/cxx_class_template_dependent_nested_type.cpp
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-class-template-dependent-nested-type,cxx_class_template_dependent_nested_type.cpp)
+test-cxx-dependent-nested-alias-inheritance: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-nested-alias-inheritance)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-dependent-nested-alias-inheritance/x86-freestanding.s tests/cxx_dependent_nested_alias_inheritance.cpp
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-nested-alias-inheritance/x86-freestanding,$(TEST_OUT)/cxx-dependent-nested-alias-inheritance/x86-freestanding.s)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-dependent-nested-alias-inheritance,cxx_dependent_nested_alias_inheritance.cpp)
+test-cxx-class-template-dependent-nested-type-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-nested-type)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x86.ro tests/cxx_dependent_nested_typename_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x86.log)
+	$(GREP) -q "class 'MissingNestedType' has no unique accessible nested type 'value_type'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x86.log
+	$(GREP) -q "dependent nested type 'value_type' is inaccessible in class 'PrivateNestedType'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x86.log
+	$(GREP) -q "nested type 'value_type' is ambiguous in class 'AmbiguousNestedType'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.ro tests/cxx_dependent_nested_typename_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log)
+	$(GREP) -q "class 'MissingNestedType' has no unique accessible nested type 'value_type'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log
+	$(GREP) -q "dependent nested type 'value_type' is inaccessible in class 'PrivateNestedType'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log
+	$(GREP) -q "nested type 'value_type' is ambiguous in class 'AmbiguousNestedType'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log
 endif
 
 test-cxx-class-template-dependent-base-lookup-invalid: $(RCXX_TARGET)
@@ -8521,7 +8551,9 @@ endif
 .PHONY: test-cxx-class-template-dependent-base-transitive
 .PHONY: test-cxx-class-template-dependent-base-transitive-invalid
 .PHONY: test-cxx-dependent-dmi-call-argument
-.PHONY: test-cxx-class-template-dependent-nested-type
+.PHONY: test-cxx-class-template-dependent-nested-type \
+	test-cxx-class-template-dependent-nested-type-invalid \
+	test-cxx-dependent-nested-alias-inheritance
 .PHONY: test-cxx-class-template-dependent-base-lookup-invalid
 .PHONY: test-cxx-class-template-specialization-ambiguous
 .PHONY: test-cxx-class-template-specialization-partial-order-invalid

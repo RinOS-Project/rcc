@@ -9883,22 +9883,55 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         type->cxx_template_param_index < argument_count &&
         arguments[type->cxx_template_param_index]) {
         Type* owner = arguments[type->cxx_template_param_index];
+        if (owner->cxx_dependent) {
+            Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
+            *unresolved = *type;
+            unresolved->cxx_class = owner->cxx_class;
+            if (owner->cxx_template_param_index >= 0) {
+                unresolved->cxx_template_param_index =
+                    owner->cxx_template_param_index;
+            }
+            return unresolved;
+        }
+        bool inherited_alias_ambiguous = false;
         CxxTypeAlias* alias = owner->cxx_class
             ? cxx_class_find_type_alias(owner->cxx_class,
                                         type->cxx_dependent_member_name)
             : NULL;
-        if (alias && alias->access == ACCESS_PUBLIC) {
+        if (!alias && owner->cxx_class) {
+            alias = cxx_class_find_direct_public_base_type_alias(
+                owner->cxx_class, type->cxx_dependent_member_name,
+                &inherited_alias_ambiguous);
+        }
+        if (alias) {
+            if (alias->access != ACCESS_PUBLIC) {
+                rcc_error(parser.cur ? parser.cur->loc
+                                     : (SourceLoc){"<template>", 0, 0},
+                          "dependent nested type '%s' is inaccessible in class '%s'",
+                          type->cxx_dependent_member_name,
+                          owner->cxx_class && owner->cxx_class->name
+                              ? owner->cxx_class->name : "<unnamed>");
+                return type_int;
+            }
             return substitute_template_type(
                 tmpl, alias->type, arguments, argument_count,
                 value_args, value_present);
         }
-        {
-            Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
-            *unresolved = *type;
-            unresolved->cxx_class = owner->cxx_class;
-            unresolved->cxx_template_param_index = -1;
-            return unresolved;
-        }
+        rcc_error(parser.cur ? parser.cur->loc
+                             : (SourceLoc){"<template>", 0, 0},
+                  inherited_alias_ambiguous
+                      ? "nested type '%s' is ambiguous in class '%s'"
+                      : "class '%s' has no unique accessible nested type '%s'",
+                  inherited_alias_ambiguous
+                      ? type->cxx_dependent_member_name
+                      : (owner->cxx_class && owner->cxx_class->name
+                             ? owner->cxx_class->name
+                             : (owner->tag ? owner->tag : "<non-class>")),
+                  inherited_alias_ambiguous
+                      ? (owner->cxx_class && owner->cxx_class->name
+                             ? owner->cxx_class->name : "<unnamed>")
+                      : type->cxx_dependent_member_name);
+        return type_int;
     }
     if (type->cxx_dependent && type->cxx_template &&
         type->cxx_template_param_index < 0 &&
