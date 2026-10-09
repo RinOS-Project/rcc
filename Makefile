@@ -3331,9 +3331,13 @@ test-cxx-class-template-dependent-base-lookup-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-base)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x86.ro tests/cxx_class_template_dependent_base_lookup_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x86.log)
 	$(GREP) -q "ambiguous" $(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x86.log
+	$(GREP) -q "member 'collision' is ambiguous" $(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x86.log
+	$(GREP) -q "ambiguous member lookup for 'collision'" $(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x86.log
 	$(GREP) -q "not accessible" $(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x64.ro tests/cxx_class_template_dependent_base_lookup_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x64.log)
 	$(GREP) -q "ambiguous" $(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x64.log
+	$(GREP) -q "member 'collision' is ambiguous" $(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x64.log
+	$(GREP) -q "ambiguous member lookup for 'collision'" $(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x64.log
 	$(GREP) -q "not accessible" $(TEST_OUT)/cxx-class-template-dependent-base/lookup-invalid-x64.log
 
 test-cxx-class-template-specialization-ambiguous-posix: $(RCXX_TARGET)

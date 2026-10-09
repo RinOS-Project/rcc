@@ -141,8 +141,24 @@ struct DependentProtectedAccessDerived
     }
 };
 
+template <typename T>
+struct DependentHidingDerived : DependentAccessBase<T> {
+    T public_value;
+    T public_read;
+
+    void write(T initial) {
+        this->public_value = initial;
+        this->public_read = initial + 2;
+    }
+
+    T read() const {
+        return this->public_value + this->public_read;
+    }
+};
+
 DependentPrivateAccessDerived<int> dependent_private_access;
 DependentProtectedAccessDerived<int> dependent_protected_access;
+DependentHidingDerived<int> dependent_hiding;
 
 int main() {
     dependent_base_pack_order = 0;
@@ -174,6 +190,7 @@ int main() {
     DependentDmiContainer<long long> dependent_dmi_wide{};
     dependent_private_access.write(10);
     dependent_protected_access.write(20);
+    dependent_hiding.write(30);
     return integer.read_twice() == 41 && wide.read_twice() == 45 &&
                    integer.read_unsigned_biases() == 0x100000002ULL &&
                    wide.read_unsigned_biases() == 0x100000002ULL &&
@@ -185,6 +202,7 @@ int main() {
                    virtual_dispatch_wide_base->read() == 42 &&
                    dependent_private_access.read() == 42 &&
                    dependent_protected_access.read() == 82 &&
+                   dependent_hiding.read() == 62 &&
                    dependent_dmi_integer.nested.value == 7 &&
                    dependent_dmi_integer.scaled == 12 &&
                    dependent_dmi_wide.nested.value == 7 &&

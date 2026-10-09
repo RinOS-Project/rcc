@@ -399,3 +399,10 @@ to the derived override through the base pointer for `int` and `long long`.
 `test-cxx-class-template-dependent-base` passes freestanding i686 execution,
 x64 host execution, and both target object generations. Access/ambiguity rules
 and other dependent initializer forms remain open ([TODO](TODO.md)).
+
+2026-10-09 dependent-lookup follow-up: mixed inherited field/function names now
+produce targeted ambiguity diagnostics for both field access and call lookup on
+i686 and AMD64. The positive fixture verifies that a direct derived field hides
+a same-named dependent base field. The focused target passed freestanding i686
+execution, x64 host execution, and object generation for both targets. Other
+dependent lookup paths and DMIs that read earlier members remain unchecked.

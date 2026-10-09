@@ -703,11 +703,16 @@
     - [x] Initialize dependent class-valued fields from bounded brace DMIs and
           dependent scalar fields from constant arithmetic DMIs for int and
           long long on both target widths.
-    - [ ] Cover mixed data-member/function name ambiguity, direct-member hiding,
-          and further dependent name-lookup paths.
+    - [x] Diagnose mixed inherited data-member/function name ambiguity for both
+          field access and function-call lookup on i686 and AMD64; verify a
+          same-named direct derived field hides the dependent base field through
+          runtime execution in `test-cxx-class-template-dependent-base`.
+    - [ ] Cover additional dependent name-lookup paths beyond mixed-name
+          ambiguity and direct-member hiding.
     - [ ] Cover dependent DMIs beyond class-valued brace initialization and
-          scalar constant expressions. Keep unsupported expressions and cleanup
-          cases open until their lowering and target behavior are implemented.
+          scalar constant expressions, including references to earlier members.
+          Keep unsupported expressions and cleanup cases open until their
+          lowering and target behavior are implemented.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の
