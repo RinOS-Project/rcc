@@ -41,6 +41,11 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
+          repository: RinOS-Project/rinresource
+          path: public-base/libs/rinresource
+
+      - uses: actions/checkout@v4
+        with:
           repository: RinOS-Project/rinvalidate
           path: public-base/toolchain/rinvalidate
 
@@ -110,6 +115,11 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
+          repository: RinOS-Project/rinresource
+          path: public-base/libs/rinresource
+
+      - uses: actions/checkout@v4
+        with:
           repository: RinOS-Project/rinvalidate
           path: public-base/toolchain/rinvalidate
 
@@ -151,6 +161,11 @@ jobs:
         with:
           repository: RinOS-Project/RinGPU
           path: public-base/libs/RinGPU
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/rinresource
+          path: public-base/libs/rinresource
 
       - uses: actions/checkout@v4
         with:

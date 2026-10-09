@@ -39,6 +39,7 @@ BINDIR = .
 RINOS_ROOT ?= ..
 RINOS_SDK_ROOT ?= ../../RinOS-SDK
 RINGPU_ROOT ?= ../../libs/RinGPU
+RINRESOURCE_ROOT ?= ../../libs/rinresource
 TEST_OUT = build/tests
 SIGN_TEST_DIR = $(TEST_OUT)/signing
 SANITIZER_ROOT = build/sanitizers
@@ -770,10 +771,10 @@ $(AQC_TARGET): $(AQC_OBJS) | $(BINDIR)
 	$(CC) $(LDFLAGS) -o $@ $^
 
 $(OBJDIR)/ringpu_shader.o: $(RINGPU_ROOT)/src/validation/shader.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(RINGPU_ROOT)/include -c -o $@ $<
+	$(CC) $(CFLAGS) -I$(RINGPU_ROOT)/include -I$(RINRESOURCE_ROOT)/include -c -o $@ $<
 
 $(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -I$(INCDIR) -I$(RINGPU_ROOT)/include -c -o $@ $<
+	$(CC) $(CFLAGS) -I$(INCDIR) -I$(RINGPU_ROOT)/include -I$(RINRESOURCE_ROOT)/include -c -o $@ $<
 
 clean:
 	rm -rf $(OBJDIR) $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RAR_TARGET) $(AQC_TARGET)
@@ -8958,13 +8959,13 @@ test-cxx-inherited-constructor-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-inherited-constructor/member-x86.ro \
 		tests/cxx_inherited_constructor_invalid_member.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/member-x86.log 2>&1
-	$(GREP) -q "using-base constructors require scalar derived fields" \
+	$(GREP) -F -q "using-base constructors require safely lowerable derived members" \
 		$(TEST_OUT)/cxx-inherited-constructor/member-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/member-x64.ro \
 		tests/cxx_inherited_constructor_invalid_member.cpp \
 		>$(TEST_OUT)/cxx-inherited-constructor/member-x64.log 2>&1
-	$(GREP) -q "using-base constructors require scalar derived fields" \
+	$(GREP) -F -q "using-base constructors require safely lowerable derived members" \
 		$(TEST_OUT)/cxx-inherited-constructor/member-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-inherited-constructor/unknown-x86.ro \
