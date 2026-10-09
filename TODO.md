@@ -1067,9 +1067,9 @@
     - [x] typed SSAのi686 scalar `float`/`double`比較とtruth conversionを
           `FUCOMIP`のunordered flagsを保ってlowerし、NaNの`!=`/ordered predicate、
           ±0、真偽値をC/C++ `-O0`/`-O2`のfallbackなし実行で検証する。
-    - [ ] typed SSAのi686 scalar floating conversion、unary、compound update、
-          conditional selectをx87 semanticsへlowerし、C/C++ `-O0`/`-O2`で
-          fallbackなしのobject・runtime結果を検証する。未対応演算のfallbackは残す。
+    - [x] typed SSAのi686 scalar integer/floating conversion、unary、compound
+          update、conditional selectをx87 semanticsへlowerし、C/C++
+          `-O0`/`-O2`でfallbackなしのobject・runtime結果を検証する。
   - [x] i686 wide-scalarの代入、複合代入、pre/post incrementをpair
         load/storeとcarry/borrow付き演算へlowerし、両archのobject・x64
         実行回帰で検証

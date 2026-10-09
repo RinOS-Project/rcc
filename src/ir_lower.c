@@ -735,18 +735,6 @@ static RccIrInstruction* lower_append(
     const RccIrBlockId* targets, size_t target_count) {
     RccIrInstruction* instruction;
     if (!context || !context->current || context->terminated) return NULL;
-    if (g_opts.target_arch == ARCH_X86 &&
-        (opcode == RCC_IR_SITOFP || opcode == RCC_IR_FPTOSI ||
-         opcode == RCC_IR_FPTRUNC ||
-         opcode == RCC_IR_FPEXT ||
-         (opcode == RCC_IR_SELECT &&
-          type.kind == RCC_IR_TYPE_FLOAT))) {
-        /* Comparisons and truth conversion have dedicated x87 lowering.
-         * Numeric conversions and floating selects still use the complete
-         * legacy path until their rounding/selection semantics are lowered. */
-        context->unsupported = true;
-        return NULL;
-    }
     instruction = rcc_ir_append(context->current, opcode, type, operands,
                                 operand_count, targets, target_count);
     if (!instruction) {
@@ -772,6 +760,140 @@ static RccIrLowerValue lower_truth(RccIrLowerContext* context,
                                    RccIrLowerValue source);
 static RccIrLowerValue lower_float_constant(
     RccIrLowerContext* context, Type* type, double value);
+
+static RccIrLowerValue lower_unsigned32_to_double(
+    RccIrLowerContext* context, RccIrLowerValue source) {
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType f64 = rcc_ir_type_float(64u);
+    RccIrValue operands[3];
+    RccIrLowerValue zero = lower_integer_constant(
+        context, i32, true, 0u);
+    RccIrLowerValue offset = lower_float_constant(
+        context, type_double, 4294967296.0);
+    RccIrInstruction* negative;
+    RccIrInstruction* signed_value;
+    RccIrInstruction* adjusted;
+    RccIrInstruction* selected;
+    if (!context || !source.valid ||
+        source.type.kind != RCC_IR_TYPE_INTEGER ||
+        source.type.bit_width != 32u || !zero.valid || !offset.valid) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operands[0] = source.value;
+    operands[1] = zero.value;
+    negative = lower_append(context, RCC_IR_ICMP, i1, operands, 2u,
+                            NULL, 0u);
+    if (!negative) return lower_invalid_value();
+    rcc_ir_set_predicate(negative, RCC_IR_ICMP_SLT);
+    operands[0] = source.value;
+    signed_value = lower_append(context, RCC_IR_SITOFP, f64, operands, 1u,
+                                NULL, 0u);
+    if (!signed_value) return lower_invalid_value();
+    operands[0] = signed_value->result;
+    operands[1] = offset.value;
+    adjusted = lower_append(context, RCC_IR_FADD, f64, operands, 2u,
+                            NULL, 0u);
+    if (!adjusted) return lower_invalid_value();
+    operands[0] = negative->result;
+    operands[1] = adjusted->result;
+    operands[2] = signed_value->result;
+    selected = lower_append(context, RCC_IR_SELECT, f64, operands, 3u,
+                            NULL, 0u);
+    return selected
+        ? lower_value(selected->result, f64, false)
+        : lower_invalid_value();
+}
+
+static RccIrLowerValue lower_float_to_unsigned32(
+    RccIrLowerContext* context, RccIrLowerValue source) {
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType f64 = rcc_ir_type_float(64u);
+    RccIrValue operands[3];
+    RccIrLowerValue limit = lower_float_constant(
+        context, type_double, 2147483648.0);
+    RccIrBlock* low_block;
+    RccIrBlock* high_block;
+    RccIrBlock* merge_block;
+    RccIrBlock* low_end;
+    RccIrBlock* high_end;
+    RccIrInstruction* condition;
+    RccIrInstruction* low_value;
+    RccIrInstruction* high_value;
+    RccIrInstruction* adjusted;
+    RccIrInstruction* high_bits;
+    RccIrInstruction* result;
+
+    if (!context || !source.valid ||
+        source.type.kind != RCC_IR_TYPE_FLOAT ||
+        source.type.bit_width != 64u || !limit.valid) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operands[0] = source.value;
+    operands[1] = limit.value;
+    condition = lower_append(context, RCC_IR_FCMP, i1, operands, 2u,
+                             NULL, 0u);
+    if (!condition) return lower_invalid_value();
+    rcc_ir_set_predicate(condition, RCC_IR_ICMP_SGE);
+    low_block = rcc_ir_block_add(context->function, "fptoui.u32.low");
+    high_block = rcc_ir_block_add(context->function, "fptoui.u32.high");
+    merge_block = rcc_ir_block_add(context->function, "fptoui.u32.merge");
+    if (!low_block || !high_block || !merge_block ||
+        !lower_conditional_branch(
+            context, lower_value(condition->result, i1, true),
+            high_block->id, low_block->id)) {
+        return lower_invalid_value();
+    }
+
+    context->current = low_block;
+    context->terminated = false;
+    low_value = lower_append(context, RCC_IR_FPTOSI, i32,
+                              &source.value, 1u, NULL, 0u);
+    if (!low_value || !lower_branch(context, merge_block->id)) {
+        return lower_invalid_value();
+    }
+    low_end = context->current;
+
+    context->current = high_block;
+    context->terminated = false;
+    operands[0] = source.value;
+    operands[1] = limit.value;
+    adjusted = lower_append(context, RCC_IR_FSUB, f64, operands, 2u,
+                            NULL, 0u);
+    if (!adjusted) return lower_invalid_value();
+    high_value = lower_append(context, RCC_IR_FPTOSI, i32,
+                              &adjusted->result, 1u, NULL, 0u);
+    if (!high_value) return lower_invalid_value();
+    {
+        RccIrLowerValue sign_bit = lower_integer_constant(
+            context, i32, true, UINT32_C(0x80000000));
+        if (!sign_bit.valid) return lower_invalid_value();
+        operands[0] = high_value->result;
+        operands[1] = sign_bit.value;
+        high_bits = lower_append(context, RCC_IR_XOR, i32, operands, 2u,
+                                 NULL, 0u);
+    }
+    if (!high_bits || !lower_branch(context, merge_block->id)) {
+        return lower_invalid_value();
+    }
+    high_end = context->current;
+
+    context->current = merge_block;
+    context->terminated = false;
+    operands[0] = low_value->result;
+    operands[1] = high_bits->result;
+    {
+        RccIrBlockId targets[2] = {low_end->id, high_end->id};
+        result = lower_append(context, RCC_IR_PHI, i32, operands, 2u,
+                             targets, 2u);
+    }
+    return result
+        ? lower_value(result->result, i32, true)
+        : lower_invalid_value();
+}
 
 static RccIrLowerValue lower_unsigned64_to_float(
     RccIrLowerContext* context, RccIrLowerValue source, RccIrType target) {
@@ -975,18 +1097,21 @@ static RccIrLowerValue lower_cast(RccIrLowerContext* context,
                target.kind == RCC_IR_TYPE_FLOAT) {
         RccIrType conversion_type = source.type;
         RccIrOpcode extension_opcode = RCC_IR_UNREACHABLE;
-        if (g_opts.target_arch != ARCH_X64 ||
+        if ((g_opts.target_arch != ARCH_X64 &&
+             g_opts.target_arch != ARCH_X86) ||
             (target.bit_width != 32u && target.bit_width != 64u) ||
             source.type.bit_width == 0u ||
-            source.type.bit_width > 64u) {
+            source.type.bit_width >
+                (g_opts.target_arch == ARCH_X86 ? 32u : 64u)) {
             context->unsupported = true;
             return lower_invalid_value();
         }
-        if (source.is_unsigned && source.type.bit_width == 64u) {
+        if (g_opts.target_arch == ARCH_X64 && source.is_unsigned &&
+            source.type.bit_width == 64u) {
             return lower_unsigned64_to_float(context, source, target);
         }
-        if (source.is_unsigned && source.type.bit_width < 64u) {
-            conversion_type = rcc_ir_type_integer(64u);
+        if (source.is_unsigned && source.type.bit_width < 32u) {
+            conversion_type = rcc_ir_type_integer(32u);
             extension_opcode = RCC_IR_ZEXT;
         } else if (!source.is_unsigned && source.type.bit_width < 32u) {
             conversion_type = rcc_ir_type_integer(32u);
@@ -999,24 +1124,60 @@ static RccIrLowerValue lower_cast(RccIrLowerContext* context,
             if (!instruction) return lower_invalid_value();
             operand = instruction->result;
         }
+        if (g_opts.target_arch == ARCH_X86 && source.is_unsigned &&
+            conversion_type.bit_width == 32u) {
+            RccIrLowerValue converted = lower_unsigned32_to_double(
+                context,
+                lower_value(operand, conversion_type, true));
+            if (!converted.valid) return lower_invalid_value();
+            if (target.bit_width == 32u) {
+                instruction = lower_append(
+                    context, RCC_IR_FPTRUNC, target,
+                    &converted.value, 1u, NULL, 0u);
+                if (!instruction) return lower_invalid_value();
+                return lower_value(instruction->result, target,
+                                   target_type->is_unsigned);
+            }
+            return lower_value(converted.value, target,
+                               target_type->is_unsigned);
+        }
         instruction = lower_append(
             context, RCC_IR_SITOFP, target, &operand, 1u, NULL, 0u);
     } else if (source.type.kind == RCC_IR_TYPE_FLOAT &&
                target.kind == RCC_IR_TYPE_INTEGER) {
         RccIrType conversion_type;
         RccIrInstruction* converted;
-        if (g_opts.target_arch != ARCH_X64 ||
+        if ((g_opts.target_arch != ARCH_X64 &&
+             g_opts.target_arch != ARCH_X86) ||
             (source.type.bit_width != 32u &&
              source.type.bit_width != 64u) ||
-            target.bit_width == 0u || target.bit_width > 64u) {
+            target.bit_width == 0u ||
+            target.bit_width >
+                (g_opts.target_arch == ARCH_X86 ? 32u : 64u)) {
             context->unsupported = true;
             return lower_invalid_value();
         }
-        if (target_type->is_unsigned && target.bit_width == 64u) {
+        if (g_opts.target_arch == ARCH_X64 && target_type->is_unsigned &&
+            target.bit_width == 64u) {
             return lower_float_to_unsigned64(context, source);
         }
-        conversion_type = target.bit_width == 64u
-            ? target : rcc_ir_type_integer(64u);
+        if (g_opts.target_arch == ARCH_X86 && target_type->is_unsigned &&
+            target.bit_width == 32u) {
+            RccIrLowerValue as_double = source;
+            if (source.type.bit_width == 32u) {
+                RccIrInstruction* extended = lower_append(
+                    context, RCC_IR_FPEXT, rcc_ir_type_float(64u),
+                    &operand, 1u, NULL, 0u);
+                if (!extended) return lower_invalid_value();
+                as_double = lower_value(
+                    extended->result, rcc_ir_type_float(64u), false);
+            }
+            return lower_float_to_unsigned32(context, as_double);
+        }
+        conversion_type = g_opts.target_arch == ARCH_X86
+            ? rcc_ir_type_integer(32u)
+            : (target.bit_width == 64u
+                   ? target : rcc_ir_type_integer(64u));
         converted = lower_append(
             context, RCC_IR_FPTOSI, conversion_type,
             &operand, 1u, NULL, 0u);
@@ -1039,10 +1200,6 @@ static RccIrLowerValue lower_cast(RccIrLowerContext* context,
                source.type.bit_width == 64u &&
                target.kind == RCC_IR_TYPE_FLOAT &&
                target.bit_width == 32u) {
-        if (g_opts.target_arch != ARCH_X64) {
-            context->unsupported = true;
-            return lower_invalid_value();
-        }
         instruction = lower_append(context, RCC_IR_FPTRUNC, target,
                                    &operand, 1u, NULL, 0u);
     } else if (source.type.kind == RCC_IR_TYPE_POINTER &&
@@ -1121,11 +1278,229 @@ static bool lower_scalar_to_wide_value(
     return true;
 }
 
+static bool lower_float_to_wide_value(
+    RccIrLowerContext* context, RccIrLowerValue source,
+    bool result_is_unsigned, RccIrLowerWideValue* result) {
+    RccIrType i1 = rcc_ir_type_integer(1u);
+    RccIrType i32 = rcc_ir_type_integer(32u);
+    RccIrType f64 = rcc_ir_type_float(64u);
+    RccIrValue operands[3];
+    RccIrLowerValue scale;
+    RccIrLowerValue source64;
+    RccIrLowerValue high;
+    RccIrLowerValue low;
+    RccIrLowerValue high_as_double;
+    RccIrLowerValue remainder;
+    RccIrInstruction* quotient;
+    RccIrInstruction* scaled_high;
+    RccIrInstruction* high_adjusted;
+    RccIrInstruction* low_adjusted;
+    RccIrInstruction* high_compare;
+    RccIrInstruction* low_compare;
+    RccIrInstruction* high_minus;
+    RccIrInstruction* remainder_plus;
+    RccIrInstruction* remainder_minus;
+    RccIrInstruction* remainder_selected;
+    RccIrInstruction* low_integer;
+
+    if (!context || !result || !source.valid ||
+        source.type.kind != RCC_IR_TYPE_FLOAT ||
+        (source.type.bit_width != 32u && source.type.bit_width != 64u)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    if (source.type.bit_width == 32u) {
+        RccIrInstruction* extended = lower_append(
+            context, RCC_IR_FPEXT, f64, &source.value, 1u, NULL, 0u);
+        if (!extended) return false;
+        source64 = lower_value(extended->result, f64, false);
+    } else {
+        source64 = source;
+    }
+    scale = lower_float_constant(context, type_double, 4294967296.0);
+    if (!scale.valid) return false;
+    operands[0] = source64.value;
+    operands[1] = scale.value;
+    quotient = lower_append(context, RCC_IR_FDIV, f64, operands, 2u,
+                            NULL, 0u);
+    if (!quotient) return false;
+
+    if (result_is_unsigned) {
+        high = lower_float_to_unsigned32(
+            context, lower_value(quotient->result, f64, false));
+        if (!high.valid) return false;
+        high_as_double = lower_unsigned32_to_double(context, high);
+        if (!high_as_double.valid) return false;
+        operands[0] = high_as_double.value;
+        operands[1] = scale.value;
+        scaled_high = lower_append(context, RCC_IR_FMUL, f64, operands, 2u,
+                                   NULL, 0u);
+        if (!scaled_high) return false;
+        operands[0] = source64.value;
+        operands[1] = scaled_high->result;
+        low_adjusted = lower_append(context, RCC_IR_FSUB, f64, operands,
+                                    2u, NULL, 0u);
+        if (!low_adjusted) return false;
+        low = lower_float_to_unsigned32(
+            context, lower_value(low_adjusted->result, f64, false));
+        if (!low.valid) return false;
+        *result = lower_wide_scalar_value(low, high, true);
+        return lower_wide_scalar_value_valid(*result);
+    }
+
+    high = lower_value(quotient->result, f64, false);
+    {
+        RccIrInstruction* converted = lower_append(
+            context, RCC_IR_FPTOSI, i32, &high.value, 1u, NULL, 0u);
+        if (!converted) return false;
+        high = lower_value(converted->result, i32, false);
+    }
+    {
+        RccIrInstruction* converted = lower_append(
+            context, RCC_IR_SITOFP, f64, &high.value, 1u, NULL, 0u);
+        if (!converted) return false;
+        high_as_double = lower_value(converted->result, f64, false);
+    }
+    operands[0] = high_as_double.value;
+    operands[1] = scale.value;
+    scaled_high = lower_append(context, RCC_IR_FMUL, f64, operands, 2u,
+                               NULL, 0u);
+    if (!scaled_high) return false;
+    operands[0] = source64.value;
+    operands[1] = scaled_high->result;
+    low_adjusted = lower_append(context, RCC_IR_FSUB, f64, operands, 2u,
+                                NULL, 0u);
+    if (!low_adjusted) return false;
+    remainder = lower_value(low_adjusted->result, f64, false);
+
+    {
+        RccIrLowerValue upper_limit = lower_float_constant(
+            context, type_double, 2147483648.0);
+        RccIrLowerValue lower_limit = lower_float_constant(
+            context, type_double, -2147483648.0);
+        RccIrLowerValue one = lower_integer_constant(context, i32, true, 1u);
+        if (!upper_limit.valid || !lower_limit.valid || !one.valid) {
+            return false;
+        }
+        operands[0] = remainder.value;
+        operands[1] = upper_limit.value;
+        high_compare = lower_append(context, RCC_IR_FCMP, i1, operands,
+                                     2u, NULL, 0u);
+        operands[0] = remainder.value;
+        operands[1] = lower_limit.value;
+        low_compare = lower_append(context, RCC_IR_FCMP, i1, operands,
+                                   2u, NULL, 0u);
+        if (!high_compare || !low_compare) return false;
+        rcc_ir_set_predicate(high_compare, RCC_IR_ICMP_SGE);
+        rcc_ir_set_predicate(low_compare, RCC_IR_ICMP_SLT);
+
+        operands[0] = high.value;
+        operands[1] = one.value;
+        high_minus = lower_append(context, RCC_IR_SUB, i32, operands, 2u,
+                                  NULL, 0u);
+        if (!high_minus) return false;
+        operands[0] = low_compare->result;
+        operands[1] = high_minus->result;
+        operands[2] = high.value;
+        high_adjusted = lower_append(context, RCC_IR_SELECT, i32,
+                                     operands, 3u, NULL, 0u);
+        if (!high_adjusted) return false;
+
+        operands[0] = remainder.value;
+        operands[1] = scale.value;
+        remainder_plus = lower_append(context, RCC_IR_FADD, f64, operands,
+                                      2u, NULL, 0u);
+        operands[0] = remainder.value;
+        operands[1] = scale.value;
+        remainder_minus = lower_append(context, RCC_IR_FSUB, f64, operands,
+                                       2u, NULL, 0u);
+        if (!remainder_plus || !remainder_minus) return false;
+        operands[0] = high_compare->result;
+        operands[1] = remainder_minus->result;
+        operands[2] = remainder.value;
+        remainder_selected = lower_append(
+            context, RCC_IR_SELECT, f64, operands, 3u, NULL, 0u);
+        if (!remainder_selected) return false;
+        operands[0] = low_compare->result;
+        operands[1] = remainder_plus->result;
+        operands[2] = remainder_selected->result;
+        high_compare = lower_append(
+            context, RCC_IR_SELECT, f64, operands, 3u, NULL, 0u);
+        if (!high_compare) return false;
+    }
+    low_integer = lower_append(
+        context, RCC_IR_FPTOSI, i32, &high_compare->result, 1u,
+        NULL, 0u);
+    if (!low_integer) return false;
+    low = lower_value(low_integer->result, i32, false);
+    high = lower_value(high_adjusted->result, i32, false);
+    *result = lower_wide_scalar_value(low, high, false);
+    return lower_wide_scalar_value_valid(*result);
+}
+
 static RccIrLowerValue lower_wide_value_to_scalar(
     RccIrLowerContext* context, RccIrLowerWideValue source,
     const Type* target_type) {
     RccIrType target;
     RccIrLowerValue low;
+    if (context && target_type &&
+        g_opts.target_arch == ARCH_X86 &&
+        (target_type->kind == TYPE_FLOAT ||
+         target_type->kind == TYPE_DOUBLE)) {
+        RccIrType i32 = rcc_ir_type_integer(32u);
+        RccIrType f64 = rcc_ir_type_float(64u);
+        RccIrValue operands[2];
+        RccIrLowerValue high_part;
+        RccIrLowerValue low_part;
+        RccIrLowerValue scale = lower_float_constant(
+            context, type_double, 4294967296.0);
+        RccIrInstruction* scaled_high;
+        RccIrInstruction* combined;
+        RccIrInstruction* narrowed;
+        if (!lower_wide_scalar_value_valid(source) ||
+            !lower_type(target_type, &target) ||
+            target.kind != RCC_IR_TYPE_FLOAT ||
+            (target.bit_width != 32u && target.bit_width != 64u) ||
+            !scale.valid) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        low_part = lower_unsigned32_to_double(
+            context, lower_value(source.low.value, i32, true));
+        high_part = source.is_unsigned
+            ? lower_unsigned32_to_double(
+                  context, lower_value(source.high.value, i32, true))
+            : lower_value(source.high.value, i32, false);
+        if (!source.is_unsigned) {
+            RccIrInstruction* converted = lower_append(
+                context, RCC_IR_SITOFP, f64,
+                &high_part.value, 1u, NULL, 0u);
+            if (!converted) return lower_invalid_value();
+            high_part = lower_value(converted->result, f64, false);
+        }
+        if (!low_part.valid || !high_part.valid) {
+            return lower_invalid_value();
+        }
+        operands[0] = high_part.value;
+        operands[1] = scale.value;
+        scaled_high = lower_append(
+            context, RCC_IR_FMUL, f64, operands, 2u, NULL, 0u);
+        if (!scaled_high) return lower_invalid_value();
+        operands[0] = scaled_high->result;
+        operands[1] = low_part.value;
+        combined = lower_append(
+            context, RCC_IR_FADD, f64, operands, 2u, NULL, 0u);
+        if (!combined) return lower_invalid_value();
+        if (target.bit_width == 64u) {
+            return lower_value(combined->result, target, false);
+        }
+        narrowed = lower_append(
+            context, RCC_IR_FPTRUNC, target,
+            &combined->result, 1u, NULL, 0u);
+        return narrowed
+            ? lower_value(narrowed->result, target, false)
+            : lower_invalid_value();
+    }
     if (!context || !lower_wide_scalar_value_valid(source) ||
         !lower_type(target_type, &target)) {
         if (context) context->unsupported = true;
@@ -4646,6 +5021,12 @@ static bool lower_wide_scalar_expression_impl(
             result->is_unsigned = expression->type->is_unsigned;
             return true;
         }
+        if (expression->cast_expr->type->kind == TYPE_FLOAT ||
+            expression->cast_expr->type->kind == TYPE_DOUBLE) {
+            scalar = lower_expression(context, expression->cast_expr);
+            return lower_float_to_wide_value(
+                context, scalar, expression->type->is_unsigned, result);
+        }
         if (expression->cast_expr->type &&
             type_is_integer(expression->cast_expr->type) &&
             expression->cast_expr->type->size > 0 &&
@@ -5548,7 +5929,8 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
         return new_value;
     }
     if (old_value.type.kind == RCC_IR_TYPE_FLOAT) {
-        if (g_opts.target_arch != ARCH_X64 ||
+        if ((g_opts.target_arch != ARCH_X64 &&
+             g_opts.target_arch != ARCH_X86) ||
             (old_value.type.bit_width != 32u &&
              old_value.type.bit_width != 64u)) {
             context->unsupported = true;
@@ -8202,7 +8584,49 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                 RccIrInstruction* result;
                 RccIrLowerValue sign_mask;
                 uint64_t sign_bit;
-                if (g_opts.target_arch != ARCH_X64 ||
+                if (g_opts.target_arch == ARCH_X86 &&
+                    operand.type.bit_width == 64u) {
+                    RccIrType i32 = rcc_ir_type_integer(32u);
+                    RccIrInstruction* allocation = lower_append(
+                        context, RCC_IR_ALLOCA,
+                        rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+                    RccIrLowerValue storage;
+                    RccIrLowerValue high_address;
+                    RccIrLowerValue high_word;
+                    RccIrLowerValue sign_word;
+                    RccIrInstruction* changed_high;
+                    if (!allocation) return lower_invalid_value();
+                    rcc_ir_set_immediate(allocation, 8u);
+                    allocation->alignment = 4u;
+                    storage = lower_value(
+                        allocation->result, rcc_ir_type_pointer(0u), true);
+                    if (!lower_store_address(context, storage, operand)) {
+                        return lower_invalid_value();
+                    }
+                    high_address = lower_byte_offset_address(
+                        context, storage, 4u);
+                    high_word = lower_load_address(
+                        context, high_address, type_uint);
+                    sign_word = lower_integer_constant(
+                        context, i32, true, UINT32_C(0x80000000));
+                    if (!high_word.valid || !sign_word.valid) {
+                        return lower_invalid_value();
+                    }
+                    operands[0] = high_word.value;
+                    operands[1] = sign_word.value;
+                    changed_high = lower_append(
+                        context, RCC_IR_XOR, i32, operands, 2u,
+                        NULL, 0u);
+                    if (!changed_high || !lower_store_address(
+                            context, high_address,
+                            lower_value(changed_high->result, i32, true))) {
+                        return lower_invalid_value();
+                    }
+                    return lower_load_address(
+                        context, storage, type_double);
+                }
+                if ((g_opts.target_arch != ARCH_X64 &&
+                     g_opts.target_arch != ARCH_X86) ||
                     (operand.type.bit_width != 32u &&
                      operand.type.bit_width != 64u)) {
                     context->unsupported = true;

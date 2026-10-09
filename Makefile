@@ -417,7 +417,7 @@ endif
 .PHONY: print-host-cc test-c17 test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
-.PHONY: test-verified-i686-floating-comparisons
+.PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
 .PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates
@@ -12504,7 +12504,59 @@ test-verified-i686-floating-comparisons: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-compare-i686-cxx-x86-o2-run,$(TEST_OUT)/verified-backend/float-compare-i686-cxx-x86-o2.s $(TEST_OUT)/verified-backend/float-compare-i686-harness.s)
 	@echo "Verified i686 x87 floating comparison/truth C/C++ O0/O2 execution passed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup
+test-verified-i686-floating-operations: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-ops-i686-x86.ro tests/verified_backend_i686_float_operations.c >$(TEST_OUT)/verified-backend/float-ops-i686-x86.log
+	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' $(TEST_OUT)/verified-backend/float-ops-i686-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-ops-i686-x86.log,0)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O2 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-ops-i686-x86-o2.ro tests/verified_backend_i686_float_operations.c >$(TEST_OUT)/verified-backend/float-ops-i686-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' $(TEST_OUT)/verified-backend/float-ops-i686-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-ops-i686-x86-o2.log,0)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-convert-i686-x86.ro tests/verified_backend_i686_float_conversion.c >$(TEST_OUT)/verified-backend/float-convert-i686-x86.log
+	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' $(TEST_OUT)/verified-backend/float-convert-i686-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-convert-i686-x86.log,0)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -O2 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-convert-i686-x86-o2.ro tests/verified_backend_i686_float_conversion.c >$(TEST_OUT)/verified-backend/float-convert-i686-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' $(TEST_OUT)/verified-backend/float-convert-i686-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-convert-i686-x86-o2.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86.ro tests/verified_backend_i686_float_operations.c >$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86.log
+	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' $(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2.ro tests/verified_backend_i686_float_operations.c >$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' $(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86.ro tests/verified_backend_i686_float_conversion.c >$(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86.log
+	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-o2.ro tests/verified_backend_i686_float_conversion.c >$(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-o2.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/verified-backend/verified-i686-float-operations-asm tests/verified_backend_i686_asm.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-backend/verified-i686-float-operations-asm $(TEST_OUT)/verified-backend/float-ops-i686-x86.ro $(TEST_OUT)/verified-backend/float-ops-i686-x86.s
+	$(TEST_OUT)/verified-backend/verified-i686-float-operations-asm $(TEST_OUT)/verified-backend/float-ops-i686-x86-o2.ro $(TEST_OUT)/verified-backend/float-ops-i686-x86-o2.s
+	$(TEST_OUT)/verified-backend/verified-i686-float-operations-asm $(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86.ro $(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86.s
+	$(TEST_OUT)/verified-backend/verified-i686-float-operations-asm $(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2.ro $(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2.s
+	$(TEST_OUT)/verified-backend/verified-i686-float-operations-asm $(TEST_OUT)/verified-backend/float-convert-i686-x86.ro $(TEST_OUT)/verified-backend/float-convert-i686-x86.s
+	$(TEST_OUT)/verified-backend/verified-i686-float-operations-asm $(TEST_OUT)/verified-backend/float-convert-i686-x86-o2.ro $(TEST_OUT)/verified-backend/float-convert-i686-x86-o2.s
+	$(TEST_OUT)/verified-backend/verified-i686-float-operations-asm $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86.ro $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86.s
+	$(TEST_OUT)/verified-backend/verified-i686-float-operations-asm $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-o2.ro $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-o2.s
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/verified-backend/verify-float-i686-ops tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-backend/verify-float-i686-ops --i686-float-operations-object $(TEST_OUT)/verified-backend/float-ops-i686-x86.ro
+	$(TEST_OUT)/verified-backend/verify-float-i686-ops --i686-float-operations-object $(TEST_OUT)/verified-backend/float-ops-i686-x86-o2.ro
+	$(TEST_OUT)/verified-backend/verify-float-i686-ops --i686-float-operations-object $(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86.ro
+	$(TEST_OUT)/verified-backend/verify-float-i686-ops --i686-float-operations-object $(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2.ro
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S -o $(TEST_OUT)/verified-backend/float-convert-i686-harness.s tests/verified_backend_i686_float_conversion_harness.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-convert-i686-x86-run,$(TEST_OUT)/verified-backend/float-convert-i686-x86.s $(TEST_OUT)/verified-backend/float-convert-i686-harness.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-convert-i686-x86-o2-run,$(TEST_OUT)/verified-backend/float-convert-i686-x86-o2.s $(TEST_OUT)/verified-backend/float-convert-i686-harness.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-run,$(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86.s $(TEST_OUT)/verified-backend/float-convert-i686-harness.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-o2-run,$(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-o2.s $(TEST_OUT)/verified-backend/float-convert-i686-harness.s)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S -o $(TEST_OUT)/verified-backend/float-ops-i686-harness.s tests/verified_backend_i686_float_operations_harness.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-ops-i686-x86-run,$(TEST_OUT)/verified-backend/float-ops-i686-x86.s $(TEST_OUT)/verified-backend/float-convert-i686-x86.s $(TEST_OUT)/verified-backend/float-ops-i686-harness.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-ops-i686-x86-o2-run,$(TEST_OUT)/verified-backend/float-ops-i686-x86-o2.s $(TEST_OUT)/verified-backend/float-convert-i686-x86-o2.s $(TEST_OUT)/verified-backend/float-ops-i686-harness.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-run,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86.s $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86.s $(TEST_OUT)/verified-backend/float-ops-i686-harness.s)
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2-run,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2.s $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-o2.s $(TEST_OUT)/verified-backend/float-ops-i686-harness.s)
+	@echo "Verified i686 x87 floating unary/update/select C/C++ O0/O2 execution passed"
+
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \

@@ -2858,6 +2858,48 @@ static void verify_i686_float_comparison_object(const char* path)
     objfile_free(object);
 }
 
+static void verify_i686_float_operations_object(const char* path)
+{
+    static const char* names[] = {
+        "verified_i686_negate_f32", "verified_i686_negate_f64",
+        "verified_i686_update_add_f32", "verified_i686_update_sub_f32",
+        "verified_i686_update_mul_f32", "verified_i686_update_div_f32",
+        "verified_i686_update_add_f64", "verified_i686_update_sub_f64",
+        "verified_i686_update_mul_f64", "verified_i686_update_div_f64",
+        "verified_i686_preinc_f32", "verified_i686_predec_f32",
+        "verified_i686_postinc_f32", "verified_i686_postdec_f32",
+        "verified_i686_preinc_f64", "verified_i686_predec_f64",
+        "verified_i686_postinc_f64", "verified_i686_postdec_f64",
+        "verified_i686_select_f32", "verified_i686_select_f64",
+    };
+    static const uint8_t arithmetic[][2] = {
+        {0xdeu, 0xc1u}, {0xdeu, 0xe9u},
+        {0xdeu, 0xc9u}, {0xdeu, 0xf9u},
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+
+    assert(object != NULL && object->arch == ARCH_X86);
+    text = objfile_get_section(object, ".text");
+    assert(text != NULL && text->size != 0u &&
+           (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) ==
+               (SECT_FLAG_ALLOC | SECT_FLAG_EXEC));
+    for (size_t index = 0u; index < sizeof(names) / sizeof(names[0]);
+         ++index) {
+        ObjSymbol* symbol = objfile_find_symbol(object, names[index]);
+        assert(symbol != NULL && symbol->type == SYM_GLOBAL &&
+               symbol->binding == BIND_CODE && symbol->section == 0 &&
+               symbol->size != 0u && symbol->value <= text->size &&
+               symbol->size <= text->size - symbol->value);
+    }
+    for (size_t index = 0u;
+         index < sizeof(arithmetic) / sizeof(arithmetic[0]); ++index) {
+        assert(bytes_contain(text->data, text->size,
+                             arithmetic[index], sizeof(arithmetic[index])));
+    }
+    objfile_free(object);
+}
+
 static void verify_native_execution(const char* path, uint16_t arch)
 {
     ObjectFile* object = objfile_read(path);
@@ -4373,6 +4415,12 @@ int main(int argc, char** argv)
         strcmp(argv[1], "--i686-float-comparison-object") == 0) {
         verify_i686_float_comparison_object(argv[2]);
         puts("Verified i686 typed x87 comparison object passed");
+        return 0;
+    }
+    if (argc == 3 &&
+        strcmp(argv[1], "--i686-float-operations-object") == 0) {
+        verify_i686_float_operations_object(argv[2]);
+        puts("Verified i686 typed x87 floating operations object passed");
         return 0;
     }
     if (argc == 3 && strcmp(argv[1], "--sysv-va-aggregate-object") == 0) {

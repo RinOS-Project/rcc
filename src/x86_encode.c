@@ -441,6 +441,39 @@ static bool x86_emit_x87_memory(
     return x86_emit_u32(encoder, (uint32_t)displacement);
 }
 
+static bool x86_emit_x87_integer_memory(
+    RccX86Encoder* encoder, uint16_t width, unsigned extension,
+    RccX86Value memory) {
+    int32_t displacement;
+    uint8_t opcode = width == 4u ? 0xdbu : 0xdfu;
+    if (encoder->function->target != RCC_X86_TARGET_I686 ||
+        (width != 4u && width != 8u) || extension > 7u ||
+        !x86_i686_memory_value(memory) ||
+        !x86_value_displacement(encoder, memory, &displacement) ||
+        !x86_emit_u8(encoder, opcode) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            2u, extension, RCC_X86_GPR_BP))) {
+        return x86_encode_error(
+            encoder, "i686 x87 integer memory operand is invalid");
+    }
+    return x86_emit_u32(encoder, (uint32_t)displacement);
+}
+
+static bool x86_emit_x87_stack_memory(
+    RccX86Encoder* encoder, uint8_t opcode, unsigned extension,
+    uint32_t displacement) {
+    if (encoder->function->target != RCC_X86_TARGET_I686 ||
+        extension > 7u || displacement > INT32_MAX ||
+        !x86_emit_u8(encoder, opcode) ||
+        !x86_emit_u8(encoder, x86_modrm(
+            2u, extension, RCC_X86_GPR_SP)) ||
+        !x86_emit_u8(encoder, 0x24u)) {
+        return x86_encode_error(
+            encoder, "i686 x87 stack memory operand is invalid");
+    }
+    return x86_emit_u32(encoder, displacement);
+}
+
 static bool x86_i686_offset_value(
     RccX86Encoder* encoder, RccX86Value value, uint32_t offset,
     RccX86Value* result) {
@@ -1975,7 +2008,8 @@ static bool x86_emit_select(
     if (instruction->type.kind == RCC_MIR_TYPE_POINTER) {
         size = encoder->function->pointer_size;
     } else if (instruction->type.kind == RCC_MIR_TYPE_FLOAT &&
-               encoder->function->target == RCC_X86_TARGET_X86_64 &&
+               (encoder->function->target == RCC_X86_TARGET_I686 ||
+                encoder->function->target == RCC_X86_TARGET_X86_64) &&
                (instruction->type.bit_width == 32u ||
                 instruction->type.bit_width == 64u)) {
         size = (uint16_t)(instruction->type.bit_width / 8u);
@@ -1988,7 +2022,10 @@ static bool x86_emit_select(
             default: break;
         }
     }
-    if (size == 0u || size > encoder->function->pointer_size ||
+    if (size == 0u ||
+        (size > encoder->function->pointer_size &&
+         !(encoder->function->target == RCC_X86_TARGET_I686 &&
+           instruction->type.kind == RCC_MIR_TYPE_FLOAT && size == 8u)) ||
         condition.size != 1u || destination.size != size ||
         when_true.size != size || when_false.size != size) {
         return x86_encode_error(encoder,
@@ -2388,6 +2425,16 @@ static bool x86_emit_float_extend(
     RccX86Value destination = instruction->destination;
     RccX86Value source = instruction->operands[0];
     bool destination_register = destination.kind == RCC_X86_VALUE_FPR;
+    if (encoder->function->target == RCC_X86_TARGET_I686) {
+        if (!x86_i686_memory_value(destination) ||
+            !x86_i686_memory_value(source) || destination.size != 8u ||
+            source.size != 4u) {
+            return x86_encode_error(
+                encoder, "i686 float32-to-float64 operands are invalid");
+        }
+        return x86_emit_x87_memory(encoder, 4u, 0u, source) &&
+            x86_emit_x87_memory(encoder, 8u, 3u, destination);
+    }
     if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
         destination.size != 8u || source.size != 4u ||
         (!destination_register &&
@@ -2427,6 +2474,20 @@ static bool x86_emit_float_truncate(
     bool destination_register = destination.kind == RCC_X86_VALUE_FPR;
     bool source_register = source.kind == RCC_X86_VALUE_FPR;
     unsigned destination_xmm = destination_register ? destination.fpr : 15u;
+    if (encoder->function->target == RCC_X86_TARGET_I686) {
+        if (instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
+            instruction->type.bit_width != 32u ||
+            instruction->operand_types[0].kind != RCC_MIR_TYPE_FLOAT ||
+            instruction->operand_types[0].bit_width != 64u ||
+            !x86_i686_memory_value(source) ||
+            !x86_i686_memory_value(destination) ||
+            source.size != 8u || destination.size != 4u) {
+            return x86_encode_error(
+                encoder, "i686 float64-to-float32 operands are invalid");
+        }
+        return x86_emit_x87_memory(encoder, 8u, 0u, source) &&
+            x86_emit_x87_memory(encoder, 4u, 3u, destination);
+    }
     if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
         instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
         instruction->type.bit_width != 32u ||
@@ -2481,6 +2542,29 @@ static bool x86_emit_integer_to_float(
         (uint16_t)(instruction->operand_types[0].bit_width / 8u);
     unsigned xmm_register;
     bool destination_register = destination.kind == RCC_X86_VALUE_FPR;
+
+    if (encoder->function->target == RCC_X86_TARGET_I686) {
+        if (instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
+            (destination_size != 4u && destination_size != 8u) ||
+            instruction->operand_types[0].kind != RCC_MIR_TYPE_INTEGER ||
+            source_size != 4u ||
+            !x86_i686_memory_value(destination) ||
+            (source.kind != RCC_X86_VALUE_GPR &&
+             !x86_i686_memory_value(source))) {
+            return x86_encode_error(
+                encoder, "i686 signed-integer-to-float operands are invalid");
+        }
+        if (source.kind == RCC_X86_VALUE_GPR) {
+            if (!x86_emit_push(encoder, source.gpr) ||
+                !x86_emit_x87_stack_memory(encoder, 0xdbu, 0u, 0u) ||
+                !x86_emit_stack_add(encoder, 4u)) return false;
+        } else if (!x86_emit_x87_integer_memory(
+                       encoder, 4u, 0u, source)) {
+            return false;
+        }
+        return x86_emit_x87_memory(
+            encoder, destination_size, 3u, destination);
+    }
 
     if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
         instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
@@ -2537,6 +2621,45 @@ static bool x86_emit_float_to_integer(
         (uint16_t)(instruction->operand_types[0].bit_width / 8u);
     RccX86HardwareGpr result_register;
     bool destination_register = destination.kind == RCC_X86_VALUE_GPR;
+
+    if (encoder->function->target == RCC_X86_TARGET_I686) {
+        RccX86HardwareGpr scratch = x86_choose_scratch(destination, source);
+        if (instruction->type.kind != RCC_MIR_TYPE_INTEGER ||
+            instruction->type.bit_width != 32u ||
+            instruction->operand_types[0].kind != RCC_MIR_TYPE_FLOAT ||
+            (source_size != 4u && source_size != 8u) ||
+            !x86_i686_memory_value(source) ||
+            (!destination_register &&
+             !x86_i686_memory_value(destination))) {
+            return x86_encode_error(
+                encoder, "i686 float-to-integer operands are invalid");
+        }
+        if (!x86_emit_push(encoder, scratch) ||
+            !x86_emit_stack_subtract(encoder, 8u) ||
+            !x86_emit_x87_stack_memory(encoder, 0xd9u, 7u, 0u) ||
+            !x86_emit_indirect_load_displacement(
+                encoder, scratch, RCC_X86_GPR_SP, 0, 2u) ||
+            !x86_emit_prefix(encoder, 2u, RCC_X86_GPR_AX, scratch, false) ||
+            !x86_emit_u8(encoder, 0x81u) ||
+            !x86_emit_u8(encoder, x86_modrm(3u, 1u, scratch)) ||
+            !x86_emit_u16(encoder, 0x0c00u) ||
+            !x86_emit_indirect_store_displacement(
+                encoder, RCC_X86_GPR_SP, 2, scratch, 2u) ||
+            !x86_emit_x87_stack_memory(encoder, 0xd9u, 5u, 2u) ||
+            !x86_emit_x87_memory(encoder, source_size, 0u, source) ||
+            !(destination_register
+                  ? x86_emit_x87_stack_memory(
+                        encoder, 0xdbu, 3u, 4u)
+                  : x86_emit_x87_integer_memory(
+                        encoder, 4u, 3u, destination)) ||
+            !x86_emit_x87_stack_memory(encoder, 0xd9u, 5u, 0u) ||
+            (destination_register &&
+             !x86_emit_indirect_load_displacement(
+                 encoder, destination.gpr, RCC_X86_GPR_SP, 4, 4u)) ||
+            !x86_emit_stack_add(encoder, 8u) ||
+            !x86_emit_pop(encoder, scratch)) return false;
+        return true;
+    }
 
     if (encoder->function->target != RCC_X86_TARGET_X86_64 ||
         instruction->type.kind != RCC_MIR_TYPE_INTEGER ||

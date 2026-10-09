@@ -699,7 +699,8 @@ bool rcc_x86_verify_function(
                    (instruction->predicate < RCC_IR_ICMP_SLT ||
                     instruction->predicate > RCC_IR_ICMP_SGE)))) ||
                 (instruction->opcode == RCC_X86_FLOAT_EXTEND &&
-                 (function->target != RCC_X86_TARGET_X86_64 ||
+                 ((function->target != RCC_X86_TARGET_I686 &&
+                   function->target != RCC_X86_TARGET_X86_64) ||
                   instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
                   instruction->type.bit_width != 64u ||
                   instruction->operand_count != 1u ||
@@ -707,27 +708,34 @@ bool rcc_x86_verify_function(
                       RCC_MIR_TYPE_FLOAT ||
                   instruction->operand_types[0].bit_width != 32u)) ||
                 (instruction->opcode == RCC_X86_SITOFP &&
-                 (function->target != RCC_X86_TARGET_X86_64 ||
+                 ((function->target != RCC_X86_TARGET_I686 &&
+                   function->target != RCC_X86_TARGET_X86_64) ||
                   instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
                   (instruction->type.bit_width != 32u &&
                    instruction->type.bit_width != 64u) ||
                   instruction->operand_count != 1u ||
                   instruction->operand_types[0].kind !=
                       RCC_MIR_TYPE_INTEGER ||
-                  (instruction->operand_types[0].bit_width != 32u &&
-                   instruction->operand_types[0].bit_width != 64u))) ||
+                  (function->target == RCC_X86_TARGET_I686
+                       ? instruction->operand_types[0].bit_width != 32u
+                       : (instruction->operand_types[0].bit_width != 32u &&
+                          instruction->operand_types[0].bit_width != 64u)))) ||
                 (instruction->opcode == RCC_X86_FPTOSI &&
-                 (function->target != RCC_X86_TARGET_X86_64 ||
+                 ((function->target != RCC_X86_TARGET_I686 &&
+                   function->target != RCC_X86_TARGET_X86_64) ||
                   instruction->type.kind != RCC_MIR_TYPE_INTEGER ||
-                  (instruction->type.bit_width != 32u &&
-                   instruction->type.bit_width != 64u) ||
+                  (function->target == RCC_X86_TARGET_I686
+                       ? instruction->type.bit_width != 32u
+                       : (instruction->type.bit_width != 32u &&
+                          instruction->type.bit_width != 64u)) ||
                   instruction->operand_count != 1u ||
                   instruction->operand_types[0].kind !=
                       RCC_MIR_TYPE_FLOAT ||
                   (instruction->operand_types[0].bit_width != 32u &&
                    instruction->operand_types[0].bit_width != 64u))) ||
                 (instruction->opcode == RCC_X86_FLOAT_TRUNCATE &&
-                 (function->target != RCC_X86_TARGET_X86_64 ||
+                 ((function->target != RCC_X86_TARGET_I686 &&
+                   function->target != RCC_X86_TARGET_X86_64) ||
                   instruction->type.kind != RCC_MIR_TYPE_FLOAT ||
                   instruction->type.bit_width != 32u ||
                   instruction->operand_count != 1u ||
