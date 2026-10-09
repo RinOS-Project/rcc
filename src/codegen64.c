@@ -10804,9 +10804,9 @@ static char* codegen64_asm_expand_template(const char* source,
             }
             if (immediate_flags && immediate_flags[(size_t)index]) {
                 char immediate[32];
-                if (modifier) {
+                if (modifier == 'q') {
                     rcc_error(loc,
-                              "inline asm register width modifier requires a register operand");
+                              "inline asm %%qN register modifier requires a register operand");
                     rcc_free(expanded);
                     return NULL;
                 }

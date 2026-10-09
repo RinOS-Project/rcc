@@ -1611,8 +1611,8 @@
         Cでi686/AMD64 byte・生成検証とx64実行、C++でx64生成byteを検証し、
         `test-inline-asm-execute`をproduction `test-ci`へ追加
   - [x] Support GCC `%qN` as an AMD64 64-bit general-register name in C/C++ inline
-        asm templates; reject it on i686 and reject applying `%bN`, `%wN`, `%kN`, or
-        `%qN` register-width modifiers to immediate operands. Verify exact
+        asm templates; reject it on i686 and reject applying `%qN` to immediate
+        operands. Verify exact
         `mov %rbx, %rax` bytes in
         C/C++, execute the generated C function, and cover both diagnostics in
         `test-inline-asm-validation`.

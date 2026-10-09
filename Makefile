@@ -11190,7 +11190,7 @@ test-inline-asm-validation: $(RCC_TARGET)
 	$(GREP) -q "immediate input must be an integer constant expression" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/q-immediate.ro tests/invalid_inline_asm_q_immediate.c,$(TEST_OUT)/inline-asm-validation/q-immediate.log)
-	$(GREP) -q "register width modifier requires a register operand" \
+	$(GREP) -q "%%qN register modifier requires a register operand" \
 		$(TEST_OUT)/inline-asm-validation/q-immediate.log
 	@echo "Dual-architecture inline asm constraint validation tests completed"
 
