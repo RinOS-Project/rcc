@@ -256,6 +256,29 @@ int reveal_type_requirement_friend(V& host, int replacement) {
     return host.value;
 }
 
+template<class T>
+requires requires(T candidate) { candidate.marker; sizeof(candidate); }
+int reveal_local_requirement_friend(T& host, int replacement);
+
+class LocalRequirementFriendTemplateHost {
+public:
+    int marker;
+
+private:
+    int value;
+
+    template<class U>
+    requires requires(U probe) { probe.marker; sizeof(probe); }
+    friend int reveal_local_requirement_friend(U& host, int replacement);
+};
+
+template<class V>
+requires requires(V item) { item.marker; sizeof(item); }
+int reveal_local_requirement_friend(V& host, int replacement) {
+    host.value = replacement + 2;
+    return host.value;
+}
+
 class DerivedFriendTemplateHost : public FriendTemplateHost {};
 
 using FriendTemplateBox0 = FriendTemplateBox<FriendTemplateHost>;
@@ -321,6 +344,7 @@ int main() {
     LateTemplateTemplateDefaultFriendHost late_template_default_friend_host;
     ConstrainedDefaultFriendTemplateHost constrained_default_friend_host;
     TypeRequirementFriendTemplateHost type_requirement_friend_host;
+    LocalRequirementFriendTemplateHost local_requirement_friend_host;
     DerivedFriendTemplateHost derived_host;
     FriendTemplateBox<FriendTemplateHost> box;
     FriendTemplateBox36 deep_box;
@@ -352,6 +376,8 @@ int main() {
                constrained_default_friend_host, 83) == 84 &&
            reveal_type_requirement_friend(
                type_requirement_friend_host, 89) == 90 &&
+           reveal_local_requirement_friend(
+               local_requirement_friend_host, 97) == 99 &&
            reveal(derived_host, 23) == 23 && reveal_box(box) == 29 &&
            reveal_box(deep_box) == 29 ? 0 : 1;
 }

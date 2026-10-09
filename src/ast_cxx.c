@@ -2390,17 +2390,43 @@ static int cxx_template_redeclaration_parameter_named(
     return -1;
 }
 
+static int cxx_template_redeclaration_requires_parameter_index(
+    const DeclList* parameters, const Expr* expression) {
+    int index = 0;
+    if (!expression) return -1;
+    for (const DeclList* parameter = parameters; parameter;
+         parameter = parameter->next, ++index) {
+        if (parameter->decl && parameter->decl == expression->ident_decl) {
+            return index;
+        }
+    }
+    index = 0;
+    for (const DeclList* parameter = parameters; parameter;
+         parameter = parameter->next, ++index) {
+        if (parameter->decl && parameter->decl->name &&
+            expression->ident_name &&
+            strcmp(parameter->decl->name, expression->ident_name) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
 static bool cxx_template_redeclaration_expr_matches(
     const Expr* left, const CxxTemplate* left_template,
-    const Expr* right, const CxxTemplate* right_template, int depth);
+    const DeclList* left_requires_params,
+    const Expr* right, const CxxTemplate* right_template,
+    const DeclList* right_requires_params, int depth);
 
 static bool cxx_template_redeclaration_expr_list_matches(
     const ExprList* left, const CxxTemplate* left_template,
-    const ExprList* right, const CxxTemplate* right_template, int depth) {
+    const DeclList* left_requires_params,
+    const ExprList* right, const CxxTemplate* right_template,
+    const DeclList* right_requires_params, int depth) {
     while (left && right) {
         if (!cxx_template_redeclaration_expr_matches(
-                left->expr, left_template, right->expr, right_template,
-                depth + 1)) {
+                left->expr, left_template, left_requires_params,
+                right->expr, right_template, right_requires_params, depth + 1)) {
             return false;
         }
         left = left->next;
@@ -2411,16 +2437,41 @@ static bool cxx_template_redeclaration_expr_list_matches(
 
 static bool cxx_template_redeclaration_requires_matches(
     const Expr* left, const CxxTemplate* left_template,
-    const Expr* right, const CxxTemplate* right_template, int depth) {
+    const DeclList* left_outer_requires_params,
+    const Expr* right, const CxxTemplate* right_template,
+    const DeclList* right_outer_requires_params, int depth) {
+    const DeclList* left_parameter;
+    const DeclList* right_parameter;
     const TypeList* left_requirement;
     const TypeList* right_requirement;
     if (!left || !right || depth > 64 ||
         left->kind != EXPR_CXX_REQUIRES ||
         right->kind != EXPR_CXX_REQUIRES ||
-        left->cxx_requires_params || right->cxx_requires_params ||
-        left->cxx_requires_items || right->cxx_requires_items ||
+        left_outer_requires_params || right_outer_requires_params ||
         left->cxx_requires_nested || right->cxx_requires_nested ||
         left->cxx_requires_compound || right->cxx_requires_compound) {
+        return false;
+    }
+    left_parameter = left->cxx_requires_params;
+    right_parameter = right->cxx_requires_params;
+    while (left_parameter && right_parameter) {
+        if (!left_parameter->decl || !right_parameter->decl ||
+            left_parameter->decl->param_is_pack !=
+                right_parameter->decl->param_is_pack ||
+            !cxx_template_redeclaration_type_matches(
+                left_parameter->decl->type, left_template,
+                right_parameter->decl->type, right_template, depth + 1)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    if (left_parameter || right_parameter ||
+        !cxx_template_redeclaration_expr_list_matches(
+            left->cxx_requires_items, left_template,
+            left->cxx_requires_params,
+            right->cxx_requires_items, right_template,
+            right->cxx_requires_params, depth + 1)) {
         return false;
     }
     left_requirement = left->cxx_requires_types;
@@ -2439,7 +2490,9 @@ static bool cxx_template_redeclaration_requires_matches(
 
 static bool cxx_template_redeclaration_expr_matches(
     const Expr* left, const CxxTemplate* left_template,
-    const Expr* right, const CxxTemplate* right_template, int depth) {
+    const DeclList* left_requires_params,
+    const Expr* right, const CxxTemplate* right_template,
+    const DeclList* right_requires_params, int depth) {
     if (!left || !right || depth > 64 || left->kind != right->kind) {
         return false;
     }
@@ -2460,6 +2513,16 @@ static bool cxx_template_redeclaration_expr_matches(
                     left->type, left_template, right->type, right_template,
                     depth + 1);
         case EXPR_IDENT: {
+            int left_local_index =
+                cxx_template_redeclaration_requires_parameter_index(
+                    left_requires_params, left);
+            int right_local_index =
+                cxx_template_redeclaration_requires_parameter_index(
+                    right_requires_params, right);
+            if (left_local_index >= 0 || right_local_index >= 0) {
+                return left_local_index >= 0 &&
+                    right_local_index == left_local_index;
+            }
             int left_index = cxx_template_redeclaration_parameter_named(
                 left_template, left->ident_name);
             int right_index = cxx_template_redeclaration_parameter_named(
@@ -2474,15 +2537,36 @@ static bool cxx_template_redeclaration_expr_matches(
                 (!left->ident_decl || !right->ident_decl ||
                  left->ident_decl == right->ident_decl);
         }
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return left->member_name && right->member_name &&
+                strcmp(left->member_name, right->member_name) == 0 &&
+                cxx_template_redeclaration_expr_matches(
+                    left->member_base, left_template, left_requires_params,
+                    right->member_base, right_template,
+                    right_requires_params, depth + 1);
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
             return cxx_template_redeclaration_expr_matches(
-                left->unary_operand, left_template,
-                right->unary_operand, right_template, depth + 1);
+                left->unary_operand, left_template, left_requires_params,
+                right->unary_operand, right_template, right_requires_params,
+                depth + 1);
         case EXPR_SIZEOF:
         case EXPR_ALIGNOF:
             if (left->sizeof_pack_name || right->sizeof_pack_name) {
+                int left_local_index =
+                    cxx_template_redeclaration_requires_parameter_index(
+                        left_requires_params,
+                        &(Expr){.ident_name = left->sizeof_pack_name});
+                int right_local_index =
+                    cxx_template_redeclaration_requires_parameter_index(
+                        right_requires_params,
+                        &(Expr){.ident_name = right->sizeof_pack_name});
+                if (left_local_index >= 0 || right_local_index >= 0) {
+                    return left_local_index >= 0 &&
+                        right_local_index == left_local_index;
+                }
                 int left_index = cxx_template_redeclaration_parameter_named(
                     left_template, left->sizeof_pack_name);
                 int right_index = cxx_template_redeclaration_parameter_named(
@@ -2497,8 +2581,9 @@ static bool cxx_template_redeclaration_expr_matches(
                     right->sizeof_type, right_template, depth + 1);
             }
             return cxx_template_redeclaration_expr_matches(
-                left->unary_operand, left_template,
-                right->unary_operand, right_template, depth + 1);
+                left->unary_operand, left_template, left_requires_params,
+                right->unary_operand, right_template, right_requires_params,
+                depth + 1);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -2519,40 +2604,49 @@ static bool cxx_template_redeclaration_expr_matches(
         case EXPR_AND:
         case EXPR_OR:
             return cxx_template_redeclaration_expr_matches(
-                       left->binary_lhs, left_template,
-                       right->binary_lhs, right_template, depth + 1) &&
+                       left->binary_lhs, left_template, left_requires_params,
+                       right->binary_lhs, right_template,
+                       right_requires_params, depth + 1) &&
                 cxx_template_redeclaration_expr_matches(
                        left->binary_rhs, left_template,
-                       right->binary_rhs, right_template, depth + 1);
+                       left_requires_params, right->binary_rhs,
+                       right_template, right_requires_params, depth + 1);
         case EXPR_COND:
             return cxx_template_redeclaration_expr_matches(
                        left->cond_test, left_template,
-                       right->cond_test, right_template, depth + 1) &&
+                       left_requires_params, right->cond_test,
+                       right_template, right_requires_params, depth + 1) &&
                 cxx_template_redeclaration_expr_matches(
                        left->cond_then, left_template,
-                       right->cond_then, right_template, depth + 1) &&
+                       left_requires_params, right->cond_then,
+                       right_template, right_requires_params, depth + 1) &&
                 cxx_template_redeclaration_expr_matches(
                        left->cond_else, left_template,
-                       right->cond_else, right_template, depth + 1);
+                       left_requires_params, right->cond_else,
+                       right_template, right_requires_params, depth + 1);
         case EXPR_CALL:
             return left->cxx_concept_template ==
                        right->cxx_concept_template &&
                 cxx_template_redeclaration_expr_matches(
                        left->call_func, left_template,
-                       right->call_func, right_template, depth + 1) &&
+                       left_requires_params, right->call_func,
+                       right_template, right_requires_params, depth + 1) &&
                 cxx_template_redeclaration_expr_list_matches(
                        left->call_args, left_template,
-                       right->call_args, right_template, depth + 1);
+                       left_requires_params, right->call_args,
+                       right_template, right_requires_params, depth + 1);
         case EXPR_CAST:
             return cxx_template_redeclaration_type_matches(
                        left->type, left_template,
                        right->type, right_template, depth + 1) &&
                 cxx_template_redeclaration_expr_matches(
                        left->cast_expr, left_template,
-                       right->cast_expr, right_template, depth + 1);
+                       left_requires_params, right->cast_expr,
+                       right_template, right_requires_params, depth + 1);
         case EXPR_CXX_REQUIRES:
             return cxx_template_redeclaration_requires_matches(
-                left, left_template, right, right_template, depth + 1);
+                left, left_template, left_requires_params,
+                right, right_template, right_requires_params, depth + 1);
         default:
             return false;
     }
@@ -2576,8 +2670,10 @@ static bool cxx_function_template_redeclaration_matches(
          !cxx_template_redeclaration_expr_matches(
              left->constraint,
              left->constraint_context ? left->constraint_context : left,
+             NULL,
              right->constraint,
              right->constraint_context ? right->constraint_context : right,
+             NULL,
              0)) ||
         left->function_lowering != right->function_lowering ||
         left->is_noexcept != right->is_noexcept ||

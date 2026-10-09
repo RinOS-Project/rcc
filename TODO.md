@@ -554,17 +554,17 @@
           execution; GCC C++20 accepts the positive fixture and rejects all
           five invalid fixtures.
     - [x] Match constrained friend-template redeclarations with equivalent
-          integral requires-clause trees and no-parameter requires-expressions
-          containing dependent type requirements, under corresponding template
-          parameter names. Preserve the constraint's original parameter scope
-          through declaration merging; execute the positive friend calls and
-          reject both an unsatisfied integral constraint and a missing required
-          type on both targets. The focused friend gate and
+          integral requires-clause trees, no-parameter type requirements, and
+          local-parameter expression requirements (`sizeof` and member access)
+          with renamed outer and local parameters. Preserve both constraint
+          scopes, execute positive friend calls, and reject an unsatisfied integral
+          constraint, a missing required type, and an invalid required member
+          expression on both targets. The focused friend gate and
           `test-cxx-constraints` pass; GCC C++20 accepts the positive fixtures
           and rejects the invalid ones.
-    - [ ] Complete constraint equivalence for requires-expressions with local
-          parameters, expression/nested/compound requirements, and the full
-          standard constraint model; template-template defaults/signatures
+    - [ ] Complete constraint equivalence for additional local-parameter
+          expression forms, nested/compound requirements, and the full standard
+          constraint model; template-template defaults/signatures
           beyond the one-type-parameter form, non-type defaults outside the
           supported integral constant-expression evaluator, general overload/redeclaration
           matching beyond the tested type/integral-non-type and identical-pack
