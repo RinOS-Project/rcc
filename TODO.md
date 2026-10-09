@@ -709,9 +709,11 @@
           runtime execution in `test-cxx-class-template-dependent-base`.
     - [x] Verify dependent `using Base<T>::member` selection when multiple
           direct bases provide the same field or function name. The positive
-          fixture selects the second base; `test-cxx-class-template-dependent-base`
-          passes freestanding i686 execution, x64 host execution, and both
-          target object generations.
+          fixture selects the second base; the focused target passed
+          freestanding i686 execution, x64 host execution, and both target
+          object generations before the later parameter-DMI reproducer was
+          added. The expanded worktree target currently does not finish
+          compiling that separate DMI case; it remains unchecked below.
     - [ ] Cover further dependent name-lookup paths beyond mixed-name
           ambiguity, direct-member hiding, and verified using-selection.
     - [x] Evaluate bounded scalar DMIs that read an earlier direct scalar field
