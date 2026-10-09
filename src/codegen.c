@@ -12594,32 +12594,42 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 }
                 break;
             }
-            if (expr->binary_lhs->type &&
-                (expr->binary_lhs->type->kind == TYPE_STRUCT ||
-                 expr->binary_lhs->type->kind == TYPE_UNION)) {
-                int offset = 0;
-                if (expr->binary_rhs->kind == EXPR_ASSIGN ||
-                    expr->binary_rhs->kind == EXPR_VA_ARG) {
-                    gen_expr(mod, expr->binary_rhs);
-                } else {
-                    gen_lvalue(mod, expr->binary_rhs);
+            {
+                Type* aggregate_type = expr->binary_lhs->type;
+                if (aggregate_type && aggregate_type->is_reference) {
+                    aggregate_type = aggregate_type->base;
                 }
-                emit_push_reg(mod, EAX);
-                gen_lvalue(mod, expr->binary_lhs);
-                emit_mov_reg_reg(mod, EDX, EAX);
-                emit_pop_reg(mod, ECX);
-                while (offset + 4 <= expr->binary_lhs->type->size) {
-                    emit_mov_reg_mem(mod, EAX, ECX, offset);
-                    emit_mov_mem_reg(mod, EDX, offset, EAX);
-                    offset += 4;
+                if (aggregate_type &&
+                    (aggregate_type->kind == TYPE_STRUCT ||
+                     aggregate_type->kind == TYPE_UNION)) {
+                    int offset = 0;
+                    if (expr->binary_rhs->kind == EXPR_ASSIGN ||
+                        expr->binary_rhs->kind == EXPR_VA_ARG ||
+                        (!gen_expr_is_lvalue(expr->binary_rhs) &&
+                         !gen_expr_is_xvalue(expr->binary_rhs))) {
+                        gen_expr(mod, expr->binary_rhs);
+                    } else {
+                        gen_lvalue(mod, expr->binary_rhs);
+                    }
+                    emit_push_reg(mod, EAX);
+                    gen_lvalue(mod, expr->binary_lhs);
+                    emit_mov_reg_reg(mod, EDX, EAX);
+                    emit_pop_reg(mod, ECX);
+                    while (offset + 4 <= aggregate_type->size) {
+                        emit_mov_reg_mem(mod, EAX, ECX, offset);
+                        emit_mov_mem_reg(mod, EDX, offset, EAX);
+                        offset += 4;
+                    }
+                    while (offset < aggregate_type->size) {
+                        emit_load_typed32(mod, EAX, ECX, offset,
+                                          type_uchar);
+                        emit_store_typed32(mod, EDX, offset, EAX,
+                                           type_uchar);
+                        ++offset;
+                    }
+                    emit_mov_reg_reg(mod, EAX, EDX);
+                    break;
                 }
-                while (offset < expr->binary_lhs->type->size) {
-                    emit_load_typed32(mod, EAX, ECX, offset, type_uchar);
-                    emit_store_typed32(mod, EDX, offset, EAX, type_uchar);
-                    ++offset;
-                }
-                emit_mov_reg_reg(mod, EAX, EDX);
-                break;
             }
             gen_expr(mod, expr->binary_rhs);
             if (type_is_integer(expr->binary_lhs->type) ||

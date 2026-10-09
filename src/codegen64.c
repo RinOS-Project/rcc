@@ -7796,29 +7796,38 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 emit64_mov_reg_reg(mod, RAX, RCX);
                 break;
             }
-            if (gen64_is_aggregate(expr->binary_lhs->type)) {
-                int offset = 0;
-                if (gen64_expr_is_lvalue(expr->binary_rhs)) {
-                    gen64_lvalue(mod, expr->binary_rhs);
-                } else {
-                    gen64_expr(mod, expr->binary_rhs);
+            {
+                Type* aggregate_type = expr->binary_lhs->type;
+                if (aggregate_type && aggregate_type->is_reference) {
+                    aggregate_type = aggregate_type->base;
                 }
-                emit64_push_reg(mod, RAX);
-                gen64_lvalue(mod, expr->binary_lhs);
-                emit64_mov_reg_reg(mod, RDX, RAX);
-                emit64_pop_reg(mod, RCX);
-                while (offset + 8 <= expr->binary_lhs->type->size) {
-                    emit64_mov_reg_mem(mod, RAX, RCX, offset);
-                    emit64_mov_mem_reg(mod, RDX, offset, RAX);
-                    offset += 8;
+                if (gen64_is_aggregate(aggregate_type)) {
+                    int offset = 0;
+                    if (gen64_expr_is_lvalue(expr->binary_rhs) ||
+                        gen64_expr_is_xvalue(expr->binary_rhs)) {
+                        gen64_lvalue(mod, expr->binary_rhs);
+                    } else {
+                        gen64_expr(mod, expr->binary_rhs);
+                    }
+                    emit64_push_reg(mod, RAX);
+                    gen64_lvalue(mod, expr->binary_lhs);
+                    emit64_mov_reg_reg(mod, RDX, RAX);
+                    emit64_pop_reg(mod, RCX);
+                    while (offset + 8 <= aggregate_type->size) {
+                        emit64_mov_reg_mem(mod, RAX, RCX, offset);
+                        emit64_mov_mem_reg(mod, RDX, offset, RAX);
+                        offset += 8;
+                    }
+                    while (offset < aggregate_type->size) {
+                        emit64_load_typed(mod, RAX, RCX, offset,
+                                          type_uchar);
+                        emit64_store_typed(mod, RDX, offset, RAX,
+                                           type_uchar);
+                        ++offset;
+                    }
+                    emit64_mov_reg_reg(mod, RAX, RDX);
+                    break;
                 }
-                while (offset < expr->binary_lhs->type->size) {
-                    emit64_load_typed(mod, RAX, RCX, offset, type_uchar);
-                    emit64_store_typed(mod, RDX, offset, RAX, type_uchar);
-                    ++offset;
-                }
-                emit64_mov_reg_reg(mod, RAX, RDX);
-                break;
             }
             gen64_expr(mod, expr->binary_rhs);
             emit64_push_reg(mod, RAX);

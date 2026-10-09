@@ -14,12 +14,14 @@ the protected designating-class rule in the existing formation checks. The
 positive and negative cases cover ordinary declarations, friends, member
 bodies, and inline inherited lookup.
 
-`make SHELL=cmd.exe RCXX_TARGET=build/namespace-rcc++.exe
-LDFLAGS=build/debug-inline-compat.o test-cxx-member-pointer-data` passed. The
-gate emits i686 and AMD64 output, checks verified IR, executes generated x64
-and GCC C++20 host binaries, and checks ambiguity and access diagnostics. The
-temporary compatibility object adapts an unrelated in-progress debug-inline
-API migration in the shared checkout; it is not part of this change.
+`make SHELL=cmd.exe RCXX_TARGET=build/member-pmf-rcc++.exe
+test-cxx-member-pointer-data` passed. The gate emits i686 and AMD64 output,
+checks seven verified-IR functions on both targets, executes generated x64 and
+GCC C++20 host binaries, and checks ambiguity and access diagnostics. The x64
+host fixture exposed aggregate copy assignment through an xvalue-selected
+member storing the source address instead of copying the object. Both native
+backends now unwrap the reference's aggregate type and use the xvalue's object
+address for the copy.
 
 For non-template classes, an own field declared before or after the inline
 method now waits for the completed class layout and lookup set. The focused
@@ -37,5 +39,6 @@ address in an inline body resolves as an ordinary function pointer, verified by
 the same member-function gate. Full overload, virtual, owner-adjusting, and
 ref/noexcept member-function-pointer forms are now implemented in the native
 backends and typed SSA ([status](implementation-status-rcc-member-function-pointer-abi.md)).
-The broader data-member-pointer parent remains open until RinOS runtime
-integration and its other unchecked contexts are covered ([TODO](../TODO.md)).
+Inherited data-member lookup and access contexts are complete. The separate
+static-duration reference-lifetime item remains open until RinOS runtime
+integration is covered ([TODO](../TODO.md)).

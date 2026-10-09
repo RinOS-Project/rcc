@@ -485,7 +485,7 @@
         bindings through a member pointer verify retained values, lifetime, and
         exactly-once destruction through the shared host runtime. Keep this
         open until RinOS runtime integration is covered.
-  - [ ] Complete remaining data-member-pointer conversions and contexts:
+  - [x] Complete remaining data-member-pointer conversions and contexts:
         hidden inherited data-member lookup, non-public inherited data members,
         and remaining access contexts. Unique public inherited data members now
         form pointers whose owner is the class that declared the member,
@@ -494,7 +494,12 @@
         ambiguous owner conversion run in `test-cxx-member-pointer-data` on
         both targets. Conversions across virtual bases are ill-formed under C++
         `[conv.mem]`; preserve diagnostics for them instead of treating them as
-        an implementation feature.
+        an implementation feature. The full `test-cxx-member-pointer-data`
+        gate passes after fixing aggregate copy assignment from an xvalue: both
+        native backends now unwrap the reference's aggregate type and copy from
+        the source object's address. The gate covers i686/AMD64 generation,
+        seven verified-IR functions on both targets, generated x64 execution,
+        GCC C++20, and expected access/ambiguity diagnostics.
     - [x] Check non-public inherited-member pointer formation in friend
           contexts against the declaring access and the C++ protected
           designating-class rule. Cover a base friend naming an inherited
@@ -690,9 +695,11 @@
   - [x] Preserve member-pointee `const` through same-owner and combined
         derived-owner conversions, reject qualification removal, and require an
         lvalue for built-in scalar assignment through an xvalue-selected member.
-        Keep valid class xvalue copy assignment working; verify positive and
-        negative cases on i686/AMD64 with `test-cxx-member-pointer-data` and
-        compare the positive source against GCC C++20.
+        Keep valid class xvalue copy assignment working; a host regression caught
+        address assignment in this path, now fixed in both native backends.
+        Verify positive and negative cases on i686/AMD64 with
+        `test-cxx-member-pointer-data` and compare the positive source against
+        GCC C++20.
   - [x] Preserve xvalue category for a non-reference data member selected
         through an xvalue object; sema, `decltype(auto)`, and both i686/AMD64
         codegens agree. Reference data members remain lvalues. Cover reference

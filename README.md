@@ -20,15 +20,16 @@ x64 host execution. The broader constructor/member ABI work remains open in
 
 # rcc / rcc++ / aqc
 
-2026-10-09 inherited data-member pointer lookup: inherited name lookup now
-handles direct hiding, field/function ambiguity, repeated non-virtual paths,
-transitive `using`, shared virtual bases, and access through public/protected/
-private inheritance. Inline inherited lookup and the invalid ambiguity/access
-cases pass in the focused i686/AMD64 and GCC C++20 gate. In non-template
-classes, direct own-field formation resolves after layout and complete-class
-lookup for declarations before and after the inline body. Templated member
-cloning and the broader runtime-integration parent remain open
-([TODO](TODO.md), [implementation status](docs/implementation-status-rcc-inherited-member-pointer-lookup.md)).
+2026-10-10 inherited data-member pointer lookup and access: lookup now handles
+direct hiding, field/function ambiguity, repeated non-virtual paths, transitive
+`using`, shared virtual bases, and access through public/protected/private
+inheritance. Inline inherited lookup, class-template cloning, ambiguity, and
+access cases pass in the focused i686/AMD64 and GCC C++20 gate. The x64 host
+regression also caught aggregate copy assignment storing an xvalue source
+address instead of copying its bytes; both native backends now unwrap reference
+aggregate types and copy from xvalue addresses. The broader static-reference
+runtime-integration item remains open ([TODO](TODO.md), [implementation
+status](docs/implementation-status-rcc-inherited-member-pointer-lookup.md)).
 
 2026-10-09 inline member-function pointer resolution: unique supported
 nonvirtual member-function addresses inside inline method bodies now wait for
@@ -52,9 +53,9 @@ zero fallback at `-O0` and `-O2` on both targets. See the
   class-template specializations now resolve member identity and displacement
   after specialization layout. The `int`/`double` regression exercises distinct
   offsets and passes i686/AMD64 generation, generated x64 execution, and GCC
-  C++20 in `test-cxx-member-pointer-data`. The broader data-member-pointer
-  runtime-integration parent remains open ([TODO](TODO.md), [implementation
-  status](docs/implementation-status-rcc-inherited-member-pointer-lookup.md)).
+  C++20 in `test-cxx-member-pointer-data`. Data-member lookup/access contexts
+  are complete; static-reference runtime integration remains open
+  ([TODO](TODO.md), [implementation status](docs/implementation-status-rcc-inherited-member-pointer-lookup.md)).
 
   `test-cxx-member-pointer-functions` also covers a later-declared in-class
   static method address formed inside an inline method; it remains an ordinary
@@ -357,9 +358,9 @@ inheritance, virtual-base application, and friend-authorized private-member
 formation. It generates i686 and AMD64 objects, executes AMD64 output on the
 host, and verifies all seven typed-IR functions on both targets. The same test
 checks global and block-static reference lifetime extension through a
-pointer-to-member-selected subobject and final destruction. Remaining work
-includes data-member-pointer runtime integration and other unchecked contexts;
-member-function-pointer ABI coverage is recorded in the
+pointer-to-member-selected subobject and final destruction. RinOS runtime
+integration for that static-reference path remains open; lookup and access
+contexts are complete. Member-function-pointer ABI coverage is recorded in the
 [implementation status](docs/implementation-status-rcc-member-function-pointer-abi.md).
 
 The same regression now checks `&Derived::member` for a unique public member
@@ -367,8 +368,8 @@ inherited through both non-virtual and virtual bases, and verifies that the
 result retains the declaring class as its pointer-to-member owner. Its negative
 companion checks inaccessible member formation, ambiguous object application,
 and ambiguous owner conversion on both targets. Hidden/non-public inherited
-lookup and the broader data-member-pointer access-context matrix still need
-coverage. Owner conversions across virtual bases are ill-formed in C++.
+lookup and the data-member-pointer access-context matrix pass the same gate.
+Owner conversions across virtual bases are ill-formed in C++.
 
 The regression also checks member-pointee `const` addition (including a
 derived-owner conversion), rejects const removal, requires an lvalue for
