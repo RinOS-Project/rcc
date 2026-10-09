@@ -4661,6 +4661,10 @@ CxxNamespace* cxx_namespace_new(const char* name, SourceLoc loc) {
 
 /* Add class to namespace */
 void cxx_namespace_add_class(CxxNamespace* ns, CxxClass* cls) {
+    if (!ns || !cls) return;
+    for (int index = 0; index < ns->class_count; ++index) {
+        if (ns->classes[index] == cls) return;
+    }
     cls->ns = ns;
     cls->type->cxx_namespace = cxx_namespace_typeinfo_identity(ns);
     ns->classes = ast_arena_grow(

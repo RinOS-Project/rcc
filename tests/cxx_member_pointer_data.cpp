@@ -97,6 +97,33 @@ int read_private_free_friend(MemberPointerFreePrivateOwner& object) {
     return object.value;
 }
 
+struct MemberPointerMultiFriendA;
+
+struct MemberPointerMultiFriendB {
+private:
+    int second;
+
+    friend int read_multi_friend(MemberPointerMultiFriendA& first,
+                                  MemberPointerMultiFriendB& second);
+};
+
+struct MemberPointerMultiFriendA {
+private:
+    int first;
+
+    friend int read_multi_friend(MemberPointerMultiFriendA& first,
+                                  MemberPointerMultiFriendB& second);
+};
+
+struct MemberPointerMultiFriendA;
+
+int read_multi_friend(MemberPointerMultiFriendA& first,
+                      MemberPointerMultiFriendB& second) {
+    first.first = 53;
+    second.second = 55;
+    return first.first + second.second;
+}
+
 struct MemberPointerHiddenDataBase {
     int hidden;
 };
@@ -292,6 +319,11 @@ extern "C" int main() {
     }
     MemberPointerFreePrivateOwner free_private_object;
     if (read_private_free_friend(free_private_object) != 51) return 23;
+    MemberPointerMultiFriendA multi_friend_first;
+    MemberPointerMultiFriendB multi_friend_second;
+    if (read_multi_friend(multi_friend_first, multi_friend_second) != 108) {
+        return 24;
+    }
     MemberPointerHiddenDataDerived hidden_data_object;
     if (invoke_hidden_data_name_method(hidden_data_object, 4) != 57) {
         return 21;

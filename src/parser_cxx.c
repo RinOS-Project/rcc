@@ -5983,6 +5983,21 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 /* Parse the body and ABI metadata of a class after its source name has
  * already been consumed.  Explicit template specializations use this same
  * path so their class body cannot be mistaken for a primary-template body. */
+static CxxClass* cxx_find_class_declaration(const char* name) {
+    CxxNamespace* ns = active_namespace
+        ? active_namespace : cxx_namespace_global();
+    if (!name || !ns) return NULL;
+    for (int index = 0; index < ns->class_count; ++index) {
+        CxxClass* candidate = ns->classes[index];
+        if (candidate && candidate->name &&
+            strcmp(candidate->name, name) == 0 && candidate->type &&
+            !candidate->templ) {
+            return candidate;
+        }
+    }
+    return NULL;
+}
+
 static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                                        const char* class_name,
                                        const char* local_type_identity) {
@@ -5993,7 +6008,20 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
      * class; the semantic restriction is enforced when bases are resolved. */
     is_final = match(TOK_FINAL);
 
-    CxxClass* cls = cxx_class_new(class_name, loc);
+    CxxClass* existing = (!active_template && !active_class &&
+                          !local_type_identity)
+        ? cxx_find_class_declaration(class_name) : NULL;
+    CxxClass* cls = NULL;
+    if (existing && existing->type && existing->type->is_complete &&
+        !check(TOK_LBRACE) && !check(TOK_COLON)) {
+        /* A repeated namespace-scope forward declaration denotes the same
+         * class type; do not append a second incomplete class to the registry. */
+        return existing;
+    }
+    if (existing && existing->type && !existing->type->is_complete) {
+        cls = existing;
+    }
+    if (!cls) cls = cxx_class_new(class_name, loc);
     cls->is_struct = is_struct;
     cls->is_final = is_final;
     cls->type->cxx_scope_identity = local_type_identity;

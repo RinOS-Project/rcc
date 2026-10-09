@@ -499,11 +499,17 @@
           protected object/member-pointer access, rejection of invalid
           protected designators, and rejection of a derived friend accessing a
           base-private member on i686/AMD64 plus host execution.
+    - [x] Reuse a namespace-scope class identity from its forward declaration
+          through the later definition, and keep repeated forward declarations
+          (including one after completion) attached to that identity. Verify a
+          free function declared as a friend by two classes can access both
+          private members from its later definition; GCC accepts, and the RCC
+          `test-cxx-member-pointer-data` and full `test-cxx` gates pass.
     - [ ] Complete inherited name lookup for hidden/ambiguous paths and the
           remaining inheritance/access combinations; retain this parent item
           as open until those cases are implemented and tested.
-    - [ ] Cover friend function templates and remaining namespace/overload
-          redeclaration combinations.
+    - [ ] Cover friend function templates and the remaining namespace/overload
+          redeclaration combinations beyond the tested multi-class friend.
     - [x] Implement defined, nonvirtual, non-overloaded member-function
           pointers for unqualified, `const`, `volatile`, and `const volatile`
           methods: preserve the owner and method cv in the type, form its code
