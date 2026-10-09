@@ -5008,6 +5008,9 @@ static Expr* gen64_cxx_bind_constructor_argument(
     CxxConstructorInfo* constructor, Expr* expression, ExprList* arguments) {
     TypeParam* parameter = constructor ? constructor->parameters : NULL;
     ExprList* argument = arguments;
+    DeclList* parameter_decl = constructor && constructor->method &&
+            constructor->method->decl
+        ? constructor->method->decl->func_params : NULL;
     if (!expression) return NULL;
     if (expression->kind == EXPR_CXX_THIS) {
         Expr* this_expression = expr_cxx_this(expression->loc);
@@ -5025,17 +5028,39 @@ static Expr* gen64_cxx_bind_constructor_argument(
     }
     while (parameter && argument) {
         if (parameter->name && expression->ident_name &&
-            strcmp(parameter->name, expression->ident_name) == 0) {
+            strcmp(parameter->name, expression->ident_name) == 0 &&
+            (!expression->ident_decl ||
+             (parameter_decl &&
+              parameter_decl->decl == expression->ident_decl))) {
             return argument->expr;
         }
         parameter = parameter->next;
         argument = argument->next;
+        if (parameter_decl) parameter_decl = parameter_decl->next;
     }
     return expression;
 }
 
 static Expr* gen64_cxx_bind_constructor_expression(
     CxxConstructorInfo* constructor, Expr* expression, ExprList* arguments);
+static ExprList* gen64_cxx_bind_constructor_expression_list(
+    CxxConstructorInfo* constructor, ExprList* expressions,
+    ExprList* arguments);
+static CxxCleanupPlan* gen64_cxx_bind_constructor_cleanup_plan(
+    CxxConstructorInfo* constructor, CxxCleanupPlan* plan,
+    ExprList* arguments);
+static GenericAssociation* gen64_cxx_bind_constructor_generic(
+    CxxConstructorInfo* constructor, GenericAssociation* associations,
+    ExprList* arguments);
+static CxxCompoundRequirement*
+gen64_cxx_bind_constructor_compound_requirements(
+    CxxConstructorInfo* constructor, CxxCompoundRequirement* requirements,
+    ExprList* arguments);
+static void gen64_cxx_bind_constructor_expression_metadata(
+    CxxConstructorInfo* constructor, Expr* copy, Expr* expression,
+    ExprList* arguments);
+static Expr* gen64_cxx_find_bound_temporary_source(
+    Expr* original, Expr* bound, Expr* target);
 
 static ExprList* gen64_cxx_bind_constructor_expression_list(
     CxxConstructorInfo* constructor, ExprList* expressions,
@@ -5047,6 +5072,10 @@ static ExprList* gen64_cxx_bind_constructor_expression_list(
         *copy = *item;
         copy->expr = gen64_cxx_bind_constructor_expression(
             constructor, item->expr, arguments);
+        copy->cxx_temporary_cleanups =
+            gen64_cxx_bind_constructor_cleanup_plan(
+                constructor, item->cxx_temporary_cleanups, arguments);
+        copy->cxx_temporary_next = NULL;
         copy->next = NULL;
         *tail = copy;
         tail = &copy->next;
@@ -5054,16 +5083,179 @@ static ExprList* gen64_cxx_bind_constructor_expression_list(
     return bound;
 }
 
+static CxxCleanupPlan* gen64_cxx_bind_constructor_cleanup_plan(
+    CxxConstructorInfo* constructor, CxxCleanupPlan* plan,
+    ExprList* arguments) {
+    CxxCleanupPlan* bound = NULL;
+    CxxCleanupPlan** tail = &bound;
+    for (CxxCleanupPlan* item = plan; item; item = item->next) {
+        CxxCleanupPlan* copy = rcc_alloc(sizeof(*copy));
+        *copy = *item;
+        copy->expression = gen64_cxx_bind_constructor_expression(
+            constructor, item->expression, arguments);
+        copy->body = gen64_cxx_bind_constructor_cleanup_plan(
+            constructor, item->body, arguments);
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return bound;
+}
+
+static Expr* gen64_cxx_find_bound_temporary_source(
+    Expr* original, Expr* bound, Expr* target) {
+    if (!original || !bound || !target) return NULL;
+    if (original == target) return bound;
+    if (original->kind != bound->kind) return NULL;
+    switch (original->kind) {
+        case EXPR_ADDR:
+        case EXPR_CAST:
+            return gen64_cxx_find_bound_temporary_source(
+                original->kind == EXPR_ADDR ? original->unary_operand
+                                            : original->cast_expr,
+                original->kind == EXPR_ADDR ? bound->unary_operand
+                                            : bound->cast_expr,
+                target);
+        case EXPR_ADD: {
+            Expr* match = gen64_cxx_find_bound_temporary_source(
+                original->binary_lhs, bound->binary_lhs, target);
+            return match ? match : gen64_cxx_find_bound_temporary_source(
+                original->binary_rhs, bound->binary_rhs, target);
+        }
+        default:
+            return NULL;
+    }
+}
+
+static GenericAssociation* gen64_cxx_bind_constructor_generic(
+    CxxConstructorInfo* constructor, GenericAssociation* associations,
+    ExprList* arguments) {
+    GenericAssociation* bound = NULL;
+    GenericAssociation** tail = &bound;
+    for (GenericAssociation* item = associations; item; item = item->next) {
+        GenericAssociation* copy = rcc_alloc(sizeof(*copy));
+        *copy = *item;
+        copy->expr = gen64_cxx_bind_constructor_expression(
+            constructor, item->expr, arguments);
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return bound;
+}
+
+static CxxCompoundRequirement*
+gen64_cxx_bind_constructor_compound_requirements(
+    CxxConstructorInfo* constructor, CxxCompoundRequirement* requirements,
+    ExprList* arguments) {
+    CxxCompoundRequirement* bound = NULL;
+    CxxCompoundRequirement** tail = &bound;
+    for (CxxCompoundRequirement* item = requirements; item;
+         item = item->next) {
+        CxxCompoundRequirement* copy = rcc_alloc(sizeof(*copy));
+        *copy = *item;
+        copy->expr = gen64_cxx_bind_constructor_expression(
+            constructor, item->expr, arguments);
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return bound;
+}
+
+static void gen64_cxx_bind_constructor_expression_metadata(
+    CxxConstructorInfo* constructor, Expr* copy, Expr* expression,
+    ExprList* arguments) {
+    copy->cxx_temporary_source = NULL;
+    if (expression->cxx_temporary_source) {
+        ExprList* original_argument;
+        ExprList* bound_argument;
+        if (expression->kind == EXPR_CALL) {
+            original_argument = expression->call_args;
+            bound_argument = copy->call_args;
+            for (; original_argument && bound_argument;
+                 original_argument = original_argument->next,
+                 bound_argument = bound_argument->next) {
+                copy->cxx_temporary_source =
+                    gen64_cxx_find_bound_temporary_source(
+                        original_argument->expr, bound_argument->expr,
+                        expression->cxx_temporary_source);
+                if (copy->cxx_temporary_source) break;
+            }
+        }
+        if (!copy->cxx_temporary_source) {
+            rcc_error(expression->loc,
+                      "constructor initializer temporary source was not preserved while rebinding");
+        }
+    }
+    copy->cxx_temporary_cleanups = gen64_cxx_bind_constructor_cleanup_plan(
+        constructor, expression->cxx_temporary_cleanups, arguments);
+    copy->cxx_move_assignment = NULL;
+    if (expression->cxx_move_assignment) {
+        CxxMoveAssignment* move = rcc_alloc(sizeof(*move));
+        *move = *expression->cxx_move_assignment;
+        move->source = gen64_cxx_bind_constructor_expression(
+            constructor, move->source, arguments);
+        move->cleanup = gen64_cxx_bind_constructor_expression(
+            constructor, move->cleanup, arguments);
+        move->release = gen64_cxx_bind_constructor_expression(
+            constructor, move->release, arguments);
+        copy->cxx_move_assignment = move;
+    }
+    copy->cxx_close_call = NULL;
+    if (expression->cxx_close_call) {
+        CxxCloseCall* close = rcc_alloc(sizeof(*close));
+        *close = *expression->cxx_close_call;
+        close->object = gen64_cxx_bind_constructor_expression(
+            constructor, close->object, arguments);
+        close->handle = gen64_cxx_bind_constructor_expression(
+            constructor, close->handle, arguments);
+        close->cleanup = gen64_cxx_bind_constructor_expression(
+            constructor, close->cleanup, arguments);
+        copy->cxx_close_call = close;
+    }
+    copy->cxx_lambda_captures = gen64_cxx_bind_constructor_expression_list(
+        constructor, expression->cxx_lambda_captures, arguments);
+    copy->cxx_pack_expansion_pattern =
+        expression->cxx_pack_expansion_pattern == expression
+            ? copy
+            : gen64_cxx_bind_constructor_expression(
+                  constructor, expression->cxx_pack_expansion_pattern,
+                  arguments);
+}
+
 static Expr* gen64_cxx_bind_constructor_expression(
     CxxConstructorInfo* constructor, Expr* expression, ExprList* arguments) {
     Expr* copy;
-    if (!expression || expression->kind == EXPR_CXX_THIS ||
-        expression->kind == EXPR_IDENT ||
-        expression->kind == EXPR_INT_LIT ||
-        expression->kind == EXPR_CHAR_LIT ||
-        expression->kind == EXPR_FLOAT_LIT) {
+    if (!expression) return NULL;
+    if (expression->kind == EXPR_CXX_THIS) {
         return gen64_cxx_bind_constructor_argument(
             constructor, expression, arguments);
+    }
+    if (expression->kind == EXPR_IDENT) {
+        Expr* bound = gen64_cxx_bind_constructor_argument(
+            constructor, expression, arguments);
+        if (bound != expression) return bound;
+        if (!expression->cxx_temporary_source &&
+            !expression->cxx_temporary_cleanups &&
+            !expression->cxx_lambda_captures &&
+            !expression->cxx_pack_expansion_pattern &&
+            !expression->cxx_move_assignment &&
+            !expression->cxx_close_call) {
+            return expression;
+        }
+        copy = rcc_alloc(sizeof(*copy));
+        *copy = *expression;
+        gen64_cxx_bind_constructor_expression_metadata(
+            constructor, copy, expression, arguments);
+        return copy;
+    }
+    if (
+        expression->kind == EXPR_INT_LIT ||
+        expression->kind == EXPR_CHAR_LIT ||
+        expression->kind == EXPR_FLOAT_LIT ||
+        expression->kind == EXPR_STRING_LIT) {
+        return expression;
     }
     copy = rcc_alloc(sizeof(*copy));
     *copy = *expression;
@@ -5181,11 +5373,28 @@ static Expr* gen64_cxx_bind_constructor_expression(
                 gen64_cxx_bind_constructor_expression(
                     constructor, expression->cxx_typeid_operand, arguments);
             break;
+        case EXPR_GENERIC:
+            copy->generic_control = gen64_cxx_bind_constructor_expression(
+                constructor, expression->generic_control, arguments);
+            copy->generic_associations = gen64_cxx_bind_constructor_generic(
+                constructor, expression->generic_associations, arguments);
+            break;
         case EXPR_CXX_FOLD:
             copy->cxx_fold_init = gen64_cxx_bind_constructor_expression(
                 constructor, expression->cxx_fold_init, arguments);
             copy->cxx_fold_pattern = gen64_cxx_bind_constructor_expression(
                 constructor, expression->cxx_fold_pattern, arguments);
+            break;
+        case EXPR_CXX_REQUIRES:
+            copy->cxx_requires_items =
+                gen64_cxx_bind_constructor_expression_list(
+                    constructor, expression->cxx_requires_items, arguments);
+            copy->cxx_requires_nested =
+                gen64_cxx_bind_constructor_expression_list(
+                    constructor, expression->cxx_requires_nested, arguments);
+            copy->cxx_requires_compound =
+                gen64_cxx_bind_constructor_compound_requirements(
+                    constructor, expression->cxx_requires_compound, arguments);
             break;
         case EXPR_VA_START:
         case EXPR_VA_END:
@@ -5196,10 +5405,17 @@ static Expr* gen64_cxx_bind_constructor_expression(
             copy->va_second_operand = gen64_cxx_bind_constructor_expression(
                 constructor, expression->va_second_operand, arguments);
             break;
+        case EXPR_STRING_LIT:
+            break;
         default:
+            rcc_error(expression->loc,
+                      "constructor initializer expression kind %d cannot be rebound",
+                      (int)expression->kind);
             rcc_free(copy);
             return expression;
     }
+    gen64_cxx_bind_constructor_expression_metadata(
+        constructor, copy, expression, arguments);
     return copy;
 }
 

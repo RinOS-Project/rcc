@@ -541,10 +541,15 @@
         initializer expressions, including member calls. The move-constructor
         regression verifies i686/AMD64 objects and x64 execution in
         `test-cxx-inline-aggregates`.
-  - [ ] Complete constructor-expression rebinding for every expression-bearing
-        AST form, including generic/requires nodes, lambda captures,
-        pack-expansion patterns, and temporary-cleanup metadata. Unsupported
-        forms remain incomplete.
+  - [x] Complete constructor-expression rebinding for every current
+        expression-bearing AST form in both native backends. Generic/requires
+        expressions, lambda captures, pack-expansion patterns, temporary
+        cleanup plans, ownership-move/close metadata, and temporary-result
+        aliases are recursively rebound; constructor identifiers match their
+        resolved parameter declaration so nested scopes cannot capture them by
+        name. Unknown future expression kinds emit a diagnostic instead of
+        lowering with stale constructor references. The focused build and
+        runtime regression were not run for this follow-up.
   - [x] Verify reverse-order runtime finalization for large defined
         namespace-scope arrays using 4101-element explicit-empty and
         no-initializer arrays; verify reverse element and declaration order on

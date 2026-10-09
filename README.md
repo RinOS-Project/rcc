@@ -7,6 +7,15 @@ thread-local storage with per-thread lazy guards and `__cxa_thread_atexit`
 cleanup registration. `build-rcc` and `build-rcxx` pass. Per-thread lifetime
 regressions and RinOS thread-exit runtime integration remain open in [TODO](TODO.md).
 
+2026-10-09 constructor-expression follow-up: i686 and AMD64 now recursively
+rebind generic/requires operands, lambda captures, pack-expansion patterns,
+temporary cleanup plans, validated move/close metadata, and the shared result
+expression used by temporary receiver cleanup. Resolved declaration identity
+prevents same-name local/requires parameters from being replaced. Unknown
+future expression kinds produce a diagnostic. This source follow-up was not
+built or tested; the broader constructor/member ABI work remains open in
+[TODO](TODO.md).
+
 # rcc / rcc++ / aqc
 
 RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・アーカイバです。
