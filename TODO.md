@@ -489,6 +489,10 @@
           member, and rejection of `&Base::protected_member` from a derived
           member on i686/AMD64; `test-cxx-member-pointer-data` also executes
           both positive cases on the host.
+    - [x] Let a directly declared derived member function hide a same-named
+          inherited data member during `&Derived::name` lookup; check the
+          member-function pointer is invoked (not the hidden base field) on the
+          host and compile both target architectures against GCC C++20.
     - [ ] Complete inherited name lookup for hidden/ambiguous paths and the
           remaining inheritance/access combinations; retain this parent item
           as open until those cases are implemented and tested.

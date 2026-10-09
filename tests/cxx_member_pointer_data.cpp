@@ -68,6 +68,20 @@ struct MemberPointerProtectedReader {
     }
 };
 
+struct MemberPointerHiddenDataBase {
+    int hidden;
+};
+
+struct MemberPointerHiddenDataDerived : MemberPointerHiddenDataBase {
+    int hidden(int input) { return input + 53; }
+};
+
+static int invoke_hidden_data_name_method(
+    MemberPointerHiddenDataDerived& object, int input) {
+    auto method = &MemberPointerHiddenDataDerived::hidden;
+    return (object.*method)(input);
+}
+
 struct MemberPointerDerived : MemberPointerPadding, MemberPointerBase {
     int tail;
 };
@@ -242,6 +256,10 @@ extern "C" int main() {
     if (MemberPointerInheritedPrivateReader::read_private_member() != 43 ||
         MemberPointerProtectedReader::read_protected_member() != 47) {
         return 20;
+    }
+    MemberPointerHiddenDataDerived hidden_data_object;
+    if (invoke_hidden_data_name_method(hidden_data_object, 4) != 57) {
+        return 21;
     }
     (derived.*inherited_member) = 19;
     if (derived.inherited != 19 || derived.tail != 3) return 11;

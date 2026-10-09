@@ -195,6 +195,11 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
                                            ->value.str_val) != 0) {
         field = field->next;
     }
+    /* The completed TypeField list still contains inherited storage even
+     * when a declaration in the designating class hides that name.  In
+     * particular, a directly declared member function hides a base data
+     * member and must continue through member-function lookup below. */
+    if (field && !direct_member && direct_nonstatic_method) field = NULL;
     if (!field) {
         if (direct_static_name && !direct_nonstatic_method &&
             !inherited_nonstatic_method) return NULL;
