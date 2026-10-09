@@ -122,5 +122,12 @@ int main(int argc, char** argv)
                    interrupt, sizeof(interrupt));
     verify_pattern(argv[3], ARCH_X64, "asm_cpp_immediate_interrupt",
                    interrupt, sizeof(interrupt));
+    {
+        static const uint8_t q_modifier[] = {0x48u, 0x89u, 0xd8u};
+        verify_pattern(argv[2], ARCH_X64, "asm_x64_q_modifier",
+                       q_modifier, sizeof(q_modifier));
+        verify_pattern(argv[3], ARCH_X64, "asm_cpp_x64_q_modifier",
+                       q_modifier, sizeof(q_modifier));
+    }
     return 0;
 }

@@ -66,3 +66,10 @@ void invalid_duplicate_clobber(void)
 {
     __asm__ __volatile__("nop" : : : "eax", "eax");
 }
+
+#if defined(__i386__)
+void invalid_amd64_q_modifier(int value)
+{
+    __asm__ __volatile__("mov %q0, %%eax" : : "a"(value));
+}
+#endif

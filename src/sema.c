@@ -2415,16 +2415,18 @@ static void sema_asm_stmt(Stmt* stmt) {
             continue;
         }
         if (cursor[1] != 'b' && cursor[1] != 'w' && cursor[1] != 'k' &&
+            cursor[1] != 'q' &&
             (cursor[1] < '0' || cursor[1] > '9')) {
             rcc_error(stmt->loc,
-                      "inline asm placeholder must be %%, %%N, %%bN, %%wN, or %%kN");
+                      "inline asm placeholder must be %%, %%N, %%bN, %%wN, %%kN, or %%qN");
             ++cursor;
             continue;
         }
         {
             uint64_t index = 0u;
             const char* digit = cursor +
-                ((cursor[1] == 'b' || cursor[1] == 'w' || cursor[1] == 'k')
+                ((cursor[1] == 'b' || cursor[1] == 'w' || cursor[1] == 'k' ||
+                  cursor[1] == 'q')
                      ? 2 : 1);
             if (*digit < '0' || *digit > '9') {
                 rcc_error(stmt->loc,
@@ -2443,6 +2445,10 @@ static void sema_asm_stmt(Stmt* stmt) {
             if (index >= (uint64_t)total_count) {
                 rcc_error(stmt->loc,
                           "inline asm operand placeholder index is out of range");
+            }
+            if (cursor[1] == 'q' && g_opts.target_arch != ARCH_X64) {
+                rcc_error(stmt->loc,
+                          "inline asm %%qN register modifier requires AMD64 target");
             }
             cursor = digit;
         }

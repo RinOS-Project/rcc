@@ -93,3 +93,12 @@ long asm_syscall3(long number, long first, long second, long third)
 #endif
     return result;
 }
+
+#if defined(__x86_64__)
+long long asm_x64_q_modifier(long long value)
+{
+    long long result;
+    __asm__ __volatile__("mov %q1, %q0" : "=a"(result) : "b"(value));
+    return result;
+}
+#endif

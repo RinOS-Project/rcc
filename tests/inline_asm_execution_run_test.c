@@ -19,6 +19,9 @@
 
 typedef int (RCC_TEST_TARGET_ABI *binary_function)(int, int);
 typedef int (RCC_TEST_TARGET_ABI *unary_function)(int);
+#if defined(__x86_64__)
+typedef long long (RCC_TEST_TARGET_ABI *unary_i64_function)(long long);
+#endif
 
 static ObjSection* code_section(ObjectFile* object)
 {
@@ -140,6 +143,11 @@ int main(int argc, char** argv)
             }
         }
         assert(found);
+    }
+    {
+        unary_i64_function q_modifier;
+        LOAD_FUNCTION(q_modifier, object, mapping, "asm_x64_q_modifier");
+        assert(q_modifier(0x1122334455667788LL) == 0x1122334455667788LL);
     }
 #endif
 

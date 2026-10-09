@@ -42,3 +42,10 @@ extern "C" void asm_cpp_immediate_interrupt()
 {
     asm volatile("int %0" : : "n"(0x80));
 }
+
+extern "C" long long asm_cpp_x64_q_modifier(long long value)
+{
+    long long result;
+    asm volatile("mov %q1, %q0" : "=a"(result) : "b"(value));
+    return result;
+}

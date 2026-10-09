@@ -194,6 +194,8 @@ make test-manifest
 make test-signing
 make test-sanitize
 make test-driver-policy
+make test-inline-asm-execute
+make test-inline-asm-validation
 make test-weak-link
 make test-comdat-link
 make test-object-width
@@ -207,6 +209,10 @@ make test-alignof
 
 `test-driver-policy`はNDRVをinteger-onlyに保ち、浮動小数点型と
 FPU/SIMD inline asm stateをcodegen前に拒否することを確認します。
+`test-inline-asm-validation`は両targetで固定／汎用register constraints、即値、clobberと
+operand conflictを検証し、AMD64の`%qN`展開、i686での拒否、および即値にregister-width
+modifierを適用した場合の診断を確認します。`test-inline-asm-execute`は生成したasmを含む
+関数を実行し、operand入出力の動作を検証します。
 `test-signing`は`rcc/rcc++/rld`の最終出力でdebug/release profile、空白やshell
 metacharacterを含むsigner/output path、署名失敗時の既存成果物保持、不正signer出力の拒否、
 同一出力への並行実行、およびstaging fileの確実な後始末を確認します。

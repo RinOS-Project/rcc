@@ -10510,6 +10510,7 @@ static const char* codegen64_asm_register_name(int reg)
 static const char* codegen64_asm_register_name_width(int reg, char modifier)
 {
     if (!modifier) return codegen64_asm_register_name(reg);
+    if (modifier == 'q') return codegen64_asm_register_name(reg);
     if (modifier == 'b') {
         switch (reg) {
             case RAX: return "%al";
@@ -10776,7 +10777,7 @@ static char* codegen64_asm_expand_template(const char* source,
         char modifier = 0;
         size_t index_start = read + 1u;
         if (source[index_start] == 'b' || source[index_start] == 'w' ||
-            source[index_start] == 'k') {
+            source[index_start] == 'k' || source[index_start] == 'q') {
             modifier = source[index_start++];
         }
         if (source[index_start] < '0' || source[index_start] > '9') {
@@ -10803,6 +10804,12 @@ static char* codegen64_asm_expand_template(const char* source,
             }
             if (immediate_flags && immediate_flags[(size_t)index]) {
                 char immediate[32];
+                if (modifier) {
+                    rcc_error(loc,
+                              "inline asm register width modifier requires a register operand");
+                    rcc_free(expanded);
+                    return NULL;
+                }
                 int written = snprintf(immediate, sizeof(immediate), "$%lld",
                                        (long long)immediate_values[index]);
                 if (written < 0 || (size_t)written >= sizeof(immediate)) {
