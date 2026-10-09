@@ -2374,9 +2374,7 @@ static bool cxx_function_template_redeclaration_matches(
         if (left_template_parameter->kind != TPARAM_TYPE ||
             right_template_parameter->kind != TPARAM_TYPE ||
             left_template_parameter->is_pack !=
-                right_template_parameter->is_pack ||
-            left_template_parameter->has_default ||
-            right_template_parameter->has_default) {
+                right_template_parameter->is_pack) {
             return false;
         }
     }
@@ -2441,18 +2439,91 @@ static void cxx_template_merge_friend_access(CxxTemplate* target,
     }
 }
 
+static bool cxx_template_has_default_argument(const CxxTemplate* tmpl) {
+    if (!tmpl) return false;
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (tmpl->params[index].has_default) return true;
+    }
+    return false;
+}
+
+static bool cxx_template_redefines_default_argument(
+    const CxxTemplate* left, const CxxTemplate* right) {
+    if (!left || !right || left->param_count != right->param_count) {
+        return false;
+    }
+    for (int index = 0; index < left->param_count; ++index) {
+        if (left->params[index].has_default &&
+            right->params[index].has_default) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void cxx_template_merge_default_arguments(CxxTemplate* target,
+                                                const CxxTemplate* source) {
+    if (!target || !source || target->param_count != source->param_count) {
+        return;
+    }
+    for (int index = 0; index < target->param_count; ++index) {
+        TemplateParam* target_parameter = &target->params[index];
+        const TemplateParam* source_parameter = &source->params[index];
+        if (target_parameter->has_default || !source_parameter->has_default) {
+            continue;
+        }
+        target_parameter->has_default = true;
+        if (target_parameter->kind == TPARAM_TYPE) {
+            target_parameter->default_type = source_parameter->default_type;
+        } else {
+            target_parameter->default_value = source_parameter->default_value;
+        }
+    }
+}
+
 void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
     if (!ns || !tmpl) return;
     tmpl->ns = ns;
+    if (tmpl->friend_access && tmpl->func_def &&
+        !tmpl->func_def->func_body &&
+        cxx_template_has_default_argument(tmpl)) {
+        rcc_error(tmpl->func_def->loc,
+                  "friend function template default arguments require a definition");
+        return;
+    }
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* existing = ns->templates[index];
         if ((!existing->friend_access && !tmpl->friend_access) ||
             !cxx_function_template_redeclaration_matches(existing, tmpl)) {
             continue;
         }
+        if (existing->is_hidden_friend && !tmpl->friend_access &&
+            cxx_template_has_default_argument(tmpl)) {
+            rcc_error(tmpl->func_def->loc,
+                      "cannot add a default template argument to the first namespace declaration of hidden friend template '%s'",
+                      tmpl->name ? tmpl->name : "<function template>");
+            return;
+        }
+        if ((existing->is_hidden_friend && existing->func_def &&
+             existing->func_def->func_body &&
+             cxx_template_has_default_argument(existing)) ||
+            (tmpl->friend_access && tmpl->func_def &&
+             tmpl->func_def->func_body &&
+             cxx_template_has_default_argument(tmpl))) {
+            rcc_error(tmpl->func_def->loc,
+                      "friend function template with a default template argument cannot be redeclared");
+            return;
+        }
+        if (cxx_template_redefines_default_argument(existing, tmpl)) {
+            rcc_error(tmpl->func_def->loc,
+                      "redefinition of default template argument for '%s'",
+                      tmpl->name ? tmpl->name : "<function template>");
+            return;
+        }
         bool had_friend_declaration = existing->friend_access != NULL;
         bool has_friend_declaration = tmpl->friend_access != NULL;
         cxx_template_merge_friend_access(existing, tmpl);
+        cxx_template_merge_default_arguments(existing, tmpl);
         if (had_friend_declaration && !has_friend_declaration) {
             existing->is_hidden_friend = false;
         }
@@ -2469,6 +2540,7 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
                           tmpl->name);
                 return;
             }
+            cxx_template_merge_default_arguments(tmpl, existing);
             existing->func_def = tmpl->func_def;
             existing->params = tmpl->params;
             existing->param_count = tmpl->param_count;

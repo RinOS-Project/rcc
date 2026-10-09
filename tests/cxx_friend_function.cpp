@@ -114,6 +114,38 @@ int reveal_pack(U& host, int replacement, Values... values) {
     return host.value;
 }
 
+template<class T, class U = T>
+int reveal_default_before(T& host, int replacement);
+
+class DefaultFriendTemplateHost {
+    int value;
+
+    template<class A, class B>
+    friend int reveal_default_before(A& host, int replacement);
+};
+
+template<class X, class Y>
+int reveal_default_before(X& host, int replacement) {
+    host.value = replacement;
+    return host.value;
+}
+
+class LateDefaultFriendTemplateHost {
+    int value;
+
+    template<class A, class B>
+    friend int reveal_default_later(A& host, int replacement);
+};
+
+template<class A, class B>
+int reveal_default_later(A& host, int replacement);
+
+template<class X, class Y = X>
+int reveal_default_later(X& host, int replacement) {
+    host.value = replacement;
+    return host.value;
+}
+
 class DerivedFriendTemplateHost : public FriendTemplateHost {};
 
 using FriendTemplateBox0 = FriendTemplateBox<FriendTemplateHost>;
@@ -171,6 +203,8 @@ int main() {
     SecondFriendTemplateHost second_host;
     PackFriendTemplateHostA pack_host_a;
     PackFriendTemplateHostB pack_host_b;
+    DefaultFriendTemplateHost default_friend_host;
+    LateDefaultFriendTemplateHost late_default_friend_host;
     DerivedFriendTemplateHost derived_host;
     FriendTemplateBox<FriendTemplateHost> box;
     FriendTemplateBox36 deep_box;
@@ -186,6 +220,8 @@ int main() {
            reveal(second_host, 19) == 19 &&
            reveal_pack(pack_host_a, 43, 1, 2) == 43 &&
            reveal_pack(pack_host_b, 47, 1, 2, 3) == 47 &&
+           reveal_default_before(default_friend_host, 53) == 53 &&
+           reveal_default_later(late_default_friend_host, 59) == 59 &&
            reveal(derived_host, 23) == 23 && reveal_box(box) == 29 &&
            reveal_box(deep_box) == 29 ? 0 : 1;
 }
