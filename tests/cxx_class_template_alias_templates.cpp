@@ -46,9 +46,44 @@ struct Owner {
 };
 }
 
+template<typename T, typename Tag>
+struct PartialAliasOwner {
+    template<typename U>
+    using Pointer = T*;
+};
+
+template<typename T>
+struct PartialAliasOwner<T, int> {
+    template<typename U>
+    using Pointer = T*;
+
+    template<int N>
+    using Array = T[N];
+};
+
+template<typename T>
+struct ExplicitAliasOwner {
+    template<typename U>
+    using Pointer = T*;
+};
+
+template<>
+struct ExplicitAliasOwner<int> {
+    template<typename U>
+    using Pointer = U*;
+};
+
+template<typename T>
+typename ClassTemplateAliasOwner<T>::template OuterPointer<long>
+dependent_alias_owner(T* value) {
+    return value;
+}
+
 int main() {
     int outer_value = 13;
     long inner_value = 29;
+    long partial_value = 47;
+    long explicit_value = 53;
     int namespace_value = 37;
     typename ClassTemplateAliasOwner<int>::template OuterPointer<long>
         outer_pointer = &outer_value;
@@ -71,12 +106,20 @@ int main() {
         nested_owner_pointer = &wrapped_value;
     ClassTemplateAliasNamespace::Owner<int>::Pointer<long> namespace_pointer =
         &namespace_value;
+    PartialAliasOwner<long, int>::Pointer<char> partial_pointer =
+        &partial_value;
+    PartialAliasOwner<long, int>::Array<2> partial_values = {17, 19};
+    ExplicitAliasOwner<int>::Pointer<long> explicit_pointer = &explicit_value;
+    int dependent_value = 59;
+    int* dependent_pointer = dependent_alias_owner(&dependent_value);
     return *outer_pointer == 13 && *defaulted_pointer == 13 &&
                    *inner_pointer == 29 &&
                    wide_arguments == 43 &&
                    values[1] == 8 && integral_values[2] == 5 &&
                    default_values[1] == 11 &&
                    nested_owner_pointer->value == 41 &&
-                   *namespace_pointer == 37
+                   *namespace_pointer == 37 && *partial_pointer == 47 &&
+                   partial_values[1] == 19 && *explicit_pointer == 53 &&
+                   *dependent_pointer == 59
                ? 0 : 1;
 }
