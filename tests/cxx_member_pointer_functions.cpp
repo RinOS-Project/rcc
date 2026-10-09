@@ -5,12 +5,16 @@ struct MemberFunctionOwner {
         return value + amount;
     }
 
-    int scale(int factor) {
-        return value * factor;
+    int add(int amount) const {
+        return value + amount + 100;
     }
 
-    int add_const(int amount) const {
-        return value + amount;
+    int add(double amount) {
+        return value + static_cast<int>(amount);
+    }
+
+    int scale(int factor) {
+        return value * factor;
     }
 
     int add_volatile(int amount) volatile {
@@ -47,6 +51,12 @@ int invoke_const(const MemberFunctionOwner& object,
     return (object.*method)(value);
 }
 
+int invoke_double_overload(MemberFunctionOwner& object,
+                           int (MemberFunctionOwner::*method)(double),
+                           double value) {
+    return (object.*method)(value);
+}
+
 int invoke_volatile(volatile MemberFunctionOwner& object,
                     int (MemberFunctionOwner::*method)(int) volatile,
                     int value) {
@@ -72,6 +82,8 @@ int main() {
     const volatile MemberFunctionOwner cv_object = {17};
     int (MemberFunctionOwner::*method)(int);
     int (MemberFunctionOwner::*const_method)(int) const;
+    int (MemberFunctionOwner::*double_method)(double) =
+        &MemberFunctionOwner::add;
     int (MemberFunctionOwner::*volatile_method)(int) volatile;
     int (MemberFunctionOwner::*cv_method)(int) const volatile;
     InheritedMemberFunctionDerived inherited_object;
@@ -86,9 +98,13 @@ int main() {
     if (invoke_dot(object, method, 3) != 21) return 3;
     if (invoke_arrow(&object, method, 4) != 28) return 4;
 
-    const_method = &MemberFunctionOwner::add_const;
-    if (invoke_const(const_object, const_method, 5) != 16) return 5;
-    if (invoke_const(object, const_method, 6) != 13) return 6;
+    const_method = &MemberFunctionOwner::add;
+    if (invoke_const(const_object, const_method, 5) != 116) return 5;
+    if (invoke_const(object, const_method, 6) != 113) return 6;
+    if (invoke_double_overload(object, double_method, 2.5) != 9) return 10;
+    if (invoke_double_overload(object, &MemberFunctionOwner::add, 3.5) != 10) {
+        return 11;
+    }
     volatile_method = &MemberFunctionOwner::add_volatile;
     if (invoke_volatile(volatile_object, volatile_method, 7) != 20) return 7;
     cv_method = &MemberFunctionOwner::add_cv;

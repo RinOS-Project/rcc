@@ -486,18 +486,23 @@
           repeated owner-type substitutions and rejection of dropped cv. The
           focused `test-cxx-member-pointer-functions` test generates i686/AMD64
           code and executes the AMD64 output; the full `test-cxx` suite passes.
-    - [ ] Extend member-function pointers to overload resolution, ambiguous
-          inherited lookup/access and owner conversions, ref/noexcept-qualified
-          methods, virtual dispatch and the target's complete member-pointer
-          representation/this-adjustment ABI. Keep this parent item open until
-          the remaining valid C++ forms are implemented and verified; do not
-          substitute placeholder lowering.
+    - [ ] Extend member-function pointers to full overload resolution,
+          ambiguous inherited lookup/access and owner conversions,
+          ref/noexcept-qualified methods, virtual dispatch and the target's
+          complete member-pointer representation/this-adjustment ABI. Keep
+          this parent item open until the remaining valid C++ forms are
+          implemented and verified; do not substitute placeholder lowering.
     - [x] Resolve a unique inherited nonvirtual, non-overloaded method in
           `&Derived::method` using the registered base method, preserve the
           declaring base as the pointer owner, and apply inherited access
           rules. Verify the Itanium function-signature name against GCC,
           execute the derived-object call on the x64 host, and reject forming
           a pointer through a private base on i686/AMD64.
+    - [x] Resolve a target-typed overloaded member-function address by exact
+          return/parameter/cv signature and owner match in declarations,
+          assignments, and function arguments. Compare the Itanium wrapper
+          name with GCC, execute non-const/const and parameter-overload cases
+          on x64, and reject missing-target/no-match cases on i686/AMD64.
     - [x] Lower calls through supported nonvirtual member-function pointers
           into typed SSA by converting their pointer-width code-address value
           to the backend's indirect-call pointer type. Test dot/arrow and all

@@ -7316,6 +7316,31 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     return -1;
 }
 
+static bool sema_cxx_exact_function_signature(Type* candidate,
+                                             Type* target) {
+    TypeParam* candidate_parameter;
+    TypeParam* target_parameter;
+    if (!candidate || !target || candidate->kind != TYPE_FUNC ||
+        target->kind != TYPE_FUNC ||
+        candidate->is_const != target->is_const ||
+        candidate->is_volatile != target->is_volatile ||
+        candidate->variadic != target->variadic ||
+        !type_is_compatible(candidate->ret_type, target->ret_type)) {
+        return false;
+    }
+    candidate_parameter = candidate->params;
+    target_parameter = target->params;
+    while (candidate_parameter && target_parameter) {
+        if (!type_is_compatible(candidate_parameter->type,
+                                target_parameter->type)) {
+            return false;
+        }
+        candidate_parameter = candidate_parameter->next;
+        target_parameter = target_parameter->next;
+    }
+    return !candidate_parameter && !target_parameter;
+}
+
 /* An overloaded function used as a value has no call arguments from which to
  * select a candidate.  Its target function-pointer type is the contextual
  * information required by C++ overload resolution.  Resolve only exact
@@ -7327,6 +7352,98 @@ static bool sema_cxx_select_function_pointer_overload(
     Decl* candidate;
     Decl* selected = NULL;
     Type* function_type;
+    if (rcc_parser_is_cxx_mode() && expression &&
+        expression->kind == EXPR_ADDR &&
+        expression->cxx_member_pointer_form_overload_set) {
+        Expr* address = expression;
+        Expr* name = expression->unary_operand;
+        CxxClass* designating =
+            expression->cxx_member_pointer_form_designating_class;
+        TypeMethod* selected_method = NULL;
+        if (!target || target->kind != TYPE_PTR ||
+            !target->cxx_is_member_pointer || !target->base ||
+            target->base->kind != TYPE_FUNC || !name ||
+            name->kind != EXPR_IDENT || !designating || !designating->type) {
+            rcc_error(expression->loc,
+                      "overloaded member-function address requires a member-pointer target type");
+            if (name) name->type = type_int;
+            address->type = type_int;
+            return true;
+        }
+        for (TypeMethod* method = designating->type->methods; method;
+             method = method->next) {
+            Decl* candidate = method->function_decl;
+            Type* signature;
+            Type* owner_type;
+            TypeParam* implicit_object;
+            if (method->kind != TYPE_METHOD_FUNCTION || !method->name ||
+                strcmp(method->name, name->ident_name) != 0 || !candidate ||
+                !candidate->func_this_param ||
+                !candidate->func_method_owner ||
+                !candidate->func_method_owner->cxx_class ||
+                !candidate->func_method_owner->cxx_class->type ||
+                !candidate->type || candidate->type->kind != TYPE_FUNC) {
+                continue;
+            }
+            implicit_object = candidate->type->params;
+            if (!implicit_object ||
+                implicit_object->type != candidate->func_this_param->type ||
+                !candidate->func_this_param->type->base) {
+                continue;
+            }
+            signature = ast_arena_alloc(sizeof(*signature));
+            if (!signature) continue;
+            *signature = *candidate->type;
+            signature->params = implicit_object->next;
+            signature->is_const =
+                candidate->func_this_param->type->base->is_const;
+            signature->is_volatile =
+                candidate->func_this_param->type->base->is_volatile;
+            owner_type = candidate->func_method_owner->cxx_class->type;
+            if (!sema_cxx_exact_function_signature(signature, target->base) ||
+                !type_is_compatible(owner_type,
+                                    target->cxx_member_pointer_owner)) {
+                continue;
+            }
+            if (selected) {
+                rcc_error(expression->loc,
+                          "ambiguous member-function overload '%s' for member-pointer target",
+                          name->ident_name);
+                name->type = type_int;
+                address->type = type_int;
+                return true;
+            }
+            selected = candidate;
+            selected_method = method;
+        }
+        if (!selected || !selected_method) {
+            rcc_error(expression->loc,
+                      "no matching member-function overload '%s' for member-pointer target",
+                      name->ident_name);
+            name->type = type_int;
+            address->type = type_int;
+            return true;
+        }
+        if (selected_method->is_virtual ||
+            selected_method->ref_qualifier != CXX_REF_QUAL_NONE ||
+            selected_method->is_noexcept) {
+            rcc_error(expression->loc,
+                      "pointer-to-member function requires a non-virtual method without ref-qualifier or noexcept in the current ABI subset");
+            name->type = type_int;
+            address->type = type_int;
+            return true;
+        }
+        name->ident_decl = selected;
+        name->type = selected->type;
+        address->cxx_member_pointer_form_overload_set = false;
+        address->cxx_member_pointer_form_access =
+            selected_method->cxx_access;
+        address->cxx_member_pointer_form_declaring_class =
+            selected_method->cxx_access_owner
+                ? selected_method->cxx_access_owner
+                : selected->func_method_owner->cxx_class;
+        return true;
+    }
     if (!rcc_parser_is_cxx_mode() || !target || !expression ||
         expression->kind != EXPR_IDENT || target->kind != TYPE_PTR ||
         !target->base || target->base->kind != TYPE_FUNC) {
@@ -11038,6 +11155,12 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_ADDR: {
+            if (expr->cxx_member_pointer_form_overload_set) {
+                rcc_error(expr->loc,
+                          "overloaded member-function address requires a member-pointer target type");
+                expr->type = type_int;
+                break;
+            }
             Type* t = sema_expr(expr->unary_operand);
             Type* addressed_type = t;
             Type* implicit_object_type = t;
@@ -12041,7 +12164,12 @@ static Type* sema_expr(Expr* expr) {
             Expr* contextual = expr->binary_rhs &&
                     expr->binary_rhs->kind == EXPR_ADDR
                 ? expr->binary_rhs->unary_operand : expr->binary_rhs;
-            if (sema_cxx_select_function_pointer_overload(lt, contextual)) {
+            Expr* overload_context = expr->binary_rhs &&
+                    expr->binary_rhs->kind == EXPR_ADDR &&
+                    expr->binary_rhs->cxx_member_pointer_form_overload_set
+                ? expr->binary_rhs : contextual;
+            if (sema_cxx_select_function_pointer_overload(
+                    lt, overload_context)) {
                 if (contextual->type == type_int) {
                     expr->binary_rhs->type = type_int;
                 } else {
@@ -12832,9 +12960,13 @@ static Type* sema_expr(Expr* expr) {
                     Expr* contextual = argument->expr &&
                             argument->expr->kind == EXPR_ADDR
                         ? argument->expr->unary_operand : argument->expr;
+                    Expr* overload_context = argument->expr &&
+                            argument->expr->kind == EXPR_ADDR &&
+                            argument->expr->cxx_member_pointer_form_overload_set
+                        ? argument->expr : contextual;
                     bool contextual_function_pointer = parameter &&
                         sema_cxx_select_function_pointer_overload(
-                            parameter->type, contextual);
+                            parameter->type, overload_context);
                     if (!contextual_function_pointer ||
                         contextual->type != type_int) {
                         sema_expr(argument->expr);
@@ -15969,8 +16101,11 @@ static void sema_initializer(Type* type, Expr* initializer) {
     if (initializer->kind != EXPR_COMPOUND) {
         Expr* contextual = initializer->kind == EXPR_ADDR
             ? initializer->unary_operand : initializer;
+        Expr* overload_context = initializer->kind == EXPR_ADDR &&
+                initializer->cxx_member_pointer_form_overload_set
+            ? initializer : contextual;
         bool contextual_function_pointer =
-            sema_cxx_select_function_pointer_overload(type, contextual);
+            sema_cxx_select_function_pointer_overload(type, overload_context);
         if (contextual_function_pointer && contextual->type == type_int) {
             initializer->type = type_int;
             return;

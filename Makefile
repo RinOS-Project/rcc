@@ -2903,6 +2903,11 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-member-pointer-functions/x64.s \
 		tests/cxx_member_pointer_functions.cpp
+	g++ -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-pointer-functions/gcc-x64.s \
+		tests/cxx_member_pointer_functions.cpp
+	$(GREP) -F -q "_Z22invoke_double_overloadR19MemberFunctionOwnerMS_FidEd" \
+		$(TEST_OUT)/cxx-member-pointer-functions/gcc-x64.s
 	$(GREP) -F -q "_Z12invoke_arrowP19MemberFunctionOwnerMS_FiiEi" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(GREP) -F -q "_Z12invoke_constRK19MemberFunctionOwnerMS_KFiiEi" \
@@ -2910,6 +2915,8 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z15invoke_volatileRV19MemberFunctionOwnerMS_VFiiEi" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(GREP) -F -q "_Z9invoke_cvRVK19MemberFunctionOwnerMS_VKFiiEi" \
+		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
+	$(GREP) -F -q "_Z22invoke_double_overloadR19MemberFunctionOwnerMS_FidEd" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(GREP) -F -q "_Z23invoke_inherited_memberR30InheritedMemberFunctionDerivedM27InheritedMemberFunctionBaseFiiEi" \
 		$(TEST_OUT)/cxx-member-pointer-functions/x64.s
@@ -2962,6 +2969,12 @@ test-cxx-member-pointer-functions-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "member-pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.ro tests/cxx_member_pointer_functions_inherited_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.log)
 	$(GREP) -F -q "member-pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.ro tests/cxx_member_pointer_functions_overload_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log)
+	$(GREP) -F -q "no matching member-function overload 'apply' for member-pointer target" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log
+	$(GREP) -F -q "overloaded member-function address requires a member-pointer target type" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.ro tests/cxx_member_pointer_functions_overload_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log)
+	$(GREP) -F -q "no matching member-function overload 'apply' for member-pointer target" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log
+	$(GREP) -F -q "overloaded member-function address requires a member-pointer target type" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log
 	@echo "C++ non-virtual member-function pointer calls passed for i686 and AMD64"
 
 test-cxx-constraints-posix: $(RCXX_TARGET)
@@ -3291,6 +3304,8 @@ test-cxx-member-pointer-data: $(RCXX_TARGET)
 test-cxx-member-pointer-functions: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-functions)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-member-pointer-functions,cxx_member_pointer_functions.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-member-pointer-functions/gcc-x64.s tests/cxx_member_pointer_functions.cpp
+	$(GREP) -F -q "_Z22invoke_double_overloadR19MemberFunctionOwnerMS_FidEd" $(TEST_OUT)/cxx-member-pointer-functions/gcc-x64.s
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.ro tests/cxx_member_pointer_functions_ir.cpp > $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log 2>&1
 	$(GREP) -F -q "Verified backend: 4 function(s) emitted" $(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-member-pointer-functions/verified-ir-x86.log,0)
@@ -3308,6 +3323,7 @@ test-cxx-member-pointer-functions: $(RCXX_TARGET)
 	$(GREP) -F -q "_Z12invoke_constRK19MemberFunctionOwnerMS_KFiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(GREP) -F -q "_Z15invoke_volatileRV19MemberFunctionOwnerMS_VFiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(GREP) -F -q "_Z9invoke_cvRVK19MemberFunctionOwnerMS_VKFiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x64.s
+	$(GREP) -F -q "_Z22invoke_double_overloadR19MemberFunctionOwnerMS_FidEd" $(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(GREP) -F -q "_Z23invoke_inherited_memberR30InheritedMemberFunctionDerivedM27InheritedMemberFunctionBaseFiiEi" $(TEST_OUT)/cxx-member-pointer-functions/x64.s
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/invalid-x86.ro tests/cxx_member_pointer_functions_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/invalid-x86.log)
 	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-functions/invalid-x86.log
@@ -3317,6 +3333,12 @@ test-cxx-member-pointer-functions: $(RCXX_TARGET)
 	$(GREP) -F -q "member-pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.ro tests/cxx_member_pointer_functions_inherited_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.log)
 	$(GREP) -F -q "member-pointer formation is not accessible in this context" $(TEST_OUT)/cxx-member-pointer-functions/inherited-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.ro tests/cxx_member_pointer_functions_overload_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log)
+	$(GREP) -F -q "no matching member-function overload 'apply' for member-pointer target" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log
+	$(GREP) -F -q "overloaded member-function address requires a member-pointer target type" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.ro tests/cxx_member_pointer_functions_overload_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log)
+	$(GREP) -F -q "no matching member-function overload 'apply' for member-pointer target" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log
+	$(GREP) -F -q "overloaded member-function address requires a member-pointer target type" $(TEST_OUT)/cxx-member-pointer-functions/overload-invalid-x64.log
 	@echo "C++ non-virtual member-function pointer calls passed for i686 and AMD64"
 
 test-cxx-constraints: $(RCXX_TARGET)

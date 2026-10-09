@@ -564,6 +564,7 @@ struct Expr {
      * `&Class::member` expression so sema can apply private/protected access
      * rules after the enclosing function context is known. */
     bool cxx_member_pointer_form;
+    bool cxx_member_pointer_form_overload_set;
     unsigned char cxx_member_pointer_form_access;
     struct CxxClass* cxx_member_pointer_form_declaring_class;
     struct CxxClass* cxx_member_pointer_form_designating_class;

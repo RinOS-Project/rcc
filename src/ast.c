@@ -769,6 +769,11 @@ Expr* expr_unary(ExprKind kind, Expr* operand, SourceLoc loc) {
     e->unary_operand = operand;
     e->cxx_noexcept_value_valid = false;
     e->cxx_noexcept_value = false;
+    e->cxx_member_pointer_form = false;
+    e->cxx_member_pointer_form_overload_set = false;
+    e->cxx_member_pointer_form_access = 0u;
+    e->cxx_member_pointer_form_declaring_class = NULL;
+    e->cxx_member_pointer_form_designating_class = NULL;
     e->type = NULL;  /* Set during sema */
     return e;
 }

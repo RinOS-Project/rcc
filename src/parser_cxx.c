@@ -222,6 +222,15 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
             loc = segments[segment_count - 1u]->loc;
             parser.prev = segments[segment_count - 1u];
             parser.cur = parser.prev->next;
+            if (matching_methods > 1) {
+                value = expr_unary(
+                    EXPR_ADDR, expr_ident(member_name, loc), loc);
+                value->cxx_member_pointer_form = true;
+                value->cxx_member_pointer_form_overload_set = true;
+                value->cxx_member_pointer_form_designating_class =
+                    owner->cxx_class;
+                return value;
+            }
             if (matching_methods != 1 || !method || !function_decl ||
                 !function_decl->func_this_param ||
                 !function_decl->link_name) {
