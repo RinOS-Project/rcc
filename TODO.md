@@ -649,14 +649,19 @@
           conversions, and `this` adjustment before claiming ABI support.
           Keep this parent item open until the remaining valid C++ forms are
           implemented and verified; do not substitute placeholder lowering.
-          Complete-class lookup of a later-declared static member-function
-          address in an inline body remains unsupported.
+          Supported inline-body member-address cases are recorded in the
+          checked children below; full ABI and overload coverage remain open.
     - [x] Resolve a unique supported nonvirtual member-function address inside
           an inline member body after the class methods are registered; form
           the same pointer type as an out-of-class `&Class::method` and execute
           it through `.*` on i686/AMD64 generation and x64 host execution;
           compare the fixture with GCC C++20. `test-cxx-member-pointer-functions`
           passes.
+    - [x] Resolve a later-declared, in-class-defined static member-function
+          address inside an inline member body as an ordinary function pointer,
+          then call it without an implicit object argument. The
+          `test-cxx-member-pointer-functions` gate passes i686/AMD64 generation,
+          generated x64 host execution, and GCC C++20.
     - [x] Resolve a unique inherited nonvirtual, non-overloaded method in
           `&Derived::method` using the registered base method, preserve the
           declaring base as the pointer owner, and apply inherited access

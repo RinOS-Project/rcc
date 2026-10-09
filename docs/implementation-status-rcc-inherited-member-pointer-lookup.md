@@ -32,7 +32,8 @@ different offsets; `test-cxx-member-pointer-data` passes both target
 generations, generated x64 host execution, and GCC C++20. A unique supported
 nonvirtual member-function pointer in an inline body now resolves after method
 registration; its focused gate passes both targets, optimized verified IR,
-generated x64 execution, and GCC C++20. The broader data-member-pointer parent
-remains open until RinOS runtime integration is covered; overload/virtual/
-adjusting member-function-pointer ABI forms and later-declared static
-member-function lookup in inline bodies also remain open ([TODO](../TODO.md)).
+generated x64 execution, and GCC C++20. A later-declared in-class static method
+address in an inline body resolves as an ordinary function pointer, verified by
+the same member-function gate. The broader data-member-pointer parent remains
+open until RinOS runtime integration is covered; overload/virtual/adjusting
+member-function-pointer ABI forms remain open ([TODO](../TODO.md)).

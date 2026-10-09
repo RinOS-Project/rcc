@@ -46,6 +46,11 @@ before shell redirection, so verified-IR checks run under `cmd.exe`.
   runtime-integration parent remains open ([TODO](TODO.md), [implementation
   status](docs/implementation-status-rcc-inherited-member-pointer-lookup.md)).
 
+  `test-cxx-member-pointer-functions` also covers a later-declared in-class
+  static method address formed inside an inline method; it remains an ordinary
+  function pointer and passes both target generation, generated x64 execution,
+  and GCC C++20.
+
 RinOS専用の、LLVM/Clangに依存しないコンパイラ・リンカ・アーカイバです。
 このrepositoryはRIN v3 toolchainの実装途中です。現時点でC17またはC++20への
 完全準拠、最適化pipeline、セルフホストを達成したとは扱いません。
