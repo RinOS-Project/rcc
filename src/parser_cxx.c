@@ -8405,10 +8405,52 @@ static bool cxx_class_is_associated_with(CxxClass* actual,
     return false;
 }
 
+static bool cxx_type_is_associated_with(Type* type,
+                                        CxxClass* granting_class,
+                                        int depth) {
+    if (!type || !granting_class || depth > 32) return false;
+    if (type->cxx_is_member_pointer &&
+        type->cxx_member_pointer_owner &&
+        cxx_class_is_associated_with(
+            type->cxx_member_pointer_owner->cxx_class, granting_class, 0)) {
+        return true;
+    }
+    if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
+        !type->cxx_is_member_pointer) {
+        return cxx_type_is_associated_with(type->base, granting_class,
+                                           depth + 1);
+    }
+    if (type->cxx_class &&
+        cxx_class_is_associated_with(type->cxx_class, granting_class, 0)) {
+        return true;
+    }
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        if (cxx_type_is_associated_with(type->cxx_template_args[index],
+                                        granting_class, depth + 1)) {
+            return true;
+        }
+    }
+    if (type->cxx_class) {
+        CxxClass* cls = type->cxx_class;
+        Type** arguments = cls->template_identity_tmpl
+            ? cls->template_identity_args : cls->template_args;
+        int argument_count = cls->template_identity_tmpl
+            ? cls->template_identity_arg_count : cls->template_arg_count;
+        for (int index = 0; arguments && index < argument_count; ++index) {
+            if (cxx_type_is_associated_with(arguments[index], granting_class,
+                                            depth + 1)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 /* Hidden friend templates are admitted only when an argument contributes the
- * class that declared the friend (or one of its associated base classes).
- * A later namespace-scope redeclaration clears is_hidden_friend in the AST
- * registry and returns the template to ordinary lookup. */
+ * class that declared the friend, one of its associated base classes, or a
+ * class carried by a class-template type argument. A later namespace-scope
+ * redeclaration clears is_hidden_friend in the AST registry and returns the
+ * template to ordinary lookup. */
 static bool cxx_hidden_friend_template_matches_adl(
     CxxTemplate* tmpl, ExprList* arguments) {
     if (!tmpl || !tmpl->is_hidden_friend) return true;
@@ -8417,14 +8459,7 @@ static bool cxx_hidden_friend_template_matches_adl(
         for (ExprList* argument = arguments; argument;
              argument = argument->next) {
             Type* type = cxx_parser_expression_type(argument->expr);
-            while (type && (type->kind == TYPE_PTR ||
-                            type->kind == TYPE_ARRAY) &&
-                   !type->cxx_is_member_pointer) {
-                type = type->base;
-            }
-            if (type && type->cxx_class &&
-                cxx_class_is_associated_with(type->cxx_class,
-                                             grant->owner, 0)) {
+            if (cxx_type_is_associated_with(type, grant->owner, 0)) {
                 return true;
             }
         }

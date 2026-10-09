@@ -15,6 +15,12 @@ int declared_friend(FriendHost& host, int replacement) {
     return host.value + 2;
 }
 
+template<class T>
+class FriendTemplateBox {
+public:
+    T inner;
+};
+
 class FriendTemplateHost {
     int value;
 
@@ -22,6 +28,11 @@ class FriendTemplateHost {
     friend int reveal(T& host, int replacement) {
         host.value = replacement;
         return host.value;
+    }
+
+    template<class T>
+    friend int reveal_box(T& box) {
+        return 29;
     }
 
     template<class T>
@@ -48,10 +59,11 @@ int main() {
     FriendTemplateHost host;
     SecondFriendTemplateHost second_host;
     DerivedFriendTemplateHost derived_host;
+    FriendTemplateBox<FriendTemplateHost> box;
     int ordinary_result = inline_friend(ordinary, 4) +
                           declared_friend(ordinary, 5);
     return ordinary_result == 16 && reveal(host, 42) == 42 &&
            reveal_declared(host, 37) == 37 &&
            reveal(second_host, 19) == 19 &&
-           reveal(derived_host, 23) == 23 ? 0 : 1;
+           reveal(derived_host, 23) == 23 && reveal_box(box) == 29 ? 0 : 1;
 }
