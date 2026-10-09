@@ -10777,7 +10777,8 @@ static char* codegen64_asm_expand_template(const char* source,
         char modifier = 0;
         size_t index_start = read + 1u;
         if (source[index_start] == 'b' || source[index_start] == 'w' ||
-            source[index_start] == 'k' || source[index_start] == 'q') {
+            source[index_start] == 'k' || source[index_start] == 'q' ||
+            source[index_start] == 'c') {
             modifier = source[index_start++];
         }
         if (source[index_start] < '0' || source[index_start] > '9') {
@@ -10810,7 +10811,8 @@ static char* codegen64_asm_expand_template(const char* source,
                     rcc_free(expanded);
                     return NULL;
                 }
-                int written = snprintf(immediate, sizeof(immediate), "$%lld",
+                const char* format = modifier == 'c' ? "%lld" : "$%lld";
+                int written = snprintf(immediate, sizeof(immediate), format,
                                        (long long)immediate_values[index]);
                 if (written < 0 || (size_t)written >= sizeof(immediate)) {
                     rcc_error(loc,
@@ -10823,6 +10825,12 @@ static char* codegen64_asm_expand_template(const char* source,
                 }
                 read = digit;
                 continue;
+            }
+            if (modifier == 'c') {
+                rcc_error(loc,
+                          "inline asm %%cN modifier requires a constant operand");
+                rcc_free(expanded);
+                return NULL;
             }
             if (!registers || !(name = codegen64_asm_register_name_width(
                     registers[(size_t)index], modifier))) {

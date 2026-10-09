@@ -1616,6 +1616,10 @@
         `mov %rbx, %rax` bytes in
         C/C++, execute the generated C function, and cover both diagnostics in
         `test-inline-asm-validation`.
+  - [x] Support GCC `%cN` constant formatting in i686/AMD64 C/C++ inline asm:
+        emit integer constants without the target immediate prefix, reject
+        register operands with an explicit diagnostic, and verify exact `int`
+        bytes plus both-target negative cases in the inline-asm gates.
 - [x] driver modeでのFPU/SIMD禁止検査
 
 ## Aquamarine shader frontend

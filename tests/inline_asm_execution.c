@@ -67,6 +67,11 @@ void asm_immediate_interrupt(void)
     __asm__ __volatile__("int %0" : : "i"(0x40 + 0x40));
 }
 
+void asm_c_modifier_interrupt(void)
+{
+    __asm__ __volatile__("int $%c0" : : "i"(0x80));
+}
+
 int asm_callee_saved_clobber(int value)
 {
 #if defined(__x86_64__)
