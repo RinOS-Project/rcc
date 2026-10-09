@@ -559,10 +559,12 @@
           a nested requires-expression that refers to an outer local parameter.
           Execute the positive friend call and reject a declaration whose
           requirement order differs on i686/AMD64; the focused friend gate and
-          GCC C++20 comparison pass.
+          GCC C++20 comparison pass. Verify compound return-type matching with
+          `std::same_as<int>` and reject a mismatched `std::same_as<long>` friend
+          declaration as a separate ambiguous overload on both targets.
     - [ ] Complete constraint equivalence for remaining expression forms,
-          compound return-type requirements, concept normalization, and the full
-          standard constraint model; template-template defaults/signatures
+          concept normalization, and the full standard constraint model;
+          template-template defaults/signatures
           beyond the one-type-parameter form, non-type defaults outside the
           supported integral constant-expression evaluator, general overload/redeclaration
           matching beyond the tested type/integral-non-type and identical-pack

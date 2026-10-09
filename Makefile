@@ -4658,6 +4658,12 @@ test-cxx-namespace-alias: $(RCXX_TARGET)
 test-cxx-friend-function: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-function)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-function,cxx_friend_function.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-compound-return)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-compound-return,cxx_friend_template_compound_return.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.ro tests/cxx_friend_template_compound_return_invalid.cpp,$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'compound_return_mismatch_friend'" $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.ro tests/cxx_friend_template_compound_return_invalid.cpp,$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'compound_return_mismatch_friend'" $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/default-friend-invalid-x86.ro tests/cxx_friend_template_default_friend_invalid.cpp,$(TEST_OUT)/cxx-friend-function/default-friend-invalid-x86.log)
 	$(GREP) -F -q "friend function template default arguments require a definition" $(TEST_OUT)/cxx-friend-function/default-friend-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/default-friend-invalid-x64.ro tests/cxx_friend_template_default_friend_invalid.cpp,$(TEST_OUT)/cxx-friend-function/default-friend-invalid-x64.log)
@@ -5264,6 +5270,24 @@ test-cxx-friend-function-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-friend-function/start-x64.o \
 		$(TEST_OUT)/cxx-friend-function/x64.o
 	$(TEST_OUT)/cxx-friend-function/x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/compound-return-x86.ro \
+		tests/cxx_friend_template_compound_return.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/compound-return-x64.ro \
+		tests/cxx_friend_template_compound_return.cpp
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.ro \
+		tests/cxx_friend_template_compound_return_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.log 2>&1
+	$(GREP) -F -q "ambiguous function template overload for 'compound_return_mismatch_friend'" \
+		$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.ro \
+		tests/cxx_friend_template_compound_return_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.log 2>&1
+	$(GREP) -F -q "ambiguous function template overload for 'compound_return_mismatch_friend'" \
+		$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-friend-function/default-friend-invalid-x86.ro \
 		tests/cxx_friend_template_default_friend_invalid.cpp \
