@@ -77,6 +77,12 @@ debug鍵はRinOSのdebug build profileからpathとして渡し、release鍵はr
   reverse-order runtime loopで破棄し、`make test-global-finalizers`で4101要素の
   明示的な空initializer付き／initializerなし配列の要素順と宣言順を両targetと
   x64 hostで確認します。
+- C++ namespace parser now reuses namespace owners for later definitions, finds
+  extension targets through inline-namespace sets, and reopens the translation
+  unit's anonymous namespace. It rejects changing a previously ordinary
+  namespace to inline and diagnoses alias/ambiguous-name conflicts. The
+  `rcc++` build passes; regression evidence is pending
+  ([status](docs/implementation-status-rcc-namespace-extension.md)).
 
 `-O1`以上には整数constant folding、短絡式・定数分岐の除去、bounded inline等があり、
 typed SSA/MIR、mem2reg、GVN/DCEを使うverified backendも`-fverified-backend`で選べます。

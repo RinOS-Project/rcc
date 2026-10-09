@@ -6484,6 +6484,71 @@ static CxxNamespace* resolve_cxx_namespace_reference(
     return NULL;
 }
 
+typedef struct {
+    CxxNamespace* ns;
+    int matches;
+    bool alias_found;
+} CxxNamespaceDefinitionLookup;
+
+/* Namespace definitions find an existing namespace in the enclosing
+ * namespace and its inline-namespace set.  This is deliberately separate
+ * from cxx_namespace_lookup(): namespace aliases are lookup results, but a
+ * definition cannot extend an alias target. */
+static void collect_namespace_definition_lookup(
+    CxxNamespace* scope, const char* name,
+    CxxNamespaceDefinitionLookup* lookup) {
+    if (!scope || !name || !lookup) return;
+    for (CxxNamespace* child = scope->children; child; child = child->next) {
+        if (child->name && strcmp(child->name, name) == 0) {
+            if (!lookup->ns) lookup->ns = child;
+            ++lookup->matches;
+        }
+    }
+    for (int index = 0; index < scope->namespace_alias_count; ++index) {
+        if (scope->namespace_alias_names[index] &&
+            strcmp(scope->namespace_alias_names[index], name) == 0) {
+            lookup->alias_found = true;
+            ++lookup->matches;
+        }
+    }
+    for (CxxNamespace* child = scope->children; child; child = child->next) {
+        if (child->is_inline_namespace) {
+            collect_namespace_definition_lookup(child, name, lookup);
+        }
+    }
+}
+
+static CxxNamespace* get_or_create_namespace_definition(
+    CxxNamespace* parent, const char* name, SourceLoc loc, bool* created) {
+    CxxNamespaceDefinitionLookup lookup = { 0 };
+    CxxNamespace* ns;
+    if (created) *created = false;
+    collect_namespace_definition_lookup(parent, name, &lookup);
+    if (lookup.matches == 1 && !lookup.alias_found) return lookup.ns;
+    if (lookup.matches > 1) {
+        rcc_error(loc,
+                  "namespace definition name '%s' is ambiguous in the inline namespace set",
+                  name);
+        /* Keep error recovery detached so an invalid redeclaration cannot
+         * add declarations to one of the existing namespace owners. */
+        ns = cxx_namespace_new(name, loc);
+        if (created) *created = true;
+        return ns;
+    }
+    if (lookup.alias_found) {
+        rcc_error(loc,
+                  "namespace definition conflicts with namespace alias '%s'",
+                  name);
+        ns = cxx_namespace_new(name, loc);
+        if (created) *created = true;
+        return ns;
+    }
+    ns = cxx_namespace_new(name, loc);
+    if (parent) cxx_namespace_add_namespace(parent, ns);
+    if (created) *created = true;
+    return ns;
+}
+
 static void parse_cxx_using(CxxNamespace* ns) {
     SourceLoc loc = previous()->loc;
     const char* name;
@@ -6637,16 +6702,46 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
         return NULL;
     }
 
-    CxxNamespace* ns = cxx_namespace_new(ns_name, loc);
-    ns->is_inline_namespace = is_inline_namespace;
-    if (!ns_name) {
+    CxxNamespace* ns;
+    if (ns_name) {
+        /* Namespace definitions with the same name extend one namespace.
+         * Keeping a fresh node for every definition splits its declarations
+         * from classes declared in an earlier definition, breaking lookup
+         * (including the associated namespaces used by ADL). */
+        bool created = false;
+        ns = get_or_create_namespace_definition(parent, ns_name, loc,
+                                                &created);
+        if (is_inline_namespace) {
+            if (created) {
+                ns->is_inline_namespace = true;
+            } else if (!ns->is_inline_namespace) {
+                rcc_error(loc,
+                          "namespace '%s' cannot become inline after its first definition",
+                          ns_name);
+            }
+        }
+    } else {
         const char* translation_unit = g_opts.input_file[0]
             ? g_opts.input_file
             : (loc.filename ? loc.filename : "<translation-unit>");
-        ns->is_anonymous_namespace = true;
-        ns->anonymous_typeinfo_identity = rcc_intern(translation_unit);
+        ns = NULL;
+        for (CxxNamespace* child = parent ? parent->children : NULL;
+             child; child = child->next) {
+            if (child->is_anonymous_namespace &&
+                child->anonymous_typeinfo_identity &&
+                strcmp(child->anonymous_typeinfo_identity,
+                       translation_unit) == 0) {
+                ns = child;
+                break;
+            }
+        }
+        if (!ns) {
+            ns = cxx_namespace_new(NULL, loc);
+            ns->is_anonymous_namespace = true;
+            ns->anonymous_typeinfo_identity = rcc_intern(translation_unit);
+            if (parent) cxx_namespace_add_namespace(parent, ns);
+        }
     }
-    if (parent) cxx_namespace_add_namespace(parent, ns);
 
     /* C++17 permits a nested namespace definition to spell the namespace
      * chain in one declaration (`namespace api::v2 { ... }`).  Keep each
@@ -6665,8 +6760,8 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
             break;
         }
         nested_name = advance()->value.str_val;
-        nested = cxx_namespace_new(nested_name, loc);
-        cxx_namespace_add_namespace(ns, nested);
+        nested = get_or_create_namespace_definition(ns, nested_name, loc,
+                                                    NULL);
         ns = nested;
     }
     active_namespace = ns;
@@ -15269,6 +15364,13 @@ static void add_cxx_declaration_one(AST* ast, Stmt* statement,
         } else {
             /* Keep the established global-scope linkage behavior unchanged. */
             set_cxx_link_name(declaration, NULL, c_language_linkage);
+            if (ns == g_global_namespace &&
+                declaration->kind == DECL_FUNC) {
+                /* Global functions are direct members of the global
+                 * namespace too.  Retain them there for second-phase ADL,
+                 * including declarations parsed after a template body. */
+                cxx_namespace_add_decl(ns, declaration);
+            }
         }
         ast_add_decl(ast, declaration);
     }
@@ -15538,7 +15640,8 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                    !cxx_constexpr_starts_function()) {
             Stmt* statement = parse_cxx_statement();
             if (statement && statement->kind == STMT_DECL) {
-                add_cxx_declaration(ast, statement, false, NULL);
+                add_cxx_declaration(ast, statement, false,
+                                    g_global_namespace);
             }
         } else if ((check(TOK_AUTO) && parser.cur->next &&
                    parser.cur->next->type == TOK_IDENT &&
@@ -15575,7 +15678,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         } else {
             /* Regular C declaration */
             Stmt* s = parse_cxx_statement();
-            add_cxx_declaration(ast, s, false, NULL);
+            add_cxx_declaration(ast, s, false, g_global_namespace);
         }
 
         /* Individual declaration and scope parsers synchronize at their own
