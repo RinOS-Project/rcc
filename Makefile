@@ -4658,6 +4658,12 @@ test-cxx-namespace-alias: $(RCXX_TARGET)
 test-cxx-friend-function: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-function)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-function,cxx_friend_function.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-member-call)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-member-call,cxx_friend_template_member_call_requirement.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-member-call/invalid-x86.ro tests/cxx_friend_template_member_call_requirement_invalid.cpp,$(TEST_OUT)/cxx-friend-member-call/invalid-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'reveal_member_call_requirement_mismatch'" $(TEST_OUT)/cxx-friend-member-call/invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-member-call/invalid-x64.ro tests/cxx_friend_template_member_call_requirement_invalid.cpp,$(TEST_OUT)/cxx-friend-member-call/invalid-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'reveal_member_call_requirement_mismatch'" $(TEST_OUT)/cxx-friend-member-call/invalid-x64.log
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-compound-return)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-compound-return,cxx_friend_template_compound_return.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.ro tests/cxx_friend_template_compound_return_invalid.cpp,$(TEST_OUT)/cxx-friend-function/compound-return-invalid-x86.log)
@@ -5270,6 +5276,43 @@ test-cxx-friend-function-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-friend-function/start-x64.o \
 		$(TEST_OUT)/cxx-friend-function/x64.o
 	$(TEST_OUT)/cxx-friend-function/x64
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-member-call)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-friend-member-call/x86.s \
+		tests/cxx_friend_template_member_call_requirement.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-friend-member-call/x86.o \
+		$(TEST_OUT)/cxx-friend-member-call/x86.s
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-friend-member-call/start-x86.o \
+		tests/cxx_member_methods_i686_start.s
+	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-friend-member-call/x86 \
+		$(TEST_OUT)/cxx-friend-member-call/start-x86.o \
+		$(TEST_OUT)/cxx-friend-member-call/x86.o
+	$(TEST_OUT)/cxx-friend-member-call/x86
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-friend-member-call/x64.s \
+		tests/cxx_friend_template_member_call_requirement.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-friend-member-call/x64.o \
+		$(TEST_OUT)/cxx-friend-member-call/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-friend-member-call/start-x64.o \
+		tests/cxx_member_methods_x64_start.s
+	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
+		-o $(TEST_OUT)/cxx-friend-member-call/x64 \
+		$(TEST_OUT)/cxx-friend-member-call/start-x64.o \
+		$(TEST_OUT)/cxx-friend-member-call/x64.o
+	$(TEST_OUT)/cxx-friend-member-call/x64
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-member-call/invalid-x86.ro \
+		tests/cxx_friend_template_member_call_requirement_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-member-call/invalid-x86.log 2>&1
+	$(GREP) -F -q "ambiguous function template overload for 'reveal_member_call_requirement_mismatch'" \
+		$(TEST_OUT)/cxx-friend-member-call/invalid-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-member-call/invalid-x64.ro \
+		tests/cxx_friend_template_member_call_requirement_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-member-call/invalid-x64.log 2>&1
+	$(GREP) -F -q "ambiguous function template overload for 'reveal_member_call_requirement_mismatch'" \
+		$(TEST_OUT)/cxx-friend-member-call/invalid-x64.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-friend-function/compound-return-x86.ro \
 		tests/cxx_friend_template_compound_return.cpp

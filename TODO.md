@@ -562,6 +562,12 @@
           GCC C++20 comparison pass. Verify compound return-type matching with
           `std::same_as<int>` and reject a mismatched `std::same_as<long>` friend
           declaration as a separate ambiguous overload on both targets.
+    - [x] Preserve the enclosing template scope after parsing a friend
+          function-template declaration. Verify a simple requirement that calls
+          an in-class-defined member function across friend/namespace
+          redeclarations, run the positive case on i686/AMD64, and reject a
+          redeclaration whose call argument expression differs as an ambiguous
+          overload on both targets; GCC C++20 agrees.
     - [ ] Complete constraint equivalence for remaining expression forms,
           concept normalization, and the full standard constraint model;
           template-template defaults/signatures

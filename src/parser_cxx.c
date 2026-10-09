@@ -8032,7 +8032,7 @@ CxxTemplate* parse_cxx_template(void) {
      * analysis; do not manufacture a class member or a placeholder body. */
     if (match(TOK_FRIEND)) {
         bool is_consteval = false;
-        CxxTemplate* outer_template = active_template;
+        CxxTemplate* outer_template = parameter_outer_template;
         CxxFriendAccess* friend_access;
         if (!active_class) {
             rcc_error(loc,
