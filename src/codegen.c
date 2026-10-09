@@ -9,6 +9,7 @@
 #include "symtab.h"
 #include "codegen.h"
 #include "cxx_exception_type.h"
+#include "optimize.h"
 #include <limits.h>
 
 /* The C-only executable deliberately does not link the C++ frontend.  The
@@ -116,6 +117,9 @@ Module* codegen_new(void) {
     mod->debug_frame_saves = NULL;
     mod->debug_frame_save_count = 0u;
     mod->debug_frame_save_capacity = 0u;
+    mod->debug_inline_calls = NULL;
+    mod->debug_inline_call_count = 0u;
+    mod->debug_inline_call_capacity = 0u;
     mod->relocs_arr = NULL;
     mod->reloc_count = 0;
     mod->reloc_capacity = 0;
@@ -135,6 +139,32 @@ Module* codegen_new(void) {
     mod->debug_legacy_statement_lines = false;
 
     return mod;
+}
+
+void module_add_debug_inline_call(Module* mod, const Decl* caller,
+                                  const Decl* callee, SourceLoc call_location,
+                                  uint32_t code_start, uint32_t code_end) {
+    size_t next_capacity;
+    if (!mod || !caller || !callee || code_end <= code_start) return;
+    if (mod->debug_inline_call_count == mod->debug_inline_call_capacity) {
+        next_capacity = mod->debug_inline_call_capacity < 8u
+            ? 8u : mod->debug_inline_call_capacity * 2u;
+        if (next_capacity < mod->debug_inline_call_capacity ||
+            next_capacity > SIZE_MAX / sizeof(*mod->debug_inline_calls)) {
+            rcc_fatal("DWARF inline-call table is too large");
+        }
+        mod->debug_inline_calls = rcc_realloc(
+            mod->debug_inline_calls,
+            next_capacity * sizeof(*mod->debug_inline_calls));
+        mod->debug_inline_call_capacity = next_capacity;
+    }
+    ModuleDebugInlineCall* call =
+        &mod->debug_inline_calls[mod->debug_inline_call_count++];
+    call->caller = caller;
+    call->callee = callee;
+    call->call_location = call_location;
+    call->code_start = code_start;
+    call->code_end = code_end;
 }
 
 void codegen_free(Module* mod) {
@@ -191,6 +221,7 @@ void codegen_free(Module* mod) {
     rcc_free(mod->symbols);
     rcc_free(mod->debug_frame_epilogues);
     rcc_free(mod->debug_frame_saves);
+    rcc_free(mod->debug_inline_calls);
     rcc_free(mod->relocs_arr);
     rcc_free(mod);
 }
@@ -3670,6 +3701,7 @@ static void resolve_labels(Module* mod) {
 
 /* Forward declaration */
 static void gen_expr(Module* mod, Expr* expr);
+static void gen_expr_impl(Module* mod, Expr* expr);
 static void gen_expr_raw(Module* mod, Expr* expr);
 static void gen_cxx_typeid32(Module* mod, Expr* expr);
 static void gen_cxx_dynamic_cast_runtime32(Module* mod, Expr* expr);
@@ -14495,6 +14527,26 @@ static void emit_convert_integer_value(Module* mod, int reg,
 }
 
 static void gen_expr(Module* mod, Expr* expr) {
+    const Decl* caller = NULL;
+    const Decl* callee = NULL;
+    SourceLoc call_location = {NULL, 0, 0};
+    uint32_t start;
+    uint32_t end;
+    if (!expr) return;
+    if (!g_opts.debug_info ||
+        !rcc_optimize_inline_debug_info(expr, &caller, &callee,
+                                        &call_location)) {
+        gen_expr_impl(mod, expr);
+        return;
+    }
+    start = code_offset(mod);
+    gen_expr_impl(mod, expr);
+    end = code_offset(mod);
+    module_add_debug_inline_call(mod, caller, callee, call_location,
+                                 start, end);
+}
+
+static void gen_expr_impl(Module* mod, Expr* expr) {
     if (!expr) return;
     if (gen_is_integer64(expr->type)) {
         gen_expr64_pair(mod, expr);

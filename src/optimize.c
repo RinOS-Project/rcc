@@ -19,6 +19,66 @@ static void eliminate_block_dead_stores(Stmt* statement);
  * budget below. */
 static bool optimize_inline_changed;
 static AST* optimize_inline_ast;
+static Decl* optimize_inline_caller;
+
+typedef struct InlineDebugOrigin {
+    const Expr* expression;
+    const Decl* caller;
+    const Decl* callee;
+    SourceLoc call_location;
+} InlineDebugOrigin;
+
+static InlineDebugOrigin* inline_debug_origins;
+static size_t inline_debug_origin_count;
+static size_t inline_debug_origin_capacity;
+
+static void inline_debug_origins_clear(void) {
+    rcc_free(inline_debug_origins);
+    inline_debug_origins = NULL;
+    inline_debug_origin_count = 0u;
+    inline_debug_origin_capacity = 0u;
+}
+
+static void inline_debug_origin_add(const Expr* expression,
+                                    const Decl* caller,
+                                    const Decl* callee,
+                                    SourceLoc call_location) {
+    InlineDebugOrigin* origin;
+    if (!expression || !caller || !callee) return;
+    if (inline_debug_origin_count == inline_debug_origin_capacity) {
+        size_t next_capacity = inline_debug_origin_capacity < 8u
+            ? 8u : inline_debug_origin_capacity * 2u;
+        if (next_capacity < inline_debug_origin_capacity ||
+            next_capacity > SIZE_MAX / sizeof(*inline_debug_origins)) {
+            rcc_fatal("DWARF inline-origin table is too large");
+        }
+        inline_debug_origins = rcc_realloc(
+            inline_debug_origins,
+            next_capacity * sizeof(*inline_debug_origins));
+        inline_debug_origin_capacity = next_capacity;
+    }
+    origin = &inline_debug_origins[inline_debug_origin_count++];
+    origin->expression = expression;
+    origin->caller = caller;
+    origin->callee = callee;
+    origin->call_location = call_location;
+}
+
+bool rcc_optimize_inline_debug_info(const Expr* expression,
+                                    const Decl** caller,
+                                    const Decl** callee,
+                                    SourceLoc* call_location) {
+    if (!expression || !caller || !callee || !call_location) return false;
+    for (size_t index = 0u; index < inline_debug_origin_count; ++index) {
+        const InlineDebugOrigin* origin = &inline_debug_origins[index];
+        if (origin->expression != expression) continue;
+        *caller = origin->caller;
+        *callee = origin->callee;
+        *call_location = origin->call_location;
+        return true;
+    }
+    return false;
+}
 
 typedef struct ConstantState ConstantState;
 
@@ -1883,6 +1943,10 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                                              binding_count);
         if (!clone) return false;
         clone->type = expression->type;
+        if (g_opts.debug_info) {
+            inline_debug_origin_add(clone, optimize_inline_caller, function,
+                                    expression->loc);
+        }
         *expression_out = clone;
     }
     optimize_inline_changed = true;
@@ -5613,6 +5677,8 @@ void rcc_optimize(AST* ast) {
     size_t lowered_functions = 0u;
     enum { OPTIMIZE_INLINE_PASSES = 8 };
     unsigned pass;
+    inline_debug_origins_clear();
+    optimize_inline_caller = NULL;
     if (!ast || g_opts.opt_level <= 0) return;
     optimize_inline_ast = ast;
     for (pass = 0u; pass < OPTIMIZE_INLINE_PASSES; ++pass) {
@@ -5620,6 +5686,8 @@ void rcc_optimize(AST* ast) {
         for (DeclList* item = ast->decls; item; item = item->next) {
             Decl* declaration = item->decl;
             if (!declaration) continue;
+            optimize_inline_caller = declaration->kind == DECL_FUNC
+                ? declaration : NULL;
             if (declaration->kind == DECL_VAR) {
                 optimize_expr(&declaration->var_init);
             } else if (declaration->kind == DECL_FUNC) {
@@ -5628,6 +5696,7 @@ void rcc_optimize(AST* ast) {
         }
         if (!optimize_inline_changed) break;
     }
+    optimize_inline_caller = NULL;
     optimize_inline_ast = NULL;
     if (!rcc_ir_verify_ast_subset(ast, &lowered_functions, ir_error,
                                   sizeof(ir_error))) {

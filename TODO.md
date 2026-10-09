@@ -1477,7 +1477,11 @@
         CIEにABI-preserved GPRの`DW_CFA_same_value`を定義し、`leave`後は
         CIE ruleへ戻す。non-terminal return後はstack-slot ruleを再適用。
         live-across-call回帰でi686/AMD64のO0/O2 CIE/FDEをdecodeして検証
-  - [ ] `.debug_info`のinline attribution／全scopeの宣言開始・終了に一致する
+  - [x] legacy i686/AMD64 codegenで実際に展開したbounded pure-scalar inline
+        callへcalleeのabstract-origin DIEとcall-site PC range、宣言元・呼出元
+        file/line/columnを出力。header定義を別sourceから呼ぶ`-g -O1`回帰で
+        origin参照・PC relocation・DWARF file indexを両archで検証
+  - [ ] `.debug_info`の全inline attribution／全scopeの宣言開始・終了に一致する
         location lists、register・piece location追跡、非標準prologueを含む
         完全なCFI/unwind
 - [ ] inline asm constraintの完全検証

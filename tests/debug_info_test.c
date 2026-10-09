@@ -1512,6 +1512,177 @@ static void verify_legacy_statement_line_rows(const char* path,
     objfile_free(object);
 }
 
+static bool line_table_file_matches(const ObjSection* line,
+                                    uint32_t expected_index,
+                                    const char* expected_name)
+{
+    uint64_t offset;
+    uint64_t header_end;
+    uint32_t file_index = 0u;
+    assert(line != NULL && line->size >= 16u && expected_index > 0u);
+    header_end = 10u + read_u32(line->data, 6u);
+    assert(header_end <= line->size);
+    offset = 15u + (uint64_t)(line->data[14u] - 1u);
+    assert(offset <= header_end);
+    while (offset < header_end && line->data[offset] != 0u) {
+        while (offset < header_end && line->data[offset] != 0u) ++offset;
+        assert(offset < header_end);
+        ++offset;
+    }
+    assert(offset < header_end);
+    ++offset; /* include_directories terminator */
+    while (offset < header_end && line->data[offset] != 0u) {
+        uint64_t name_offset = offset;
+        while (offset < header_end && line->data[offset] != 0u) ++offset;
+        assert(offset < header_end);
+        ++offset;
+        ++file_index;
+        (void)read_uleb(line->data, header_end, &offset);
+        (void)read_uleb(line->data, header_end, &offset);
+        (void)read_uleb(line->data, header_end, &offset);
+        if (file_index == expected_index) {
+            return strcmp((const char*)line->data + name_offset,
+                          expected_name) == 0;
+        }
+    }
+    return false;
+}
+
+static void verify_debug_abbreviation(const ObjSection* abbrev,
+                                      uint64_t expected_code,
+                                      uint64_t expected_tag,
+                                      const uint8_t* expected_attributes,
+                                      size_t expected_attribute_count)
+{
+    uint64_t offset = 0u;
+    assert(abbrev != NULL);
+    while (offset < abbrev->size) {
+        uint64_t code = read_uleb(abbrev->data, abbrev->size, &offset);
+        uint64_t tag;
+        uint8_t has_children;
+        size_t attribute_index = 0u;
+        if (code == 0u) break;
+        tag = read_uleb(abbrev->data, abbrev->size, &offset);
+        assert(offset < abbrev->size);
+        has_children = abbrev->data[offset++];
+        while (offset < abbrev->size) {
+            uint64_t attribute = read_uleb(abbrev->data,
+                                           abbrev->size, &offset);
+            uint64_t form = read_uleb(abbrev->data,
+                                      abbrev->size, &offset);
+            if (attribute == 0u && form == 0u) break;
+            if (code == expected_code) {
+                assert(attribute_index * 2u + 1u <
+                       expected_attribute_count);
+                assert(attribute ==
+                       expected_attributes[attribute_index * 2u]);
+                assert(form ==
+                       expected_attributes[attribute_index * 2u + 1u]);
+            }
+            ++attribute_index;
+        }
+        if (code == expected_code) {
+            assert(tag == expected_tag && has_children == 0u);
+            assert(attribute_index * 2u == expected_attribute_count);
+            return;
+        }
+    }
+    assert(0 && "expected DWARF abbreviation was not emitted");
+}
+
+static void verify_inline_debug_object(const char* path,
+                                      uint16_t architecture)
+{
+    static const uint8_t origin_attributes[] = {
+        0x03u, 0x0eu, 0x3au, 0x06u, 0x3bu, 0x06u, 0x39u, 0x06u,
+        0x6eu, 0x0eu, 0x49u, 0x13u, 0x20u, 0x0bu, 0x27u, 0x0cu
+    };
+    static const uint8_t call_attributes[] = {
+        0x31u, 0x13u, 0x11u, 0x01u, 0x12u, 0x06u,
+        0x58u, 0x06u, 0x59u, 0x06u, 0x57u, 0x06u
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    ObjSection* line;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    bool found = false;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    line = objfile_get_section(object, ".debug_line");
+    assert(info != NULL && abbrev != NULL && strings != NULL && line != NULL);
+    verify_debug_abbreviation(abbrev, 40u, 0x2eu,
+                              origin_attributes,
+                              sizeof(origin_attributes));
+    verify_debug_abbreviation(abbrev, 41u, 0x1du,
+                              call_attributes, sizeof(call_attributes));
+
+    for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 12u <=
+         info->size; ++die) {
+        uint32_t origin_offset;
+        uint32_t name_offset;
+        uint32_t origin_file;
+        uint32_t origin_line;
+        uint32_t origin_column;
+        uint32_t type_offset;
+        uint32_t call_file;
+        uint32_t call_line;
+        uint32_t call_column;
+        uint64_t low_pc_offset;
+        uint64_t cursor;
+        bool has_call_relocation = false;
+        if (info->data[die] != 41u) continue;
+        if (die + 1u + 4u + address_size + 4u + 12u > info->size) continue;
+        origin_offset = read_u32(info->data, die + 1u);
+        if (origin_offset >= info->size || info->data[origin_offset] != 40u) {
+            continue;
+        }
+        name_offset = read_u32(info->data, origin_offset + 1u);
+        origin_file = read_u32(info->data, origin_offset + 5u);
+        origin_line = read_u32(info->data, origin_offset + 9u);
+        origin_column = read_u32(info->data, origin_offset + 13u);
+        type_offset = read_u32(info->data, origin_offset + 21u);
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset,
+                      "debug_declared_inline") == 0);
+        assert(origin_file > 0u && origin_line > 0u && origin_column > 0u);
+        assert(info->data[origin_offset + 25u] == 1u &&
+               info->data[origin_offset + 26u] == 1u);
+        assert(type_offset < info->size && info->data[type_offset] == 5u);
+
+        low_pc_offset = die + 1u + 4u;
+        cursor = low_pc_offset + address_size + 4u;
+        call_file = read_u32(info->data, cursor);
+        call_line = read_u32(info->data, cursor + 4u);
+        call_column = read_u32(info->data, cursor + 8u);
+        assert(read_u32(info->data, low_pc_offset + address_size) > 0u);
+        assert(call_file > 0u && call_line > 0u && call_column > 0u);
+        assert(line_table_file_matches(line, call_file,
+                                       "tests/debug_info.c"));
+        assert(line_table_file_matches(line, origin_file,
+                                       "tests/debug_info_inline.h"));
+
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset != low_pc_offset) continue;
+            assert(relocation->symbol_name != NULL &&
+                   strcmp(relocation->symbol_name,
+                          "debug_inline_entry") == 0);
+            assert(relocation->addend > 0);
+            has_call_relocation = true;
+            break;
+        }
+        assert(has_call_relocation);
+        found = true;
+    }
+    assert(found);
+    objfile_free(object);
+}
+
 static unsigned count_line_copy_ops(const ObjSection* line)
 {
     uint64_t offset;
@@ -2669,7 +2840,7 @@ static void verify_verified_global_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 24);
+    assert(argc == 26);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -2759,5 +2930,7 @@ int main(int argc, char** argv)
                              "struct_scoped_value", -1);
     verify_tls_global_object(argv[18], "debug_cpp_tls_data");
     verify_tls_global_object(argv[19], "debug_cpp_tls_data");
+    verify_inline_debug_object(argv[24], ARCH_X86);
+    verify_inline_debug_object(argv[25], ARCH_X64);
     return 0;
 }

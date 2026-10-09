@@ -1167,6 +1167,23 @@ static void debug_file_add(const char*** files, int* file_count,
     (*files)[(*file_count)++] = file;
 }
 
+static void debug_collect_inline_files(const Module* mod,
+                                       const char*** files, int* file_count,
+                                       size_t* file_capacity) {
+    if (!mod) return;
+    for (size_t index = 0u; index < mod->debug_inline_call_count; ++index) {
+        const ModuleDebugInlineCall* call = &mod->debug_inline_calls[index];
+        if (call->call_location.line > 0) {
+            debug_file_add(files, file_count, file_capacity,
+                           call->call_location.filename);
+        }
+        if (call->callee && call->callee->loc.line > 0) {
+            debug_file_add(files, file_count, file_capacity,
+                           call->callee->loc.filename);
+        }
+    }
+}
+
 static void debug_collect_stmt_files(const Stmt* statement,
                                      const char*** files, int* file_count,
                                      size_t* file_capacity);
@@ -2841,6 +2858,18 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
         debug_file_add(&files, &file_count, &file_capacity,
                        symbol->source_file);
     }
+    for (DeclList* item = mod->debug_ast ? mod->debug_ast->decls : NULL;
+         item; item = item->next) {
+        Decl* declaration = item->decl;
+        const ModuleSymbol* symbol = debug_find_global_symbol(mod, declaration);
+        if (!symbol || debug_find_global_decl(mod, symbol) != declaration ||
+            !declaration->loc.filename ||
+            declaration->loc.filename[0] == '\0' || declaration->loc.line <= 0) {
+            continue;
+        }
+        debug_file_add(&files, &file_count, &file_capacity,
+                       declaration->loc.filename);
+    }
     for (int index = 0; index < function_count; ++index) {
         Decl* declaration = debug_find_function_decl(mod, functions[index]);
         debug_collect_function_files(
@@ -2852,6 +2881,7 @@ static void module_emit_debug_line(ObjectFile* obj, Module* mod,
                 &points, &point_count, &point_capacity);
         }
     }
+    debug_collect_inline_files(mod, &files, &file_count, &file_capacity);
     for (int index = 0; index < point_count; ++index) {
         debug_file_add(&files, &file_count, &file_capacity,
                        points[index].source_file);
@@ -3008,12 +3038,29 @@ static uint16_t debug_cxx_language(void) {
     }
 }
 
+typedef struct DebugInlineOrigin {
+    const Decl* declaration;
+    uint32_t die_offset;
+} DebugInlineOrigin;
+
+static DebugInlineOrigin* debug_inline_origin_find(
+    DebugInlineOrigin* origins, size_t origin_count,
+    const Decl* declaration) {
+    if (!origins || !declaration) return NULL;
+    for (size_t index = 0u; index < origin_count; ++index) {
+        if (origins[index].declaration == declaration) return &origins[index];
+    }
+    return NULL;
+}
+
 static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                                    const char* filename) {
     const ModuleSymbol** functions;
     const char** files;
     DebugTypeContext types = {0};
     DebugTypePatchContext type_patches = {0};
+    DebugInlineOrigin* inline_origins = NULL;
+    size_t inline_origin_count = 0u;
     ObjSection* strings;
     ObjSection* abbrev;
     ObjSection* info;
@@ -3065,6 +3112,30 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         debug_collect_function_types(&types, function);
         debug_collect_function_files(function, &files, &file_count,
                                      &file_capacity);
+    }
+    debug_collect_inline_files(mod, &files, &file_count, &file_capacity);
+    if (mod->debug_inline_call_count > 0u) {
+        if (mod->debug_inline_call_count >
+            SIZE_MAX / sizeof(*inline_origins)) {
+            rcc_fatal("DWARF inline-origin table is too large");
+        }
+        inline_origins = rcc_alloc(mod->debug_inline_call_count *
+                                   sizeof(*inline_origins));
+        for (size_t index = 0u; index < mod->debug_inline_call_count; ++index) {
+            const Decl* callee = mod->debug_inline_calls[index].callee;
+            if (!callee || !callee->loc.filename || callee->loc.line <= 0 ||
+                !callee->type || callee->type->kind != TYPE_FUNC) {
+                continue;
+            }
+            if (debug_inline_origin_find(inline_origins,
+                                         inline_origin_count, callee)) {
+                continue;
+            }
+            debug_type_collect(&types, callee->type->ret_type);
+            inline_origins[inline_origin_count].declaration = callee;
+            inline_origins[inline_origin_count].die_offset = 0u;
+            ++inline_origin_count;
+        }
     }
 
     strings = objfile_add_section(obj, ".debug_str", SECT_DEBUG_STR, 0u);
@@ -3660,6 +3731,46 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
+    /* Abstract inline origins retain declaration identity and function type;
+     * each concrete call-site DIE below points back here. */
+    debug_line_uleb(abbrev, 40u);
+    debug_line_uleb(abbrev, 0x2eu);    /* DW_TAG_subprogram */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x6eu);    /* DW_AT_linkage_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x20u);    /* DW_AT_inline */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x27u);    /* DW_AT_prototyped */
+    debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 41u);
+    debug_line_uleb(abbrev, 0x1du);    /* DW_TAG_inlined_subroutine */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);    /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x11u);    /* DW_AT_low_pc */
+    debug_line_uleb(abbrev, 0x01u);    /* DW_FORM_addr */
+    debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x58u);    /* DW_AT_call_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x59u);    /* DW_AT_call_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x57u);    /* DW_AT_call_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
 
     unit_length_offset = info->size;
@@ -3676,6 +3787,34 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
 
     debug_emit_type_dies(info, strings, &types, &type_patches);
     debug_type_patches_free(&type_patches);
+
+    for (size_t index = 0u; index < inline_origin_count; ++index) {
+        const Decl* callee = inline_origins[index].declaration;
+        DebugTypeEntry* return_type =
+            debug_type_find(&types, callee->type->ret_type);
+        const char* linkage_name = callee->link_name
+            ? callee->link_name : callee->name;
+        int file_index = debug_line_file_index(
+            files, file_count, callee->loc.filename);
+        if (!return_type || file_index <= 0 || callee->loc.column < 0) {
+            rcc_fatal("DWARF inline origin is missing source/type metadata");
+        }
+        if (info->size > UINT32_MAX) {
+            rcc_fatal("DWARF inline-origin DIE offset exceeds 32-bit range");
+        }
+        inline_origins[index].die_offset = (uint32_t)info->size;
+        section_add_byte(info, 40u);
+        debug_line_u32(info, debug_str_add(
+            strings, debug_function_source_name(callee, callee->name)));
+        debug_line_u32(info, (uint32_t)file_index);
+        debug_line_u32(info, (uint32_t)callee->loc.line);
+        debug_line_u32(info, (uint32_t)callee->loc.column);
+        debug_line_u32(info, debug_str_add(
+            strings, linkage_name ? linkage_name : callee->name));
+        debug_line_u32(info, return_type->offset);
+        section_add_byte(info, 1u); /* DW_INL_inlined */
+        section_add_byte(info, callee->type->has_prototype ? 1u : 0u);
+    }
 
     for (DeclList* item = mod->debug_ast ? mod->debug_ast->decls : NULL;
          item; item = item->next) {
@@ -3804,6 +3943,56 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
             obj, info, strings, &types, files, file_count, mod, filename,
             info_section, function,
             g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86);
+        for (size_t inline_index = 0u;
+             inline_index < mod->debug_inline_call_count; ++inline_index) {
+            const ModuleDebugInlineCall* call =
+                &mod->debug_inline_calls[inline_index];
+            DebugInlineOrigin* origin;
+            uint64_t function_end = (uint64_t)function->offset +
+                                    debug_function_size(mod, function);
+            uint64_t address_offset;
+            const char* relocation_symbol = function->name;
+            char* scoped_relocation_symbol = NULL;
+            int call_file_index;
+            if (call->caller != function_decl ||
+                call->code_start < function->offset ||
+                call->code_end <= call->code_start ||
+                (uint64_t)call->code_end > function_end ||
+                !call->call_location.filename ||
+                call->call_location.line <= 0 ||
+                call->call_location.column < 0) {
+                continue;
+            }
+            origin = debug_inline_origin_find(
+                inline_origins, inline_origin_count, call->callee);
+            call_file_index = debug_line_file_index(
+                files, file_count, call->call_location.filename);
+            if (!origin || call_file_index <= 0 ||
+                info->size > UINT32_MAX) {
+                continue;
+            }
+            section_add_byte(info, 41u);
+            debug_line_u32(info, origin->die_offset);
+            address_offset = info->size;
+            for (int byte = 0;
+                 byte < (g_opts.target_arch == ARCH_X64 ? 8 : 4); ++byte) {
+                section_add_byte(info, 0u);
+            }
+            if (!function->is_global) {
+                scoped_relocation_symbol = module_scoped_symbol(
+                    filename, function->name);
+                relocation_symbol = scoped_relocation_symbol;
+            }
+            objfile_add_reloc(
+                obj, info_section, address_offset, relocation_symbol,
+                g_opts.target_arch == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U,
+                (int64_t)(call->code_start - function->offset));
+            rcc_free(scoped_relocation_symbol);
+            debug_line_u32(info, call->code_end - call->code_start);
+            debug_line_u32(info, (uint32_t)call_file_index);
+            debug_line_u32(info, (uint32_t)call->call_location.line);
+            debug_line_u32(info, (uint32_t)call->call_location.column);
+        }
         section_add_byte(info, 0u);    /* end of subprogram children */
     }
     section_add_byte(info, 0u);        /* end of compile-unit children */
@@ -3815,6 +4004,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                          (uint32_t)(info->size - unit_length_offset - 4u));
     rcc_free(functions);
     rcc_free(files);
+    rcc_free(inline_origins);
     debug_type_context_free(&types);
 }
 

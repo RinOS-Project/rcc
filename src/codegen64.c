@@ -9,6 +9,7 @@
 #include "symtab.h"
 #include "codegen.h"
 #include "cxx_exception_type.h"
+#include "optimize.h"
 #include <limits.h>
 
 /* Only compile if generating 64-bit code */
@@ -885,6 +886,7 @@ static void emit64_store_typed(Module* mod, int base, int32_t disp, int src,
 }
 
 static void gen64_expr(Module* mod, Expr* expr);
+static void gen64_expr_impl(Module* mod, Expr* expr);
 static void gen64_lvalue(Module* mod, Expr* expr);
 static bool gen64_guarded_static_initializer(
     Module* mod, Decl* declaration);
@@ -8276,6 +8278,26 @@ static void codegen64_release_named_labels(void) {
 }
 
 static void gen64_expr(Module* mod, Expr* expr) {
+    const Decl* caller = NULL;
+    const Decl* callee = NULL;
+    SourceLoc call_location = {NULL, 0, 0};
+    uint32_t start;
+    uint32_t end;
+    if (!expr) return;
+    if (!g_opts.debug_info ||
+        !rcc_optimize_inline_debug_info(expr, &caller, &callee,
+                                        &call_location)) {
+        gen64_expr_impl(mod, expr);
+        return;
+    }
+    start = code_offset(mod);
+    gen64_expr_impl(mod, expr);
+    end = code_offset(mod);
+    module_add_debug_inline_call(mod, caller, callee, call_location,
+                                 start, end);
+}
+
+static void gen64_expr_impl(Module* mod, Expr* expr) {
     if (!expr) return;
     gen64_expr_raw(mod, expr);
     if (expr->cxx_member_pointer_adjustment_valid &&

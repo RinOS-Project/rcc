@@ -85,6 +85,14 @@ typedef struct ModuleDebugFrameSave {
     uint8_t dwarf_register;
 } ModuleDebugFrameSave;
 
+typedef struct ModuleDebugInlineCall {
+    const Decl* caller;
+    const Decl* callee;
+    SourceLoc call_location;
+    uint32_t code_start;
+    uint32_t code_end;
+} ModuleDebugInlineCall;
+
 /* Module relocation entry (for object files) */
 typedef struct ModuleReloc {
     ModuleSymbolSection source_section;
@@ -165,6 +173,9 @@ typedef struct Module {
     ModuleDebugFrameSave* debug_frame_saves;
     size_t debug_frame_save_count;
     size_t debug_frame_save_capacity;
+    ModuleDebugInlineCall* debug_inline_calls;
+    size_t debug_inline_call_count;
+    size_t debug_inline_call_capacity;
 
     /* Relocation table for object files */
     ModuleReloc* relocs_arr;
@@ -200,6 +211,9 @@ struct CxxNamespace;
 /* Code generation functions */
 Module* codegen_new(void);
 void codegen_free(Module* mod);
+void module_add_debug_inline_call(Module* mod, const Decl* caller,
+                                  const Decl* callee, SourceLoc call_location,
+                                  uint32_t code_start, uint32_t code_end);
 
 /* Emit functions */
 void emit_byte(Module* mod, uint8_t b);

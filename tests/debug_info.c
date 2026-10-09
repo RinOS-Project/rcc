@@ -43,16 +43,18 @@ static int debug_line_helper(void)
     return 3;
 }
 
-inline int debug_declared_inline(int value)
-{
-    return value + 5;
-}
+#include "debug_info_inline.h"
 
 int debug_line_entry(void)
 {
     static int debug_line_static;
     return debug_line_helper() + debug_declared_inline(1) +
            debug_global_data + debug_file_static + debug_line_static;
+}
+
+int debug_inline_entry(int value)
+{
+    return debug_declared_inline(value);
 }
 
 int debug_tls_static_local_read(void)
