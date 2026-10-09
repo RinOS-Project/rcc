@@ -4054,7 +4054,10 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
         section_add_byte(frame, 0x0eu); /* DW_CFA_def_cfa_offset */
         debug_line_uleb(frame, pointer_size * 2u);
         section_add_byte(frame, (uint8_t)(0x80u + frame_register));
-        debug_line_uleb(frame, 1u);
+        /* The pushed frame pointer is below both the return address and the
+         * caller's CFA: CFA is SP + 2 words, so the saved FP is at CFA - 2
+         * words.  The CIE's return-address rule remains CFA - 1 word. */
+        debug_line_uleb(frame, 2u);
         if (prologue_kind == DEBUG_FRAME_PROLOGUE_I686_ALIGNED) {
             /* The aligned i686 prologue copies the saved EBP and return
              * address to the newly aligned stack before establishing EBP.
@@ -4145,7 +4148,7 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
                 debug_line_uleb(frame, pointer_size * 2u);
                 section_add_byte(frame,
                                  (uint8_t)(0x80u + frame_register));
-                debug_line_uleb(frame, 1u);
+                debug_line_uleb(frame, 2u);
                 debug_frame_emit_saved_offsets(
                     frame, mod, function, function_end, function_end,
                     pointer_size);

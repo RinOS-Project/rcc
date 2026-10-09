@@ -2038,7 +2038,7 @@ static size_t count_frame_body_restores(const ObjSection* frame,
             frame->data[offset + 3u] == (uint8_t)(pointer_size * 2u) &&
             frame->data[offset + 4u] ==
                 (uint8_t)(0x80u + frame_register) &&
-            frame->data[offset + 5u] == 1u) {
+            frame->data[offset + 5u] == 2u) {
             ++count;
         }
     }
@@ -2094,7 +2094,8 @@ static void verify_first_frame_fde(const ObjSection* frame,
     assert(frame->data[instruction_offset++] == (uint8_t)(pointer_size * 2u));
     assert(frame->data[instruction_offset++] ==
            (uint8_t)(0x80u + frame_register));
-    assert(frame->data[instruction_offset++] == 1u);
+    /* Saved FP is CFA - 2 words; CFA - 1 word holds the return address. */
+    assert(frame->data[instruction_offset++] == 2u);
     /* The advance must land after the complete mov fp,sp instruction. */
     assert(frame->data[instruction_offset++] ==
            (uint8_t)(architecture == ARCH_X64 ? 0x43u : 0x42u));
@@ -2136,7 +2137,7 @@ static void verify_i686_aligned_frame_fde(const ObjSection* frame)
     assert(frame->data[instruction_offset++] == 0x0eu);
     assert(frame->data[instruction_offset++] == 0x08u);
     assert(frame->data[instruction_offset++] == 0x85u);
-    assert(frame->data[instruction_offset++] == 1u);
+    assert(frame->data[instruction_offset++] == 2u);
     /* The aligned copy sequence completes at offset 21. */
     assert(frame->data[instruction_offset++] == 0x54u);
     assert(frame->data[instruction_offset++] == 0x0cu);
