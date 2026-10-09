@@ -282,9 +282,19 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_byte(
         optimized, "inlined_statement_conditional_return_call", 0xe8u));
     assert(function_contains_byte(
-        unoptimized, "preserved_nested_conditional_return_call", 0xe8u));
+        unoptimized, "inlined_nested_conditional_return_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_nested_conditional_return_call", 0xe8u));
     assert(function_contains_byte(
-        optimized, "preserved_nested_conditional_return_call", 0xe8u));
+        unoptimized, "preserved_incomplete_conditional_return_call", 0xe8u));
+    assert(function_contains_byte(
+        optimized, "preserved_incomplete_conditional_return_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "preserved_side_effecting_conditional_return_call",
+        0xe8u));
+    assert(function_contains_byte(
+        optimized, "preserved_side_effecting_conditional_return_call",
+        0xe8u));
     assert(function_contains_byte(
         unoptimized, "preserved_local_mutation_side_effect_call", 0xe8u));
     assert(function_contains_byte(
@@ -1478,7 +1488,9 @@ int main(int argc, char** argv)
         int* (*inlined_pointer_update_sequence_call)(int*);
         int (*inlined_local_snapshot_before_mutation_call)(int);
         int (*inlined_statement_conditional_return_call)(int);
-        int (*preserved_nested_conditional_return_call)(int);
+        int (*inlined_nested_conditional_return_call)(int);
+        int (*preserved_incomplete_conditional_return_call)(int);
+        int (*preserved_side_effecting_conditional_return_call)(int*);
         int (*preserved_local_mutation_side_effect_call)(int*);
         int (*preserved_local_side_effect_call)(volatile int*);
         int (*inlined_repeated_argument_call)(int);
@@ -2024,10 +2036,25 @@ int main(int argc, char** argv)
         }
         {
             ObjSymbol* symbol = function_symbol(
-                object, "preserved_nested_conditional_return_call");
+                object, "inlined_nested_conditional_return_call");
             address = mapping + symbol->value;
-            memcpy(&preserved_nested_conditional_return_call, &address,
-                   sizeof(preserved_nested_conditional_return_call));
+            memcpy(&inlined_nested_conditional_return_call, &address,
+                   sizeof(inlined_nested_conditional_return_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "preserved_incomplete_conditional_return_call");
+            address = mapping + symbol->value;
+            memcpy(&preserved_incomplete_conditional_return_call, &address,
+                   sizeof(preserved_incomplete_conditional_return_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "preserved_side_effecting_conditional_return_call");
+            address = mapping + symbol->value;
+            memcpy(&preserved_side_effecting_conditional_return_call,
+                   &address,
+                   sizeof(preserved_side_effecting_conditional_return_call));
         }
         {
             ObjSymbol* symbol = function_symbol(
@@ -2648,8 +2675,17 @@ int main(int argc, char** argv)
         assert(inlined_statement_conditional_return_call(0) == 13);
         assert(inlined_statement_conditional_return_call(4) == 25);
         assert(inlined_statement_conditional_return_call(-4) == -25);
-        assert(preserved_nested_conditional_return_call(-7) == 7);
-        assert(preserved_nested_conditional_return_call(5) == 7);
+        assert(inlined_nested_conditional_return_call(-7) == 7);
+        assert(inlined_nested_conditional_return_call(0) == 17);
+        assert(inlined_nested_conditional_return_call(5) == 7);
+        assert(preserved_incomplete_conditional_return_call(-7) == 7);
+        assert(preserved_incomplete_conditional_return_call(5) == 7);
+        {
+            int side_effect_value = 0;
+            assert(preserved_side_effecting_conditional_return_call(
+                       &side_effect_value) == 19);
+            assert(side_effect_value == 2);
+        }
         {
             int mutation_value = 4;
             assert(preserved_local_mutation_side_effect_call(

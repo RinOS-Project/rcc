@@ -418,14 +418,39 @@ static int inline_nested_conditional_return(int value)
 {
     if (value < 0) {
         return -value;
+    } else if (value == 0) {
+        return 17;
     } else {
         return value + 2;
     }
 }
 
-int preserved_nested_conditional_return_call(int value)
+int inlined_nested_conditional_return_call(int value)
 {
     return inline_nested_conditional_return(value);
+}
+
+static int inline_incomplete_conditional_return(int value)
+{
+    if (value < 0) return -value;
+    return value + 2;
+}
+
+int preserved_incomplete_conditional_return_call(int value)
+{
+    return inline_incomplete_conditional_return(value);
+}
+
+static int inline_side_effecting_conditional_return(int* value)
+{
+    if ((*value)++ < 0) return 11;
+    else if ((*value)++ == 0) return 17;
+    else return 19;
+}
+
+int preserved_side_effecting_conditional_return_call(int* value)
+{
+    return inline_side_effecting_conditional_return(value);
 }
 
 static int inline_local_mutation_side_effect(int* value)
