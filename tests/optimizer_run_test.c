@@ -87,6 +87,22 @@ static bool function_contains_sequence(ObjectFile* object, const char* name,
     return false;
 }
 
+static size_t function_call_opcode_count(ObjectFile* object, const char* name)
+{
+    ObjSection* code = code_section(object);
+    ObjSymbol* function = objfile_find_symbol(object, name);
+    uint64_t start;
+    uint64_t end;
+    size_t count = 0u;
+    assert(function != NULL && function->section >= 0);
+    start = function->value;
+    end = start + function_extent(object, name);
+    for (uint64_t offset = start; offset < end; ++offset) {
+        if (code->data[offset] == 0xe8u) ++count;
+    }
+    return count;
+}
+
 static void verify_smaller(const char* unoptimized_path,
                            const char* optimized_path,
                            uint16_t architecture)
@@ -181,6 +197,14 @@ static void verify_smaller(const char* unoptimized_path,
                                   0xe8u));
     assert(!function_contains_byte(optimized, "inlined_argument_call",
                                    0xe8u));
+    {
+        size_t original_calls = function_call_opcode_count(
+            unoptimized, "inline_budget_many_calls");
+        size_t remaining_calls = function_call_opcode_count(
+            optimized, "inline_budget_many_calls");
+        assert(original_calls >= 48u);
+        assert(remaining_calls > 0u && remaining_calls < original_calls);
+    }
     assert(function_contains_byte(unoptimized,
                                   "inlined_local_temporary_call", 0xe8u));
     assert(!function_contains_byte(optimized,
@@ -861,6 +885,35 @@ static void verify_smaller(const char* unoptimized_path,
 }
 
 #if defined(_WIN32) && defined(__x86_64__)
+static void execute_inline_budget_case(const char* path)
+{
+    typedef int (__attribute__((sysv_abi)) *SysvIntUnary)(int);
+    ObjectFile* object = objfile_read(path);
+    ObjSection* code;
+    ObjSymbol* symbol;
+    uint8_t* mapping;
+    DWORD previous_protection;
+    uintptr_t address;
+    SysvIntUnary function;
+    assert(object != NULL && object->arch == ARCH_X64);
+    code = code_section(object);
+    symbol = function_symbol(object, "inline_budget_many_calls");
+    assert(code != NULL && code->data != NULL && code->size != 0u);
+    mapping = VirtualAlloc(NULL, code->size, MEM_RESERVE | MEM_COMMIT,
+                           PAGE_READWRITE);
+    assert(mapping != NULL);
+    memcpy(mapping, code->data, code->size);
+    assert(VirtualProtect(mapping, code->size, PAGE_EXECUTE_READ,
+                          &previous_protection));
+    assert(FlushInstructionCache(GetCurrentProcess(), mapping, code->size));
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&function, &address, sizeof(function));
+    assert(function(-3) == -96);
+    assert(VirtualFree(mapping, 0u, MEM_RELEASE));
+    objfile_free(object);
+    puts("Windows AMD64 SysV inline-budget execution passed");
+}
+
 static void execute_signed_negative_power_of_two_cases(const char* path) {
     typedef int (__attribute__((sysv_abi)) *SysvIntUnary)(int);
     typedef int (__attribute__((sysv_abi)) *SysvIntUnaryPointer)(int*);
@@ -1303,6 +1356,8 @@ int main(int argc, char** argv)
             object, "preserved_local_side_effect_call");
         ObjSymbol* inlined_repeated_argument_call_symbol = function_symbol(
             object, "inlined_repeated_argument_call");
+        ObjSymbol* inline_budget_many_calls_symbol = function_symbol(
+            object, "inline_budget_many_calls");
         ObjSymbol* inlined_repeated_complex_argument_call_symbol =
             function_symbol(object, "inlined_repeated_complex_argument_call");
         ObjSymbol* inlined_forward_chain_symbol = function_symbol(
@@ -1509,6 +1564,7 @@ int main(int argc, char** argv)
         int (*preserved_local_mutation_side_effect_call)(int*);
         int (*preserved_local_side_effect_call)(volatile int*);
         int (*inlined_repeated_argument_call)(int);
+        int (*inline_budget_many_calls)(int);
         int (*inlined_repeated_complex_argument_call)(int);
         int (*inlined_conditional_cast_call)(int);
         int (*preserved_large_inline_call)(int);
@@ -2105,6 +2161,9 @@ int main(int argc, char** argv)
         address = mapping + inlined_repeated_argument_call_symbol->value;
         memcpy(&inlined_repeated_argument_call, &address,
                sizeof(inlined_repeated_argument_call));
+        address = mapping + inline_budget_many_calls_symbol->value;
+        memcpy(&inline_budget_many_calls, &address,
+               sizeof(inline_budget_many_calls));
         address = mapping + inlined_repeated_complex_argument_call_symbol->value;
         memcpy(&inlined_repeated_complex_argument_call, &address,
                sizeof(inlined_repeated_complex_argument_call));
@@ -2746,6 +2805,7 @@ int main(int argc, char** argv)
             assert(local_side_effect_value == 10);
         }
         assert(inlined_repeated_argument_call(-8) == -16);
+        assert(inline_budget_many_calls(-3) == -96);
         assert(inlined_repeated_complex_argument_call(-8) == -46);
         assert(inlined_conditional_cast_call(-8) == 8);
         assert(inlined_conditional_cast_call(8) == 12);
@@ -2857,6 +2917,7 @@ int main(int argc, char** argv)
         objfile_free(object);
     }
 #elif defined(_WIN32) && defined(__x86_64__)
+    execute_inline_budget_case(argv[4]);
     execute_signed_negative_power_of_two_cases(argv[4]);
 #elif !defined(_WIN32) && defined(__x86_64__)
     execute_signed_negative_power_of_two_64_cases(argv[4]);

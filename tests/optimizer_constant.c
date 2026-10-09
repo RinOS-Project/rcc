@@ -540,6 +540,37 @@ static int inline_duplicate_value(int value)
     return value + value;
 }
 
+static int inline_budget_leaf(int value)
+{
+    return value + 1;
+}
+
+#define INLINE_BUDGET_STEP result += inline_budget_leaf(value)
+#define INLINE_BUDGET_GROUP \
+    INLINE_BUDGET_STEP; \
+    INLINE_BUDGET_STEP; \
+    INLINE_BUDGET_STEP; \
+    INLINE_BUDGET_STEP; \
+    INLINE_BUDGET_STEP; \
+    INLINE_BUDGET_STEP; \
+    INLINE_BUDGET_STEP; \
+    INLINE_BUDGET_STEP
+
+int inline_budget_many_calls(int value)
+{
+    int result = 0;
+    INLINE_BUDGET_GROUP;
+    INLINE_BUDGET_GROUP;
+    INLINE_BUDGET_GROUP;
+    INLINE_BUDGET_GROUP;
+    INLINE_BUDGET_GROUP;
+    INLINE_BUDGET_GROUP;
+    return result;
+}
+
+#undef INLINE_BUDGET_GROUP
+#undef INLINE_BUDGET_STEP
+
 int inlined_repeated_argument_call(int value)
 {
     return inline_duplicate_value(value);

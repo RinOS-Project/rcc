@@ -1089,6 +1089,10 @@
   - [x] 宣言順に依存しない最大8回の限定固定点で、純粋スカラーinline候補の
         前方呼出しチェーンを解決し、再帰・aggregate・exception callはこのpassの
         対象外として明示的に保持
+  - [x] 固定点反復を通じたcaller単位の累積展開予算を32 AST nodesに制限し、
+        多数の小さなinline callでもcaller全体のcode growthを抑制。48 call-siteの
+        fixtureでbudget内外の部分展開と残存callをi686/AMD64 objectで検査し、
+        AMD64 SysV host executionおよび`test-optimize`を確認
   - [x] 副作用のない整数引数がinline本体で複数回参照される場合も、対応する
         式木を複製し、引数ごとの展開コストを16ノード以内に制限してO1 inlineへ
         接続。i686/x86_64のcall除去と実行結果を回帰検証

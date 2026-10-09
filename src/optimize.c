@@ -15,11 +15,73 @@ static void eliminate_block_dead_stores(Stmt* statement);
 /* A bounded fixed point is used only to resolve declaration-order
  * dependencies between the conservative pure-scalar inline candidates.
  * Recursive, aggregate, exception, and whole-program cost-based inline forms
- * remain outside this pass; local expression expansion has an explicit node
- * budget below. */
+ * remain outside this pass; local expression expansion and cumulative
+ * per-caller growth both have explicit node budgets. */
 static bool optimize_inline_changed;
 static AST* optimize_inline_ast;
 static Decl* optimize_inline_caller;
+
+enum { INLINE_CALLER_EXPANSION_LIMIT = 32 };
+
+typedef struct InlineCallerBudget {
+    const Decl* caller;
+    size_t used;
+} InlineCallerBudget;
+
+static InlineCallerBudget* inline_caller_budgets;
+static size_t inline_caller_budget_count;
+static size_t inline_caller_budget_capacity;
+
+static void inline_caller_budgets_clear(void) {
+    rcc_free(inline_caller_budgets);
+    inline_caller_budgets = NULL;
+    inline_caller_budget_count = 0u;
+    inline_caller_budget_capacity = 0u;
+}
+
+static size_t inline_caller_budget_used(const Decl* caller) {
+    for (size_t index = 0u; index < inline_caller_budget_count; ++index) {
+        if (inline_caller_budgets[index].caller == caller) {
+            return inline_caller_budgets[index].used;
+        }
+    }
+    return 0u;
+}
+
+static bool inline_caller_budget_can_charge(const Decl* caller,
+                                            size_t cost) {
+    size_t used = inline_caller_budget_used(caller);
+    return cost <= INLINE_CALLER_EXPANSION_LIMIT &&
+        used <= INLINE_CALLER_EXPANSION_LIMIT - cost;
+}
+
+static void inline_caller_budget_charge(const Decl* caller, size_t cost) {
+    size_t index;
+    InlineCallerBudget* budget;
+    for (index = 0u; index < inline_caller_budget_count; ++index) {
+        if (inline_caller_budgets[index].caller == caller) break;
+    }
+    if (index == inline_caller_budget_count) {
+        if (inline_caller_budget_count == inline_caller_budget_capacity) {
+            size_t next_capacity = inline_caller_budget_capacity < 8u
+                ? 8u : inline_caller_budget_capacity * 2u;
+            if (next_capacity < inline_caller_budget_capacity ||
+                next_capacity > SIZE_MAX / sizeof(*inline_caller_budgets)) {
+                rcc_fatal("inline caller budget table is too large");
+            }
+            inline_caller_budgets = rcc_realloc(
+                inline_caller_budgets,
+                next_capacity * sizeof(*inline_caller_budgets));
+            inline_caller_budget_capacity = next_capacity;
+        }
+        budget = &inline_caller_budgets[inline_caller_budget_count++];
+        budget->caller = caller;
+        budget->used = 0u;
+    } else {
+        budget = &inline_caller_budgets[index];
+    }
+    budget->used += cost;
+}
 
 typedef struct InlineDebugOrigin {
     const Expr* expression;
@@ -1728,6 +1790,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     size_t parameter_count = 0u;
     size_t operation_count = 0u;
     size_t index;
+    size_t expansion_cost;
     if (!expression_out || !*expression_out) return false;
     expression = *expression_out;
     if (expression->kind != EXPR_CALL ||
@@ -1909,32 +1972,34 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             return false;
         }
     }
-    {
-        size_t expansion_cost = inline_pure_scalar_expression_cost(returned);
-        if (expansion_cost == (size_t)-1 ||
-            expansion_cost > INLINE_PURE_SCALAR_EXPANSION_LIMIT) {
+    expansion_cost = inline_pure_scalar_expression_cost(returned);
+    if (expansion_cost == (size_t)-1 ||
+        expansion_cost > INLINE_PURE_SCALAR_EXPANSION_LIMIT) {
+        return false;
+    }
+    /* The return expression cost counts each parameter identifier as one
+     * node.  Charge the additional nodes introduced by each substituted
+     * pure argument so a large expression cannot bypass the per-argument
+     * repeated-use guard merely by using many distinct parameters. */
+    for (index = 0u; index < binding_count; ++index) {
+        size_t uses = bindings[index].uses;
+        size_t cost = inline_pure_scalar_expression_cost(
+            bindings[index].argument);
+        size_t additional;
+        if (uses == 0u || cost <= 1u) continue;
+        if (cost == (size_t)-1 ||
+            uses > ((size_t)-1) / (cost - 1u)) return false;
+        additional = uses * (cost - 1u);
+        if (expansion_cost > (size_t)-1 - additional ||
+            expansion_cost + additional >
+                INLINE_PURE_SCALAR_EXPANSION_LIMIT) {
             return false;
         }
-        /* The return expression cost counts each parameter identifier as one
-         * node.  Charge the additional nodes introduced by each substituted
-         * pure argument so a large expression cannot bypass the per-argument
-         * repeated-use guard merely by using many distinct parameters. */
-        for (index = 0u; index < binding_count; ++index) {
-            size_t uses = bindings[index].uses;
-            size_t cost = inline_pure_scalar_expression_cost(
-                bindings[index].argument);
-            size_t additional;
-            if (uses == 0u || cost <= 1u) continue;
-            if (cost == (size_t)-1 ||
-                uses > ((size_t)-1) / (cost - 1u)) return false;
-            additional = uses * (cost - 1u);
-            if (expansion_cost > (size_t)-1 - additional ||
-                expansion_cost + additional >
-                    INLINE_PURE_SCALAR_EXPANSION_LIMIT) {
-                return false;
-            }
-            expansion_cost += additional;
-        }
+        expansion_cost += additional;
+    }
+    if (!inline_caller_budget_can_charge(optimize_inline_caller,
+                                         expansion_cost)) {
+        return false;
     }
     {
         Expr* clone = binding_count == 0u
@@ -1943,6 +2008,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                                              binding_count);
         if (!clone) return false;
         clone->type = expression->type;
+        inline_caller_budget_charge(optimize_inline_caller, expansion_cost);
         if (g_opts.debug_info) {
             inline_debug_origin_add(clone, optimize_inline_caller, function,
                                     expression->loc);
@@ -5678,6 +5744,7 @@ void rcc_optimize(AST* ast) {
     enum { OPTIMIZE_INLINE_PASSES = 8 };
     unsigned pass;
     inline_debug_origins_clear();
+    inline_caller_budgets_clear();
     optimize_inline_caller = NULL;
     if (!ast || g_opts.opt_level <= 0) return;
     optimize_inline_ast = ast;
@@ -5698,6 +5765,7 @@ void rcc_optimize(AST* ast) {
     }
     optimize_inline_caller = NULL;
     optimize_inline_ast = NULL;
+    inline_caller_budgets_clear();
     if (!rcc_ir_verify_ast_subset(ast, &lowered_functions, ir_error,
                                   sizeof(ir_error))) {
         rcc_fatal("typed SSA lowering failed: %s", ir_error);
