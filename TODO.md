@@ -545,9 +545,18 @@
           repeated type or integral non-type defaults. The i686/AMD64
           friend-function gate passes with x64 host execution; GCC C++20
           accepts the positive fixture and rejects all four invalid fixtures.
+    - [x] Match friend function-template redeclarations with equivalent
+          one-type-parameter template-template signatures and merge their
+          defaults. Verify an earlier and a later `Box` default, instantiate
+          `Box<T>` from the function body, retain the default when only the
+          first type argument is explicit, and diagnose a repeated template
+          default. The i686/AMD64 friend-function gate passes with x64 host
+          execution; GCC C++20 accepts the positive fixture and rejects all
+          five invalid fixtures.
     - [ ] Complete constrained friend-template redeclarations,
-          template-template defaults, non-type defaults outside the supported
-          integral constant-expression evaluator, general overload/redeclaration
+          template-template defaults/signatures beyond the tested one-type
+          parameter form, non-type defaults outside the supported integral
+          constant-expression evaluator, general overload/redeclaration
           matching beyond the tested type/integral-non-type and identical-pack
           forms, and the remaining standard friend cases.
     - [x] Merge matching friend function-template redeclarations whose

@@ -178,6 +178,45 @@ int reveal_non_type_default_later(U& host, int replacement) {
     return host.value;
 }
 
+template<class T>
+struct FriendTemplateDefaultBox {};
+
+template<class T, template<class> class Container = FriendTemplateDefaultBox>
+int reveal_template_default_before(T& host, int replacement);
+
+class TemplateTemplateDefaultFriendHost {
+    int value;
+
+    template<class A, template<class> class Box>
+    friend int reveal_template_default_before(A& host, int replacement);
+};
+
+template<class U, template<class> class Value>
+int reveal_template_default_before(U& host, int replacement) {
+    Value<U> marker;
+    (void)marker;
+    host.value = replacement;
+    return host.value;
+}
+
+class LateTemplateTemplateDefaultFriendHost {
+    int value;
+
+    template<class A, template<class> class Box>
+    friend int reveal_template_default_later(A& host, int replacement);
+};
+
+template<class T, template<class> class Container>
+int reveal_template_default_later(T& host, int replacement);
+
+template<class U, template<class> class Value = FriendTemplateDefaultBox>
+int reveal_template_default_later(U& host, int replacement) {
+    Value<U> marker;
+    (void)marker;
+    host.value = replacement;
+    return host.value;
+}
+
 class DerivedFriendTemplateHost : public FriendTemplateHost {};
 
 using FriendTemplateBox0 = FriendTemplateBox<FriendTemplateHost>;
@@ -239,6 +278,8 @@ int main() {
     LateDefaultFriendTemplateHost late_default_friend_host;
     NonTypeDefaultFriendTemplateHost non_type_default_friend_host;
     LateNonTypeDefaultFriendTemplateHost late_non_type_default_friend_host;
+    TemplateTemplateDefaultFriendHost template_default_friend_host;
+    LateTemplateTemplateDefaultFriendHost late_template_default_friend_host;
     DerivedFriendTemplateHost derived_host;
     FriendTemplateBox<FriendTemplateHost> box;
     FriendTemplateBox36 deep_box;
@@ -260,6 +301,12 @@ int main() {
                non_type_default_friend_host, 61) == 68 &&
            reveal_non_type_default_later(
                late_non_type_default_friend_host, 67) == 78 &&
+           reveal_template_default_before(
+               template_default_friend_host, 73) == 73 &&
+           reveal_template_default_before<TemplateTemplateDefaultFriendHost>(
+               template_default_friend_host, 74) == 74 &&
+           reveal_template_default_later(
+               late_template_default_friend_host, 79) == 79 &&
            reveal(derived_host, 23) == 23 && reveal_box(box) == 29 &&
            reveal_box(deep_box) == 29 ? 0 : 1;
 }

@@ -2346,6 +2346,38 @@ static bool cxx_template_redeclaration_type_matches(
     }
 }
 
+static bool cxx_template_template_signature_matches(
+    const CxxTemplate* left, const CxxTemplate* right, int depth) {
+    if (!left || !right || depth > 32 ||
+        left->param_count != right->param_count) {
+        return false;
+    }
+    for (int index = 0; index < left->param_count; ++index) {
+        const TemplateParam* left_parameter = &left->params[index];
+        const TemplateParam* right_parameter = &right->params[index];
+        if (left_parameter->kind != right_parameter->kind ||
+            left_parameter->is_pack != right_parameter->is_pack) {
+            return false;
+        }
+        if (left_parameter->kind == TPARAM_TYPE) continue;
+        if (left_parameter->kind == TPARAM_NONTYPE) {
+            if (!cxx_template_redeclaration_type_matches(
+                    left_parameter->type, left,
+                    right_parameter->type, right, 0)) {
+                return false;
+            }
+            continue;
+        }
+        if (left_parameter->kind != TPARAM_TEMPLATE ||
+            !cxx_template_template_signature_matches(
+                left_parameter->template_signature,
+                right_parameter->template_signature, depth + 1)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool cxx_function_template_redeclaration_matches(
     const CxxTemplate* left, const CxxTemplate* right) {
     Type* left_type;
@@ -2377,11 +2409,19 @@ static bool cxx_function_template_redeclaration_matches(
             return false;
         }
         if (left_template_parameter->kind == TPARAM_TYPE) continue;
-        if (left_template_parameter->kind != TPARAM_NONTYPE ||
-            left_template_parameter->is_pack ||
-            !cxx_template_redeclaration_type_matches(
-                left_template_parameter->type, left,
-                right_template_parameter->type, right, 0)) {
+        if (left_template_parameter->kind == TPARAM_NONTYPE) {
+            if (left_template_parameter->is_pack ||
+                !cxx_template_redeclaration_type_matches(
+                    left_template_parameter->type, left,
+                    right_template_parameter->type, right, 0)) {
+                return false;
+            }
+            continue;
+        }
+        if (left_template_parameter->kind != TPARAM_TEMPLATE ||
+            !cxx_template_template_signature_matches(
+                left_template_parameter->template_signature,
+                right_template_parameter->template_signature, 0)) {
             return false;
         }
     }
@@ -2480,7 +2520,8 @@ static void cxx_template_merge_default_arguments(CxxTemplate* target,
             continue;
         }
         target_parameter->has_default = true;
-        if (target_parameter->kind == TPARAM_TYPE) {
+        if (target_parameter->kind == TPARAM_TYPE ||
+            target_parameter->kind == TPARAM_TEMPLATE) {
             target_parameter->default_type = source_parameter->default_type;
         } else if (target_parameter->kind == TPARAM_NONTYPE) {
             target_parameter->default_value = source_parameter->default_value;

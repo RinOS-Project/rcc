@@ -12335,7 +12335,7 @@ static bool prepare_cxx_function_template_match(
                 match->arguments[index] = substitute_template_type(
                     tmpl, parameter->default_type, match->arguments,
                     tmpl->param_count, match->values, match->value_present);
-            } else {
+            } else if (parameter->kind == TPARAM_NONTYPE) {
                 if (parameter->default_context) {
                     parameter->default_context->pending_pack_count =
                         tmpl->pending_pack_count;
@@ -12351,6 +12351,12 @@ static bool prepare_cxx_function_template_match(
                 }
                 match->arguments[index] = parameter->type;
                 match->value_present[index] = true;
+            } else if (parameter->kind == TPARAM_TEMPLATE &&
+                       parameter->default_type &&
+                       parameter->default_type->cxx_template) {
+                match->arguments[index] = parameter->default_type;
+            } else {
+                return false;
             }
         }
         for (DeclList* parameter = tmpl->func_def->func_params;

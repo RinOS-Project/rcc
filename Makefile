@@ -4674,6 +4674,10 @@ test-cxx-friend-function: $(RCXX_TARGET)
 	$(GREP) -F -q "redefinition of default template argument for 'duplicate_non_type_default'" $(TEST_OUT)/cxx-friend-function/default-non-type-redefinition-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/default-non-type-redefinition-invalid-x64.ro tests/cxx_friend_template_default_non_type_redefinition_invalid.cpp,$(TEST_OUT)/cxx-friend-function/default-non-type-redefinition-invalid-x64.log)
 	$(GREP) -F -q "redefinition of default template argument for 'duplicate_non_type_default'" $(TEST_OUT)/cxx-friend-function/default-non-type-redefinition-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x86.ro tests/cxx_friend_template_default_template_redefinition_invalid.cpp,$(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x86.log)
+	$(GREP) -F -q "redefinition of default template argument for 'duplicate_template_default'" $(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x64.ro tests/cxx_friend_template_default_template_redefinition_invalid.cpp,$(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x64.log)
+	$(GREP) -F -q "redefinition of default template argument for 'duplicate_template_default'" $(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/parent-namespace-invalid-x86.ro tests/cxx_adl_parent_namespace_invalid.cpp,$(TEST_OUT)/cxx-friend-function/parent-namespace-invalid-x86.log)
 	$(GREP) -F -q "undefined identifier 'parent_only'" $(TEST_OUT)/cxx-friend-function/parent-namespace-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-function/parent-namespace-invalid-x64.ro tests/cxx_adl_parent_namespace_invalid.cpp,$(TEST_OUT)/cxx-friend-function/parent-namespace-invalid-x64.log)
@@ -5292,6 +5296,18 @@ test-cxx-friend-function-posix: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-friend-function/default-non-type-redefinition-invalid-x64.log 2>&1
 	$(GREP) -F -q "redefinition of default template argument for 'duplicate_non_type_default'" \
 		$(TEST_OUT)/cxx-friend-function/default-non-type-redefinition-invalid-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x86.ro \
+		tests/cxx_friend_template_default_template_redefinition_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x86.log 2>&1
+	$(GREP) -F -q "redefinition of default template argument for 'duplicate_template_default'" \
+		$(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x64.ro \
+		tests/cxx_friend_template_default_template_redefinition_invalid.cpp \
+		>$(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x64.log 2>&1
+	$(GREP) -F -q "redefinition of default template argument for 'duplicate_template_default'" \
+		$(TEST_OUT)/cxx-friend-function/default-template-redefinition-invalid-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-friend-function/parent-namespace-invalid-x86.ro \
 		tests/cxx_adl_parent_namespace_invalid.cpp \
