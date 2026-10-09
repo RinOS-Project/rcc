@@ -5997,6 +5997,35 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     }
 }
 
+/* Class-scope member templates have a separate parser path.  Recognize the
+ * friend-function-template form here so it is registered as a namespace
+ * template rather than mistaken for a data member.  The balanced scan is
+ * limited to the template parameter list; the full grammar is parsed below. */
+static bool cxx_friend_function_template_starts(void) {
+    Token* token;
+    int depth = 0;
+    if (!check(TOK_TEMPLATE)) return false;
+    token = parser.cur->next;
+    if (!token || token->type != TOK_LT) return false;
+    for (; token; token = token->next) {
+        if (token->type == TOK_LT) {
+            ++depth;
+        } else if (token->type == TOK_GT) {
+            if (--depth == 0) {
+                token = token->next;
+                break;
+            }
+        } else if (token->type == TOK_RSHIFT) {
+            depth -= 2;
+            if (depth <= 0) {
+                token = token->next;
+                break;
+            }
+        }
+    }
+    return token && token->type == TOK_FRIEND;
+}
+
 /* Parse the body and ABI metadata of a class after its source name has
  * already been consumed.  Explicit template specializations use this same
  * path so their class body cannot be mistaken for a primary-template body. */
@@ -6097,6 +6126,23 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
             AccessSpec new_access = parse_access_spec();
             if (new_access != (AccessSpec)-1) {
                 current_access = new_access;
+                continue;
+            }
+
+            if (cxx_friend_function_template_starts()) {
+                CxxTemplate* tmpl;
+                advance(); /* template */
+                tmpl = parse_cxx_template();
+                if (!tmpl || tmpl->kind != TMPL_FUNCTION ||
+                    !tmpl->friend_access) {
+                    rcc_error(peek()->loc,
+                              "class friend template must declare a function template");
+                } else {
+                    cxx_namespace_add_template(
+                        active_namespace ? active_namespace
+                                         : g_global_namespace,
+                        tmpl);
+                }
                 continue;
             }
 
@@ -7933,6 +7979,40 @@ CxxTemplate* parse_cxx_template(void) {
         if (!tmpl->constraint) {
             rcc_error(loc, "requires-clause requires a constraint expression");
         }
+    }
+
+    /* A friend function template declared in a class is a namespace
+     * template.  Preserve the granting class on the template so every
+     * specialization receives precisely this access during semantic
+     * analysis; do not manufacture a class member or a placeholder body. */
+    if (match(TOK_FRIEND)) {
+        bool is_consteval = false;
+        CxxTemplate* outer_template = active_template;
+        CxxFriendAccess* friend_access;
+        if (!active_class) {
+            rcc_error(loc,
+                      "friend function template declaration requires class scope");
+        }
+        tmpl->kind = TMPL_FUNCTION;
+        if (active_class) {
+            friend_access = ast_arena_alloc(sizeof(*friend_access));
+            friend_access->owner = active_class;
+            friend_access->next = tmpl->friend_access;
+            tmpl->friend_access = friend_access;
+        }
+        tmpl->ns = active_namespace ? active_namespace : g_global_namespace;
+        active_template = tmpl;
+        tmpl->func_def = parse_cxx_function_declaration(
+            true, &tmpl->is_constexpr, &tmpl->is_noexcept, &is_consteval);
+        active_template = outer_template;
+        if (tmpl->func_def) {
+            tmpl->name = ast_arena_strdup(tmpl->func_def->name);
+            if (tmpl->func_def->func_body) {
+                tmpl->func_def->func_is_inline = true;
+            }
+        }
+        recognize_versioned_function_template(tmpl);
+        return tmpl;
     }
 
     /* A templated user-defined deduction guide has the same template

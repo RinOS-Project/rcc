@@ -275,6 +275,10 @@ struct CxxTemplate {
     CxxNamespace* ns;
     TemplateParam* params;
     int param_count;
+    /* Classes granting friendship to a function template.  The list is
+     * attached to each instantiated function declaration so normal member
+     * access checking applies to that specialization. */
+    CxxFriendAccess* friend_access;
 
     /* Template body - either class or function */
     enum {

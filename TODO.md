@@ -512,8 +512,15 @@
     - [ ] Complete inherited name lookup for hidden/ambiguous paths and the
           remaining inheritance/access combinations; retain this parent item
           as open until those cases are implemented and tested.
-    - [ ] Cover friend function templates and the remaining namespace/overload
-          redeclaration combinations beyond the tested multi-class friend.
+    - [x] Parse an in-class-defined friend function template as a namespace
+          template, propagate its granting class to instantiated declarations,
+          and test successful private access plus rejection for an unrelated
+          specialization. The i686/AMD64 `test-cxx-friend-function` gate and
+          an isolated GCC C++20 syntax comparison pass.
+    - [ ] Merge friend function-template declarations with later namespace
+          declarations/definitions, preserve grants across multiple friend
+          classes, and complete namespace visibility and overload/redeclaration
+          rules.
     - [x] Implement defined, nonvirtual, non-overloaded member-function
           pointers for unqualified, `const`, `volatile`, and `const volatile`
           methods: preserve the owner and method cv in the type, form its code

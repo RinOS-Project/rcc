@@ -4120,6 +4120,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->func_cxx_namespace_scope = tmpl->ns;
         instance->func_is_template_instance = true;
         instance->func_has_cxx_linkage = true;
+        instance->func_friend_access = tmpl->friend_access;
         instance->link_name = rcc_intern(cxx_mangle_function_template(
             instance, tmpl->ns, NULL, tmpl, args, value_args,
             value_present));
