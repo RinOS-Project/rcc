@@ -939,6 +939,10 @@
           object generations, including the separate parameter-DMI regression.
     - [ ] Cover further dependent name-lookup paths beyond mixed-name
           ambiguity, direct-member hiding, and verified using-selection.
+    - [x] Resolve dependent nested aliases through both `Base<T>::value_type`
+          and `T::value_type`; verify return types, local declarations, and
+          runtime values for i686 and AMD64 with
+          `make SHELL=cmd.exe test-cxx-class-template-dependent-nested-type`.
     - [x] Evaluate bounded scalar DMIs that read an earlier direct scalar field
           through either `this->field` or unqualified member lookup in a class
           with a dependent base. Verify `int` and `long long` on freestanding
@@ -948,9 +952,21 @@
           unqualified lookup. Verify `int` and `long long` by freestanding
           i686 execution, x64 host execution, and both target object generations
           in `test-cxx-class-template-dependent-base`.
-    - [ ] Cover additional dependent DMI forms such as arrays, calls, side
-          effects, and cleanup-bearing members. Unsupported cases remain
-          unchecked.
+    - [x] Lower bounded scalar-return calls, comma expressions with global
+          side effects, one-dimensional fixed scalar-array DMIs, and
+          destructor-bearing class-valued DMIs. Verify per-object effects and
+          member cleanup by i686 freestanding execution, x64 host execution,
+          and object generation for both targets with
+          `make SHELL=cmd.exe test-cxx-class-template-dependent-nested-type`.
+    - [x] Parse and lower nested fixed-size scalar-array DMIs, preserving
+          source dimension order; verify all values in `int` and `long long`
+          instances with freestanding i686 execution, x64 host execution, and
+          both target object generations in
+          `test-cxx-class-template-dependent-nested-type`.
+    - [ ] Support the remaining dependent DMI forms, including `this->member`
+          inside a call argument and cleanup of already-constructed members
+          when a later DMI constructor throws. These cases remain unsupported
+          and unchecked.
   - [x] 多相classのglvalue `typeid(expr)`をvtableのmost-derived typeinfoへ
         lowerし、null polymorphic pointerをRinOS `bad_typeid` exceptionへ
         transferする。non-glvalueの多相式は明示診断し、i686/AMD64の

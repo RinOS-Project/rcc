@@ -9152,6 +9152,30 @@ static void gen_cxx_initialize_member_initializers32(
             emit_pop_reg(mod, ECX);
             continue;
         }
+        if (field->type && field->type->kind == TYPE_ARRAY &&
+            field->type->base && !field->type->base->cxx_class) {
+            Expr* value;
+            if (!initializer->value || field->type->size <= 0) {
+                rcc_error((SourceLoc){"<constructor>", 0, 0},
+                          "validated C++ scalar-array initializer is incomplete");
+                return;
+            }
+            value = gen_cxx_bind_constructor_expression32(
+                constructor, initializer->value, arguments);
+            emit_push_reg(mod, ECX);
+            gen_expr(mod, value);
+            emit_push_reg(mod, EAX);
+            emit_mov_reg_mem(mod, ECX, ESP, 4);
+            if (field->offset != 0) {
+                emit_add_reg_imm(mod, ECX, (uint32_t)field->offset);
+            }
+            emit_mov_reg_mem(mod, EDX, ESP, 0);
+            gen_copy_aggregate_to_address32(
+                mod, ECX, EDX, field->type->size);
+            emit_add_reg_imm(mod, ESP, 4);
+            emit_pop_reg(mod, ECX);
+            continue;
+        }
         if (!initializer->value ||
             (initializer->arguments && initializer->arguments->next)) {
             rcc_error((SourceLoc){"<constructor>", 0, 0},
@@ -9353,6 +9377,30 @@ static void gen_cxx_initialize_object32_mode(
                 gen_cxx_initialize_object32_mode(
                     mod, field->type, initializer->constructor,
                     bound_arguments, true);
+                emit_pop_reg(mod, address_reg);
+            } else if (field->type &&
+                       field->type->kind == TYPE_ARRAY &&
+                       field->type->base &&
+                       !field->type->base->cxx_class) {
+                Expr* value = gen_cxx_bind_constructor_expression32(
+                    constructor, initializer->value, arguments);
+                if (!value || field->type->size <= 0) {
+                    rcc_error((SourceLoc){"<constructor>", 0, 0},
+                              "validated C++ scalar-array initializer is incomplete");
+                    return;
+                }
+                emit_push_reg(mod, address_reg);
+                gen_expr(mod, value);
+                emit_push_reg(mod, EAX);
+                emit_mov_reg_mem(mod, ECX, ESP, 4);
+                if (field->offset != 0) {
+                    emit_add_reg_imm(mod, ECX,
+                                     (uint32_t)field->offset);
+                }
+                emit_mov_reg_mem(mod, EDX, ESP, 0);
+                gen_copy_aggregate_to_address32(
+                    mod, ECX, EDX, field->type->size);
+                emit_add_reg_imm(mod, ESP, 4);
                 emit_pop_reg(mod, address_reg);
             } else {
                 Expr* value = gen_cxx_bind_constructor_expression32(

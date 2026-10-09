@@ -3504,7 +3504,7 @@ test-cxx-class-template-specialization: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-specialization)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-specialization,cxx_class_template_specialization.cpp)
 
-test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-dependent-base-lookup-invalid
+test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-dependent-base-lookup-invalid test-cxx-class-template-dependent-nested-type
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-base)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s tests/cxx_class_template_dependent_base.cpp
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s)
@@ -3513,10 +3513,15 @@ test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-d
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-dmi-parameter)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-dependent-dmi-parameter,cxx_dependent_dmi_parameter.cpp)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86-freestanding,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86.s)
+test-cxx-class-template-dependent-nested-type: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-nested-type)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s tests/cxx_class_template_dependent_nested_type.cpp
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-dependent-nested-type,cxx_class_template_dependent_nested_type.cpp)
 else
 test-cxx-class-template-methods: test-cxx-class-template-methods-posix
 test-cxx-class-template-specialization: test-cxx-class-template-specialization-posix
-test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-dependent-base-lookup-invalid
+test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-dependent-base-lookup-invalid test-cxx-class-template-dependent-nested-type
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-base)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s tests/cxx_class_template_dependent_base.cpp
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-base/x86-freestanding.s)
@@ -3525,6 +3530,11 @@ test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-d
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-dmi-parameter)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-dependent-dmi-parameter,cxx_dependent_dmi_parameter.cpp)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86-freestanding,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86.s)
+test-cxx-class-template-dependent-nested-type: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-nested-type)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s tests/cxx_class_template_dependent_nested_type.cpp
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-class-template-dependent-nested-type,cxx_class_template_dependent_nested_type.cpp)
 endif
 
 test-cxx-class-template-dependent-base-lookup-invalid: $(RCXX_TARGET)
@@ -8434,6 +8444,7 @@ endif
 .PHONY: test-cxx-class-template-methods
 .PHONY: test-cxx-class-template-specialization
 .PHONY: test-cxx-class-template-dependent-base
+.PHONY: test-cxx-class-template-dependent-nested-type
 .PHONY: test-cxx-class-template-dependent-base-lookup-invalid
 .PHONY: test-cxx-class-template-specialization-ambiguous
 .PHONY: test-cxx-class-template-specialization-partial-order-invalid

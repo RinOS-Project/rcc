@@ -1782,6 +1782,9 @@ static Type* parse_cxx_lambda_auto_type(CxxTemplate* tmpl,
 static void resolve_class_bases(CxxClass* cls, SourceLoc loc);
 static void validate_class_virtual_specifiers(CxxClass* cls, SourceLoc loc);
 static bool cxx_class_has_unresolved_dependent_base(const CxxClass* cls);
+static bool cxx_constructor_dmi_value_is_lowerable(
+    CxxClass* cls, TypeParam* initialized_field, Type* type,
+    Expr* expression);
 static CxxClass* find_class(const char* qualified_name);
 static CxxTemplate* find_class_template(const char* qualified_name);
 static CxxTemplate* find_alias_template(const char* qualified_name);
@@ -3795,11 +3798,13 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 Type* type = field->type;
                 if (!type || (!type->cxx_dependent && type->size <= 0) ||
                     (!cxx_constructor_scalar_type(type) &&
-                     !type->cxx_dependent) ||
-                    !cxx_constructor_dmi_expression_is_lowerable(
-                        cls, field, field->initializer) ||
-                    (g_opts.target_arch == ARCH_X86 && type->size > 8) ||
-                    (g_opts.target_arch == ARCH_X64 && type->size > 8)) {
+                     !type->cxx_dependent && type->kind != TYPE_ARRAY) ||
+                    !cxx_constructor_dmi_value_is_lowerable(
+                        cls, field, type, field->initializer) ||
+                    (type->kind == TYPE_ARRAY && type->size > 512) ||
+                    (type->kind != TYPE_ARRAY &&
+                     ((g_opts.target_arch == ARCH_X86 && type->size > 8) ||
+                      (g_opts.target_arch == ARCH_X64 && type->size > 8)))) {
                     valid = false;
                     break;
                 }
@@ -3837,8 +3842,6 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                 member_constructor = cxx_find_base_constructor(
                     member_class, (int)member_argument_count);
                 if (!member_constructor || !member_class->type ||
-                    member_class->destructor_method ||
-                    member_class->type->cleanup_function ||
                     member_argument_count >= 32u ||
                     (lowerable_constructor_arity_mask(member_class) &
                      (UINT32_C(1) << member_argument_count)) == 0u) {
@@ -4060,9 +4063,39 @@ static bool cxx_constructor_dmi_field_is_earlier(
     return false;
 }
 
-/* A bounded dynamic DMI may read an earlier scalar field and combine it with
- * scalar constants. Calls, assignments, and reads of later fields stay out of
- * the constructor subset until their evaluation order and effects are modeled. */
+static bool cxx_constructor_dmi_lvalue_is_lowerable(
+    CxxClass* cls, TypeParam* initialized_field, Expr* expression) {
+    if (!expression) return false;
+    if (expression->kind == EXPR_IDENT && expression->ident_name) {
+        for (TypeParam* field = cls ? cls->fields : NULL;
+             field; field = field->next) {
+            if (!field->is_static && field->name &&
+                strcmp(field->name, expression->ident_name) == 0) {
+                return field != initialized_field &&
+                    cxx_constructor_dmi_field_is_earlier(
+                        cls, initialized_field, expression->ident_name);
+            }
+        }
+        /* Non-member names are checked by semantic analysis when the
+         * specialized constructor is resolved. */
+        return true;
+    }
+    if ((expression->kind == EXPR_MEMBER ||
+         expression->kind == EXPR_PTR_MEMBER) &&
+        expression->member_base &&
+        expression->member_base->kind == EXPR_IDENT &&
+        expression->member_base->ident_name &&
+        strcmp(expression->member_base->ident_name, "this") == 0) {
+        return cxx_constructor_dmi_field_is_earlier(
+            cls, initialized_field, expression->member_name);
+    }
+    return false;
+}
+
+/* Dynamic scalar DMIs are evaluated by the constructor in declaration order.
+ * Calls, assignments, comma expressions, and increments are admitted only
+ * when their operands stay within scalar expressions and their writes target
+ * a global scalar name or an already initialized field. */
 static bool cxx_constructor_dmi_expression_is_lowerable(
     CxxClass* cls, TypeParam* initialized_field, Expr* expression) {
     if (!expression) return false;
@@ -4118,9 +4151,112 @@ static bool cxx_constructor_dmi_expression_is_lowerable(
             return cxx_constructor_scalar_type(expression->cast_type) &&
                    cxx_constructor_dmi_expression_is_lowerable(
                        cls, initialized_field, expression->cast_expr);
+        case EXPR_CALL:
+            if (!expression->call_func ||
+                (expression->call_func->kind != EXPR_IDENT &&
+                 expression->call_func->kind != EXPR_MEMBER &&
+                 expression->call_func->kind != EXPR_PTR_MEMBER)) {
+                return false;
+            }
+            for (ExprList* argument = expression->call_args;
+                 argument; argument = argument->next) {
+                if (!cxx_constructor_dmi_expression_is_lowerable(
+                        cls, initialized_field, argument->expr)) {
+                    return false;
+                }
+            }
+            return true;
+        case EXPR_COMPOUND:
+            for (ExprList* item = expression->compound_init;
+                 item; item = item->next) {
+                if (item->designator_kind != INIT_DESIGNATOR_NONE ||
+                    !cxx_constructor_dmi_expression_is_lowerable(
+                        cls, initialized_field, item->expr)) {
+                    return false;
+                }
+            }
+            return true;
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+            return cxx_constructor_dmi_lvalue_is_lowerable(
+                       cls, initialized_field, expression->binary_lhs) &&
+                   cxx_constructor_dmi_expression_is_lowerable(
+                       cls, initialized_field, expression->binary_rhs);
+        case EXPR_COMMA:
+            return cxx_constructor_dmi_expression_is_lowerable(
+                       cls, initialized_field, expression->binary_lhs) &&
+                   cxx_constructor_dmi_expression_is_lowerable(
+                       cls, initialized_field, expression->binary_rhs);
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            return cxx_constructor_dmi_lvalue_is_lowerable(
+                cls, initialized_field, expression->unary_operand);
         default:
             return false;
     }
+}
+
+static bool cxx_constructor_dmi_value_is_lowerable(
+    CxxClass* cls, TypeParam* initialized_field, Type* type,
+    Expr* expression) {
+    if (!type || !expression) return false;
+    if (cxx_constructor_scalar_type(type)) {
+        return cxx_constructor_dmi_expression_is_lowerable(
+            cls, initialized_field, expression);
+    }
+    if (type->kind == TYPE_ARRAY) {
+        if (!type->base || type->array_len <= 0 || type->array_len > 64 ||
+            expression->kind != EXPR_COMPOUND) {
+            return false;
+        }
+        int element_count = 0;
+        for (ExprList* item = expression->compound_init;
+             item; item = item->next) {
+            if (item->designator_kind != INIT_DESIGNATOR_NONE ||
+                !item->expr || ++element_count > type->array_len) {
+                return false;
+            }
+            if (type->base->kind == TYPE_ARRAY) {
+                if (!cxx_constructor_dmi_value_is_lowerable(
+                        cls, initialized_field, type->base, item->expr)) {
+                    return false;
+                }
+            } else if ((cxx_constructor_scalar_type(type->base) ||
+                        type->base->cxx_dependent) &&
+                       cxx_constructor_dmi_expression_is_lowerable(
+                           cls, initialized_field, item->expr)) {
+                continue;
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+    /* A dependent class-template specialization is class-valued even though
+     * its layout has not been substituted yet.  Keep it on the member
+     * constructor path instead of treating a brace initializer as a scalar
+     * aggregate expression.  A bare template type parameter still uses the
+     * bounded dependent-scalar path below. */
+    if (type->cxx_dependent && type->kind == TYPE_STRUCT &&
+        (type->cxx_template || type->cxx_dependent_member_name)) {
+        return false;
+    }
+    if (type->cxx_dependent) {
+        return cxx_constructor_dmi_expression_is_lowerable(
+            cls, initialized_field, expression);
+    }
+    return false;
 }
 
 /* A pointer member may be initialized from the address of an object with
@@ -4511,20 +4647,13 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 continue;
             }
             if (initializer->is_default_member_initializer) {
-                if (!cxx_constructor_dmi_expression_is_lowerable(
-                        cls, field, initializer->value) ||
-                    !field->type ||
-                    !(type_is_integer(field->type) ||
-                      field->type->kind == TYPE_ENUM ||
-                      field->type->kind == TYPE_PTR ||
-                      field->type->kind == TYPE_NULLPTR ||
-                      field->type->kind == TYPE_FLOAT ||
-                      field->type->kind == TYPE_DOUBLE) ||
-                    field->type->size <= 0 ||
-                    (g_opts.target_arch == ARCH_X86 &&
-                     field->type->size > 8) ||
-                    (g_opts.target_arch == ARCH_X64 &&
-                     field->type->size > 8)) {
+                bool is_array = field->type &&
+                    field->type->kind == TYPE_ARRAY;
+                if (!cxx_constructor_dmi_value_is_lowerable(
+                        cls, field, field->type, initializer->value) ||
+                    !field->type || field->type->size <= 0 ||
+                    (is_array && field->type->size > 512) ||
+                    (!is_array && field->type->size > 8)) {
                     supported = false;
                     break;
                 }
@@ -6451,8 +6580,14 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         /* Field */
         bool is_bitfield = false;
         unsigned bit_width = 0u;
-        /* Array suffix? */
-        if (match(TOK_LBRACKET)) {
+        int array_lengths[64];
+        Expr* array_bounds[64];
+        SourceLoc array_locs[64];
+        int array_count = 0;
+        /* Array suffixes bind from the member name outward. Keep the source
+         * order and construct the nested array type inside-out after parsing
+         * all dimensions (for example, `T matrix[2][3]` is [2] of [3] T). */
+        while (match(TOK_LBRACKET)) {
             int len = -1;
             Expr* bound_expression = NULL;
             if (check(TOK_INT_LIT)) {
@@ -6476,8 +6611,29 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                 }
             }
             expect(TOK_RBRACKET, "]");
+            if (array_count >= (int)(sizeof(array_lengths) /
+                                     sizeof(array_lengths[0]))) {
+                rcc_error(previous()->loc,
+                          "C++ member array declarator is too deep");
+            } else {
+                array_lengths[array_count] = len;
+                array_bounds[array_count] = bound_expression;
+                array_locs[array_count] = previous()->loc;
+                ++array_count;
+            }
+        }
+        while (array_count > 0) {
+            int index = --array_count;
+            int len = array_lengths[index];
+            if (len > 0 && type->size > 0 &&
+                len > INT_MAX / type->size) {
+                rcc_error(array_locs[index],
+                          "C++ member array bound is too large for its "
+                          "complete element type");
+                len = -1;
+            }
             type = type_array(type, len);
-            type->array_bound = bound_expression;
+            type->array_bound = array_bounds[index];
         }
 
         if (has_explicit_alignment) {
@@ -14167,7 +14323,93 @@ static Type* parse_cxx_type_spec(void) {
     }
 
     /* Base type */
-    if (check(TOK_DECLTYPE)) {
+    if (match(TOK_TYPENAME)) {
+        Type* owner_type = NULL;
+        CxxTypeAlias* owner_alias = NULL;
+        CxxTypeAlias* member_alias = NULL;
+        const char* owner_name = NULL;
+        const char* member_name = NULL;
+        if (check(TOK_IDENT) && parser.cur->next &&
+            parser.cur->next->type == TOK_LT) {
+            bool is_current_class_template = active_class &&
+                active_template && active_template->kind == TMPL_CLASS &&
+                active_class->name &&
+                strcmp(peek()->value.str_val, active_class->name) == 0;
+            if (is_current_class_template) {
+                /* The primary class template is not registered until its
+                 * body has been parsed.  Parse its self-specialization from
+                 * the active template context instead of treating the class
+                 * name as an ordinary dependent identifier. */
+                advance();
+                owner_type = parse_class_template_specialization(
+                    active_template, loc);
+            } else {
+                owner_type = parse_cxx_type_spec();
+            }
+        } else if (check(TOK_IDENT)) {
+            Token* owner_token = advance();
+            owner_name = rcc_intern(owner_token->value.str_val);
+            if (active_class) {
+                owner_alias = cxx_class_find_type_alias(
+                    active_class, owner_name);
+            }
+            owner_type = owner_alias ? owner_alias->type
+                                     : rcc_parser_lookup_type(owner_name);
+            if (!owner_type && is_active_template_type(owner_name)) {
+                owner_type = type_struct(owner_name);
+                owner_type->cxx_dependent = true;
+                owner_type->cxx_template_param_index =
+                    active_template_type_index(owner_name);
+            }
+        }
+        if (!owner_type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
+            rcc_error(loc,
+                      "typename must name a nested type of a class type");
+            t = type_int;
+        } else {
+            CxxClass* owner_class = owner_type->cxx_class;
+            if (!owner_class && owner_type->cxx_template &&
+                owner_type->cxx_template->kind == TMPL_CLASS) {
+                owner_class = owner_type->cxx_template->templated_class;
+            }
+            if (!owner_class && active_class && active_template &&
+                owner_type->cxx_template == active_template) {
+                owner_class = active_class;
+            }
+            member_name = rcc_intern(advance()->value.str_val);
+            member_alias = owner_class
+                ? cxx_class_find_type_alias(owner_class, member_name)
+                : NULL;
+            if (member_alias && member_alias->access == ACCESS_PUBLIC) {
+                t = member_alias->type;
+            } else if (owner_type->cxx_dependent &&
+                       owner_type->cxx_template_param_index >= 0) {
+                char dependent_name[512];
+                int written = snprintf(dependent_name,
+                                       sizeof(dependent_name),
+                                       "%s::%s",
+                                       owner_name ? owner_name
+                                                  : owner_type->tag,
+                                       member_name);
+                if (written < 0 ||
+                    (size_t)written >= sizeof(dependent_name)) {
+                    rcc_error(loc, "dependent nested type name is too long");
+                    t = type_int;
+                } else {
+                    t = type_struct(rcc_intern(dependent_name));
+                    t->cxx_dependent = true;
+                    t->cxx_template_param_index =
+                        owner_type->cxx_template_param_index;
+                    t->cxx_dependent_member_name = member_name;
+                }
+            } else {
+                rcc_error(loc,
+                          "unknown or inaccessible nested type '%s'",
+                          member_name);
+                t = type_int;
+            }
+        }
+    } else if (check(TOK_DECLTYPE)) {
         t = parse_cxx_decltype_type(loc);
     } else if (match(TOK_VOID)) {
         t = type_void;
@@ -15801,7 +16043,7 @@ static Stmt* parse_cxx_statement(void) {
         return parse_cxx_structured_binding_declaration();
     }
 
-    if (check(TOK_AUTO) ||
+    if (check(TOK_TYPENAME) || check(TOK_AUTO) ||
         (check(TOK_DECLTYPE) && parser.cur->next &&
          parser.cur->next->type == TOK_LPAREN && parser.cur->next->next &&
          parser.cur->next->next->type == TOK_AUTO &&

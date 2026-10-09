@@ -488,3 +488,13 @@ second base and checks its field and overload; the focused target passed
 freestanding i686 execution, x64 host execution, and both target object
 generations. Its complete target also passes the separate parameter-DMI
 regression; broader dependent lookup coverage remains unchecked.
+
+2026-10-09 dependent nested-type and DMI follow-up: RCC++ now resolves public
+`Base<T>::value_type` and `T::value_type` in dependent return types and local
+declarations. The new `test-cxx-class-template-dependent-nested-type` regression
+also verifies bounded scalar-return calls, comma side effects, fixed
+one- and two-dimensional scalar-array DMIs, and destruction of a class-valued
+DMI member. It passes freestanding i686 execution, x64 host execution, and
+object generation for both target widths. `this->member` inside DMI call
+arguments and cleanup after a later DMI constructor throws remain unsupported
+and unchecked ([TODO](TODO.md)).
