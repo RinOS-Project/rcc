@@ -59,12 +59,19 @@ int&& return_rvalue_reference(int&& value) {
 }
 
 using LvalueReferenceFunction = int& (*)(int&);
-using RvalueReferenceFunction = int&& (*)(int&&);
 
 struct ReferenceFunctionAliases {
     using RvalueReferenceFunction = int&& (*)(int&&);
+    LvalueReferenceFunction lvalue_function;
     RvalueReferenceFunction function;
 };
+
+struct ReferenceFunctionAliasBase {
+    using Function = int&& (*)(int&&);
+    Function function;
+};
+
+struct InheritedReferenceFunctionAliases : ReferenceFunctionAliasBase {};
 
 int& select_conditional_lvalue(bool choose_first, int& first, int& second) {
     return choose_first ? first : second;
@@ -419,13 +426,29 @@ int main() {
     indirect_lvalue_result += 1;
     if (indirect_value != 71) return 34;
     ReferenceFunctionAliases rvalue_reference_aliases;
-    (void)rvalue_reference_aliases;
-    RvalueReferenceFunction rvalue_reference_function =
-            &return_rvalue_reference;
+    rvalue_reference_aliases.function = &return_rvalue_reference;
+    auto rvalue_reference_function = rvalue_reference_aliases.function;
     int&& indirect_rvalue_result = rvalue_reference_function(
             static_cast<int&&>(indirect_value));
     indirect_rvalue_result += 2;
     if (indirect_value != 73) return 35;
+    rvalue_reference_aliases.lvalue_function = &return_lvalue_reference;
+    int& direct_lvalue_result =
+            rvalue_reference_aliases.lvalue_function(indirect_value);
+    direct_lvalue_result += 1;
+    if (indirect_value != 74) return 36;
+    ReferenceFunctionAliases* reference_alias_pointer =
+            &rvalue_reference_aliases;
+    int&& direct_rvalue_result = reference_alias_pointer->function(
+            static_cast<int&&>(indirect_value));
+    direct_rvalue_result += 2;
+    if (indirect_value != 76) return 37;
+    InheritedReferenceFunctionAliases inherited_reference_aliases;
+    inherited_reference_aliases.function = &return_rvalue_reference;
+    int&& inherited_rvalue_result = inherited_reference_aliases.function(
+            static_cast<int&&>(indirect_value));
+    inherited_rvalue_result += 1;
+    if (indirect_value != 77) return 38;
     int other_value = 20;
     int& selected_lvalue = select_conditional_lvalue(
             false, mutable_value, other_value);

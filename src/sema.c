@@ -9980,6 +9980,53 @@ static bool sema_cxx_class_declares_method_name(Type* aggregate,
     return false;
 }
 
+/* A call whose postfix member expression resolves to a data member is an
+ * indirect call when that member has function-pointer type, not a member
+ * function overload lookup.  Keep the test aligned with ordinary member
+ * lookup: declarations in the current class hide base names, and an
+ * explicit using-declaration selects its named base before flattened fields
+ * and methods are considered. */
+static bool sema_cxx_member_resolves_to_data_field(Type* aggregate,
+                                                   const char* name) {
+    CxxClass* using_base;
+    Type* lookup_type;
+    bool has_field = false;
+    bool has_method = false;
+
+    if (!aggregate || !aggregate->cxx_class || !name) return false;
+    if (sema_cxx_member_lookup_ambiguous(aggregate, name)) {
+        /* Let ordinary EXPR_MEMBER analysis report the precise ambiguity. */
+        return true;
+    }
+    using_base = sema_cxx_using_base_member_owner(aggregate, name);
+    lookup_type = using_base ? using_base->type : aggregate;
+    if (!lookup_type || !lookup_type->cxx_class) return false;
+
+    if (sema_cxx_class_declares_member_name(lookup_type, name)) {
+        for (TypeParam* field = lookup_type->cxx_class->fields;
+             field; field = field->next) {
+            if (field->name && strcmp(field->name, name) == 0) return true;
+        }
+        return false;
+    }
+    for (TypeField* field = lookup_type->fields;
+         field; field = field->next) {
+        if (field->name && strcmp(field->name, name) == 0) {
+            has_field = true;
+            break;
+        }
+    }
+    for (TypeMethod* method = lookup_type->methods;
+         method; method = method->next) {
+        if (method->kind == TYPE_METHOD_FUNCTION && method->function_decl &&
+            method->name && strcmp(method->name, name) == 0) {
+            has_method = true;
+            break;
+        }
+    }
+    return has_field && !has_method;
+}
+
 /* Member functions are kept on the owning TypeMethod list rather than in the
  * global symbol table because ordinary members use their ABI spelling as the
  * declaration key.  Apply the same conversion ranking used by free-function
@@ -13154,16 +13201,26 @@ static Type* sema_expr(Expr* expr) {
                      argument = argument->next) {
                     sema_expr(argument->expr);
                 }
-                method = sema_select_cxx_member_method(
-                    expr, owner, member->member_name, &ambiguous_lookup);
-                if (ambiguous_lookup) {
-                    rcc_error(expr->loc,
-                              "ambiguous member lookup for '%s'",
-                              member->member_name);
-                    expr->type = type_int;
-                    break;
+                if (sema_cxx_member_resolves_to_data_field(
+                        owner, member->member_name)) {
+                    /* Leave call_func as EXPR_MEMBER/EXPR_PTR_MEMBER. Its
+                     * normal semantic analysis resolves and access-checks
+                     * the field, then the generic call path invokes its
+                     * function-pointer value. */
+                    arguments_analyzed = true;
+                } else {
+                    method = sema_select_cxx_member_method(
+                        expr, owner, member->member_name, &ambiguous_lookup);
+                    if (ambiguous_lookup) {
+                        rcc_error(expr->loc,
+                                  "ambiguous member lookup for '%s'",
+                                  member->member_name);
+                        expr->type = type_int;
+                        break;
+                    }
                 }
-                if (method && method->function_decl) {
+                if (!arguments_analyzed && method &&
+                    method->function_decl) {
                     Expr* function_expression;
                     arguments_analyzed = true;
                     if (!sema_cxx_member_accessible(
