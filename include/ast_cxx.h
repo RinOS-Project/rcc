@@ -312,6 +312,8 @@ struct CxxTemplate {
      * expression in the template object lets overload/instantiation code
      * reject unsatisfied specializations before code generation. */
     Expr* constraint;
+    /* Parameter names/scope used by the parsed requires-clause. */
+    CxxTemplate* constraint_context;
     enum {
         TMPL_FUNCTION_NONE,
         TMPL_FUNCTION_VERSIONED_STRUCT,

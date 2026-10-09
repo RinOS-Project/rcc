@@ -2378,6 +2378,155 @@ static bool cxx_template_template_signature_matches(
     return true;
 }
 
+static int cxx_template_redeclaration_parameter_named(
+    const CxxTemplate* tmpl, const char* name) {
+    if (!tmpl || !name) return -1;
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (tmpl->params[index].name &&
+            strcmp(tmpl->params[index].name, name) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+static bool cxx_template_redeclaration_expr_matches(
+    const Expr* left, const CxxTemplate* left_template,
+    const Expr* right, const CxxTemplate* right_template, int depth);
+
+static bool cxx_template_redeclaration_expr_list_matches(
+    const ExprList* left, const CxxTemplate* left_template,
+    const ExprList* right, const CxxTemplate* right_template, int depth) {
+    while (left && right) {
+        if (!cxx_template_redeclaration_expr_matches(
+                left->expr, left_template, right->expr, right_template,
+                depth + 1)) {
+            return false;
+        }
+        left = left->next;
+        right = right->next;
+    }
+    return !left && !right;
+}
+
+static bool cxx_template_redeclaration_expr_matches(
+    const Expr* left, const CxxTemplate* left_template,
+    const Expr* right, const CxxTemplate* right_template, int depth) {
+    if (!left || !right || depth > 64 || left->kind != right->kind) {
+        return false;
+    }
+    switch (left->kind) {
+        case EXPR_INT_LIT:
+            return left->int_val == right->int_val && left->type &&
+                right->type && cxx_template_redeclaration_type_matches(
+                    left->type, left_template, right->type, right_template,
+                    depth + 1);
+        case EXPR_FLOAT_LIT:
+            return left->float_val == right->float_val && left->type &&
+                right->type && cxx_template_redeclaration_type_matches(
+                    left->type, left_template, right->type, right_template,
+                    depth + 1);
+        case EXPR_CHAR_LIT:
+            return left->char_val == right->char_val && left->type &&
+                right->type && cxx_template_redeclaration_type_matches(
+                    left->type, left_template, right->type, right_template,
+                    depth + 1);
+        case EXPR_IDENT: {
+            int left_index = cxx_template_redeclaration_parameter_named(
+                left_template, left->ident_name);
+            int right_index = cxx_template_redeclaration_parameter_named(
+                right_template, right->ident_name);
+            if (left_index >= 0 || right_index >= 0) {
+                return left_index >= 0 && right_index == left_index &&
+                    left_template->params[left_index].kind ==
+                        right_template->params[right_index].kind;
+            }
+            return left->ident_name && right->ident_name &&
+                strcmp(left->ident_name, right->ident_name) == 0 &&
+                (!left->ident_decl || !right->ident_decl ||
+                 left->ident_decl == right->ident_decl);
+        }
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            return cxx_template_redeclaration_expr_matches(
+                left->unary_operand, left_template,
+                right->unary_operand, right_template, depth + 1);
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            if (left->sizeof_pack_name || right->sizeof_pack_name) {
+                int left_index = cxx_template_redeclaration_parameter_named(
+                    left_template, left->sizeof_pack_name);
+                int right_index = cxx_template_redeclaration_parameter_named(
+                    right_template, right->sizeof_pack_name);
+                return left_index >= 0 && right_index == left_index &&
+                    left_template->params[left_index].is_pack &&
+                    right_template->params[right_index].is_pack;
+            }
+            if (left->sizeof_type || right->sizeof_type) {
+                return cxx_template_redeclaration_type_matches(
+                    left->sizeof_type, left_template,
+                    right->sizeof_type, right_template, depth + 1);
+            }
+            return cxx_template_redeclaration_expr_matches(
+                left->unary_operand, left_template,
+                right->unary_operand, right_template, depth + 1);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+            return cxx_template_redeclaration_expr_matches(
+                       left->binary_lhs, left_template,
+                       right->binary_lhs, right_template, depth + 1) &&
+                cxx_template_redeclaration_expr_matches(
+                       left->binary_rhs, left_template,
+                       right->binary_rhs, right_template, depth + 1);
+        case EXPR_COND:
+            return cxx_template_redeclaration_expr_matches(
+                       left->cond_test, left_template,
+                       right->cond_test, right_template, depth + 1) &&
+                cxx_template_redeclaration_expr_matches(
+                       left->cond_then, left_template,
+                       right->cond_then, right_template, depth + 1) &&
+                cxx_template_redeclaration_expr_matches(
+                       left->cond_else, left_template,
+                       right->cond_else, right_template, depth + 1);
+        case EXPR_CALL:
+            return left->cxx_concept_template ==
+                       right->cxx_concept_template &&
+                cxx_template_redeclaration_expr_matches(
+                       left->call_func, left_template,
+                       right->call_func, right_template, depth + 1) &&
+                cxx_template_redeclaration_expr_list_matches(
+                       left->call_args, left_template,
+                       right->call_args, right_template, depth + 1);
+        case EXPR_CAST:
+            return cxx_template_redeclaration_type_matches(
+                       left->type, left_template,
+                       right->type, right_template, depth + 1) &&
+                cxx_template_redeclaration_expr_matches(
+                       left->cast_expr, left_template,
+                       right->cast_expr, right_template, depth + 1);
+        default:
+            return false;
+    }
+}
+
 static bool cxx_function_template_redeclaration_matches(
     const CxxTemplate* left, const CxxTemplate* right) {
     Type* left_type;
@@ -2390,8 +2539,16 @@ static bool cxx_function_template_redeclaration_matches(
         right->kind != TMPL_FUNCTION || left->is_concept ||
         right->is_concept || !left->func_def || !right->func_def ||
         !left->name || !right->name || strcmp(left->name, right->name) != 0 ||
-        left->param_count != right->param_count || left->constraint ||
-        right->constraint || left->function_lowering != right->function_lowering ||
+        left->param_count != right->param_count ||
+        (!!left->constraint != !!right->constraint) ||
+        (left->constraint &&
+         !cxx_template_redeclaration_expr_matches(
+             left->constraint,
+             left->constraint_context ? left->constraint_context : left,
+             right->constraint,
+             right->constraint_context ? right->constraint_context : right,
+             0)) ||
+        left->function_lowering != right->function_lowering ||
         left->is_noexcept != right->is_noexcept ||
         left->func_def->func_noexcept_expr ||
         right->func_def->func_noexcept_expr ||
@@ -2574,6 +2731,10 @@ void cxx_namespace_add_template(CxxNamespace* ns, CxxTemplate* tmpl) {
         bool has_friend_declaration = tmpl->friend_access != NULL;
         cxx_template_merge_friend_access(existing, tmpl);
         cxx_template_merge_default_arguments(existing, tmpl);
+        if (tmpl->constraint) {
+            existing->constraint = tmpl->constraint;
+            existing->constraint_context = tmpl->constraint_context;
+        }
         if (had_friend_declaration && !has_friend_declaration) {
             existing->is_hidden_friend = false;
         }
@@ -2649,6 +2810,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->is_noexcept = false;
     tmpl->is_concept = false;
     tmpl->constraint = NULL;
+    tmpl->constraint_context = NULL;
     tmpl->function_lowering = TMPL_FUNCTION_NONE;
     tmpl->function_constant = 0;
     tmpl->templated_class = NULL;

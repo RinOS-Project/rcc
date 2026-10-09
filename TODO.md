@@ -553,10 +553,17 @@
           default. The i686/AMD64 friend-function gate passes with x64 host
           execution; GCC C++20 accepts the positive fixture and rejects all
           five invalid fixtures.
-    - [ ] Complete constrained friend-template redeclarations,
-          template-template defaults/signatures beyond the tested one-type
-          parameter form, non-type defaults outside the supported integral
-          constant-expression evaluator, general overload/redeclaration
+    - [x] Match constrained friend-template redeclarations when their simple
+          integral requires-clause trees are equivalent under template
+          parameter renaming. Preserve the constraint's original parameter
+          scope through declaration merging; verify a defaulted positive call
+          and reject an explicit argument that violates the constraint on both
+          targets. The focused friend gate and `test-cxx-constraints` pass;
+          GCC C++20 accepts the positive fixture and rejects the invalid one.
+    - [ ] Complete constraint equivalence beyond the tested integral
+          expression tree, template-template defaults/signatures beyond the
+          one-type-parameter form, non-type defaults outside the supported
+          integral constant-expression evaluator, general overload/redeclaration
           matching beyond the tested type/integral-non-type and identical-pack
           forms, and the remaining standard friend cases.
     - [x] Merge matching friend function-template redeclarations whose

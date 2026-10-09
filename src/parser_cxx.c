@@ -6024,6 +6024,23 @@ static bool cxx_friend_function_template_starts(void) {
             }
         }
     }
+    if (token && token->type == TOK_REQUIRES) {
+        token = token->next;
+        if (token && token->type == TOK_LPAREN) {
+            int parentheses = 0;
+            do {
+                if (token->type == TOK_LPAREN) ++parentheses;
+                else if (token->type == TOK_RPAREN) --parentheses;
+                token = token->next;
+            } while (token && parentheses > 0);
+        } else {
+            while (token && token->type != TOK_FRIEND &&
+                   token->type != TOK_SEMICOLON &&
+                   token->type != TOK_LBRACE) {
+                token = token->next;
+            }
+        }
+    }
     return token && token->type == TOK_FRIEND;
 }
 
@@ -7710,6 +7727,23 @@ static void recognize_versioned_function_template(CxxTemplate* tmpl) {
     tmpl->function_constant = version;
 }
 
+static CxxTemplate* cxx_template_snapshot_parameter_scope(
+    const CxxTemplate* tmpl) {
+    CxxTemplate* snapshot;
+    if (!tmpl) return NULL;
+    snapshot = ast_arena_alloc(sizeof(*snapshot));
+    *snapshot = *tmpl;
+    if (tmpl->param_count > 0) {
+        snapshot->params = ast_arena_alloc(
+            sizeof(*snapshot->params) * (size_t)tmpl->param_count);
+        memcpy(snapshot->params, tmpl->params,
+               sizeof(*snapshot->params) * (size_t)tmpl->param_count);
+    } else {
+        snapshot->params = NULL;
+    }
+    return snapshot;
+}
+
 CxxTemplate* parse_cxx_template(void) {
     SourceLoc loc = previous()->loc;
     CxxTemplate* parameter_outer_template = active_template;
@@ -7915,19 +7949,8 @@ CxxTemplate* parse_cxx_template(void) {
                         rcc_parser_set_cxx_template_default_mode(true);
                         tmpl->params[parameter_index].default_value =
                             parse_assignment_expression();
-                        {
-                            CxxTemplate* default_context =
-                                ast_arena_alloc(sizeof(*default_context));
-                            *default_context = *tmpl;
-                            default_context->params = ast_arena_alloc(
-                                sizeof(*default_context->params) *
-                                (size_t)tmpl->param_count);
-                            memcpy(default_context->params, tmpl->params,
-                                   sizeof(*default_context->params) *
-                                   (size_t)tmpl->param_count);
-                            tmpl->params[parameter_index].default_context =
-                                default_context;
-                        }
+                        tmpl->params[parameter_index].default_context =
+                            cxx_template_snapshot_parameter_scope(tmpl);
                         rcc_parser_set_cxx_template_default_mode(false);
                     }
                 }
@@ -7992,6 +8015,9 @@ CxxTemplate* parse_cxx_template(void) {
         if (parenthesized) expect(TOK_RPAREN, ")");
         if (!tmpl->constraint) {
             rcc_error(loc, "requires-clause requires a constraint expression");
+        } else {
+            tmpl->constraint_context =
+                cxx_template_snapshot_parameter_scope(tmpl);
         }
     }
 
@@ -11937,10 +11963,14 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
                                                bool* unsupported) {
     int64_t result;
     Expr* constraint;
+    CxxTemplate* constraint_context;
     if (unsupported) *unsupported = false;
     if (!tmpl || !tmpl->constraint) return true;
+    constraint_context = tmpl->constraint_context
+        ? tmpl->constraint_context : tmpl;
+    constraint_context->pending_pack_count = tmpl->pending_pack_count;
     constraint = cxx_template_clone_expr_with_values(
-        tmpl, tmpl->constraint, arguments, tmpl->param_count, values,
+        constraint_context, tmpl->constraint, arguments, tmpl->param_count, values,
         value_present);
     if (!constraint) {
         if (report_errors) {
@@ -11952,7 +11982,8 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
     if (constraint->kind == EXPR_CXX_REQUIRES) {
         result = rcc_sema_cxx_requires_satisfied(constraint) ? 1 : 0;
     } else if (!eval_template_integer_expression(
-                   constraint, tmpl, values, value_present, &result)) {
+                   constraint, constraint_context, values, value_present,
+                   &result)) {
         if (report_errors) {
             rcc_error(loc,
                       "requires-clause must be a supported constant constraint "

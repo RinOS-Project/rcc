@@ -217,6 +217,22 @@ int reveal_template_default_later(U& host, int replacement) {
     return host.value;
 }
 
+template<class T, int N = 1> requires (N > 0)
+int reveal_constrained_default_friend(T& host, int replacement);
+
+class ConstrainedDefaultFriendTemplateHost {
+    int value;
+
+    template<class U, int Count> requires (Count > 0)
+    friend int reveal_constrained_default_friend(U& host, int replacement);
+};
+
+template<class V, int Amount> requires (Amount > 0)
+int reveal_constrained_default_friend(V& host, int replacement) {
+    host.value = replacement + Amount;
+    return host.value;
+}
+
 class DerivedFriendTemplateHost : public FriendTemplateHost {};
 
 using FriendTemplateBox0 = FriendTemplateBox<FriendTemplateHost>;
@@ -280,6 +296,7 @@ int main() {
     LateNonTypeDefaultFriendTemplateHost late_non_type_default_friend_host;
     TemplateTemplateDefaultFriendHost template_default_friend_host;
     LateTemplateTemplateDefaultFriendHost late_template_default_friend_host;
+    ConstrainedDefaultFriendTemplateHost constrained_default_friend_host;
     DerivedFriendTemplateHost derived_host;
     FriendTemplateBox<FriendTemplateHost> box;
     FriendTemplateBox36 deep_box;
@@ -307,6 +324,8 @@ int main() {
                template_default_friend_host, 74) == 74 &&
            reveal_template_default_later(
                late_template_default_friend_host, 79) == 79 &&
+           reveal_constrained_default_friend(
+               constrained_default_friend_host, 83) == 84 &&
            reveal(derived_host, 23) == 23 && reveal_box(box) == 29 &&
            reveal_box(deep_box) == 29 ? 0 : 1;
 }
