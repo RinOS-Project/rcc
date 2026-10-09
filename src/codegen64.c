@@ -5008,7 +5008,14 @@ static Expr* gen64_cxx_bind_constructor_argument(
     CxxConstructorInfo* constructor, Expr* expression, ExprList* arguments) {
     TypeParam* parameter = constructor ? constructor->parameters : NULL;
     ExprList* argument = arguments;
-    if (!expression || expression->kind != EXPR_IDENT) return expression;
+    if (!expression) return NULL;
+    if (expression->kind == EXPR_CXX_THIS) {
+        Expr* this_expression = expr_cxx_this(expression->loc);
+        this_expression->cxx_this_stack_offset = 0;
+        this_expression->type = expression->type;
+        return this_expression;
+    }
+    if (expression->kind != EXPR_IDENT) return expression;
     if (expression->ident_name &&
         strcmp(expression->ident_name, "this") == 0) {
         Expr* this_expression = expr_cxx_this(expression->loc);
@@ -5028,9 +5035,30 @@ static Expr* gen64_cxx_bind_constructor_argument(
 }
 
 static Expr* gen64_cxx_bind_constructor_expression(
+    CxxConstructorInfo* constructor, Expr* expression, ExprList* arguments);
+
+static ExprList* gen64_cxx_bind_constructor_expression_list(
+    CxxConstructorInfo* constructor, ExprList* expressions,
+    ExprList* arguments) {
+    ExprList* bound = NULL;
+    ExprList** tail = &bound;
+    for (ExprList* item = expressions; item; item = item->next) {
+        ExprList* copy = rcc_alloc(sizeof(*copy));
+        *copy = *item;
+        copy->expr = gen64_cxx_bind_constructor_expression(
+            constructor, item->expr, arguments);
+        copy->next = NULL;
+        *tail = copy;
+        tail = &copy->next;
+    }
+    return bound;
+}
+
+static Expr* gen64_cxx_bind_constructor_expression(
     CxxConstructorInfo* constructor, Expr* expression, ExprList* arguments) {
     Expr* copy;
-    if (!expression || expression->kind == EXPR_IDENT ||
+    if (!expression || expression->kind == EXPR_CXX_THIS ||
+        expression->kind == EXPR_IDENT ||
         expression->kind == EXPR_INT_LIT ||
         expression->kind == EXPR_CHAR_LIT ||
         expression->kind == EXPR_FLOAT_LIT) {
@@ -5043,6 +5071,15 @@ static Expr* gen64_cxx_bind_constructor_expression(
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
             copy->unary_operand = gen64_cxx_bind_constructor_expression(
                 constructor, expression->unary_operand, arguments);
             break;
@@ -5065,6 +5102,20 @@ static Expr* gen64_cxx_bind_constructor_expression(
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             copy->binary_lhs = gen64_cxx_bind_constructor_expression(
                 constructor, expression->binary_lhs, arguments);
             copy->binary_rhs = gen64_cxx_bind_constructor_expression(
@@ -5081,6 +5132,25 @@ static Expr* gen64_cxx_bind_constructor_expression(
         case EXPR_CAST:
             copy->cast_expr = gen64_cxx_bind_constructor_expression(
                 constructor, expression->cast_expr, arguments);
+            break;
+        case EXPR_CALL:
+            copy->call_func = gen64_cxx_bind_constructor_expression(
+                constructor, expression->call_func, arguments);
+            copy->call_args = gen64_cxx_bind_constructor_expression_list(
+                constructor, expression->call_args, arguments);
+            copy->call_virtual_object =
+                gen64_cxx_bind_constructor_expression(
+                    constructor, expression->call_virtual_object, arguments);
+            copy->call_new_count = gen64_cxx_bind_constructor_expression(
+                constructor, expression->call_new_count, arguments);
+            copy->call_new_args = gen64_cxx_bind_constructor_expression_list(
+                constructor, expression->call_new_args, arguments);
+            break;
+        case EXPR_INDEX:
+            copy->index_base = gen64_cxx_bind_constructor_expression(
+                constructor, expression->index_base, arguments);
+            copy->index_expr = gen64_cxx_bind_constructor_expression(
+                constructor, expression->index_expr, arguments);
             break;
         case EXPR_MEMBER:
         case EXPR_PTR_MEMBER:
@@ -5101,6 +5171,31 @@ static Expr* gen64_cxx_bind_constructor_expression(
                 }
             }
             break;
+        case EXPR_COMPOUND:
+            copy->compound_init =
+                gen64_cxx_bind_constructor_expression_list(
+                    constructor, expression->compound_init, arguments);
+            break;
+        case EXPR_CXX_TYPEID:
+            copy->cxx_typeid_operand =
+                gen64_cxx_bind_constructor_expression(
+                    constructor, expression->cxx_typeid_operand, arguments);
+            break;
+        case EXPR_CXX_FOLD:
+            copy->cxx_fold_init = gen64_cxx_bind_constructor_expression(
+                constructor, expression->cxx_fold_init, arguments);
+            copy->cxx_fold_pattern = gen64_cxx_bind_constructor_expression(
+                constructor, expression->cxx_fold_pattern, arguments);
+            break;
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            copy->va_list_operand = gen64_cxx_bind_constructor_expression(
+                constructor, expression->va_list_operand, arguments);
+            copy->va_second_operand = gen64_cxx_bind_constructor_expression(
+                constructor, expression->va_second_operand, arguments);
+            break;
         default:
             rcc_free(copy);
             return expression;
@@ -5111,13 +5206,8 @@ static Expr* gen64_cxx_bind_constructor_expression(
 static ExprList* gen64_cxx_bind_constructor_arguments(
     CxxConstructorInfo* constructor, ExprList* member_arguments,
     ExprList* arguments) {
-    ExprList* bound = NULL;
-    for (ExprList* member = member_arguments; member; member = member->next) {
-        exprlist_append(&bound,
-                        gen64_cxx_bind_constructor_expression(
-                            constructor, member->expr, arguments));
-    }
-    return bound;
+    return gen64_cxx_bind_constructor_expression_list(
+        constructor, member_arguments, arguments);
 }
 
 static void gen64_cxx_initialize_object_mode(

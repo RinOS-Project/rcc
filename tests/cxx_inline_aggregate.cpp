@@ -44,6 +44,29 @@ extern "C" int cxx_cleanup_close(int* value) {
     return *value < 0 ? -7 : 0;
 }
 
+extern "C" int cxx_custom_move_observe(void) {
+    return 7;
+}
+
+class CxxObservedMove final {
+public:
+    constexpr explicit CxxObservedMove(int value) noexcept : value_(value) {}
+
+    CxxObservedMove(CxxObservedMove&& other) noexcept
+        : value_(other.release()) {
+        value_ += cxx_custom_move_observe();
+    }
+
+    int release() noexcept {
+        int value = value_;
+        value_ = 0;
+        return value;
+    }
+
+private:
+    int value_;
+};
+
 template<typename Handle>
 class CxxUnique final {
 public:
@@ -629,6 +652,15 @@ int cxx_cleanup_move(int* value) {
     auto target = CxxUnique<int*>{
         static_cast<CxxUnique<int*>&&>(source)};
     return (!source) * 10 + (target ? 1 : 0);
+}
+
+int cxx_cleanup_custom_move(int input) {
+    auto source = CxxObservedMove{input};
+    auto target = CxxObservedMove{
+        static_cast<CxxObservedMove&&>(source)};
+    int target_value = target.release();
+    int source_value = source.release();
+    return target_value * 100 + source_value;
 }
 
 int cxx_cleanup_wide_move(int* value) {

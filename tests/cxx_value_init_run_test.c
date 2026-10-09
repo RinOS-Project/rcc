@@ -156,6 +156,7 @@ static void verify_i686_object_symbols(ObjectFile* object)
         "cxx_cleanup_contextual_bool",
         "cxx_cleanup_wide_contextual_bool",
         "cxx_cleanup_move",
+        "cxx_cleanup_custom_move",
         "cxx_cleanup_wide_move",
         "cxx_cleanup_move_assignment",
         "cxx_cleanup_move_self_assignment",
@@ -250,6 +251,7 @@ int main(int argc, char** argv)
     mutable_int_pointer_function cleanup_contextual_bool;
     mutable_int_pointer_function cleanup_wide_contextual_bool;
     mutable_int_pointer_function cleanup_move;
+    unary_function cleanup_custom_move;
     mutable_int_pointer_function cleanup_wide_move;
     mutable_int_pointer_pair_function cleanup_move_assignment;
     mutable_int_pointer_function cleanup_move_self_assignment;
@@ -376,6 +378,8 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(cleanup_wide_contextual_bool, object, mapping,
                   "cxx_cleanup_wide_contextual_bool");
     LOAD_FUNCTION(cleanup_move, object, mapping, "cxx_cleanup_move");
+    LOAD_FUNCTION(cleanup_custom_move, object, mapping,
+                  "cxx_cleanup_custom_move");
     LOAD_FUNCTION(cleanup_wide_move, object, mapping,
                   "cxx_cleanup_wide_move");
     LOAD_FUNCTION(cleanup_move_assignment, object, mapping,
@@ -525,6 +529,7 @@ int main(int argc, char** argv)
         assert(value == 81);
         assert(cleanup_wide_move(&value) == 11);
         assert(value == 83);
+        assert(cleanup_custom_move(13) == 2000);
         {
             int old_value = 10;
             int new_value = 20;

@@ -53,17 +53,57 @@ for ($index = 0; $index -lt $Arguments.Count; $index++) {
     $normalizedArguments.Add(($parts -join ' '))
 }
 
-foreach ($argument in $normalizedArguments) {
-    if ($null -eq $argument) { continue }
-    if ($argument -eq '--') { continue }
-    if ($argument -eq '-F') { $fixed = $true; continue }
-    if ($argument -eq '-q') { $quiet = $true; continue }
-    if ($argument -eq '-x') { $wholeLine = $true; continue }
-    if ($argument -eq '-c') { $count = $true; continue }
-    if ($null -eq $pattern) {
-        $pattern = $argument.Trim([char[]]@("'", '"'))
-    } else {
-        $paths += $argument.Trim([char[]]@("'", '"'))
+$recoveredWindowsPattern = $false
+if ($env:OS -eq 'Windows_NT' -and $Arguments.Count -gt 0) {
+    $argumentPaths = @($Arguments | Where-Object {
+        Test-Path -LiteralPath $_ -PathType Leaf
+    })
+    if ($argumentPaths.Count -gt 0) {
+        $rawCommandLine = [Environment]::CommandLine
+        $firstPathOffset = $rawCommandLine.IndexOf(
+            [string]$argumentPaths[0], [System.StringComparison]::OrdinalIgnoreCase)
+        if ($firstPathOffset -ge 0) {
+            $beforePath = $rawCommandLine.Substring(0, $firstPathOffset)
+            $lastSwitchEnd = -1
+            foreach ($grepOption in @('-F', '-q', '-x', '-c')) {
+                $switchOffset = $beforePath.LastIndexOf(
+                    " $grepOption ", [System.StringComparison]::OrdinalIgnoreCase)
+                if ($switchOffset -ge 0) {
+                    $switchEnd = $switchOffset + $grepOption.Length + 2
+                    if ($switchEnd -gt $lastSwitchEnd) {
+                        $lastSwitchEnd = $switchEnd
+                    }
+                }
+            }
+            if ($lastSwitchEnd -ge 0) {
+                $rawPattern = $beforePath.Substring($lastSwitchEnd).Trim()
+                if ($rawPattern.Length -ge 2 -and
+                    (($rawPattern[0] -eq '"' -and
+                      $rawPattern[$rawPattern.Length - 1] -eq '"') -or
+                     ($rawPattern[0] -eq "'" -and
+                      $rawPattern[$rawPattern.Length - 1] -eq "'"))) {
+                    $pattern = $rawPattern.Substring(1, $rawPattern.Length - 2)
+                    $paths = $argumentPaths
+                    $recoveredWindowsPattern = $true
+                }
+            }
+        }
+    }
+}
+
+if (-not $recoveredWindowsPattern) {
+    foreach ($argument in $normalizedArguments) {
+        if ($null -eq $argument) { continue }
+        if ($argument -eq '--') { continue }
+        if ($argument -eq '-F') { $fixed = $true; continue }
+        if ($argument -eq '-q') { $quiet = $true; continue }
+        if ($argument -eq '-x') { $wholeLine = $true; continue }
+        if ($argument -eq '-c') { $count = $true; continue }
+        if ($null -eq $pattern) {
+            $pattern = $argument.Trim([char[]]@("'", '"'))
+        } else {
+            $paths += $argument.Trim([char[]]@("'", '"'))
+        }
     }
 }
 

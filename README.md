@@ -57,6 +57,11 @@ debug鍵はRinOSのdebug build profileからpathとして渡し、release鍵はr
 - C++ local reference bindingは、public baseへの明示的な
   `static_cast<Base&&>`を通じてもcomplete derived temporaryとcleanupを保持し、
   `make test-cxx-function-template-references`で両target生成とx64実行を確認します。
+- C++ constructorのscalar member-initializerでは、parameterと`this`をnested member
+  expression／callへrebindし、`test-cxx-inline-aggregates`でi686/AMD64 object生成と
+  x64実行を確認します。constructor ABI全体、generic/requires、lambda capture、pack
+  expansion、temporary cleanup metadataを含む未対応AST形は引き続きTODOです
+  （[status](../../../docs/implementation-status-rcc-constructor-argument-rebinding-v1.md)）。
 - C++ global finalizerは、初期化済みまたはzero-initializedの大きな配列を
   reverse-order runtime loopで破棄し、`make test-global-finalizers`で4101要素の
   明示的な空initializer付き／initializerなし配列の要素順と宣言順を両targetと

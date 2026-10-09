@@ -537,6 +537,14 @@
         registration/unregistration, global finalizers, and optimizer analyses.
         Verify with a 4101-element local array plus existing array/member/
         reference lifetime gates on both target codegens and x64 execution.
+  - [x] Rebind constructor parameters and `this` through nested scalar member-
+        initializer expressions, including member calls. The move-constructor
+        regression verifies i686/AMD64 objects and x64 execution in
+        `test-cxx-inline-aggregates`.
+  - [ ] Complete constructor-expression rebinding for every expression-bearing
+        AST form, including generic/requires nodes, lambda captures,
+        pack-expansion patterns, and temporary-cleanup metadata. Unsupported
+        forms remain incomplete.
   - [x] Verify reverse-order runtime finalization for large defined
         namespace-scope arrays using 4101-element explicit-empty and
         no-initializer arrays; verify reverse element and declaration order on
@@ -1365,6 +1373,10 @@
         BINDIR=build/wsl-gcc/bin TEST_OUT=build/wsl-gcc/tests CC=gcc test-ci`
         passed on the Linux/WSL host, including both target architectures.
 - [ ] Clang full `test-ci` production gateを実行し、同じ全経路の成功を記録する
+  - Windows/MSYS2 Clang attempt reached `test-compiler-builtins` but its PE
+    linker could not resolve the RinOS i686 `_main` entry; WSL startup returned
+    `Wsl/Service/CreateInstance/E_ACCESSDENIED`. This is not a passing production
+    gate; retry on the Linux/WSL CI host and keep this item open.
 - [x] ASan/UBSan regression gateもGCC/Clang双方の独立matrix jobで実行し、
       各jobが要求したhost compilerを実際に選択していることを検証
 - [x] CI regression gateでC/C++ global initializer/finalizerのhost実行、
@@ -1408,6 +1420,9 @@
       gates use the shared directory/expected-failure helpers, native tool names,
       and a committed PowerShell text matcher; i686 runtime execution remains
       explicitly dependent on a 32-bit host runtime or RinOS/WSL runner.
+- [x] Recover fixed-string patterns containing embedded double quotes from the
+      original Windows command line when `cmd.exe` splits single-quoted arguments;
+      `test-preprocessor-operators` passes with native Windows `cmd.exe`.
 - [x] Emit file-scope data/BSS variable DIEs with source locations, type
       references, external-linkage flags, and `DW_OP_addr` relocations for
       external and internal-linkage symbols; verify x86/x64 `.ro` objects and
