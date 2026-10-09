@@ -1000,6 +1000,7 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->pack_alignment = 0;
     cls->fields = NULL;
     cls->type_aliases = NULL;
+    cls->alias_templates = NULL;
     cls->ns = NULL;
     cls->templ = NULL;
     cls->template_args = NULL;
@@ -5442,6 +5443,11 @@ void cxx_class_add_type_alias(CxxClass* cls, const char* name, Type* type,
     CxxTypeAlias* alias;
     CxxTypeAlias** tail;
     if (!cls || !name || !*name || !type) return;
+    if (cxx_class_find_alias_template(cls, name)) {
+        rcc_error((SourceLoc){"<class>", 0, 0},
+                  "duplicate nested type name '%s'", name);
+        return;
+    }
     alias = ast_arena_alloc(sizeof(*alias));
     alias->name = rcc_intern(name);
     alias->type = type;
@@ -5457,6 +5463,53 @@ void cxx_class_add_type_alias(CxxClass* cls, const char* name, Type* type,
         tail = &(*tail)->next;
     }
     *tail = alias;
+}
+
+CxxClassAliasTemplate* cxx_class_add_alias_template(
+    CxxClass* cls, CxxTemplate* declaration, AccessSpec access,
+    SourceLoc loc) {
+    CxxClassAliasTemplate* alias_template;
+    CxxClassAliasTemplate** tail;
+    if (!cls || !declaration || declaration->kind != TMPL_ALIAS ||
+        !declaration->name || !*declaration->name) {
+        return NULL;
+    }
+    if (cxx_class_find_type_alias(cls, declaration->name)) {
+        rcc_error(loc, "duplicate nested type name '%s'",
+                  declaration->name);
+        return NULL;
+    }
+    for (CxxClassAliasTemplate* current = cls->alias_templates; current;
+         current = current->next) {
+        if (current->declaration && current->declaration->name &&
+            strcmp(current->declaration->name, declaration->name) == 0) {
+            rcc_error(loc, "duplicate nested alias template '%s'",
+                      declaration->name);
+            return NULL;
+        }
+    }
+    alias_template = ast_arena_alloc(sizeof(*alias_template));
+    alias_template->declaration = declaration;
+    alias_template->access = access;
+    alias_template->next = NULL;
+    tail = &cls->alias_templates;
+    while (*tail) tail = &(*tail)->next;
+    *tail = alias_template;
+    return alias_template;
+}
+
+CxxClassAliasTemplate* cxx_class_find_alias_template(
+    CxxClass* cls, const char* name) {
+    if (!cls || !name) return NULL;
+    for (CxxClassAliasTemplate* alias_template = cls->alias_templates;
+         alias_template; alias_template = alias_template->next) {
+        if (alias_template->declaration &&
+            alias_template->declaration->name &&
+            strcmp(alias_template->declaration->name, name) == 0) {
+            return alias_template;
+        }
+    }
+    return NULL;
 }
 
 CxxTypeAlias* cxx_class_find_type_alias(CxxClass* cls, const char* name) {
@@ -5616,6 +5669,10 @@ static bool cxx_class_is_same_or_derived_from_recursive(
     return false;
 }
 
+bool cxx_class_is_same_or_derived_from(CxxClass* cls, CxxClass* target) {
+    return cxx_class_is_same_or_derived_from_recursive(cls, target, NULL);
+}
+
 CxxTypeAlias* cxx_class_find_inherited_type_alias(
     CxxClass* cls, const char* name, CxxClass* access_context,
     bool* ambiguous, bool* accessible) {
@@ -5634,8 +5691,8 @@ CxxTypeAlias* cxx_class_find_inherited_type_alias(
             *accessible = true;
         } else if (result.alias->access != ACCESS_PRIVATE &&
                    result.access != ACCESS_PRIVATE) {
-            context_is_derived = cxx_class_is_same_or_derived_from_recursive(
-                access_context, result.declaring_class, NULL);
+            context_is_derived = cxx_class_is_same_or_derived_from(
+                access_context, result.declaring_class);
             *accessible = context_is_derived;
         }
     }

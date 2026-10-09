@@ -3163,6 +3163,20 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-alias-templates/start-x64.o \
 		$(TEST_OUT)/cxx-alias-templates/x64.o
 	$(TEST_OUT)/cxx-alias-templates/x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S \
+		-o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.s \
+		tests/cxx_alias_templates.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o \
+		$(TEST_OUT)/cxx-alias-templates/cxx11-x86.s
+	objdump -f $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o \
+		>$(TEST_OUT)/cxx-alias-templates/cxx11-x86-arch.log
+	$(GREP) -F -q "pe-i386" \
+		$(TEST_OUT)/cxx-alias-templates/cxx11-x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -S \
+		-o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.s \
+		tests/cxx_alias_templates.cpp
+	gcc -c -o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.o \
+		$(TEST_OUT)/cxx-alias-templates/cxx11-x64.s
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro \
 		tests/cxx_alias_templates_invalid.cpp \
@@ -3175,6 +3189,22 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-alias-templates/invalid-x64.log 2>&1
 	$(GREP) -q "alias template parameter packs are not supported" \
 		$(TEST_OUT)/cxx-alias-templates/invalid-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.ro \
+		tests/cxx_class_alias_templates_invalid.cpp \
+		>$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.log 2>&1
+	$(GREP) -F -q "nested alias template 'Hidden' is inaccessible" \
+		$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.ro)
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.ro \
+		tests/cxx_class_alias_templates_invalid.cpp \
+		>$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.log 2>&1
+	$(GREP) -F -q "nested alias template 'Hidden' is inaccessible" \
+		$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.ro)
 	@echo "RCC++ bounded alias template tests completed"
 
 ifeq ($(OS),Windows_NT)
@@ -3462,10 +3492,24 @@ test-cxx-named-concepts: $(RCXX_TARGET)
 test-cxx-alias-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alias-templates)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-alias-templates,cxx_alias_templates.cpp)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.s tests/cxx_alias_templates.cpp
+	gcc -m32 -c -o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.s
+	objdump -f $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o > $(TEST_OUT)/cxx-alias-templates/cxx11-x86-arch.log
+	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-alias-templates/cxx11-x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.s tests/cxx_alias_templates.cpp
+	gcc -c -o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.s
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro tests/cxx_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/invalid-x86.log)
 	$(GREP) -F -q "alias template parameter packs are not supported" $(TEST_OUT)/cxx-alias-templates/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/invalid-x64.ro tests/cxx_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/invalid-x64.log)
 	$(GREP) -F -q "alias template parameter packs are not supported" $(TEST_OUT)/cxx-alias-templates/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.ro tests/cxx_class_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.log)
+	$(GREP) -F -q "nested alias template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.ro tests/cxx_class_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.log)
+	$(GREP) -F -q "nested alias template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.ro)
 else
 test-cxx-variable-templates: test-cxx-variable-templates-posix
 test-cxx-function-template-overloads: test-cxx-function-template-overloads-posix

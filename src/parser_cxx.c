@@ -1789,6 +1789,9 @@ static CxxTemplate* find_class_template(const char* qualified_name);
 static CxxTemplate* find_alias_template(const char* qualified_name);
 static CxxTemplate* find_template(const char* qualified_name, int kind);
 static CxxTemplate* find_concept(const char* qualified_name);
+static bool cxx_qualified_class_alias_template_starts(void);
+static bool consume_cxx_class_alias_template_owner(
+    const char** owner_name_out);
 static Type* parse_template_template_default(SourceLoc loc);
 static bool is_active_template_type(const char* name);
 static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
@@ -6769,6 +6772,31 @@ static bool cxx_friend_function_template_starts(void) {
     return false;
 }
 
+static bool cxx_class_alias_template_starts(void) {
+    Token* token;
+    int depth = 0;
+    if (!check(TOK_TEMPLATE)) return false;
+    token = parser.cur->next;
+    if (!token || token->type != TOK_LT) return false;
+    for (; token; token = token->next) {
+        if (token->type == TOK_LT) {
+            ++depth;
+        } else if (token->type == TOK_GT) {
+            if (--depth == 0) {
+                token = token->next;
+                break;
+            }
+        } else if (token->type == TOK_RSHIFT) {
+            depth -= 2;
+            if (depth <= 0) {
+                token = token->next;
+                break;
+            }
+        }
+    }
+    return token && token->type == TOK_USING;
+}
+
 /* Parse the body and ABI metadata of a class after its source name has
  * already been consumed.  Explicit template specializations use this same
  * path so their class body cannot be mistaken for a primary-template body. */
@@ -6891,6 +6919,21 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                         active_namespace ? active_namespace
                                          : g_global_namespace,
                         tmpl);
+                }
+                continue;
+            }
+
+            if (cxx_class_alias_template_starts()) {
+                SourceLoc template_loc = peek()->loc;
+                CxxTemplate* member_template;
+                advance(); /* template */
+                member_template = parse_cxx_template();
+                if (!member_template || member_template->kind != TMPL_ALIAS) {
+                    rcc_error(template_loc,
+                              "class-scope alias template declaration is invalid");
+                } else {
+                    cxx_class_add_alias_template(
+                        cls, member_template, current_access, template_loc);
                 }
                 continue;
             }
@@ -9868,6 +9911,7 @@ bool rcc_parse_cxx_type_start(void) {
     }
     if (check(TOK_BOOL) || check(TOK_CHAR8_T)) return true;
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return false;
+    if (cxx_qualified_class_alias_template_starts()) return true;
 
     name = parse_qualified_name();
     result = is_active_template_type(name) || find_class(name) != NULL ||
@@ -9884,6 +9928,11 @@ bool rcc_parse_cxx_type_start(void) {
     if (check(TOK_LT) &&
         (find_class_template(name) || find_alias_template(name) ||
          active_template_template_parameter_index(name) >= 0)) {
+        result = true;
+    }
+    if (!result && check(TOK_LT) && active_class &&
+        !strstr(name, "::") &&
+        cxx_class_find_alias_template(active_class, name)) {
         result = true;
     }
 
@@ -13108,6 +13157,187 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
     }
 }
 
+static bool consume_cxx_class_alias_template_owner(
+    const char** owner_name_out) {
+    char owner_name[512];
+    size_t length = 0u;
+    bool global_qualified = false;
+
+    if (owner_name_out) *owner_name_out = NULL;
+    owner_name[0] = '\0';
+    if (check(TOK_SCOPE)) {
+        if (!parser.cur->next || parser.cur->next->type != TOK_IDENT) {
+            return false;
+        }
+        owner_name[length++] = ':';
+        owner_name[length++] = ':';
+        owner_name[length] = '\0';
+        advance();
+        global_qualified = true;
+    }
+    while (check(TOK_IDENT)) {
+        const char* component = peek()->value.str_val;
+        size_t component_length = strlen(component);
+        if (component_length >= sizeof(owner_name) - length) return false;
+        memcpy(owner_name + length, component, component_length);
+        length += component_length;
+        owner_name[length] = '\0';
+        advance();
+        if (check(TOK_SCOPE) && parser.cur->next &&
+            parser.cur->next->type == TOK_IDENT) {
+            CxxClass* candidate_owner = find_class(owner_name);
+            if (!candidate_owner) {
+                Type* candidate_type = rcc_parser_lookup_type(owner_name);
+                if (candidate_type &&
+                    (candidate_type->kind == TYPE_STRUCT ||
+                     candidate_type->kind == TYPE_UNION)) {
+                    candidate_owner = candidate_type->cxx_class;
+                }
+            }
+            if (candidate_owner && parser.cur->next->next &&
+                parser.cur->next->next->type == TOK_LT &&
+                cxx_class_find_alias_template(
+                    candidate_owner,
+                    parser.cur->next->value.str_val)) {
+                break;
+            }
+            if (length + 2u >= sizeof(owner_name)) return false;
+            owner_name[length++] = ':';
+            owner_name[length++] = ':';
+            owner_name[length] = '\0';
+            advance();
+            continue;
+        }
+        break;
+    }
+    if (length == 0u || (!global_qualified && owner_name[0] == '\0')) {
+        return false;
+    }
+    if (owner_name_out) *owner_name_out = rcc_intern(owner_name);
+    return true;
+}
+
+static bool cxx_qualified_class_alias_template_starts(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    bool starts = false;
+    const char* owner_name = NULL;
+
+    if (consume_cxx_class_alias_template_owner(&owner_name) && owner_name) {
+        bool has_template_keyword;
+        CxxClass* owner;
+        if (match(TOK_SCOPE)) {
+            has_template_keyword = match(TOK_TEMPLATE);
+            if (check(TOK_IDENT) && parser.cur->next &&
+                parser.cur->next->type == TOK_LT) {
+                const char* alias_name = peek()->value.str_val;
+                owner = find_class(owner_name);
+                if (!owner) {
+                    Type* owner_type = rcc_parser_lookup_type(owner_name);
+                    if (owner_type &&
+                        (owner_type->kind == TYPE_STRUCT ||
+                         owner_type->kind == TYPE_UNION)) {
+                        owner = owner_type->cxx_class;
+                    }
+                }
+                starts = has_template_keyword ||
+                         cxx_class_find_alias_template(owner, alias_name) != NULL;
+            }
+        }
+    }
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    return starts;
+}
+
+static bool cxx_class_access_context_is_derived_from(
+    CxxClass* context, CxxClass* target, CxxClass* access_context,
+    unsigned depth) {
+    if (!context || !target || depth > 64u) return false;
+    if (context == target) return true;
+    for (int index = 0; index < context->base_count; ++index) {
+        CxxClass* base = context->bases[index].base;
+        if (!base && context->bases[index].base_name) {
+            base = find_class(context->bases[index].base_name);
+        }
+        /* A private base remains accessible within the class that declares
+         * that inheritance edge, but not from a class derived from it. */
+        if (context->bases[index].access == ACCESS_PRIVATE &&
+            context != access_context) {
+            continue;
+        }
+        if (cxx_class_access_context_is_derived_from(
+                base, target, access_context, depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool cxx_class_alias_template_accessible(
+    CxxClass* owner, const CxxClassAliasTemplate* alias_template) {
+    if (!owner || !alias_template) return false;
+    if (alias_template->access == ACCESS_PUBLIC || active_class == owner) {
+        return true;
+    }
+    return alias_template->access == ACCESS_PROTECTED &&
+           cxx_class_access_context_is_derived_from(
+               active_class, owner, active_class, 0u);
+}
+
+static Type* parse_qualified_class_alias_template_type(SourceLoc loc) {
+    const char* owner_name = NULL;
+    const char* alias_name;
+    CxxClass* owner;
+    CxxClassAliasTemplate* alias_template;
+    Type* owner_type;
+    Type* result;
+    bool accessible;
+
+    if (!consume_cxx_class_alias_template_owner(&owner_name) ||
+        !owner_name) {
+        rcc_error(loc, "invalid qualified class alias-template owner");
+        return type_int;
+    }
+    owner = find_class(owner_name);
+    expect(TOK_SCOPE, ":: before nested alias template");
+    (void)match(TOK_TEMPLATE);
+    if (!check(TOK_IDENT)) {
+        rcc_error(peek()->loc, "expected nested alias template name");
+        return type_int;
+    }
+    alias_name = rcc_intern(advance()->value.str_val);
+    if (!owner) {
+        owner_type = rcc_parser_lookup_type(owner_name);
+        if (owner_type && (owner_type->kind == TYPE_STRUCT ||
+                           owner_type->kind == TYPE_UNION)) {
+            owner = owner_type->cxx_class;
+        }
+    }
+    if (!owner) {
+        rcc_error(loc, "unknown class alias-template owner '%s'", owner_name);
+        skip_cxx_template_arguments();
+        return type_int;
+    }
+    alias_template = cxx_class_find_alias_template(owner, alias_name);
+    if (!alias_template || !alias_template->declaration) {
+        rcc_error(loc, "class '%s' has no nested alias template '%s'",
+                  owner->name ? owner->name : owner_name, alias_name);
+        skip_cxx_template_arguments();
+        return type_int;
+    }
+    accessible = cxx_class_alias_template_accessible(owner, alias_template);
+    result = parse_alias_template_specialization(
+        alias_template->declaration, loc);
+    if (!accessible) {
+        rcc_error(loc,
+                  "nested alias template '%s' is inaccessible in class '%s'",
+                  alias_name, owner->name ? owner->name : owner_name);
+        return type_int;
+    }
+    return result;
+}
+
 typedef struct CxxParsedTemplateArgument {
     bool is_type;
     Type* type;
@@ -14613,7 +14843,10 @@ static Type* parse_cxx_type_spec(void) {
         bool alias_accessible = false;
         bool typename_resolved = false;
 
-        if (cxx_template_id_followed_by_scope(&owner_template_name)) {
+        if (cxx_qualified_class_alias_template_starts()) {
+            t = parse_qualified_class_alias_template_type(loc);
+            typename_resolved = true;
+        } else if (cxx_template_id_followed_by_scope(&owner_template_name)) {
             CxxTemplate* owner_template;
             CxxTemplate* owner_alias_template;
             CxxClass* owner_class;
@@ -14821,6 +15054,8 @@ static Type* parse_cxx_type_spec(void) {
             rcc_error(loc, "unknown C++ class type '%s'", name);
             t = type_int;
         }
+    } else if (cxx_qualified_class_alias_template_starts()) {
+        t = parse_qualified_class_alias_template_type(loc);
     } else if ((!parser.prev || parser.prev->type != TOK_TYPENAME) &&
                cxx_template_id_followed_by_scope(NULL)) {
         const char* template_name = parse_qualified_name();
@@ -14881,8 +15116,14 @@ static Type* parse_cxx_type_spec(void) {
         bool qualified_alias_ambiguous = false;
         bool qualified_alias_accessible = false;
         CxxTemplate* tmpl = find_class_template(name);
+        CxxClassAliasTemplate* class_scope_alias_template =
+            active_class && !strstr(name, "::") && check(TOK_LT)
+                ? cxx_class_find_alias_template(active_class, name) : NULL;
         CxxTemplate* alias_tmpl = check(TOK_LT)
-            ? find_alias_template(name) : NULL;
+            ? class_scope_alias_template
+                ? class_scope_alias_template->declaration
+                : find_alias_template(name)
+            : NULL;
         int template_template_index =
             active_template_template_parameter_index(name);
         CxxClass* known_class = find_class(name);

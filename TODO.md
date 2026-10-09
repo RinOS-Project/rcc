@@ -291,9 +291,18 @@
           aliases, concrete class-template and alias-template owners, optional
           `typename`, and nested `>>` closers. Verify private/ambiguous lookup
           diagnostics, i686/AMD64 output, PE-i386 objects, and AMD64 execution.
-    - [ ] Support class-scope alias-template specializations in qualified
-          type-ids (`Owner::template Alias<T>`) and broaden dependent-owner
-          lookup beyond the currently covered function/class-template paths.
+    - [x] Parse class-scope alias templates on concrete non-template classes
+          and resolve both `Owner::Alias<T>` and `Owner::template Alias<T>` in
+          ordinary qualified type-ids. Cover unqualified member use,
+          namespace-qualified owners, optional `typename`, nested template
+          closers, protected access from derived context (including the
+          private-inheritance boundary), and private/protected diagnostics.
+          `test-cxx-alias-templates` verifies i686/AMD64 output, AMD64
+          execution, C++11 parsing/code generation, exact negative diagnostic
+          counts, and no invalid object output.
+    - [ ] Support alias templates owned by class-template specializations,
+          including outer-parameter substitution, inherited/friend lookup, and
+          dependent owners; keep these distinct from the concrete-class path.
 - [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target

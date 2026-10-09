@@ -19,6 +19,7 @@ typedef struct CxxDeductionGuide CxxDeductionGuide;
 typedef struct CxxVtableEntry CxxVtableEntry;
 typedef struct CxxSecondaryVtable CxxSecondaryVtable;
 typedef struct CxxTypeAlias CxxTypeAlias;
+typedef struct CxxClassAliasTemplate CxxClassAliasTemplate;
 typedef struct CxxLocalClassTemplate CxxLocalClassTemplate;
 
 typedef struct CxxVirtualBaseInfo {
@@ -39,6 +40,12 @@ struct CxxTypeAlias {
     Type* type;
     AccessSpec access;
     CxxTypeAlias* next;
+};
+
+struct CxxClassAliasTemplate {
+    CxxTemplate* declaration;
+    AccessSpec access;
+    CxxClassAliasTemplate* next;
 };
 
 /* Constructor facts retained until all class fields are known.  Only the
@@ -169,6 +176,9 @@ struct CxxClass {
     /* Nested `using Name = Type;` declarations used by dependent type
      * requirements and ordinary qualified type lookup. */
     CxxTypeAlias* type_aliases;
+    /* Class-scope alias templates retain their access and template
+     * declaration for qualified specialization lookup. */
+    CxxClassAliasTemplate* alias_templates;
 
     /* Namespace context */
     CxxNamespace* ns;
@@ -430,6 +440,12 @@ void cxx_class_add_friend_class(CxxClass* cls, const char* friend_name);
 void cxx_class_add_type_alias(CxxClass* cls, const char* name, Type* type,
                               AccessSpec access);
 CxxTypeAlias* cxx_class_find_type_alias(CxxClass* cls, const char* name);
+CxxClassAliasTemplate* cxx_class_add_alias_template(
+    CxxClass* cls, CxxTemplate* declaration, AccessSpec access,
+    SourceLoc loc);
+CxxClassAliasTemplate* cxx_class_find_alias_template(
+    CxxClass* cls, const char* name);
+bool cxx_class_is_same_or_derived_from(CxxClass* cls, CxxClass* target);
 CxxTypeAlias* cxx_class_find_inherited_type_alias(
     CxxClass* cls, const char* name, CxxClass* access_context,
     bool* ambiguous, bool* accessible);
