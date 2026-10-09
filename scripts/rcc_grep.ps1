@@ -56,7 +56,15 @@ for ($index = 0; $index -lt $Arguments.Count; $index++) {
 $recoveredWindowsPattern = $false
 if ($env:OS -eq 'Windows_NT' -and $Arguments.Count -gt 0) {
     $argumentPaths = @($Arguments | Where-Object {
-        Test-Path -LiteralPath $_ -PathType Leaf
+        $candidate = [string]$_
+        if ($candidate.Contains('"') -or $candidate.Contains("'")) {
+            return $false
+        }
+        try {
+            Test-Path -LiteralPath $candidate -PathType Leaf -ErrorAction Stop
+        } catch {
+            $false
+        }
     })
     if ($argumentPaths.Count -gt 0) {
         $rawCommandLine = [Environment]::CommandLine
@@ -82,7 +90,7 @@ if ($env:OS -eq 'Windows_NT' -and $Arguments.Count -gt 0) {
                       $rawPattern[$rawPattern.Length - 1] -eq '"') -or
                      ($rawPattern[0] -eq "'" -and
                       $rawPattern[$rawPattern.Length - 1] -eq "'"))) {
-                    $pattern = $rawPattern.Substring(1, $rawPattern.Length - 2)
+                    $pattern = $rawPattern.Substring(1, $rawPattern.Length - 2).Replace(([string][char]92 + '"'), '"')
                     $paths = $argumentPaths
                     $recoveredWindowsPattern = $true
                 }

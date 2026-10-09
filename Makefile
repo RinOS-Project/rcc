@@ -8570,8 +8570,8 @@ endif
 		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-close-delegate.ro \
 		tests/cxx_unsafe_close_delegate_rejected.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
-		-o $(TEST_OUT)/cxx-inline-aggregates/unsafe-move.ro \
-		tests/cxx_unsafe_move_rejected.cpp
+		-o $(TEST_OUT)/cxx-inline-aggregates/custom-move.ro \
+		tests/cxx_custom_move.cpp
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.ro tests/cxx_unsafe_move_assignment_rejected.cpp,$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log)
 	$(GREP) -q "no matching member overload for 'operator='" \
 		$(TEST_OUT)/cxx-inline-aggregates/unsafe-move-assignment.log
