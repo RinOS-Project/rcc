@@ -488,9 +488,12 @@
           code and executes the AMD64 output; the full `test-cxx` suite passes.
     - [ ] Extend member-function pointers to full overload resolution,
           ambiguous inherited lookup/access and owner conversions,
-          ref/noexcept-qualified methods, virtual dispatch and the target's
-          complete member-pointer representation/this-adjustment ABI. Keep
-          this parent item open until the remaining valid C++ forms are
+          ref/noexcept-qualified methods, and virtual dispatch. For the
+          GCC-compatible Itanium ABI target, replace the current one-word
+          code-address approximation with the `<ptr, adj>` representation;
+          cover `sizeof`, null/equality, parameter/return passing, owner
+          conversions, and `this` adjustment before claiming ABI support.
+          Keep this parent item open until the remaining valid C++ forms are
           implemented and verified; do not substitute placeholder lowering.
     - [x] Resolve a unique inherited nonvirtual, non-overloaded method in
           `&Derived::method` using the registered base method, preserve the
@@ -506,9 +509,13 @@
     - [x] Lower calls through supported nonvirtual member-function pointers
           into typed SSA by converting their pointer-width code-address value
           to the backend's indirect-call pointer type. Test dot/arrow and all
-          supported method cv forms on i686/AMD64 at `-O0` and `-O2`; require
-          exactly four verified functions and zero fallback notices on each
-          target.
+          supported method cv forms on i686/AMD64 at `-O0` and `-O2`; the
+          expanded gate below checks the exact function count and zero fallback
+          notices on each target.
+    - [x] Include overloaded member-function address selection, local
+          pointer initialization, and a typed function-argument context in the
+          verified-SSA regression. Require nine emitted functions and zero
+          fallback notices on i686/AMD64 at `-O0` and `-O2`.
   - [x] Preserve member-pointee `const` through same-owner and combined
         derived-owner conversions, reject qualification removal, and require an
         lvalue for built-in scalar assignment through an xvalue-selected member.

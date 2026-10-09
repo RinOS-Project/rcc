@@ -1,5 +1,9 @@
 struct MemberFunctionIrOwner {
     int value;
+
+    int add(int amount) { return value + amount; }
+    int add(int amount) const { return value + amount + 100; }
+    int add(double amount) { return value + static_cast<int>(amount); }
 };
 
 int invoke_member_dot(
@@ -23,5 +27,17 @@ int invoke_member_volatile(
 int invoke_member_cv(
     const volatile MemberFunctionIrOwner& object,
     int (MemberFunctionIrOwner::*method)(int) const volatile, int value) {
+    return (object.*method)(value);
+}
+
+int invoke_member_overloaded_argument(MemberFunctionIrOwner& object,
+                                      int value) {
+    return invoke_member_dot(object, &MemberFunctionIrOwner::add, value);
+}
+
+int invoke_member_overloaded_local(MemberFunctionIrOwner& object,
+                                   int value) {
+    int (MemberFunctionIrOwner::*method)(int) =
+        &MemberFunctionIrOwner::add;
     return (object.*method)(value);
 }
