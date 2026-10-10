@@ -1794,6 +1794,9 @@
 - [x] production validatorによる署名付き成果物検査
 - [ ] frontend/sema/IR/pass/backend単体試験の体系化
 - [x] C17/C++20 aggregate、IR/MIR、verified backend、optimizerをhost CIでgate
+- [x] Add `test-aqc` to the GCC/Clang production regression matrix and make its
+      production shader fixtures resolvable from the nested RCC checkout; the
+      native Windows target passed for both vertex and fragment shaders.
 - [x] C++ `new[]`の基本／constructor initializer、両target object、AMD64 host
       execution、および不正なparenthesized initializer診断を検証する
       `test-cxx-new-array`を`CXX_REGRESSION_TARGETS`へ追加し、`test-cxx`経由で

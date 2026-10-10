@@ -95,6 +95,7 @@ jobs:
           - clang
     env:
       CC: ${{ matrix.cc }}
+      RINOS_ROOT: ../../../RinOS-root
     defaults:
       run:
         working-directory: public-base/toolchain/RinCompiler
@@ -102,6 +103,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: public-base/toolchain/RinCompiler
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/RinOS
+          path: RinOS-root
 
       - uses: actions/checkout@v4
         with:

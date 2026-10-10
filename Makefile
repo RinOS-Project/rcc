@@ -36,7 +36,8 @@ endif
 # or linker contamination.
 OBJDIR ?= obj/$(HOST_BUILD_TAG)
 BINDIR = .
-RINOS_ROOT ?= ..
+# This compiler is nested at public-base/toolchain/RinCompiler in RinOS.
+RINOS_ROOT ?= ../../..
 RINOS_SDK_ROOT ?= ../../RinOS-SDK
 RINGPU_ROOT ?= ../../libs/RinGPU
 RINRESOURCE_ROOT ?= ../../libs/rinresource
@@ -815,11 +816,13 @@ test: $(RCC_TARGET)
 # Keep the production regression gate explicit.  The language aggregates cover
 # their complete C17/C++20 prerequisite lists; this target adds the independent
 # ABI, image, and assembler checks that cannot be reached through those lists.
-# Sanitizer and AQC suites remain separate jobs because they use different host
-# runtimes/toolchains.  Hardware validation is intentionally not implied here.
+# Keep AQC shader validation in the production gate; the sanitizer suite stays
+# separate because it uses a different host runtime. Hardware validation is not
+# implied here.
 TEST_CI_TARGETS = \
 	test-c17 \
 	test-cxx \
+	test-aqc \
 	test-ir \
 	test-ir-lowering \
 	test-verified-backend \
