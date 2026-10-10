@@ -1880,6 +1880,14 @@
         x64実行、intrinsic object生成、negative診断も通過し、GCC側の同じ
         targetも回帰確認した。これは既存RCC実行ファイルを使ったfocused
         host検証であり、Clang full `test-ci`完了の代用ではない。
+  - [x] Native WindowsでClang 18.1.4を指定したfull `test-ci`を開始し、RCCを
+        Clangでビルド。C17とC++ regressionは`test-cxx-alias-templates`まで進み、
+        同targetのi686側は通過したがAMD64 assembly生成時に
+        `cannot write assembly output`で停止。
+        その時点でE:の空き容量は0 bytesであり、容量不足と確認した。これは
+        full gateの成功ではない。GCCへ戻した後、`test-debug-info`、
+        `test-cxx-function-templates`、`test-cxx-class-template-dependent-nested-type`
+        は再実行して通過。
   - Clang full `test-ci` production gateは未完了。WSL startupは
     `Wsl/Service/CreateInstance/E_ACCESSDENIED`であり、Linux CI/WSL上で
     全経路を実行する必要がある。
