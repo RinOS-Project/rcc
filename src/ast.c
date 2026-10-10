@@ -1283,6 +1283,11 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_is_inline = false;
     d->func_is_defined = (body != NULL);
     d->func_is_template_instance = false;
+    d->func_template_owner = NULL;
+    d->func_template_args = NULL;
+    d->func_template_arg_count = 0;
+    d->func_template_value_args = NULL;
+    d->func_template_value_present = NULL;
     d->func_has_cxx_linkage = false;
     d->func_has_local_linkage = false;
     d->func_is_cxx_method = false;

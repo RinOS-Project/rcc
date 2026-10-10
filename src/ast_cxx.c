@@ -5587,6 +5587,32 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             ? cxx_namespace_qualified_name(tmpl->ns) : NULL;
         instance->func_cxx_namespace_scope = tmpl->ns;
         instance->func_is_template_instance = true;
+        instance->func_template_owner = tmpl;
+        instance->func_template_arg_count = arg_count;
+        if (arg_count > 0) {
+            instance->func_template_args = ast_arena_alloc(
+                sizeof(instance->func_template_args[0]) *
+                (size_t)arg_count);
+            memcpy(instance->func_template_args, args,
+                   sizeof(instance->func_template_args[0]) *
+                       (size_t)arg_count);
+            if (value_args) {
+                instance->func_template_value_args = ast_arena_alloc(
+                    sizeof(instance->func_template_value_args[0]) *
+                    (size_t)arg_count);
+                memcpy(instance->func_template_value_args, value_args,
+                       sizeof(instance->func_template_value_args[0]) *
+                           (size_t)arg_count);
+            }
+            if (value_present) {
+                instance->func_template_value_present = ast_arena_alloc(
+                    sizeof(instance->func_template_value_present[0]) *
+                    (size_t)arg_count);
+                memcpy(instance->func_template_value_present, value_present,
+                       sizeof(instance->func_template_value_present[0]) *
+                           (size_t)arg_count);
+            }
+        }
         instance->func_has_cxx_linkage = true;
         instance->func_friend_access = tmpl->friend_access;
         instance->link_name = rcc_intern(cxx_mangle_function_template(

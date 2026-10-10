@@ -1716,13 +1716,20 @@
         `using` aliasも、宣言したscope直下の`DW_TAG_typedef`として出力し、
         関数template instance内ではalias underlying typeもtemplate substitutionし、
         concrete aliasの実型・byte size・source location・scopeをi686/AMD64で
-        検証。未instantiateのdependent aliasとtemplate parameter DIEは未完
+        検証。未instantiateのdependent aliasとunsupported template-definition
+        parameter DIEは未完
   - [x] Concrete C++ class-template specializationsへ、実引数型を参照する
         `DW_TAG_template_type_parameter`と、signed/unsigned LEB値を保持する
         `DW_TAG_template_value_parameter`を出力。nested class type、正負のsigned
         値、unsigned 32-bit値をi686/AMD64の`test-debug-info`で検証。
         template-template arguments、template parameter packs、未instantiateの
         dependent alias/template definition DIEは未完
+  - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
+        type/value argumentsを保持し、subprogram DIE配下へtemplate type／
+        integral value parameter DIEを出力。i686/AMD64の`test-debug-info`で
+        `Value = unsigned short`と`Bias = -7`を検証。parameter pack、
+        template-template parameter、未対応のnon-integral value、未instantiateの
+        dependent function-template definitionは未完
   - [x] enum型と列挙子へ`DW_TAG_enumeration_type`／`DW_TAG_enumerator`と
         signed／unsigned constant valueを出力し、unsigned full-width値を含む
         i686/AMD64のobject・link回帰で検証

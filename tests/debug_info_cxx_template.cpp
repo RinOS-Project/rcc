@@ -9,6 +9,12 @@ struct DebugTemplateBox {
 
 DebugTemplateBox<DebugTemplatePayload, 3, -7, 0xF0000000U> debug_template_box;
 
+template <typename Value, int Bias>
+int debug_template_function(Value value) {
+    return (int)value + Bias;
+}
+
 int debug_template_entry() {
-    return debug_template_box.items[0].value;
+    return debug_template_function<unsigned short, -7>(
+        debug_template_box.items[0].value);
 }

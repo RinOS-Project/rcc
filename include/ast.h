@@ -1187,6 +1187,11 @@ struct Decl {
             bool func_is_inline;
             bool func_is_defined;
             bool func_is_template_instance;
+            struct CxxTemplate* func_template_owner;
+            Type** func_template_args;
+            int func_template_arg_count;
+            int64_t* func_template_value_args;
+            bool* func_template_value_present;
             bool func_has_cxx_linkage;
             bool func_has_local_linkage;
             bool func_is_cxx_method;

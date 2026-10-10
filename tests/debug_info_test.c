@@ -915,6 +915,15 @@ static void verify_alias_scope_children(
             verify_alias_scope_children(
                 info, strings, cursor, address_size, depth + 1u,
                 local_alias_depth, nested_alias_depth, template_alias_depth);
+        } else if (abbreviation == 47u) {
+            assert(8u <= info->size - *cursor);
+            *cursor += 8u;
+        } else if (abbreviation == 48u || abbreviation == 49u) {
+            assert(8u <= info->size - *cursor);
+            *cursor += 8u;
+            (void)(abbreviation == 48u
+                ? read_sleb(info->data, info->size, cursor)
+                : (int64_t)read_uleb(info->data, info->size, cursor));
         } else {
             assert(false && "unexpected function-scope DIE abbreviation");
         }
@@ -3204,6 +3213,60 @@ static uint64_t find_function_die(const ObjSection* info,
     return UINT64_MAX;
 }
 
+static void verify_function_template_parameter_dies(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t function_die;
+    uint64_t cursor;
+    uint64_t expression_size;
+    uint32_t name_offset;
+    uint32_t type_offset;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+    function_die = find_function_die(info, strings,
+                                     "debug_template_function",
+                                     address_size);
+    assert(function_die != UINT64_MAX);
+    cursor = function_die + 1u + 4u + address_size + 4u + 1u + 4u + 4u +
+             1u + 4u + 4u;
+    expression_size = read_uleb(info->data, info->size, &cursor);
+    assert(expression_size <= info->size - cursor);
+    cursor += expression_size + 2u; /* frame base, inline, and prototype */
+
+    assert(cursor < info->size && info->data[cursor++] == 47u);
+    assert(cursor + 8u <= info->size);
+    name_offset = read_u32(info->data, cursor);
+    type_offset = read_u32(info->data, cursor + 4u);
+    cursor += 8u;
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset, "Value") == 0);
+    assert(type_offset + 7u <= info->size && info->data[type_offset] == 5u);
+    name_offset = read_u32(info->data, type_offset + 1u);
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset,
+                  "unsigned short") == 0);
+
+    assert(cursor < info->size && info->data[cursor++] == 48u);
+    assert(cursor + 8u <= info->size);
+    name_offset = read_u32(info->data, cursor);
+    type_offset = read_u32(info->data, cursor + 4u);
+    cursor += 8u;
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset, "Bias") == 0);
+    assert(type_offset + 7u <= info->size && info->data[type_offset] == 5u);
+    name_offset = read_u32(info->data, type_offset + 1u);
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset, "int") == 0);
+    assert(read_sleb(info->data, info->size, &cursor) == -7);
+    objfile_free(object);
+}
+
 static uint8_t read_inline_attribute(const ObjSection* info,
                                      uint64_t function_offset,
                                      uint64_t address_size,
@@ -3802,5 +3865,7 @@ int main(int argc, char** argv)
     verify_inline_debug_object(argv[25], ARCH_X64);
     verify_class_template_parameter_dies(argv[26], ARCH_X86);
     verify_class_template_parameter_dies(argv[27], ARCH_X64);
+    verify_function_template_parameter_dies(argv[26], ARCH_X86);
+    verify_function_template_parameter_dies(argv[27], ARCH_X64);
     return 0;
 }
