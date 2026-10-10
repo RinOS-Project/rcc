@@ -2257,6 +2257,16 @@ separately recorded WSL startup failure.
   conversions. GCC C++20 agrees; the focused target passes i686/AMD64
   generation, AMD64 execution, and both-architecture ambiguity diagnostics for
   unrelated owners, with no invalid `.ro` output.
-- [ ] Extend member-pointer ranking to differing qualified member types,
-  member-function-pointer conversions, and virtual/inaccessible owner paths;
+- [x] Extend equal-rank member-pointer ranking for same-owner data-member
+  targets whose member types differ only by a permitted cv qualification:
+  `int Root::*` prefers `int Middle::*` to `const int Middle::*`, while
+  `const` versus `volatile` remains ambiguous. Also rank same-signature
+  member-function-pointer conversions across related owners, preferring
+  `Middle::*` to `Leaf::*` for a `Root::*` source, in ordinary and function-
+  template overloads. GCC C++20 agrees; the overload target passes both
+  architectures, generated AMD64 execution, and positive/negative GCC checks.
+  `test-cxx-member-pointer-data` and `test-cxx-member-pointer-functions` also
+  pass for both architectures, including verified-SSA checks.
+- [ ] Extend ranking to deeper/differing member-type shapes, member-function
+  signature variations, and virtual/inaccessible owner-path interactions;
   proper subsequences and full template partial ordering also remain open.

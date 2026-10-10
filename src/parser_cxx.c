@@ -15846,14 +15846,25 @@ static int cxx_template_conversion_vector_relation(
                 if (cxx_parser_template_qualification_targets_related(
                         left_target->base, right_target->base, false,
                         &left_member_type_subset,
-                        &right_member_type_subset, 0u) &&
-                    left_member_type_subset && right_member_type_subset) {
+                        &right_member_type_subset, 0u)) {
                     CxxClass* left_owner =
                         left_target->cxx_member_pointer_owner->cxx_class;
                     CxxClass* right_owner =
                         right_target->cxx_member_pointer_owner->cxx_class;
-                    if (left_owner && right_owner &&
-                        left_owner != right_owner) {
+                    bool same_owner = type_is_compatible(
+                        left_target->cxx_member_pointer_owner,
+                        right_target->cxx_member_pointer_owner);
+                    if (left_owner && right_owner && same_owner) {
+                        if (left_member_type_subset &&
+                            !right_member_type_subset) {
+                            qualification_relation = 1;
+                        } else if (right_member_type_subset &&
+                                   !left_member_type_subset) {
+                            qualification_relation = -1;
+                        }
+                    } else if (left_owner && right_owner &&
+                               left_member_type_subset &&
+                               right_member_type_subset) {
                         /* Converting Base::* to Derived::* is ranked by how
                          * near the destination owner is to the source base.
                          * If right derives from left, left requires the

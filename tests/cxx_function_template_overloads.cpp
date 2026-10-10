@@ -4,6 +4,10 @@ struct ConversionBaseLeaf : ConversionBaseMiddle {};
 
 struct ConversionMemberPointerRoot {
     int value;
+
+    int function(int parameter) const {
+        return parameter;
+    }
 };
 
 struct ConversionMemberPointerMiddle : ConversionMemberPointerRoot {};
@@ -210,6 +214,50 @@ int choose_nearer_member_pointer_non_template(
 }
 
 template<typename T>
+int choose_nearer_member_function_pointer(
+    T, int (ConversionMemberPointerMiddle::*)(int) const) {
+    return 195;
+}
+
+template<typename T>
+int choose_nearer_member_function_pointer(
+    T, int (ConversionMemberPointerLeaf::*)(int) const) {
+    return 196;
+}
+
+int choose_nearer_member_function_pointer_non_template(
+    int (ConversionMemberPointerMiddle::*)(int) const) {
+    return 197;
+}
+
+int choose_nearer_member_function_pointer_non_template(
+    int (ConversionMemberPointerLeaf::*)(int) const) {
+    return 198;
+}
+
+template<typename T>
+int choose_member_pointer_member_type_cv(
+    T, int ConversionMemberPointerMiddle::*) {
+    return 201;
+}
+
+template<typename T>
+int choose_member_pointer_member_type_cv(
+    T, const int ConversionMemberPointerMiddle::*) {
+    return 202;
+}
+
+int choose_member_pointer_member_type_cv_non_template(
+    int ConversionMemberPointerMiddle::*) {
+    return 203;
+}
+
+int choose_member_pointer_member_type_cv_non_template(
+    const int ConversionMemberPointerMiddle::*) {
+    return 204;
+}
+
+template<typename T>
 int choose_base_over_void(T*, ConversionBaseRoot*) {
     return 83;
 }
@@ -265,6 +313,8 @@ static int consume_conversion_value_cleanup_root(
 int main(void) {
     int value = 5;
     int* pointer = &value;
+    int (ConversionMemberPointerRoot::*root_member_function)(int) const =
+        &ConversionMemberPointerRoot::function;
     const int const_value = 6;
     ConversionBaseLeaf leaf;
     ConversionBaseLeaf* leaf_pointer = &leaf;
@@ -303,6 +353,14 @@ int main(void) {
                        0, &ConversionMemberPointerRoot::value) == 191 &&
                    choose_nearer_member_pointer_non_template(
                        &ConversionMemberPointerRoot::value) == 193 &&
+                   choose_nearer_member_function_pointer(
+                       0, root_member_function) == 195 &&
+                   choose_nearer_member_function_pointer_non_template(
+                       root_member_function) == 197 &&
+                   choose_member_pointer_member_type_cv(
+                       0, &ConversionMemberPointerRoot::value) == 201 &&
+                   choose_member_pointer_member_type_cv_non_template(
+                       &ConversionMemberPointerRoot::value) == 203 &&
                    choose_base_over_void(leaf_pointer, leaf_pointer) == 83 &&
                    choose_nearer_base_value(
                        value_leaf_pointer, value_leaf) == 92 &&

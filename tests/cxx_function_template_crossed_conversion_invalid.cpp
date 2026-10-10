@@ -76,6 +76,12 @@ struct MemberPointerAmbiguousRoot {
 struct MemberPointerAmbiguousLeft : MemberPointerAmbiguousRoot {};
 struct MemberPointerAmbiguousRight : MemberPointerAmbiguousRoot {};
 
+struct MemberPointerQualificationRoot {
+    int value;
+};
+
+struct MemberPointerQualificationMiddle : MemberPointerQualificationRoot {};
+
 template<typename T>
 int select_unrelated_pointer_bases(T*, UnrelatedBaseLeft*) {
     return 11;
@@ -113,6 +119,18 @@ int select_unrelated_member_pointer_owners(
     return 17;
 }
 
+template<typename T>
+int select_incomparable_member_pointer_qualification(
+    T, const int MemberPointerQualificationMiddle::*) {
+    return 18;
+}
+
+template<typename T>
+int select_incomparable_member_pointer_qualification(
+    T, volatile int MemberPointerQualificationMiddle::*) {
+    return 19;
+}
+
 int main() {
     int value = 1;
     int values[2] = {};
@@ -130,5 +148,7 @@ int main() {
            select_inaccessible_base_value(
                &inaccessible_value, inaccessible_value) +
            select_unrelated_member_pointer_owners(
-               0, &MemberPointerAmbiguousRoot::value);
+               0, &MemberPointerAmbiguousRoot::value) +
+           select_incomparable_member_pointer_qualification(
+               0, &MemberPointerQualificationRoot::value);
 }

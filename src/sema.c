@@ -7564,6 +7564,35 @@ static bool cxx_same_parameter_type(Type* source, Type* target,
     return type_is_compatible(source, target);
 }
 
+/* Compare the member type carried by two otherwise viable pointer-to-member
+ * conversion sequences. Return 1 when the left target adds a strict subset of
+ * the right target's cv qualification, -1 for the reverse, 0 for identical
+ * member types, and 2 when their qualification shapes are incomparable. */
+static int sema_cxx_member_type_qualification_relation(Type* left,
+                                                       Type* right) {
+    Type left_unqualified;
+    Type right_unqualified;
+    bool left_to_right;
+    bool right_to_left;
+    if (!left || !right || left->kind != right->kind) return 2;
+    if (cxx_same_parameter_type(left, right, false)) return 0;
+    /* Function cv/ref/noexcept qualifiers describe the member function type,
+     * not a data-member qualification conversion. */
+    if (left->kind == TYPE_FUNC) return 2;
+    left_unqualified = *left;
+    right_unqualified = *right;
+    left_unqualified.is_const = false;
+    left_unqualified.is_volatile = false;
+    right_unqualified.is_const = false;
+    right_unqualified.is_volatile = false;
+    if (!type_is_compatible(&left_unqualified, &right_unqualified)) return 2;
+    left_to_right = sema_pointee_qualification_preserved(left, right);
+    right_to_left = sema_pointee_qualification_preserved(right, left);
+    if (left_to_right && !right_to_left) return 1;
+    if (right_to_left && !left_to_right) return -1;
+    return left_to_right && right_to_left ? 0 : 2;
+}
+
 static int cxx_conversion_rank(Expr* argument, Type* target) {
     Type* source;
     Type* source_base;
@@ -8005,8 +8034,6 @@ static int cxx_conversion_vector_relation(
             left_targets[index]->cxx_is_member_pointer &&
             right_targets[index]->cxx_is_member_pointer &&
             left_targets[index]->base && right_targets[index]->base &&
-            cxx_same_parameter_type(left_targets[index]->base,
-                                    right_targets[index]->base, false) &&
             left_targets[index]->cxx_member_pointer_owner &&
             right_targets[index]->cxx_member_pointer_owner) {
             CxxClass* left_owner =
@@ -8014,15 +8041,27 @@ static int cxx_conversion_vector_relation(
             CxxClass* right_owner =
                 right_targets[index]->cxx_member_pointer_owner->cxx_class;
             if (left_owner && right_owner && left_owner != right_owner) {
-                /* For Base::* to Derived::* conversions, prefer the target
-                 * whose owner is nearer the source base class. */
-                if (sema_cxx_class_derives_from(
-                        right_owner, left_owner, 0)) {
-                    left_better = true;
-                } else if (sema_cxx_class_derives_from(
-                               left_owner, right_owner, 0)) {
-                    right_better = true;
+                if (cxx_same_parameter_type(left_targets[index]->base,
+                                            right_targets[index]->base,
+                                            false)) {
+                    /* For Base::* to Derived::* conversions with the same
+                     * member type, prefer the destination owner nearer the
+                     * source base class. */
+                    if (sema_cxx_class_derives_from(
+                            right_owner, left_owner, 0)) {
+                        left_better = true;
+                    } else if (sema_cxx_class_derives_from(
+                                   left_owner, right_owner, 0)) {
+                        right_better = true;
+                    }
                 }
+            } else if (left_owner && right_owner) {
+                int qualification_relation =
+                    sema_cxx_member_type_qualification_relation(
+                        left_targets[index]->base,
+                        right_targets[index]->base);
+                if (qualification_relation > 0) left_better = true;
+                if (qualification_relation < 0) right_better = true;
             }
         }
         if (index >= argument_offset && argument) {
