@@ -2270,3 +2270,16 @@ separately recorded WSL startup failure.
 - [ ] Extend ranking to deeper/differing member-type shapes, member-function
   signature variations, and virtual/inaccessible owner-path interactions;
   proper subsequences and full template partial ordering also remain open.
+
+## C++ regression follow-up (2026-10-10, ordinary derived-pointer ranking)
+
+- [x] For equal Conversion-rank ordinary pointer arguments to related class
+  targets with matching pointee cv, prefer the more-derived target (`Leaf*` to
+  `Middle*` over `Root*`) in a non-template overload set. Keep sibling-base
+  targets ambiguous. The focused overload target passes i686/AMD64 generation,
+  generated AMD64 execution, expected ambiguity/no-object checks, and GCC C++20
+  positive and negative comparisons.
+- [ ] Continue proper-subsequence ordering for other standard-conversion
+  shapes, including qualification interactions and nested pointer targets;
+  user-defined conversion ties and complete function-template partial
+  ordering remain open.

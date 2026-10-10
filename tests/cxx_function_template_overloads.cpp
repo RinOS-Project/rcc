@@ -191,6 +191,14 @@ int choose_nearer_base_reference_non_template(ConversionBaseMiddle&) {
     return 88;
 }
 
+int choose_nearer_base_pointer_non_template(ConversionBaseRoot*) {
+    return 89;
+}
+
+int choose_nearer_base_pointer_non_template(ConversionBaseMiddle*) {
+    return 90;
+}
+
 template<typename T>
 int choose_nearer_member_pointer(
     T, int ConversionMemberPointerMiddle::*) {
@@ -349,6 +357,8 @@ int main(void) {
                    choose_nearer_base(leaf_pointer, leaf_pointer) == 82 &&
                    choose_nearer_base_reference(leaf_pointer, leaf) == 86 &&
                    choose_nearer_base_reference_non_template(leaf) == 88 &&
+                   choose_nearer_base_pointer_non_template(leaf_pointer) ==
+                       90 &&
                    choose_nearer_member_pointer(
                        0, &ConversionMemberPointerRoot::value) == 191 &&
                    choose_nearer_member_pointer_non_template(
