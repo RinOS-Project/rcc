@@ -2062,3 +2062,18 @@ separately recorded WSL startup failure.
   user-defined conversions, plus their interactions with packs, constraints,
   and template partial ordering. This focused qualification fix is not full
   overload-resolution conformance.
+
+## C++ regression follow-up (2026-10-10, function-template user conversions)
+
+- [x] Reuse semantic-analysis conversion viability when ranking function-
+  template candidates with fixed parameters, including public implicit
+  conversion operators. A `Meter::operator int()` argument now makes the
+  template viable, and the `int` result overload wins over a trailing
+  `int`-to-`long` conversion. The target checks i686/AMD64 generation,
+  verified-backend objects on both targets, AMD64 execution, and native GCC
+  C++20 execution with warnings-as-errors.
+- [ ] Complete standard conversion-sequence ordering, including proper
+  subsequences, reference-binding refinements, derived-to-base conversions,
+  UDC ties involving conversion-function selection, packs, constraints, and
+  full function-template partial ordering. This fix is bounded, not full
+  overload-resolution conformance.

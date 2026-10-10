@@ -7655,6 +7655,21 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     return -1;
 }
 
+int rcc_sema_cxx_conversion_rank(Expr* argument, Type* source,
+                                 Type* target) {
+    Expr typed_argument;
+    if (!argument || !target) return -1;
+    if (argument->type || !source) {
+        return cxx_conversion_rank(argument, target);
+    }
+    /* Function-template candidates are ranked before the full semantic pass
+     * assigns Expr::type.  Give the shared conversion logic a private typed
+     * view, without mutating the parser's expression tree. */
+    typed_argument = *argument;
+    typed_argument.type = source;
+    return cxx_conversion_rank(&typed_argument, target);
+}
+
 static bool sema_cxx_exact_function_signature(Type* candidate,
                                              Type* target) {
     TypeParam* candidate_parameter;

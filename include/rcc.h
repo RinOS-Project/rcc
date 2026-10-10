@@ -154,6 +154,7 @@ struct AST;
 struct Module;
 struct Preprocessor;
 struct Expr;
+struct Type;
 
 /* Preprocessor */
 struct Preprocessor* rcc_preproc_new(void);
@@ -170,6 +171,9 @@ void rcc_parser_set_cxx_mode(bool enabled);
 struct AST* rcc_parse(struct TokenList* tokens);
 bool rcc_sema(struct AST* ast);
 bool rcc_sema_cxx_requires_satisfied(struct Expr* expression);
+int rcc_sema_cxx_conversion_rank(struct Expr* expression,
+                                 struct Type* source,
+                                 struct Type* target);
 struct Module* rcc_codegen(struct AST* ast);
 bool rcc_emit(struct Module* mod, const char* outfile);
 bool rcc_emit_rll(struct Module* mod, struct AST* ast, const char* outfile);

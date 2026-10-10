@@ -13031,6 +13031,8 @@ static bool cxx_function_template_type_contains_parameter(
 
 static int cxx_parser_template_conversion_rank(Expr* argument,
                                                 Type* target);
+static int cxx_parser_function_template_overload_conversion_rank(
+    Expr* argument, Type* target);
 
 /* C++17 adds an aggregate deduction candidate when no user-declared
  * constructor is available.  Keep this candidate deliberately ABI-bounded:
@@ -13548,7 +13550,7 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                 template_values, template_value_present, specificity) &&
             (cxx_function_template_type_contains_parameter(
                  tmpl, parameter->decl->type) ||
-             cxx_parser_template_conversion_rank(
+             cxx_parser_function_template_overload_conversion_rank(
                  argument->expr, parameter->decl->type) < 0)) {
             if (report_errors) {
                 rcc_error(argument->expr->loc,
@@ -15517,7 +15519,18 @@ static int cxx_parser_function_template_overload_conversion_rank(
     bool target_is_reference;
     bool requires_qualification = false;
     int rank = cxx_parser_template_conversion_rank(argument, target);
-    if (rank < 0) return rank;
+    if (rank < 0) {
+        source = cxx_parser_expression_type(argument);
+        int semantic_rank = rcc_sema_cxx_conversion_rank(
+            argument, source, target);
+        if (semantic_rank >= 3) {
+            /* Standard conversions rank ahead of user-defined conversions;
+             * retain the standard conversion applied to the conversion
+             * function's result when comparing two user-defined sequences. */
+            return 12 + semantic_rank - 3;
+        }
+        return rank;
+    }
     if (rank == 1 && target && !target->is_reference &&
         target->kind == TYPE_PTR) {
         source = cxx_parser_expression_type(argument);
@@ -15557,7 +15570,8 @@ static int cxx_parser_function_template_overload_conversion_rank(
         return requires_qualification ? 1 : 0;
     }
     /* Preserve the existing coarse order while leaving space between exact
-     * match, qualification, promotion, conversion, and ellipsis sequences. */
+     * match, qualification, promotion, standard/user-defined conversions,
+     * and ellipsis sequences. */
     return rank * 4;
 }
 
@@ -15671,7 +15685,7 @@ static bool cxx_function_template_instance_viable(
             if (ranks && rank_count && *rank_count >= rank_capacity) {
                 return false;
             }
-            if (ranks && rank_count) ranks[(*rank_count)++] = 12;
+            if (ranks && rank_count) ranks[(*rank_count)++] = 32;
             argument = argument->next;
         }
     }
@@ -15830,7 +15844,7 @@ static bool prepare_cxx_function_template_match(
                          parameter->decl->type, 0u, false) &&
                      (cxx_function_template_type_contains_parameter(
                           tmpl, parameter->decl->type) ||
-                      cxx_parser_template_conversion_rank(
+                      cxx_parser_function_template_overload_conversion_rank(
                           argument->expr, parameter->decl->type) < 0))) {
                     return false;
                 }

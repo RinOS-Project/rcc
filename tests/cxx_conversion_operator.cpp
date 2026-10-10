@@ -32,6 +32,21 @@ long choose_conversion(long value) {
     return value + 200;
 }
 
+template<typename T>
+int take_template_integer(T, int value) {
+    return value + 10;
+}
+
+template<typename T>
+int choose_template_conversion(T, int value) {
+    return value + 100;
+}
+
+template<typename T>
+long choose_template_conversion(T, long value) {
+    return value + 200;
+}
+
 int return_integer() {
     Meter meter{9};
     return meter;
@@ -52,6 +67,8 @@ int main() {
     if (!flag) return 1;
     if (direct != 7 || argument != 7 || widened != 7 ||
         return_integer() != 9 || return_long() != 11 ||
-        choose_conversion(meter) != 107) return 1;
+        choose_conversion(meter) != 107 ||
+        take_template_integer(0, meter) != 17 ||
+        choose_template_conversion(0, meter) != 107) return 1;
     return 0;
 }
