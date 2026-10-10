@@ -28,11 +28,22 @@ int select_array_qualified_crossed(T*, long) {
     return 6;
 }
 
+template<typename T>
+int select_incomparable_qualification(const T*) {
+    return 7;
+}
+
+template<typename T>
+int select_incomparable_qualification(volatile T*) {
+    return 8;
+}
+
 int main() {
     int value = 1;
     int values[2] = {};
     short priority = 0;
     return select_crossed(&value, priority, 0) +
            select_qualified_crossed(&value, priority) +
-           select_array_qualified_crossed(values, priority);
+           select_array_qualified_crossed(values, priority) +
+           select_incomparable_qualification(&value);
 }

@@ -2115,3 +2115,17 @@ separately recorded WSL startup failure.
 - [ ] Continue implementing conversion-sequence subsequences, reference
   binding refinements, derived-to-base ordering, and full template candidate
   interactions; promotion support here is bounded.
+
+## C++ regression follow-up (2026-10-10, qualification-subset ranking)
+
+- [x] Retain instantiated parameter targets with each function-template
+  conversion rank and, for same-rank non-member pointer qualification
+  conversions, prefer a target whose added cv qualifiers are a strict subset
+  of the competing target. `int*` selects `const T*` over `const volatile T*`;
+  incomparable `const T*` and `volatile T*` candidates remain ambiguous.
+  GCC C++20 agrees; i686/AMD64 diagnostics and output, the focused overload
+  target, and the full native-Windows `test-cxx` aggregate pass. No diagnostic
+  suppression, stub, or fail-close path was added.
+- [ ] Continue proper-subsequence ranking, reference-binding refinements,
+  derived-to-base ordering, user-defined conversion ties, and complete
+  function-template partial ordering.

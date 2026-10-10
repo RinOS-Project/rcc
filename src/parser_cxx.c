@@ -14766,6 +14766,7 @@ typedef struct CxxFunctionTemplateMatch {
     int argument_count;
     int specificity;
     int conversion_ranks[32];
+    Type* conversion_targets[32];
     int conversion_rank_count;
     Decl* instance;
     Type* substitution_failure_type;
@@ -14814,6 +14815,43 @@ typedef struct CxxConstraintLocalParameters {
     const DeclList* parameters;
     const struct CxxConstraintLocalParameters* parent;
 } CxxConstraintLocalParameters;
+
+static bool cxx_parser_template_qualification_targets_related(
+    Type* left, Type* right, bool ignore_current_qualification,
+    bool* left_subset, bool* right_subset, unsigned depth) {
+    if (!left || !right || depth > 64u || left->kind != right->kind) {
+        return false;
+    }
+    if (!ignore_current_qualification) {
+        if ((left->is_const && !right->is_const) ||
+            (left->is_volatile && !right->is_volatile)) {
+            *left_subset = false;
+        }
+        if ((!left->is_const && right->is_const) ||
+            (!left->is_volatile && right->is_volatile)) {
+            *right_subset = false;
+        }
+    }
+    if (left->kind == TYPE_PTR) {
+        if (left->cxx_is_member_pointer || right->cxx_is_member_pointer ||
+            !left->base || !right->base) {
+            return false;
+        }
+        return cxx_parser_template_qualification_targets_related(
+            left->base, right->base, false, left_subset, right_subset,
+            depth + 1u);
+    }
+    if (left->kind == TYPE_ARRAY) {
+        if (left->array_len >= 0 && right->array_len >= 0 &&
+            left->array_len != right->array_len) {
+            return false;
+        }
+        return cxx_parser_template_qualification_targets_related(
+            left->base, right->base, false, left_subset, right_subset,
+            depth + 1u);
+    }
+    return type_is_compatible(left, right);
+}
 
 static int cxx_template_conversion_vector_relation(
     const CxxFunctionTemplateMatch* left,
@@ -15658,8 +15696,8 @@ static void cxx_report_function_template_nested_type_failure(
 }
 
 static bool cxx_function_template_instance_viable(
-    Decl* instance, ExprList* call_arguments, int* ranks, int rank_capacity,
-    int* rank_count) {
+    Decl* instance, ExprList* call_arguments, int* ranks,
+    Type** conversion_targets, int rank_capacity, int* rank_count) {
     TypeParam* parameter;
     DeclList* declaration;
     ExprList* argument;
@@ -15674,7 +15712,13 @@ static bool cxx_function_template_instance_viable(
             argument->expr, parameter->type);
         if (rank < 0) return false;
         if (ranks && rank_count && *rank_count >= rank_capacity) return false;
-        if (ranks && rank_count) ranks[(*rank_count)++] = rank;
+        if (ranks && rank_count) {
+            int index = (*rank_count)++;
+            ranks[index] = rank;
+            if (conversion_targets) {
+                conversion_targets[index] = parameter->type;
+            }
+        }
         argument = argument->next;
         parameter = parameter->next;
         if (declaration) declaration = declaration->next;
@@ -15685,7 +15729,11 @@ static bool cxx_function_template_instance_viable(
             if (ranks && rank_count && *rank_count >= rank_capacity) {
                 return false;
             }
-            if (ranks && rank_count) ranks[(*rank_count)++] = 32;
+            if (ranks && rank_count) {
+                int index = (*rank_count)++;
+                ranks[index] = 32;
+                if (conversion_targets) conversion_targets[index] = NULL;
+            }
             argument = argument->next;
         }
     }
@@ -15710,9 +15758,34 @@ static int cxx_template_conversion_vector_relation(
     for (int index = 0; index < left->conversion_rank_count; ++index) {
         if (left->conversion_ranks[index] < right->conversion_ranks[index]) {
             left_better = true;
-        }
-        if (left->conversion_ranks[index] > right->conversion_ranks[index]) {
+        } else if (left->conversion_ranks[index] >
+                   right->conversion_ranks[index]) {
             right_better = true;
+        } else if (left->conversion_ranks[index] == 1) {
+            Type* left_target = left->conversion_targets[index];
+            Type* right_target = right->conversion_targets[index];
+            int qualification_relation = 0;
+            if (left_target && right_target &&
+                !left_target->is_reference &&
+                !right_target->is_reference &&
+                left_target->kind == TYPE_PTR &&
+                right_target->kind == TYPE_PTR &&
+                !left_target->cxx_is_member_pointer &&
+                !right_target->cxx_is_member_pointer) {
+                bool left_subset = true;
+                bool right_subset = true;
+                if (cxx_parser_template_qualification_targets_related(
+                        left_target, right_target, true, &left_subset,
+                        &right_subset, 0u)) {
+                    if (left_subset && !right_subset) {
+                        qualification_relation = 1;
+                    } else if (right_subset && !left_subset) {
+                        qualification_relation = -1;
+                    }
+                }
+            }
+            if (qualification_relation > 0) left_better = true;
+            if (qualification_relation < 0) right_better = true;
         }
     }
     if (left_better && !right_better) return 1;
@@ -15965,6 +16038,7 @@ static bool prepare_cxx_function_template_match(
     }
     if (!cxx_function_template_instance_viable(
             match->instance, call_arguments, match->conversion_ranks,
+            match->conversion_targets,
             (int)(sizeof(match->conversion_ranks) /
                   sizeof(match->conversion_ranks[0])),
             &match->conversion_rank_count)) {
