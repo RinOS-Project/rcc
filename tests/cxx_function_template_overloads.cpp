@@ -281,6 +281,16 @@ int choose_reference_qualification(const volatile int&) {
 }
 
 template<typename T>
+int choose_reference_qualification_template(T, const int&) {
+    return 241;
+}
+
+template<typename T>
+int choose_reference_qualification_template(T, const volatile int&) {
+    return 242;
+}
+
+template<typename T>
 int choose_rvalue_cv_category(T&&) {
     return 173;
 }
@@ -648,6 +658,8 @@ int main(void) {
                    choose_reference_cv_category(value) == 171 &&
                    choose_reference_cv_category(const_value) == 172 &&
                    choose_reference_qualification(value) == 231 &&
+                   choose_reference_qualification_template(value, value) ==
+                       241 &&
                    choose_rvalue_cv_category(0) == 173 &&
                    choose_rvalue_cv_category(
                        static_cast<const int&&>(const_value)) == 174 &&

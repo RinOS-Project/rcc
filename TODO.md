@@ -2378,12 +2378,12 @@ separately recorded WSL startup failure.
 ## C++ regression follow-up (2026-10-10, reference qualification ranking)
 
 - [x] Compare same-rank reference-binding sequences by their qualification
-  subsets when both candidates bind the same reference category. For an
-  `int` lvalue, `const int&` now wins over `const volatile int&`; the new case
-  reproduced an RCC ambiguity and agrees with GCC C++20. The focused overload
-  gate passes i686/AMD64 generation and execution, GCC C++20 `-Werror`, and
-  existing ambiguity diagnostics. The full native-Windows `test-cxx`
-  aggregate also passes.
+  subsets when both candidates bind the same reference category, for ordinary
+  and function-template overloads. With an `int` lvalue, `const int&` wins
+  over `const volatile int&`; the ordinary case reproduced an RCC ambiguity.
+  Both cases agree with GCC C++20. The focused overload gate passes i686/AMD64
+  generation and execution, GCC C++20 `-Werror`, and existing ambiguity
+  diagnostics. The full native-Windows `test-cxx` aggregate passes.
 - [x] Correct the positive function-template fixture that passed `nullptr`
   to a `bool` parameter: use explicit `static_cast<bool>(nullptr)`, which GCC
   accepts, while preserving the separate regression that implicit
