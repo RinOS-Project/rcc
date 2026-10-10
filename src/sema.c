@@ -538,6 +538,14 @@ static bool sema_exception_body_has_unregistered_cleanup(const Stmt* stmt);
 static bool sema_exception_body_has_vla(const Stmt* stmt);
 static bool sema_exception_body_has_call(const Stmt* stmt);
 static Type* sema_expr(Expr* expr);
+static Type* sema_expr_reuse_preanalyzed(Expr* expression,
+                                         Expr* analyzed_expression,
+                                         Type* analyzed_type) {
+    if (expression && expression == analyzed_expression) {
+        return analyzed_type;
+    }
+    return sema_expr(expression);
+}
 static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
 static void sema_resolve_function_noexcept(Decl* declaration);
@@ -7414,14 +7422,21 @@ static TypeMethod* sema_find_contextual_bool_method(Type* aggregate) {
 /* C++ explicit operator bool participates in contextual conversions without
  * becoming a general implicit conversion.  Both validated field delegates
  * and ordinary conversion functions use the same expression path here. */
+static Expr* sema_contextual_bool_after_analysis(Expr* expression,
+                                                  Type* type);
+
 static Expr* sema_contextual_bool(Expr* expression) {
-    Type* type;
+    return sema_contextual_bool_after_analysis(
+        expression, sema_expr(expression));
+}
+
+static Expr* sema_contextual_bool_after_analysis(Expr* expression,
+                                                  Type* type) {
     Type* value_type;
     TypeMethod* method;
     Expr* member;
     Expr* call;
     if (!expression) return expression;
-    type = sema_expr(expression);
     value_type = generic_selection_type(type);
     if (sema_is_scoped_enum(value_type)) {
         rcc_error(expression->loc,
@@ -11199,6 +11214,8 @@ static bool sema_noexcept_expr(Expr* expression) {
 }
 
 static Type* sema_expr(Expr* expr) {
+    Expr* preanalyzed_binary_lhs = NULL;
+    Type* preanalyzed_binary_lhs_type = NULL;
     if (!expr) return NULL;
 
     if (rcc_parser_is_cxx_mode() &&
@@ -11313,6 +11330,8 @@ static Type* sema_expr(Expr* expr) {
         expr->kind >= EXPR_ASSIGN && expr->kind <= EXPR_RSHIFT_ASSIGN &&
         expr->binary_lhs && expr->binary_rhs) {
         Type* left_type = sema_expr(expr->binary_lhs);
+        preanalyzed_binary_lhs = expr->binary_lhs;
+        preanalyzed_binary_lhs_type = left_type;
         left_type = sema_cxx_object_type(left_type);
         if (sema_rewrite_cxx_assignment_operator(expr, left_type)) {
             return sema_expr(expr);
@@ -11323,6 +11342,8 @@ static Type* sema_expr(Expr* expr) {
         expr->kind >= EXPR_ADD && expr->kind <= EXPR_OR &&
         expr->binary_lhs && expr->binary_rhs) {
         Type* left_type = sema_expr(expr->binary_lhs);
+        preanalyzed_binary_lhs = expr->binary_lhs;
+        preanalyzed_binary_lhs_type = left_type;
         if (sema_rewrite_cxx_binary_operator(expr, left_type)) {
             return sema_expr(expr);
         }
@@ -12151,7 +12172,9 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_ADD:
         case EXPR_SUB: {
-            Type* lt = sema_expr(expr->binary_lhs);
+            Type* lt = sema_expr_reuse_preanalyzed(
+                expr->binary_lhs, preanalyzed_binary_lhs,
+                preanalyzed_binary_lhs_type);
             Type* rt = sema_expr(expr->binary_rhs);
             bool has_nullptr =
                 sema_is_cxx_nullptr_expr(expr->binary_lhs) ||
@@ -12202,7 +12225,9 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_MUL:
         case EXPR_DIV: {
-            Type* lt = sema_expr(expr->binary_lhs);
+            Type* lt = sema_expr_reuse_preanalyzed(
+                expr->binary_lhs, preanalyzed_binary_lhs,
+                preanalyzed_binary_lhs_type);
             Type* rt = sema_expr(expr->binary_rhs);
             if (sema_is_cxx_nullptr_expr(expr->binary_lhs) ||
                 sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
@@ -12319,7 +12344,9 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_MOD: {
-            Type* lt = sema_expr(expr->binary_lhs);
+            Type* lt = sema_expr_reuse_preanalyzed(
+                expr->binary_lhs, preanalyzed_binary_lhs,
+                preanalyzed_binary_lhs_type);
             Type* rt = sema_expr(expr->binary_rhs);
             if (sema_is_cxx_nullptr_expr(expr->binary_lhs) ||
                 sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
@@ -12339,7 +12366,9 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_BITAND:
         case EXPR_BITOR:
         case EXPR_BITXOR: {
-            Type* lt = sema_expr(expr->binary_lhs);
+            Type* lt = sema_expr_reuse_preanalyzed(
+                expr->binary_lhs, preanalyzed_binary_lhs,
+                preanalyzed_binary_lhs_type);
             Type* rt = sema_expr(expr->binary_rhs);
             if (sema_is_cxx_nullptr_expr(expr->binary_lhs) ||
                 sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
@@ -12358,7 +12387,9 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_LSHIFT:
         case EXPR_RSHIFT: {
-            Type* lt = sema_expr(expr->binary_lhs);
+            Type* lt = sema_expr_reuse_preanalyzed(
+                expr->binary_lhs, preanalyzed_binary_lhs,
+                preanalyzed_binary_lhs_type);
             Type* rt = sema_expr(expr->binary_rhs);
             if (sema_is_cxx_nullptr_expr(expr->binary_lhs) ||
                 sema_is_cxx_nullptr_expr(expr->binary_rhs)) {
@@ -12383,7 +12414,9 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE: {
-            Type* left = sema_expr(expr->binary_lhs);
+            Type* left = sema_expr_reuse_preanalyzed(
+                expr->binary_lhs, preanalyzed_binary_lhs,
+                preanalyzed_binary_lhs_type);
             Type* right = sema_expr(expr->binary_rhs);
             Type* left_value = generic_selection_type(left);
             Type* right_value = generic_selection_type(right);
@@ -12459,7 +12492,10 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_SPACESHIP: {
-            Type* left = generic_selection_type(sema_expr(expr->binary_lhs));
+            Type* left = generic_selection_type(
+                sema_expr_reuse_preanalyzed(
+                    expr->binary_lhs, preanalyzed_binary_lhs,
+                    preanalyzed_binary_lhs_type));
             Type* right = generic_selection_type(sema_expr(expr->binary_rhs));
             bool integral = left && right &&
                 (type_is_integer(left) || left->kind == TYPE_ENUM) &&
@@ -12484,7 +12520,11 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_OR: {
             Type* left;
             Type* right;
-            expr->binary_lhs = sema_contextual_bool(expr->binary_lhs);
+            expr->binary_lhs = sema_contextual_bool_after_analysis(
+                expr->binary_lhs,
+                sema_expr_reuse_preanalyzed(
+                    expr->binary_lhs, preanalyzed_binary_lhs,
+                    preanalyzed_binary_lhs_type));
             expr->binary_rhs = sema_contextual_bool(expr->binary_rhs);
             left = expr->binary_lhs->type;
             right = expr->binary_rhs->type;
@@ -12503,7 +12543,9 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_ADD_ASSIGN:
         case EXPR_SUB_ASSIGN: {
-            Type* lt = sema_expr(expr->binary_lhs);
+            Type* lt = sema_expr_reuse_preanalyzed(
+                expr->binary_lhs, preanalyzed_binary_lhs,
+                preanalyzed_binary_lhs_type);
             Type* rt = sema_expr(expr->binary_rhs);
             if (!is_modifiable_builtin_assignment_target(
                     expr->binary_lhs)) {
@@ -12527,7 +12569,9 @@ static Type* sema_expr(Expr* expr) {
 
         case EXPR_MUL_ASSIGN:
         case EXPR_DIV_ASSIGN: {
-            Type* lt = sema_expr(expr->binary_lhs);
+            Type* lt = sema_expr_reuse_preanalyzed(
+                expr->binary_lhs, preanalyzed_binary_lhs,
+                preanalyzed_binary_lhs_type);
             Type* rt = sema_expr(expr->binary_rhs);
             if (!is_modifiable_builtin_assignment_target(
                     expr->binary_lhs)) {
@@ -12552,7 +12596,9 @@ static Type* sema_expr(Expr* expr) {
         case EXPR_XOR_ASSIGN:
         case EXPR_LSHIFT_ASSIGN:
         case EXPR_RSHIFT_ASSIGN: {
-            Type* lt = sema_expr(expr->binary_lhs);
+            Type* lt = sema_expr_reuse_preanalyzed(
+                expr->binary_lhs, preanalyzed_binary_lhs,
+                preanalyzed_binary_lhs_type);
             Type* rt = sema_expr(expr->binary_rhs);
             if (!is_modifiable_builtin_assignment_target(
                     expr->binary_lhs)) {
@@ -12571,7 +12617,9 @@ static Type* sema_expr(Expr* expr) {
         }
 
         case EXPR_ASSIGN: {
-            Type* lt = sema_expr(expr->binary_lhs);
+            Type* lt = sema_expr_reuse_preanalyzed(
+                expr->binary_lhs, preanalyzed_binary_lhs,
+                preanalyzed_binary_lhs_type);
             Type* rt;
             if (rcc_parser_is_cxx_mode()) {
                 lt = sema_cxx_object_type(lt);
