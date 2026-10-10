@@ -2993,6 +2993,30 @@ static bool cxx_template_redeclaration_expr_matches(
                     left->compound_init, left_template,
                     left_requires_params, right->compound_init,
                     right_template, right_requires_params, depth + 1);
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+            return (!!left->va_second_operand ==
+                    !!right->va_second_operand) &&
+                cxx_template_redeclaration_expr_matches(
+                    left->va_list_operand, left_template,
+                    left_requires_params, right->va_list_operand,
+                    right_template, right_requires_params, depth + 1) &&
+                (!left->va_second_operand ||
+                 cxx_template_redeclaration_expr_matches(
+                     left->va_second_operand, left_template,
+                     left_requires_params, right->va_second_operand,
+                     right_template, right_requires_params, depth + 1));
+        case EXPR_VA_ARG:
+            return (!!left->va_arg_type == !!right->va_arg_type) &&
+                (!left->va_arg_type ||
+                 cxx_template_redeclaration_type_matches(
+                     left->va_arg_type, left_template, right->va_arg_type,
+                     right_template, depth + 1)) &&
+                cxx_template_redeclaration_expr_matches(
+                    left->va_list_operand, left_template,
+                    left_requires_params, right->va_list_operand,
+                    right_template, right_requires_params, depth + 1);
         case EXPR_CXX_TYPEID:
             return left->cxx_typeid_is_type == right->cxx_typeid_is_type &&
                 (!!left->cxx_typeid_operand_type ==
