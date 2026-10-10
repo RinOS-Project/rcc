@@ -754,6 +754,110 @@ static void verify_cxx_class_type_alias(const char* path,
     objfile_free(object);
 }
 
+static uint64_t find_function_die(const ObjSection* info,
+                                  const ObjSection* strings,
+                                  const char* function_name,
+                                  uint64_t address_size);
+
+static void verify_alias_scope_children(
+    const ObjSection* info, const ObjSection* strings, uint64_t* cursor,
+    uint64_t address_size, unsigned depth, int* local_alias_depth,
+    int* nested_alias_depth)
+{
+    while (*cursor < info->size) {
+        uint8_t abbreviation = info->data[(*cursor)++];
+        if (abbreviation == 0u) return;
+        if (abbreviation == 3u || abbreviation == 4u) {
+            uint64_t expression_size;
+            assert(*cursor + 20u <= info->size);
+            *cursor += 20u; /* name, type, file, line, and column */
+            expression_size = read_uleb(info->data, info->size, cursor);
+            assert(expression_size <= info->size - *cursor);
+            *cursor += expression_size;
+        } else if (abbreviation == 39u) {
+            assert(*cursor + 24u <= info->size);
+            *cursor += 24u; /* variable attributes and loclist offset */
+        } else if (abbreviation == 44u) {
+            uint32_t name_offset;
+            uint32_t type_offset;
+            uint32_t file_index;
+            uint32_t line;
+            uint32_t column;
+            uint32_t type_name_offset;
+            assert(*cursor + 20u <= info->size);
+            name_offset = read_u32(info->data, *cursor);
+            type_offset = read_u32(info->data, *cursor + 4u);
+            file_index = read_u32(info->data, *cursor + 8u);
+            line = read_u32(info->data, *cursor + 12u);
+            column = read_u32(info->data, *cursor + 16u);
+            assert(name_offset < strings->size &&
+                   (uint64_t)type_offset + 7u <= info->size &&
+                   info->data[type_offset] == 5u);
+            type_name_offset = read_u32(info->data, type_offset + 1u);
+            assert(type_name_offset < strings->size && file_index > 0u &&
+                   line > 0u && column > 0u);
+            if (strcmp((const char*)strings->data + name_offset,
+                       "LocalWord") == 0) {
+                assert(strcmp((const char*)strings->data + type_name_offset,
+                              "unsigned short") == 0 &&
+                       info->data[type_offset + 5u] == 2u && line == 68u);
+                *local_alias_depth = (int)depth;
+            } else if (strcmp((const char*)strings->data + name_offset,
+                              "NestedWord") == 0) {
+                assert(strcmp((const char*)strings->data + type_name_offset,
+                              "unsigned long long") == 0 &&
+                       info->data[type_offset + 5u] == 8u && line == 71u);
+                *nested_alias_depth = (int)depth;
+            }
+            *cursor += 20u;
+        } else if (abbreviation == 24u || abbreviation == 25u) {
+            uint64_t header_size = abbreviation == 24u
+                ? address_size + 13u : 13u;
+            assert(header_size <= info->size - *cursor);
+            *cursor += header_size;
+            verify_alias_scope_children(
+                info, strings, cursor, address_size, depth + 1u,
+                local_alias_depth, nested_alias_depth);
+        } else {
+            assert(false && "unexpected function-scope DIE abbreviation");
+        }
+    }
+    assert(false && "unterminated function-scope DIE children");
+}
+
+static void verify_local_type_alias_scope(const char* path,
+                                          uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t function_die;
+    uint64_t cursor;
+    uint64_t expression_size;
+    int local_alias_depth = -1;
+    int nested_alias_depth = -1;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+    function_die = find_function_die(info, strings,
+                                     "debug_local_alias_entry",
+                                     address_size);
+    assert(function_die != UINT64_MAX);
+    cursor = function_die + 1u + 4u + address_size + 4u + 1u + 4u + 4u +
+             1u + 4u + 4u;
+    expression_size = read_uleb(info->data, info->size, &cursor);
+    assert(expression_size <= info->size - cursor);
+    cursor += expression_size;
+    assert(cursor + 2u <= info->size);
+    cursor += 2u; /* inline and prototyped */
+    verify_alias_scope_children(info, strings, &cursor, address_size, 0u,
+                                &local_alias_depth, &nested_alias_depth);
+    assert(local_alias_depth >= 0 && nested_alias_depth > local_alias_depth);
+    objfile_free(object);
+}
+
 static bool has_reference_type_die(const ObjSection* info,
                                    uint8_t abbreviation)
 {
@@ -3422,6 +3526,8 @@ int main(int argc, char** argv)
                                 "unsigned int", 3u);
     verify_cxx_class_type_alias(argv[15], ARCH_X64, "PrivateWord",
                                 "unsigned int", 3u);
+    verify_local_type_alias_scope(argv[14], ARCH_X86);
+    verify_local_type_alias_scope(argv[15], ARCH_X64);
     verify_cxx_method_accessibility(argv[14], ARCH_X86);
     verify_cxx_method_accessibility(argv[15], ARCH_X64);
     verify_cxx_reference_type_dies(argv[14], ARCH_X86);

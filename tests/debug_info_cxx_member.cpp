@@ -64,6 +64,17 @@ DebugUsingWord debug_using_alias_entry(DebugUsingWord value) {
     return value;
 }
 
+int debug_local_alias_entry(int value) {
+    using LocalWord = unsigned short;
+    LocalWord local_value = static_cast<LocalWord>(value);
+    {
+        using NestedWord = unsigned long long;
+        NestedWord nested_value = static_cast<NestedWord>(local_value);
+        value += static_cast<int>(nested_value);
+    }
+    return value + static_cast<int>(local_value);
+}
+
 int debug_inheritance_entry(DebugInheritanceDerived* object) {
     return object->left + object->own;
 }

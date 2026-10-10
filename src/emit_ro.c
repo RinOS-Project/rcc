@@ -1249,6 +1249,14 @@ static void debug_collect_stmt_types(DebugTypeContext* context,
                 (!statement->decl->var_is_global ||
                  statement->decl->var_is_static_local)) {
                 debug_collect_decl_type(context, statement->decl);
+            } else if (statement->decl &&
+                       statement->decl->kind == DECL_TYPEDEF) {
+                Type* alias_type = statement->decl->typedef_type
+                    ? statement->decl->typedef_type : statement->decl->type;
+                if (alias_type &&
+                    !debug_type_is_dependent(alias_type, 0u)) {
+                    debug_type_collect(context, alias_type);
+                }
             }
             break;
         case STMT_TRY:
@@ -1395,6 +1403,10 @@ static void debug_collect_stmt_files(const Stmt* statement,
             if (statement->decl && statement->decl->kind == DECL_VAR &&
                 (!statement->decl->var_is_global ||
                  statement->decl->var_is_static_local)) {
+                debug_collect_decl_file(statement->decl, files, file_count,
+                                        file_capacity);
+            } else if (statement->decl &&
+                       statement->decl->kind == DECL_TYPEDEF) {
                 debug_collect_decl_file(statement->decl, files, file_count,
                                         file_capacity);
             }
@@ -2524,6 +2536,36 @@ static void debug_emit_catch_locals(
     }
 }
 
+static void debug_emit_local_type_alias_die(
+    ObjSection* info, ObjSection* strings, DebugTypeContext* types,
+    const char* const* files, int file_count, const Decl* declaration) {
+    Type* alias_type;
+    DebugTypeEntry* type_entry;
+    int file_index;
+    if (!info || !strings || !types || !declaration ||
+        declaration->kind != DECL_TYPEDEF || !declaration->name ||
+        !declaration->loc.filename || declaration->loc.line <= 0 ||
+        declaration->loc.column < 0) {
+        return;
+    }
+    alias_type = declaration->typedef_type
+        ? declaration->typedef_type : declaration->type;
+    if (!alias_type || debug_type_is_dependent(alias_type, 0u)) return;
+    type_entry = debug_type_find(types, alias_type);
+    file_index = debug_line_file_index(
+        files, file_count, declaration->loc.filename);
+    if (!type_entry || file_index <= 0) {
+        rcc_fatal("DWARF local typedef is missing its type or source file");
+        return;
+    }
+    section_add_byte(info, 44u); /* DW_TAG_typedef */
+    debug_line_u32(info, debug_str_add(strings, declaration->name));
+    debug_type_ref(info, NULL, type_entry);
+    debug_line_u32(info, (uint32_t)file_index);
+    debug_line_u32(info, (uint32_t)declaration->loc.line);
+    debug_line_u32(info, (uint32_t)declaration->loc.column);
+}
+
 static void debug_emit_stmt_locals(
     ObjectFile* obj, ObjSection* info, ObjSection* strings,
     DebugTypeContext* types, const char* const* files, int file_count,
@@ -2624,6 +2666,11 @@ static void debug_emit_stmt_locals(
                     obj, info, strings, types, files, file_count, mod,
                     filename, function, statement->decl, statement,
                     location_scope, 4u, architecture);
+            } else if (statement->decl &&
+                       statement->decl->kind == DECL_TYPEDEF) {
+                debug_emit_local_type_alias_die(
+                    info, strings, types, files, file_count,
+                    statement->decl);
             }
             break;
         case STMT_TRY:

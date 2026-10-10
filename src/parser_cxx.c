@@ -7796,7 +7796,7 @@ static CxxNamespace* get_or_create_namespace_definition(
     return ns;
 }
 
-static void parse_cxx_using(AST* ast, CxxNamespace* ns) {
+static Decl* parse_cxx_using(AST* ast, CxxNamespace* ns) {
     SourceLoc loc = previous()->loc;
     const char* name;
     Type* enum_type;
@@ -7811,7 +7811,7 @@ static void parse_cxx_using(AST* ast, CxxNamespace* ns) {
             cxx_namespace_add_using_namespace(ns, target);
         }
         expect(TOK_SEMICOLON, ";");
-        return;
+        return NULL;
     }
 
     if (match(TOK_ENUM)) {
@@ -7829,14 +7829,15 @@ static void parse_cxx_using(AST* ast, CxxNamespace* ns) {
             rcc_parser_import_enum_constants(enum_type, loc);
         }
         expect(TOK_SEMICOLON, ";");
-        return;
+        return NULL;
     }
 
     local_name = expect(TOK_IDENT, "name in using-declaration");
     if (!local_name) {
         while (!at_end() && !match(TOK_SEMICOLON)) advance();
-        return;
+        return NULL;
     }
+    Decl* alias_declaration = NULL;
     if (match(TOK_ASSIGN)) {
         Type* alias_type = parse_cxx_type_spec();
         alias_type = rcc_parser_parse_cxx_declarator(
@@ -7845,10 +7846,10 @@ static void parse_cxx_using(AST* ast, CxxNamespace* ns) {
             rcc_error(loc, "using-alias requires a type");
         } else {
             rcc_parser_define_type(local_name->value.str_val, alias_type);
+            alias_declaration = decl_typedef(
+                local_name->value.str_val, alias_type, loc);
             if (ast) {
-                Decl* declaration = decl_typedef(
-                    local_name->value.str_val, alias_type, loc);
-                add_namespace_declaration(ast, ns, declaration);
+                add_namespace_declaration(ast, ns, alias_declaration);
             }
         }
     } else {
@@ -7881,6 +7882,7 @@ static void parse_cxx_using(AST* ast, CxxNamespace* ns) {
             ns, cxx_using_qualified_name(target, loc));
     }
     expect(TOK_SEMICOLON, ";");
+    return alias_declaration;
 }
 
 static void parse_cxx_local_using(void) {
@@ -8073,7 +8075,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
         } else if (match(TOK_NAMESPACE)) {
             (void)parse_cxx_namespace(ast, ns, false);
         } else if (match(TOK_USING)) {
-            parse_cxx_using(ast, ns);
+            (void)parse_cxx_using(ast, ns);
         } else if (check(TOK_EXTERN) && parser.cur->next &&
                    parser.cur->next->type == TOK_STRING_LIT) {
             parse_cxx_language_linkage(ast, ns);
@@ -19098,14 +19100,16 @@ static Stmt* parse_cxx_statement(void) {
     if (match(TOK_USING)) {
         SourceLoc loc = previous()->loc;
         if (check(TOK_ENUM)) {
-            parse_cxx_using(NULL, active_namespace ? active_namespace
-                                                   : g_global_namespace);
+            (void)parse_cxx_using(
+                NULL, active_namespace ? active_namespace
+                                       : g_global_namespace);
             return stmt_null(loc);
         }
         if (check(TOK_IDENT) && check_next(TOK_ASSIGN)) {
-            parse_cxx_using(NULL, active_namespace ? active_namespace
-                                                   : g_global_namespace);
-            return stmt_null(loc);
+            Decl* alias = parse_cxx_using(
+                NULL, active_namespace ? active_namespace
+                                       : g_global_namespace);
+            return alias ? stmt_decl(alias, loc) : stmt_null(loc);
         }
         parse_cxx_local_using();
         return stmt_null(loc);
@@ -19567,7 +19571,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                       "supported by RCC++");
             cxx_skip_unsupported_statement();
         } else if (match(TOK_USING)) {
-            parse_cxx_using(ast, g_global_namespace);
+            (void)parse_cxx_using(ast, g_global_namespace);
         } else {
             /* Regular C declaration */
             Stmt* s = parse_cxx_statement();
