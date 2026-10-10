@@ -5909,25 +5909,24 @@ void cxx_class_add_friend_class(CxxClass* cls, const char* friend_name) {
 }
 
 void cxx_class_add_type_alias(CxxClass* cls, const char* name, Type* type,
-                              AccessSpec access) {
+                              AccessSpec access, SourceLoc loc) {
     CxxTypeAlias* alias;
     CxxTypeAlias** tail;
     if (!cls || !name || !*name || !type) return;
     if (cxx_class_find_alias_template(cls, name)) {
-        rcc_error((SourceLoc){"<class>", 0, 0},
-                  "duplicate nested type name '%s'", name);
+        rcc_error(loc, "duplicate nested type name '%s'", name);
         return;
     }
     alias = ast_arena_alloc(sizeof(*alias));
     alias->name = rcc_intern(name);
     alias->type = type;
     alias->access = access;
+    alias->loc = loc;
     alias->next = NULL;
     tail = &cls->type_aliases;
     while (*tail) {
         if (strcmp((*tail)->name, alias->name) == 0) {
-            rcc_error((SourceLoc){"<class>", 0, 0},
-                      "duplicate nested type alias '%s'", name);
+            rcc_error(loc, "duplicate nested type alias '%s'", name);
             return;
         }
         tail = &(*tail)->next;

@@ -39,6 +39,7 @@ struct CxxTypeAlias {
     const char* name;
     Type* type;
     AccessSpec access;
+    SourceLoc loc;
     CxxTypeAlias* next;
 };
 
@@ -441,7 +442,7 @@ void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
                                      AccessSpec access, SourceLoc loc);
 void cxx_class_add_friend_class(CxxClass* cls, const char* friend_name);
 void cxx_class_add_type_alias(CxxClass* cls, const char* name, Type* type,
-                              AccessSpec access);
+                              AccessSpec access, SourceLoc loc);
 CxxTypeAlias* cxx_class_find_type_alias(CxxClass* cls, const char* name);
 CxxClassAliasTemplate* cxx_class_add_alias_template(
     CxxClass* cls, CxxTemplate* declaration, AccessSpec access,

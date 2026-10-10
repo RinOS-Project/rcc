@@ -1052,6 +1052,28 @@ static bool debug_type_has_supported_inheritance(const Type* type) {
     return true;
 }
 
+static bool debug_type_is_dependent(const Type* type, unsigned depth) {
+    if (!type) return false;
+    if (depth >= 32u || type->cxx_dependent ||
+        type->cxx_dependent_member_name) {
+        return true;
+    }
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        return debug_type_is_dependent(type->base, depth + 1u);
+    }
+    if (type->kind == TYPE_FUNC) {
+        if (debug_type_is_dependent(type->ret_type, depth + 1u)) return true;
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (debug_type_is_dependent(parameter->type, depth + 1u)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static void debug_type_collect(DebugTypeContext* context, const Type* type) {
     DebugTypeEntry* entry;
     size_t entry_index;
@@ -1092,6 +1114,16 @@ static void debug_type_collect(DebugTypeContext* context, const Type* type) {
         for (TypeField* field = type->fields; field; field = field->next) {
             if (field->type) debug_type_collect(context, field->type);
             entry = debug_type_find(context, type);
+        }
+        if (type->cxx_class) {
+            for (CxxTypeAlias* alias = type->cxx_class->type_aliases; alias;
+                 alias = alias->next) {
+                if (!alias->type || debug_type_is_dependent(alias->type, 0u)) {
+                    continue;
+                }
+                debug_type_collect(context, alias->type);
+                entry = debug_type_find(context, type);
+            }
         }
         entry = debug_type_find(context, type);
         entry->collecting = false;
@@ -1441,6 +1473,7 @@ static uint8_t debug_type_encoding(const Type* type) {
 }
 
 static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
+                                 const char* const* files, int file_count,
                                  DebugTypeContext* context,
                                  DebugTypePatchContext* patches) {
     if (!info || !strings || !context) return;
@@ -1597,6 +1630,38 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                 /* DW_ACCESS_public/protected/private are 1/2/3, while the
                  * AST stores these access levels as 0/1/2. */
                 section_add_byte(info, (uint8_t)(field->cxx_access + 1u));
+            }
+            if (type->cxx_class) {
+                for (CxxTypeAlias* alias = type->cxx_class->type_aliases;
+                     alias; alias = alias->next) {
+                    DebugTypeEntry* alias_type;
+                    int file_index;
+                    if (!alias->name || !alias->type ||
+                        debug_type_is_dependent(alias->type, 0u) ||
+                        !alias->loc.filename || alias->loc.line <= 0 ||
+                        alias->loc.column < 0) {
+                        continue;
+                    }
+                    alias_type = debug_type_find(context, alias->type);
+                    file_index = debug_line_file_index(
+                        files, file_count, alias->loc.filename);
+                    if (!alias_type || file_index <= 0) {
+                        rcc_fatal(
+                            "DWARF class alias is missing its type or source file");
+                        return;
+                    }
+                    if (alias->access > ACCESS_PRIVATE) {
+                        rcc_fatal("DWARF class alias accessibility is invalid");
+                        return;
+                    }
+                    section_add_byte(info, 46u); /* DW_TAG_typedef */
+                    debug_line_u32(info, debug_str_add(strings, alias->name));
+                    debug_type_ref(info, patches, alias_type);
+                    debug_line_u32(info, (uint32_t)file_index);
+                    debug_line_u32(info, (uint32_t)alias->loc.line);
+                    debug_line_u32(info, (uint32_t)alias->loc.column);
+                    section_add_byte(info, (uint8_t)(alias->access + 1u));
+                }
             }
             section_add_byte(info, 0u);
         } else if (type->kind == TYPE_ENUM) {
@@ -3425,6 +3490,23 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
             ++inline_origin_count;
         }
     }
+    for (size_t type_index = 0u; type_index < types.count; ++type_index) {
+        const Type* type = types.entries[type_index].type;
+        if (!type || (type->kind != TYPE_STRUCT &&
+                      type->kind != TYPE_UNION) || !type->cxx_class) {
+            continue;
+        }
+        for (CxxTypeAlias* alias = type->cxx_class->type_aliases; alias;
+             alias = alias->next) {
+            if (!alias->type || debug_type_is_dependent(alias->type, 0u) ||
+                !alias->loc.filename || alias->loc.filename[0] == '\0' ||
+                alias->loc.line <= 0 || alias->loc.column < 0) {
+                continue;
+            }
+            debug_file_add(&files, &file_count, &file_capacity,
+                           alias->loc.filename);
+        }
+    }
 
     strings = objfile_add_section(obj, ".debug_str", SECT_DEBUG_STR, 0u);
     abbrev = objfile_add_section(obj, ".debug_abbrev", SECT_DEBUG_ABBREV, 0u);
@@ -4113,6 +4195,23 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 46u);
+    debug_line_uleb(abbrev, 0x16u);    /* DW_TAG_typedef */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x32u);    /* DW_AT_accessibility */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
 
     unit_length_offset = info->size;
@@ -4127,7 +4226,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_u32(info, 0u);          /* .debug_line offset */
     debug_line_u32(info, unit_name_offset);
 
-    debug_emit_type_dies(info, strings, &types, &type_patches);
+    debug_emit_type_dies(info, strings, files, file_count, &types,
+                         &type_patches);
     debug_type_patches_free(&type_patches);
 
     for (DeclList* item = mod->debug_ast ? mod->debug_ast->decls : NULL;

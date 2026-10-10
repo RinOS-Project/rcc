@@ -1,13 +1,21 @@
 typedef unsigned int DebugMemberWord;
+using DebugUsingWord = unsigned short;
+
+namespace DebugAliasScope {
+using NamespaceWord = unsigned long long;
+}
 
 class DebugMemberObject {
 private:
+    using PrivateWord = unsigned int;
     int secret : 4;
     int secret_value() const { return secret; }
 protected:
+    using ProtectedWord = unsigned long long;
     int protected_value;
     int protected_read() const { return protected_value; }
 public:
+    using PublicWord = unsigned short;
     int value;
     int read() const { return value; }
     static int create_value(int seed) { return seed + 1; }
@@ -49,6 +57,10 @@ int debug_member_object_entry(DebugMemberObject* object) {
 }
 
 DebugMemberWord debug_typedef_entry(DebugMemberWord value) {
+    return value;
+}
+
+DebugUsingWord debug_using_alias_entry(DebugUsingWord value) {
     return value;
 }
 

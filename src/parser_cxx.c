@@ -7410,7 +7410,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                                   "nested type alias requires a type");
                     } else {
                         cxx_class_add_type_alias(cls, alias_name, alias_type,
-                                                 current_access);
+                                                 current_access, using_loc);
                     }
                     expect(TOK_SEMICOLON, ";");
                     continue;
@@ -7796,7 +7796,7 @@ static CxxNamespace* get_or_create_namespace_definition(
     return ns;
 }
 
-static void parse_cxx_using(CxxNamespace* ns) {
+static void parse_cxx_using(AST* ast, CxxNamespace* ns) {
     SourceLoc loc = previous()->loc;
     const char* name;
     Type* enum_type;
@@ -7845,6 +7845,11 @@ static void parse_cxx_using(CxxNamespace* ns) {
             rcc_error(loc, "using-alias requires a type");
         } else {
             rcc_parser_define_type(local_name->value.str_val, alias_type);
+            if (ast) {
+                Decl* declaration = decl_typedef(
+                    local_name->value.str_val, alias_type, loc);
+                add_namespace_declaration(ast, ns, declaration);
+            }
         }
     } else {
         char target[512];
@@ -8068,7 +8073,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
         } else if (match(TOK_NAMESPACE)) {
             (void)parse_cxx_namespace(ast, ns, false);
         } else if (match(TOK_USING)) {
-            parse_cxx_using(ns);
+            parse_cxx_using(ast, ns);
         } else if (check(TOK_EXTERN) && parser.cur->next &&
                    parser.cur->next->type == TOK_STRING_LIT) {
             parse_cxx_language_linkage(ast, ns);
@@ -11854,7 +11859,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             instance, alias->name,
             substitute_template_type(tmpl, alias->type, arguments,
                                      argument_count, value_args, value_present),
-            alias->access);
+            alias->access, alias->loc);
     }
     for (TypeParam* field = definition->fields; field; field = field->next) {
     cxx_class_add_field_initializer(
@@ -19093,13 +19098,13 @@ static Stmt* parse_cxx_statement(void) {
     if (match(TOK_USING)) {
         SourceLoc loc = previous()->loc;
         if (check(TOK_ENUM)) {
-            parse_cxx_using(active_namespace ? active_namespace
-                                             : g_global_namespace);
+            parse_cxx_using(NULL, active_namespace ? active_namespace
+                                                   : g_global_namespace);
             return stmt_null(loc);
         }
         if (check(TOK_IDENT) && check_next(TOK_ASSIGN)) {
-            parse_cxx_using(active_namespace ? active_namespace
-                                             : g_global_namespace);
+            parse_cxx_using(NULL, active_namespace ? active_namespace
+                                                   : g_global_namespace);
             return stmt_null(loc);
         }
         parse_cxx_local_using();
@@ -19562,7 +19567,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
                       "supported by RCC++");
             cxx_skip_unsupported_statement();
         } else if (match(TOK_USING)) {
-            parse_cxx_using(g_global_namespace);
+            parse_cxx_using(ast, g_global_namespace);
         } else {
             /* Regular C declaration */
             Stmt* s = parse_cxx_statement();

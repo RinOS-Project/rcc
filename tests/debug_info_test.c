@@ -269,6 +269,11 @@ static void verify_cxx_member_accessibility(const char* path,
             uint32_t member_name_offset;
             uint64_t expression_size;
             uint8_t accessibility;
+            if (member_abbreviation == 46u) {
+                assert(cursor + 21u <= info->size);
+                cursor += 21u;
+                continue;
+            }
             if (member_abbreviation != 14u && member_abbreviation != 17u) {
                 fprintf(stderr,
                         "unexpected class child abbreviation %u at %llu\n",
@@ -620,7 +625,8 @@ static void verify_cxx_inheritance_dies(const char* path,
 }
 
 static void verify_typedef_die(const char* path, uint16_t architecture,
-                              const char* typedef_name)
+                              const char* typedef_name,
+                              const char* expected_base_type)
 {
     static const uint8_t typedef_abbrev[] = {
         44u, 0x16u, 0u, 0x03u, 0x0eu, 0x49u, 0x13u, 0x3au, 0x06u,
@@ -661,12 +667,88 @@ static void verify_typedef_die(const char* path, uint16_t architecture,
         base_name_offset = read_u32(info->data, type_offset + 1u);
         assert(base_name_offset < strings->size &&
                strcmp((const char*)strings->data + base_name_offset,
-                      "unsigned int") == 0);
-        assert(info->data[type_offset + 5u] == 4u &&
+                      expected_base_type) == 0);
+        assert(info->data[type_offset + 5u] ==
+                   (strcmp(expected_base_type, "unsigned short") == 0
+                        ? 2u
+                        : strcmp(expected_base_type,
+                                 "unsigned long long") == 0 ? 8u : 4u) &&
                info->data[type_offset + 6u] == 0x07u);
         assert(file_index > 0u && line > 0u && column > 0u);
         found = true;
         break;
+    }
+    assert(found);
+    objfile_free(object);
+}
+
+static void verify_cxx_class_type_alias(const char* path,
+                                        uint16_t architecture,
+                                        const char* alias_name,
+                                        const char* expected_type,
+                                        uint8_t expected_access)
+{
+    static const uint8_t class_alias_abbrev[] = {
+        46u, 0x16u, 0u, 0x03u, 0x0eu, 0x49u, 0x13u, 0x3au, 0x06u,
+        0x3bu, 0x06u, 0x39u, 0x06u, 0x32u, 0x0bu, 0u, 0u
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    uint64_t class_die;
+    uint64_t cursor;
+    bool found = false;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_sequence(abbrev->data, abbrev->size,
+                             class_alias_abbrev,
+                             sizeof(class_alias_abbrev)));
+    class_die = find_structure_type_die(info, strings, "DebugMemberObject");
+    assert(class_die != UINT64_MAX);
+    cursor = class_die + 9u;
+    while (cursor < info->size && info->data[cursor] != 0u) {
+        uint8_t child = info->data[cursor++];
+        if (child == 46u) {
+            uint32_t name_offset;
+            uint32_t type_offset;
+            uint32_t file_index;
+            uint32_t line;
+            uint32_t column;
+            uint32_t type_name_offset;
+            assert(cursor + 21u <= info->size);
+            name_offset = read_u32(info->data, cursor);
+            type_offset = read_u32(info->data, cursor + 4u);
+            file_index = read_u32(info->data, cursor + 8u);
+            line = read_u32(info->data, cursor + 12u);
+            column = read_u32(info->data, cursor + 16u);
+            assert(name_offset < strings->size);
+            if (name_offset < strings->size &&
+                strcmp((const char*)strings->data + name_offset,
+                       alias_name) == 0) {
+                assert((uint64_t)type_offset + 7u <= info->size &&
+                       info->data[type_offset] == 5u);
+                type_name_offset = read_u32(info->data, type_offset + 1u);
+                assert(type_name_offset < strings->size &&
+                       strcmp((const char*)strings->data + type_name_offset,
+                              expected_type) == 0);
+                assert(info->data[type_offset + 5u] ==
+                       (strcmp(expected_type, "unsigned short") == 0
+                            ? 2u
+                            : strcmp(expected_type,
+                                     "unsigned long long") == 0 ? 8u : 4u));
+                assert(file_index > 0u && line > 0u && column > 0u &&
+                       info->data[cursor + 20u] == expected_access);
+                found = true;
+            }
+            cursor += 21u;
+            continue;
+        }
+        assert(child == 14u || child == 17u);
+        (void)verify_skip_cxx_member_die(info, strings, &cursor, child);
     }
     assert(found);
     objfile_free(object);
@@ -3288,8 +3370,8 @@ int main(int argc, char** argv)
                              "DEBUG_ENUM_NEGATIVE", 4u, 0x05u, -2);
     verify_signed_enum_dwarf(argv[2], ARCH_X64, "debug_enum", "int",
                              "DEBUG_ENUM_NEGATIVE", 4u, 0x05u, -2);
-    verify_typedef_die(argv[1], ARCH_X86, "DebugInfoWord");
-    verify_typedef_die(argv[2], ARCH_X64, "DebugInfoWord");
+    verify_typedef_die(argv[1], ARCH_X86, "DebugInfoWord", "unsigned int");
+    verify_typedef_die(argv[2], ARCH_X64, "DebugInfoWord", "unsigned int");
     verify_legacy_statement_line_rows(argv[2], ARCH_X64);
     verify_debug_object(argv[3], ARCH_X64, 0x002bu,
                         "tests/hello.cpp", "main", NULL);
@@ -3314,8 +3396,32 @@ int main(int argc, char** argv)
     verify_cxx_member_accessibility(argv[15], ARCH_X64);
     verify_cxx_inheritance_dies(argv[14], ARCH_X86);
     verify_cxx_inheritance_dies(argv[15], ARCH_X64);
-    verify_typedef_die(argv[14], ARCH_X86, "DebugMemberWord");
-    verify_typedef_die(argv[15], ARCH_X64, "DebugMemberWord");
+    verify_typedef_die(argv[14], ARCH_X86, "DebugMemberWord",
+                       "unsigned int");
+    verify_typedef_die(argv[15], ARCH_X64, "DebugMemberWord",
+                       "unsigned int");
+    verify_typedef_die(argv[14], ARCH_X86, "DebugUsingWord",
+                       "unsigned short");
+    verify_typedef_die(argv[15], ARCH_X64, "DebugUsingWord",
+                       "unsigned short");
+    verify_typedef_die(argv[14], ARCH_X86,
+                       "DebugAliasScope::NamespaceWord",
+                       "unsigned long long");
+    verify_typedef_die(argv[15], ARCH_X64,
+                       "DebugAliasScope::NamespaceWord",
+                       "unsigned long long");
+    verify_cxx_class_type_alias(argv[14], ARCH_X86, "PublicWord",
+                                "unsigned short", 1u);
+    verify_cxx_class_type_alias(argv[15], ARCH_X64, "PublicWord",
+                                "unsigned short", 1u);
+    verify_cxx_class_type_alias(argv[14], ARCH_X86, "ProtectedWord",
+                                "unsigned long long", 2u);
+    verify_cxx_class_type_alias(argv[15], ARCH_X64, "ProtectedWord",
+                                "unsigned long long", 2u);
+    verify_cxx_class_type_alias(argv[14], ARCH_X86, "PrivateWord",
+                                "unsigned int", 3u);
+    verify_cxx_class_type_alias(argv[15], ARCH_X64, "PrivateWord",
+                                "unsigned int", 3u);
     verify_cxx_method_accessibility(argv[14], ARCH_X86);
     verify_cxx_method_accessibility(argv[15], ARCH_X64);
     verify_cxx_reference_type_dies(argv[14], ARCH_X86);
