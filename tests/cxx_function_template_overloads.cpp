@@ -303,6 +303,43 @@ int verify_function_pointer_overload_context() {
 }
 }
 
+namespace ConversionFunctionImportedNamespace {
+void imported_overloaded_function(int) {}
+void imported_overloaded_function() noexcept {}
+}
+
+namespace ConversionFunctionUsingDeclarationNamespace {
+using ConversionFunctionImportedNamespace::imported_overloaded_function;
+
+int verify_function_pointer_overload_context() {
+    ConversionNoexceptFunctionPointer selected =
+        imported_overloaded_function;
+    ConversionNoexceptFunctionPointer qualified =
+        ::ConversionFunctionImportedNamespace::imported_overloaded_function;
+    return selected == qualified &&
+           ::choose_noexcept_function_pointer(
+               imported_overloaded_function) == 222 &&
+           ::choose_noexcept_function_pointer_template(
+               1, imported_overloaded_function) == 224;
+}
+}
+
+namespace ConversionFunctionUsingDirectiveNamespace {
+using namespace ConversionFunctionImportedNamespace;
+
+int verify_function_pointer_overload_context() {
+    ConversionNoexceptFunctionPointer selected =
+        imported_overloaded_function;
+    ConversionNoexceptFunctionPointer qualified =
+        ::ConversionFunctionImportedNamespace::imported_overloaded_function;
+    return selected == qualified &&
+           ::choose_noexcept_function_pointer(
+               imported_overloaded_function) == 222 &&
+           ::choose_noexcept_function_pointer_template(
+               1, imported_overloaded_function) == 224;
+}
+}
+
 template<typename T>
 int choose_fixed_enum_template(T, unsigned char) {
     return 213;
@@ -513,6 +550,10 @@ int main(void) {
                        value,
                        conversion_overloaded_noexcept_function) == 224 &&
                    ConversionFunctionOverloadNamespace::
+                       verify_function_pointer_overload_context() &&
+                   ConversionFunctionUsingDeclarationNamespace::
+                       verify_function_pointer_overload_context() &&
+                   ConversionFunctionUsingDirectiveNamespace::
                        verify_function_pointer_overload_context() &&
                    choose_noexcept_function_pointer(
                        explicit_noexcept_pointer) == 222 &&

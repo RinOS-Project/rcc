@@ -2350,7 +2350,12 @@ separately recorded WSL startup failure.
   initializers. Verify namespace and `::global` overloads select distinct
   functions, with both target widths, generated AMD64 execution, and GCC C++20
   `-Werror`.
-- [ ] Extend contextual overload-set lookup through using-declarations,
-  using-directives, and overloaded function-template names; cover dependent
-  exception specifications and interactions with other standard conversions.
-  Complete C++20 overload-resolution conformance remains unfinished.
+- [x] Merge namespace-level using-declarations and using-directives into
+  contextual function-pointer overload lookup. Verify namespace-imported
+  overload sets in local initializers, ordinary calls, and function-template
+  calls; both target widths, generated AMD64 execution, and GCC C++20 `-Werror`
+  pass.
+- [ ] Resolve overloaded function-template names as contextual function
+  values, including target-type deduction; cover dependent exception
+  specifications and interactions with other standard conversions. Complete
+  C++20 overload-resolution conformance remains unfinished.
