@@ -2344,7 +2344,13 @@ separately recorded WSL startup failure.
   defer argument analysis until the winning target type is known. The focused
   gate passes with the non-matching overload declared first, on both target
   widths, generated AMD64 execution, and GCC C++20 `-Werror`.
-- [ ] Extend overload-set lookup through namespaces/using-declarations and
-  function-template overloads, then cover dependent exception specifications
-  and interactions with other standard conversions. Complete C++20 overload-
-  resolution conformance remains unfinished.
+- [x] Preserve explicit global qualification during expression lookup and
+  resolve namespace-local overloaded free functions from contextual function-
+  pointer types, including ordinary calls, function-template calls, and local
+  initializers. Verify namespace and `::global` overloads select distinct
+  functions, with both target widths, generated AMD64 execution, and GCC C++20
+  `-Werror`.
+- [ ] Extend contextual overload-set lookup through using-declarations,
+  using-directives, and overloaded function-template names; cover dependent
+  exception specifications and interactions with other standard conversions.
+  Complete C++20 overload-resolution conformance remains unfinished.

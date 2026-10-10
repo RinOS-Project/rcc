@@ -1641,16 +1641,26 @@ static Symbol* sema_cxx_lookup_qualified_name(const char* name,
 
 static Symbol* sema_cxx_lookup_name(const char* name, SourceLoc use_loc) {
     Symbol* symbol;
+    Symbol* direct_symbol;
     CxxNamespace* visited[32] = { 0 };
     CxxNamespace* ns;
 
     if (!name) return NULL;
     symbol = sema_cxx_visible_symbol(symtab_lookup(g_symtab, name), use_loc);
-    if (symbol || !rcc_parser_is_cxx_mode()) {
+    direct_symbol = symbol;
+    if (!rcc_parser_is_cxx_mode()) {
         return symbol;
     }
+    if (name[0] == ':' && name[1] == ':') {
+        return sema_cxx_visible_symbol(
+            symtab_lookup(g_symtab, name + 2), use_loc);
+    }
     if (strchr(name, ':')) {
-        return sema_cxx_lookup_qualified_name(name, use_loc);
+        return symbol ? symbol : sema_cxx_lookup_qualified_name(name, use_loc);
+    }
+    if (symbol && (symbol->kind != SYM_FUNC || !current_cxx_namespace ||
+                   (symbol->decl && symbol->decl->func_method_owner))) {
+        return symbol;
     }
     for (ns = current_cxx_namespace ? current_cxx_namespace
                                     : sema_cxx_global_namespace();
@@ -1658,7 +1668,7 @@ static Symbol* sema_cxx_lookup_name(const char* name, SourceLoc use_loc) {
         symbol = sema_cxx_lookup_namespace(ns, name, visited, 0, use_loc);
         if (symbol) return symbol;
     }
-    return NULL;
+    return direct_symbol;
 }
 
 static CxxNamespace* sema_decl_namespace(Decl* decl) {

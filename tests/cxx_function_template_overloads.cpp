@@ -286,6 +286,23 @@ int choose_noexcept_function_pointer_template(
     return 224;
 }
 
+namespace ConversionFunctionOverloadNamespace {
+void conversion_overloaded_noexcept_function(int) {}
+void conversion_overloaded_noexcept_function() noexcept {}
+
+int verify_function_pointer_overload_context() {
+    ConversionNoexceptFunctionPointer selected =
+        conversion_overloaded_noexcept_function;
+    ConversionNoexceptFunctionPointer global =
+        ::conversion_overloaded_noexcept_function;
+    return selected != global &&
+           ::choose_noexcept_function_pointer(
+               conversion_overloaded_noexcept_function) == 222 &&
+           ::choose_noexcept_function_pointer_template(
+               1, conversion_overloaded_noexcept_function) == 224;
+}
+}
+
 template<typename T>
 int choose_fixed_enum_template(T, unsigned char) {
     return 213;
@@ -495,6 +512,8 @@ int main(void) {
                    choose_noexcept_function_pointer_template(
                        value,
                        conversion_overloaded_noexcept_function) == 224 &&
+                   ConversionFunctionOverloadNamespace::
+                       verify_function_pointer_overload_context() &&
                    choose_noexcept_function_pointer(
                        explicit_noexcept_pointer) == 222 &&
                    choose_noexcept_function_pointer_template(

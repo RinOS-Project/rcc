@@ -1392,9 +1392,13 @@ static const char* parse_expression_qualified_name(SourceLoc loc) {
     char buffer[512] = "";
     size_t length = 0u;
 
-    /* A leading global-scope operator does not change the canonical lookup
-     * key stored in the AST. */
-    (void)match(TOK_SCOPE);
+    /* Keep a leading global-scope operator in the lookup key.  Semantic
+     * lookup must not reinterpret `::name` as an unqualified name in the
+     * current namespace. */
+    if (match(TOK_SCOPE) &&
+        !qualified_name_append(buffer, sizeof(buffer), &length, "::", loc)) {
+        return rcc_intern(buffer);
+    }
     if (!check(TOK_IDENT)) {
         rcc_error(peek()->loc, "expected identifier in qualified name");
         return rcc_intern(buffer);
