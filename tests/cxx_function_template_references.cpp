@@ -37,6 +37,14 @@ int select_reference_overload(const int&) {
     return 3;
 }
 
+int select_const_rvalue_reference_overload(const int&) {
+    return 4;
+}
+
+int select_const_rvalue_reference_overload(const int&&) {
+    return 5;
+}
+
 int comma_calls;
 
 int mark_comma() {
@@ -478,6 +486,12 @@ int main() {
     if (select_reference_overload(overload_const_lvalue) != 3) return 32;
     if (select_reference_overload(
             static_cast<int&&>(overload_lvalue)) != 2) return 33;
+    if (select_const_rvalue_reference_overload(overload_const_lvalue) != 4)
+        return 34;
+    if (select_const_rvalue_reference_overload(52) != 5) return 35;
+    if (select_const_rvalue_reference_overload(
+            static_cast<const int&&>(overload_const_lvalue)) != 5)
+        return 36;
     if (read_const_reference(constant) != 7) return 1;
     if (update_lvalue(mutable_value) != 7) return 2;
     if (mutable_value != 7) return 3;

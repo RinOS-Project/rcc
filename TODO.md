@@ -470,9 +470,12 @@
       execute on the x64 host. Source-level reference collapsing and the public
       conversion-function cases returning class `T&`, `T&&`, or class prvalues
       are covered by `test-cxx-function-template-references` on both targets
-      and the x64 host. Broader call/return ABI interactions still need
-      systematic coverage; a direct thread-local class-prvalue reference has
-      dedicated per-thread host coverage below.
+      and the x64 host. Equal-rank non-template overloads now prefer `const T&&`
+      over `const T&` for prvalues/xvalues and retain `const T&` for lvalues;
+      GCC C++20, both target codegens, x64 execution, and the complete native
+      Windows `test-cxx` gate pass. Broader call/return ABI interactions still
+      need systematic coverage; a direct thread-local class-prvalue reference
+      has dedicated per-thread host coverage below.
   - [x] Reject non-template `int&` returns from prvalues and `int&&` returns
         from lvalues as hard C++ semantic errors; verify both cases, invalid
         reference initializers, and invalid ordinary calls for i686/AMD64.
@@ -2134,11 +2137,12 @@ separately recorded WSL startup failure.
 
 - [x] For equal-rank standard conversion sequences that both bind references,
   prefer a viable rvalue-reference binding to an rvalue over an lvalue-reference
-  binding. `const T&` remains selected for an lvalue, while `const T&&` wins
-  for a prvalue. GCC C++20 agrees; i686/AMD64 generation, AMD64 execution,
-  GCC `-Werror` execution, the focused overload target, and full native-Windows
-  `test-cxx` pass. User-defined sequences and implicit-object parameters are
-  not covered by this tie-break.
+  binding in both function-template and ordinary non-template overload
+  resolution. `const T&` remains selected for an lvalue, while `const T&&` wins
+  for prvalues and explicit xvalues. GCC C++20 agrees; i686/AMD64 generation,
+  AMD64 execution, GCC `-Werror` execution, the focused overload target, and
+  full native-Windows `test-cxx` pass. User-defined sequences and implicit-
+  object parameters remain outside this tie-break.
 - [ ] Continue proper-subsequence ranking, derived-to-base ordering,
   user-defined conversion ties, and complete function-template partial
   ordering.
