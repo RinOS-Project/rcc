@@ -16037,6 +16037,25 @@ static int cxx_template_conversion_vector_relation(
                 }
             }
             if (qualification_relation == 0 &&
+                left->conversion_ranks[index] == 8 && left_target &&
+                right_target && left_target->kind == TYPE_PTR &&
+                right_target->kind == TYPE_PTR &&
+                left_target->cxx_is_member_pointer &&
+                right_target->cxx_is_member_pointer && left_target->base &&
+                right_target->base && left_target->base->kind == TYPE_FUNC &&
+                right_target->base->kind == TYPE_FUNC &&
+                left_target->cxx_member_pointer_owner &&
+                right_target->cxx_member_pointer_owner &&
+                type_is_compatible(
+                    left_target->cxx_member_pointer_owner,
+                    right_target->cxx_member_pointer_owner) &&
+                left->conversion_sources[index]) {
+                qualification_relation =
+                    rcc_sema_cxx_member_function_noexcept_target_relation(
+                        left->conversion_sources[index], left_target,
+                        right_target);
+            }
+            if (qualification_relation == 0 &&
                 left->conversion_ranks[index] == 8 &&
                 left_target && right_target &&
                 left_target->kind == TYPE_PTR &&

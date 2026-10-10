@@ -7607,6 +7607,48 @@ static int sema_cxx_member_type_qualification_relation(Type* left,
     return left_to_right && right_to_left ? 0 : 2;
 }
 
+static bool sema_cxx_exact_function_signature(Type* candidate, Type* target);
+
+/* A pointer to a noexcept member function converts to the corresponding
+ * potentially-throwing member-function pointer, but not in the reverse
+ * direction. When both overloads are otherwise the same member-pointer
+ * target, retain the source exception specification so the identity
+ * conversion beats that function-pointer conversion. */
+int rcc_sema_cxx_member_function_noexcept_target_relation(
+    Type* source, Type* left_target, Type* right_target) {
+    Type source_signature;
+    Type left_signature;
+    Type right_signature;
+    if (source && source->is_reference) source = source->base;
+    if (!source || source->kind != TYPE_PTR ||
+        !source->cxx_is_member_pointer || !source->base ||
+        source->base->kind != TYPE_FUNC ||
+        !source->base->function_is_noexcept ||
+        !left_target || !right_target || left_target->kind != TYPE_PTR ||
+        right_target->kind != TYPE_PTR ||
+        !left_target->cxx_is_member_pointer ||
+        !right_target->cxx_is_member_pointer || !left_target->base ||
+        !right_target->base || left_target->base->kind != TYPE_FUNC ||
+        right_target->base->kind != TYPE_FUNC ||
+        left_target->base->function_is_noexcept ==
+            right_target->base->function_is_noexcept) {
+        return 0;
+    }
+    source_signature = *source->base;
+    left_signature = *left_target->base;
+    right_signature = *right_target->base;
+    source_signature.function_is_noexcept = false;
+    left_signature.function_is_noexcept = false;
+    right_signature.function_is_noexcept = false;
+    if (!sema_cxx_exact_function_signature(&source_signature,
+                                            &left_signature) ||
+        !sema_cxx_exact_function_signature(&source_signature,
+                                            &right_signature)) {
+        return 0;
+    }
+    return left_target->base->function_is_noexcept ? 1 : -1;
+}
+
 /* Compare qualification decompositions of otherwise compatible ordinary
  * pointer targets. Top-level parameter cv is ignored; cv at each pointee
  * level contributes to the subset relation. The callers have already
@@ -8356,12 +8398,23 @@ static int cxx_conversion_vector_relation(
                     }
                 }
             } else if (left_owner && right_owner) {
-                int qualification_relation =
-                    sema_cxx_member_type_qualification_relation(
-                        left_targets[index]->base,
-                        right_targets[index]->base);
-                if (qualification_relation > 0) left_better = true;
-                if (qualification_relation < 0) right_better = true;
+                int member_type_relation;
+                if (left_targets[index]->base->kind == TYPE_FUNC &&
+                    right_targets[index]->base->kind == TYPE_FUNC &&
+                    index >= argument_offset && argument &&
+                    argument->expr) {
+                    member_type_relation =
+                        rcc_sema_cxx_member_function_noexcept_target_relation(
+                            argument->expr->type, left_targets[index],
+                            right_targets[index]);
+                } else {
+                    member_type_relation =
+                        sema_cxx_member_type_qualification_relation(
+                            left_targets[index]->base,
+                            right_targets[index]->base);
+                }
+                if (member_type_relation > 0) left_better = true;
+                if (member_type_relation < 0) right_better = true;
             }
         }
         if (left[index] == right[index] && left[index] == 2 &&

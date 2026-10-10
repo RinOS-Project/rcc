@@ -104,6 +104,8 @@ struct ConversionMemberPointerRoot {
     int function(int parameter) const {
         return parameter;
     }
+
+    void noexcept_function() noexcept {}
 };
 
 struct ConversionMemberPointerMiddle : ConversionMemberPointerRoot {};
@@ -638,6 +640,28 @@ int choose_member_pointer_member_type_cv_non_template(
 }
 
 template<typename T>
+int choose_member_function_pointer_noexcept(
+    T, void (ConversionMemberPointerMiddle::*)() noexcept) {
+    return 205;
+}
+
+template<typename T>
+int choose_member_function_pointer_noexcept(
+    T, void (ConversionMemberPointerMiddle::*)()) {
+    return 206;
+}
+
+int choose_member_function_pointer_noexcept_non_template(
+    void (ConversionMemberPointerMiddle::*)() noexcept) {
+    return 207;
+}
+
+int choose_member_function_pointer_noexcept_non_template(
+    void (ConversionMemberPointerMiddle::*)()) {
+    return 208;
+}
+
+template<typename T>
 int choose_base_over_void(T*, ConversionBaseRoot*) {
     return 83;
 }
@@ -710,6 +734,8 @@ int main(void) {
         &conversion_explicit_noexcept_function;
     int (ConversionMemberPointerRoot::*root_member_function)(int) const =
         &ConversionMemberPointerRoot::function;
+    void (ConversionMemberPointerRoot::*root_noexcept_member_function)()
+        noexcept = &ConversionMemberPointerRoot::noexcept_function;
     const int const_value = 6;
     ConversionBaseLeaf leaf;
     ConversionBaseLeaf* leaf_pointer = &leaf;
@@ -822,6 +848,10 @@ int main(void) {
                        0, &ConversionMemberPointerRoot::value) == 201 &&
                    choose_member_pointer_member_type_cv_non_template(
                        &ConversionMemberPointerRoot::value) == 203 &&
+                   choose_member_function_pointer_noexcept(
+                       0, root_noexcept_member_function) == 205 &&
+                   choose_member_function_pointer_noexcept_non_template(
+                       root_noexcept_member_function) == 207 &&
                    choose_base_over_void(leaf_pointer, leaf_pointer) == 83 &&
                    choose_nearer_base_value(
                        value_leaf_pointer, value_leaf) == 92 &&
