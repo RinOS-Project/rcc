@@ -8439,8 +8439,7 @@ static int cxx_conversion_vector_relation(
                        right_pointee->kind == TYPE_STRUCT &&
                        right_pointee->cxx_class) {
                 right_better = true;
-            } else if (matching_cv &&
-                       left_pointee->kind == TYPE_STRUCT &&
+            } else if (left_pointee->kind == TYPE_STRUCT &&
                        right_pointee->kind == TYPE_STRUCT &&
                        left_pointee->cxx_class &&
                        right_pointee->cxx_class &&

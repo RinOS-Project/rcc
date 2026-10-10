@@ -443,6 +443,24 @@ int choose_derived_base_qualification(const ConversionBaseRoot*) {
     return 100;
 }
 
+int choose_cv_nearer_base_pointer(const ConversionBaseRoot*) {
+    return 111;
+}
+
+int choose_cv_nearer_base_pointer(ConversionBaseMiddle*) {
+    return 112;
+}
+
+int choose_cv_incomparable_nearer_base_pointer(
+    const ConversionBaseMiddle*) {
+    return 115;
+}
+
+int choose_cv_incomparable_nearer_base_pointer(
+    volatile ConversionBaseRoot*) {
+    return 116;
+}
+
 template<typename T>
 int choose_derived_base_qualification_template(
     T*, ConversionBaseRoot*) {
@@ -453,6 +471,30 @@ template<typename T>
 int choose_derived_base_qualification_template(
     T*, const ConversionBaseRoot*) {
     return 102;
+}
+
+template<typename T>
+int choose_cv_nearer_base_pointer_template(
+    T*, const ConversionBaseRoot*) {
+    return 113;
+}
+
+template<typename T>
+int choose_cv_nearer_base_pointer_template(
+    T*, ConversionBaseMiddle*) {
+    return 114;
+}
+
+template<typename T>
+int choose_cv_incomparable_nearer_base_pointer_template(
+    T*, const ConversionBaseMiddle*) {
+    return 117;
+}
+
+template<typename T>
+int choose_cv_incomparable_nearer_base_pointer_template(
+    T*, volatile ConversionBaseRoot*) {
+    return 118;
 }
 
 int choose_fixed_enum_promotion(unsigned char) {
@@ -795,6 +837,13 @@ int main(void) {
                    choose_derived_base_qualification(leaf_pointer) == 99 &&
                    choose_derived_base_qualification_template(
                        pointer, leaf_pointer) == 101 &&
+                   choose_cv_nearer_base_pointer(leaf_pointer) == 112 &&
+                   choose_cv_nearer_base_pointer_template(
+                       pointer, leaf_pointer) == 114 &&
+                   choose_cv_incomparable_nearer_base_pointer(
+                       leaf_pointer) == 115 &&
+                   choose_cv_incomparable_nearer_base_pointer_template(
+                       pointer, leaf_pointer) == 117 &&
                    choose_fixed_enum_promotion(
                        conversion_fixed_byte_value) == 211 &&
                    choose_fixed_enum_template(

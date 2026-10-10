@@ -2425,3 +2425,18 @@ separately recorded WSL startup failure.
   shapes, user-defined conversion ties, implicit-object refinements, and full
   function-template partial ordering; this derived-reference rule is bounded
   and does not complete overload-resolution conformance.
+
+## C++ regression follow-up (2026-10-10, cv-qualified derived-pointer ranking)
+
+- [x] Compare equal-rank pointer conversions to related class targets even
+  when their cv qualifications differ. For `ConversionBaseLeaf*`, ordinary
+  and function-template overloads select `ConversionBaseMiddle*` over
+  `const ConversionBaseRoot*`; they also select a const-qualified
+  `ConversionBaseMiddle*` over a `volatile ConversionBaseRoot*`. GCC C++20
+  confirms both results. The focused overload gate passes i686/AMD64
+  generation, AMD64 execution, GCC C++20 `-Werror`, and existing ambiguity
+  diagnostics.
+- [ ] Continue proper-subsequence coverage for other standard conversion
+  shapes, user-defined conversion ties, implicit-object refinements, and full
+  function-template partial ordering; this pointer-ranking rule is bounded
+  and does not complete overload-resolution conformance.
