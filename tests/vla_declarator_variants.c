@@ -1,5 +1,11 @@
 typedef int Row;
 
+int static_pointer_to_vla(int count)
+{
+    static int (*row)[count];
+    return row == 0 && sizeof(row) == sizeof(void*) ? 0 : -1;
+}
+
 int pointer_to_vla(int count, int values[count])
 {
     int (*row)[count] = (int (*)[count])values;
@@ -36,6 +42,7 @@ int main(void)
 {
     int values[6] = {4, 5, 6, 7, 8, 9};
     int matrix[2][3] = {{1, 2, 3}, {7, 8, 9}};
+    if (static_pointer_to_vla(3) != 0) return 5;
     if (pointer_to_vla(3, values) != 9) return 1;
     if (typedef_pointer_to_vla(3, values) != 9) return 2;
     if (matrix_parameter(2, 3, matrix) != 9) return 3;

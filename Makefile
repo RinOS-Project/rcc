@@ -9452,11 +9452,15 @@ test-vla-declarations: $(RCC_TARGET)
 		tests/invalid_vla_for_initializer_scope.c,$(TEST_OUT)/vla-declarations/invalid-for-scope-x64.log)
 	$(GREP) -q "variably modified object cannot have linkage" \
 		$(TEST_OUT)/vla-declarations/invalid-storage-x86.log
+	$(GREP) -q "variable-length array cannot have static or thread storage duration" \
+		$(TEST_OUT)/vla-declarations/invalid-storage-x86.log
 	$(GREP) -q "variably modified typedef is only valid at block scope" \
 		$(TEST_OUT)/vla-declarations/invalid-storage-x86.log
 	$(GREP) -q "variably modified type is not allowed for struct/union member" \
 		$(TEST_OUT)/vla-declarations/invalid-member-x86.log
 	$(GREP) -q "variably modified object cannot have linkage" \
+		$(TEST_OUT)/vla-declarations/invalid-storage-x64.log
+	$(GREP) -q "variable-length array cannot have static or thread storage duration" \
 		$(TEST_OUT)/vla-declarations/invalid-storage-x64.log
 	$(GREP) -q "variably modified typedef is only valid at block scope" \
 		$(TEST_OUT)/vla-declarations/invalid-storage-x64.log

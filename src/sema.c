@@ -18562,10 +18562,16 @@ static void sema_decl(Decl* decl) {
                     rcc_error(decl->loc,
                               "variable-length array is only valid at block scope");
                 }
-                if (decl->storage == STORAGE_STATIC ||
-                    decl->storage == STORAGE_EXTERN) {
+                if (decl->storage == STORAGE_EXTERN) {
                     rcc_error(decl->loc,
                               "variably modified object cannot have linkage");
+                }
+                if (sema_type_has_vla(decl->type) &&
+                    (decl->storage == STORAGE_STATIC ||
+                     decl->storage == STORAGE_EXTERN ||
+                     decl->var_is_thread_local)) {
+                    rcc_error(decl->loc,
+                              "variable-length array cannot have static or thread storage duration");
                 }
                 if (sema_type_has_vla(decl->type) && decl->var_init) {
                     rcc_error(decl->loc,
