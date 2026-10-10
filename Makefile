@@ -11726,13 +11726,13 @@ test-inline-asm-validation: $(RCC_TARGET)
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "placeholder must be" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
-	$(GREP) -q "placeholder index is out of range" \
+	$(GREP) -q "operand placeholder index is out of range" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "scalar integer or pointer" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "immediate input must be an integer constant expression" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
-	$(GREP) -q "%%qN register modifier requires AMD64 target" \
+	$(GREP) -q "%qN register modifier requires AMD64 target" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/x64.ro tests/invalid_inline_asm_constraints.c,$(TEST_OUT)/inline-asm-validation/x64.log)
 	$(GREP) -q "unsupported AMD64 inline asm output register constraint 'k'" \
@@ -11747,24 +11747,24 @@ test-inline-asm-validation: $(RCC_TARGET)
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	$(GREP) -q "clobbers list the same register twice" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
-	$(GREP) -q "placeholder index is out of range" \
+	$(GREP) -q "operand placeholder index is out of range" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	$(GREP) -q "immediate input must be an integer constant expression" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/q-immediate.ro tests/invalid_inline_asm_q_immediate.c,$(TEST_OUT)/inline-asm-validation/q-immediate.log)
-	$(GREP) -q "%%qN register modifier requires a register operand" \
+	$(GREP) -q "%qN register modifier requires a register operand" \
 		$(TEST_OUT)/inline-asm-validation/q-immediate.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/c-register-x86.ro tests/invalid_inline_asm_c_register.c,$(TEST_OUT)/inline-asm-validation/c-register-x86.log)
-	$(GREP) -q "%%cN modifier requires a constant operand" \
+	$(GREP) -q "%cN modifier requires a constant operand" \
 		$(TEST_OUT)/inline-asm-validation/c-register-x86.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/c-register-x64.ro tests/invalid_inline_asm_c_register.c,$(TEST_OUT)/inline-asm-validation/c-register-x64.log)
-	$(GREP) -q "%%cN modifier requires a constant operand" \
+	$(GREP) -q "%cN modifier requires a constant operand" \
 		$(TEST_OUT)/inline-asm-validation/c-register-x64.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/n-register-x86.ro tests/invalid_inline_asm_n_register.c,$(TEST_OUT)/inline-asm-validation/n-register-x86.log)
-	$(GREP) -q "%%nN modifier requires a constant operand" \
+	$(GREP) -q "%nN modifier requires a constant operand" \
 		$(TEST_OUT)/inline-asm-validation/n-register-x86.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/n-register-x64.ro tests/invalid_inline_asm_n_register.c,$(TEST_OUT)/inline-asm-validation/n-register-x64.log)
-	$(GREP) -q "%%nN modifier requires a constant operand" \
+	$(GREP) -q "%nN modifier requires a constant operand" \
 		$(TEST_OUT)/inline-asm-validation/n-register-x64.log
 	@echo "Dual-architecture inline asm constraint validation tests completed"
 

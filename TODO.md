@@ -1983,6 +1983,15 @@
 
 ## Native Windows bootstrap verification (2026-10-10)
 
+- [x] Run the current GCC `test-ci` host gates with
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j2 test-ci`;
+  C17/C++20, IR/MIR, verified backend, optimizer, ABI, inline-asm, RIN/RLL/DRV
+  format/golden, deterministic fuzz/property, and linker/image checks pass.
+- [ ] Complete that run's stage0/stage1/stage2 bootstrap through the configured
+  Ubuntu-24.04 WSL host. The production gate reached `test-bootstrap-core`, but
+  WSL returned `Wsl/Service/E_ACCESSDENIED`; this is an environment startup
+  failure, not a passing bootstrap. Retry the complete gate on an available
+  WSL/Linux host.
 - [x] Reproduce the `scripts/bootstrap_gate.sh` core phase with the native
   `rcc-ci.exe`: compile all 38 `CORE_SOURCES` twice for i686 and x86_64 and
   verify all 76 source/target object pairs are byte-identical.
