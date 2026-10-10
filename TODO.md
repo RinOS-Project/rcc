@@ -2589,7 +2589,7 @@ separately recorded WSL startup failure.
   through method declarations and bodies; preserve method cv/ref qualifiers,
   staticness, default non-type arguments, and class-dependent `requires`
   clauses. The focused Windows gate executes Box specializations for two class
-  argument types, checks ten GCC-Itanium symbols (including static,
+  argument types, checks twelve GCC-Itanium symbols (including static,
   deduced/explicit type arguments, and defaulted/explicit non-type arguments),
   emits/assembles i686 and AMD64 objects, executes generated AMD64 code, and
   passes verified-backend output for both targets. A first full `test-cxx`
@@ -2599,14 +2599,16 @@ separately recorded WSL startup failure.
   class-template member calls, materialize the matching specialization, and
   allow standard argument conversions after the explicit type is fixed. The
   regression includes `add<short>(2)`, `add_constant<3>()`, and a comparison
-  expression before template calls to guard the `<` lookahead. The focused
-  gate passes GCC C++20 `-Wall -Wextra -Werror`, ten exact Itanium symbol
-  checks against GCC, i686/AMD64 assembly and object generation, generated
-  AMD64 execution, and verified-backend output for both targets. The nested
-  dependent-`typename` gates retain their exact diagnostic counts on both
-  architectures. The complete native-Windows `test-cxx` aggregate passes.
-- [ ] Extend explicit member-call arguments to dependent `template`
-  disambiguation and partial deduction; complete remaining non-type,
+  expression before template calls to guard the `<` lookahead. Also parse and
+  substitute a dependent `this->template echo<T>(...)` call in a class-template
+  method. The focused gate passes GCC C++20 `-Wall -Wextra -Werror`, twelve
+  exact Itanium symbol checks against GCC, i686/AMD64 assembly and object
+  generation, generated AMD64 execution, and verified-backend output for both
+  targets. The nested dependent-`typename` gates retain their exact diagnostic
+  counts on both architectures. The complete native-Windows `test-cxx`
+  aggregate passes.
+- [ ] Extend explicit member-call arguments to dependent `.` object lookup and
+  partial deduction; complete remaining non-type,
   template-template, and pack forms; and support constructor templates,
   explicit member-template specializations, inherited conversion templates,
   and full C++20 constraint subsumption. Full Itanium ABI substitution for

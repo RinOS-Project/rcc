@@ -23,6 +23,10 @@ struct Box {
         return other;
     }
 
+    T echo_through_member(T other) const {
+        return this->template echo<T>(other);
+    }
+
     template<typename U>
     static U identity(U other) {
         return other;
@@ -34,6 +38,7 @@ int main() {
     Box<long> longs{5};
     return integers.value < 10 && integers.add(3L) == 7 &&
                    integers.echo(9L) == 9L &&
+                   integers.echo_through_member(13) == 13 &&
                    integers.identity(12L) == 12L &&
                    integers.add<short>(2) == 6 &&
                    integers.add_constant() == 6 &&

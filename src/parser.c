@@ -1830,6 +1830,7 @@ static Expr* parse_postfix_tail(Expr* e) {
             expect(TOK_RBRACKET, "]");
             e = expr_index(e, index, loc);
         } else if (match(TOK_DOT)) {
+            if (parser_cxx_mode) (void)match(TOK_TEMPLATE);
             Token* name = expect(TOK_IDENT, "member name");
             if (name) {
                 e = expr_member(e, name->value.str_val, loc);
@@ -1839,6 +1840,7 @@ static Expr* parse_postfix_tail(Expr* e) {
                 }
             }
         } else if (match(TOK_ARROW)) {
+            if (parser_cxx_mode) (void)match(TOK_TEMPLATE);
             Token* name = expect(TOK_IDENT, "member name");
             if (name) {
                 Expr* m = expr_member(e, name->value.str_val, loc);
