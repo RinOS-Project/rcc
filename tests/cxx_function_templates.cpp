@@ -37,6 +37,13 @@ U default_deduced(T value) {
     return result;
 }
 
+template<typename T>
+T local_alias_identity(T value) {
+    using LocalValue = T;
+    LocalValue result = value;
+    return result;
+}
+
 int call_deduced_template() {
     return identity(3);
 }
@@ -51,6 +58,10 @@ int* call_deduced_pointer_template(int* value) {
 
 long call_deduced_default_template() {
     return default_deduced(5);
+}
+
+int call_local_alias_template() {
+    return local_alias_identity(9);
 }
 
 template<typename T>

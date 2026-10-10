@@ -75,6 +75,18 @@ int debug_local_alias_entry(int value) {
     return value + static_cast<int>(local_value);
 }
 
+template<typename T>
+T debug_template_local_alias_entry(T value) {
+    using TemplateWord = T;
+    TemplateWord local_value = value;
+    return local_value;
+}
+
+int debug_template_local_alias_caller(int value) {
+    return static_cast<int>(debug_template_local_alias_entry<unsigned short>(
+        static_cast<unsigned short>(value)));
+}
+
 int debug_inheritance_entry(DebugInheritanceDerived* object) {
     return object->left + object->own;
 }

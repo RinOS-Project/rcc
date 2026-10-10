@@ -762,7 +762,7 @@ static uint64_t find_function_die(const ObjSection* info,
 static void verify_alias_scope_children(
     const ObjSection* info, const ObjSection* strings, uint64_t* cursor,
     uint64_t address_size, unsigned depth, int* local_alias_depth,
-    int* nested_alias_depth)
+    int* nested_alias_depth, int* template_alias_depth)
 {
     while (*cursor < info->size) {
         uint8_t abbreviation = info->data[(*cursor)++];
@@ -808,6 +808,12 @@ static void verify_alias_scope_children(
                               "unsigned long long") == 0 &&
                        info->data[type_offset + 5u] == 8u && line == 71u);
                 *nested_alias_depth = (int)depth;
+            } else if (strcmp((const char*)strings->data + name_offset,
+                              "TemplateWord") == 0) {
+                assert(strcmp((const char*)strings->data + type_name_offset,
+                              "unsigned short") == 0 &&
+                       info->data[type_offset + 5u] == 2u && line == 80u);
+                *template_alias_depth = (int)depth;
             }
             *cursor += 20u;
         } else if (abbreviation == 24u || abbreviation == 25u) {
@@ -817,7 +823,7 @@ static void verify_alias_scope_children(
             *cursor += header_size;
             verify_alias_scope_children(
                 info, strings, cursor, address_size, depth + 1u,
-                local_alias_depth, nested_alias_depth);
+                local_alias_depth, nested_alias_depth, template_alias_depth);
         } else {
             assert(false && "unexpected function-scope DIE abbreviation");
         }
@@ -837,6 +843,7 @@ static void verify_local_type_alias_scope(const char* path,
     uint64_t expression_size;
     int local_alias_depth = -1;
     int nested_alias_depth = -1;
+    int template_alias_depth = -1;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -853,8 +860,24 @@ static void verify_local_type_alias_scope(const char* path,
     assert(cursor + 2u <= info->size);
     cursor += 2u; /* inline and prototyped */
     verify_alias_scope_children(info, strings, &cursor, address_size, 0u,
-                                &local_alias_depth, &nested_alias_depth);
+                                &local_alias_depth, &nested_alias_depth,
+                                &template_alias_depth);
     assert(local_alias_depth >= 0 && nested_alias_depth > local_alias_depth);
+    function_die = find_function_die(info, strings,
+                                     "debug_template_local_alias_entry",
+                                     address_size);
+    assert(function_die != UINT64_MAX);
+    cursor = function_die + 1u + 4u + address_size + 4u + 1u + 4u + 4u +
+             1u + 4u + 4u;
+    expression_size = read_uleb(info->data, info->size, &cursor);
+    assert(expression_size <= info->size - cursor);
+    cursor += expression_size;
+    assert(cursor + 2u <= info->size);
+    cursor += 2u; /* inline and prototyped */
+    verify_alias_scope_children(info, strings, &cursor, address_size, 0u,
+                                &local_alias_depth, &nested_alias_depth,
+                                &template_alias_depth);
+    assert(template_alias_depth >= 0 && template_alias_depth <= 1);
     objfile_free(object);
 }
 

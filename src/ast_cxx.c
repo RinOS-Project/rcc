@@ -5041,6 +5041,14 @@ static Decl* template_clone_decl(CxxTemplate* tmpl, Decl* declaration,
     *copy = *declaration;
     copy->type = template_substitute_type(
         tmpl, declaration->type, args, arg_count, value_args, value_present);
+    if (declaration->kind == DECL_TYPEDEF) {
+        /* A typedef stores its canonical underlying type separately from the
+         * common Decl.type field; keep both views concrete in an instance. */
+        copy->typedef_type = template_substitute_type(
+            tmpl, declaration->typedef_type, args, arg_count,
+            value_args, value_present);
+        copy->type = copy->typedef_type;
+    }
     copy->param_default = template_clone_expr(
         tmpl, declaration->param_default, args, arg_count,
         value_args, value_present);

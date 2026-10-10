@@ -1675,8 +1675,9 @@
         class内aliasのsource location／public・protected・private accessibilityを
         同じ両arch回帰で検証。関数scopeとnested lexical block内の具体型
         `using` aliasも、宣言したscope直下の`DW_TAG_typedef`として出力し、
-        実型・byte size・source locationおよびnested scope階層をi686/AMD64で
-        検証。未解決dependent aliasのDIE対応は引き続き未完
+        関数template instance内ではalias underlying typeもtemplate substitutionし、
+        concrete aliasの実型・byte size・source location・scopeをi686/AMD64で
+        検証。未instantiateのdependent aliasとtemplate parameter type DIEは未完
   - [x] enum型と列挙子へ`DW_TAG_enumeration_type`／`DW_TAG_enumerator`と
         signed／unsigned constant valueを出力し、unsigned full-width値を含む
         i686/AMD64のobject・link回帰で検証
