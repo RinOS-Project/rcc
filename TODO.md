@@ -2501,6 +2501,19 @@ separately recorded WSL startup failure.
   shapes; user-defined conversion ties and complete function-template partial
   ordering remain open.
 
+## C++ regression follow-up (2026-10-11, user-defined conversion reference binding)
+
+- [x] Include public implicit conversion operators when checking viability for
+  reference parameters. For equal-rank sequences that bind the same
+  conversion result, prefer an rvalue-reference binding to the conversion
+  prvalue over `const T&`; the regression selects `ReferenceConversionResult&&`
+  over `const ReferenceConversionResult&`. `test-cxx-conversion-operator`
+  passes i686/AMD64 generation and execution, GCC C++20 `-Werror`, and its
+  verified-backend object-generation checks.
+- [ ] Extend user-defined conversion ranking to retain the selected conversion
+  function through all candidate comparisons, including overloaded conversion
+  functions and template/constraint interactions.
+
 ## RCC continuation (2026-10-11, SysV flexible-array ABI and native Clang tests)
 
 - [x] Classify structs with flexible array members as memory-passed SysV AMD64

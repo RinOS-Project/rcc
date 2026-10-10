@@ -53,6 +53,17 @@ public:
     }
 };
 
+struct ReferenceConversionResult {
+    int value;
+};
+
+class ReferenceConversionSource {
+public:
+    operator ReferenceConversionResult() && {
+        return {43};
+    }
+};
+
 int take_integer(int value) {
     return value;
 }
@@ -67,6 +78,14 @@ int take_promoted_integer(int value) {
 
 double take_promoted_double(double value) {
     return value;
+}
+
+int choose_conversion_reference(ReferenceConversionResult&& value) {
+    return value.value + 100;
+}
+
+int choose_conversion_reference(const ReferenceConversionResult& value) {
+    return value.value + 200;
 }
 
 long take_long(long value) {
@@ -124,6 +143,9 @@ int main() {
         choose_template_conversion(0, meter) != 107 ||
         take_ranked_integer(ranked_meter) != 19 ||
         take_promoted_integer(promotion_meter) != 23 ||
-        take_promoted_double(floating_promotion_meter) != 31.0) return 1;
+        take_promoted_double(floating_promotion_meter) != 31.0 ||
+        choose_conversion_reference(ReferenceConversionSource{}) != 143) {
+        return 1;
+    }
     return 0;
 }

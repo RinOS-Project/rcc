@@ -7889,6 +7889,17 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
              * resolution can distinguish Derived& from Base&. */
             return 2;
         }
+        if (rcc_parser_is_cxx_mode() &&
+            (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION)) {
+            bool ambiguous = false;
+            TypeMethod* conversion = sema_find_cxx_conversion_method(
+                source, target, &ambiguous);
+            if (ambiguous) return -1;
+            if (conversion) {
+                return 3 + sema_cxx_conversion_result_rank(
+                    conversion->return_type, target);
+            }
+        }
         return type_is_compatible(source, target_base) ? 1 : -1;
     }
     if (sema_is_scoped_enum(source) || sema_is_scoped_enum(target)) {
@@ -8406,11 +8417,14 @@ static int cxx_conversion_vector_relation(
          * binding to an rvalue from an lvalue-reference binding to it. Keep
          * this separate from rank calculation so another argument may still
          * make the candidates incomparable. */
-        if (left[index] == right[index] && left[index] < 3 &&
+        if (left[index] == right[index] &&
             left_targets && right_targets && left_targets[index] &&
             right_targets[index] &&
             left_targets[index]->is_reference &&
             right_targets[index]->is_reference &&
+            (left[index] < 3 ||
+             cxx_same_parameter_type(left_targets[index]->base,
+                                     right_targets[index]->base, true)) &&
             left_targets[index]->is_rvalue_reference !=
                 right_targets[index]->is_rvalue_reference &&
             index >= argument_offset && argument &&
