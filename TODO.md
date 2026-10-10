@@ -2553,10 +2553,21 @@ separately recorded WSL startup failure.
   diagnostics on both targets, and fallback positives compile for both.
   The native-Windows `test-cxx` aggregate also passes. No nested-type parser
   change was needed.
-- [ ] Extend conversion-sequence identity handling to conversion-function
-  template specialization and constraint interactions, and continue the other
-  open overload-resolution cases; this bounded fix does not complete C++20
-  overload resolution.
+- [ ] Implement class-scope member function templates, starting with
+  conversion-function templates: parse the member template declaration,
+  deduce template arguments from the required conversion result type, evaluate
+  constraints, instantiate the member with its class/`this` ABI, and compare
+  selected specialization identity in overload resolution. A GCC C++20 oracle
+  accepts `template<class T> operator T() const` and diagnoses an `int` versus
+  `double` overload call as ambiguous; RCC currently emits 14 parser errors
+  before overload resolution. The target-type deduction rule is specified in
+  [`temp.deduct.conv`](https://timsong-cpp.github.io/cppwp/std20/temp.deduct.conv),
+  and user-defined sequence ordering is specified in
+  [`over.ics.rank`](https://timsong-cpp.github.io/cppwp/std20/over.ics.rank).
+  This syntax/instantiation gap is broader than the completed non-template
+  conversion-function identity fix; do not mark it complete until valid
+  single-candidate conversions and ambiguous overload cases pass GCC-oracle,
+  i686/AMD64, and generated-code tests.
 
 ## RCC continuation (2026-10-11, SysV flexible-array ABI and native Clang tests)
 
