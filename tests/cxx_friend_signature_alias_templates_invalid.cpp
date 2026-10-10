@@ -33,3 +33,17 @@ friend_signature_template_mismatch(T* value) {
     (void)value;
     return nullptr;
 }
+
+struct FriendSignatureMultiAliasBase {
+private:
+    template<typename T>
+    using Hidden = T*;
+
+    friend Hidden<int> friend_signature_multi_friend();
+};
+
+struct FriendSignatureMultiAliasDerived
+    : public FriendSignatureMultiAliasBase {};
+
+FriendSignatureMultiAliasDerived::Hidden<int>
+friend_signature_multi_friend(), friend_signature_multi_non_friend();

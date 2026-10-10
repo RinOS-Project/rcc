@@ -2114,7 +2114,7 @@ static bool cxx_friend_signature_use_is_allowed(
     return false;
 }
 
-static void cxx_end_friend_function_signature_access(
+static void cxx_validate_friend_function_signature_access(
     void* saved_context, const char* name, Type* return_type,
     DeclList* parameters, Type* function_type, SourceLoc loc) {
     CxxFriendSignatureContext* context = saved_context;
@@ -2142,10 +2142,24 @@ static void cxx_end_friend_function_signature_access(
             }
         }
     }
+}
+
+static void cxx_restore_friend_function_signature_access(
+    void* saved_context) {
+    CxxFriendSignatureContext* context = saved_context;
+    if (!context) return;
     active_friend_access_context = context->saved_access_context;
     active_friend_signature_candidates = context->saved_candidates;
     active_friend_signature_alias_uses = context->saved_alias_uses;
     active_friend_signature_collection = context->saved_is_collecting;
+}
+
+static void cxx_end_friend_function_signature_access(
+    void* saved_context, const char* name, Type* return_type,
+    DeclList* parameters, Type* function_type, SourceLoc loc) {
+    cxx_validate_friend_function_signature_access(
+        saved_context, name, return_type, parameters, function_type, loc);
+    cxx_restore_friend_function_signature_access(saved_context);
 }
 
 void* rcc_parser_cxx_begin_function_signature_access(bool file_scope) {
@@ -2162,6 +2176,34 @@ void rcc_parser_cxx_end_function_signature_access(
         function_type && function_type->kind == TYPE_FUNC
             ? function_type : NULL,
         loc);
+}
+
+void* rcc_parser_cxx_mark_function_signature_alias_uses(void) {
+    return active_friend_signature_collection
+        ? active_friend_signature_alias_uses : NULL;
+}
+
+void rcc_parser_cxx_reset_function_signature_alias_uses(void* mark) {
+    if (active_friend_signature_collection) {
+        active_friend_signature_alias_uses =
+            (CxxFriendSignatureAliasUse*)mark;
+    }
+}
+
+void rcc_parser_cxx_validate_function_signature_access(
+    void* saved_context, const char* name, Type* function_type,
+    DeclList* parameters, SourceLoc loc) {
+    Type* return_type = function_type && function_type->kind == TYPE_FUNC
+        ? function_type->ret_type : NULL;
+    cxx_validate_friend_function_signature_access(
+        saved_context, name, return_type, parameters,
+        function_type && function_type->kind == TYPE_FUNC
+            ? function_type : NULL,
+        loc);
+}
+
+void rcc_parser_cxx_restore_function_signature_access(void* saved_context) {
+    cxx_restore_friend_function_signature_access(saved_context);
 }
 
 void* rcc_parser_cxx_begin_function_friend_access(

@@ -71,6 +71,15 @@ extern void* rcc_parser_cxx_begin_function_signature_access(bool file_scope)
 extern void rcc_parser_cxx_end_function_signature_access(
     void* saved_context, const char* name, Type* function_type,
     DeclList* parameters, SourceLoc loc) RCC_OPTIONAL_CXX;
+extern void* rcc_parser_cxx_mark_function_signature_alias_uses(void)
+    RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_reset_function_signature_alias_uses(void* mark)
+    RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_validate_function_signature_access(
+    void* saved_context, const char* name, Type* function_type,
+    DeclList* parameters, SourceLoc loc) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_restore_function_signature_access(
+    void* saved_context) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_add_value_binding(const char* name, Type* type)
     RCC_OPTIONAL_CXX;
 extern void* rcc_parser_cxx_using_scope_mark(void) RCC_OPTIONAL_CXX;
@@ -4664,6 +4673,7 @@ Stmt* parse_declaration(void) {
     Type* type;
     Decl* declaration;
     void* friend_signature_context = NULL;
+    void* friend_signature_base_alias_mark = NULL;
     void* friend_access_mark = NULL;
     bool friend_access_context_active = false;
     int explicit_alignment = 0;
@@ -4768,6 +4778,11 @@ Stmt* parse_declaration(void) {
         synchronize();
         return NULL;
     }
+    if (friend_signature_context &&
+        rcc_parser_cxx_mark_function_signature_alias_uses) {
+        friend_signature_base_alias_mark =
+            rcc_parser_cxx_mark_function_signature_alias_uses();
+    }
 
     /* C declaration-specifiers may place a function specifier after the type
      * specifier (for example `void _Noreturn f(void)`).  Keep consuming it
@@ -4845,13 +4860,6 @@ Stmt* parse_declaration(void) {
     }
 
     type = parse_declarator(base_type, &declaration_name, &parameters);
-    if (friend_signature_context &&
-        rcc_parser_cxx_end_function_signature_access) {
-        rcc_parser_cxx_end_function_signature_access(
-            friend_signature_context, declaration_name, type, parameters,
-            loc);
-        friend_signature_context = NULL;
-    }
     type = parse_declarator_attributes(type);
     is_weak = is_weak || take_weak_attribute();
     type = apply_explicit_alignment(type, explicit_alignment, loc);
@@ -4866,7 +4874,33 @@ Stmt* parse_declaration(void) {
     }
     skip_attributes();
     is_weak = is_weak || take_weak_attribute();
+    if (friend_signature_context) {
+        if (is_typedef || !type || type->kind != TYPE_FUNC) {
+            if (rcc_parser_cxx_end_function_signature_access) {
+                rcc_parser_cxx_end_function_signature_access(
+                    friend_signature_context, NULL, NULL, NULL, loc);
+            }
+            friend_signature_context = NULL;
+        } else if (check(TOK_LBRACE)) {
+            if (rcc_parser_cxx_end_function_signature_access) {
+                rcc_parser_cxx_end_function_signature_access(
+                    friend_signature_context, declaration_name, type,
+                    parameters, loc);
+            }
+            friend_signature_context = NULL;
+        } else if (rcc_parser_cxx_validate_function_signature_access) {
+            rcc_parser_cxx_validate_function_signature_access(
+                friend_signature_context, declaration_name, type,
+                parameters, loc);
+        }
+    }
     if (!declaration_name) {
+        if (friend_signature_context &&
+            rcc_parser_cxx_restore_function_signature_access) {
+            rcc_parser_cxx_restore_function_signature_access(
+                friend_signature_context);
+            friend_signature_context = NULL;
+        }
         rcc_error(loc, "expected identifier");
         synchronize();
         return NULL;
@@ -4993,6 +5027,11 @@ Stmt* parse_declaration(void) {
                 const char* next_name = NULL;
                 DeclList* next_parameters = NULL;
                 bool next_is_weak;
+                if (friend_signature_context &&
+                    rcc_parser_cxx_reset_function_signature_alias_uses) {
+                    rcc_parser_cxx_reset_function_signature_alias_uses(
+                        friend_signature_base_alias_mark);
+                }
                 skip_attributes();
                 next_is_weak = take_weak_attribute();
                 Type* next_type = parse_declarator(
@@ -5002,9 +5041,25 @@ Stmt* parse_declaration(void) {
                 next_type = apply_explicit_alignment(
                     next_type, explicit_alignment, loc);
                 if (!next_name) {
+                    if (friend_signature_context &&
+                        rcc_parser_cxx_restore_function_signature_access) {
+                        rcc_parser_cxx_restore_function_signature_access(
+                            friend_signature_context);
+                        friend_signature_context = NULL;
+                    }
                     rcc_error(loc, "expected identifier in declaration list");
                     synchronize();
                     break;
+                }
+                if (friend_signature_context &&
+                    rcc_parser_cxx_validate_function_signature_access) {
+                    rcc_parser_cxx_validate_function_signature_access(
+                        friend_signature_context,
+                        next_type && next_type->kind == TYPE_FUNC
+                            ? next_name : NULL,
+                        next_type && next_type->kind == TYPE_FUNC
+                            ? next_type : NULL,
+                        next_parameters, loc);
                 }
                 if (next_type && next_type->kind == TYPE_FUNC) {
                     Decl* next_declaration;
@@ -5032,6 +5087,12 @@ Stmt* parse_declaration(void) {
                 }
             }
             expect(TOK_SEMICOLON, ";");
+            if (friend_signature_context &&
+                rcc_parser_cxx_restore_function_signature_access) {
+                rcc_parser_cxx_restore_function_signature_access(
+                    friend_signature_context);
+                friend_signature_context = NULL;
+            }
             return parser_declaration_list_result(declarations, loc);
         }
 

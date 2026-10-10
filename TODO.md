@@ -347,9 +347,15 @@
           access in a matching body, C++11/C++20, i686/AMD64 output, AMD64
           execution, exact two-error diagnostics per target, and no invalid
           object output in `test-cxx-alias-templates`.
-    - [ ] Apply signature-access validation independently to every
-          comma-separated function declarator sharing a declaration-specifier
-          alias type; current validation finalizes the first declarator.
+    - [x] Validate inherited-alias access independently for each
+          comma-separated function declarator sharing one declaration-specifier
+          alias type. A matching friend followed by a same-type non-friend in
+          the same declaration must diagnose the latter; `test-cxx-alias-
+          templates` checks exact three-error counts and no invalid object on
+          i686/AMD64, while the complete alias-template gate passes.
+    - [ ] Include template parameter/constraint identity when matching
+          alias-bearing friend function-template overloads with otherwise
+          identical function parameter types.
 - [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target
