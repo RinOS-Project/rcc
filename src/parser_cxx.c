@@ -15520,6 +15520,29 @@ static int cxx_function_template_constraint_relation(
     return left_subsumes_right ? 1 : -1;
 }
 
+static bool cxx_function_template_reference_adjustment_base_type_supported(
+    Type* type) {
+    return type && (type_is_arithmetic(type) || type->kind == TYPE_ENUM ||
+                    type->kind == TYPE_STRUCT || type->kind == TYPE_UNION);
+}
+
+static bool cxx_function_template_reference_adjustment_type_supported(
+    Type* type) {
+    Type* pointee;
+    if (cxx_function_template_reference_adjustment_base_type_supported(type)) {
+        return true;
+    }
+    if (!type || type->kind != TYPE_PTR || type->cxx_is_member_pointer ||
+        !type->base) {
+        return false;
+    }
+    pointee = type->base;
+    return !pointee->is_const && !pointee->is_volatile &&
+           !pointee->is_restrict && !pointee->is_atomic &&
+           cxx_function_template_reference_adjustment_base_type_supported(
+               pointee);
+}
+
 static bool cxx_function_template_reference_adjustment_equivalent(
     const CxxFunctionTemplateMatch* left,
     const CxxFunctionTemplateMatch* right) {
@@ -15563,14 +15586,16 @@ static bool cxx_function_template_reference_adjustment_equivalent(
         if (left_is_reference) left_type = left_type->base;
         if (right_is_reference) right_type = right_type->base;
         if (!left_type || !right_type ||
-            !(type_is_arithmetic(left_type) ||
-              left_type->kind == TYPE_ENUM ||
-              left_type->kind == TYPE_STRUCT ||
-              left_type->kind == TYPE_UNION) ||
-            !(type_is_arithmetic(right_type) ||
-              right_type->kind == TYPE_ENUM ||
-              right_type->kind == TYPE_STRUCT ||
-              right_type->kind == TYPE_UNION) ||
+            !cxx_function_template_reference_adjustment_type_supported(
+                left_type) ||
+            !cxx_function_template_reference_adjustment_type_supported(
+                right_type) ||
+            ((left_type->kind == TYPE_PTR || right_type->kind == TYPE_PTR) &&
+             (left_type->kind != right_type->kind ||
+              left_type->is_const != right_type->is_const ||
+              left_type->is_volatile != right_type->is_volatile ||
+              left_type->is_restrict != right_type->is_restrict ||
+              left_type->is_atomic != right_type->is_atomic)) ||
             !type_is_compatible(left_type, right_type)) {
             return false;
         }
