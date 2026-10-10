@@ -2362,9 +2362,11 @@ separately recorded WSL startup failure.
   ordinary and template candidates by conversion rank and non-template
   preference. The regressions pass i686/AMD64 generation, AMD64 execution, and
   GCC C++20 `-Werror` execution.
-- [ ] Include function-template candidates introduced through namespace-level
+- [x] Include function-template candidates introduced through namespace-level
   using-declarations and using-directives in contextual function-pointer
-  lookup.
+  lookup. Verify imported templates in pointer initializers through both forms;
+  the focused gate passes i686/AMD64 generation, AMD64 execution, and GCC C++20
+  `-Werror` execution.
 - [ ] Allow ordinary and function-template overloads with matching parameter
   types but differing exception specifications to coexist, then compare their
   function-pointer conversion ranks. GCC accepts this form; RCC currently

@@ -64,6 +64,26 @@ int select(T*) noexcept {
 }
 }
 
+namespace ConversionFunctionTemplateImportedNamespace {
+template<typename T>
+int select_via_directive(T*) noexcept {
+    return 81;
+}
+
+template<typename T>
+int select_via_declaration(T*) noexcept {
+    return 82;
+}
+}
+
+namespace ConversionFunctionTemplateUsingDirectiveNamespace {
+using namespace ConversionFunctionTemplateImportedNamespace;
+}
+
+namespace ConversionFunctionTemplateUsingDeclarationNamespace {
+using ConversionFunctionTemplateImportedNamespace::select_via_declaration;
+}
+
 template<typename... T>
 int conversion_function_template_pack(T...) {
     return 6;
@@ -179,6 +199,15 @@ int verify_function_template_pointer_overload() {
            namespaced(nullptr) == 8 &&
            packed(1, 2) == 6 &&
            fixed_over_pack(1) == 110 && fixed_prefix_over_pack(1, 2) == 130;
+}
+
+int verify_function_template_using_lookup() {
+    ConversionNoexceptIntPointerFunction using_directive =
+        ConversionFunctionTemplateUsingDirectiveNamespace::select_via_directive;
+    ConversionNoexceptIntPointerFunction using_declaration =
+        ConversionFunctionTemplateUsingDeclarationNamespace::select_via_declaration;
+    return using_directive(nullptr) == 81 &&
+           using_declaration(nullptr) == 82;
 }
 
 template<typename T>
@@ -634,6 +663,7 @@ int main(void) {
                    ConversionFunctionUsingDirectiveNamespace::
                        verify_function_pointer_overload_context() &&
                    verify_function_template_pointer_overload() &&
+                   verify_function_template_using_lookup() &&
                    choose_noexcept_function_pointer(
                        explicit_noexcept_pointer) == 222 &&
                    choose_noexcept_function_pointer_template(

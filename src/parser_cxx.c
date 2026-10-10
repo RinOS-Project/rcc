@@ -9824,36 +9824,109 @@ static CxxTemplate* find_concept(const char* qualified_name) {
     return candidate && candidate->is_concept ? candidate : NULL;
 }
 
-static int namespace_function_templates(CxxNamespace* ns, const char* name,
-                                        CxxTemplate** results, int capacity) {
-    int count = 0;
-    if (!ns || !name || !results || capacity <= 0) return 0;
+typedef struct {
+    CxxTemplate** results;
+    int capacity;
+    int count;
+    CxxNamespace** visited;
+    int visited_count;
+} CxxFunctionTemplateLookup;
+
+static bool cxx_function_template_lookup_visit_namespace(
+    CxxFunctionTemplateLookup* lookup, CxxNamespace* ns) {
+    if (!lookup || !ns) return false;
+    for (int index = 0; index < lookup->visited_count; ++index) {
+        if (lookup->visited[index] == ns) return false;
+    }
+    lookup->visited = ast_arena_grow(
+        lookup->visited,
+        sizeof(*lookup->visited) * (size_t)lookup->visited_count,
+        sizeof(*lookup->visited) * (size_t)(lookup->visited_count + 1));
+    lookup->visited[lookup->visited_count++] = ns;
+    return true;
+}
+
+static void cxx_function_template_lookup_add(
+    CxxFunctionTemplateLookup* lookup, CxxTemplate* candidate) {
+    if (!lookup || !candidate) return;
+    for (int index = 0; index < lookup->count && index < lookup->capacity;
+         ++index) {
+        if (lookup->results[index] == candidate) return;
+    }
+    if (lookup->count < lookup->capacity) {
+        lookup->results[lookup->count] = candidate;
+    }
+    ++lookup->count;
+}
+
+static void cxx_function_template_lookup_namespace(
+    CxxFunctionTemplateLookup* lookup, CxxNamespace* ns, const char* name);
+
+static void cxx_function_template_lookup_using_declaration(
+    CxxFunctionTemplateLookup* lookup, const char* target) {
+    char buffer[512];
+    char* separator;
+    CxxNamespace* target_namespace = g_global_namespace;
+    const char* target_name;
+    if (!lookup || !target || strlen(target) >= sizeof(buffer)) return;
+    strcpy(buffer, target);
+    while (buffer[0] == ':' && buffer[1] == ':') {
+        memmove(buffer, buffer + 2, strlen(buffer + 2) + 1u);
+    }
+    separator = strrchr(buffer, ':');
+    target_name = buffer;
+    if (separator && separator > buffer && separator[-1] == ':') {
+        target_name = separator + 1;
+        separator[-1] = '\0';
+        target_namespace = cxx_namespace_find(g_global_namespace, buffer);
+    }
+    if (target_namespace && *target_name) {
+        cxx_function_template_lookup_namespace(
+            lookup, target_namespace, target_name);
+    }
+}
+
+static void cxx_function_template_lookup_namespace(
+    CxxFunctionTemplateLookup* lookup, CxxNamespace* ns, const char* name) {
+    if (!lookup || !ns || !name ||
+        !cxx_function_template_lookup_visit_namespace(lookup, ns)) {
+        return;
+    }
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* candidate = ns->templates[index];
-        if (!candidate || candidate->kind != TMPL_FUNCTION ||
-            candidate->is_concept ||
-            !candidate->name || strcmp(candidate->name, name) != 0) {
-            continue;
+        if (candidate && candidate->kind == TMPL_FUNCTION &&
+            !candidate->is_concept && candidate->name &&
+            strcmp(candidate->name, name) == 0) {
+            cxx_function_template_lookup_add(lookup, candidate);
         }
-        if (count < capacity) results[count] = candidate;
-        ++count;
     }
     for (CxxNamespace* child = ns->children; child; child = child->next) {
         if (child->is_inline_namespace) {
-            CxxTemplate* nested[32] = { NULL };
-            int nested_count = namespace_function_templates(
-                child, name, nested, (int)(sizeof(nested) / sizeof(nested[0])));
-            for (int nested_index = 0; nested_index < nested_count;
-                 ++nested_index) {
-                if (nested_index < (int)(sizeof(nested) / sizeof(nested[0])) &&
-                    count < capacity) {
-                    results[count] = nested[nested_index];
-                }
-                ++count;
-            }
+            cxx_function_template_lookup_namespace(lookup, child, name);
         }
     }
-    return count;
+    for (int index = 0; index < ns->using_namespace_count; ++index) {
+        cxx_function_template_lookup_namespace(
+            lookup, ns->using_namespaces[index], name);
+    }
+    for (int index = 0; index < ns->using_declaration_count; ++index) {
+        const char* target = ns->using_declarations[index];
+        const char* final_component = strrchr(target, ':');
+        final_component = final_component ? final_component + 1 : target;
+        if (strcmp(final_component, name) == 0) {
+            cxx_function_template_lookup_using_declaration(lookup, target);
+        }
+    }
+}
+
+static int namespace_function_templates(CxxNamespace* ns, const char* name,
+                                        CxxTemplate** results, int capacity) {
+    CxxFunctionTemplateLookup lookup = { 0 };
+    if (!ns || !name || !results || capacity <= 0) return 0;
+    lookup.results = results;
+    lookup.capacity = capacity;
+    cxx_function_template_lookup_namespace(&lookup, ns, name);
+    return lookup.count;
 }
 
 /* Unlike ordinary name lookup, a function-template name denotes a candidate
