@@ -37,6 +37,18 @@ struct FriendAliasPrivateDerivedAccess {
     using Hidden = FriendAliasPrivateDerived::Hidden<int>;
 };
 
+struct FriendFunctionAliasOverloadOwner {
+private:
+    template<typename U> using Hidden = U*;
+
+    friend int friend_function_alias_overload(int);
+};
+
+int friend_function_alias_overload(double) {
+    FriendFunctionAliasOverloadOwner::Hidden<int>* pointer = nullptr;
+    return pointer == nullptr ? 0 : 1;
+}
+
 ClassTemplateAliasAccessOwner<int>::template PrivateAlias<long>
     private_alias;
 ClassTemplateAliasAccessOwner<int>::template ProtectedAlias<long>

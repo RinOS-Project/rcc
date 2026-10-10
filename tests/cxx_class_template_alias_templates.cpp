@@ -171,6 +171,64 @@ struct Access {
 };
 }
 
+struct InheritedAliasFunctionFriendOwner {
+private:
+    template<typename U>
+    using Hidden = U*;
+
+    friend int inherited_alias_function_friend();
+};
+
+int inherited_alias_function_friend() {
+    InheritedAliasFunctionFriendOwner::Hidden<int>* pointer = nullptr;
+    return pointer == nullptr ? 0 : 1;
+}
+
+struct InheritedAliasFunctionTemplateFriendOwner {
+private:
+    template<typename U>
+    using Hidden = U*;
+
+    template<typename T>
+    friend int inherited_alias_function_template_friend(T value);
+};
+
+template<typename T>
+int inherited_alias_function_template_friend(T value) {
+    InheritedAliasFunctionTemplateFriendOwner::Hidden<int>* pointer = nullptr;
+    return pointer == nullptr && value == value ? 0 : 1;
+}
+
+namespace InheritedAliasFunctionFriendNamespace {
+struct Owner {
+private:
+    template<typename U>
+    using Hidden = U*;
+
+    friend int reveal();
+};
+
+int reveal() {
+    Owner::Hidden<int>* pointer = nullptr;
+    return pointer == nullptr ? 0 : 1;
+}
+
+struct TemplateOwner {
+private:
+    template<typename U>
+    using Hidden = U*;
+
+    template<typename T>
+    friend int reveal_template(T value);
+};
+
+template<typename T>
+int reveal_template(T value) {
+    TemplateOwner::Hidden<int>* pointer = nullptr;
+    return pointer == nullptr && value == value ? 0 : 1;
+}
+}
+
 template<typename T>
 struct AliasTemplateGenericBase {
     template<typename U>
@@ -238,6 +296,11 @@ int main() {
                        sizeof(int*) &&
                    sizeof(InheritedAliasFriendNamespace::Access::Hidden) ==
                        sizeof(int*) &&
+                   inherited_alias_function_friend() == 0 &&
+                   inherited_alias_function_template_friend(7) == 0 &&
+                   InheritedAliasFunctionFriendNamespace::reveal() == 0 &&
+                   InheritedAliasFunctionFriendNamespace::reveal_template(7) ==
+                       0 &&
                    AliasTemplateProtectedDerived::read(&inherited_value) == 61 &&
                    AliasTemplatePrivateDerived::read(&inherited_value) == 61
                ? 0 : 1;

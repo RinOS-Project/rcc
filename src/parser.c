@@ -62,6 +62,10 @@ extern Stmt* rcc_parse_cxx_range_for_statement(void) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_begin_function_parameters(DeclList* parameters)
     RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_end_function_parameters(void) RCC_OPTIONAL_CXX;
+extern void* rcc_parser_cxx_begin_function_friend_access(
+    const char* name, Type* function_type) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_end_function_friend_access(void* saved_context)
+    RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_add_value_binding(const char* name, Type* type)
     RCC_OPTIONAL_CXX;
 extern void* rcc_parser_cxx_using_scope_mark(void) RCC_OPTIONAL_CXX;
@@ -4654,6 +4658,8 @@ Stmt* parse_declaration(void) {
     Type* base_type;
     Type* type;
     Decl* declaration;
+    void* friend_access_mark = NULL;
+    bool friend_access_context_active = false;
     int explicit_alignment = 0;
 
     while (check(TOK__ALIGNAS)) {
@@ -4892,12 +4898,24 @@ Stmt* parse_declaration(void) {
             }
         }
         if (match(TOK_LBRACE)) {
+            if (parser_cxx_mode &&
+                rcc_parser_cxx_begin_function_friend_access) {
+                friend_access_mark =
+                    rcc_parser_cxx_begin_function_friend_access(
+                        declaration_name, type);
+                friend_access_context_active = true;
+            }
             if (parser_cxx_mode && rcc_parser_cxx_begin_function_parameters) {
                 rcc_parser_cxx_begin_function_parameters(parameters);
             }
             rcc_parser_function_scope_push(declaration_name);
             body = parse_block();
             rcc_parser_function_scope_pop();
+            if (friend_access_context_active &&
+                rcc_parser_cxx_end_function_friend_access) {
+                rcc_parser_cxx_end_function_friend_access(
+                    friend_access_mark);
+            }
             if (parser_cxx_mode && rcc_parser_cxx_end_function_parameters) {
                 rcc_parser_cxx_end_function_parameters();
             }

@@ -331,8 +331,18 @@
           friendship, i686/AMD64 generation, C++11/C++20, AMD64 execution,
           exact negative diagnostics, and no invalid `.ro` in
           `test-cxx-alias-templates`.
-    - [ ] Out-of-class friend-function bodies still need inherited alias access
-          during parser-time name lookup.
+    - [x] Preserve inherited-alias friendship while parsing out-of-class
+          non-template and function-template friend bodies. Resolve grants by
+          function signature in the shared parser, restore the surrounding
+          access context after the body, and reject a same-name unrelated
+          overload; match namespace-qualified friend declarations as well.
+          Verify both target widths, host execution, exact negative diagnostics,
+          and no invalid object output in `test-cxx-alias-templates`.
+    - [ ] Friend access is not yet available while parsing an out-of-class
+          friend function's return or parameter declarators. Those signatures
+          are parsed before the shared parser can identify the matching
+          function declaration, so a private inherited alias used there still
+          needs a signature-independent grant lookup strategy.
 - [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target

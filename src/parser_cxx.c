@@ -27,6 +27,7 @@ static CxxNamespace* active_namespace;
 static CxxClass* active_class;
 static CxxClass* active_template_class_definition;
 static AST* active_ast;
+static CxxFriendAccess* active_friend_access_context;
 
 typedef struct CxxPendingMemberPointerForm {
     Expr* expression;
@@ -68,6 +69,9 @@ static bool cxx_leading_alignas_class_starts(void) {
 
 static const char* cxx_method_source_name(CxxMethod* method);
 static CxxClass* find_class(const char* qualified_name);
+static CxxClassAliasTemplate* cxx_parser_find_inherited_alias_template(
+    CxxClass* owner, const char* name, CxxClass* access_context,
+    CxxClass** declaring_class, bool* ambiguous, bool* accessible);
 static void cxx_complete_pending_member_pointer_forms(CxxClass* cls);
 
 static bool cxx_inherited_nonfield_name(CxxClass* cls, const char* name,
@@ -1807,6 +1811,157 @@ static bool eval_template_integer_expression(Expr* expression,
                                               int64_t* result);
 static bool cxx_expression_references_template_non_type_parameter(
     const Expr* expression, const CxxTemplate* tmpl);
+static bool cxx_friend_function_name_matches(CxxNamespace* ns,
+                                             const char* candidate_name,
+                                             const char* name) {
+    const char* namespace_name;
+    char qualified_name[512];
+    size_t namespace_length;
+    if (!candidate_name || !name) return false;
+    if (strcmp(candidate_name, name) == 0) return true;
+    namespace_name = cxx_namespace_qualified_name(ns);
+    if (!namespace_name || !*namespace_name) return false;
+    namespace_length = strlen(namespace_name);
+    if (namespace_length + 2u + strlen(name) >= sizeof(qualified_name)) {
+        return false;
+    }
+    memcpy(qualified_name, namespace_name, namespace_length);
+    memcpy(qualified_name + namespace_length, "::", 2u);
+    strcpy(qualified_name + namespace_length + 2u, name);
+    return strcmp(candidate_name, qualified_name) == 0;
+}
+
+static bool cxx_friend_function_signature_matches(
+    CxxNamespace* ns, const Decl* candidate, const char* name,
+    Type* return_type, DeclList* parameters) {
+    const TypeParam* candidate_parameter;
+    DeclList* parameter;
+    bool variadic = false;
+    if (!candidate || candidate->kind != DECL_FUNC || !candidate->name ||
+        !cxx_friend_function_name_matches(ns, candidate->name, name) ||
+        !candidate->type ||
+        candidate->type->kind != TYPE_FUNC ||
+        !type_is_compatible(candidate->type->ret_type, return_type)) {
+        return false;
+    }
+    for (parameter = parameters; parameter; parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->param_is_pack) {
+            variadic = true;
+            break;
+        }
+    }
+    if (candidate->type->variadic != variadic) return false;
+    candidate_parameter = candidate->type->params;
+    for (parameter = parameters; parameter;
+         parameter = parameter->next, candidate_parameter =
+             candidate_parameter ? candidate_parameter->next : NULL) {
+        if (!parameter->decl || !candidate_parameter ||
+            !type_is_compatible(candidate_parameter->type,
+                                parameter->decl->type)) {
+            return false;
+        }
+    }
+    return candidate_parameter == NULL;
+}
+
+static CxxFriendAccess* cxx_merge_friend_access(CxxFriendAccess* result,
+                                                const CxxFriendAccess* source) {
+    for (const CxxFriendAccess* grant = source; grant; grant = grant->next) {
+        bool already_present = false;
+        if (!grant->owner) continue;
+        for (CxxFriendAccess* existing = result; existing;
+             existing = existing->next) {
+            if (existing->owner == grant->owner) {
+                already_present = true;
+                break;
+            }
+        }
+        if (!already_present) {
+            CxxFriendAccess* copy = ast_arena_alloc(sizeof(*copy));
+            copy->owner = grant->owner;
+            copy->next = result;
+            result = copy;
+        }
+    }
+    return result;
+}
+
+static CxxFriendAccess* cxx_find_friend_function_access(
+    const char* name, Type* return_type, DeclList* parameters,
+    CxxFriendAccess* existing) {
+    CxxNamespace* ns = active_namespace
+        ? active_namespace : g_global_namespace;
+    if (!ns || !name) return existing;
+    for (DeclList* declaration = ns->decls; declaration;
+         declaration = declaration->next) {
+        Decl* candidate = declaration->decl;
+        if (candidate && candidate->func_friend_access &&
+            cxx_friend_function_signature_matches(
+                ns, candidate, name, return_type, parameters)) {
+            existing = cxx_merge_friend_access(
+                existing, candidate->func_friend_access);
+        }
+    }
+    for (int index = 0; index < ns->template_count; ++index) {
+        CxxTemplate* candidate = ns->templates[index];
+        if (candidate && candidate->kind == TMPL_FUNCTION &&
+            candidate->friend_access && candidate->func_def &&
+            cxx_friend_function_signature_matches(
+                ns, candidate->func_def, name, return_type, parameters)) {
+            existing = cxx_merge_friend_access(existing,
+                                               candidate->friend_access);
+        }
+    }
+    return existing;
+}
+
+static bool cxx_friend_function_type_matches(const Decl* candidate,
+                                             CxxNamespace* ns,
+                                             const char* name,
+                                             Type* function_type) {
+    return candidate && candidate->kind == DECL_FUNC &&
+           cxx_friend_function_name_matches(ns, candidate->name, name) &&
+           candidate->type &&
+           function_type && candidate->type->kind == TYPE_FUNC &&
+           function_type->kind == TYPE_FUNC &&
+           type_is_compatible(candidate->type, function_type);
+}
+
+void* rcc_parser_cxx_begin_function_friend_access(
+    const char* name, Type* function_type) {
+    CxxFriendAccess* saved = active_friend_access_context;
+    CxxNamespace* ns = active_namespace
+        ? active_namespace : g_global_namespace;
+    CxxFriendAccess* matching = saved;
+    if (!ns || !name || !function_type) return saved;
+    for (DeclList* declaration = ns->decls; declaration;
+         declaration = declaration->next) {
+        Decl* candidate = declaration->decl;
+        if (candidate && candidate->func_friend_access &&
+            cxx_friend_function_type_matches(candidate, ns, name,
+                                             function_type)) {
+            matching = cxx_merge_friend_access(
+                matching, candidate->func_friend_access);
+        }
+    }
+    for (int index = 0; index < ns->template_count; ++index) {
+        CxxTemplate* candidate = ns->templates[index];
+        if (candidate && candidate->kind == TMPL_FUNCTION &&
+            candidate->friend_access && candidate->func_def &&
+            cxx_friend_function_type_matches(candidate->func_def, ns, name,
+                                             function_type)) {
+            matching = cxx_merge_friend_access(matching,
+                                               candidate->friend_access);
+        }
+    }
+    active_friend_access_context = matching;
+    return saved;
+}
+
+void rcc_parser_cxx_end_function_friend_access(void* saved_context) {
+    active_friend_access_context = (CxxFriendAccess*)saved_context;
+}
+
 static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_constexpr,
                                             bool* is_noexcept,
@@ -8347,6 +8502,8 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     bool is_auto_return = false;
     bool is_decltype_auto_return = false;
     Expr* noexcept_expr = NULL;
+    CxxFriendAccess* saved_friend_access_context =
+        active_friend_access_context;
 
     *is_constexpr = false;
     *is_noexcept = false;
@@ -8436,6 +8593,15 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         check(TOK_LBRACE) && inline_body_is_lowerable()) {
         parse_body = true;
     }
+    if (parse_body && check(TOK_LBRACE)) {
+        active_friend_access_context = cxx_find_friend_function_access(
+            function_name, return_type, params,
+            active_friend_access_context);
+        if (active_template && active_template->kind == TMPL_FUNCTION) {
+            active_friend_access_context = cxx_merge_friend_access(
+                active_friend_access_context, active_template->friend_access);
+        }
+    }
     if (!parse_body && check(TOK_LBRACE)) {
         skip_balanced(TOK_LBRACE, TOK_RBRACE);
     } else if (match(TOK_LBRACE)) {
@@ -8457,6 +8623,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     } else {
         expect(TOK_SEMICOLON, ";");
     }
+    active_friend_access_context = saved_friend_access_context;
 
     CxxMethod* function = cxx_method_new(function_name, return_type,
                                          params, body, loc);
@@ -10019,7 +10186,7 @@ bool rcc_parse_cxx_type_start(void) {
         bool ambiguous = false;
         bool accessible = false;
         cxx_resolve_known_class_bases(active_class);
-        result = cxx_class_find_inherited_alias_template(
+        result = cxx_parser_find_inherited_alias_template(
                      active_class, name, active_class, &declaring_class,
                      &ambiguous, &accessible) != NULL || ambiguous;
         (void)declaring_class;
@@ -13821,7 +13988,7 @@ static bool consume_cxx_class_alias_template_owner(
             }
             if (candidate_owner) {
                 cxx_resolve_known_class_bases(candidate_owner);
-                inherited_alias = cxx_class_find_inherited_alias_template(
+                inherited_alias = cxx_parser_find_inherited_alias_template(
                     candidate_owner, parser.cur->next->value.str_val,
                     active_class, NULL, &ambiguous, &accessible);
             }
@@ -13977,7 +14144,7 @@ static bool cxx_qualified_class_alias_template_starts(void) {
                     bool ambiguous = false;
                     bool accessible = false;
                     starts = has_template_keyword ||
-                        cxx_class_find_inherited_alias_template(
+                        cxx_parser_find_inherited_alias_template(
                             owner, alias_name, active_class,
                             &declaring_class, &ambiguous,
                             &accessible) != NULL || ambiguous;
@@ -14018,6 +14185,40 @@ static bool cxx_class_access_context_is_derived_from(
         }
     }
     return false;
+}
+
+static CxxClassAliasTemplate* cxx_parser_find_inherited_alias_template(
+    CxxClass* owner, const char* name, CxxClass* access_context,
+    CxxClass** declaring_class, bool* ambiguous, bool* accessible) {
+    CxxClass* found_declaring_class = NULL;
+    bool found_ambiguous = false;
+    bool found_accessible = false;
+    CxxClassAliasTemplate* found = cxx_class_find_inherited_alias_template(
+        owner, name, access_context, &found_declaring_class,
+        &found_ambiguous, &found_accessible);
+    if (declaring_class) *declaring_class = found_declaring_class;
+    if (ambiguous) *ambiguous = found_ambiguous;
+    if (accessible) *accessible = found_accessible;
+    if (!found || found_ambiguous || found_accessible || !accessible) {
+        return found;
+    }
+    for (CxxFriendAccess* grant = active_friend_access_context; grant;
+         grant = grant->next) {
+        CxxClass* friend_declaring_class = NULL;
+        bool friend_ambiguous = false;
+        bool friend_accessible = false;
+        CxxClassAliasTemplate* friend_result =
+            cxx_class_find_inherited_alias_template(
+                owner, name, grant->owner, &friend_declaring_class,
+                &friend_ambiguous, &friend_accessible);
+        if (friend_result == found && !friend_ambiguous &&
+            friend_accessible) {
+            if (declaring_class) *declaring_class = friend_declaring_class;
+            *accessible = true;
+            break;
+        }
+    }
+    return found;
 }
 
 static Type* parse_qualified_class_alias_template_type(SourceLoc loc) {
@@ -14073,7 +14274,7 @@ static Type* parse_qualified_class_alias_template_type(SourceLoc loc) {
         }
         cxx_resolve_known_class_bases(active_class);
         lookup_owner = owner_instance ? owner_instance : owner_definition;
-        alias_template = cxx_class_find_inherited_alias_template(
+        alias_template = cxx_parser_find_inherited_alias_template(
             lookup_owner, alias_name, active_class, &alias_declaring_class,
             &ambiguous, &accessible);
         if (!alias_template || !alias_template->declaration) {
@@ -14145,7 +14346,7 @@ static Type* parse_qualified_class_alias_template_type(SourceLoc loc) {
         CxxClass* alias_declaring_class = NULL;
         bool ambiguous = false;
         cxx_resolve_known_class_bases(active_class);
-        alias_template = cxx_class_find_inherited_alias_template(
+        alias_template = cxx_parser_find_inherited_alias_template(
             owner, alias_name, active_class, &alias_declaring_class,
             &ambiguous, &accessible);
         if (!alias_template || !alias_template->declaration) {
@@ -15963,7 +16164,7 @@ static Type* parse_cxx_type_spec(void) {
         if (active_class && !strstr(name, "::") && check(TOK_LT)) {
             cxx_resolve_known_class_bases(active_class);
             class_scope_alias_template =
-                cxx_class_find_inherited_alias_template(
+                cxx_parser_find_inherited_alias_template(
                     active_class, name, active_class,
                     &class_scope_alias_template_owner,
                     &class_scope_alias_template_ambiguous,
