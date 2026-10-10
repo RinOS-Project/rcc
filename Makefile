@@ -151,10 +151,22 @@ endif
 # CRT is not installed.  An unresolved compiler-generated reference remains
 # a link error; this is not an inspect-only or skipped execution path.
 ifeq ($(OS),Windows_NT)
+ifneq ($(findstring clang,$(CC)),)
+# Clang's LLD resolves an i386 PE entry requested as `main` to `_main`, while
+# its assembler preserves RCC's literal COFF symbol `main`. Rename only the
+# freestanding test entry; leave emitted objects and GCC/MinGW BFD unchanged.
+define RUN_COMPILER_BUILTINS_X86
+$(CC) -m32 -c -o $(1).obj $(2)
+$(OBJCOPY) --redefine-sym main=_main $(1).obj $(1)-entry.obj
+$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' -o $(1) $(1)-entry.obj
+$(1)
+endef
+else
 define RUN_COMPILER_BUILTINS_X86
 $(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' -o $(1) $(2)
 $(1)
 endef
+endif
 else
 define RUN_COMPILER_BUILTINS_X86
 $(CC) -m32 -no-pie -o $(1) $(2)

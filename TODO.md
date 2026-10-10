@@ -1848,10 +1848,16 @@
         `test-cxx-function-template-overloads`を実行。i686/AMD64出力、AMD64
         実行、曖昧性・交差変換negative、GCC oracleを確認。これはfocused
         host/compiler検証であり、full `test-ci`完了の代用ではない。
-  - Windows/MSYS2 Clang attempt reached `test-compiler-builtins` but its PE
-    linker could not resolve the RinOS i686 `_main` entry; WSL startup returned
-    `Wsl/Service/CreateInstance/E_ACCESSDENIED`. This is not a passing production
-    gate; retry on the Linux/WSL CI host and keep this item open.
+  - [x] Native WindowsでClang 18.1.4をhost linker/test compilerとして
+        `test-compiler-builtins`を実行。Clang LLDのi386 PE entry解決では
+        RCCの`main`シンボルを`_main`へ対応させる必要があるため、テスト用
+        COFF objectだけをrenameしてC/C++ builtin、MMX、SSEのi686実行を維持。
+        x64実行、intrinsic object生成、negative診断も通過し、GCC側の同じ
+        targetも回帰確認した。これは既存RCC実行ファイルを使ったfocused
+        host検証であり、Clang full `test-ci`完了の代用ではない。
+  - Clang full `test-ci` production gateは未完了。WSL startupは
+    `Wsl/Service/CreateInstance/E_ACCESSDENIED`であり、Linux CI/WSL上で
+    全経路を実行する必要がある。
 - [x] ASan/UBSan regression gateもGCC/Clang双方の独立matrix jobで実行し、
       各jobが要求したhost compilerを実際に選択していることを検証
 - [x] CI regression gateでC/C++ global initializer/finalizerのhost実行、
