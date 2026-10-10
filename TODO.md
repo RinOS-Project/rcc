@@ -2339,6 +2339,12 @@ separately recorded WSL startup failure.
   conversion, explicit function-pointer types, ordinary/template overloads,
   distinct overload symbols, both target widths, generated AMD64 execution,
   and GCC C++20 `-Werror`.
-- [ ] Continue with overloaded function-name resolution, dependent exception
-  specifications, and interactions with other standard conversions; complete
-  overload-resolution conformance remains unfinished.
+- [x] Resolve overloaded free-function names against contextual function-
+  pointer parameters during ordinary and function-template overload ranking;
+  defer argument analysis until the winning target type is known. The focused
+  gate passes with the non-matching overload declared first, on both target
+  widths, generated AMD64 execution, and GCC C++20 `-Werror`.
+- [ ] Extend overload-set lookup through namespaces/using-declarations and
+  function-template overloads, then cover dependent exception specifications
+  and interactions with other standard conversions. Complete C++20 overload-
+  resolution conformance remains unfinished.

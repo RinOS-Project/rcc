@@ -14,6 +14,8 @@ using ConversionExplicitNoexceptFunctionPointer = void (*)() noexcept(true);
 void conversion_noexcept_function() noexcept {}
 void conversion_explicit_throwing_function() noexcept(false) {}
 void conversion_explicit_noexcept_function() noexcept(true) {}
+void conversion_overloaded_noexcept_function(int) {}
+void conversion_overloaded_noexcept_function() noexcept {}
 
 struct ConversionMemberPointerRoot {
     int value;
@@ -488,6 +490,11 @@ int main(void) {
                        conversion_noexcept_function) == 222 &&
                    choose_noexcept_function_pointer_template(
                        value, conversion_noexcept_function) == 224 &&
+                   choose_noexcept_function_pointer(
+                       conversion_overloaded_noexcept_function) == 222 &&
+                   choose_noexcept_function_pointer_template(
+                       value,
+                       conversion_overloaded_noexcept_function) == 224 &&
                    choose_noexcept_function_pointer(
                        explicit_noexcept_pointer) == 222 &&
                    choose_noexcept_function_pointer_template(

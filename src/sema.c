@@ -7967,16 +7967,77 @@ static bool sema_cxx_member_function_signature_convertible(
 }
 
 /* An overloaded function used as a value has no call arguments from which to
- * select a candidate.  Its target function-pointer type is the contextual
- * information required by C++ overload resolution.  Resolve only exact
- * function-type matches here; function-pointer conversions that need a real
- * expression conversion remain the responsibility of implicit_cast(). */
-static bool sema_cxx_select_function_pointer_overload(
-    Type* target, Expr* expression) {
+ * select a candidate. Its target function-pointer type is the contextual
+ * information required by C++ overload resolution. */
+static bool sema_cxx_is_function_overload_set(Expr* expression) {
+    Symbol* symbol;
+    if (expression && expression->kind == EXPR_ADDR) {
+        expression = expression->unary_operand;
+    }
+    if (!rcc_parser_is_cxx_mode() || !expression ||
+        expression->kind != EXPR_IDENT) {
+        return false;
+    }
+    symbol = sema_cxx_lookup_name(expression->ident_name, expression->loc);
+    return symbol && symbol->kind == SYM_FUNC && symbol->decl &&
+           symbol->decl->func_overload_next;
+}
+
+static int sema_cxx_function_pointer_overload_rank(
+    Type* target, Expr* expression, Decl** selected_out,
+    bool* is_overload_set, bool* is_ambiguous) {
     Symbol* symbol;
     Decl* candidate;
     Decl* selected = NULL;
     Type* function_type;
+    int selected_rank = -1;
+    if (selected_out) *selected_out = NULL;
+    if (is_overload_set) *is_overload_set = false;
+    if (is_ambiguous) *is_ambiguous = false;
+    if (expression && expression->kind == EXPR_ADDR) {
+        expression = expression->unary_operand;
+    }
+    if (!rcc_parser_is_cxx_mode() || !target ||
+        target->kind != TYPE_PTR || target->cxx_is_member_pointer ||
+        !target->base || target->base->kind != TYPE_FUNC || !expression ||
+        expression->kind != EXPR_IDENT) {
+        return -1;
+    }
+    symbol = sema_cxx_lookup_name(expression->ident_name, expression->loc);
+    if (!symbol || symbol->kind != SYM_FUNC || !symbol->decl ||
+        !symbol->decl->func_overload_next) {
+        return -1;
+    }
+    if (is_overload_set) *is_overload_set = true;
+    function_type = target->base;
+    for (candidate = symbol->decl; candidate;
+         candidate = candidate->func_overload_next) {
+        int rank;
+        if (candidate->kind != DECL_FUNC || !candidate->type ||
+            candidate->type->kind != TYPE_FUNC || candidate->func_this_param) {
+            continue;
+        }
+        rank = sema_cxx_function_type_conversion_rank(
+            candidate->type, function_type);
+        if (rank < 0) continue;
+        if (selected) {
+            if (is_ambiguous) *is_ambiguous = true;
+            return -1;
+        }
+        selected = candidate;
+        selected_rank = rank;
+    }
+    if (!selected) return -1;
+    if (selected_out) *selected_out = selected;
+    return selected_rank;
+}
+
+static bool sema_cxx_select_function_pointer_overload(
+    Type* target, Expr* expression) {
+    Decl* selected = NULL;
+    bool is_overload_set = false;
+    bool is_ambiguous = false;
+    int rank;
     if (rcc_parser_is_cxx_mode() && expression &&
         expression->kind == EXPR_ADDR &&
         expression->cxx_member_pointer_form_overload_set) {
@@ -8076,36 +8137,18 @@ static bool sema_cxx_select_function_pointer_overload(
         return true;
     }
     if (!rcc_parser_is_cxx_mode() || !target || !expression ||
-        expression->kind != EXPR_IDENT || target->kind != TYPE_PTR ||
-        !target->base || target->base->kind != TYPE_FUNC) {
+        target->kind != TYPE_PTR || !target->base ||
+        target->base->kind != TYPE_FUNC) {
         return false;
     }
-    symbol = sema_cxx_lookup_name(expression->ident_name, expression->loc);
-    if (!symbol || symbol->kind != SYM_FUNC || !symbol->decl ||
-        !symbol->decl->func_overload_next) {
-        return false;
-    }
-    function_type = target->base;
-    for (candidate = symbol->decl; candidate;
-         candidate = candidate->func_overload_next) {
-        if (candidate->kind != DECL_FUNC || !candidate->type ||
-            candidate->type->kind != TYPE_FUNC ||
-            candidate->func_this_param ||
-            !type_is_compatible(candidate->type, function_type)) {
-            continue;
-        }
-        if (selected) {
-            rcc_error(expression->loc,
-                      "ambiguous overload '%s' for function-pointer target",
-                      expression->ident_name);
-            expression->type = type_int;
-            return true;
-        }
-        selected = candidate;
-    }
-    if (!selected) {
+    rank = sema_cxx_function_pointer_overload_rank(
+        target, expression, &selected, &is_overload_set, &is_ambiguous);
+    if (!is_overload_set) return false;
+    if (rank < 0) {
         rcc_error(expression->loc,
-                  "no matching overload '%s' for function-pointer target",
+                  is_ambiguous
+                      ? "ambiguous overload '%s' for function-pointer target"
+                      : "no matching overload '%s' for function-pointer target",
                   expression->ident_name);
         expression->type = type_int;
         return true;
@@ -10125,7 +10168,13 @@ static Decl* sema_select_cxx_overload(Expr* call) {
         declared_parameter = candidate->func_params;
         argument = call->call_args;
         while (argument && parameter) {
-            int rank = cxx_conversion_rank(argument->expr, parameter->type);
+            bool is_function_overload_set = false;
+            int rank = sema_cxx_function_pointer_overload_rank(
+                parameter->type, argument->expr, NULL,
+                &is_function_overload_set, NULL);
+            if (!is_function_overload_set) {
+                rank = cxx_conversion_rank(argument->expr, parameter->type);
+            }
             if (rank < 0) {
                 viable = false;
                 break;
@@ -13861,7 +13910,10 @@ static Type* sema_expr(Expr* expr) {
                 Symbol* adl_symbol;
                 for (argument = expr->call_args; argument;
                      argument = argument->next) {
-                    sema_expr(argument->expr);
+                    if (!sema_cxx_is_function_overload_set(
+                            argument->expr)) {
+                        sema_expr(argument->expr);
+                    }
                 }
                 adl_symbol = sema_cxx_adl_lookup(
                     expr->call_func->ident_name, expr->call_args);
@@ -13895,7 +13947,10 @@ static Type* sema_expr(Expr* expr) {
                     expr->call_func->ident_decl = overload->decl;
                     for (argument = expr->call_args; argument;
                          argument = argument->next) {
-                        sema_expr(argument->expr);
+                        if (!sema_cxx_is_function_overload_set(
+                                argument->expr)) {
+                            sema_expr(argument->expr);
+                        }
                     }
                     arguments_analyzed = true;
                     selected_overload = sema_select_cxx_overload(expr);
@@ -13949,7 +14004,9 @@ static Type* sema_expr(Expr* expr) {
             parameter = ft->params;
             argument = expr->call_args;
             while (argument) {
-                if (!arguments_analyzed) {
+                bool unresolved_function_overload =
+                    sema_cxx_is_function_overload_set(argument->expr);
+                if (!arguments_analyzed || unresolved_function_overload) {
                     Expr* contextual = argument->expr &&
                             argument->expr->kind == EXPR_ADDR
                         ? argument->expr->unary_operand : argument->expr;

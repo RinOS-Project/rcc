@@ -15594,14 +15594,83 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
     return -1;
 }
 
+static bool cxx_parser_function_name_matches(const char* declaration_name,
+                                             const char* identifier_name) {
+    const char* tail;
+    if (!declaration_name || !identifier_name) return false;
+    tail = strrchr(declaration_name, ':');
+    tail = tail && tail > declaration_name && tail[-1] == ':'
+        ? tail + 1 : declaration_name;
+    return strcmp(declaration_name, identifier_name) == 0 ||
+           strcmp(tail, identifier_name) == 0;
+}
+
+/* During template deduction, semantic symbol tables have not been built yet.
+ * Resolve a function overload set from declarations already parsed into the
+ * AST, using each target parameter's function-pointer type as the context. */
+static int cxx_parser_function_pointer_overload_rank(
+    Expr* argument, Type* target, bool* is_overload_set) {
+    Expr* name = argument;
+    Type* first_type = NULL;
+    Decl* selected = NULL;
+    int selected_rank = -1;
+    bool has_distinct_type = false;
+    if (is_overload_set) *is_overload_set = false;
+    if (name && name->kind == EXPR_ADDR) name = name->unary_operand;
+    if (!name || name->kind != EXPR_IDENT || !active_ast || !target ||
+        target->is_reference || target->kind != TYPE_PTR ||
+        target->cxx_is_member_pointer || !target->base ||
+        target->base->kind != TYPE_FUNC) {
+        return -1;
+    }
+    for (DeclList* item = active_ast->decls; item; item = item->next) {
+        Decl* candidate = item->decl;
+        Expr typed_argument;
+        int rank;
+        if (!candidate || candidate->kind != DECL_FUNC ||
+            candidate->func_this_param || !candidate->type ||
+            candidate->type->kind != TYPE_FUNC ||
+            !cxx_parser_function_name_matches(candidate->name,
+                                              name->ident_name)) {
+            continue;
+        }
+        if (!first_type) {
+            first_type = candidate->type;
+        } else if (!type_is_compatible(first_type, candidate->type)) {
+            has_distinct_type = true;
+        }
+        typed_argument = *name;
+        typed_argument.type = candidate->type;
+        rank = rcc_sema_cxx_conversion_rank(
+            &typed_argument, candidate->type, target);
+        if (rank < 0) continue;
+        if (selected &&
+            !type_is_compatible(selected->type, candidate->type)) {
+            if (is_overload_set) *is_overload_set = true;
+            return -1;
+        }
+        if (!selected) {
+            selected = candidate;
+            selected_rank = rank;
+        }
+    }
+    if (!has_distinct_type) return -1;
+    if (is_overload_set) *is_overload_set = true;
+    return selected_rank;
+}
+
 static int cxx_parser_function_template_overload_conversion_rank(
     Expr* argument, Type* target) {
     Type* source;
     Type* conversion_target;
     bool target_is_reference;
     bool requires_qualification = false;
+    bool is_function_overload_set = false;
     int rank;
     if (!argument || !target) return -1;
+    rank = cxx_parser_function_pointer_overload_rank(
+        argument, target, &is_function_overload_set);
+    if (is_function_overload_set) return rank;
     source = cxx_parser_expression_type(argument);
     if (source && !target->is_reference && target->kind == TYPE_PTR &&
         target->base && target->base->kind == TYPE_FUNC &&
