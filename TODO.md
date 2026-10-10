@@ -2515,7 +2515,8 @@ separately recorded WSL startup failure.
   and `operator T() &&` produce their respective results for lvalue and
   rvalue sources. The focused conversion-operator target and the full
   function-template-overload target pass for i686/AMD64 with GCC C++20
-  comparisons.
+  comparisons. The complete `mingw32-make SHELL=cmd.exe test-cxx` aggregate
+  also passes.
 - [ ] Extend user-defined conversion ranking to retain the selected conversion
   function through all candidate comparisons, including overloaded conversion
   functions and template/constraint interactions.
