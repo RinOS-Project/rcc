@@ -431,6 +431,7 @@ endif
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
+.PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
 .PHONY: test-cxx-designated-initializer
 .PHONY: test-cxx-utf8-literals
 .PHONY: test-compiler-builtins
@@ -591,6 +592,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-auto-non-type-template \
 	test-cxx-non-type-template-deduction \
 	test-cxx-constraints \
+	test-cxx-friend-requires-forms \
 	test-cxx20-unsupported-boundaries \
 	test-cxx-named-concepts \
 	test-cxx-alias-templates \
@@ -3093,6 +3095,19 @@ test-cxx-constraints-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constraints/invalid-x64.log
 	@echo "RCC++ integral template constraint tests completed"
 
+test-cxx-friend-requires-forms-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-requires-forms)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-friend-requires-forms,cxx_friend_template_expression_forms.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.ro tests/cxx_friend_template_index_requirement_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'indexed_requirement_mismatch'" $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.ro tests/cxx_friend_template_index_requirement_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'indexed_requirement_mismatch'" $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.ro)
+	@echo "RCC++ friend requires-expression operator matching tests completed"
+
 test-cxx-named-concepts-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -3565,6 +3580,18 @@ test-cxx-constraints: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constraints/invalid-x64.ro tests/cxx_constraints_invalid.cpp,$(TEST_OUT)/cxx-constraints/invalid-x64.log)
 	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-constraints/invalid-x64.log
 
+test-cxx-friend-requires-forms: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-requires-forms)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-requires-forms,cxx_friend_template_expression_forms.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.ro tests/cxx_friend_template_index_requirement_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'indexed_requirement_mismatch'" $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.ro tests/cxx_friend_template_index_requirement_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'indexed_requirement_mismatch'" $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.ro)
+
 test-cxx-named-concepts: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-named-concepts,cxx_named_concepts.cpp)
@@ -3648,6 +3675,7 @@ test-cxx-static-reference-conversions: test-cxx-static-reference-conversions-pos
 test-cxx-member-pointer-data: test-cxx-member-pointer-data-posix
 test-cxx-member-pointer-functions: test-cxx-member-pointer-functions-posix
 test-cxx-constraints: test-cxx-constraints-posix
+test-cxx-friend-requires-forms: test-cxx-friend-requires-forms-posix
 test-cxx-named-concepts: test-cxx-named-concepts-posix
 test-cxx-alias-templates: test-cxx-alias-templates-posix
 endif

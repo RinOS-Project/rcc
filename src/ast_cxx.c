@@ -2796,6 +2796,13 @@ static bool cxx_template_redeclaration_expr_matches(
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_NOEXCEPT:
             return cxx_template_redeclaration_expr_matches(
                 left->unary_operand, left_template, left_requires_params,
                 right->unary_operand, right_template, right_requires_params,
@@ -2848,6 +2855,20 @@ static bool cxx_template_redeclaration_expr_matches(
         case EXPR_SPACESHIP:
         case EXPR_AND:
         case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
             return cxx_template_redeclaration_expr_matches(
                        left->binary_lhs, left_template, left_requires_params,
                        right->binary_lhs, right_template,
@@ -2856,6 +2877,15 @@ static bool cxx_template_redeclaration_expr_matches(
                        left->binary_rhs, left_template,
                        left_requires_params, right->binary_rhs,
                        right_template, right_requires_params, depth + 1);
+        case EXPR_INDEX:
+            return cxx_template_redeclaration_expr_matches(
+                       left->index_base, left_template, left_requires_params,
+                       right->index_base, right_template,
+                       right_requires_params, depth + 1) &&
+                cxx_template_redeclaration_expr_matches(
+                       left->index_expr, left_template, left_requires_params,
+                       right->index_expr, right_template,
+                       right_requires_params, depth + 1);
         case EXPR_COND:
             return cxx_template_redeclaration_expr_matches(
                        left->cond_test, left_template,
