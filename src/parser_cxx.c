@@ -15561,6 +15561,13 @@ static int cxx_parser_function_template_overload_conversion_rank(
         source = cxx_parser_expression_type(argument);
         int semantic_rank = rcc_sema_cxx_conversion_rank(
             argument, source, target);
+        if (semantic_rank == 2) {
+            /* The parser-local template ranker does not model every
+             * class-pointer standard conversion.  Semantic analysis uses 2
+             * for Conversion-rank sequences such as derived-to-base and
+             * pointer-to-void; keep them viable and comparable here. */
+            return 8;
+        }
         if (semantic_rank >= 3) {
             /* Standard conversions rank ahead of user-defined conversions;
              * retain the standard conversion applied to the conversion
@@ -15747,6 +15754,23 @@ static bool cxx_function_template_instance_viable(
     return parameter == NULL && declaration == NULL;
 }
 
+static bool cxx_template_class_derives_from(const CxxClass* derived,
+                                           const CxxClass* base,
+                                           unsigned depth) {
+    if (!derived || !base || depth > 64u) return false;
+    if (derived == base) return true;
+    for (int index = 0; index < derived->base_count; ++index) {
+        CxxClass* direct_base = derived->bases[index].base;
+        if (direct_base &&
+            (direct_base == base ||
+             cxx_template_class_derives_from(direct_base, base,
+                                             depth + 1u))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static int cxx_template_conversion_vector_relation(
     const CxxFunctionTemplateMatch* left,
     const CxxFunctionTemplateMatch* right, bool* incomparable) {
@@ -15785,9 +15809,32 @@ static int cxx_template_conversion_vector_relation(
                 right_target->kind == TYPE_PTR &&
                 !left_target->cxx_is_member_pointer &&
                 !right_target->cxx_is_member_pointer) {
+                Type* left_pointee = left_target->base;
+                Type* right_pointee = right_target->base;
+                CxxClass* left_class = left_pointee
+                    ? left_pointee->cxx_class : NULL;
+                CxxClass* right_class = right_pointee
+                    ? right_pointee->cxx_class : NULL;
+                if (left_pointee && right_pointee &&
+                    left_pointee->kind == TYPE_VOID && right_class) {
+                    qualification_relation = -1;
+                } else if (left_pointee && right_pointee && left_class &&
+                           right_pointee->kind == TYPE_VOID) {
+                    qualification_relation = 1;
+                } else if (left_class && right_class &&
+                           left_class != right_class) {
+                    if (cxx_template_class_derives_from(
+                            left_class, right_class, 0u)) {
+                        qualification_relation = 1;
+                    } else if (cxx_template_class_derives_from(
+                                   right_class, left_class, 0u)) {
+                        qualification_relation = -1;
+                    }
+                }
                 bool left_subset = true;
                 bool right_subset = true;
-                if (cxx_parser_template_qualification_targets_related(
+                if (qualification_relation == 0 &&
+                    cxx_parser_template_qualification_targets_related(
                         left_target, right_target, true, &left_subset,
                         &right_subset, 0u)) {
                     /* A pointer-to-void conversion can include a trailing

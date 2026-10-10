@@ -2171,3 +2171,17 @@ separately recorded WSL startup failure.
 - [ ] Continue proper-subsequence ranking, derived-to-base ordering,
   user-defined conversion ties, and complete function-template partial
   ordering.
+
+## C++ regression follow-up (2026-10-10, derived-to-base pointer ranking)
+
+- [x] Keep fixed-parameter derived-to-base pointer conversions viable while
+  ranking function-template candidates. At equal Conversion rank, prefer
+  `Leaf*` to `Middle*` over `Leaf*` to `Root*`, and a base-pointer conversion
+  over conversion to `void*`; unrelated sibling-base conversions remain
+  ambiguous. GCC C++20 agrees. The focused gate checks i686/AMD64 generation,
+  AMD64 execution, exact RCC diagnostics, and GCC positive/negative cases; the
+  full native-Windows `test-cxx` aggregate passes. No stub or fail-close path
+  was added.
+- [ ] Continue standard conversion ordering for class-by-value and
+  pointer-to-member conversions, reference interactions, and general proper
+  subsequences. This does not complete C++20 overload-resolution conformance.

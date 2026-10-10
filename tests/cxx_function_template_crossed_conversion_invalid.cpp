@@ -48,13 +48,29 @@ int select_incomparable_void_cv(T*, volatile void*) {
     return 10;
 }
 
+struct UnrelatedBaseLeft {};
+struct UnrelatedBaseRight {};
+struct UnrelatedDerived : UnrelatedBaseLeft, UnrelatedBaseRight {};
+
+template<typename T>
+int select_unrelated_pointer_bases(T*, UnrelatedBaseLeft*) {
+    return 11;
+}
+
+template<typename T>
+int select_unrelated_pointer_bases(T*, UnrelatedBaseRight*) {
+    return 12;
+}
+
 int main() {
     int value = 1;
     int values[2] = {};
+    UnrelatedDerived unrelated;
     short priority = 0;
     return select_crossed(&value, priority, 0) +
            select_qualified_crossed(&value, priority) +
            select_array_qualified_crossed(values, priority) +
            select_incomparable_qualification(&value) +
-           select_incomparable_void_cv(&value, &value);
+           select_incomparable_void_cv(&value, &value) +
+           select_unrelated_pointer_bases(&unrelated, &unrelated);
 }

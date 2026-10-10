@@ -1,3 +1,7 @@
+struct ConversionBaseRoot {};
+struct ConversionBaseMiddle : ConversionBaseRoot {};
+struct ConversionBaseLeaf : ConversionBaseMiddle {};
+
 template<typename T>
 int choose_template(T) {
     return 10;
@@ -63,9 +67,31 @@ int choose_pointer_subsequence(T*, const void*) {
     return 72;
 }
 
+template<typename T>
+int choose_nearer_base(T*, ConversionBaseRoot*) {
+    return 81;
+}
+
+template<typename T>
+int choose_nearer_base(T*, ConversionBaseMiddle*) {
+    return 82;
+}
+
+template<typename T>
+int choose_base_over_void(T*, ConversionBaseRoot*) {
+    return 83;
+}
+
+template<typename T>
+int choose_base_over_void(T*, void*) {
+    return 84;
+}
+
 int main(void) {
     int value = 5;
     int* pointer = &value;
+    ConversionBaseLeaf leaf;
+    ConversionBaseLeaf* leaf_pointer = &leaf;
     short priority = 0;
     return choose_template(&value) == 25 &&
                    choose_template(value) == 10 &&
@@ -75,7 +101,9 @@ int main(void) {
                    choose_reference_binding(value) == 51 &&
                    choose_reference_binding(0) == 52 &&
                    choose_pointer_bool(pointer, pointer) == 62 &&
-                   choose_pointer_subsequence(pointer, pointer) == 71
+                   choose_pointer_subsequence(pointer, pointer) == 71 &&
+                   choose_nearer_base(leaf_pointer, leaf_pointer) == 82 &&
+                   choose_base_over_void(leaf_pointer, leaf_pointer) == 83
                ? 0
                : 1;
 }
