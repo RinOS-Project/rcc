@@ -2917,9 +2917,10 @@ static bool cxx_template_redeclaration_expr_matches(
                        left_requires_params, right->call_args,
                        right_template, right_requires_params, depth + 1);
         case EXPR_CAST:
-            return cxx_template_redeclaration_type_matches(
-                       left->type, left_template,
-                       right->type, right_template, depth + 1) &&
+            return left->cxx_cast_kind == right->cxx_cast_kind &&
+                cxx_template_redeclaration_type_matches(
+                       left->cast_type, left_template,
+                       right->cast_type, right_template, depth + 1) &&
                 cxx_template_redeclaration_expr_matches(
                        left->cast_expr, left_template,
                        left_requires_params, right->cast_expr,

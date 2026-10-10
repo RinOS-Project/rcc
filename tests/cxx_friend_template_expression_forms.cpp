@@ -5,6 +5,7 @@
 template<class T>
 requires requires(T candidate, int index) {
     candidate[index];
+    static_cast<void*>(&candidate);
     candidate = candidate;
     (candidate, index);
     noexcept(candidate[index]);
@@ -23,6 +24,7 @@ private:
     template<class U>
     requires requires(U probe, int position) {
         probe[position];
+        static_cast<void*>(&probe);
         probe = probe;
         (probe, position);
         noexcept(probe[position]);
@@ -35,6 +37,7 @@ private:
 template<class V>
 requires requires(V item, int offset) {
     item[offset];
+    static_cast<void*>(&item);
     item = item;
     (item, offset);
     noexcept(item[offset]);

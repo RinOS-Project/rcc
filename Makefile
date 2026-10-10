@@ -3126,6 +3126,17 @@ test-cxx-friend-requires-forms-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'indexed_requirement_mismatch'" $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log,1)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x86.ro tests/cxx_friend_template_cast_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'cast_kind_requirement'" $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.ro tests/cxx_friend_template_cast_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'cast_kind_requirement'" $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.ro)
+	g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_expression_forms.cpp
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_cast_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-gcc.log
 	@echo "RCC++ friend requires-expression form matching tests completed"
 
 test-cxx-named-concepts-posix: $(RCXX_TARGET)
@@ -3621,6 +3632,17 @@ test-cxx-friend-requires-forms: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'indexed_requirement_mismatch'" $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log,1)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x86.ro tests/cxx_friend_template_cast_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'cast_kind_requirement'" $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.ro tests/cxx_friend_template_cast_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'cast_kind_requirement'" $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.ro)
+	g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_expression_forms.cpp
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_cast_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-gcc.log
 
 test-cxx-named-concepts: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)
