@@ -20,6 +20,7 @@ typedef struct GenericAssociation GenericAssociation;
 typedef struct TypeMethod TypeMethod;
 typedef struct CxxCatch CxxCatch;
 typedef struct CxxCleanupPlan CxxCleanupPlan;
+struct ExprList;
 struct Token;
 struct CxxClass;
 struct CxxNamespace;
@@ -314,6 +315,10 @@ bool rcc_parse_cxx_type_start(void);
 Expr* rcc_parse_cxx_template_call(void);
 void rcc_parser_cxx_materialize_conversion_templates(
     Type* aggregate, Type* target);
+int rcc_parser_cxx_materialize_member_function_templates(
+    Type* aggregate, const char* name, struct ExprList* arguments,
+    TypeMethod** candidates, int candidate_capacity,
+    bool* constraint_unsupported);
 Expr* rcc_parse_cxx_concept_expression(void);
 Expr* rcc_parse_cxx_dependent_member(void);
 Expr* rcc_parse_cxx_qualified_template_member(void);

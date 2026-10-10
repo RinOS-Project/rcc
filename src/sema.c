@@ -33,6 +33,9 @@ extern void* cxx_template_instantiate_with_values(
 extern Decl* rcc_parser_cxx_resolve_function_pointer_template(
     const char*, CxxNamespace*, Type*, bool*, bool*, int*)
     __attribute__((weak));
+extern int rcc_parser_cxx_materialize_member_function_templates(
+    Type*, const char*, ExprList*, TypeMethod**, int, bool*)
+    __attribute__((weak));
 #endif
 
 static bool sema_cxx_class_is_abstract(const CxxClass* cls) {
@@ -2736,7 +2739,7 @@ static int sema_cxx_conversion_object_rank(TypeMethod* method,
     return rank;
 }
 
-static void sema_register_materialized_conversion_templates(Type* aggregate) {
+static void sema_register_materialized_member_templates(Type* aggregate) {
     if (!current_ast || !aggregate || !aggregate->cxx_class) return;
     for (TypeMethod* method = aggregate->methods; method;
          method = method->next) {
@@ -2746,9 +2749,7 @@ static void sema_register_materialized_conversion_templates(Type* aggregate) {
             !declaration->func_is_cxx_method ||
             !declaration->func_method_owner ||
             declaration->func_method_owner->cxx_class !=
-                aggregate->cxx_class ||
-            !method->name ||
-            strcmp(method->name, "operator conversion") != 0) {
+                aggregate->cxx_class || !method->name) {
             continue;
         }
         for (DeclList* item = current_ast->decls; item; item = item->next) {
@@ -2780,7 +2781,7 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         return NULL;
     }
     rcc_parser_cxx_materialize_conversion_templates(aggregate, target);
-    sema_register_materialized_conversion_templates(aggregate);
+    sema_register_materialized_member_templates(aggregate);
     for (method = aggregate->methods; method; method = method->next) {
         Type* result_type;
         int object_rank;
@@ -11065,14 +11066,21 @@ static bool sema_cxx_member_resolves_to_data_field(Type* aggregate,
  * overloads to the explicit arguments, skipping the implicit this parameter. */
 static TypeMethod* sema_select_cxx_member_method(
     Expr* call, Type* aggregate, const char* name,
+    TypeMethod** member_template_candidates,
+    int member_template_candidate_count,
     bool* ambiguous_lookup) {
     TypeMethod* method;
-    TypeMethod* best = NULL;
+    TypeMethod** overload_methods;
+    int overload_method_count = 0;
     int argument_count;
-    int* best_ranks;
-    Type** best_targets;
-    TypeMethod** best_methods;
-    bool ambiguous = false;
+    typedef struct {
+        TypeMethod* method;
+        int* ranks;
+        Type** targets;
+        TypeMethod** conversions;
+    } SemaMemberCandidate;
+    SemaMemberCandidate* viable_candidates;
+    int viable_count = 0;
 
     if (ambiguous_lookup) *ambiguous_lookup = false;
     if (!call || !aggregate || !name) return NULL;
@@ -11086,13 +11094,46 @@ static TypeMethod* sema_select_cxx_member_method(
                   name);
         return NULL;
     }
-    best_ranks = ast_arena_alloc(sizeof(*best_ranks) *
-                                 (size_t)(argument_count + 2));
-    best_targets = ast_arena_alloc(sizeof(*best_targets) *
-                                   (size_t)(argument_count + 2));
-    best_methods = ast_arena_alloc(sizeof(*best_methods) *
-                                   (size_t)(argument_count + 2));
     for (method = aggregate->methods; method; method = method->next) {
+        if (method->kind == TYPE_METHOD_FUNCTION && method->function_decl &&
+            method->name && strcmp(method->name, name) == 0 &&
+            !method->function_decl->func_is_template_instance) {
+            ++overload_method_count;
+        }
+    }
+    if (member_template_candidate_count > 0 && member_template_candidates) {
+        overload_method_count += member_template_candidate_count;
+    }
+    overload_methods = ast_arena_alloc(
+        sizeof(*overload_methods) *
+        (size_t)(overload_method_count > 0 ? overload_method_count : 1));
+    {
+        int overload_index = 0;
+        for (method = aggregate->methods; method; method = method->next) {
+            if (method->kind == TYPE_METHOD_FUNCTION &&
+                method->function_decl && method->name &&
+                strcmp(method->name, name) == 0 &&
+                !method->function_decl->func_is_template_instance) {
+                overload_methods[overload_index++] = method;
+            }
+        }
+        if (member_template_candidate_count > 0 &&
+            member_template_candidates) {
+            for (int index = 0; index < member_template_candidate_count;
+                 ++index) {
+                if (member_template_candidates[index]) {
+                    overload_methods[overload_index++] =
+                        member_template_candidates[index];
+                }
+            }
+            overload_method_count = overload_index;
+        }
+    }
+    viable_candidates = ast_arena_alloc(
+        sizeof(*viable_candidates) *
+        (size_t)(overload_method_count > 0 ? overload_method_count : 1));
+    for (int overload_index = 0;
+         overload_index < overload_method_count; ++overload_index) {
         Decl* function;
         TypeParam* parameter;
         DeclList* declared_parameter;
@@ -11107,11 +11148,13 @@ static TypeMethod* sema_select_cxx_member_method(
         bool viable = true;
         int object_rank;
 
-        if (method->kind != TYPE_METHOD_FUNCTION || !method->function_decl ||
-            strcmp(method->name, name) != 0) {
+        method = overload_methods[overload_index];
+        if (!method) continue;
+        function = method->function_decl;
+        if (!function || !function->type ||
+            function->type->kind != TYPE_FUNC) {
             continue;
         }
-        function = method->function_decl;
         object_rank = cxx_member_object_conversion_rank(aggregate, method);
         if (object_rank < 0) continue;
         candidate_ranks[rank_count++] = object_rank;
@@ -11165,34 +11208,72 @@ static TypeMethod* sema_select_cxx_member_method(
             }
         }
         if (!viable || rank_count != argument_count + 2) continue;
-        {
-            int relation = best
-                ? cxx_conversion_vector_relation(
-                    candidate_ranks, best_ranks, candidate_targets,
-                    best_targets, candidate_methods, best_methods,
-                    call->call_args, 2, argument_count + 2)
-                : 1;
-            if (!best || (relation > 0 && !ambiguous)) {
-                best = method;
-                memcpy(best_ranks, candidate_ranks,
-                       sizeof(*best_ranks) * (size_t)(argument_count + 2));
-                memcpy(best_targets, candidate_targets,
-                       sizeof(*best_targets) *
-                           (size_t)(argument_count + 2));
-                memcpy(best_methods, candidate_methods,
-                       sizeof(*best_methods) *
-                           (size_t)(argument_count + 2));
-                ambiguous = false;
-            } else if (relation == 0) {
-                ambiguous = true;
-            }
-        }
+        viable_candidates[viable_count].method = method;
+        viable_candidates[viable_count].ranks = candidate_ranks;
+        viable_candidates[viable_count].targets = candidate_targets;
+        viable_candidates[viable_count].conversions = candidate_methods;
+        ++viable_count;
     }
-    if (!best) {
+
+    if (viable_count == 0) {
         rcc_error(call->loc, "no matching member overload for '%s'", name);
         return NULL;
     }
-    if (ambiguous) {
+
+    TypeMethod* best = NULL;
+    int best_count = 0;
+    for (int index = 0; index < viable_count; ++index) {
+        bool dominated = false;
+        for (int other = 0; other < viable_count; ++other) {
+            int relation;
+            if (index == other) continue;
+            relation = cxx_conversion_vector_relation(
+                viable_candidates[other].ranks,
+                viable_candidates[index].ranks,
+                viable_candidates[other].targets,
+                viable_candidates[index].targets,
+                viable_candidates[other].conversions,
+                viable_candidates[index].conversions,
+                call->call_args, 2, argument_count + 2);
+            if (relation > 0) {
+                dominated = true;
+                break;
+            }
+            if (relation == 0) {
+                bool same_sequence = true;
+                for (int rank_index = 0;
+                     rank_index < argument_count + 2; ++rank_index) {
+                    Type* left_target =
+                        viable_candidates[other].targets[rank_index];
+                    Type* right_target =
+                        viable_candidates[index].targets[rank_index];
+                    if (viable_candidates[other].ranks[rank_index] !=
+                            viable_candidates[index].ranks[rank_index] ||
+                        viable_candidates[other].conversions[rank_index] !=
+                            viable_candidates[index].conversions[rank_index] ||
+                        ((left_target == NULL) != (right_target == NULL)) ||
+                        (left_target && right_target &&
+                         !type_is_compatible(left_target, right_target))) {
+                        same_sequence = false;
+                        break;
+                    }
+                }
+                if (same_sequence &&
+                    viable_candidates[other].method->function_decl
+                            ->func_is_template_instance == false &&
+                    viable_candidates[index].method->function_decl
+                            ->func_is_template_instance) {
+                    dominated = true;
+                    break;
+                }
+            }
+        }
+        if (!dominated) {
+            best = viable_candidates[index].method;
+            ++best_count;
+        }
+    }
+    if (best_count != 1) {
         rcc_error(call->loc, "ambiguous member overload for '%s'", name);
         return NULL;
     }
@@ -14211,6 +14292,9 @@ static Type* sema_expr(Expr* expr) {
                 Expr* member = expr->call_func;
                 Type* owner = sema_expr(member->member_base);
                 TypeMethod* method;
+                TypeMethod* member_template_candidates[32] = { NULL };
+                int member_template_candidate_count = 0;
+                bool member_template_constraint_unsupported = false;
                 bool ambiguous_lookup = false;
                 if (owner && owner->kind == TYPE_PTR &&
                     owner->is_reference) {
@@ -14302,6 +14386,24 @@ static Type* sema_expr(Expr* expr) {
                      * function-pointer value. */
                     arguments_analyzed = true;
                 } else {
+#if defined(__GNUC__) || defined(__clang__)
+                    if (rcc_parser_cxx_materialize_member_function_templates) {
+                        member_template_candidate_count =
+                            rcc_parser_cxx_materialize_member_function_templates(
+                                owner, member->member_name, expr->call_args,
+                                member_template_candidates,
+                                (int)(sizeof(member_template_candidates) /
+                                      sizeof(member_template_candidates[0])),
+                                &member_template_constraint_unsupported);
+                    }
+#endif
+                    if (member_template_constraint_unsupported) {
+                        rcc_error(expr->loc,
+                                  "member function template constraint could not be evaluated");
+                        expr->type = type_int;
+                        break;
+                    }
+                    sema_register_materialized_member_templates(owner);
                     method = expr->call_method &&
                              expr->call_method->kind ==
                                  TYPE_METHOD_FUNCTION &&
@@ -14309,6 +14411,8 @@ static Type* sema_expr(Expr* expr) {
                         ? expr->call_method
                         : sema_select_cxx_member_method(
                               expr, owner, member->member_name,
+                              member_template_candidates,
+                              member_template_candidate_count,
                               &ambiguous_lookup);
                     if (ambiguous_lookup) {
                         rcc_error(expr->loc,

@@ -2573,13 +2573,22 @@ separately recorded WSL startup failure.
   including exact class/function-template diagnostics, i686/AMD64 generation,
   and generated-code execution. There was no uncommitted parser/fixture diff in
   the child checkout to carry forward.
-- [ ] Extend member function templates beyond conversion operators in
-  non-template classes, including ordinary member templates, class-template
-  member templates, inherited conversion templates, explicit specialization,
-  full constraint ordering, and non-type/template-template edge cases. The
-  initial conversion-template implementation does not complete general
-  class-scope member-template support. Conversion target deduction and
-  user-defined sequence ranking are specified in
+- [x] Implement ordinary named member-function templates in non-template
+  classes. Deduce from call arguments; materialize real static and
+  non-static specializations; rank them with non-template overloads, defaulted
+  integral template arguments, supported parenthesized and unparenthesized
+  `requires` clauses, and member-template partial ordering. Match GCC's
+  Itanium ABI spellings for dependent parameter and return types, pointer
+  parameters, static methods, and defaulted non-type arguments. The focused
+  target passes GCC C++20 `-Wall -Wextra -Werror`, i686/AMD64 assembly and
+  object generation, generated AMD64 execution, exact symbol checks, and
+  verified-backend output on both targets.
+- [ ] Extend member-function-template support to templates inside class
+  templates, constructor templates, explicit member-template specializations,
+  inherited conversion templates, full C++20 constraint subsumption, and
+  remaining non-type/template-template/pack forms. Full Itanium ABI
+  substitution for more complex dependent signatures also remains. Conversion
+  target deduction and user-defined sequence ranking are specified in
   [`temp.deduct.conv`](https://timsong-cpp.github.io/cppwp/std20/temp.deduct.conv)
   and [`over.ics.rank`](https://timsong-cpp.github.io/cppwp/std20/over.ics.rank).
 

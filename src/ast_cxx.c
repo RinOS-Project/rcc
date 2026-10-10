@@ -559,6 +559,26 @@ char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls) {
     return buf;
 }
 
+static char* cxx_mangle_member_template_function_name(
+    Decl* func, CxxNamespace* ns, CxxClass* cls) {
+    static char buf[1024];
+    size_t pos = 0;
+    bool is_const_method = func && func->type && func->type->is_const;
+    bool is_volatile_method = func && func->type && func->type->is_volatile;
+    CxxRefQualifier ref_qualifier = func && func->type
+        ? func->type->function_ref_qualifier : CXX_REF_QUAL_NONE;
+    if (cls && (is_const_method || is_volatile_method ||
+                ref_qualifier != CXX_REF_QUAL_NONE)) {
+        mangle_nested_method_prefix(buf, &pos, ns, cls, is_const_method,
+                                    is_volatile_method, ref_qualifier);
+    } else {
+        mangle_nested_prefix(buf, &pos, ns, cls);
+    }
+    mangle_name(buf, &pos, func ? func->name : NULL);
+    buf[pos] = '\0';
+    return buf;
+}
+
 /* Mangle a function */
 char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     static char buf[1024];
@@ -704,6 +724,170 @@ static bool cxx_function_template_parameter_is_in_signature(
     return false;
 }
 
+static int cxx_function_template_type_parameter_index(
+    CxxTemplate* tmpl, Type* type) {
+    if (!tmpl || !type || type->kind != TYPE_STRUCT || !type->tag) {
+        return -1;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (tmpl->params[index].kind == TPARAM_TYPE &&
+            tmpl->params[index].name &&
+            strcmp(type->tag, tmpl->params[index].name) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+typedef struct CxxMemberTemplateMangleContext {
+    int* parameter_substitutions;
+    size_t next_substitution;
+} CxxMemberTemplateMangleContext;
+
+static void cxx_mangle_member_template_substitution(
+    char* buf, size_t* pos, size_t index) {
+    static const char digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    char encoded[sizeof(size_t) * 8u];
+    size_t count = 0u;
+    size_t value;
+    if (*pos + 2u >= 1024u) {
+        rcc_fatal("C++ member template signature is too long");
+    }
+    buf[(*pos)++] = 'S';
+    if (index == 0u) {
+        buf[(*pos)++] = '_';
+        return;
+    }
+    value = index - 1u;
+    do {
+        encoded[count++] = digits[value % 36u];
+        value /= 36u;
+    } while (value != 0u);
+    while (count > 0u) {
+        if (*pos + 1u >= 1024u) {
+            rcc_fatal("C++ member template signature is too long");
+        }
+        buf[(*pos)++] = encoded[--count];
+    }
+    if (*pos + 1u >= 1024u) {
+        rcc_fatal("C++ member template signature is too long");
+    }
+    buf[(*pos)++] = '_';
+}
+
+static size_t cxx_mangle_member_template_substitution_base(
+    CxxNamespace* ns, CxxClass* cls) {
+    /* The enclosing class prefix and the completed member-name prefix are
+     * already in the nested name before the function type is encoded. */
+    size_t count = cls ? 2u : 0u;
+    for (CxxNamespace* current = ns; current && current->name;
+         current = current->parent) {
+        ++count;
+    }
+    return count;
+}
+
+static void cxx_mangle_template_type_append(
+    char* buf, size_t* pos, Type* type, CxxTemplate* tmpl,
+    CxxMemberTemplateMangleContext* context) {
+#define CXX_MANGLE_TEMPLATE_APPEND(value) do { \
+    if (*pos + 1u >= 1024u) { \
+        rcc_fatal("C++ member template signature is too long"); \
+    } \
+    buf[(*pos)++] = (value); \
+} while (0)
+    if (!type) {
+        CXX_MANGLE_TEMPLATE_APPEND('v');
+        return;
+    }
+    while (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) {
+        CXX_MANGLE_TEMPLATE_APPEND(
+            type->is_reference
+                ? (type->is_rvalue_reference ? 'O' : 'R') : 'P');
+        type = type->base;
+    }
+    if (type->kind == TYPE_PTR && type->cxx_is_member_pointer) {
+        CXX_MANGLE_TEMPLATE_APPEND('M');
+        cxx_mangle_template_type_append(
+            buf, pos, type->cxx_member_pointer_owner, tmpl, context);
+        cxx_mangle_template_type_append(buf, pos, type->base, tmpl, context);
+        return;
+    }
+    if (type->is_volatile) CXX_MANGLE_TEMPLATE_APPEND('V');
+    if (type->is_const) CXX_MANGLE_TEMPLATE_APPEND('K');
+    {
+        int parameter_index =
+            cxx_function_template_type_parameter_index(tmpl, type);
+        if (parameter_index >= 0) {
+            if (context && context->parameter_substitutions &&
+                context->parameter_substitutions[parameter_index] >= 0) {
+                cxx_mangle_member_template_substitution(
+                    buf, pos,
+                    (size_t)context->parameter_substitutions[parameter_index]);
+                return;
+            }
+            CXX_MANGLE_TEMPLATE_APPEND('T');
+            if (parameter_index > 0) {
+                int written = snprintf(buf + *pos, 1024u - *pos,
+                                       "%d", parameter_index - 1);
+                if (written < 0 || (size_t)written >= 1024u - *pos) {
+                    rcc_fatal("C++ member template parameter index is too long");
+                }
+                *pos += (size_t)written;
+            }
+            CXX_MANGLE_TEMPLATE_APPEND('_');
+            if (context && context->parameter_substitutions) {
+                context->parameter_substitutions[parameter_index] =
+                    (int)context->next_substitution++;
+            }
+            return;
+        }
+    }
+    if (type->kind == TYPE_ARRAY) {
+        int written = type->array_len >= 0
+            ? snprintf(buf + *pos, 1024u - *pos, "A%d_", type->array_len)
+            : snprintf(buf + *pos, 1024u - *pos, "A_");
+        if (written < 0 || (size_t)written >= 1024u - *pos) {
+            rcc_fatal("C++ member template array type is too long");
+        }
+        *pos += (size_t)written;
+        cxx_mangle_template_type_append(
+            buf, pos, type->base, tmpl, context);
+        return;
+    }
+    if (type->kind == TYPE_FUNC) {
+        if (type->function_is_noexcept) {
+            CXX_MANGLE_TEMPLATE_APPEND('D');
+            CXX_MANGLE_TEMPLATE_APPEND('o');
+        }
+        CXX_MANGLE_TEMPLATE_APPEND('F');
+        cxx_mangle_template_type_append(
+            buf, pos, type->ret_type, tmpl, context);
+        if (type->params) {
+            for (TypeParam* parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                cxx_mangle_template_type_append(
+                    buf, pos, parameter->type, tmpl, context);
+            }
+        } else {
+            CXX_MANGLE_TEMPLATE_APPEND('v');
+        }
+        if (type->variadic) CXX_MANGLE_TEMPLATE_APPEND('z');
+        CXX_MANGLE_TEMPLATE_APPEND('E');
+        return;
+    }
+    {
+        char* mangled = cxx_mangle_type(type);
+        size_t length = strlen(mangled);
+        if (*pos + length >= 1024u) {
+            rcc_fatal("C++ member template signature is too long");
+        }
+        memcpy(buf + *pos, mangled, length);
+        *pos += length;
+    }
+#undef CXX_MANGLE_TEMPLATE_APPEND
+}
+
 static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                                            CxxClass* cls, CxxTemplate* tmpl,
                                            Type** type_args,
@@ -714,8 +898,22 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     size_t pos;
     bool has_value_argument = false;
     bool has_type_argument = false;
+    bool encode_member_signature;
+    CxxMemberTemplateMangleContext member_mangle_context = { NULL, 0u };
 
     if (!func || !tmpl) return cxx_mangle_function(func, ns, cls);
+    encode_member_signature = tmpl->member_method &&
+        (!func->name || strcmp(func->name, "operator conversion") != 0);
+    if (encode_member_signature && tmpl->param_count > 0) {
+        member_mangle_context.parameter_substitutions = ast_arena_alloc(
+            sizeof(*member_mangle_context.parameter_substitutions) *
+            (size_t)tmpl->param_count);
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            member_mangle_context.parameter_substitutions[index] = -1;
+        }
+        member_mangle_context.next_substitution =
+            cxx_mangle_member_template_substitution_base(ns, cls);
+    }
     for (int index = 0; index < tmpl->param_count; ++index) {
         if (tmpl->params[index].kind == TPARAM_NONTYPE && value_present &&
             value_present[index]) {
@@ -730,8 +928,9 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
             has_value_argument = true;
         } else if (tmpl->params[index].kind == TPARAM_TYPE && type_args &&
                    type_args[index] &&
-                   !cxx_function_template_parameter_is_in_signature(
-                       tmpl, func, index)) {
+                   (tmpl->member_method ||
+                    !cxx_function_template_parameter_is_in_signature(
+                        tmpl, func, index))) {
             has_type_argument = true;
         }
     }
@@ -753,6 +952,11 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         }
         memcpy(buf, base, base_length);
         pos = base_length;
+    } else if (tmpl->member_method) {
+        base = cxx_mangle_member_template_function_name(
+            func, ns, cls);
+        strcpy(buf, base);
+        pos = strlen(buf);
     } else {
         base = cxx_mangle_name(func->name, ns, cls);
         strcpy(buf, base);
@@ -780,8 +984,9 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
             const char* type_mangled;
             size_t type_length;
             if (!type_args || !type_args[index] ||
-                cxx_function_template_parameter_is_in_signature(
-                    tmpl, func, index)) {
+                (!tmpl->member_method &&
+                 cxx_function_template_parameter_is_in_signature(
+                     tmpl, func, index))) {
                 continue;
             }
             type_mangled = cxx_mangle_type(type_args[index]);
@@ -847,15 +1052,44 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         }
     }
     buf[pos++] = 'E';
-    if (func->func_params) {
-        for (DeclList* parameter = func->func_params; parameter;
-             parameter = parameter->next) {
-            char* type_mangled = cxx_mangle_type(parameter->decl->type);
-            pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos, "%s",
-                                    type_mangled);
+    if (encode_member_signature) {
+        if (pos + 1u >= sizeof(buf)) {
+            rcc_fatal("C++ member template name is too long");
         }
-    } else {
-        buf[pos++] = 'v';
+        buf[pos++] = 'E';
+    }
+    if (encode_member_signature && tmpl->func_def &&
+        tmpl->func_def->type) {
+        cxx_mangle_template_type_append(
+            buf, &pos, tmpl->func_def->type->ret_type, tmpl,
+            &member_mangle_context);
+    }
+    {
+        Decl* signature = encode_member_signature && tmpl->func_def
+            ? tmpl->func_def : func;
+        DeclList* parameters = signature->func_params
+            ? signature->func_params : func->func_params;
+        if (parameters) {
+            for (DeclList* parameter = parameters; parameter;
+             parameter = parameter->next) {
+                if (encode_member_signature) {
+                    cxx_mangle_template_type_append(
+                        buf, &pos, parameter->decl->type, tmpl,
+                        &member_mangle_context);
+                } else {
+                    char* type_mangled =
+                        cxx_mangle_type(parameter->decl->type);
+                    size_t type_length = strlen(type_mangled);
+                    if (pos + type_length >= sizeof(buf)) {
+                        rcc_fatal("C++ template function signature is too long");
+                    }
+                    memcpy(buf + pos, type_mangled, type_length);
+                    pos += type_length;
+                }
+            }
+        } else {
+            buf[pos++] = 'v';
+        }
     }
     buf[pos] = '\0';
     return buf;

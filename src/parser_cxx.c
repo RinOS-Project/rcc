@@ -7351,6 +7351,69 @@ static bool cxx_class_conversion_template_starts(void) {
     return token && token->type == TOK_OPERATOR;
 }
 
+/* Return the first token after a class-scope template parameter list. */
+static Token* cxx_template_parameter_list_end(Token* token) {
+    int angle_depth = 0;
+    if (!token || token->type != TOK_TEMPLATE || !token->next ||
+        token->next->type != TOK_LT) {
+        return NULL;
+    }
+    for (token = token->next; token; token = token->next) {
+        if (token->type == TOK_LT) {
+            ++angle_depth;
+        } else if (token->type == TOK_GT) {
+            if (--angle_depth == 0) return token->next;
+        } else if (token->type == TOK_RSHIFT) {
+            angle_depth -= 2;
+            if (angle_depth <= 0) return token->next;
+        }
+    }
+    return NULL;
+}
+
+/* Keep nested class, alias, and variable templates on their existing parser
+ * paths while recognizing ordinary in-class member function templates. */
+static bool cxx_member_function_declaration_starts(Token* token) {
+    token = cxx_conversion_member_skip_specifiers(token);
+    if (!token || token->type == TOK_REQUIRES ||
+        token->type == TOK_CLASS || token->type == TOK_STRUCT ||
+        token->type == TOK_USING || token->type == TOK_CONCEPT) {
+        return false;
+    }
+    for (; token; token = token->next) {
+        if (token->type == TOK_LPAREN) return true;
+        if (token->type == TOK_SEMICOLON || token->type == TOK_LBRACE ||
+            token->type == TOK_ASSIGN) {
+            return false;
+        }
+    }
+    return false;
+}
+
+static bool cxx_class_function_template_starts(void) {
+    Token* declaration;
+    if (!check(TOK_TEMPLATE)) return false;
+    declaration = cxx_template_parameter_list_end(parser.cur);
+    if (declaration && declaration->type == TOK_REQUIRES) {
+        Token* token = declaration->next;
+        if (!token) return false;
+        if (token->type == TOK_LPAREN) {
+            int depth = 0;
+            do {
+                if (token->type == TOK_LPAREN) {
+                    ++depth;
+                } else if (token->type == TOK_RPAREN) {
+                    --depth;
+                }
+                token = token->next;
+            } while (token && depth > 0);
+            if (depth != 0) return false;
+        }
+        declaration = token;
+    }
+    return cxx_member_function_declaration_starts(declaration);
+}
+
 /* Parse the body and ABI metadata of a class after its source name has
  * already been consumed.  Explicit template specializations use this same
  * path so their class body cannot be mistaken for a primary-template body. */
@@ -7508,6 +7571,20 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                     !member_template->member_method) {
                     rcc_error(template_loc,
                               "class-scope conversion function template is invalid");
+                }
+                continue;
+            }
+
+            if (!active_template && cxx_class_function_template_starts()) {
+                SourceLoc template_loc = peek()->loc;
+                CxxTemplate* member_template;
+                advance(); /* template */
+                member_template = parse_cxx_template(current_access);
+                if (!member_template ||
+                    member_template->kind != TMPL_FUNCTION ||
+                    !member_template->member_method) {
+                    rcc_error(template_loc,
+                              "class-scope member function template is invalid");
                 }
                 continue;
             }
@@ -9634,7 +9711,8 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     Token* member_template_declaration =
         cxx_conversion_member_skip_specifiers(parser.cur);
     if (active_class && member_template_declaration &&
-        member_template_declaration->type == TOK_OPERATOR) {
+        (member_template_declaration->type == TOK_OPERATOR ||
+         cxx_member_function_declaration_starts(parser.cur))) {
         CxxClass* owner = active_class;
         struct CxxMember* previous_tail = owner->members;
         struct CxxMember* new_member;
@@ -9649,7 +9727,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         method = new_member ? new_member->method : NULL;
         if (!method || !method->decl) {
             rcc_error(loc,
-                      "conversion function template did not declare a method");
+                      "member function template did not declare a method");
             active_template = parameter_outer_template;
             return tmpl;
         }
@@ -16911,6 +16989,162 @@ static bool prepare_cxx_function_template_match(
         return false;
     }
     return true;
+}
+
+static TypeMethod* cxx_materialize_member_function_template(
+    Type* aggregate, CxxMethod* method, Decl* instance) {
+    TypeMethod* lowered;
+    TypeMethod** tail;
+    Type* owner_type;
+    if (!aggregate || !method || !method->owner || !instance ||
+        !instance->type || instance->type->kind != TYPE_FUNC) {
+        return NULL;
+    }
+    for (TypeMethod* existing = aggregate->methods;
+         existing; existing = existing->next) {
+        if (existing->function_decl == instance) return existing;
+    }
+    owner_type = method->owner->type;
+    if (!owner_type) return NULL;
+    instance->func_is_cxx_method = true;
+    instance->func_method_owner = owner_type;
+    instance->func_has_cxx_linkage = true;
+    instance->func_has_local_linkage =
+        owner_type->cxx_scope_identity != NULL;
+    if (!method->is_static) {
+        Type* qualified_owner = owner_type;
+        Type* object_type;
+        TypeParam* this_type_parameter;
+        if (method->is_const || method->is_volatile) {
+            qualified_owner = ast_arena_alloc(sizeof(*qualified_owner));
+            *qualified_owner = *owner_type;
+            qualified_owner->is_const = method->is_const;
+            qualified_owner->is_volatile = method->is_volatile;
+        }
+        object_type = type_ptr(qualified_owner);
+        instance->func_this_param = decl_param(
+            "this", object_type, -1, instance->loc);
+        this_type_parameter = ast_arena_alloc(sizeof(*this_type_parameter));
+        this_type_parameter->name = "this";
+        this_type_parameter->type = object_type;
+        this_type_parameter->is_bitfield = false;
+        this_type_parameter->bit_width = 0u;
+        this_type_parameter->is_static = false;
+        this_type_parameter->initializer = NULL;
+        this_type_parameter->is_deprecated = false;
+        this_type_parameter->deprecated_message = NULL;
+        this_type_parameter->cxx_no_unique_address = false;
+        this_type_parameter->cxx_access = ACCESS_PUBLIC;
+        this_type_parameter->next = instance->type->params;
+        {
+            Type* method_type = ast_arena_alloc(sizeof(*method_type));
+            *method_type = *instance->type;
+            method_type->params = this_type_parameter;
+            instance->type = method_type;
+        }
+    } else {
+        instance->func_this_param = NULL;
+    }
+    if (instance->link_name) instance->name = instance->link_name;
+    lowered = ast_arena_alloc(sizeof(*lowered));
+    lowered->name = method->source_name;
+    lowered->return_type = instance->type->ret_type;
+    lowered->function_decl = instance;
+    lowered->kind = TYPE_METHOD_FUNCTION;
+    lowered->cxx_access = (unsigned char)method->access;
+    lowered->is_explicit = method->is_explicit;
+    lowered->is_noexcept = method->is_noexcept;
+    lowered->ref_qualifier = method->ref_qualifier;
+    lowered->this_owner = owner_type;
+    lowered->this_adjustment = 0;
+    lowered->next = NULL;
+    tail = &aggregate->methods;
+    while (*tail) tail = &(*tail)->next;
+    *tail = lowered;
+    if (active_ast) {
+        bool present = false;
+        for (DeclList* item = active_ast->decls; item; item = item->next) {
+            if (item->decl == instance) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) ast_add_decl(active_ast, instance);
+    }
+    return lowered;
+}
+
+int rcc_parser_cxx_materialize_member_function_templates(
+    Type* aggregate, const char* name, ExprList* arguments,
+    TypeMethod** candidates, int candidate_capacity,
+    bool* constraint_unsupported) {
+    CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
+    CxxMethod* source_methods[32] = { NULL };
+    CxxFunctionTemplateMatch matches[32] = { 0 };
+    int match_count = 0;
+    int result_count = 0;
+    CxxNamespace* saved_namespace = active_namespace;
+    bool unsupported = false;
+    if (constraint_unsupported) *constraint_unsupported = false;
+    if (!aggregate || !name || !cls || cls->templ ||
+        (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
+        return 0;
+    }
+    for (struct CxxMember* member = cls->members;
+         member; member = member->next) {
+        CxxMethod* method = member->method;
+        CxxTemplate* tmpl = method ? method->member_template : NULL;
+        CxxFunctionTemplateMatch match;
+        bool constraint_invalid = false;
+        bool constraint_unsupported = false;
+        if (!method || !tmpl || !method->source_name ||
+            strcmp(method->source_name, name) != 0 || method->is_constructor ||
+            method->is_destructor || method->is_virtual) {
+            continue;
+        }
+        if (match_count >= (int)(sizeof(matches) / sizeof(matches[0]))) {
+            rcc_error(method->decl ? method->decl->loc : tmpl->func_def->loc,
+                      "too many member function template overloads for '%s'",
+                      name);
+            break;
+        }
+        active_namespace = tmpl->ns ? tmpl->ns : cls->ns;
+        if (prepare_cxx_function_template_match(
+                tmpl, arguments, NULL, 0, &match,
+                &constraint_invalid, &constraint_unsupported)) {
+            source_methods[match_count] = method;
+            matches[match_count++] = match;
+        }
+        unsupported = unsupported || constraint_unsupported;
+    }
+    active_namespace = saved_namespace;
+    if (constraint_unsupported) *constraint_unsupported = unsupported;
+    if (unsupported) return 0;
+
+    for (int index = 0; index < match_count; ++index) {
+        bool dominated = false;
+        for (int other = 0; other < match_count; ++other) {
+            if (index != other &&
+                cxx_function_template_match_relation(
+                    &matches[other], &matches[index]) > 0) {
+                dominated = true;
+                break;
+            }
+        }
+        if (!dominated) {
+            TypeMethod* lowered = cxx_materialize_member_function_template(
+                aggregate, source_methods[index], matches[index].instance);
+            if (!lowered) continue;
+            if (result_count >= candidate_capacity || !candidates) {
+                rcc_error(lowered->function_decl->loc,
+                          "member function template candidate limit exceeded for '%s'",
+                          name);
+                return result_count;
+            }
+            candidates[result_count++] = lowered;
+        }
+    }
+    return result_count;
 }
 
 /* Function-address template deduction uses the target function type as the

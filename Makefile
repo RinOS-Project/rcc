@@ -592,6 +592,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-class-template-static-data-odr \
 	test-cxx-static-locals \
 	test-cxx-function-templates \
+	test-cxx-member-function-templates \
 	test-cxx-template-local-classes \
 	test-cxx-abbreviated-function-template \
 	test-cxx-abbreviated-function-template-invalid \
@@ -5062,6 +5063,42 @@ test-cxx-conversion-operator-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-conversion-operator/gcc-host \
 		tests/cxx_conversion_operator.cpp
 	$(TEST_OUT)/cxx-conversion-operator/gcc-host
+
+test-cxx-member-function-templates-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-function-templates)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-function-templates/x86.s \
+		tests/cxx_member_function_templates.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-member-function-templates/x86.o \
+		$(TEST_OUT)/cxx-member-function-templates/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-function-templates/x64.s \
+		tests/cxx_member_function_templates.cpp
+	$(GREP) -F -q "_ZNK16member_templates27MemberFunctionTemplateValue3addIiEEiT_" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK16member_templates27MemberFunctionTemplateValue4copyIiEET_S2_" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(GREP) -F -q "_ZN16member_templates27MemberFunctionTemplateValue8identityIiEET_S2_" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK16member_templates27MemberFunctionTemplateValue11add_defaultILi3EEEii" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK16member_templates27MemberFunctionTemplateValue19add_unconditionallyIiEEiT_" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK16member_templates27MemberFunctionTemplateValue6chooseIiEEiPT_" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(CC) -c -o $(TEST_OUT)/cxx-member-function-templates/x64.o \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-member-function-templates/x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-member-function-templates/x64-host \
+		tests/cxx_language_core_host.c \
+		$(TEST_OUT)/cxx-member-function-templates/x64.o \
+		$(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/cxx-member-function-templates/x64-host
+	g++ -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-member-function-templates/gcc-host \
+		tests/cxx_member_function_templates.cpp
+	$(TEST_OUT)/cxx-member-function-templates/gcc-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-conversion-operator/x86.ro \
@@ -5433,6 +5470,33 @@ test-cxx-pure-virtual-posix: $(RCXX_TARGET)
 	@echo "C++ pure virtual and abstract class tests completed"
 
 ifeq ($(OS),Windows_NT)
+test-cxx-member-function-templates: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-function-templates)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-member-function-templates,cxx_member_function_templates.cpp)
+	$(GREP) -F -q "_ZNK16member_templates27MemberFunctionTemplateValue3addIiEEiT_" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK16member_templates27MemberFunctionTemplateValue4copyIiEET_S2_" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(GREP) -F -q "_ZN16member_templates27MemberFunctionTemplateValue8identityIiEET_S2_" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK16member_templates27MemberFunctionTemplateValue11add_defaultILi3EEEii" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK16member_templates27MemberFunctionTemplateValue19add_unconditionallyIiEEiT_" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK16member_templates27MemberFunctionTemplateValue6chooseIiEEiPT_" \
+		$(TEST_OUT)/cxx-member-function-templates/x64.s
+	g++ -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-member-function-templates/gcc-host \
+		tests/cxx_member_function_templates.cpp
+	$(TEST_OUT)/cxx-member-function-templates/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-member-function-templates/x86.ro \
+		tests/cxx_member_function_templates.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-member-function-templates/x64.ro \
+		tests/cxx_member_function_templates.cpp
 test-cxx-conversion-operator: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conversion-operator,cxx_conversion_operator.cpp)
@@ -5805,6 +5869,7 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET)
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64-host tests/cxx_language_core_host.c $(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64.o
 	$(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64-host
 else
+test-cxx-member-function-templates: test-cxx-member-function-templates-posix
 test-cxx-conversion-operator: test-cxx-conversion-operator-posix
 test-cxx-nonmember-operator: test-cxx-nonmember-operator-posix
 test-cxx-spaceship: test-cxx-spaceship-posix
@@ -9361,6 +9426,8 @@ endif
 	test-cxx-dependent-nested-alias-transitive-invalid \
 	test-cxx-function-template-dependent-nested-type
 .PHONY: test-cxx-class-template-dependent-base-lookup-invalid
+.PHONY: test-cxx-member-function-templates \
+	test-cxx-member-function-templates-posix
 .PHONY: test-cxx-class-template-specialization-ambiguous
 .PHONY: test-cxx-class-template-specialization-partial-order-invalid
 .PHONY: test-cxx-class-template-specialization-constraint-invalid
