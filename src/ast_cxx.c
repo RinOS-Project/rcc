@@ -2906,16 +2906,43 @@ static bool cxx_template_redeclaration_expr_matches(
                        left_requires_params, right->cond_else,
                        right_template, right_requires_params, depth + 1);
         case EXPR_CALL:
-            return left->cxx_concept_template ==
-                       right->cxx_concept_template &&
+            if (left->cxx_concept_template != right->cxx_concept_template ||
+                left->call_is_new != right->call_is_new ||
+                left->call_is_delete != right->call_is_delete) {
+                return false;
+            }
+            if (left->call_is_new &&
+                (left->call_new_value_init != right->call_new_value_init ||
+                 left->call_new_is_array != right->call_new_is_array ||
+                 left->call_new_brace_init != right->call_new_brace_init ||
+                 (!!left->call_new_type != !!right->call_new_type) ||
+                 (left->call_new_type &&
+                  !cxx_template_redeclaration_type_matches(
+                      left->call_new_type, left_template,
+                      right->call_new_type, right_template, depth + 1)) ||
+                 (!!left->call_new_count != !!right->call_new_count) ||
+                 (left->call_new_count &&
+                  !cxx_template_redeclaration_expr_matches(
+                      left->call_new_count, left_template,
+                      left_requires_params, right->call_new_count,
+                      right_template, right_requires_params, depth + 1)) ||
+                 !cxx_template_redeclaration_expr_list_matches(
+                     left->call_new_args, left_template, left_requires_params,
+                     right->call_new_args, right_template,
+                     right_requires_params, depth + 1))) {
+                return false;
+            }
+            return (!left->call_is_delete ||
+                    left->call_delete_is_array ==
+                        right->call_delete_is_array) &&
                 cxx_template_redeclaration_expr_matches(
-                       left->call_func, left_template,
-                       left_requires_params, right->call_func,
-                       right_template, right_requires_params, depth + 1) &&
+                    left->call_func, left_template,
+                    left_requires_params, right->call_func,
+                    right_template, right_requires_params, depth + 1) &&
                 cxx_template_redeclaration_expr_list_matches(
-                       left->call_args, left_template,
-                       left_requires_params, right->call_args,
-                       right_template, right_requires_params, depth + 1);
+                    left->call_args, left_template,
+                    left_requires_params, right->call_args,
+                    right_template, right_requires_params, depth + 1);
         case EXPR_CAST:
             return left->cxx_cast_kind == right->cxx_cast_kind &&
                 cxx_template_redeclaration_type_matches(

@@ -3108,8 +3108,10 @@ test-cxx-constraints-posix: $(RCXX_TARGET)
 test-cxx-friend-requires-forms-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-requires-forms)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-fold-constraint)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-new-expression)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-friend-requires-forms,cxx_friend_template_expression_forms.cpp)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-friend-fold-constraint,cxx_friend_template_fold_constraint.cpp)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-friend-new-expression,cxx_friend_template_new_expression.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.ro tests/cxx_friend_template_fold_constraint_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log)
 	$(GREP) -F -q "ambiguous function template overload for 'fold_constraint_mismatch'" $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log,1)
@@ -3134,9 +3136,28 @@ test-cxx-friend-requires-forms-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'cast_kind_requirement'" $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.log,1)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x86.ro tests/cxx_friend_template_new_expression_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'new_expression_kind_mismatch'" $(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x64.ro tests/cxx_friend_template_new_expression_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'new_expression_kind_mismatch'" $(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x64.ro)
 	g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_expression_forms.cpp
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_cast_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-gcc.log)
 	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x86.ro tests/cxx_friend_template_delete_expression_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'delete_expression_kind_mismatch'" $(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x64.ro tests/cxx_friend_template_delete_expression_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'delete_expression_kind_mismatch'" $(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x64.ro)
+	g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_new_expression.cpp
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_new_expression_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-gcc.log
 	@echo "RCC++ friend requires-expression form matching tests completed"
 
 test-cxx-named-concepts-posix: $(RCXX_TARGET)
@@ -3614,8 +3635,10 @@ test-cxx-constraints: $(RCXX_TARGET)
 test-cxx-friend-requires-forms: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-requires-forms)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-fold-constraint)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-new-expression)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-requires-forms,cxx_friend_template_expression_forms.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-fold-constraint,cxx_friend_template_fold_constraint.cpp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-new-expression,cxx_friend_template_new_expression.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.ro tests/cxx_friend_template_fold_constraint_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log)
 	$(GREP) -F -q "ambiguous function template overload for 'fold_constraint_mismatch'" $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log,1)
@@ -3643,6 +3666,27 @@ test-cxx-friend-requires-forms: $(RCXX_TARGET)
 	g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_expression_forms.cpp
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_cast_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-gcc.log)
 	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-friend-requires-forms/cast-kind-mismatch-gcc.log
+
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x86.ro tests/cxx_friend_template_new_expression_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'new_expression_kind_mismatch'" $(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x64.ro tests/cxx_friend_template_new_expression_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'new_expression_kind_mismatch'" $(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-x64.ro)
+	g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_new_expression.cpp
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_friend_template_new_expression_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-friend-new-expression/kind-mismatch-gcc.log
+
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x86.ro tests/cxx_friend_template_delete_expression_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'delete_expression_kind_mismatch'" $(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x64.ro tests/cxx_friend_template_delete_expression_kind_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'delete_expression_kind_mismatch'" $(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-new-expression/delete-kind-mismatch-x64.ro)
 
 test-cxx-named-concepts: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)
