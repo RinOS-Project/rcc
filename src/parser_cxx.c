@@ -1811,6 +1811,11 @@ extern bool rcc_parser_last_cxx_declarator_was_pack(void);
 static Stmt* parse_cxx_statement(void);
 static DeclList* parse_cxx_parameter_declarations(void);
 static Type* parse_cxx_type_spec(void);
+static Type* parse_class_template_specialization(CxxTemplate* tmpl,
+                                                 SourceLoc loc);
+static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
+                                                  SourceLoc loc,
+                                                  Type* owner_type);
 static bool cxx_parser_expression_is_lvalue(Expr* expression);
 static Expr* parse_cxx_trailing_requires_clause(SourceLoc loc);
 static Type* parse_cxx_lambda_auto_type(CxxTemplate* tmpl,
@@ -7412,8 +7417,26 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                 }
                 if (active_template &&
                     cxx_using_starts_with_template_id_base()) {
-                    Type* base_type = parse_cxx_type_spec();
+                    const char* base_template_name = parse_qualified_name();
+                    CxxTemplate* base_template = base_template_name
+                        ? find_class_template(base_template_name) : NULL;
+                    CxxTemplate* base_alias_template = base_template
+                        ? NULL
+                        : base_template_name
+                            ? find_alias_template(base_template_name) : NULL;
+                    Type* base_type = base_template
+                        ? parse_class_template_specialization(
+                              base_template, using_loc)
+                        : base_alias_template
+                            ? parse_alias_template_specialization(
+                                  base_alias_template, using_loc, NULL)
+                            : NULL;
                     Token* member_token;
+                    if (!base_template && !base_alias_template) {
+                        rcc_error(using_loc,
+                                  "dependent base using-declaration requires a class or alias template specialization");
+                        skip_cxx_template_arguments();
+                    }
                     expect(TOK_SCOPE, ":: in dependent base using-declaration");
                     member_token = expect(TOK_IDENT,
                                           "member in dependent base using-declaration");

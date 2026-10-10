@@ -1996,3 +1996,23 @@
 These focused checks do not complete current-revision `test-ci`, stage1
 execution, or stage2 bootstrap; the full host gate remains subject to the
 separately recorded WSL startup failure.
+
+## C++ regression follow-up (2026-10-10, dependent using and lookup diagnostics)
+
+- [x] Parse the dependent class-template specialization in local-class
+  `using Base<T>::Base` / `using Base<T>::member` before consuming `::member`;
+  do not route the suffix through nested-type lookup. The existing
+  `test-cxx-template-local-classes` fixture now compiles for i686/AMD64 and its
+  generated x64 executable passes.
+- [x] Keep ambiguous inherited method calls on the member-overload lookup path
+  so the diagnostic reports the ambiguity directly instead of cascading into
+  “no member” and “called object is not a function”. The transitive dependent
+  base negative gate verifies exactly two errors and no `.ro` on both targets;
+  GCC C++20 rejects the same fixture.
+- [x] Run the complete native-Windows `test-cxx` aggregate on RCC `main` after
+  these fixes. The full target exits successfully, including local-class
+  templates, transitive dependent-base lookup, concepts/requires forms, and
+  both-target invalid-source checks.
+- [ ] Complete local-class template constructor/member ABI corner cases,
+  full dependent lookup/overload resolution, and the broader C++20 conformance
+  items above; this regression pass is not a C++20-completion claim.

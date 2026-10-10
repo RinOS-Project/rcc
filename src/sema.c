@@ -10009,10 +10009,6 @@ static bool sema_cxx_member_resolves_to_data_field(Type* aggregate,
     bool has_method = false;
 
     if (!aggregate || !aggregate->cxx_class || !name) return false;
-    if (sema_cxx_member_lookup_ambiguous(aggregate, name)) {
-        /* Let ordinary EXPR_MEMBER analysis report the precise ambiguity. */
-        return true;
-    }
     using_base = sema_cxx_using_base_member_owner(aggregate, name);
     lookup_type = using_base ? using_base->type : aggregate;
     if (!lookup_type || !lookup_type->cxx_class) return false;
