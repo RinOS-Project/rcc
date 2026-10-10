@@ -2324,3 +2324,16 @@ separately recorded WSL startup failure.
 - [ ] Extend equal-rank standard-conversion ordering to other conversions and
   reference bindings; proper subsequences and user-defined conversion ties
   remain open.
+
+## C++ regression follow-up (2026-10-10, noexcept function-pointer conversions)
+
+- [x] Parse `noexcept` on ordinary function-pointer declarators and rank the
+  standard conversion from a `noexcept` function pointer to the otherwise-
+  identical potentially-throwing function pointer below an identity match.
+  Ordinary and function-template overload sets choose the `noexcept` target;
+  the focused overload gate passes i686/AMD64 generation, AMD64 execution,
+  and GCC C++20 `-Werror` checks.
+- [ ] Continue function-pointer conversion coverage for overloaded function
+  names, exception-specification expressions, and interactions with other
+  standard conversions; complete overload-resolution conformance remains
+  unfinished.

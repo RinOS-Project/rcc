@@ -15560,7 +15560,7 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
     }
     if (source->kind == TYPE_FUNC && target->kind == TYPE_PTR &&
         target->base && target->base->kind == TYPE_FUNC) {
-        return type_is_compatible(source, target->base) ? 1 : -1;
+        return rcc_sema_cxx_conversion_rank(argument, source, target);
     }
     if (source->kind == TYPE_PTR && target->kind == TYPE_PTR &&
         (source->cxx_is_member_pointer ||
@@ -15576,6 +15576,11 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
         source_base = source->base;
         target_base = target->base;
         if (source_base && target_base) {
+            if (source_base->kind == TYPE_FUNC &&
+                target_base->kind == TYPE_FUNC) {
+                return rcc_sema_cxx_conversion_rank(
+                    argument, source, target);
+            }
             if (type_is_compatible(source_base, target_base)) return 1;
             if (source_base->kind == TYPE_VOID ||
                 target_base->kind == TYPE_VOID) return 2;
@@ -15595,7 +15600,17 @@ static int cxx_parser_function_template_overload_conversion_rank(
     Type* conversion_target;
     bool target_is_reference;
     bool requires_qualification = false;
-    int rank = cxx_parser_template_conversion_rank(argument, target);
+    int rank;
+    if (!argument || !target) return -1;
+    source = cxx_parser_expression_type(argument);
+    if (source && !target->is_reference && target->kind == TYPE_PTR &&
+        target->base && target->base->kind == TYPE_FUNC &&
+        (source->kind == TYPE_FUNC ||
+         (source->kind == TYPE_PTR && !source->cxx_is_member_pointer &&
+          source->base && source->base->kind == TYPE_FUNC))) {
+        return rcc_sema_cxx_conversion_rank(argument, source, target);
+    }
+    rank = cxx_parser_template_conversion_rank(argument, target);
     if (rank < 0) {
         source = cxx_parser_expression_type(argument);
         int semantic_rank = rcc_sema_cxx_conversion_rank(

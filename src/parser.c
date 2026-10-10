@@ -3960,22 +3960,22 @@ static Type* parse_declarator(Type* base_type, const char** name,
             } else if (match(TOK_AND)) {
                 type->function_ref_qualifier = CXX_REF_QUAL_RVALUE;
             }
-            if (match(TOK_NOEXCEPT)) {
-                type->function_is_noexcept = true;
-                if (match(TOK_LPAREN)) {
-                    Expr* noexcept_expression = parse_expression();
-                    int64_t noexcept_value = 0;
-                    expect(TOK_RPAREN, ")");
-                    if (!noexcept_expression ||
-                        !eval_integer_constant(noexcept_expression,
-                                               &noexcept_value)) {
-                        rcc_error(noexcept_expression
-                                      ? noexcept_expression->loc
-                                      : previous()->loc,
-                                  "member-function pointer noexcept requires an integral constant expression");
-                    } else {
-                        type->function_is_noexcept = noexcept_value != 0;
-                    }
+        }
+        if (parser_cxx_mode && match(TOK_NOEXCEPT)) {
+            type->function_is_noexcept = true;
+            if (match(TOK_LPAREN)) {
+                Expr* noexcept_expression = parse_expression();
+                int64_t noexcept_value = 0;
+                expect(TOK_RPAREN, ")");
+                if (!noexcept_expression ||
+                    !eval_integer_constant(noexcept_expression,
+                                           &noexcept_value)) {
+                    rcc_error(noexcept_expression
+                                  ? noexcept_expression->loc
+                                  : previous()->loc,
+                              "function-pointer noexcept requires an integral constant expression");
+                } else {
+                    type->function_is_noexcept = noexcept_value != 0;
                 }
             }
         }

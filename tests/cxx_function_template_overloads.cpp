@@ -6,6 +6,11 @@ enum ConversionFixedByte : unsigned char {
     conversion_fixed_byte_value = 1
 };
 
+using ConversionThrowingFunctionPointer = void (*)();
+using ConversionNoexceptFunctionPointer = void (*)() noexcept;
+
+void conversion_noexcept_function() noexcept {}
+
 struct ConversionMemberPointerRoot {
     int value;
 
@@ -253,6 +258,28 @@ int choose_nullptr_to_bool_template(T, void*) {
     return 220;
 }
 
+int choose_noexcept_function_pointer(
+    ConversionThrowingFunctionPointer) {
+    return 221;
+}
+
+int choose_noexcept_function_pointer(
+    ConversionNoexceptFunctionPointer) {
+    return 222;
+}
+
+template<typename T>
+int choose_noexcept_function_pointer_template(
+    T, ConversionThrowingFunctionPointer) {
+    return 223;
+}
+
+template<typename T>
+int choose_noexcept_function_pointer_template(
+    T, ConversionNoexceptFunctionPointer) {
+    return 224;
+}
+
 template<typename T>
 int choose_fixed_enum_template(T, unsigned char) {
     return 213;
@@ -394,6 +421,8 @@ int main(void) {
     int value = 5;
     int* pointer = &value;
     int** pointer_to_pointer = &pointer;
+    ConversionNoexceptFunctionPointer noexcept_pointer =
+        &conversion_noexcept_function;
     int (ConversionMemberPointerRoot::*root_member_function)(int) const =
         &ConversionMemberPointerRoot::function;
     const int const_value = 6;
@@ -444,6 +473,9 @@ int main(void) {
                    choose_nullptr_to_bool_non_template(nullptr) == 218 &&
                    choose_nullptr_to_bool_template(value, nullptr) == 220 &&
                    !static_cast<bool>(nullptr) &&
+                   choose_noexcept_function_pointer(noexcept_pointer) == 222 &&
+                   choose_noexcept_function_pointer_template(
+                       value, noexcept_pointer) == 224 &&
                    choose_nearer_member_pointer(
                        0, &ConversionMemberPointerRoot::value) == 191 &&
                    choose_nearer_member_pointer_non_template(

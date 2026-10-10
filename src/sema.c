@@ -7634,6 +7634,28 @@ static bool sema_cxx_qualification_targets_related(
     return type_is_compatible(left, right);
 }
 
+static int sema_cxx_function_type_conversion_rank(Type* source,
+                                                  Type* target) {
+    Type source_signature;
+    Type target_signature;
+    if (!source || !target || source->kind != TYPE_FUNC ||
+        target->kind != TYPE_FUNC ||
+        (target->function_is_noexcept && !source->function_is_noexcept)) {
+        return -1;
+    }
+    source_signature = *source;
+    target_signature = *target;
+    source_signature.function_is_noexcept = false;
+    target_signature.function_is_noexcept = false;
+    if (!type_is_compatible(&source_signature, &target_signature)) {
+        return -1;
+    }
+    /* Matching exception specifications need no adjustment. A noexcept
+     * function may also convert to the otherwise-identical throwing type. */
+    return source->function_is_noexcept == target->function_is_noexcept
+        ? 0 : 1;
+}
+
 static int cxx_conversion_rank(Expr* argument, Type* target) {
     Type* source;
     Type* source_base;
@@ -7703,6 +7725,11 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         }
     }
     if (cxx_same_parameter_type(source, target, true)) return 0;
+
+    if (source->kind == TYPE_FUNC && target->kind == TYPE_PTR &&
+        target->base && target->base->kind == TYPE_FUNC) {
+        return sema_cxx_function_type_conversion_rank(source, target->base);
+    }
 
     if (sema_cxx_derived_to_base_value_conversion(
             argument, source, target, NULL, true)) {
@@ -7776,6 +7803,14 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
             return -1;
         }
         if (type_is_compatible(source_base, target_base)) return 1;
+        if (source_base->kind == TYPE_FUNC &&
+            target_base->kind == TYPE_FUNC &&
+            sema_cxx_function_type_conversion_rank(source_base,
+                                                   target_base) >= 0) {
+            /* Function-pointer conversions are Exact Match rank, but a
+             * noexcept-to-throwing adjustment is worse than identity. */
+            return 1;
+        }
         if (source_base->kind == TYPE_VOID || target_base->kind == TYPE_VOID) {
             return 2;
         }
