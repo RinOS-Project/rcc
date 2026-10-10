@@ -1805,6 +1805,8 @@ static bool eval_template_integer_expression(Expr* expression,
                                               const int64_t* values,
                                               const bool* value_present,
                                               int64_t* result);
+static bool cxx_expression_references_template_non_type_parameter(
+    const Expr* expression, const CxxTemplate* tmpl);
 static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_constexpr,
                                             bool* is_noexcept,
@@ -10225,6 +10227,10 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         type->cxx_template_param_index < 0 &&
         type->cxx_template_arg_count > 0) {
         Type* nested_arguments[32] = { NULL };
+        int64_t nested_values[32] = { 0 };
+        bool nested_value_present[32] = { false };
+        Expr* nested_value_expressions[32] = { NULL };
+        int pack_index = cxx_class_pack_index(type->cxx_template);
         bool still_dependent = false;
         if (type->cxx_template_arg_count >
             (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
@@ -10234,12 +10240,45 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         }
         for (int nested_index = 0;
              nested_index < type->cxx_template_arg_count; ++nested_index) {
-            nested_arguments[nested_index] = substitute_template_type(
-                tmpl, type->cxx_template_args[nested_index], arguments,
-                argument_count, value_args, value_present);
-            if (!nested_arguments[nested_index]) return NULL;
-            if (nested_arguments[nested_index]->cxx_dependent) {
-                still_dependent = true;
+            int parameter_index = pack_index >= 0 &&
+                    nested_index >= pack_index
+                ? pack_index : nested_index;
+            TemplateParam* parameter = parameter_index <
+                    type->cxx_template->param_count
+                ? &type->cxx_template->params[parameter_index] : NULL;
+            if (parameter && parameter->kind == TPARAM_NONTYPE) {
+                Expr* value_expression = type->cxx_template_value_args
+                    ? type->cxx_template_value_args[nested_index] : NULL;
+                nested_arguments[nested_index] = parameter->type
+                    ? parameter->type : type_int;
+                nested_value_expressions[nested_index] = value_expression;
+                if (!value_expression) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "dependent class-template non-type argument "
+                              "is missing");
+                    return NULL;
+                }
+                if (eval_template_integer_expression(
+                        value_expression, tmpl, value_args, value_present,
+                        &nested_values[nested_index])) {
+                    nested_value_present[nested_index] = true;
+                } else if (cxx_expression_references_template_non_type_parameter(
+                               value_expression, tmpl)) {
+                    still_dependent = true;
+                } else {
+                    rcc_error(value_expression->loc,
+                              "dependent class-template non-type argument "
+                              "must be an integer constant expression");
+                    return NULL;
+                }
+            } else {
+                nested_arguments[nested_index] = substitute_template_type(
+                    tmpl, type->cxx_template_args[nested_index], arguments,
+                    argument_count, value_args, value_present);
+                if (!nested_arguments[nested_index]) return NULL;
+                if (nested_arguments[nested_index]->cxx_dependent) {
+                    still_dependent = true;
+                }
             }
         }
         if (still_dependent) {
@@ -10249,10 +10288,24 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 sizeof(Type*) * (size_t)type->cxx_template_arg_count);
             memcpy(substituted->cxx_template_args, nested_arguments,
                    sizeof(Type*) * (size_t)type->cxx_template_arg_count);
+            substituted->cxx_template_value_args = ast_arena_alloc(
+                sizeof(Expr*) * (size_t)type->cxx_template_arg_count);
+            for (int nested_index = 0;
+                 nested_index < type->cxx_template_arg_count; ++nested_index) {
+                Expr* value_expression = nested_value_expressions[nested_index];
+                substituted->cxx_template_value_args[nested_index] =
+                    nested_value_present[nested_index]
+                        ? expr_int(nested_values[nested_index],
+                                   value_expression
+                                       ? value_expression->loc
+                                       : (SourceLoc){"<template>", 0, 0})
+                        : value_expression;
+            }
             return substituted;
         }
         return instantiate_class_template(
-            type->cxx_template, nested_arguments, NULL, NULL,
+            type->cxx_template, nested_arguments, nested_values,
+            nested_value_present,
             type->cxx_template_arg_count, (SourceLoc){"<template>", 0, 0});
     }
     if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
@@ -11781,11 +11834,71 @@ CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
     return type ? type->cxx_class : NULL;
 }
 
+static bool cxx_expression_references_template_non_type_parameter(
+    const Expr* expression, const CxxTemplate* tmpl) {
+    if (!expression || !tmpl) return false;
+    if (expression->kind == EXPR_IDENT && expression->ident_name) {
+        for (const CxxTemplate* scope = tmpl; scope;
+             scope = scope->enclosing_template) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                const TemplateParam* parameter = &scope->params[index];
+                if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                    strcmp(parameter->name, expression->ident_name) == 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            return cxx_expression_references_template_non_type_parameter(
+                expression->unary_operand, tmpl);
+        case EXPR_CAST:
+            return cxx_expression_references_template_non_type_parameter(
+                expression->cast_expr, tmpl);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return cxx_expression_references_template_non_type_parameter(
+                       expression->binary_lhs, tmpl) ||
+                   cxx_expression_references_template_non_type_parameter(
+                       expression->binary_rhs, tmpl);
+        case EXPR_COND:
+            return cxx_expression_references_template_non_type_parameter(
+                       expression->cond_test, tmpl) ||
+                   cxx_expression_references_template_non_type_parameter(
+                       expression->cond_then, tmpl) ||
+                   cxx_expression_references_template_non_type_parameter(
+                       expression->cond_else, tmpl);
+        default:
+            return false;
+    }
+}
+
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc) {
     Type* arguments[32] = { NULL };
     int64_t values[32] = { 0 };
     bool value_present[32] = { false };
+    Expr* value_expressions[32] = { NULL };
     int argument_count = 0;
     int pack_index = cxx_class_pack_index(tmpl);
     expect(TOK_LT, "<");
@@ -11815,17 +11928,22 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 rcc_parser_set_cxx_template_default_mode(true);
                 value_expression = parse_assignment_expression();
                 rcc_parser_set_cxx_template_default_mode(false);
-                if (!expr_eval_integer_constant(value_expression, &value)) {
+                value_expressions[argument_count] = value_expression;
+                if (expr_eval_integer_constant(value_expression, &value)) {
+                    values[argument_count] = value;
+                    value_present[argument_count] = true;
+                } else if (!cxx_expression_references_template_non_type_parameter(
+                               value_expression, active_template)) {
                     SourceLoc value_loc;
                     cxx_parser_expr_loc(&value_loc, value_expression, &loc);
                     rcc_error(value_loc,
                               "class template non-type argument must be an "
                               "integer constant expression");
                     value = 0;
+                    values[argument_count] = value;
+                    value_present[argument_count] = true;
                 }
                 arguments[argument_count] = parameter->type;
-                values[argument_count] = value;
-                value_present[argument_count] = true;
                 ++argument_count;
             } else {
                 const char* argument_name = NULL;
@@ -11879,14 +11997,28 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                         ? parameter->default_context : tmpl,
                     values, value_present,
                     &value)) {
-                rcc_error(loc,
-                          "class template non-type default must be an "
-                          "integer constant expression");
-                value = 0;
+                if (!cxx_expression_references_template_non_type_parameter(
+                        parameter->default_value,
+                        parameter->default_context
+                            ? parameter->default_context : tmpl)) {
+                    rcc_error(loc,
+                              "class template non-type default must be an "
+                              "integer constant expression");
+                    value = 0;
+                    values[argument_count] = value;
+                    value_present[argument_count] = true;
+                }
             }
+            value_expressions[argument_count] = parameter->default_value;
             arguments[argument_count] = parameter->type;
-            values[argument_count] = value;
-            value_present[argument_count] = true;
+            if (eval_template_integer_expression(
+                    parameter->default_value,
+                    parameter->default_context
+                        ? parameter->default_context : tmpl,
+                    values, value_present, &value)) {
+                values[argument_count] = value;
+                value_present[argument_count] = true;
+            }
         } else {
             break;
         }
@@ -11908,6 +12040,30 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                     sizeof(Type*) * (size_t)argument_count);
                 memcpy(dependent->cxx_template_args, arguments,
                        sizeof(Type*) * (size_t)argument_count);
+                dependent->cxx_template_value_args = ast_arena_alloc(
+                    sizeof(Expr*) * (size_t)argument_count);
+                memcpy(dependent->cxx_template_value_args, value_expressions,
+                       sizeof(Expr*) * (size_t)argument_count);
+            }
+            return dependent;
+        }
+        if (value_expressions[argument_index] &&
+            !value_present[argument_index]) {
+            Type* dependent = type_struct(tmpl->name ? tmpl->name :
+                                          "dependent-template");
+            dependent->cxx_dependent = true;
+            dependent->cxx_template = tmpl;
+            dependent->cxx_template_param_index = -1;
+            dependent->cxx_template_arg_count = argument_count;
+            if (argument_count > 0) {
+                dependent->cxx_template_args = ast_arena_alloc(
+                    sizeof(Type*) * (size_t)argument_count);
+                memcpy(dependent->cxx_template_args, arguments,
+                       sizeof(Type*) * (size_t)argument_count);
+                dependent->cxx_template_value_args = ast_arena_alloc(
+                    sizeof(Expr*) * (size_t)argument_count);
+                memcpy(dependent->cxx_template_value_args, value_expressions,
+                       sizeof(Expr*) * (size_t)argument_count);
             }
             return dependent;
         }
@@ -13171,12 +13327,246 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
     return true;
 }
 
+typedef struct CxxAliasOwnerValueSubstitution {
+    CxxTemplate* alias_template;
+    Expr** alias_value_expressions;
+    int64_t* alias_values;
+    bool* alias_value_present;
+    CxxTemplate* owner_template;
+    Type* owner_type;
+} CxxAliasOwnerValueSubstitution;
+
+static Expr* cxx_substitute_class_owner_value_expression(
+    Expr* expression, const CxxAliasOwnerValueSubstitution* substitution) {
+    Expr* copy;
+    Expr* left;
+    Expr* right;
+    CxxTemplate* owner_template;
+    Type* owner_type;
+    if (!expression || !substitution) return expression;
+    owner_template = substitution->owner_template;
+    owner_type = substitution->owner_type;
+    if (expression->kind == EXPR_IDENT && expression->ident_name) {
+        CxxTemplate* alias_template = substitution->alias_template;
+        if (alias_template) {
+            for (int index = 0; index < alias_template->param_count; ++index) {
+                TemplateParam* parameter = &alias_template->params[index];
+                if (parameter->kind != TPARAM_NONTYPE || !parameter->name ||
+                    strcmp(parameter->name, expression->ident_name) != 0) {
+                    continue;
+                }
+                if (substitution->alias_value_present &&
+                    substitution->alias_value_present[index]) {
+                    return expr_int(substitution->alias_values[index],
+                                    expression->loc);
+                }
+                if (substitution->alias_value_expressions &&
+                    substitution->alias_value_expressions[index]) {
+                    return substitution->alias_value_expressions[index];
+                }
+                break;
+            }
+        }
+        if (!owner_template || !owner_type) return expression;
+        for (int index = 0; index < owner_template->param_count; ++index) {
+            TemplateParam* parameter = &owner_template->params[index];
+            Expr* owner_argument;
+            if (parameter->kind != TPARAM_NONTYPE || !parameter->name ||
+                strcmp(parameter->name, expression->ident_name) != 0) {
+                continue;
+            }
+            if (owner_type->cxx_template_value_args &&
+                index < owner_type->cxx_template_arg_count &&
+                (owner_argument =
+                     owner_type->cxx_template_value_args[index])) {
+                return owner_argument;
+            }
+            if (owner_type->cxx_class &&
+                index < owner_type->cxx_class->template_arg_count &&
+                owner_type->cxx_class->template_value_present &&
+                owner_type->cxx_class->template_value_present[index]) {
+                return expr_int(
+                    owner_type->cxx_class->template_value_args[index],
+                    expression->loc);
+            }
+            return expression;
+        }
+        return expression;
+    }
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            left = cxx_substitute_class_owner_value_expression(
+                expression->unary_operand, substitution);
+            if (left == expression->unary_operand) return expression;
+            copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->unary_operand = left;
+            return copy;
+        case EXPR_CAST:
+            left = cxx_substitute_class_owner_value_expression(
+                expression->cast_expr, substitution);
+            if (left == expression->cast_expr) return expression;
+            copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->cast_expr = left;
+            return copy;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            left = cxx_substitute_class_owner_value_expression(
+                expression->binary_lhs, substitution);
+            right = cxx_substitute_class_owner_value_expression(
+                expression->binary_rhs, substitution);
+            if (left == expression->binary_lhs &&
+                right == expression->binary_rhs) {
+                return expression;
+            }
+            copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->binary_lhs = left;
+            copy->binary_rhs = right;
+            return copy;
+        case EXPR_COND: {
+            Expr* test = cxx_substitute_class_owner_value_expression(
+                expression->cond_test, substitution);
+            Expr* then_expression = cxx_substitute_class_owner_value_expression(
+                expression->cond_then, substitution);
+            Expr* else_expression = cxx_substitute_class_owner_value_expression(
+                expression->cond_else, substitution);
+            if (test == expression->cond_test &&
+                then_expression == expression->cond_then &&
+                else_expression == expression->cond_else) {
+                return expression;
+            }
+            copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->cond_test = test;
+            copy->cond_then = then_expression;
+            copy->cond_else = else_expression;
+            return copy;
+        }
+        default:
+            return expression;
+    }
+}
+
+static Type* cxx_substitute_class_owner_value_expressions(
+    Type* type, const CxxAliasOwnerValueSubstitution* substitution) {
+    Type* base = type ? type->base : NULL;
+    Expr* array_bound = type ? type->array_bound : NULL;
+    Type* return_type = type ? type->ret_type : NULL;
+    TypeParam* parameters = NULL;
+    TypeParam** parameter_tail = &parameters;
+    Type** template_arguments = NULL;
+    Expr** template_value_arguments = NULL;
+    bool changed = false;
+    Type* copy;
+    if (!type || !substitution) return type;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+        base = cxx_substitute_class_owner_value_expressions(
+            type->base, substitution);
+        changed = base != type->base;
+    }
+    if (type->kind == TYPE_ARRAY && type->array_bound) {
+        array_bound = cxx_substitute_class_owner_value_expression(
+            type->array_bound, substitution);
+        changed = changed || array_bound != type->array_bound;
+    }
+    if (type->kind == TYPE_FUNC) {
+        return_type = cxx_substitute_class_owner_value_expressions(
+            type->ret_type, substitution);
+        changed = return_type != type->ret_type;
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            TypeParam* parameter_copy = ast_arena_alloc(sizeof(*parameter_copy));
+            *parameter_copy = *parameter;
+            parameter_copy->type = cxx_substitute_class_owner_value_expressions(
+                parameter->type, substitution);
+            parameter_copy->next = NULL;
+            if (parameter_copy->type != parameter->type) changed = true;
+            *parameter_tail = parameter_copy;
+            parameter_tail = &parameter_copy->next;
+        }
+    }
+    if (type->cxx_template_arg_count > 0 && type->cxx_template_args) {
+        template_arguments = ast_arena_alloc(
+            sizeof(Type*) * (size_t)type->cxx_template_arg_count);
+        for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+            template_arguments[index] =
+                cxx_substitute_class_owner_value_expressions(
+                    type->cxx_template_args[index], substitution);
+            if (template_arguments[index] != type->cxx_template_args[index]) {
+                changed = true;
+            }
+        }
+    }
+    if (type->cxx_template_arg_count > 0 &&
+        type->cxx_template_value_args) {
+        template_value_arguments = ast_arena_alloc(
+            sizeof(Expr*) * (size_t)type->cxx_template_arg_count);
+        for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+            template_value_arguments[index] =
+                cxx_substitute_class_owner_value_expression(
+                    type->cxx_template_value_args[index], substitution);
+            if (template_value_arguments[index] !=
+                type->cxx_template_value_args[index]) {
+                changed = true;
+            }
+        }
+    }
+    if (!changed) return type;
+    copy = ast_arena_alloc(sizeof(*copy));
+    *copy = *type;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) copy->base = base;
+    if (type->kind == TYPE_ARRAY && array_bound != type->array_bound) {
+        int64_t value;
+        copy->array_bound = array_bound;
+        if (expr_eval_integer_constant(array_bound, &value)) {
+            if (value <= 0 || value > INT_MAX) {
+                rcc_error(array_bound->loc,
+                          "template array bound is out of range");
+                return NULL;
+            }
+            copy->array_len = (int)value;
+            copy->array_bound = NULL;
+            copy->size = copy->base->size * copy->array_len;
+        }
+    }
+    if (type->kind == TYPE_FUNC) {
+        copy->ret_type = return_type;
+        copy->params = parameters;
+    }
+    if (template_arguments) copy->cxx_template_args = template_arguments;
+    if (template_value_arguments) {
+        copy->cxx_template_value_args = template_value_arguments;
+    }
+    return copy;
+}
+
 static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                                                   SourceLoc loc,
                                                   Type* owner_type) {
     Type** arguments = NULL;
     int64_t* values = NULL;
     bool* value_present = NULL;
+    Expr** value_expressions = NULL;
     CxxClass* owner_instance = owner_type ? owner_type->cxx_class : NULL;
     CxxTemplate* owner_template = owner_instance
         ? owner_instance->templ
@@ -13189,6 +13579,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
     int substitution_argument_count;
     int declared_argument_count;
     size_t substitution_slot_count;
+    CxxAliasOwnerValueSubstitution owner_value_substitution = { 0 };
 
     if (!tmpl || tmpl->kind != TMPL_ALIAS || !tmpl->alias_type) {
         rcc_error(loc, "invalid alias template declaration");
@@ -13235,7 +13626,8 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
     if (substitution_slot_count == 0u) substitution_slot_count = 1u;
     if (substitution_slot_count > SIZE_MAX / sizeof(*arguments) ||
         substitution_slot_count > SIZE_MAX / sizeof(*values) ||
-        substitution_slot_count > SIZE_MAX / sizeof(*value_present)) {
+        substitution_slot_count > SIZE_MAX / sizeof(*value_present) ||
+        substitution_slot_count > SIZE_MAX / sizeof(*value_expressions)) {
         rcc_error(loc, "alias template argument storage size overflow");
         return type_int;
     }
@@ -13243,10 +13635,20 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
     values = ast_arena_alloc(sizeof(*values) * substitution_slot_count);
     value_present =
         ast_arena_alloc(sizeof(*value_present) * substitution_slot_count);
+    value_expressions = ast_arena_alloc(
+        sizeof(*value_expressions) * substitution_slot_count);
     memset(arguments, 0, sizeof(*arguments) * substitution_slot_count);
     memset(values, 0, sizeof(*values) * substitution_slot_count);
     memset(value_present, 0,
            sizeof(*value_present) * substitution_slot_count);
+    memset(value_expressions, 0,
+           sizeof(*value_expressions) * substitution_slot_count);
+    owner_value_substitution.alias_template = tmpl;
+    owner_value_substitution.alias_value_expressions = value_expressions;
+    owner_value_substitution.alias_values = values;
+    owner_value_substitution.alias_value_present = value_present;
+    owner_value_substitution.owner_template = tmpl->enclosing_template;
+    owner_value_substitution.owner_type = owner_type;
     expect(TOK_LT, "<");
     if (!check(TOK_GT)) {
         do {
@@ -13267,15 +13669,19 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                 rcc_parser_set_cxx_template_default_mode(true);
                 value_expression = parse_assignment_expression();
                 rcc_parser_set_cxx_template_default_mode(false);
-                if (!expr_eval_integer_constant(value_expression, &value)) {
+                value_expressions[argument_count] = value_expression;
+                if (expr_eval_integer_constant(value_expression, &value)) {
+                    values[argument_count] = value;
+                    value_present[argument_count] = true;
+                } else if (!cxx_expression_references_template_non_type_parameter(
+                               value_expression, active_template)) {
                     rcc_error(loc,
                               "alias template non-type argument must be an "
                               "integer constant expression");
-                    value = 0;
+                    values[argument_count] = 0;
+                    value_present[argument_count] = true;
                 }
                 arguments[argument_count] = parameter->type;
-                values[argument_count] = value;
-                value_present[argument_count] = true;
             } else {
                 rcc_error(loc,
                           "alias template template-arguments are not "
@@ -13307,24 +13713,34 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
         } else if (parameter->kind == TPARAM_NONTYPE &&
                    parameter->default_value) {
             int64_t value;
+            CxxTemplate* default_context = parameter->default_context
+                ? parameter->default_context : tmpl;
             if (parameter->default_context) {
                 parameter->default_context->pending_pack_count =
                     tmpl->pending_pack_count;
             }
             if (!eval_template_integer_expression(
-                    parameter->default_value,
-                    parameter->default_context
-                        ? parameter->default_context : tmpl,
+                    parameter->default_value, default_context,
                     values, value_present,
                     &value)) {
-                rcc_error(loc,
-                          "alias template non-type default must be an "
-                          "integer constant expression");
-                value = 0;
+                if (cxx_expression_references_template_non_type_parameter(
+                        parameter->default_value, default_context)) {
+                    value_expressions[argument_count] =
+                        cxx_substitute_class_owner_value_expression(
+                            parameter->default_value,
+                            &owner_value_substitution);
+                } else {
+                    rcc_error(loc,
+                              "alias template non-type default must be an "
+                              "integer constant expression");
+                    values[argument_count] = 0;
+                    value_present[argument_count] = true;
+                }
+            } else {
+                values[argument_count] = value;
+                value_present[argument_count] = true;
             }
             arguments[argument_count] = parameter->type;
-            values[argument_count] = value;
-            value_present[argument_count] = true;
         } else {
             break;
         }
@@ -13345,6 +13761,11 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
         Type* result = substitute_template_type(
             tmpl, tmpl->alias_type, arguments, substitution_argument_count,
             values, value_present);
+        if (result && owner_type && owner_type->cxx_dependent &&
+            owner_template == tmpl->enclosing_template) {
+            result = cxx_substitute_class_owner_value_expressions(
+                result, &owner_value_substitution);
+        }
         if (!result) {
             rcc_error(loc, "alias template '%s' could not be substituted",
                       tmpl->name ? tmpl->name : "<alias>");

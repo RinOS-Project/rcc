@@ -194,9 +194,9 @@ struct Type {
     const char* cxx_dependent_member_name;
     Type** cxx_template_args;
     int cxx_template_arg_count;
-    /* Dependent template-template specializations may carry integral
-     * arguments such as `C<N>` even though their type carriers are all
-     * represented in cxx_template_args.  Keep the source expressions in a
+    /* Dependent class/template-template specializations may carry integral
+     * arguments such as `Owner<N>` even though their type carriers are all
+     * represented in cxx_template_args. Keep the source expressions in a
      * parallel bounded array so outer template substitution can evaluate
      * them before class instantiation. */
     Expr** cxx_template_value_args;

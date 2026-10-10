@@ -316,8 +316,14 @@
           i686/AMD64, C++11/C++20 generation, PE-i386 output, AMD64 execution,
           and exact private/protected/ambiguous diagnostics with no invalid
           object output.
-    - [ ] Friend access for inherited alias templates and dependent integral
-          non-type substitution from class-template owners remain open.
+    - [x] Substitute dependent integral non-type arguments in class-template
+          alias owners, retaining `Owner<N + 1>` and alias default `M = N`
+          until the enclosing function-template instantiation. The alias-owner
+          regression verifies C++11/C++20, i686/AMD64 output, PE-i386 objects,
+          AMD64 execution, exact access diagnostics, and no invalid `.ro`;
+          related non-type-template, function-reference, requires-type, and
+          inherited dependent-alias regressions pass.
+    - [ ] Friend access for inherited alias templates remains open.
 - [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target

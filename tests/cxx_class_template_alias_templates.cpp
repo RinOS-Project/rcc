@@ -79,6 +79,15 @@ dependent_alias_owner(T* value) {
     return value;
 }
 
+template<int N>
+int dependent_integral_alias_owner() {
+    typename IntegralTemplateAliasOwner<N + 1>::template Array<unsigned>
+        values = {};
+    typename IntegralTemplateAliasOwner<N + 1>::template DefaultArray<unsigned>
+        default_values = {};
+    return sizeof(values) + sizeof(default_values);
+}
+
 struct AliasTemplatePublicBase {
     template<typename U>
     using Pointer = U*;
@@ -165,6 +174,8 @@ int main() {
                    wide_arguments == 43 &&
                    values[1] == 8 && integral_values[2] == 5 &&
                    default_values[1] == 11 &&
+                   dependent_integral_alias_owner<3>() ==
+                       8 * (int)sizeof(unsigned) &&
                    nested_owner_pointer->value == 41 &&
                    *namespace_pointer == 37 && *partial_pointer == 47 &&
                    partial_values[1] == 19 && *explicit_pointer == 53 &&
