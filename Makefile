@@ -9430,6 +9430,8 @@ test-vla-declarations: $(RCC_TARGET)
 		tests/vla_declarator_variants.c
 	$(call EXPECT_FAILURE,$(CC) -std=c17 -pedantic-errors -fsyntax-only \
 		tests/invalid_vla_storage.c,$(TEST_OUT)/vla-declarations/host-invalid-storage.log)
+	$(call EXPECT_FAILURE,$(CC) -std=c17 -pedantic-errors -fsyntax-only \
+		tests/invalid_vla_static_storage.c,$(TEST_OUT)/vla-declarations/host-invalid-static-vla.log)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/vla-declarations/invalid-storage-x86.ro \
 		tests/invalid_vla_storage.c,$(TEST_OUT)/vla-declarations/invalid-storage-x86.log)
