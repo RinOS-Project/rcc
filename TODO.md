@@ -2309,3 +2309,13 @@ separately recorded WSL startup failure.
 - [ ] Extend conversion-sequence ordering to reference bindings and other
   promotion/conversion pairs; proper subsequences, user-defined conversion
   ties, and complete function-template partial ordering remain open.
+
+## C++ regression follow-up (2026-10-10, pointer-to-bool overload ranking)
+
+- [x] Extend the same-rank pointer-to-bool ordering to ordinary overloads:
+  converting a pointer to `void*` is better than converting it to `bool`, as
+  required by [over.ics.rank]. The focused gate passes i686/AMD64 generation,
+  AMD64 execution, and GCC C++20 `-Werror` execution.
+- [ ] Extend equal-rank standard-conversion ordering to other conversions and
+  reference bindings; proper subsequences and user-defined conversion ties
+  remain open.

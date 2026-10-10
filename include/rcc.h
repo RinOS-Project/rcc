@@ -177,6 +177,8 @@ int rcc_sema_cxx_conversion_rank(struct Expr* expression,
 int rcc_sema_cxx_enum_promotion_target_relation(struct Type* source,
                                                 struct Type* left_target,
                                                 struct Type* right_target);
+int rcc_sema_cxx_pointer_to_bool_target_relation(
+    struct Type* source, struct Type* left_target, struct Type* right_target);
 struct Module* rcc_codegen(struct AST* ast);
 bool rcc_emit(struct Module* mod, const char* outfile);
 bool rcc_emit_rll(struct Module* mod, struct AST* ast, const char* outfile);

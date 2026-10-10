@@ -227,6 +227,14 @@ int choose_fixed_enum_promotion(int) {
     return 212;
 }
 
+int choose_pointer_to_bool_non_template(bool) {
+    return 215;
+}
+
+int choose_pointer_to_bool_non_template(void*) {
+    return 216;
+}
+
 template<typename T>
 int choose_fixed_enum_template(T, unsigned char) {
     return 213;
@@ -414,6 +422,7 @@ int main(void) {
                        conversion_fixed_byte_value) == 211 &&
                    choose_fixed_enum_template(
                        value, conversion_fixed_byte_value) == 213 &&
+                   choose_pointer_to_bool_non_template(pointer) == 216 &&
                    choose_nearer_member_pointer(
                        0, &ConversionMemberPointerRoot::value) == 191 &&
                    choose_nearer_member_pointer_non_template(

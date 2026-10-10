@@ -7860,6 +7860,27 @@ int rcc_sema_cxx_enum_promotion_target_relation(Type* source,
     return 0;
 }
 
+int rcc_sema_cxx_pointer_to_bool_target_relation(Type* source,
+                                                 Type* left_target,
+                                                 Type* right_target) {
+    if (source && source->is_reference) source = source->base;
+    if (left_target && left_target->is_reference) {
+        left_target = left_target->base;
+    }
+    if (right_target && right_target->is_reference) {
+        right_target = right_target->base;
+    }
+    if (!source || source->kind != TYPE_PTR || !left_target ||
+        !right_target ||
+        (left_target->kind == TYPE_BOOL) ==
+            (right_target->kind == TYPE_BOOL)) {
+        return 0;
+    }
+    /* [over.ics.rank] ranks a same-rank standard conversion that does not
+     * convert a pointer or pointer-to-member to bool above one that does. */
+    return left_target->kind == TYPE_BOOL ? -1 : 1;
+}
+
 static bool sema_cxx_exact_function_signature(Type* candidate,
                                              Type* target) {
     TypeParam* candidate_parameter;
@@ -8099,6 +8120,17 @@ static int cxx_conversion_vector_relation(
                     right_targets[index]);
             if (enum_promotion_relation > 0) left_better = true;
             if (enum_promotion_relation < 0) right_better = true;
+        }
+        if (left[index] == right[index] && left[index] == 2 &&
+            index >= argument_offset && argument && argument->expr &&
+            left_targets && right_targets && left_targets[index] &&
+            right_targets[index]) {
+            int pointer_bool_relation =
+                rcc_sema_cxx_pointer_to_bool_target_relation(
+                    argument->expr->type, left_targets[index],
+                    right_targets[index]);
+            if (pointer_bool_relation > 0) left_better = true;
+            if (pointer_bool_relation < 0) right_better = true;
         }
         if (left[index] == right[index] && left[index] == 2 &&
             left_targets && right_targets && left_targets[index] &&

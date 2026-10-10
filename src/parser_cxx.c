@@ -15836,6 +15836,13 @@ static int cxx_template_conversion_vector_relation(
             int qualification_relation = 0;
             if (left->conversion_sources[index]) {
                 qualification_relation =
+                    rcc_sema_cxx_pointer_to_bool_target_relation(
+                        left->conversion_sources[index], left_target,
+                        right_target);
+            }
+            if (qualification_relation == 0 &&
+                left->conversion_sources[index]) {
+                qualification_relation =
                     rcc_sema_cxx_enum_promotion_target_relation(
                         left->conversion_sources[index], left_target,
                         right_target);
