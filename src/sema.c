@@ -8305,13 +8305,11 @@ static int cxx_conversion_vector_relation(
                 ? left_targets[index]->base : left_targets[index];
             Type* right_class_target = right_targets[index]->is_reference
                 ? right_targets[index]->base : right_targets[index];
-            bool matching_cv = left_class_target && right_class_target &&
-                (!left_targets[index]->is_reference ||
-                 (left_class_target->is_const ==
-                      right_class_target->is_const &&
-                  left_class_target->is_volatile ==
-                      right_class_target->is_volatile));
-            if (matching_cv && left_class_target && right_class_target &&
+            /* Compare related referred-to classes even when one binding also
+             * adds cv-qualification. Viability has already checked that
+             * qualification; the nearer derived-class target is the better
+             * reference conversion, not a tie merely because the cv differs. */
+            if (left_class_target && right_class_target &&
                 left_class_target->kind == TYPE_STRUCT &&
                 right_class_target->kind == TYPE_STRUCT &&
                 left_class_target->cxx_class &&

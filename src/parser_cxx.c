@@ -16141,13 +16141,11 @@ static int cxx_template_conversion_vector_relation(
                     ? left_target->base : left_target;
                 Type* right_class_target = right_target->is_reference
                     ? right_target->base : right_target;
-                bool matching_cv = left_class_target && right_class_target &&
-                    (!left_target->is_reference ||
-                     (left_class_target->is_const ==
-                          right_class_target->is_const &&
-                      left_class_target->is_volatile ==
-                          right_class_target->is_volatile));
-                if (matching_cv && left_class_target && right_class_target &&
+                /* Qualification viability is checked before ranking. A
+                 * direct binding to a nearer derived class remains better
+                 * than binding to its base even when the latter has fewer
+                 * cv qualifiers. */
+                if (left_class_target && right_class_target &&
                     left_class_target->kind == TYPE_STRUCT &&
                     right_class_target->kind == TYPE_STRUCT &&
                     left_class_target->cxx_class &&
