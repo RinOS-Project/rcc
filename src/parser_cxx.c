@@ -13649,8 +13649,11 @@ static bool eval_template_integer_expression(Expr* expression,
             *result = 1;
             return true;
         }
-        if (!eval_template_integer_expression(
-                concept->constraint, concept, concept_values,
+        Expr* instantiated = cxx_template_clone_expr_with_values(
+            concept, concept->constraint, concept_types,
+            concept->param_count, concept_values, concept_value_present);
+        if (!instantiated || !eval_template_integer_expression(
+                instantiated, concept, concept_values,
                 concept_value_present, result)) {
             return false;
         }

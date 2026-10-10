@@ -3186,6 +3186,7 @@ test-cxx-friend-requires-forms-posix: $(RCXX_TARGET)
 
 test-cxx-named-concepts-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/nested)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-named-concepts/x86.s \
 		tests/cxx_named_concepts.cpp
@@ -3210,6 +3211,18 @@ test-cxx-named-concepts-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-named-concepts/start-x64.o \
 		$(TEST_OUT)/cxx-named-concepts/x64.o
 	$(TEST_OUT)/cxx-named-concepts/x64
+	$(call CXX_POSIX_ENTRY_TEST,cxx-named-concepts/nested,cxx_nested_concept_requirement.cpp)
+	g++ -std=c++20 -fsyntax-only tests/cxx_nested_concept_requirement.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-named-concepts/nested/invalid-x86.ro tests/cxx_nested_concept_requirement_invalid.cpp,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x86.log)
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-named-concepts/nested/invalid-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-named-concepts/nested/invalid-x64.ro tests/cxx_nested_concept_requirement_invalid.cpp,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x64.log)
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-named-concepts/nested/invalid-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_nested_concept_requirement_invalid.cpp,$(TEST_OUT)/cxx-named-concepts/nested/invalid-gcc.log)
+	$(GREP) -F -q "constraints not satisfied" $(TEST_OUT)/cxx-named-concepts/nested/invalid-gcc.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-named-concepts/invalid-x86.ro \
 		tests/cxx_named_concepts_invalid.cpp \
@@ -3738,7 +3751,20 @@ test-cxx-friend-requires-forms: $(RCXX_TARGET)
 
 test-cxx-named-concepts: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/nested)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-named-concepts,cxx_named_concepts.cpp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-named-concepts/nested,cxx_nested_concept_requirement.cpp)
+	g++ -std=c++20 -fsyntax-only tests/cxx_nested_concept_requirement.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-named-concepts/nested/invalid-x86.ro tests/cxx_nested_concept_requirement_invalid.cpp,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x86.log)
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-named-concepts/nested/invalid-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-named-concepts/nested/invalid-x64.ro tests/cxx_nested_concept_requirement_invalid.cpp,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x64.log)
+	$(GREP) -F -q "template constraints are not satisfied" $(TEST_OUT)/cxx-named-concepts/nested/invalid-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-named-concepts/nested/invalid-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_nested_concept_requirement_invalid.cpp,$(TEST_OUT)/cxx-named-concepts/nested/invalid-gcc.log)
+	$(GREP) -F -q "constraints not satisfied" $(TEST_OUT)/cxx-named-concepts/nested/invalid-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-named-concepts/invalid-x86.ro tests/cxx_named_concepts_invalid.cpp,$(TEST_OUT)/cxx-named-concepts/invalid-x86.log)
 	$(GREP) -F -q "named concepts do not support parameter packs" $(TEST_OUT)/cxx-named-concepts/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-named-concepts/invalid-x64.ro tests/cxx_named_concepts_invalid.cpp,$(TEST_OUT)/cxx-named-concepts/invalid-x64.log)
