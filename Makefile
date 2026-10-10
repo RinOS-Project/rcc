@@ -987,6 +987,12 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -c \
 		-o $(TEST_OUT)/debug-info/cxx-enum-x64-g.ro \
 		tests/debug_info_cxx_enum.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -c \
+		-o $(TEST_OUT)/debug-info/cxx-template-x86-g.ro \
+		tests/debug_info_cxx_template.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -c \
+		-o $(TEST_OUT)/debug-info/cxx-template-x64-g.ro \
+		tests/debug_info_cxx_template.cpp
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/debug-info/x86-no-g.ro tests/debug_info.c
 	$(RCC_TARGET) --target i686-unknown-rinos -g -O0 -fverified-backend -c \
@@ -1049,7 +1055,9 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/x86.rin \
 		$(TEST_OUT)/debug-info/x64.rin \
 		$(TEST_OUT)/debug-info/x86-inline-g.ro \
-		$(TEST_OUT)/debug-info/x64-inline-g.ro
+		$(TEST_OUT)/debug-info/x64-inline-g.ro \
+		$(TEST_OUT)/debug-info/cxx-template-x86-g.ro \
+		$(TEST_OUT)/debug-info/cxx-template-x64-g.ro
 	@echo "Relocatable DWARF line/info/location-list/frame tests completed"
 
 test-aqc: $(AQC_TARGET)

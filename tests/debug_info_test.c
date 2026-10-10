@@ -682,6 +682,97 @@ static void verify_typedef_die(const char* path, uint16_t architecture,
     objfile_free(object);
 }
 
+static void verify_class_template_parameter_dies(const char* path,
+                                                uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    uint64_t class_die;
+    uint64_t cursor;
+    uint32_t name_offset;
+    uint32_t type_offset;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_byte_pair(abbrev->data, abbrev->size, 0x2fu, 0x00u));
+    assert(contains_byte_pair(abbrev->data, abbrev->size, 0x30u, 0x00u));
+    class_die = UINT64_MAX;
+    for (uint64_t offset = 11u; offset + 9u <= info->size; ++offset) {
+        uint32_t class_name_offset;
+        const char* class_name;
+        if (info->data[offset] != 12u) continue;
+        class_name_offset = read_u32(info->data, offset + 1u);
+        if (class_name_offset >= strings->size) continue;
+        class_name = (const char*)strings->data + class_name_offset;
+        if (strncmp(class_name, "DebugTemplateBox.",
+                    sizeof("DebugTemplateBox.") - 1u) == 0) {
+            class_die = offset;
+            break;
+        }
+    }
+    assert(class_die != UINT64_MAX);
+    cursor = class_die + 9u;
+
+    assert(cursor < info->size && info->data[cursor++] == 47u);
+    assert(cursor + 8u <= info->size);
+    name_offset = read_u32(info->data, cursor);
+    type_offset = read_u32(info->data, cursor + 4u);
+    cursor += 8u;
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset, "Element") == 0);
+    assert(type_offset + 9u <= info->size && info->data[type_offset] == 12u);
+    name_offset = read_u32(info->data, type_offset + 1u);
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset,
+                  "DebugTemplatePayload") == 0);
+
+    assert(cursor < info->size && info->data[cursor++] == 48u);
+    assert(cursor + 8u <= info->size);
+    name_offset = read_u32(info->data, cursor);
+    type_offset = read_u32(info->data, cursor + 4u);
+    cursor += 8u;
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset, "Count") == 0);
+    assert(type_offset + 7u <= info->size && info->data[type_offset] == 5u);
+    name_offset = read_u32(info->data, type_offset + 1u);
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset, "int") == 0);
+    assert(read_sleb(info->data, info->size, &cursor) == 3);
+
+    assert(cursor < info->size && info->data[cursor++] == 48u);
+    assert(cursor + 8u <= info->size);
+    name_offset = read_u32(info->data, cursor);
+    type_offset = read_u32(info->data, cursor + 4u);
+    cursor += 8u;
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset, "Bias") == 0);
+    assert(type_offset + 7u <= info->size && info->data[type_offset] == 5u);
+    name_offset = read_u32(info->data, type_offset + 1u);
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset, "int") == 0);
+    assert(read_sleb(info->data, info->size, &cursor) == -7);
+
+    assert(cursor < info->size && info->data[cursor++] == 49u);
+    assert(cursor + 8u <= info->size);
+    name_offset = read_u32(info->data, cursor);
+    type_offset = read_u32(info->data, cursor + 4u);
+    cursor += 8u;
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset, "Mask") == 0);
+    assert(type_offset + 7u <= info->size && info->data[type_offset] == 5u);
+    name_offset = read_u32(info->data, type_offset + 1u);
+    assert(name_offset < strings->size &&
+           strcmp((const char*)strings->data + name_offset,
+                  "unsigned int") == 0);
+    assert(read_uleb(info->data, info->size, &cursor) == UINT32_C(0xf0000000));
+    assert(cursor < info->size && info->data[cursor] == 14u);
+    objfile_free(object);
+}
+
 static void verify_cxx_class_type_alias(const char* path,
                                         uint16_t architecture,
                                         const char* alias_name,
@@ -3585,7 +3676,7 @@ static void verify_verified_global_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 26);
+    assert(argc == 28);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -3709,5 +3800,7 @@ int main(int argc, char** argv)
     verify_tls_global_object(argv[19], "debug_cpp_tls_data");
     verify_inline_debug_object(argv[24], ARCH_X86);
     verify_inline_debug_object(argv[25], ARCH_X64);
+    verify_class_template_parameter_dies(argv[26], ARCH_X86);
+    verify_class_template_parameter_dies(argv[27], ARCH_X64);
     return 0;
 }

@@ -1074,6 +1074,39 @@ static bool debug_type_is_dependent(const Type* type, unsigned depth) {
     return false;
 }
 
+static void debug_type_collect(DebugTypeContext* context, const Type* type);
+
+static void debug_type_collect_class_template_arguments(
+    DebugTypeContext* context, const CxxClass* class_info) {
+    CxxTemplate* templ;
+    Type** arguments;
+    int argument_count;
+    if (!context || !class_info) return;
+    templ = class_info->template_identity_tmpl
+        ? class_info->template_identity_tmpl : class_info->templ;
+    arguments = class_info->template_identity_tmpl
+        ? class_info->template_identity_args : class_info->template_args;
+    argument_count = class_info->template_identity_tmpl
+        ? class_info->template_identity_arg_count
+        : class_info->template_arg_count;
+    if (!templ || !templ->params || argument_count <= 0) return;
+    for (int index = 0; index < templ->param_count && index < argument_count;
+         ++index) {
+        TemplateParam* parameter = &templ->params[index];
+        Type* argument_type = NULL;
+        if (parameter->is_pack) continue;
+        if (parameter->kind == TPARAM_TYPE) {
+            argument_type = arguments ? arguments[index] : NULL;
+        } else if (parameter->kind == TPARAM_NONTYPE) {
+            argument_type = parameter->type;
+        }
+        if (argument_type &&
+            !debug_type_is_dependent(argument_type, 0u)) {
+            debug_type_collect(context, argument_type);
+        }
+    }
+}
+
 static void debug_type_collect(DebugTypeContext* context, const Type* type) {
     DebugTypeEntry* entry;
     size_t entry_index;
@@ -1124,6 +1157,9 @@ static void debug_type_collect(DebugTypeContext* context, const Type* type) {
                 debug_type_collect(context, alias->type);
                 entry = debug_type_find(context, type);
             }
+            debug_type_collect_class_template_arguments(
+                context, type->cxx_class);
+            entry = debug_type_find(context, type);
         }
         entry = debug_type_find(context, type);
         entry->collecting = false;
@@ -1484,6 +1520,22 @@ static uint8_t debug_type_encoding(const Type* type) {
     }
 }
 
+static bool debug_type_has_integral_constant_encoding(const Type* type) {
+    if (!type) return false;
+    switch (type->kind) {
+        case TYPE_BOOL:
+        case TYPE_CHAR:
+        case TYPE_SHORT:
+        case TYPE_INT:
+        case TYPE_LONG:
+        case TYPE_LLONG:
+        case TYPE_ENUM:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                                  const char* const* files, int file_count,
                                  DebugTypeContext* context,
@@ -1567,6 +1619,85 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
             section_add_byte(info, type->kind == TYPE_UNION ? 13u : 12u);
             debug_line_u32(info, debug_str_add(strings, debug_type_name(type)));
             debug_line_u32(info, (uint32_t)(type->size < 0 ? 0 : type->size));
+            if (type->cxx_class) {
+                CxxClass* template_class = type->cxx_class;
+                CxxTemplate* templ = template_class->template_identity_tmpl
+                    ? template_class->template_identity_tmpl
+                    : template_class->templ;
+                Type** arguments = template_class->template_identity_tmpl
+                    ? template_class->template_identity_args
+                    : template_class->template_args;
+                int argument_count = template_class->template_identity_tmpl
+                    ? template_class->template_identity_arg_count
+                    : template_class->template_arg_count;
+                int64_t* value_arguments =
+                    template_class->template_identity_tmpl
+                        ? template_class->template_identity_value_args
+                        : template_class->template_value_args;
+                bool* value_present =
+                    template_class->template_identity_tmpl
+                        ? template_class->template_identity_value_present
+                        : template_class->template_value_present;
+                if (templ && templ->params && argument_count > 0) {
+                    for (int parameter_index = 0;
+                         parameter_index < templ->param_count &&
+                             parameter_index < argument_count;
+                         ++parameter_index) {
+                        TemplateParam* parameter =
+                            &templ->params[parameter_index];
+                        DebugTypeEntry* parameter_type = NULL;
+                        if (!parameter->name || parameter->is_pack) continue;
+                        if (parameter->kind == TPARAM_TYPE) {
+                            Type* argument_type = arguments
+                                ? arguments[parameter_index] : NULL;
+                            if (!argument_type || debug_type_is_dependent(
+                                    argument_type, 0u)) {
+                                continue;
+                            }
+                            parameter_type = debug_type_find(
+                                context, argument_type);
+                            if (!parameter_type) {
+                                rcc_fatal(
+                                    "DWARF class-template argument type was not collected");
+                                return;
+                            }
+                            section_add_byte(info, 47u);
+                            debug_line_u32(
+                                info, debug_str_add(strings, parameter->name));
+                            debug_type_ref(info, patches, parameter_type);
+                        } else if (parameter->kind == TPARAM_NONTYPE &&
+                                   value_arguments &&
+                                   value_present &&
+                                   value_present[parameter_index] &&
+                                   debug_type_has_integral_constant_encoding(
+                                       parameter->type) &&
+                                   !debug_type_is_dependent(
+                                       parameter->type, 0u)) {
+                            parameter_type = debug_type_find(
+                                context, parameter->type);
+                            if (!parameter_type) {
+                                rcc_fatal(
+                                    "DWARF class-template value type was not collected");
+                                return;
+                            }
+                            section_add_byte(
+                                info, parameter->type->is_unsigned
+                                    ? 49u : 48u);
+                            debug_line_u32(
+                                info, debug_str_add(strings, parameter->name));
+                            debug_type_ref(info, patches, parameter_type);
+                            if (parameter->type->is_unsigned) {
+                                debug_line_uleb(
+                                    info, (uint64_t)value_arguments[
+                                        parameter_index]);
+                            } else {
+                                debug_line_sleb(
+                                    info, value_arguments[parameter_index]);
+                            }
+                        }
+                    }
+                }
+            }
             if (emit_inheritance) {
                 for (int base_index = 0;
                      base_index < class_info->base_count; ++base_index) {
@@ -4257,6 +4388,37 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x32u);    /* DW_AT_accessibility */
     debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 47u);
+    debug_line_uleb(abbrev, 0x2fu);    /* DW_TAG_template_type_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 48u);
+    debug_line_uleb(abbrev, 0x30u);    /* DW_TAG_template_value_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);    /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0du);    /* DW_FORM_sdata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 49u);
+    debug_line_uleb(abbrev, 0x30u);    /* DW_TAG_template_value_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);    /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0fu);    /* DW_FORM_udata */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
