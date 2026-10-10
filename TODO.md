@@ -2129,3 +2129,16 @@ separately recorded WSL startup failure.
 - [ ] Continue proper-subsequence ranking, reference-binding refinements,
   derived-to-base ordering, user-defined conversion ties, and complete
   function-template partial ordering.
+
+## C++ regression follow-up (2026-10-10, reference-binding tie-break)
+
+- [x] For equal-rank standard conversion sequences that both bind references,
+  prefer a viable rvalue-reference binding to an rvalue over an lvalue-reference
+  binding. `const T&` remains selected for an lvalue, while `const T&&` wins
+  for a prvalue. GCC C++20 agrees; i686/AMD64 generation, AMD64 execution,
+  GCC `-Werror` execution, the focused overload target, and full native-Windows
+  `test-cxx` pass. User-defined sequences and implicit-object parameters are
+  not covered by this tie-break.
+- [ ] Continue proper-subsequence ranking, derived-to-base ordering,
+  user-defined conversion ties, and complete function-template partial
+  ordering.

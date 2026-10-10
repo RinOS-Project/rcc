@@ -15761,11 +15761,23 @@ static int cxx_template_conversion_vector_relation(
         } else if (left->conversion_ranks[index] >
                    right->conversion_ranks[index]) {
             right_better = true;
-        } else if (left->conversion_ranks[index] == 1) {
+        } else if (left->conversion_ranks[index] < 12) {
             Type* left_target = left->conversion_targets[index];
             Type* right_target = right->conversion_targets[index];
             int qualification_relation = 0;
             if (left_target && right_target &&
+                left_target->is_reference && right_target->is_reference &&
+                left_target->is_rvalue_reference !=
+                    right_target->is_rvalue_reference) {
+                /* A viable rvalue-reference binding can only reach this
+                 * comparison for a non-lvalue argument, so it is better than
+                 * binding that same rvalue to an lvalue reference. */
+                qualification_relation = left_target->is_rvalue_reference
+                    ? 1 : -1;
+            }
+            if (qualification_relation == 0 &&
+                left->conversion_ranks[index] == 1 &&
+                left_target && right_target &&
                 !left_target->is_reference &&
                 !right_target->is_reference &&
                 left_target->kind == TYPE_PTR &&

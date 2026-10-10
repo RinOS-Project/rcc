@@ -33,6 +33,16 @@ int choose_cv_qualification(const volatile T*) {
     return 40;
 }
 
+template<typename T>
+int choose_reference_binding(const T&) {
+    return 51;
+}
+
+template<typename T>
+int choose_reference_binding(const T&&) {
+    return 52;
+}
+
 int main(void) {
     int value = 5;
     int* pointer = &value;
@@ -41,7 +51,9 @@ int main(void) {
                    choose_template(value) == 10 &&
                    forward_template(choose_template(&value)) == 25 &&
                    choose_conversion_before_partial_order(&value, priority) == 10 &&
-                   choose_cv_qualification(pointer) == 30
+                   choose_cv_qualification(pointer) == 30 &&
+                   choose_reference_binding(value) == 51 &&
+                   choose_reference_binding(0) == 52
                ? 0
                : 1;
 }
