@@ -2562,6 +2562,13 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
     if (sema_is_scoped_enum(source) || sema_is_scoped_enum(target)) {
         return -1;
     }
+    if ((type_is_integer(source) || source->kind == TYPE_ENUM) &&
+        (type_is_integer(target) || target->kind == TYPE_ENUM)) {
+        Type* promoted = sema_integer_promotion(source);
+        if (promoted && type_is_compatible(promoted, target)) return 1;
+        return 2;
+    }
+    if (source->kind == TYPE_FLOAT && target->kind == TYPE_DOUBLE) return 1;
     if (type_is_arithmetic(source) && type_is_arithmetic(target)) return 2;
     if ((source->kind == TYPE_PTR && source->cxx_is_member_pointer) ||
         (target->kind == TYPE_PTR && target->cxx_is_member_pointer)) {

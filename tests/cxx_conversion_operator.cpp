@@ -31,11 +31,26 @@ public:
     }
 };
 
+class PromotionMeter {
+public:
+    operator short() {
+        return 23;
+    }
+
+    operator long() {
+        return 29;
+    }
+};
+
 int take_integer(int value) {
     return value;
 }
 
 int take_ranked_integer(int value) {
+    return value;
+}
+
+int take_promoted_integer(int value) {
     return value;
 }
 
@@ -80,6 +95,7 @@ int main() {
     Meter meter{7};
     Flag flag{1};
     RankedMeter ranked_meter;
+    PromotionMeter promotion_meter;
     int direct = meter;
     int argument = take_integer(meter);
     long widened = take_long(meter);
@@ -90,6 +106,7 @@ int main() {
         choose_conversion(meter) != 107 ||
         take_template_integer(0, meter) != 17 ||
         choose_template_conversion(0, meter) != 107 ||
-        take_ranked_integer(ranked_meter) != 19) return 1;
+        take_ranked_integer(ranked_meter) != 19 ||
+        take_promoted_integer(promotion_meter) != 23) return 1;
     return 0;
 }

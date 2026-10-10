@@ -2091,3 +2091,16 @@ separately recorded WSL startup failure.
   distinctions, subsequences, reference binding, derived-to-base conversions,
   conversion-function ties, packs, constraints, and full partial ordering.
   This fix remains bounded and does not claim general conformance.
+
+## C++ regression follow-up (2026-10-10, standard promotion after conversion)
+
+- [x] Rank integral promotions and `float`-to-`double` promotion ahead of
+  ordinary arithmetic conversions after an implicit conversion function.
+  `PromotionMeter` proves `operator short()` followed by `short`-to-`int`
+  promotion wins over `operator long()` followed by `long`-to-`int`
+  conversion. GCC C++20 and `test-cxx-conversion-operator` pass for both
+  targets, runtime checks, and verified-backend object generation; the full
+  native-Windows `test-cxx` aggregate also passes after this change.
+- [ ] Continue implementing conversion-sequence subsequences, reference
+  binding refinements, derived-to-base ordering, and full template candidate
+  interactions; promotion support here is bounded.
