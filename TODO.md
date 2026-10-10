@@ -155,7 +155,8 @@
     - [x] VLA objectのstatic/thread storage durationを拒否しつつ、static
           pointer-to-VLA（object自体はVLAではない）を許可。extern VM objectの
           linkage診断と合わせ、i686/AMD64のpositive実行・negative診断および
-          GCC C17 `-pedantic-errors`と照合
+          GCC C17 `-pedantic-errors`と照合。positive／negative host compiler
+          checksを`test-vla-declarations`へ追加し、GCC/Clangの`test-c17`でgate
     - [x] C17の旧式identifier-list function declaration/definitionを型付き
           parameter declarationへ接続し、既定int・array/function parameter
           adjustment・未知parameter診断と両arch compile/run回帰を追加
