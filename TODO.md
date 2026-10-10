@@ -2582,7 +2582,8 @@ separately recorded WSL startup failure.
   parameters, static methods, and defaulted non-type arguments. The focused
   target passes GCC C++20 `-Wall -Wextra -Werror`, i686/AMD64 assembly and
   object generation, generated AMD64 execution, exact symbol checks, and
-  verified-backend output on both targets.
+  verified-backend output on both targets. The full native-Windows
+  `test-cxx` aggregate also passes after this implementation.
 - [ ] Extend member-function-template support to templates inside class
   templates, constructor templates, explicit member-template specializations,
   inherited conversion templates, full C++20 constraint subsumption, and
