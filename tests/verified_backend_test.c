@@ -175,43 +175,61 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
     memcpy(memory, text->data, text_size);
     if (rodata_size) memcpy((uint8_t*)memory + rodata_offset,
                             rodata->data, rodata_size);
-    for (ObjReloc* relocation = text->relocs; relocation;
-         relocation = relocation->next) {
-        ObjSymbol* symbol = objfile_find_symbol(
-            object, relocation->symbol_name);
-        uint8_t* place;
-        size_t target_offset;
-        int64_t target;
-        int64_t delta;
-        int32_t encoded;
-        assert(symbol != NULL &&
-               relocation->offset <= text->size);
-        if (symbol->section == 0) {
-            target_offset = (size_t)symbol->value;
-        } else {
-            assert(symbol->section == rodata_index && rodata_size != 0u &&
-                   symbol->value <= rodata_size);
-            target_offset = rodata_offset + (size_t)symbol->value;
-        }
-        place = (uint8_t*)memory + relocation->offset;
-        target = (int64_t)(uintptr_t)memory + (int64_t)target_offset +
-            relocation->addend;
-        if (relocation->type == RELOC_REL32) {
-            assert(sizeof(encoded) <= text->size - relocation->offset);
-            delta = target - (int64_t)(uintptr_t)(place + sizeof(encoded));
-            encoded = (int32_t)delta;
-            assert((int64_t)encoded == delta);
-            memcpy(place, &encoded, sizeof(encoded));
-        } else if (relocation->type == RELOC_ABS32U) {
-            uint32_t absolute = (uint32_t)target;
-            assert(sizeof(absolute) <= text->size - relocation->offset &&
-                   (uint64_t)absolute == (uint64_t)target);
-            memcpy(place, &absolute, sizeof(absolute));
-        } else {
-            uint64_t absolute = (uint64_t)target;
-            assert(relocation->type == RELOC_ABS64 &&
-                   sizeof(absolute) <= text->size - relocation->offset);
-            memcpy(place, &absolute, sizeof(absolute));
+    {
+        const ObjSection* relocation_sources[] = {text, rodata};
+        size_t relocation_bases[] = {0u, rodata_offset};
+        for (size_t source_index = 0u;
+             source_index < sizeof(relocation_sources) /
+                                sizeof(relocation_sources[0]);
+             ++source_index) {
+            const ObjSection* source = relocation_sources[source_index];
+            if (!source) continue;
+            for (ObjReloc* relocation = source->relocs; relocation;
+                 relocation = relocation->next) {
+                ObjSymbol* symbol = objfile_find_symbol(
+                    object, relocation->symbol_name);
+                uint8_t* place;
+                size_t target_offset;
+                int64_t target;
+                int64_t delta;
+                int32_t encoded;
+                assert(symbol != NULL &&
+                       relocation->offset <= source->size);
+                if (symbol->section == 0) {
+                    target_offset = (size_t)symbol->value;
+                } else {
+                    assert(symbol->section == rodata_index &&
+                           rodata_size != 0u &&
+                           symbol->value <= rodata_size);
+                    target_offset = rodata_offset +
+                        (size_t)symbol->value;
+                }
+                place = (uint8_t*)memory + relocation_bases[source_index] +
+                    relocation->offset;
+                target = (int64_t)(uintptr_t)memory +
+                    (int64_t)target_offset + relocation->addend;
+                if (relocation->type == RELOC_REL32) {
+                    assert(sizeof(encoded) <=
+                           source->size - relocation->offset);
+                    delta = target -
+                        (int64_t)(uintptr_t)(place + sizeof(encoded));
+                    encoded = (int32_t)delta;
+                    assert((int64_t)encoded == delta);
+                    memcpy(place, &encoded, sizeof(encoded));
+                } else if (relocation->type == RELOC_ABS32U) {
+                    uint32_t absolute = (uint32_t)target;
+                    assert(sizeof(absolute) <=
+                               source->size - relocation->offset &&
+                           (uint64_t)absolute == (uint64_t)target);
+                    memcpy(place, &absolute, sizeof(absolute));
+                } else {
+                    uint64_t absolute = (uint64_t)target;
+                    assert(relocation->type == RELOC_ABS64 &&
+                           sizeof(absolute) <=
+                               source->size - relocation->offset);
+                    memcpy(place, &absolute, sizeof(absolute));
+                }
+            }
         }
     }
     assert(verified_protect(memory, size, 0, 1) == 0);

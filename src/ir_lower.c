@@ -12522,6 +12522,201 @@ static bool lower_initialize_union_storage(
         context, base, source.value, type);
 }
 
+static const char* lower_cxx_vbase_variant_symbol(
+    const CxxClass* owner, bool is_virtual_base, int index) {
+    char buffer[1200];
+    int written;
+    if (!owner || !owner->virtual_base_table_symbol || index < 0) {
+        return NULL;
+    }
+    written = snprintf(
+        buffer, sizeof(buffer), "%s_%s%d",
+        owner->virtual_base_table_symbol,
+        is_virtual_base ? "vbase" : "base", index);
+    if (written < 0 || (size_t)written >= sizeof(buffer)) return NULL;
+    return rcc_intern(buffer);
+}
+
+static bool lower_cxx_store_symbol_at_offset(
+    RccIrLowerContext* context, RccIrValue object, uint64_t object_size,
+    uint64_t offset, const char* symbol) {
+    RccIrLowerValue address;
+    RccIrInstruction* symbol_address;
+    if (!context || !symbol || !symbol[0]) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    {
+        uint64_t pointer_size =
+            g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+        if (offset > object_size ||
+            pointer_size > object_size - offset) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    address = lower_byte_offset_address(
+        context, lower_value(object, rcc_ir_type_pointer(0u), true), offset);
+    symbol_address = lower_append(
+        context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!address.valid || !symbol_address) return false;
+    rcc_ir_set_callee(symbol_address, symbol);
+    return lower_store_address(
+        context, address,
+        lower_value(symbol_address->result, rcc_ir_type_pointer(0u), true));
+}
+
+/* Match the legacy local-object vptr/vbptr setup in the verified IR path.
+ * The data module emits these table symbols before verified functions are
+ * appended, so each store is an ordinary relocatable symbol address. */
+static bool lower_cxx_initialize_object_vtables(
+    RccIrLowerContext* context, RccIrValue object, const Type* type) {
+    const CxxClass* cls;
+    if (!context || !type) return false;
+    if (type->kind != TYPE_STRUCT) return true;
+    cls = type->cxx_class;
+    if (type->cxx_vtable_size <= 0 &&
+        (!cls || (cls->secondary_vtable_count <= 0 &&
+                  cls->virtual_base_count <= 0))) {
+        return true;
+    }
+    if (type->cxx_vtable_size > 0) {
+        if (!type->cxx_vtable_symbol ||
+            !lower_cxx_store_symbol_at_offset(
+                context, object, (uint64_t)type->size, 0u,
+                type->cxx_vtable_symbol)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    if (!cls) return true;
+    if (cls->virtual_base_count > 0) {
+        if (cls->virtual_base_pointer_offset < 0 ||
+            !cls->virtual_base_table_symbol ||
+            !lower_cxx_store_symbol_at_offset(
+                context, object, (uint64_t)type->size,
+                (uint64_t)cls->virtual_base_pointer_offset,
+                cls->virtual_base_table_symbol)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    if (cls->base_count > 0 && !cls->base_offsets) {
+        context->unsupported = true;
+        return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        const char* vtable_symbol;
+        if (!base || base->vtable_size <= 0 || !base->type ||
+            (!cls->bases[index].is_virtual &&
+             cls->base_offsets[index] <= 0)) {
+            continue;
+        }
+        vtable_symbol = base->type->cxx_vtable_symbol;
+        for (int secondary_index = 0;
+             secondary_index < cls->secondary_vtable_count;
+             ++secondary_index) {
+            const CxxSecondaryVtable* secondary =
+                &cls->secondary_vtables[secondary_index];
+            if (secondary->base_index == index && secondary->symbol) {
+                vtable_symbol = secondary->symbol;
+                break;
+            }
+        }
+        if (!vtable_symbol || cls->base_offsets[index] < 0 ||
+            !lower_cxx_store_symbol_at_offset(
+                context, object, (uint64_t)type->size,
+                (uint64_t)cls->base_offsets[index],
+                vtable_symbol)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        const CxxVirtualBaseInfo* virtual_base =
+            &cls->virtual_bases[virtual_index];
+        const char* vtable_symbol = NULL;
+        bool direct_virtual = false;
+        if (!virtual_base->base ||
+            virtual_base->base->vtable_size <= 0 ||
+            virtual_base->offset < 0) {
+            continue;
+        }
+        for (int index = 0; index < cls->base_count; ++index) {
+            if (cls->bases[index].is_virtual &&
+                cls->bases[index].base == virtual_base->base &&
+                cls->base_offsets[index] == virtual_base->offset) {
+                direct_virtual = true;
+                break;
+            }
+        }
+        if (direct_virtual) continue;
+        for (int secondary_index = 0;
+             secondary_index < cls->secondary_vtable_count;
+             ++secondary_index) {
+            const CxxSecondaryVtable* secondary =
+                &cls->secondary_vtables[secondary_index];
+            if (secondary->is_virtual_base &&
+                secondary->virtual_base_index == virtual_index) {
+                vtable_symbol = secondary->symbol;
+                break;
+            }
+        }
+        if (!vtable_symbol ||
+            !lower_cxx_store_symbol_at_offset(
+                context, object, (uint64_t)type->size,
+                (uint64_t)virtual_base->offset,
+                vtable_symbol)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        const char* table_symbol;
+        uint64_t offset;
+        if (!base || base->virtual_base_count <= 0 ||
+            base->virtual_base_pointer_offset < 0 ||
+            cls->bases[index].is_virtual || cls->base_offsets[index] < 0) {
+            continue;
+        }
+        table_symbol = lower_cxx_vbase_variant_symbol(cls, false, index);
+        offset = (uint64_t)cls->base_offsets[index] +
+                 (uint64_t)base->virtual_base_pointer_offset;
+        if (!table_symbol || !lower_cxx_store_symbol_at_offset(
+                context, object, (uint64_t)type->size, offset,
+                table_symbol)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    for (int virtual_index = 0;
+         virtual_index < cls->virtual_base_count; ++virtual_index) {
+        const CxxClass* base = cls->virtual_bases[virtual_index].base;
+        const char* table_symbol;
+        uint64_t offset;
+        if (!base || base->virtual_base_count <= 0 ||
+            base->virtual_base_pointer_offset < 0 ||
+            cls->virtual_bases[virtual_index].offset < 0) {
+            continue;
+        }
+        table_symbol = lower_cxx_vbase_variant_symbol(
+            cls, true, virtual_index);
+        offset = (uint64_t)cls->virtual_bases[virtual_index].offset +
+                 (uint64_t)base->virtual_base_pointer_offset;
+        if (!table_symbol || !lower_cxx_store_symbol_at_offset(
+                context, object, (uint64_t)type->size, offset,
+                table_symbol)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    return true;
+}
+
 static RccIrLowerValue lower_compound_literal_address(
     RccIrLowerContext* context, const Expr* expression) {
     const Type* type;
@@ -12583,6 +12778,11 @@ static RccIrLowerValue lower_compound_literal_address(
             !lower_store_address(context, address, value)) {
             return lower_invalid_value();
         }
+    }
+    if (type->kind == TYPE_STRUCT &&
+        !lower_cxx_initialize_object_vtables(
+            context, allocation->result, type)) {
+        return lower_invalid_value();
     }
     return lower_value(
         allocation->result, rcc_ir_type_pointer(0u), true);
@@ -12662,8 +12862,10 @@ static bool lower_declaration(RccIrLowerContext* context,
     }
     if (is_struct && declaration->var_init) {
         return lower_initialize_struct_storage(
-            context, allocation->result,
-            declaration->type, declaration->var_init);
+                   context, allocation->result,
+                   declaration->type, declaration->var_init) &&
+            lower_cxx_initialize_object_vtables(
+                context, allocation->result, declaration->type);
     }
     if (is_union && declaration->var_init) {
         return lower_initialize_union_storage(
@@ -12720,7 +12922,8 @@ static bool lower_declaration(RccIrLowerContext* context,
             return false;
         }
     }
-    return true;
+    return !is_struct || lower_cxx_initialize_object_vtables(
+        context, allocation->result, declaration->type);
 }
 
 static RccIrType lower_cxx_exception_word_type(void) {

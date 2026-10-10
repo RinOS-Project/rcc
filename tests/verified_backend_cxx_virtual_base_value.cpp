@@ -22,6 +22,7 @@ struct VerifiedVirtualValueRight : virtual VerifiedVirtualValuePayload {
 struct VerifiedVirtualValueLeaf : VerifiedVirtualValueLeft,
                                   VerifiedVirtualValueRight {
     int leaf_value;
+    virtual int read_leaf() const noexcept { return leaf_value; }
 };
 
 int consume_verified_virtual_value_root(
@@ -32,5 +33,9 @@ int consume_verified_virtual_value_root(
 int main() {
     VerifiedVirtualValueLeaf value;
     value.value = 101;
-    return consume_verified_virtual_value_root(value) == 101 ? 0 : 1;
+    value.leaf_value = 53;
+    return consume_verified_virtual_value_root(value) == 101 &&
+                   value.read_leaf() == 53
+               ? 0
+               : 1;
 }
