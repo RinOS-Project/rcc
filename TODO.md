@@ -2355,7 +2355,18 @@ separately recorded WSL startup failure.
   overload sets in local initializers, ordinary calls, and function-template
   calls; both target widths, generated AMD64 execution, and GCC C++20 `-Werror`
   pass.
-- [ ] Resolve overloaded function-template names as contextual function
-  values, including target-type deduction; cover dependent exception
-  specifications and interactions with other standard conversions. Complete
-  C++20 overload-resolution conformance remains unfinished.
+- [x] Resolve overloaded function-template names as contextual function
+  values using target-type deduction, existing constraint/partial-ordering
+  logic, and pack expansion. Resolve `noexcept(true)`, `noexcept(false)`, and
+  dependent `noexcept(sizeof(T) ...)` on instantiated candidates; combine
+  ordinary and template candidates by conversion rank and non-template
+  preference. The regressions pass i686/AMD64 generation, AMD64 execution, and
+  GCC C++20 `-Werror` execution.
+- [ ] Include function-template candidates introduced through namespace-level
+  using-declarations and using-directives in contextual function-pointer
+  lookup.
+- [ ] Allow ordinary and function-template overloads with matching parameter
+  types but differing exception specifications to coexist, then compare their
+  function-pointer conversion ranks. GCC accepts this form; RCC currently
+  diagnoses the template declaration as a redefinition.
+- [ ] Complete remaining C++20 overload-resolution conformance.

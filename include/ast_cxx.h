@@ -600,5 +600,11 @@ Expr* rcc_parse_cxx_dependent_member(void);
 Expr* rcc_parse_cxx_qualified_template_member(void);
 Stmt* rcc_parse_cxx_auto_local_declaration(void);
 Expr* rcc_parse_cxx_special_expression(void);
+/* Resolve a function-template overload set from a contextual function
+ * pointer type.  A NULL target performs lookup only and reports whether the
+ * name denotes one or more function templates. */
+Decl* rcc_parser_cxx_resolve_function_pointer_template(
+    const char* name, CxxNamespace* scope, Type* target,
+    bool* has_templates, bool* is_ambiguous, int* selected_rank);
 
 #endif /* AST_CXX_H */

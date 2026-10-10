@@ -153,6 +153,7 @@ struct TokenList;
 struct AST;
 struct Module;
 struct Preprocessor;
+struct Decl;
 struct Expr;
 struct Type;
 
@@ -171,6 +172,7 @@ void rcc_parser_set_cxx_mode(bool enabled);
 struct AST* rcc_parse(struct TokenList* tokens);
 bool rcc_sema(struct AST* ast);
 bool rcc_sema_cxx_requires_satisfied(struct Expr* expression);
+bool rcc_sema_resolve_function_noexcept(struct Decl* declaration);
 int rcc_sema_cxx_conversion_rank(struct Expr* expression,
                                  struct Type* source,
                                  struct Type* target);

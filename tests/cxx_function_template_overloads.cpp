@@ -10,12 +10,64 @@ using ConversionThrowingFunctionPointer = void (*)();
 using ConversionNoexceptFunctionPointer = void (*)() noexcept;
 using ConversionExplicitThrowingFunctionPointer = void (*)() noexcept(false);
 using ConversionExplicitNoexceptFunctionPointer = void (*)() noexcept(true);
+using ConversionNoexceptIntPointerFunction = int (*)(int*) noexcept;
+using ConversionThrowingIntPointerFunction = int (*)(int*);
+using ConversionIntFunction = int (*)(int);
+using ConversionIntPairFunction = int (*)(int, int);
 
 void conversion_noexcept_function() noexcept {}
 void conversion_explicit_throwing_function() noexcept(false) {}
 void conversion_explicit_noexcept_function() noexcept(true) {}
 void conversion_overloaded_noexcept_function(int) {}
 void conversion_overloaded_noexcept_function() noexcept {}
+
+template<typename T>
+int conversion_function_template_overload(T) noexcept {
+    return 1;
+}
+
+template<typename T>
+int conversion_function_template_overload(T*) noexcept {
+    return 2;
+}
+
+template<typename T>
+int conversion_explicit_noexcept_function_template(T*) noexcept(true) {
+    return 3;
+}
+
+template<typename T>
+int conversion_dependent_noexcept_function_template(T*)
+    noexcept(sizeof(T) == sizeof(int)) {
+    return 4;
+}
+
+template<typename T>
+int conversion_dependent_throwing_function_template(T*)
+    noexcept(sizeof(T) != sizeof(int)) {
+    return 5;
+}
+
+int conversion_non_template_preferred(int*) noexcept {
+    return 6;
+}
+
+template<typename T>
+int conversion_non_template_preferred(T*) noexcept {
+    return 7;
+}
+
+namespace ConversionFunctionTemplateNamespace {
+template<typename T>
+int select(T*) noexcept {
+    return 8;
+}
+}
+
+template<typename... T>
+int conversion_function_template_pack(T...) {
+    return 6;
+}
 
 struct ConversionMemberPointerRoot {
     int value;
@@ -101,6 +153,32 @@ int choose_nonpack_over_empty_pack(T, Rest...) {
 template<typename T>
 int choose_nonpack_over_empty_pack(T) {
     return 160;
+}
+
+int verify_function_template_pointer_overload() {
+    ConversionNoexceptIntPointerFunction selected =
+        conversion_function_template_overload;
+    ConversionNoexceptIntPointerFunction explicit_noexcept =
+        conversion_explicit_noexcept_function_template;
+    ConversionNoexceptIntPointerFunction dependent_noexcept =
+        conversion_dependent_noexcept_function_template;
+    ConversionThrowingIntPointerFunction dependent_throwing =
+        conversion_dependent_throwing_function_template;
+    ConversionNoexceptIntPointerFunction non_template_preferred =
+        conversion_non_template_preferred;
+    ConversionNoexceptIntPointerFunction namespaced =
+        ConversionFunctionTemplateNamespace::select;
+    ConversionIntPairFunction packed = conversion_function_template_pack;
+    ConversionIntFunction fixed_over_pack = choose_fixed_over_pack;
+    ConversionIntPairFunction fixed_prefix_over_pack =
+        choose_fixed_prefix_over_pack;
+    return selected(nullptr) == 2 && explicit_noexcept(nullptr) == 3 &&
+           dependent_noexcept(nullptr) == 4 &&
+           dependent_throwing(nullptr) == 5 &&
+           non_template_preferred(nullptr) == 6 &&
+           namespaced(nullptr) == 8 &&
+           packed(1, 2) == 6 &&
+           fixed_over_pack(1) == 110 && fixed_prefix_over_pack(1, 2) == 130;
 }
 
 template<typename T>
@@ -555,6 +633,7 @@ int main(void) {
                        verify_function_pointer_overload_context() &&
                    ConversionFunctionUsingDirectiveNamespace::
                        verify_function_pointer_overload_context() &&
+                   verify_function_template_pointer_overload() &&
                    choose_noexcept_function_pointer(
                        explicit_noexcept_pointer) == 222 &&
                    choose_noexcept_function_pointer_template(

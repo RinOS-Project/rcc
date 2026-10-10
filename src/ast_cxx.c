@@ -5388,10 +5388,12 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         TypeParam** type_tail = &type_parameters;
         Type* function_type;
         Decl* instance;
+        bool has_function_parameter_pack = false;
 
         for (DeclList* item = definition->func_params; item;
              item = item->next) {
             if (item->decl && item->decl->param_is_pack) {
+                has_function_parameter_pack = true;
                 int pack_index = template_parameter_index_nested(
                     tmpl, item->decl->type);
                 if (pack_index < 0 || !tmpl->params[pack_index].is_pack) {
@@ -5505,9 +5507,12 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             tmpl, definition->type ? definition->type->ret_type : NULL,
             args, arg_count, value_args, value_present);
         function_type = type_func(return_type, type_parameters,
-                                  definition->type && definition->type->variadic);
+                                  definition->type &&
+                                      definition->type->variadic &&
+                                      !has_function_parameter_pack);
         function_type->has_prototype = definition->type
             ? definition->type->has_prototype : true;
+        function_type->function_is_noexcept = definition->func_is_noexcept;
         instance = decl_func(definition->name, function_type, parameters,
                              template_clone_stmt(tmpl, definition->func_body,
                                                  args, arg_count, value_args,

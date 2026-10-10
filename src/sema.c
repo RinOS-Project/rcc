@@ -30,6 +30,9 @@ extern CxxClass* rcc_parser_cxx_find_class(
 extern void* cxx_template_instantiate_with_values(
     CxxTemplate*, Type**, const int64_t*, const bool*, int)
     __attribute__((weak));
+extern Decl* rcc_parser_cxx_resolve_function_pointer_template(
+    const char*, CxxNamespace*, Type*, bool*, bool*, int*)
+    __attribute__((weak));
 #endif
 
 static bool sema_cxx_class_is_abstract(const CxxClass* cls) {
@@ -60,6 +63,7 @@ static unsigned cxx_exception_frame_counter = 0u;
 static Type* current_cxx_method_owner = NULL;
 static Decl* current_cxx_this_param = NULL;
 static Decl* current_cxx_function_decl = NULL;
+static Decl* current_noexcept_resolution = NULL;
 static CxxNamespace* current_cxx_namespace = NULL;
 static AST* current_ast = NULL;
 
@@ -551,7 +555,7 @@ static Type* sema_expr_reuse_preanalyzed(Expr* expression,
 }
 static void sema_decl(Decl* decl);
 static void sema_initializer(Type* type, Expr* initializer);
-static void sema_resolve_function_noexcept(Decl* declaration);
+static bool sema_resolve_function_noexcept(Decl* declaration);
 static bool sema_cxx_select_function_pointer_overload(
     Type* target, Expr* expression);
 
@@ -7657,7 +7661,8 @@ static int sema_cxx_function_type_conversion_rank(Type* source,
     target_signature = *target;
     source_signature.function_is_noexcept = false;
     target_signature.function_is_noexcept = false;
-    if (!type_is_compatible(&source_signature, &target_signature)) {
+    if (!sema_cxx_exact_function_signature(&source_signature,
+                                           &target_signature)) {
         return -1;
     }
     /* Matching exception specifications need no adjustment. A noexcept
@@ -7981,6 +7986,7 @@ static bool sema_cxx_member_function_signature_convertible(
  * information required by C++ overload resolution. */
 static bool sema_cxx_is_function_overload_set(Expr* expression) {
     Symbol* symbol;
+    bool has_templates = false;
     if (expression && expression->kind == EXPR_ADDR) {
         expression = expression->unary_operand;
     }
@@ -7989,8 +7995,18 @@ static bool sema_cxx_is_function_overload_set(Expr* expression) {
         return false;
     }
     symbol = sema_cxx_lookup_name(expression->ident_name, expression->loc);
-    return symbol && symbol->kind == SYM_FUNC && symbol->decl &&
-           symbol->decl->func_overload_next;
+    if (symbol && symbol->kind == SYM_FUNC && symbol->decl &&
+        symbol->decl->func_overload_next) {
+        return true;
+    }
+#if defined(__GNUC__) || defined(__clang__)
+    if (rcc_parser_cxx_resolve_function_pointer_template) {
+        (void)rcc_parser_cxx_resolve_function_pointer_template(
+            expression->ident_name, current_cxx_namespace, NULL,
+            &has_templates, NULL, NULL);
+    }
+#endif
+    return has_templates;
 }
 
 static int sema_cxx_function_pointer_overload_rank(
@@ -7999,8 +8015,12 @@ static int sema_cxx_function_pointer_overload_rank(
     Symbol* symbol;
     Decl* candidate;
     Decl* selected = NULL;
-    Type* function_type;
+    Decl* selected_template = NULL;
     int selected_rank = -1;
+    int template_rank = -1;
+    bool ordinary_overload_set;
+    bool has_templates = false;
+    bool template_ambiguous = false;
     if (selected_out) *selected_out = NULL;
     if (is_overload_set) *is_overload_set = false;
     if (is_ambiguous) *is_ambiguous = false;
@@ -8014,32 +8034,58 @@ static int sema_cxx_function_pointer_overload_rank(
         return -1;
     }
     symbol = sema_cxx_lookup_name(expression->ident_name, expression->loc);
-    if (!symbol || symbol->kind != SYM_FUNC || !symbol->decl ||
-        !symbol->decl->func_overload_next) {
+#if defined(__GNUC__) || defined(__clang__)
+    if (rcc_parser_cxx_resolve_function_pointer_template) {
+        selected_template = rcc_parser_cxx_resolve_function_pointer_template(
+            expression->ident_name, current_cxx_namespace, target,
+            &has_templates, &template_ambiguous, &template_rank);
+    }
+#endif
+    ordinary_overload_set = symbol && symbol->kind == SYM_FUNC &&
+        symbol->decl && (symbol->decl->func_overload_next || has_templates);
+    if (!ordinary_overload_set && !has_templates) {
         return -1;
     }
     if (is_overload_set) *is_overload_set = true;
-    function_type = target->base;
-    for (candidate = symbol->decl; candidate;
-         candidate = candidate->func_overload_next) {
+    for (candidate = ordinary_overload_set ? symbol->decl : NULL;
+         candidate; candidate = candidate->func_overload_next) {
         int rank;
         if (candidate->kind != DECL_FUNC || !candidate->type ||
-            candidate->type->kind != TYPE_FUNC || candidate->func_this_param) {
+            candidate->type->kind != TYPE_FUNC || candidate->func_this_param ||
+            candidate->func_is_template_instance) {
             continue;
         }
         rank = sema_cxx_function_type_conversion_rank(
-            candidate->type, function_type);
+            candidate->type, target->base);
         if (rank < 0) continue;
-        if (selected) {
+        if (!selected || rank < selected_rank) {
+            selected = candidate;
+            selected_rank = rank;
+            if (is_ambiguous) *is_ambiguous = false;
+        } else if (rank == selected_rank) {
+            if (is_ambiguous) *is_ambiguous = true;
+        }
+    }
+    if (template_ambiguous) {
+        if (!selected || template_rank < 0 || selected_rank > template_rank) {
             if (is_ambiguous) *is_ambiguous = true;
             return -1;
         }
-        selected = candidate;
-        selected_rank = rank;
     }
-    if (!selected) return -1;
-    if (selected_out) *selected_out = selected;
-    return selected_rank;
+    if (selected && (!selected_template || selected_rank <= template_rank)) {
+        if (is_ambiguous && *is_ambiguous) return -1;
+        if (selected_out) *selected_out = selected;
+        return selected_rank;
+    }
+    if (selected_template) {
+        if (selected_out) *selected_out = selected_template;
+        return template_rank;
+    }
+    if (selected && (!is_ambiguous || !*is_ambiguous)) {
+        if (selected_out) *selected_out = selected;
+        return selected_rank;
+    }
+    return -1;
 }
 
 static bool sema_cxx_select_function_pointer_overload(
@@ -8165,6 +8211,16 @@ static bool sema_cxx_select_function_pointer_overload(
     }
     expression->ident_decl = selected;
     expression->type = selected->type;
+    if (selected->func_is_template_instance && current_ast) {
+        bool present = false;
+        for (DeclList* item = current_ast->decls; item; item = item->next) {
+            if (item->decl == selected) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) ast_add_decl(current_ast, selected);
+    }
     return true;
 }
 
@@ -18295,21 +18351,39 @@ static bool sema_deduce_auto_return_stmt(Stmt* statement, Type** deduced,
     }
 }
 
-static void sema_resolve_function_noexcept(Decl* declaration) {
+static bool sema_resolve_function_noexcept(Decl* declaration) {
     SemaConstexprScalar value;
-    if (!declaration || !declaration->func_noexcept_expr) return;
+    bool resolved;
+    if (!declaration) return false;
+    if (!declaration->func_noexcept_expr) return true;
+    if (current_noexcept_resolution == declaration) {
+        rcc_error(declaration->loc,
+                  "exception specification depends on its own evaluation");
+        return false;
+    }
+    Decl* saved_resolution = current_noexcept_resolution;
+    current_noexcept_resolution = declaration;
     sema_expr(declaration->func_noexcept_expr);
-    if (sema_eval_constexpr_scalar_expr(
-            declaration->func_noexcept_expr, NULL, 0, &value) &&
-        !value.is_floating) {
+    resolved = sema_eval_constexpr_scalar_expr(
+        declaration->func_noexcept_expr, NULL, 0, &value) &&
+        !value.is_floating;
+    if (resolved) {
         declaration->func_is_noexcept = sema_constexpr_scalar_truth(&value);
     } else {
-        /* The existing frontend accepts dependent/non-constant exception
-         * specifications for later template resolution.  Until a concrete
-         * constant value is available, retain the standard potentially-
-         * throwing interpretation rather than treating it as noexcept. */
+        rcc_error(declaration->loc,
+                  "exception specification is not a constant expression");
         declaration->func_is_noexcept = false;
     }
+    if (declaration->type && declaration->type->kind == TYPE_FUNC) {
+        declaration->type->function_is_noexcept =
+            declaration->func_is_noexcept;
+    }
+    current_noexcept_resolution = saved_resolution;
+    return resolved;
+}
+
+bool rcc_sema_resolve_function_noexcept(Decl* declaration) {
+    return sema_resolve_function_noexcept(declaration);
 }
 
 /* A generic lambda has no single function-pointer type until its call

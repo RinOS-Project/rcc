@@ -8972,6 +8972,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     function->decl->func_is_deprecated = is_deprecated;
     function->decl->func_deprecated_message = deprecated_message;
     function->decl->func_is_noexcept = *is_noexcept;
+    function->decl->type->function_is_noexcept = *is_noexcept;
     function->decl->func_noexcept_expr = noexcept_expr;
     function->decl->func_is_auto_return = is_auto_return;
     function->decl->func_is_decltype_auto_return = is_decltype_auto_return;
@@ -16342,6 +16343,213 @@ static bool prepare_cxx_function_template_match(
         return false;
     }
     return true;
+}
+
+/* Function-address template deduction uses the target function type as the
+ * argument to the same structural deduction and constraint machinery used by
+ * calls.  The resulting specializations are then ranked by the existing
+ * function-template partial-ordering relation. */
+Decl* rcc_parser_cxx_resolve_function_pointer_template(
+    const char* name, CxxNamespace* scope, Type* target,
+    bool* has_templates, bool* is_ambiguous, int* selected_rank) {
+    CxxNamespace* saved_namespace = active_namespace;
+    CxxTemplate* candidates[32] = { NULL };
+    CxxFunctionTemplateMatch matches[32] = { 0 };
+    Type* target_function;
+    int candidate_count;
+    int match_count = 0;
+    int best_rank = INT_MAX;
+    int selected = -1;
+    int best_count = 0;
+    bool globally_qualified;
+
+    if (has_templates) *has_templates = false;
+    if (is_ambiguous) *is_ambiguous = false;
+    if (selected_rank) *selected_rank = -1;
+    if (!name || !g_global_namespace) return NULL;
+    globally_qualified = name[0] == ':' && name[1] == ':';
+    active_namespace = globally_qualified
+        ? g_global_namespace : (scope ? scope : g_global_namespace);
+    candidate_count = find_function_template_candidates(
+        name, candidates,
+        (int)(sizeof(candidates) / sizeof(candidates[0])));
+    if (candidate_count > (int)(sizeof(candidates) / sizeof(candidates[0]))) {
+        candidate_count = (int)(sizeof(candidates) / sizeof(candidates[0]));
+    }
+    if (has_templates) *has_templates = candidate_count > 0;
+    if (!target || candidate_count == 0) {
+        active_namespace = saved_namespace;
+        return NULL;
+    }
+    target_function = target->kind == TYPE_PTR ? target->base : NULL;
+    if (!target_function || target_function->kind != TYPE_FUNC) {
+        active_namespace = saved_namespace;
+        return NULL;
+    }
+    if (candidates[0] && candidates[0]->ns) {
+        active_namespace = candidates[0]->ns;
+    }
+
+    for (int index = 0; index < candidate_count; ++index) {
+        CxxTemplate* tmpl = candidates[index];
+        CxxFunctionTemplateMatch match = { 0 };
+        bool viable = true;
+        bool has_pack_candidate = false;
+        bool constraint_invalid = false;
+        bool constraint_unsupported = false;
+        Expr typed_function = { 0 };
+        if (!tmpl || tmpl->kind != TMPL_FUNCTION || !tmpl->func_def ||
+            !tmpl->func_def->type ||
+            tmpl->func_def->type->kind != TYPE_FUNC ||
+            tmpl->param_count < 0 || tmpl->param_count > 32) {
+            continue;
+        }
+        for (int parameter = 0; parameter < tmpl->param_count; ++parameter) {
+            if (tmpl->params[parameter].is_pack) {
+                has_pack_candidate = true;
+                break;
+            }
+        }
+        for (DeclList* parameter = tmpl->func_def->func_params;
+             parameter; parameter = parameter->next) {
+            if (parameter->decl && parameter->decl->param_is_pack) {
+                has_pack_candidate = true;
+                break;
+            }
+        }
+        if (has_pack_candidate) {
+            ExprList* target_parameters = NULL;
+            ExprList** target_parameter_tail = &target_parameters;
+            for (TypeParam* parameter = target_function->params; parameter;
+                 parameter = parameter->next) {
+                ExprList* argument = ast_arena_alloc(sizeof(*argument));
+                Expr* typed_argument = expr_int(0, tmpl->func_def->loc);
+                typed_argument->type = parameter->type;
+                argument->expr = typed_argument;
+                argument->next = NULL;
+                *target_parameter_tail = argument;
+                target_parameter_tail = &argument->next;
+            }
+            if (!prepare_cxx_function_template_match(
+                    tmpl, target_parameters, NULL, 0, &match,
+                    &constraint_invalid, &constraint_unsupported)) {
+                continue;
+            }
+        } else {
+            match.tmpl = tmpl;
+            match.argument_count = tmpl->param_count;
+            for (DeclList* parameter = tmpl->func_def->func_params;
+                 parameter; parameter = parameter->next) {
+                ++match.fixed_function_parameter_count;
+            }
+            if (!deduce_function_template_type(
+                    tmpl, tmpl->func_def->type, target_function,
+                    match.arguments, match.values, match.value_present,
+                    &match.specificity)) {
+                continue;
+            }
+            for (int parameter_index = 0;
+                 parameter_index < tmpl->param_count; ++parameter_index) {
+                TemplateParam* parameter = &tmpl->params[parameter_index];
+                if (parameter->kind == TPARAM_NONTYPE) {
+                    if (!match.value_present[parameter_index] &&
+                        parameter->has_default && parameter->default_value &&
+                        eval_template_integer_expression(
+                            parameter->default_value,
+                            parameter->default_context
+                                ? parameter->default_context : tmpl,
+                            match.values, match.value_present,
+                            &match.values[parameter_index])) {
+                        match.value_present[parameter_index] = true;
+                    }
+                    if (!match.value_present[parameter_index]) {
+                        viable = false;
+                        break;
+                    }
+                    match.arguments[parameter_index] = parameter->type;
+                } else if (!match.arguments[parameter_index] &&
+                           parameter->has_default &&
+                           parameter->default_type) {
+                    match.arguments[parameter_index] = substitute_template_type(
+                        tmpl, parameter->default_type, match.arguments,
+                        tmpl->param_count, match.values,
+                        match.value_present);
+                }
+                if (!match.arguments[parameter_index]) {
+                    viable = false;
+                    break;
+                }
+            }
+            if (!viable || !cxx_template_constraint_satisfied(
+                    tmpl, match.arguments, match.values,
+                    match.value_present, tmpl->func_def->loc, false,
+                    &constraint_unsupported)) {
+                continue;
+            }
+            match.instance = (Decl*)cxx_template_instantiate_with_values(
+                tmpl, match.arguments, match.values, match.value_present,
+                match.argument_count);
+        }
+        if (!match.instance || match.instance->kind != DECL_FUNC ||
+            !match.instance->type ||
+            match.instance->type->kind != TYPE_FUNC ||
+            cxx_function_template_find_dependent_nested_type(
+                match.instance->type->ret_type, 0u, true)) {
+            continue;
+        }
+        if (match.instance->func_noexcept_expr &&
+            !rcc_sema_resolve_function_noexcept(match.instance)) {
+            continue;
+        }
+        for (TypeParam* parameter = match.instance->type->params;
+             parameter; parameter = parameter->next) {
+            if (cxx_function_template_find_dependent_nested_type(
+                    parameter->type, 0u, true)) {
+                viable = false;
+                break;
+            }
+        }
+        if (!viable) continue;
+        typed_function.kind = EXPR_IDENT;
+        typed_function.type = match.instance->type;
+        match.conversion_rank_count = 1;
+        match.conversion_sources[0] = match.instance->type;
+        match.conversion_targets[0] = target;
+        match.conversion_ranks[0] = rcc_sema_cxx_conversion_rank(
+            &typed_function, match.instance->type, target);
+        if (match.conversion_ranks[0] < 0) continue;
+        if (match.conversion_ranks[0] < best_rank) {
+            best_rank = match.conversion_ranks[0];
+        }
+        matches[match_count++] = match;
+    }
+    if (selected_rank && best_rank != INT_MAX) *selected_rank = best_rank;
+    for (int index = 0; index < match_count; ++index) {
+        bool dominated = false;
+        for (int other = 0; other < match_count; ++other) {
+            if (index != other &&
+                cxx_function_template_match_relation(
+                    &matches[other], &matches[index]) > 0) {
+                dominated = true;
+                break;
+            }
+        }
+        if (!dominated) {
+            selected = index;
+            ++best_count;
+        }
+    }
+    if (best_count != 1) {
+        if (match_count > 0 && is_ambiguous) *is_ambiguous = true;
+        active_namespace = saved_namespace;
+        return NULL;
+    }
+    if (selected_rank) {
+        *selected_rank = matches[selected].conversion_ranks[0];
+    }
+    Decl* resolved = matches[selected].instance;
+    active_namespace = saved_namespace;
+    return resolved;
 }
 
 Type* rcc_parse_cxx_direct_list_type(void) {
