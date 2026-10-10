@@ -2940,6 +2940,49 @@ static bool cxx_template_redeclaration_expr_matches(
                      left->cxx_typeid_operand, left_template,
                      left_requires_params, right->cxx_typeid_operand,
                      right_template, right_requires_params, depth + 1));
+        case EXPR_CXX_FOLD: {
+            if (left->cxx_fold_operator != right->cxx_fold_operator ||
+                left->cxx_fold_left != right->cxx_fold_left ||
+                (!!left->cxx_fold_init != !!right->cxx_fold_init) ||
+                (!!left->cxx_fold_pattern != !!right->cxx_fold_pattern) ||
+                (!!left->cxx_fold_pack_name !=
+                 !!right->cxx_fold_pack_name)) {
+                return false;
+            }
+            if (left->cxx_fold_pack_name) {
+                Expr left_pack = {
+                    .ident_name = left->cxx_fold_pack_name};
+                Expr right_pack = {
+                    .ident_name = right->cxx_fold_pack_name};
+                bool is_local;
+                if (!cxx_template_redeclaration_requires_parameter_matches(
+                        left_requires_params, &left_pack,
+                        right_requires_params, &right_pack, &is_local)) {
+                    return false;
+                }
+                if (!is_local) {
+                    int left_index = cxx_template_redeclaration_parameter_named(
+                        left_template, left->cxx_fold_pack_name);
+                    int right_index = cxx_template_redeclaration_parameter_named(
+                        right_template, right->cxx_fold_pack_name);
+                    if (left_index < 0 || right_index != left_index ||
+                        !left_template->params[left_index].is_pack ||
+                        !right_template->params[right_index].is_pack) {
+                        return false;
+                    }
+                }
+            }
+            return (!left->cxx_fold_init ||
+                    cxx_template_redeclaration_expr_matches(
+                        left->cxx_fold_init, left_template,
+                        left_requires_params, right->cxx_fold_init,
+                        right_template, right_requires_params, depth + 1)) &&
+                (!left->cxx_fold_pattern ||
+                 cxx_template_redeclaration_expr_matches(
+                     left->cxx_fold_pattern, left_template,
+                     left_requires_params, right->cxx_fold_pattern,
+                     right_template, right_requires_params, depth + 1));
+        }
         case EXPR_CXX_REQUIRES:
             return cxx_template_redeclaration_requires_matches(
                 left, left_template, left_requires_params,
@@ -3778,6 +3821,170 @@ static Decl* template_clone_decl(CxxTemplate* tmpl, Decl* declaration,
                                  const int64_t* value_args,
                                  const bool* value_present);
 
+static bool template_type_contains_parameter_name(const Type* type,
+                                                    const char* parameter_name,
+                                                    int depth) {
+    if (!type || depth > 64) return false;
+    if (type->cxx_dependent && type->tag && parameter_name) {
+        size_t parameter_length = strlen(parameter_name);
+        if (strcmp(type->tag, parameter_name) == 0 ||
+            (strncmp(type->tag, parameter_name, parameter_length) == 0 &&
+             type->tag[parameter_length] == ':' &&
+             type->tag[parameter_length + 1] == ':')) {
+            return true;
+        }
+    }
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        if (template_type_contains_parameter_name(
+                type->cxx_template_args[index], parameter_name, depth + 1)) {
+            return true;
+        }
+    }
+    if (type->cxx_is_member_pointer &&
+        template_type_contains_parameter_name(
+            type->cxx_member_pointer_owner, parameter_name, depth + 1)) {
+        return true;
+    }
+    switch (type->kind) {
+        case TYPE_PTR:
+        case TYPE_ARRAY:
+        case TYPE_VECTOR:
+            return template_type_contains_parameter_name(
+                type->base, parameter_name, depth + 1);
+        case TYPE_FUNC:
+            if (template_type_contains_parameter_name(
+                    type->ret_type, parameter_name, depth + 1)) {
+                return true;
+            }
+            for (TypeParam* parameter = type->params; parameter;
+                 parameter = parameter->next) {
+                if (template_type_contains_parameter_name(
+                        parameter->type, parameter_name, depth + 1)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return false;
+    }
+}
+
+static bool template_expr_contains_type_parameter(Expr* expression,
+                                                   const char* parameter_name,
+                                                   int depth) {
+    if (!expression || depth > 64) return false;
+    if (template_type_contains_parameter_name(
+            expression->type, parameter_name, depth + 1)) {
+        return true;
+    }
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_NOEXCEPT:
+            return template_expr_contains_type_parameter(
+                expression->unary_operand, parameter_name, depth + 1);
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            return template_type_contains_parameter_name(
+                       expression->sizeof_type, parameter_name, depth + 1) ||
+                template_expr_contains_type_parameter(
+                    expression->unary_operand, parameter_name, depth + 1);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+            return template_expr_contains_type_parameter(
+                       expression->binary_lhs, parameter_name, depth + 1) ||
+                   template_expr_contains_type_parameter(
+                       expression->binary_rhs, parameter_name, depth + 1);
+        case EXPR_COND:
+            return template_expr_contains_type_parameter(
+                       expression->cond_test, parameter_name, depth + 1) ||
+                   template_expr_contains_type_parameter(
+                       expression->cond_then, parameter_name, depth + 1) ||
+                   template_expr_contains_type_parameter(
+                       expression->cond_else, parameter_name, depth + 1);
+        case EXPR_CALL:
+            if (template_expr_contains_type_parameter(
+                    expression->call_func, parameter_name, depth + 1)) {
+                return true;
+            }
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                if (template_expr_contains_type_parameter(
+                        argument->expr, parameter_name, depth + 1)) {
+                    return true;
+                }
+            }
+            return false;
+        case EXPR_INDEX:
+            return template_expr_contains_type_parameter(
+                       expression->index_base, parameter_name, depth + 1) ||
+                   template_expr_contains_type_parameter(
+                       expression->index_expr, parameter_name, depth + 1);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return template_expr_contains_type_parameter(
+                expression->member_base, parameter_name, depth + 1);
+        case EXPR_CAST:
+            return template_type_contains_parameter_name(
+                       expression->cast_type, parameter_name, depth + 1) ||
+                   template_expr_contains_type_parameter(
+                       expression->cast_expr, parameter_name, depth + 1);
+        case EXPR_CXX_TYPEID:
+            return template_type_contains_parameter_name(
+                       expression->cxx_typeid_operand_type,
+                       parameter_name, depth + 1) ||
+                   template_expr_contains_type_parameter(
+                       expression->cxx_typeid_operand, parameter_name,
+                       depth + 1);
+        case EXPR_CXX_FOLD:
+            return template_expr_contains_type_parameter(
+                       expression->cxx_fold_init, parameter_name,
+                       depth + 1) ||
+                   template_expr_contains_type_parameter(
+                       expression->cxx_fold_pattern, parameter_name,
+                       depth + 1);
+        default:
+            return false;
+    }
+}
+
 static bool template_expr_contains_identifier(Expr* expression,
                                                const char* name) {
     if (!expression || !name) return false;
@@ -4075,6 +4282,17 @@ static Expr* template_clone_pack_pattern(
         }
         break;
     }
+    if (type_pack_index < 0 && tmpl && tmpl->params) {
+        for (int parameter_index = 0; parameter_index < tmpl->param_count;
+             ++parameter_index) {
+            TemplateParam* parameter = &tmpl->params[parameter_index];
+            if (parameter->kind == TPARAM_TYPE && parameter->is_pack &&
+                parameter->name && strcmp(parameter->name, pack_name) == 0) {
+                type_pack_index = parameter_index;
+                break;
+            }
+        }
+    }
     if (type_pack_index >= 0) {
         if (!tmpl->pending_pack_args || index < 0 ||
             index >= tmpl->pending_pack_count || arg_count <= 0 || !args) {
@@ -4165,19 +4383,25 @@ static Expr* template_clone_pack_fold(
     if (tmpl && expression && !pack_name && expression->cxx_fold_pattern) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
-            if (parameter->kind == TPARAM_NONTYPE && parameter->is_pack &&
-                parameter->name &&
-                template_expr_contains_identifier(
-                    expression->cxx_fold_pattern, parameter->name)) {
+            if (parameter->is_pack && parameter->name &&
+                (template_expr_contains_identifier(
+                     expression->cxx_fold_pattern, parameter->name) ||
+                 (parameter->kind == TPARAM_TYPE &&
+                  template_expr_contains_type_parameter(
+                      expression->cxx_fold_pattern, parameter->name, 0)))) {
                 pack_name = parameter->name;
                 ++pattern_pack_matches;
             }
         }
     }
     if (!tmpl || !expression || !pack_name ||
-        (expression->cxx_fold_pattern && pattern_pack_matches != 1) ||
-        tmpl->pending_pack_count < 0) {
+        (expression->cxx_fold_pattern && pattern_pack_matches != 1)) {
         rcc_error(expression ? expression->loc : (SourceLoc){"<template>", 0, 0},
+                  "C++ fold expression pattern must reference exactly one template parameter pack");
+        return expression;
+    }
+    if (tmpl->pending_pack_count < 0) {
+        rcc_error(expression->loc,
                   "C++ fold expression requires a function-template pack specialization");
         return expression;
     }

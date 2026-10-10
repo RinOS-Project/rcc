@@ -13762,14 +13762,32 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
     int64_t result;
     Expr* constraint;
     CxxTemplate* constraint_context;
+    Type** saved_pending_pack_args;
+    int64_t* saved_pending_pack_values;
+    bool* saved_pending_pack_value_present;
+    int saved_pending_pack_count;
     if (unsupported) *unsupported = false;
     if (!tmpl || !tmpl->constraint) return true;
     constraint_context = tmpl->constraint_context
         ? tmpl->constraint_context : tmpl;
+    saved_pending_pack_args = constraint_context->pending_pack_args;
+    saved_pending_pack_values = constraint_context->pending_pack_values;
+    saved_pending_pack_value_present =
+        constraint_context->pending_pack_value_present;
+    saved_pending_pack_count = constraint_context->pending_pack_count;
+    constraint_context->pending_pack_args = tmpl->pending_pack_args;
+    constraint_context->pending_pack_values = tmpl->pending_pack_values;
+    constraint_context->pending_pack_value_present =
+        tmpl->pending_pack_value_present;
     constraint_context->pending_pack_count = tmpl->pending_pack_count;
     constraint = cxx_template_clone_expr_with_values(
         constraint_context, tmpl->constraint, arguments, tmpl->param_count, values,
         value_present);
+    constraint_context->pending_pack_args = saved_pending_pack_args;
+    constraint_context->pending_pack_values = saved_pending_pack_values;
+    constraint_context->pending_pack_value_present =
+        saved_pending_pack_value_present;
+    constraint_context->pending_pack_count = saved_pending_pack_count;
     if (!constraint) {
         if (report_errors) {
             rcc_error(loc, "template constraint could not be instantiated");
@@ -15156,11 +15174,33 @@ static bool prepare_cxx_function_template_match(
         }
     }
 
-    if (!cxx_template_constraint_satisfied(
+    {
+        Type** saved_pending_pack_args = tmpl->pending_pack_args;
+        int64_t* saved_pending_pack_values = tmpl->pending_pack_values;
+        bool* saved_pending_pack_value_present =
+            tmpl->pending_pack_value_present;
+        int saved_pending_pack_count = tmpl->pending_pack_count;
+        bool constraint_satisfied;
+        tmpl->pending_pack_args = has_type_pack
+            ? match->pack_arguments : NULL;
+        tmpl->pending_pack_values = has_value_pack
+            ? match->pack_values : NULL;
+        tmpl->pending_pack_value_present = has_value_pack
+            ? match->pack_value_present : NULL;
+        tmpl->pending_pack_count = has_type_pack || has_value_pack
+            ? match->pack_count : -1;
+        constraint_satisfied = cxx_template_constraint_satisfied(
             tmpl, match->arguments, match->values, match->value_present,
-            tmpl->func_def->loc, false, constraint_unsupported)) {
-        if (constraint_invalid) *constraint_invalid = true;
-        return false;
+            tmpl->func_def->loc, false, constraint_unsupported);
+        tmpl->pending_pack_args = saved_pending_pack_args;
+        tmpl->pending_pack_values = saved_pending_pack_values;
+        tmpl->pending_pack_value_present =
+            saved_pending_pack_value_present;
+        tmpl->pending_pack_count = saved_pending_pack_count;
+        if (!constraint_satisfied) {
+            if (constraint_invalid) *constraint_invalid = true;
+            return false;
+        }
     }
     match->specificity = specificity;
     tmpl->pending_pack_args = has_type_pack ? match->pack_arguments : NULL;

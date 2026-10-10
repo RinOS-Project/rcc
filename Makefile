@@ -278,6 +278,16 @@ $(OBJCOPY) --redefine-sym main=rcc_cxx_constexpr_main $(TEST_OUT)/$(1)/x64.o
 $(CC) $(CFLAGS) -o $(TEST_OUT)/$(1)/x64-host tests/cxx_constexpr_host.c $(TEST_OUT)/$(1)/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 $(TEST_OUT)/$(1)/x64-host
 endef
+else
+define CXX_POSIX_ENTRY_TEST
+$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+	-o $(TEST_OUT)/$(1)/x86.s tests/$(2)
+$(CC) -m32 -c -o $(TEST_OUT)/$(1)/x86.o $(TEST_OUT)/$(1)/x86.s
+$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+	-o $(TEST_OUT)/$(1)/x64.s tests/$(2)
+$(CC) -no-pie -o $(TEST_OUT)/$(1)/x64 $(TEST_OUT)/$(1)/x64.s
+$(TEST_OUT)/$(1)/x64
+endef
 endif
 
 ifeq ($(OS),Windows_NT)
@@ -3097,7 +3107,17 @@ test-cxx-constraints-posix: $(RCXX_TARGET)
 
 test-cxx-friend-requires-forms-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-requires-forms)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-fold-constraint)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-friend-requires-forms,cxx_friend_template_expression_forms.cpp)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-friend-fold-constraint,cxx_friend_template_fold_constraint.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.ro tests/cxx_friend_template_fold_constraint_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'fold_constraint_mismatch'" $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x64.ro tests/cxx_friend_template_fold_constraint_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'fold_constraint_mismatch'" $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.ro tests/cxx_friend_template_index_requirement_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log)
 	$(GREP) -F -q "ambiguous function template overload for 'indexed_requirement_mismatch'" $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log,1)
@@ -3582,7 +3602,17 @@ test-cxx-constraints: $(RCXX_TARGET)
 
 test-cxx-friend-requires-forms: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-requires-forms)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-fold-constraint)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-requires-forms,cxx_friend_template_expression_forms.cpp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-friend-fold-constraint,cxx_friend_template_fold_constraint.cpp)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.ro tests/cxx_friend_template_fold_constraint_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'fold_constraint_mismatch'" $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x64.ro tests/cxx_friend_template_fold_constraint_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'fold_constraint_mismatch'" $(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-fold-constraint/mismatch-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.ro tests/cxx_friend_template_index_requirement_mismatch_invalid.cpp,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log)
 	$(GREP) -F -q "ambiguous function template overload for 'indexed_requirement_mismatch'" $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x86.log,1)
