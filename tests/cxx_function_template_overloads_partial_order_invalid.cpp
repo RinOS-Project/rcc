@@ -58,6 +58,26 @@ int select_by_value_or_pointer_lvalue_reference(T*& value) {
     return value != nullptr;
 }
 
+template<typename T>
+int select_by_value_or_const_pointer_reference(T* value) {
+    return value != nullptr;
+}
+
+template<typename T>
+int select_by_value_or_const_pointer_reference(T* const& value) {
+    return value != nullptr;
+}
+
+template<typename T>
+int select_by_value_or_volatile_pointer_reference(T* value) {
+    return value != nullptr;
+}
+
+template<typename T>
+int select_by_value_or_volatile_pointer_reference(T* volatile& value) {
+    return value != nullptr;
+}
+
 int main() {
     int value = 3;
     int* pointer = &value;
@@ -66,5 +86,7 @@ int main() {
            select_by_value_or_const_reference(value) +
            select_by_value_or_lvalue_reference(value) +
            select_by_value_or_rvalue_reference(3) +
-           select_by_value_or_pointer_lvalue_reference(pointer);
+           select_by_value_or_pointer_lvalue_reference(pointer) +
+           select_by_value_or_const_pointer_reference(pointer) +
+           select_by_value_or_volatile_pointer_reference(pointer);
 }

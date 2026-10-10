@@ -15592,8 +15592,6 @@ static bool cxx_function_template_reference_adjustment_equivalent(
                 right_type) ||
             ((left_type->kind == TYPE_PTR || right_type->kind == TYPE_PTR) &&
              (left_type->kind != right_type->kind ||
-              left_type->is_const != right_type->is_const ||
-              left_type->is_volatile != right_type->is_volatile ||
               left_type->is_restrict != right_type->is_restrict ||
               left_type->is_atomic != right_type->is_atomic)) ||
             !type_is_compatible(left_type, right_type)) {
