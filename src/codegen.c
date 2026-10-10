@@ -11547,12 +11547,30 @@ static void gen_call(Module* mod, Expr* expr) {
             } else {
                 gen_lvalue(mod, argument);
             }
+            if (args[i]->cxx_temporary_owner) {
+                int adjustment = argument->kind == EXPR_CAST &&
+                        argument->cxx_pointer_adjustment_valid
+                    ? argument->cxx_pointer_adjustment : 0;
+                emit_mov_reg_reg(mod, ECX, EAX);
+                if (adjustment > 0) {
+                    emit_sub_reg_imm(mod, EAX, adjustment);
+                } else if (adjustment < 0) {
+                    emit_add_reg_imm(mod, EAX, -adjustment);
+                }
+                emit_mov_mem_reg(
+                    mod, EBP,
+                    args[i]->cxx_temporary_owner->var_offset, EAX);
+                emit_mov_reg_reg(mod, EAX, ECX);
+            }
             emit_mov_reg_reg(mod, ECX, EAX);
             for (int unit = units - 1; unit >= 0; --unit) {
                 emit_mov_reg_mem(mod, EAX, ECX, unit * 4);
                 emit_push_reg(mod, EAX);
             }
             argument_bytes += units * 4;
+            codegen_push_call_temporary_cleanup32(
+                mod, args[i]->cxx_temporary_owner,
+                args[i]->cxx_temporary_cleanups);
             continue;
         }
         if (gen_is_floating(passed_type)) {
@@ -15198,7 +15216,8 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
     if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
         initializer->type && type_is_compatible(type, initializer->type)) {
         int offset = 0;
-        if (initializer->kind == EXPR_VA_ARG) {
+        if (initializer->kind == EXPR_VA_ARG ||
+            !gen_expr_is_lvalue(initializer)) {
             gen_expr(mod, initializer);
         } else {
             gen_lvalue(mod, initializer);

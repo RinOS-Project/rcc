@@ -400,6 +400,17 @@
         parameterの標準変換をdeduction後のviabilityへ分離し、候補間の
         conversion vectorを引数ごとに比較。直交したテンプレート候補の
         ambiguityと既存の両arch実行を回帰検証
+  - [x] publicなunique non-virtual derived-to-base class-by-value変換を追加。
+        trivially-copyable baseのコピー、非ゼロoffsetを持つ多重継承、
+        template/non-templateの近いbase優先、private/複数経路の拒否を
+        検証。非trivialなderived prvalue引数は呼び出し後にcomplete objectを
+        一度だけ破棄し、verified SSAのi686/AMD64両方でfallbackなし・実行確認
+        する。`test-cxx-function-template-overloads` と
+        `test-verified-cxx-temporary-cleanup` を参照
+  - [ ] class-by-value変換のvirtual base、nontrivial/deleted copy constructor、
+        呼び出し以外のfull-expression cleanup、および例外経路を実装・検証。
+        標準conversion subsequenceとpointer-to-memberを含む全rank/partial
+        orderingも未完了
   - [x] Namespace extension compatibility: verify reopened named and
         translation-unit anonymous namespaces, lookup through the transitive
         inline-namespace set for both namespace definitions and qualified

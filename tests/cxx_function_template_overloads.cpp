@@ -2,6 +2,41 @@ struct ConversionBaseRoot {};
 struct ConversionBaseMiddle : ConversionBaseRoot {};
 struct ConversionBaseLeaf : ConversionBaseMiddle {};
 
+struct ConversionValueRoot {
+    int root_value;
+};
+
+struct ConversionValuePrefix {
+    int prefix_value;
+};
+
+struct ConversionValueMiddle : ConversionValuePrefix,
+                               ConversionValueRoot {
+    int middle_value;
+};
+
+struct ConversionValueLeaf : ConversionValueMiddle {
+    int leaf_value;
+};
+
+int conversion_value_cleanup_count = 0;
+
+struct ConversionValueCleanupRoot {
+    int root_value;
+};
+
+struct ConversionValueCleanupPrefix {
+    int prefix_value;
+};
+
+struct ConversionValueCleanupLeaf : ConversionValueCleanupPrefix,
+                                    ConversionValueCleanupRoot {
+    int leaf_value;
+    ~ConversionValueCleanupLeaf() {
+        ++conversion_value_cleanup_count;
+    }
+};
+
 template<typename T>
 int choose_template(T) {
     return 10;
@@ -87,11 +122,64 @@ int choose_base_over_void(T*, void*) {
     return 84;
 }
 
+template<typename T>
+int choose_nearer_base_value(T*, ConversionValueRoot value) {
+    return value.root_value == 41 ? 91 : -91;
+}
+
+template<typename T>
+int choose_nearer_base_value(T*, ConversionValueMiddle value) {
+    return value.prefix_value == 37 && value.root_value == 41 &&
+                   value.middle_value == 43
+               ? 92
+               : -92;
+}
+
+int choose_nearer_base_value_non_template(ConversionValueRoot value) {
+    return value.root_value == 41 ? 93 : -93;
+}
+
+int choose_nearer_base_value_non_template(ConversionValueMiddle value) {
+    return value.prefix_value == 37 && value.root_value == 41 &&
+                   value.middle_value == 43
+               ? 94
+               : -94;
+}
+
+static ConversionValueLeaf make_conversion_value_leaf(void) {
+    ConversionValueLeaf value;
+    value.prefix_value = 37;
+    value.root_value = 41;
+    value.middle_value = 43;
+    value.leaf_value = 47;
+    return value;
+}
+
+static ConversionValueCleanupLeaf make_conversion_value_cleanup_leaf(
+    void) noexcept {
+    return ConversionValueCleanupLeaf{{49}, {53}, 59};
+}
+
+static int consume_conversion_value_cleanup_root(
+    ConversionValueCleanupRoot value) noexcept {
+    return value.root_value;
+}
+
 int main(void) {
     int value = 5;
     int* pointer = &value;
     ConversionBaseLeaf leaf;
     ConversionBaseLeaf* leaf_pointer = &leaf;
+    ConversionValueLeaf value_leaf;
+    ConversionValueLeaf* value_leaf_pointer = &value_leaf;
+    value_leaf.prefix_value = 37;
+    value_leaf.root_value = 41;
+    value_leaf.middle_value = 43;
+    value_leaf.leaf_value = 47;
+    ConversionValueRoot root_copy = value_leaf;
+    int cleanup_count_before = conversion_value_cleanup_count;
+    int cleanup_root_value = consume_conversion_value_cleanup_root(
+        make_conversion_value_cleanup_leaf());
     short priority = 0;
     return choose_template(&value) == 25 &&
                    choose_template(value) == 10 &&
@@ -103,7 +191,15 @@ int main(void) {
                    choose_pointer_bool(pointer, pointer) == 62 &&
                    choose_pointer_subsequence(pointer, pointer) == 71 &&
                    choose_nearer_base(leaf_pointer, leaf_pointer) == 82 &&
-                   choose_base_over_void(leaf_pointer, leaf_pointer) == 83
+                   choose_base_over_void(leaf_pointer, leaf_pointer) == 83 &&
+                   choose_nearer_base_value(
+                       value_leaf_pointer, value_leaf) == 92 &&
+                   choose_nearer_base_value_non_template(value_leaf) == 94 &&
+                   choose_nearer_base_value_non_template(
+                       make_conversion_value_leaf()) == 94 &&
+                   root_copy.root_value == 41 &&
+                   cleanup_root_value == 53 &&
+                   conversion_value_cleanup_count == cleanup_count_before + 1
                ? 0
                : 1;
 }

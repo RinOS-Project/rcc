@@ -2623,7 +2623,10 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_qualification'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_void_cv'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_unrelated_pointer_bases'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log,6)
+	$(GREP) -F -q "ambiguous function template overload for 'select_unrelated_value_bases'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
+	$(GREP) -F -q "no matching function template overload for 'select_inaccessible_base_value'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
+	$(GREP) -F -q "function template argument type does not match its parameter pattern" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log,9)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log)
@@ -2633,7 +2636,10 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_qualification'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_void_cv'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_unrelated_pointer_bases'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log,6)
+	$(GREP) -F -q "ambiguous function template overload for 'select_unrelated_value_bases'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
+	$(GREP) -F -q "no matching function template overload for 'select_inaccessible_base_value'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
+	$(GREP) -F -q "function template argument type does not match its parameter pattern" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log,9)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log)
 	$(GREP) -F -q "select_crossed" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
@@ -2642,6 +2648,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "select_incomparable_qualification" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 	$(GREP) -F -q "select_incomparable_void_cv" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 	$(GREP) -F -q "select_unrelated_pointer_bases" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
+	$(GREP) -F -q "select_unrelated_value_bases" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
+	$(GREP) -F -q "select_inaccessible_base_value" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 	@echo "RCC++ function-template overload and expression-deduction tests completed"
 
 test-cxx-function-template-references-posix: $(RCXX_TARGET)
@@ -3480,7 +3488,10 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_qualification'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_void_cv'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_unrelated_pointer_bases'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log,6)
+	$(GREP) -F -q "ambiguous function template overload for 'select_unrelated_value_bases'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
+	$(GREP) -F -q "no matching function template overload for 'select_inaccessible_base_value'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
+	$(GREP) -F -q "function template argument type does not match its parameter pattern" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log,9)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log)
@@ -3490,7 +3501,10 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_qualification'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_void_cv'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_unrelated_pointer_bases'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log,6)
+	$(GREP) -F -q "ambiguous function template overload for 'select_unrelated_value_bases'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
+	$(GREP) -F -q "no matching function template overload for 'select_inaccessible_base_value'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
+	$(GREP) -F -q "function template argument type does not match its parameter pattern" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log,9)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log)
 	$(GREP) -F -q "select_crossed" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
@@ -3499,6 +3513,8 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(GREP) -F -q "select_incomparable_qualification" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 	$(GREP) -F -q "select_incomparable_void_cv" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 	$(GREP) -F -q "select_unrelated_pointer_bases" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
+	$(GREP) -F -q "select_unrelated_value_bases" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
+	$(GREP) -F -q "select_inaccessible_base_value" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 
 test-cxx-function-template-references: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-references)
@@ -13813,7 +13829,7 @@ test-verified-cxx-temporary-cleanup: $(RCXX_TARGET) test-verified-cxx-reference-
 		-o $(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.ro \
 		tests/verified_backend_cxx_temporary_cleanup.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.log
-	$(GREP) -F -q 'Verified backend: 14 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
@@ -13821,7 +13837,7 @@ test-verified-cxx-temporary-cleanup: $(RCXX_TARGET) test-verified-cxx-reference-
 		-o $(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.ro \
 		tests/verified_backend_cxx_temporary_cleanup.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.log
-	$(GREP) -F -q 'Verified backend: 14 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.log,0)
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \

@@ -478,9 +478,10 @@ typedef struct ExprList {
     InitDesignatorKind designator_kind;
     int64_t designator_index;
     const char* designator_field;
-    /* A class prvalue bound to a reference parameter lives through the
-     * complete containing full-expression.  The synthetic owner holds its
-     * caller-frame address so conditional paths can skip inactive cleanups. */
+    /* A class prvalue bound to a reference parameter, or the source of a
+     * derived-to-base value argument, lives through the containing full-
+     * expression. The synthetic owner holds its complete-object address so
+     * conditional paths can skip inactive cleanups. */
     Decl* cxx_temporary_owner;
     CxxCleanupPlan* cxx_temporary_cleanups;
     struct ExprList* cxx_temporary_next;

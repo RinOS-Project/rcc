@@ -36,6 +36,22 @@ struct VerifiedWordTemporary {
     }
 };
 
+struct VerifiedValueRoot {
+    int value;
+};
+
+struct VerifiedValuePrefix {
+    int prefix_value;
+};
+
+struct VerifiedValueLeaf : VerifiedValuePrefix, VerifiedValueRoot {
+    int* cleanup_count;
+
+    ~VerifiedValueLeaf() noexcept {
+        ++*cleanup_count;
+    }
+};
+
 VerifiedTemporary make_verified_temporary(
         int* cleanup_order, int cleanup_id, int value) noexcept {
     return {cleanup_order, cleanup_id, value,
@@ -75,6 +91,16 @@ VerifiedWordTemporary make_word_from_temporary(
         int* cleanup_count, const VerifiedTemporary& source) noexcept {
     *cleanup_count += source.value;
     return {cleanup_count};
+}
+
+VerifiedValueLeaf make_verified_value_leaf(int* cleanup_count) noexcept {
+    return {{17}, {73}, cleanup_count};
+}
+
+int consume_verified_value_root(VerifiedValueRoot value, int* cleanup_count,
+                                int* observed_cleanup_count) noexcept {
+    *observed_cleanup_count = *cleanup_count;
+    return value.value;
 }
 
 int note_verified_comma(int* comma_order, int comma_id) noexcept {
@@ -190,5 +216,16 @@ int main() {
     }
     if (nested_cleanup_order != 78) return 20;
     if (nested_result != 1063) return 22;
+
+    int derived_value_cleanup_count = 0;
+    int derived_value_cleanup_count_during_call = -1;
+    if (consume_verified_value_root(
+            make_verified_value_leaf(&derived_value_cleanup_count),
+            &derived_value_cleanup_count,
+            &derived_value_cleanup_count_during_call) != 73) {
+        return 23;
+    }
+    if (derived_value_cleanup_count !=
+        derived_value_cleanup_count_during_call + 1) return 24;
     return 0;
 }

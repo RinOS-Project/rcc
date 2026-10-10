@@ -72,6 +72,9 @@ static bool sema_cxx_member_function_signature_convertible(
     Type* source, Type* target);
 static bool sema_cxx_member_method_lookup_ambiguous(
     Type* aggregate, const char* name);
+static bool sema_cxx_trivially_copyable(Type* type, int depth);
+static bool sema_cxx_trivially_destructible(Type* type, int depth);
+static bool is_lvalue(Expr* e);
 
 static bool sema_decltype_auto_expression_is_lvalue(Expr* expression) {
     if (!expression) return false;
@@ -975,7 +978,7 @@ static int sema_cxx_all_virtual_member_base_paths(Type* derived,
 /* Pointer-to-member owner conversion requires one accessible non-virtual
  * base subobject.  Count every route first so a private duplicate or a
  * virtual duplicate cannot be hidden by selecting the sole public fixed path. */
-static bool sema_cxx_unique_public_nonvirtual_member_owner_path(
+static bool sema_cxx_unique_public_nonvirtual_base_path(
     Type* derived, Type* target, int* adjustment) {
     int public_paths = sema_cxx_nonvirtual_public_base_paths(
         derived, target, adjustment, 0u);
@@ -983,6 +986,12 @@ static bool sema_cxx_unique_public_nonvirtual_member_owner_path(
         derived, target, 0u) +
         sema_cxx_all_virtual_member_base_paths(derived, target);
     return public_paths == 1 && all_paths == 1;
+}
+
+static bool sema_cxx_unique_public_nonvirtual_member_owner_path(
+    Type* derived, Type* target, int* adjustment) {
+    return sema_cxx_unique_public_nonvirtual_base_path(
+        derived, target, adjustment);
 }
 
 static bool sema_cxx_unique_public_base(Type* derived, Type* target,
@@ -996,6 +1005,24 @@ static bool sema_cxx_unique_public_base(Type* derived, Type* target,
         return paths == 1;
     }
     return sema_cxx_public_base(derived, target, adjustment, 0);
+}
+
+/* A derived-to-base value conversion is lowered as a copy of the selected
+ * base subobject.  Keep this implementation to fixed public paths and a
+ * bytewise-copyable target; call arguments separately schedule destruction
+ * of a nontrivial source prvalue after the call. */
+static bool sema_cxx_derived_to_base_value_conversion(
+    Expr* argument, Type* source, Type* target, int* adjustment,
+    bool allow_nontrivial_prvalue) {
+    if (!rcc_parser_is_cxx_mode() || !source || !target ||
+        source->kind != TYPE_STRUCT || target->kind != TYPE_STRUCT ||
+        !sema_cxx_trivially_copyable(target, 0) ||
+        (!allow_nontrivial_prvalue && (!argument || !is_lvalue(argument)) &&
+         !sema_cxx_trivially_destructible(source, 0))) {
+        return false;
+    }
+    return sema_cxx_unique_public_nonvirtual_base_path(
+        source, target, adjustment);
 }
 
 static void sema_cxx_add_exception_tag(CxxCatch* handler, uint64_t tag,
@@ -2553,6 +2580,11 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
         return -1;
     }
     if (type_is_compatible(source, target)) return 0;
+    if (!reference_target &&
+        sema_cxx_derived_to_base_value_conversion(
+            NULL, source, target, NULL, true)) {
+        return 2;
+    }
     if (reference_target &&
         (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
         (target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
@@ -2748,6 +2780,26 @@ static bool sema_is_null_pointer_constant(const Expr* expression) {
         return expression->kind == EXPR_INT_LIT && expression->int_val == 0;
     }
     return expr_eval_integer_constant((Expr*)expression, &value) && value == 0;
+}
+
+static bool sema_cxx_apply_derived_to_base_value_cast(
+    Expr* expression, Type* target, bool allow_nontrivial_prvalue) {
+    int adjustment = 0;
+    Expr* source;
+    Expr* converted;
+    if (!expression || !expression->type || !target ||
+        !sema_cxx_derived_to_base_value_conversion(
+            expression, expression->type, target, &adjustment,
+            allow_nontrivial_prvalue)) {
+        return false;
+    }
+    source = ast_arena_alloc(sizeof(*source));
+    *source = *expression;
+    converted = expr_cast(target, source, expression->loc);
+    converted->cxx_pointer_adjustment_valid = adjustment != 0;
+    converted->cxx_pointer_adjustment = adjustment;
+    *expression = *converted;
+    return true;
 }
 
 static Type* implicit_cast(Expr* e, Type* target) {
@@ -2959,6 +3011,9 @@ reference_binding_validated:
 
     if ((target->kind == TYPE_STRUCT || target->kind == TYPE_UNION) &&
         type_is_compatible(e->type, target)) {
+        return target;
+    }
+    if (sema_cxx_apply_derived_to_base_value_cast(e, target, false)) {
         return target;
     }
     if (target->kind == TYPE_VECTOR &&
@@ -7563,6 +7618,11 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     }
     if (cxx_same_parameter_type(source, target, true)) return 0;
 
+    if (sema_cxx_derived_to_base_value_conversion(
+            argument, source, target, NULL, true)) {
+        return 2;
+    }
+
     if (rcc_parser_is_cxx_mode() &&
         (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION)) {
         bool ambiguous = false;
@@ -7902,6 +7962,27 @@ static int cxx_conversion_vector_relation(
             if (left_targets[index]->is_rvalue_reference) {
                 left_better = true;
             } else {
+                right_better = true;
+            }
+        }
+        if (left[index] == right[index] && left[index] == 2 &&
+            left_targets && right_targets && left_targets[index] &&
+            right_targets[index] &&
+            !left_targets[index]->is_reference &&
+            !right_targets[index]->is_reference &&
+            left_targets[index]->kind == TYPE_STRUCT &&
+            right_targets[index]->kind == TYPE_STRUCT &&
+            left_targets[index]->cxx_class &&
+            right_targets[index]->cxx_class &&
+            left_targets[index]->cxx_class !=
+                right_targets[index]->cxx_class) {
+            if (sema_cxx_class_derives_from(
+                    left_targets[index]->cxx_class,
+                    right_targets[index]->cxx_class, 0)) {
+                left_better = true;
+            } else if (sema_cxx_class_derives_from(
+                           right_targets[index]->cxx_class,
+                           left_targets[index]->cxx_class, 0)) {
                 right_better = true;
             }
         }
@@ -8672,6 +8753,28 @@ static void sema_prepare_reference_argument_cleanup(ExprList* argument,
         &argument->cxx_temporary_cleanups,
         true,
         "class-prvalue reference argument cleanup is unsupported");
+}
+
+static void sema_prepare_derived_to_base_value_argument_cleanup(
+    ExprList* argument, Type* parameter_type) {
+    Expr* conversion;
+    Expr* source;
+    if (!argument || !(conversion = argument->expr) ||
+        !parameter_type || parameter_type->is_reference ||
+        parameter_type->kind != TYPE_STRUCT ||
+        conversion->kind != EXPR_CAST || !conversion->cast_expr ||
+        !conversion->cast_expr->type ||
+        conversion->cast_expr->type->kind != TYPE_STRUCT ||
+        type_is_compatible(conversion->cast_expr->type, parameter_type) ||
+        !sema_cxx_unique_public_nonvirtual_base_path(
+            conversion->cast_expr->type, parameter_type, NULL)) {
+        return;
+    }
+    source = conversion->cast_expr;
+    sema_prepare_class_prvalue_cleanup(
+        source, &argument->cxx_temporary_owner,
+        &argument->cxx_temporary_cleanups, true,
+        "derived-to-base class-value argument cleanup is unsupported");
 }
 
 static const char* sema_reference_temporary_symbol(
@@ -13550,7 +13653,14 @@ static Type* sema_expr(Expr* expr) {
                     }
                 }
                 if (parameter) {
-                    if (!implicit_cast(argument->expr, parameter->type)) {
+                    bool argument_converted = implicit_cast(
+                        argument->expr, parameter->type) != NULL;
+                    if (!argument_converted) {
+                        argument_converted =
+                            sema_cxx_apply_derived_to_base_value_cast(
+                                argument->expr, parameter->type, true);
+                    }
+                    if (!argument_converted) {
                         const char* function_name =
                             expr->call_func->kind == EXPR_IDENT
                                 ? expr->call_func->ident_name : "<function>";
@@ -13559,6 +13669,8 @@ static Type* sema_expr(Expr* expr) {
                                   argument_index, function_name);
                     } else {
                         sema_prepare_reference_argument_cleanup(
+                            argument, parameter->type);
+                        sema_prepare_derived_to_base_value_argument_cleanup(
                             argument, parameter->type);
                     }
                     parameter = parameter->next;
@@ -16697,6 +16809,13 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 return;
             }
             if (!type_is_compatible(type, initializer->type)) {
+                if (rcc_parser_is_cxx_mode() &&
+                    type->kind == TYPE_STRUCT &&
+                    initializer->type &&
+                    initializer->type->kind == TYPE_STRUCT &&
+                    implicit_cast(initializer, type)) {
+                    return;
+                }
                 rcc_error(initializer->loc,
                           "incompatible aggregate copy initialization");
             }

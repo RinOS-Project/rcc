@@ -3811,7 +3811,8 @@ static bool gen64_local_initializer(Module* mod, Type* type,
     if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
         initializer->type && type_is_compatible(type, initializer->type)) {
         int offset = 0;
-        if (initializer->kind == EXPR_VA_ARG) {
+        if (initializer->kind == EXPR_VA_ARG ||
+            !gen64_expr_is_lvalue(initializer)) {
             gen64_expr(mod, initializer);
         } else {
             gen64_lvalue(mod, initializer);
@@ -8407,9 +8408,27 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     } else {
                         gen64_lvalue(mod, argument);
                     }
+                    if (args[i]->cxx_temporary_owner) {
+                        int adjustment = argument->kind == EXPR_CAST &&
+                                argument->cxx_pointer_adjustment_valid
+                            ? argument->cxx_pointer_adjustment : 0;
+                        emit64_mov_reg_reg(mod, R11, RAX);
+                        if (adjustment > 0) {
+                            emit64_sub_reg_imm(mod, RAX, adjustment);
+                        } else if (adjustment < 0) {
+                            emit64_add_reg_imm(mod, RAX, -adjustment);
+                        }
+                        emit64_mov_mem_reg(
+                            mod, RBP,
+                            args[i]->cxx_temporary_owner->var_offset, RAX);
+                        emit64_mov_reg_reg(mod, RAX, R11);
+                    }
                     emit64_mov_reg_reg(mod, R11, RAX);
                     gen64_copy_memory(mod, RSP, layout->temp_offset,
                                       R11, 0, passed_type->size);
+                    gen64_push_call_temporary_cleanup(
+                        mod, args[i]->cxx_temporary_owner,
+                        args[i]->cxx_temporary_cleanups);
                 } else if (passed_type && passed_type->is_reference) {
                     if (layout->materialize_rvalue_reference) {
                         Type* value_type = passed_type->base;
