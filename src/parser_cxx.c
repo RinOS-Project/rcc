@@ -14785,9 +14785,243 @@ typedef struct CxxConstraintExpansionFrame {
     const struct CxxConstraintExpansionFrame* parent;
 } CxxConstraintExpansionFrame;
 
+typedef struct CxxConstraintLocalParameters {
+    const DeclList* parameters;
+    const struct CxxConstraintLocalParameters* parent;
+} CxxConstraintLocalParameters;
+
 static int cxx_template_conversion_vector_relation(
     const CxxFunctionTemplateMatch* left,
     const CxxFunctionTemplateMatch* right);
+
+static bool cxx_constraint_identifier_is_local(
+    const CxxConstraintLocalParameters* scopes, const Expr* expression) {
+    for (; scopes; scopes = scopes->parent) {
+        for (const DeclList* parameter = scopes->parameters;
+             parameter; parameter = parameter->next) {
+            if (parameter->decl && parameter->decl->name &&
+                expression->ident_name &&
+                strcmp(parameter->decl->name,
+                       expression->ident_name) == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static void cxx_constraint_substitute_nontype_list(
+    ExprList* list, CxxTemplate* tmpl, Expr** arguments,
+    const CxxConstraintLocalParameters* local_parameters);
+
+static Expr* cxx_constraint_substitute_nontype_expression(
+    Expr* expression, CxxTemplate* tmpl, Expr** arguments,
+    const CxxConstraintLocalParameters* local_parameters) {
+    if (!expression) return NULL;
+    if (expression->kind == EXPR_IDENT && expression->ident_name &&
+        arguments &&
+        !cxx_constraint_identifier_is_local(local_parameters, expression)) {
+        for (int index = 0; tmpl && index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                arguments[index] &&
+                strcmp(parameter->name, expression->ident_name) == 0) {
+                return arguments[index];
+            }
+        }
+    }
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            expression->unary_operand =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->unary_operand, tmpl, arguments,
+                    local_parameters);
+            break;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            expression->binary_lhs =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->binary_lhs, tmpl, arguments,
+                    local_parameters);
+            expression->binary_rhs =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->binary_rhs, tmpl, arguments,
+                    local_parameters);
+            break;
+        case EXPR_COND:
+            expression->cond_test =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->cond_test, tmpl, arguments,
+                    local_parameters);
+            expression->cond_then =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->cond_then, tmpl, arguments,
+                    local_parameters);
+            expression->cond_else =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->cond_else, tmpl, arguments,
+                    local_parameters);
+            break;
+        case EXPR_CALL:
+            expression->call_func =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->call_func, tmpl, arguments,
+                    local_parameters);
+            cxx_constraint_substitute_nontype_list(
+                expression->call_args, tmpl, arguments, local_parameters);
+            expression->call_new_count =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->call_new_count, tmpl, arguments,
+                    local_parameters);
+            cxx_constraint_substitute_nontype_list(
+                expression->call_new_args, tmpl, arguments,
+                local_parameters);
+            break;
+        case EXPR_CXX_TYPEID:
+            expression->cxx_typeid_operand =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->cxx_typeid_operand, tmpl, arguments,
+                    local_parameters);
+            break;
+        case EXPR_INDEX:
+            expression->index_base =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->index_base, tmpl, arguments,
+                    local_parameters);
+            expression->index_expr =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->index_expr, tmpl, arguments,
+                    local_parameters);
+            break;
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            expression->member_base =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->member_base, tmpl, arguments,
+                    local_parameters);
+            break;
+        case EXPR_CAST:
+            expression->cast_expr =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->cast_expr, tmpl, arguments,
+                    local_parameters);
+            break;
+        case EXPR_COMPOUND:
+            cxx_constraint_substitute_nontype_list(
+                expression->compound_init, tmpl, arguments,
+                local_parameters);
+            break;
+        case EXPR_GENERIC:
+            expression->generic_control =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->generic_control, tmpl, arguments,
+                    local_parameters);
+            for (GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                association->expr =
+                    cxx_constraint_substitute_nontype_expression(
+                        association->expr, tmpl, arguments,
+                        local_parameters);
+            }
+            break;
+        case EXPR_CXX_FOLD:
+            expression->cxx_fold_init =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->cxx_fold_init, tmpl, arguments,
+                    local_parameters);
+            expression->cxx_fold_pattern =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->cxx_fold_pattern, tmpl, arguments,
+                    local_parameters);
+            break;
+        case EXPR_CXX_REQUIRES: {
+            CxxConstraintLocalParameters nested_scope = {
+                expression->cxx_requires_params, local_parameters};
+            cxx_constraint_substitute_nontype_list(
+                expression->cxx_requires_items, tmpl, arguments,
+                &nested_scope);
+            cxx_constraint_substitute_nontype_list(
+                expression->cxx_requires_nested, tmpl, arguments,
+                &nested_scope);
+            for (CxxCompoundRequirement* requirement =
+                     expression->cxx_requires_compound;
+                 requirement; requirement = requirement->next) {
+                requirement->expr =
+                    cxx_constraint_substitute_nontype_expression(
+                        requirement->expr, tmpl, arguments, &nested_scope);
+            }
+            break;
+        }
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+            expression->va_list_operand =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->va_list_operand, tmpl, arguments,
+                    local_parameters);
+            expression->va_second_operand =
+                cxx_constraint_substitute_nontype_expression(
+                    expression->va_second_operand, tmpl, arguments,
+                    local_parameters);
+            break;
+        default:
+            break;
+    }
+    return expression;
+}
+
+static void cxx_constraint_substitute_nontype_list(
+    ExprList* list, CxxTemplate* tmpl, Expr** arguments,
+    const CxxConstraintLocalParameters* local_parameters) {
+    for (; list; list = list->next) {
+        list->expr = cxx_constraint_substitute_nontype_expression(
+            list->expr, tmpl, arguments, local_parameters);
+    }
+}
 
 static CxxConstraintNode* cxx_constraint_expand(
     const Expr* source, Expr* mapped, CxxTemplate* parameter_context,
@@ -14798,6 +15032,7 @@ static CxxConstraintNode* cxx_constraint_expand(
     if (source->kind == EXPR_CALL && source->cxx_concept_template) {
         CxxTemplate* concept = source->cxx_concept_template;
         Type* arguments[32] = { NULL };
+        Expr* symbolic_arguments[32] = { NULL };
         int64_t values[32] = { 0 };
         bool value_present[32] = { false };
         ExprList* argument = mapped->call_args;
@@ -14820,27 +15055,12 @@ static CxxConstraintNode* cxx_constraint_expand(
                 arguments[index] = argument->expr->type;
                 if (!arguments[index]) return NULL;
             } else if (parameter->kind == TPARAM_NONTYPE) {
-                if (!eval_template_integer_expression(
+                symbolic_arguments[index] = argument->expr;
+                if (eval_template_integer_expression(
                         argument->expr, parameter_context, NULL, NULL,
                         &values[index])) {
-                    /* A simple concept constraint is already one atomic
-                     * constraint. Preserve its concept-id argument mapping
-                     * when a dependent integral argument cannot be folded. */
-                    if (concept->constraint->kind != EXPR_AND &&
-                        concept->constraint->kind != EXPR_OR &&
-                        !(concept->constraint->kind == EXPR_CALL &&
-                          concept->constraint->cxx_concept_template)) {
-                        node = ast_arena_alloc(sizeof(*node));
-                        memset(node, 0, sizeof(*node));
-                        node->kind = CXX_CONSTRAINT_ATOM;
-                        node->atom.origin = concept->constraint;
-                        node->atom.expression = mapped;
-                        node->atom.parameter_context = parameter_context;
-                        return node;
-                    }
-                    return NULL;
+                    value_present[index] = true;
                 }
-                value_present[index] = true;
             } else {
                 return NULL;
             }
@@ -14851,6 +15071,8 @@ static CxxConstraintNode* cxx_constraint_expand(
             concept, concept->constraint, arguments, concept->param_count,
             values, value_present);
         if (!instantiated) return NULL;
+        instantiated = cxx_constraint_substitute_nontype_expression(
+            instantiated, concept, symbolic_arguments, NULL);
         frame.concept_template = concept;
         frame.parent = concept_stack;
         return cxx_constraint_expand(concept->constraint, instantiated,
