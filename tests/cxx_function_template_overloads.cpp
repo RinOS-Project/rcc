@@ -291,6 +291,17 @@ int choose_reference_qualification_template(T, const volatile int&) {
 }
 
 template<typename T>
+int choose_reference_pointer_qualification_template(
+    T, const int* const&) {
+    return 243;
+}
+
+template<typename T>
+int choose_reference_pointer_qualification_template(T, int* const&) {
+    return 244;
+}
+
+template<typename T>
 int choose_rvalue_cv_category(T&&) {
     return 173;
 }
@@ -660,6 +671,8 @@ int main(void) {
                    choose_reference_qualification(value) == 231 &&
                    choose_reference_qualification_template(value, value) ==
                        241 &&
+                   choose_reference_pointer_qualification_template(
+                       value, pointer) == 244 &&
                    choose_rvalue_cv_category(0) == 173 &&
                    choose_rvalue_cv_category(
                        static_cast<const int&&>(const_value)) == 174 &&
