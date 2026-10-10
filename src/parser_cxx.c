@@ -15534,7 +15534,9 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
             ? 0 : -1;
     }
     if (source->kind == TYPE_NULLPTR && target->kind == TYPE_BOOL) {
-        return 1;
+        /* A call argument is copy-initialized; nullptr_t -> bool is not an
+         * implicit conversion sequence. */
+        return -1;
     }
     if (source->kind == TYPE_PTR && target->kind == TYPE_BOOL) {
         return 2;

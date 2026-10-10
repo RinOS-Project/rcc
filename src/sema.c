@@ -7643,7 +7643,10 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     source = argument->type;
     if (argument->type->kind == TYPE_NULLPTR) {
         if (target->kind == TYPE_NULLPTR) return 0;
-        if (!target->is_reference && target->kind == TYPE_BOOL) return 1;
+        /* nullptr_t is a null pointer constant, but not a pointer type for
+         * implicit boolean conversion. Direct initialization has separate
+         * rules; overload arguments use copy-initialization. */
+        if (!target->is_reference && target->kind == TYPE_BOOL) return -1;
         if (!target->is_reference && target->kind == TYPE_PTR &&
             target->cxx_is_member_pointer) return 1;
         return !target->is_reference && type_is_pointer(target) ? 1 : -1;

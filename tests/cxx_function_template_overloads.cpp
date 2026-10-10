@@ -235,6 +235,24 @@ int choose_pointer_to_bool_non_template(void*) {
     return 216;
 }
 
+int choose_nullptr_to_bool_non_template(bool) {
+    return 217;
+}
+
+int choose_nullptr_to_bool_non_template(void*) {
+    return 218;
+}
+
+template<typename T>
+int choose_nullptr_to_bool_template(T, bool) {
+    return 219;
+}
+
+template<typename T>
+int choose_nullptr_to_bool_template(T, void*) {
+    return 220;
+}
+
 template<typename T>
 int choose_fixed_enum_template(T, unsigned char) {
     return 213;
@@ -423,6 +441,9 @@ int main(void) {
                    choose_fixed_enum_template(
                        value, conversion_fixed_byte_value) == 213 &&
                    choose_pointer_to_bool_non_template(pointer) == 216 &&
+                   choose_nullptr_to_bool_non_template(nullptr) == 218 &&
+                   choose_nullptr_to_bool_template(value, nullptr) == 220 &&
+                   !static_cast<bool>(nullptr) &&
                    choose_nearer_member_pointer(
                        0, &ConversionMemberPointerRoot::value) == 191 &&
                    choose_nearer_member_pointer_non_template(

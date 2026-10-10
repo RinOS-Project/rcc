@@ -2316,6 +2316,11 @@ separately recorded WSL startup failure.
   converting a pointer to `void*` is better than converting it to `bool`, as
   required by [over.ics.rank]. The focused gate passes i686/AMD64 generation,
   AMD64 execution, and GCC C++20 `-Werror` execution.
+- [x] Keep `nullptr_t` distinct from pointer types in implicit conversions:
+  reject `nullptr_t -> bool` for overload arguments while preserving null
+  pointer conversion to `void*`. Ordinary and function-template overloads
+  select the `void*` candidate, and `static_cast<bool>(nullptr)` remains valid.
+  The same focused gate passes for both targets and GCC C++20.
 - [ ] Extend equal-rank standard-conversion ordering to other conversions and
   reference bindings; proper subsequences and user-defined conversion ties
   remain open.
