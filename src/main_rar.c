@@ -18,7 +18,6 @@ typedef enum {
 static RarMode g_mode = RAR_CREATE;
 static bool g_verbose = false;
 static char* g_output = NULL;
-static char* g_member = NULL;  /* For extract */
 
 static void print_usage(void) {
     printf("RAR - RinOS Archiver v%d.%d.%d\n",

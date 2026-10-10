@@ -35,6 +35,17 @@ static RccIrValue append_alloca(RccIrBlock* block, uint64_t size)
     return instruction->result;
 }
 
+static RccIrValue append_symbol_address(RccIrBlock* block,
+                                        const char* symbol)
+{
+    RccIrInstruction* instruction = rcc_ir_append(
+        block, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u), NULL, 0u,
+        NULL, 0u);
+    assert(instruction != NULL);
+    rcc_ir_set_callee(instruction, symbol);
+    return instruction->result;
+}
+
 static void append_store(RccIrBlock* block, RccIrValue value,
                          RccIrValue address)
 {
@@ -1388,6 +1399,127 @@ static void verify_block_local_load_cse(void)
         assert(stats.commoned_instructions == 1u);
         assert(count_opcode(function, RCC_IR_LOAD) == 0u);
         assert(function->first_block->last->operands[0] == stored);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrValue address;
+        RccIrValue stored;
+        RccIrValue loaded;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "global_store_to_load_forwarding", i32, NULL, 0u);
+        entry = rcc_ir_block_add(function, "entry");
+        address = append_symbol_address(entry, "global_value");
+        stored = append_const(entry, i32, 37u);
+        append_store(entry, stored, address);
+        loaded = append_load(entry, i32, address);
+        append_return(entry, loaded);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 1u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 0u);
+        assert(function->first_block->last->operands[0] == stored);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrType parameters[] = {pointer};
+        RccIrValue address;
+        RccIrValue stored;
+        RccIrValue loaded;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "global_store_unknown_alias_barrier", i32,
+            parameters, 1u);
+        entry = rcc_ir_block_add(function, "entry");
+        address = append_symbol_address(entry, "global_value");
+        stored = append_const(entry, i32, 41u);
+        append_store(entry, stored, address);
+        append_store(entry, stored, function->parameters[0]);
+        loaded = append_load(entry, i32, address);
+        append_return(entry, loaded);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrValue address;
+        RccIrValue stored;
+        RccIrInstruction* call;
+        RccIrValue loaded;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "global_store_call_barrier", i32, NULL, 0u);
+        entry = rcc_ir_block_add(function, "entry");
+        address = append_symbol_address(entry, "global_value");
+        stored = append_const(entry, i32, 43u);
+        append_store(entry, stored, address);
+        call = rcc_ir_append(entry, RCC_IR_CALL, rcc_ir_type_void(),
+                             &address, 1u, NULL, 0u);
+        assert(call != NULL);
+        rcc_ir_set_callee(call, "mutate_memory");
+        loaded = append_load(entry, i32, address);
+        append_return(entry, loaded);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrValue address;
+        RccIrValue stored;
+        RccIrInstruction* volatile_load;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "global_store_volatile_load_barrier", i32, NULL, 0u);
+        entry = rcc_ir_block_add(function, "entry");
+        address = append_symbol_address(entry, "global_value");
+        stored = append_const(entry, i32, 47u);
+        append_store(entry, stored, address);
+        volatile_load = rcc_ir_append(
+            entry, RCC_IR_LOAD, i32, &address, 1u, NULL, 0u);
+        assert(volatile_load != NULL);
+        rcc_ir_set_volatile_access(volatile_load, true);
+        append_return(entry, volatile_load->result);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 1u);
+        assert(rcc_ir_verify_function(function, error, sizeof(error)));
+        rcc_ir_module_destroy(module);
+    }
+
+    {
+        RccIrValue address;
+        RccIrValue stored;
+        RccIrValue store_operands[2];
+        RccIrInstruction* volatile_store;
+        RccIrValue loaded;
+        module = rcc_ir_module_create();
+        function = rcc_ir_function_add(
+            module, "global_volatile_store_load_barrier", i32,
+            NULL, 0u);
+        entry = rcc_ir_block_add(function, "entry");
+        address = append_symbol_address(entry, "global_value");
+        stored = append_const(entry, i32, 53u);
+        store_operands[0] = stored;
+        store_operands[1] = address;
+        volatile_store = rcc_ir_append(
+            entry, RCC_IR_STORE, rcc_ir_type_void(), store_operands, 2u,
+            NULL, 0u);
+        assert(volatile_store != NULL);
+        rcc_ir_set_volatile_access(volatile_store, true);
+        loaded = append_load(entry, i32, address);
+        append_return(entry, loaded);
+        assert(rcc_ir_simplify(function, &stats, error, sizeof(error)));
+        assert(stats.commoned_instructions == 0u);
+        assert(count_opcode(function, RCC_IR_LOAD) == 1u);
         assert(rcc_ir_verify_function(function, error, sizeof(error)));
         rcc_ir_module_destroy(module);
     }

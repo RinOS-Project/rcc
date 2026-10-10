@@ -1322,6 +1322,10 @@
   - [x] 同一block内でdirect allocaへの直近store値を同じ型のnon-volatile loadへ
         forwardingし、unknown alias store/call/volatile loadでは全事実、
         volatile storeでは対象slotの値事実を失効させるIR verifier regressionを追加
+  - [x] direct data symbolへの直近store値も同一symbol・同一型の後続loadへ
+        forwardingする。global writeは他のmemory factを保守的に失効させ、
+        unknown alias store/call/volatile accessでは転送しないことをIR regressionで検証。
+        `test-ir`とC/C++の`test-optimize`を実行
 - [ ] General loop transformations and cost-aware/interprocedural inlining
   - [x] 同一basic block内の同一direct alloca・同一値型への未観測の上書きstoreを
         除去し、forward済みreadの値を保持する。derived-pointer read/write、

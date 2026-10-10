@@ -371,8 +371,10 @@ BOOTSTRAP_RUNTIME_IMPORTS = $(foreach symbol,$(BOOTSTRAP_RUNTIME_FUNCTIONS),\
                               --import $(symbol)=rincrt.rll@function)
 
 # Common source files (shared between rcc and rcc++)
+# Shared semantic analysis materializes C++ conversion-function templates.
 COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/lexer.c $(SRCDIR)/parser.c $(SRCDIR)/ast.c \
               $(SRCDIR)/symtab.c $(SRCDIR)/sema.c $(SRCDIR)/codegen.c \
+              $(SRCDIR)/ast_cxx.c $(SRCDIR)/parser_cxx.c \
               $(SRCDIR)/codegen64.c $(SRCDIR)/preproc.c \
               $(SRCDIR)/ir.c $(SRCDIR)/ir_pass.c $(SRCDIR)/mir.c \
               $(SRCDIR)/mir_alloc.c $(SRCDIR)/mir_phi.c \
@@ -391,7 +393,7 @@ RCC_SRCS = $(SRCDIR)/main.c
 RCC_OBJS = $(RCC_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 
 # RCC++ (C++ compiler)
-RCXX_SRCS = $(SRCDIR)/main_cxx.c $(SRCDIR)/ast_cxx.c $(SRCDIR)/parser_cxx.c
+RCXX_SRCS = $(SRCDIR)/main_cxx.c
 RCXX_OBJS = $(RCXX_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 
 ifeq ($(OS),Windows_NT)

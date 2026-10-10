@@ -1701,6 +1701,7 @@ typedef struct {
     RccIrInstruction** block_loads;
     size_t block_load_count;
     bool* direct_allocas;
+    bool* direct_data_symbols;
     RccIrValue* stored_values;
     RccIrInstruction** pending_stores;
     bool* has_stored_values;
@@ -1720,6 +1721,19 @@ static bool ir_pass_value_is_direct_alloca(
     const RccIrCseContext* context, RccIrValue value) {
     return context && context->direct_allocas &&
         value < context->replacement_count && context->direct_allocas[value];
+}
+
+static bool ir_pass_value_is_direct_data_symbol(
+    const RccIrCseContext* context, RccIrValue value) {
+    return context && context->direct_data_symbols &&
+        value < context->replacement_count &&
+        context->direct_data_symbols[value];
+}
+
+static bool ir_pass_value_is_direct_object(
+    const RccIrCseContext* context, RccIrValue value) {
+    return ir_pass_value_is_direct_alloca(context, value) ||
+        ir_pass_value_is_direct_data_symbol(context, value);
 }
 
 static bool ir_pass_store_is_disjoint_from_load(
@@ -1796,6 +1810,22 @@ static void ir_pass_record_store_value(
     if (!context || !store || store->operand_count != 2u) return;
     address = store->operands[1];
     value = store->operands[0];
+    if (ir_pass_value_is_direct_data_symbol(context, address)) {
+        /* A direct external-data symbol is a stable object identity, but
+         * unrelated indirect or external accesses may alias it.  Forget
+         * earlier memory facts at every global write, then retain only this
+         * exact symbol's value for an immediately following matching load. */
+        ir_pass_clear_block_store_facts(context);
+        context->block_stores[context->block_store_count++] = address;
+        context->block_store_slots[address] = true;
+        if (store->volatile_access) {
+            context->has_stored_values[address] = false;
+            return;
+        }
+        context->stored_values[address] = value;
+        context->has_stored_values[address] = true;
+        return;
+    }
     if (!ir_pass_value_is_direct_alloca(context, address)) {
         ir_pass_clear_block_store_facts(context);
         return;
@@ -1857,7 +1887,7 @@ static void ir_pass_common_block(RccIrCseContext* context,
                 RccIrValue address = instruction->operands[0];
                 RccIrValue stored_value = RCC_IR_VALUE_NONE;
                 bool direct_address =
-                    ir_pass_value_is_direct_alloca(context, address);
+                    ir_pass_value_is_direct_object(context, address);
                 if (!direct_address) {
                     /* An indirect read may observe a local through an alias
                      * or a derived pointer, so keep pending writes visible. */
@@ -2009,6 +2039,8 @@ static bool ir_pass_common_subexpressions(
         function->value_count * sizeof(*context.block_loads));
     context.direct_allocas = rcc_alloc(
         function->value_count * sizeof(*context.direct_allocas));
+    context.direct_data_symbols = rcc_alloc(
+        function->value_count * sizeof(*context.direct_data_symbols));
     context.stored_values = rcc_alloc(
         function->value_count * sizeof(*context.stored_values));
     context.pending_stores = rcc_alloc(
@@ -2028,6 +2060,7 @@ static bool ir_pass_common_subexpressions(
     context.error_size = error_size;
     for (index = 0u; index < function->value_count; ++index) {
         context.direct_allocas[index] = false;
+        context.direct_data_symbols[index] = false;
         context.stored_values[index] = RCC_IR_VALUE_NONE;
         context.pending_stores[index] = NULL;
         context.has_stored_values[index] = false;
@@ -2040,6 +2073,13 @@ static bool ir_pass_common_subexpressions(
             if (instruction->opcode == RCC_IR_ALLOCA &&
                 instruction->result != RCC_IR_VALUE_NONE) {
                 context.direct_allocas[instruction->result] = true;
+            } else if (instruction->opcode == RCC_IR_SYMBOL_ADDRESS &&
+                       instruction->result != RCC_IR_VALUE_NONE &&
+                       !instruction->symbol_is_code &&
+                       !instruction->symbol_is_tls &&
+                       instruction->callee &&
+                       instruction->callee[0] != '\0') {
+                context.direct_data_symbols[instruction->result] = true;
             }
             instruction = instruction->next;
         }
@@ -2056,6 +2096,7 @@ cleanup:
     rcc_free(context.available);
     rcc_free(context.block_loads);
     rcc_free(context.direct_allocas);
+    rcc_free(context.direct_data_symbols);
     rcc_free(context.stored_values);
     rcc_free(context.pending_stores);
     rcc_free(context.has_stored_values);
