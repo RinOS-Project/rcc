@@ -8,8 +8,12 @@ enum ConversionFixedByte : unsigned char {
 
 using ConversionThrowingFunctionPointer = void (*)();
 using ConversionNoexceptFunctionPointer = void (*)() noexcept;
+using ConversionExplicitThrowingFunctionPointer = void (*)() noexcept(false);
+using ConversionExplicitNoexceptFunctionPointer = void (*)() noexcept(true);
 
 void conversion_noexcept_function() noexcept {}
+void conversion_explicit_throwing_function() noexcept(false) {}
+void conversion_explicit_noexcept_function() noexcept(true) {}
 
 struct ConversionMemberPointerRoot {
     int value;
@@ -423,6 +427,10 @@ int main(void) {
     int** pointer_to_pointer = &pointer;
     ConversionNoexceptFunctionPointer noexcept_pointer =
         &conversion_noexcept_function;
+    ConversionExplicitThrowingFunctionPointer explicit_throwing_pointer =
+        &conversion_explicit_throwing_function;
+    ConversionExplicitNoexceptFunctionPointer explicit_noexcept_pointer =
+        &conversion_explicit_noexcept_function;
     int (ConversionMemberPointerRoot::*root_member_function)(int) const =
         &ConversionMemberPointerRoot::function;
     const int const_value = 6;
@@ -476,6 +484,26 @@ int main(void) {
                    choose_noexcept_function_pointer(noexcept_pointer) == 222 &&
                    choose_noexcept_function_pointer_template(
                        value, noexcept_pointer) == 224 &&
+                   choose_noexcept_function_pointer(
+                       conversion_noexcept_function) == 222 &&
+                   choose_noexcept_function_pointer_template(
+                       value, conversion_noexcept_function) == 224 &&
+                   choose_noexcept_function_pointer(
+                       explicit_noexcept_pointer) == 222 &&
+                   choose_noexcept_function_pointer_template(
+                       value, explicit_noexcept_pointer) == 224 &&
+                   choose_noexcept_function_pointer(
+                       explicit_throwing_pointer) == 221 &&
+                   choose_noexcept_function_pointer_template(
+                       value, explicit_throwing_pointer) == 223 &&
+                   choose_noexcept_function_pointer(
+                       conversion_explicit_noexcept_function) == 222 &&
+                   choose_noexcept_function_pointer_template(
+                       value, conversion_explicit_noexcept_function) == 224 &&
+                   choose_noexcept_function_pointer(
+                       conversion_explicit_throwing_function) == 221 &&
+                   choose_noexcept_function_pointer_template(
+                       value, conversion_explicit_throwing_function) == 223 &&
                    choose_nearer_member_pointer(
                        0, &ConversionMemberPointerRoot::value) == 191 &&
                    choose_nearer_member_pointer_non_template(

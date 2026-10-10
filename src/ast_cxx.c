@@ -422,6 +422,10 @@ static void cxx_mangle_type_append_context(
     if (type->kind == TYPE_FUNC) {
         if (type->is_volatile) cxx_mangle_type_char(buf, pos, 'V');
         if (type->is_const) cxx_mangle_type_char(buf, pos, 'K');
+        if (type->function_is_noexcept) {
+            cxx_mangle_type_char(buf, pos, 'D');
+            cxx_mangle_type_char(buf, pos, 'o');
+        }
     } else {
         if (type->is_volatile) cxx_mangle_type_char(buf, pos, 'V');
         if (type->is_const) cxx_mangle_type_char(buf, pos, 'K');

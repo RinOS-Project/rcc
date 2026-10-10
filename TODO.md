@@ -2333,7 +2333,12 @@ separately recorded WSL startup failure.
   Ordinary and function-template overload sets choose the `noexcept` target;
   the focused overload gate passes i686/AMD64 generation, AMD64 execution,
   and GCC C++20 `-Werror` checks.
-- [ ] Continue function-pointer conversion coverage for overloaded function
-  names, exception-specification expressions, and interactions with other
-  standard conversions; complete overload-resolution conformance remains
-  unfinished.
+- [x] Preserve `noexcept` function types in Itanium mangling (`Do`) and
+  propagate constant `noexcept(true/false)` specifications onto ordinary
+  function declaration types. Regression checks cover direct function-name
+  conversion, explicit function-pointer types, ordinary/template overloads,
+  distinct overload symbols, both target widths, generated AMD64 execution,
+  and GCC C++20 `-Werror`.
+- [ ] Continue with overloaded function-name resolution, dependent exception
+  specifications, and interactions with other standard conversions; complete
+  overload-resolution conformance remains unfinished.

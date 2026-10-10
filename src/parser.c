@@ -4866,11 +4866,22 @@ Stmt* parse_declaration(void) {
     if (parser_cxx_mode && type && type->kind == TYPE_FUNC &&
         match(TOK_NOEXCEPT)) {
         if (match(TOK_LPAREN)) {
+            int64_t noexcept_value = 0;
             noexcept_expr = parse_expression();
             expect(TOK_RPAREN, ")");
+            if (noexcept_expr &&
+                eval_integer_constant(noexcept_expr, &noexcept_value)) {
+                is_noexcept = noexcept_value != 0;
+            } else if (noexcept_expr &&
+                       (!noexcept_expr->type ||
+                        !noexcept_expr->type->cxx_dependent)) {
+                rcc_error(noexcept_expr->loc,
+                          "function noexcept requires a constant expression");
+            }
         } else {
             is_noexcept = true;
         }
+        type->function_is_noexcept = is_noexcept;
     }
     skip_attributes();
     is_weak = is_weak || take_weak_attribute();
