@@ -9,6 +9,7 @@
 #include "rin_formats_v3.h"
 #include <inttypes.h>
 #include <limits.h>
+#include <stdint.h>
 #include <string.h>
 
 /* Global linker options */
@@ -28,8 +29,12 @@ Linker* linker_new(void) {
     ld->sections = NULL;
     ld->section_count = 0;
     ld->symbols = NULL;
+    ld->symbol_tail = NULL;
+    ld->symbol_buckets = NULL;
+    ld->symbol_bucket_count = 0;
     ld->symbol_count = 0;
     ld->relocs = NULL;
+    ld->reloc_tail = NULL;
     ld->reloc_count = 0;
     ld->base_addr = 0x10000;  /* Default base address */
     ld->entry_addr = 0;
@@ -54,6 +59,8 @@ void linker_free(Linker* ld) {
         rcc_free(s);
         s = next;
     }
+
+    rcc_free(ld->symbol_buckets);
 
     /* Free symbols */
     GlobalSymbol* sym = ld->symbols;
@@ -501,14 +508,13 @@ bool linker_merge_sections(Linker* ld) {
                 pr->source = obj->filename;
                 pr->next = NULL;
 
-                /* Append to relocation list */
-                if (!ld->relocs) {
-                    ld->relocs = pr;
+                /* Keep appending relocations O(1) for large objects. */
+                if (ld->reloc_tail) {
+                    ld->reloc_tail->next = pr;
                 } else {
-                    PendingReloc* last = ld->relocs;
-                    while (last->next) last = last->next;
-                    last->next = pr;
+                    ld->relocs = pr;
                 }
+                ld->reloc_tail = pr;
                 ld->reloc_count++;
             }
         }
@@ -527,8 +533,57 @@ bool linker_merge_sections(Linker* ld) {
  * Symbol Collection and Resolution
  * ═══════════════════════════════════════ */
 
+static uint64_t linker_symbol_hash(const char* name) {
+    uint64_t hash = UINT64_C(14695981039346656037);
+    for (const unsigned char* byte = (const unsigned char*)name; *byte; ++byte) {
+        hash ^= *byte;
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static void linker_grow_symbol_index(Linker* ld) {
+    size_t capacity = ld->symbol_bucket_count ? ld->symbol_bucket_count : 64u;
+    GlobalSymbol** buckets;
+
+    if (ld->symbol_bucket_count) {
+        if (capacity > SIZE_MAX / 2u) {
+            rcc_fatal("linker symbol index is too large");
+        }
+        capacity *= 2u;
+    }
+    if (capacity > SIZE_MAX / sizeof(*buckets)) {
+        rcc_fatal("linker symbol index is too large");
+    }
+    buckets = rcc_alloc(capacity * sizeof(*buckets));
+    for (GlobalSymbol* symbol = ld->symbols; symbol; symbol = symbol->next) {
+        size_t bucket = (size_t)linker_symbol_hash(symbol->name) &
+                        (capacity - 1u);
+        symbol->hash_next = buckets[bucket];
+        buckets[bucket] = symbol;
+    }
+    rcc_free(ld->symbol_buckets);
+    ld->symbol_buckets = buckets;
+    ld->symbol_bucket_count = capacity;
+}
+
+static void linker_ensure_symbol_index_capacity(Linker* ld) {
+    if (ld->symbol_count == INT_MAX) {
+        rcc_fatal("too many linker symbols");
+    }
+    if (!ld->symbol_bucket_count ||
+        (size_t)ld->symbol_count + 1u >
+            ld->symbol_bucket_count - ld->symbol_bucket_count / 4u) {
+        linker_grow_symbol_index(ld);
+    }
+}
+
 static GlobalSymbol* find_symbol(Linker* ld, const char* name) {
-    for (GlobalSymbol* s = ld->symbols; s; s = s->next) {
+    if (!ld->symbol_bucket_count) return NULL;
+    size_t bucket = (size_t)linker_symbol_hash(name) &
+                    (ld->symbol_bucket_count - 1u);
+    for (GlobalSymbol* s = ld->symbol_buckets[bucket]; s;
+         s = s->hash_next) {
         if (strcmp(s->name, name) == 0) {
             return s;
         }
@@ -547,6 +602,7 @@ static int linker_dependency_index(const char* name) {
 static void add_symbol(Linker* ld, const char* name, uint64_t value, uint64_t size,
                        SymbolType type, SymbolBinding binding, int section,
                        const char* source, bool resolved) {
+    linker_ensure_symbol_index_capacity(ld);
     GlobalSymbol* sym = rcc_alloc(sizeof(GlobalSymbol));
     sym->name = rcc_strdup(name);
     sym->value = value;
@@ -558,13 +614,16 @@ static void add_symbol(Linker* ld, const char* name, uint64_t value, uint64_t si
     sym->resolved = resolved;
     sym->next = NULL;
 
-    if (!ld->symbols) {
+    if (!ld->symbol_tail) {
         ld->symbols = sym;
     } else {
-        GlobalSymbol* last = ld->symbols;
-        while (last->next) last = last->next;
-        last->next = sym;
+        ld->symbol_tail->next = sym;
     }
+    ld->symbol_tail = sym;
+    size_t bucket = (size_t)linker_symbol_hash(sym->name) &
+                    (ld->symbol_bucket_count - 1u);
+    sym->hash_next = ld->symbol_buckets[bucket];
+    ld->symbol_buckets[bucket] = sym;
     ld->symbol_count++;
 }
 
@@ -583,7 +642,6 @@ static void linker_add_pending_relocation(Linker* ld, int section,
                                           RelocType type, int64_t addend,
                                           const char* source) {
     PendingReloc* relocation = rcc_alloc(sizeof(PendingReloc));
-    PendingReloc* last;
     relocation->offset = offset;
     relocation->symbol = rcc_strdup(symbol);
     relocation->type = type;
@@ -591,13 +649,12 @@ static void linker_add_pending_relocation(Linker* ld, int section,
     relocation->section = section;
     relocation->source = source;
     relocation->next = NULL;
-    if (!ld->relocs) {
+    if (!ld->reloc_tail) {
         ld->relocs = relocation;
     } else {
-        last = ld->relocs;
-        while (last->next) last = last->next;
-        last->next = relocation;
+        ld->reloc_tail->next = relocation;
     }
+    ld->reloc_tail = relocation;
     ld->reloc_count++;
 }
 

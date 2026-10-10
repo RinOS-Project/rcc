@@ -2511,3 +2511,14 @@ separately recorded WSL startup failure.
   supported POSIX host. The configured Ubuntu-24.04 WSL instance returns
   `Wsl/Service/E_ACCESSDENIED`; the available Strawberry MinGW GCC rejects the
   runner's POSIX `-rdynamic` option, so execution and stage2 are not verified.
+
+## RLD scalability follow-up (2026-10-11, indexed linker state)
+
+- [x] Replace per-insertion symbol/relocation tail scans with maintained tail
+  pointers, and add a dynamically resized hash index for global symbol lookup
+  while preserving the ordered symbol list used for deterministic output.
+  GCC and Clang both pass link, archive-selection, weak replacement, COMDAT,
+  and format-validation tests. Re-link all four 33-object stage1 images with
+  each RLD: total link time falls from about 4–5 minutes per image to about
+  13 seconds for all four, with byte-identical SHA-256 outputs across the
+  before/after versions and between stage1-a/stage1-b.

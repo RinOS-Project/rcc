@@ -69,6 +69,7 @@ typedef struct GlobalSymbol {
     const char* source; /* Source object file */
     bool resolved;
     struct GlobalSymbol* next;
+    struct GlobalSymbol* hash_next;
 } GlobalSymbol;
 
 /* Pending relocation */
@@ -94,10 +95,14 @@ typedef struct Linker {
 
     /* Global symbol table */
     GlobalSymbol* symbols;
+    GlobalSymbol* symbol_tail;
+    GlobalSymbol** symbol_buckets;
+    size_t symbol_bucket_count;
     int symbol_count;
 
     /* Pending relocations */
     PendingReloc* relocs;
+    PendingReloc* reloc_tail;
     int reloc_count;
 
     /* Layout info */
