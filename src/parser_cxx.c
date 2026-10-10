@@ -14823,6 +14823,21 @@ static CxxConstraintNode* cxx_constraint_expand(
                 if (!eval_template_integer_expression(
                         argument->expr, parameter_context, NULL, NULL,
                         &values[index])) {
+                    /* A simple concept constraint is already one atomic
+                     * constraint. Preserve its concept-id argument mapping
+                     * when a dependent integral argument cannot be folded. */
+                    if (concept->constraint->kind != EXPR_AND &&
+                        concept->constraint->kind != EXPR_OR &&
+                        !(concept->constraint->kind == EXPR_CALL &&
+                          concept->constraint->cxx_concept_template)) {
+                        node = ast_arena_alloc(sizeof(*node));
+                        memset(node, 0, sizeof(*node));
+                        node->kind = CXX_CONSTRAINT_ATOM;
+                        node->atom.origin = concept->constraint;
+                        node->atom.expression = mapped;
+                        node->atom.parameter_context = parameter_context;
+                        return node;
+                    }
                     return NULL;
                 }
                 value_present[index] = true;
