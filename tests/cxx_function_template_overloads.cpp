@@ -106,6 +106,8 @@ struct ConversionMemberPointerRoot {
     }
 
     void noexcept_function() noexcept {}
+
+    void throwing_function() {}
 };
 
 struct ConversionMemberPointerMiddle : ConversionMemberPointerRoot {};
@@ -736,6 +738,8 @@ int main(void) {
         &ConversionMemberPointerRoot::function;
     void (ConversionMemberPointerRoot::*root_noexcept_member_function)()
         noexcept = &ConversionMemberPointerRoot::noexcept_function;
+    void (ConversionMemberPointerRoot::*root_throwing_member_function)() =
+        &ConversionMemberPointerRoot::throwing_function;
     const int const_value = 6;
     ConversionBaseLeaf leaf;
     ConversionBaseLeaf* leaf_pointer = &leaf;
@@ -850,8 +854,12 @@ int main(void) {
                        &ConversionMemberPointerRoot::value) == 203 &&
                    choose_member_function_pointer_noexcept(
                        0, root_noexcept_member_function) == 205 &&
+                   choose_member_function_pointer_noexcept(
+                       0, root_throwing_member_function) == 206 &&
                    choose_member_function_pointer_noexcept_non_template(
                        root_noexcept_member_function) == 207 &&
+                   choose_member_function_pointer_noexcept_non_template(
+                       root_throwing_member_function) == 208 &&
                    choose_base_over_void(leaf_pointer, leaf_pointer) == 83 &&
                    choose_nearer_base_value(
                        value_leaf_pointer, value_leaf) == 92 &&
