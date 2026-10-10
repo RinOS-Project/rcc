@@ -15776,7 +15776,8 @@ static int cxx_template_conversion_vector_relation(
                     ? 1 : -1;
             }
             if (qualification_relation == 0 &&
-                left->conversion_ranks[index] == 1 &&
+                (left->conversion_ranks[index] == 1 ||
+                 left->conversion_ranks[index] == 8) &&
                 left_target && right_target &&
                 !left_target->is_reference &&
                 !right_target->is_reference &&
@@ -15789,6 +15790,10 @@ static int cxx_template_conversion_vector_relation(
                 if (cxx_parser_template_qualification_targets_related(
                         left_target, right_target, true, &left_subset,
                         &right_subset, 0u)) {
+                    /* A pointer-to-void conversion can include a trailing
+                     * pointee qualification addition. Preserve the subset
+                     * ordering even though the overall sequence has
+                     * Conversion rank rather than Qualification rank. */
                     if (left_subset && !right_subset) {
                         qualification_relation = 1;
                     } else if (right_subset && !left_subset) {

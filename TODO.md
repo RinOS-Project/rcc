@@ -2147,6 +2147,19 @@ separately recorded WSL startup failure.
   user-defined conversion ties, and complete function-template partial
   ordering.
 
+## C++ regression follow-up (2026-10-10, pointer-to-void cv ranking)
+
+- [x] Compare qualification subsets when a pointer-to-void standard conversion
+  has overall Conversion rank: `int*` selects `void*` over `const void*`, while
+  incomparable `const void*` and `volatile void*` targets remain ambiguous.
+  GCC C++20 agrees; the focused test verifies i686/AMD64 generation, AMD64
+  execution, exact RCC diagnostic counts, and GCC rejection. The full native-
+  Windows `test-cxx` aggregate passed with the positive ranking case.
+- [ ] Continue general proper-subsequence ranking, reference-binding
+  refinements, derived-to-base ordering, user-defined conversion ties, and full
+  function-template partial ordering; this is a bounded pointer-conversion
+  rule, not complete standard conversion-sequence conformance.
+
 ## C++ regression follow-up (2026-10-10, pointer-to-bool ranking coverage)
 
 - [x] Add a function-template regression where an `int*` argument can convert

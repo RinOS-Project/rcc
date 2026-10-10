@@ -38,6 +38,16 @@ int select_incomparable_qualification(volatile T*) {
     return 8;
 }
 
+template<typename T>
+int select_incomparable_void_cv(T*, const void*) {
+    return 9;
+}
+
+template<typename T>
+int select_incomparable_void_cv(T*, volatile void*) {
+    return 10;
+}
+
 int main() {
     int value = 1;
     int values[2] = {};
@@ -45,5 +55,6 @@ int main() {
     return select_crossed(&value, priority, 0) +
            select_qualified_crossed(&value, priority) +
            select_array_qualified_crossed(values, priority) +
-           select_incomparable_qualification(&value);
+           select_incomparable_qualification(&value) +
+           select_incomparable_void_cv(&value, &value);
 }
