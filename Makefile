@@ -3106,7 +3106,7 @@ test-cxx-friend-requires-forms-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'indexed_requirement_mismatch'" $(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.log,1)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-friend-requires-forms/index-mismatch-x64.ro)
-	@echo "RCC++ friend requires-expression operator matching tests completed"
+	@echo "RCC++ friend requires-expression form matching tests completed"
 
 test-cxx-named-concepts-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)

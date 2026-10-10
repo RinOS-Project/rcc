@@ -696,12 +696,12 @@
           redeclaration whose call argument expression differs as an ambiguous
           overload on both targets; GCC C++20 agrees.
     - [x] Compare structural identity for requires-expression subscript,
-          assignment, comma, and unary `noexcept` simple requirements while
-          mapping renamed local parameters by position. A dedicated target is
-          part of `CXX_REGRESSION_TARGETS`; the positive friend call executes
-          after i686/AMD64 generation, while a changed subscript expression is
-          rejected with one exact ambiguity diagnostic and no `.ro` on either
-          target. GCC C++20 agrees.
+          assignment, comma, unary `noexcept`, `typeid` and string-literal
+          simple requirements while mapping renamed local parameters by
+          position. A dedicated target is part of `CXX_REGRESSION_TARGETS`; the
+          positive friend call executes after i686/AMD64 generation, while a
+          changed subscript expression is rejected with one exact ambiguity
+          diagnostic and no `.ro` on either target. GCC C++20 agrees.
     - [ ] Complete constraint equivalence for remaining expression forms,
           concept normalization, and the full standard constraint model;
           template-template defaults/signatures

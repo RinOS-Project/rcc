@@ -2765,6 +2765,12 @@ static bool cxx_template_redeclaration_expr_matches(
                 right->type && cxx_template_redeclaration_type_matches(
                     left->type, left_template, right->type, right_template,
                     depth + 1);
+        case EXPR_STRING_LIT:
+            return left->str_val && right->str_val &&
+                strcmp(left->str_val, right->str_val) == 0 && left->type &&
+                right->type && cxx_template_redeclaration_type_matches(
+                    left->type, left_template, right->type, right_template,
+                    depth + 1);
         case EXPR_IDENT: {
             bool is_local;
             if (!cxx_template_redeclaration_requires_parameter_matches(
@@ -2918,6 +2924,22 @@ static bool cxx_template_redeclaration_expr_matches(
                        left->cast_expr, left_template,
                        left_requires_params, right->cast_expr,
                        right_template, right_requires_params, depth + 1);
+        case EXPR_CXX_TYPEID:
+            return left->cxx_typeid_is_type == right->cxx_typeid_is_type &&
+                (!!left->cxx_typeid_operand_type ==
+                 !!right->cxx_typeid_operand_type) &&
+                (!left->cxx_typeid_operand_type ||
+                 cxx_template_redeclaration_type_matches(
+                     left->cxx_typeid_operand_type, left_template,
+                     right->cxx_typeid_operand_type, right_template,
+                     depth + 1)) &&
+                (!!left->cxx_typeid_operand ==
+                 !!right->cxx_typeid_operand) &&
+                (!left->cxx_typeid_operand ||
+                 cxx_template_redeclaration_expr_matches(
+                     left->cxx_typeid_operand, left_template,
+                     left_requires_params, right->cxx_typeid_operand,
+                     right_template, right_requires_params, depth + 1));
         case EXPR_CXX_REQUIRES:
             return cxx_template_redeclaration_requires_matches(
                 left, left_template, left_requires_params,
