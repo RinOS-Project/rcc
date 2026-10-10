@@ -8253,6 +8253,27 @@ static int cxx_conversion_vector_relation(
                 right_better = true;
             }
         }
+        if (left[index] == right[index] && left[index] < 3 &&
+            left_targets && right_targets && left_targets[index] &&
+            right_targets[index] &&
+            left_targets[index]->is_reference &&
+            right_targets[index]->is_reference &&
+            left_targets[index]->is_rvalue_reference ==
+                right_targets[index]->is_rvalue_reference &&
+            left_targets[index]->base && right_targets[index]->base) {
+            bool left_subset = true;
+            bool right_subset = true;
+            if (sema_cxx_qualification_targets_related(
+                    left_targets[index]->base,
+                    right_targets[index]->base, false, &left_subset,
+                    &right_subset, 0u)) {
+                if (left_subset && !right_subset) {
+                    left_better = true;
+                } else if (right_subset && !left_subset) {
+                    right_better = true;
+                }
+            }
+        }
         if (left[index] == right[index] && left[index] == 1 &&
             index >= argument_offset && argument && argument->expr &&
             left_targets && right_targets && left_targets[index] &&

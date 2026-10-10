@@ -2374,3 +2374,20 @@ separately recorded WSL startup failure.
   ordinary function cannot match the target. The focused gate passes i686/
   AMD64 generation, AMD64 execution, and GCC C++20 `-Werror` execution.
 - [ ] Complete remaining C++20 overload-resolution conformance.
+
+## C++ regression follow-up (2026-10-10, reference qualification ranking)
+
+- [x] Compare same-rank reference-binding sequences by their qualification
+  subsets when both candidates bind the same reference category. For an
+  `int` lvalue, `const int&` now wins over `const volatile int&`; the new case
+  reproduced an RCC ambiguity and agrees with GCC C++20. The focused overload
+  gate passes i686/AMD64 generation and execution, GCC C++20 `-Werror`, and
+  existing ambiguity diagnostics. The full native-Windows `test-cxx`
+  aggregate also passes.
+- [x] Correct the positive function-template fixture that passed `nullptr`
+  to a `bool` parameter: use explicit `static_cast<bool>(nullptr)`, which GCC
+  accepts, while preserving the separate regression that implicit
+  `nullptr_t`-to-`bool` overload conversion is rejected.
+- [ ] Complete remaining C++20 overload-resolution conformance; proper
+  subsequences, user-defined conversion ties, implicit-object refinements, and
+  full function-template partial ordering remain open.
