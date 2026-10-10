@@ -2098,9 +2098,11 @@ separately recorded WSL startup failure.
   ordinary arithmetic conversions after an implicit conversion function.
   `PromotionMeter` proves `operator short()` followed by `short`-to-`int`
   promotion wins over `operator long()` followed by `long`-to-`int`
-  conversion. GCC C++20 and `test-cxx-conversion-operator` pass for both
-  targets, runtime checks, and verified-backend object generation; the full
-  native-Windows `test-cxx` aggregate also passes after this change.
+  conversion, and `FloatingPromotionMeter` verifies `float`-to-`double`
+  promotion beats `int`-to-`double` conversion. GCC C++20 and
+  `test-cxx-conversion-operator` pass for both targets, runtime checks, and
+  verified-backend object generation; the full native-Windows `test-cxx`
+  aggregate also passes after the ranking change.
 - [ ] Continue implementing conversion-sequence subsequences, reference
   binding refinements, derived-to-base ordering, and full template candidate
   interactions; promotion support here is bounded.
