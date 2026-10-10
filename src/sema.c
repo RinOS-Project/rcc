@@ -8066,24 +8066,20 @@ static int sema_cxx_function_pointer_overload_rank(
             if (is_ambiguous) *is_ambiguous = true;
         }
     }
-    if (template_ambiguous) {
-        if (!selected || template_rank < 0 || selected_rank > template_rank) {
-            if (is_ambiguous) *is_ambiguous = true;
-            return -1;
-        }
-    }
-    if (selected && (!selected_template || selected_rank <= template_rank)) {
+    if (selected) {
         if (is_ambiguous && *is_ambiguous) return -1;
+        /* [over.over] eliminates matching function-template specializations
+         * once a non-template function remains in the selected set. */
         if (selected_out) *selected_out = selected;
         return selected_rank;
+    }
+    if (template_ambiguous) {
+        if (is_ambiguous) *is_ambiguous = true;
+        return -1;
     }
     if (selected_template) {
         if (selected_out) *selected_out = selected_template;
         return template_rank;
-    }
-    if (selected && (!is_ambiguous || !*is_ambiguous)) {
-        if (selected_out) *selected_out = selected;
-        return selected_rank;
     }
     return -1;
 }
@@ -18770,14 +18766,14 @@ static void sema_decl(Decl* decl) {
                 Decl** slot = &sym->decl;
                 while (*slot) {
                     Decl* prior = *slot;
-                    bool distinct_template_instances =
-                        prior->func_is_template_instance &&
-                        decl->func_is_template_instance &&
+                    bool distinct_template_entities =
+                        (prior->func_is_template_instance ||
+                         decl->func_is_template_instance) &&
                         prior->link_name && decl->link_name &&
                         strcmp(prior->link_name, decl->link_name) != 0;
                     if (cxx_same_function_parameters(prior->type,
                                                      decl->type) &&
-                        !distinct_template_instances) {
+                        !distinct_template_entities) {
                         redeclaration_prior = prior;
                         if (!type_is_compatible(prior->type->ret_type,
                                                 decl->type->ret_type)) {

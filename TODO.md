@@ -2367,8 +2367,10 @@ separately recorded WSL startup failure.
   lookup. Verify imported templates in pointer initializers through both forms;
   the focused gate passes i686/AMD64 generation, AMD64 execution, and GCC C++20
   `-Werror` execution.
-- [ ] Allow ordinary and function-template overloads with matching parameter
-  types but differing exception specifications to coexist, then compare their
-  function-pointer conversion ranks. GCC accepts this form; RCC currently
-  diagnoses the template declaration as a redefinition.
+- [x] Allow ordinary functions and function-template specializations with
+  matching parameter types but differing exception specifications to coexist.
+  In contextual function-pointer lookup, prefer a matching non-template per
+  `[over.over]`, but select the `noexcept` template when a potentially-throwing
+  ordinary function cannot match the target. The focused gate passes i686/
+  AMD64 generation, AMD64 execution, and GCC C++20 `-Werror` execution.
 - [ ] Complete remaining C++20 overload-resolution conformance.

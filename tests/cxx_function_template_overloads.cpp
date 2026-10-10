@@ -57,6 +57,15 @@ int conversion_non_template_preferred(T*) noexcept {
     return 7;
 }
 
+int conversion_noexcept_template_rank(int*) {
+    return 91;
+}
+
+template<typename T>
+int conversion_noexcept_template_rank(T*) noexcept {
+    return 92;
+}
+
 namespace ConversionFunctionTemplateNamespace {
 template<typename T>
 int select(T*) noexcept {
@@ -199,6 +208,14 @@ int verify_function_template_pointer_overload() {
            namespaced(nullptr) == 8 &&
            packed(1, 2) == 6 &&
            fixed_over_pack(1) == 110 && fixed_prefix_over_pack(1, 2) == 130;
+}
+
+int verify_noexcept_function_template_rank() {
+    ConversionNoexceptIntPointerFunction nonthrowing =
+        conversion_noexcept_template_rank;
+    ConversionThrowingIntPointerFunction throwing =
+        conversion_noexcept_template_rank;
+    return nonthrowing(nullptr) == 92 && throwing(nullptr) == 91;
 }
 
 int verify_function_template_using_lookup() {
@@ -664,6 +681,7 @@ int main(void) {
                        verify_function_pointer_overload_context() &&
                    verify_function_template_pointer_overload() &&
                    verify_function_template_using_lookup() &&
+                   verify_noexcept_function_template_rank() &&
                    choose_noexcept_function_pointer(
                        explicit_noexcept_pointer) == 222 &&
                    choose_noexcept_function_pointer_template(
