@@ -2214,6 +2214,7 @@ separately recorded WSL startup failure.
   the reference candidate, while pointee cv is not. GCC and RCC both diagnose
   `T` versus `const T&`, `T&`, and `T&&`, plus `T*` versus `T*&`,
   `T* const&`, and `T* volatile&`, as ambiguous for the tested calls;
+  and `T*&&` and `T* const&&` are ambiguous for xvalue pointer arguments.
   i686/AMD64 negative checks are in the focused overload target. Existing
   `T&&` versus `const T&&` cv ranking still passes. Member pointers, nested
   pointers, and cv-qualified pointees are intentionally not covered by this

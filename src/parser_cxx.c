@@ -12972,6 +12972,11 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
     TypeParam* pattern_parameter;
     TypeParam* actual_parameter;
     if (!tmpl || !pattern || !actual || !arguments) return false;
+    if (actual->kind == TYPE_PTR && actual->is_reference &&
+        !(pattern->kind == TYPE_PTR && pattern->is_reference)) {
+        actual = actual->base;
+        if (!actual) return false;
+    }
     if (pattern->kind == TYPE_STRUCT && pattern->tag) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
@@ -18449,7 +18454,15 @@ static Type* parse_cxx_type_spec(void) {
             t = member_pointer;
         } else if (match(TOK_STAR)) {
             t = type_ptr(t);
-            while (match(TOK_CONST)) t->is_const = true;
+            while (match(TOK_CONST) || match(TOK_VOLATILE) ||
+                   match(TOK_RESTRICT)) {
+                if (previous()->type == TOK_CONST) t->is_const = true;
+                else if (previous()->type == TOK_VOLATILE) {
+                    t->is_volatile = true;
+                } else {
+                    t->is_restrict = true;
+                }
+            }
         } else if (match(TOK_AMP)) {
             if (saw_reference) {
                 rcc_error(previous()->loc,
