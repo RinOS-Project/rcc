@@ -814,6 +814,122 @@ static void verified_apply_statement_debug_ranges(
     }
 }
 
+static bool verified_inline_is_within(
+    const RccIrModule* module, size_t call_index, size_t ancestor_index) {
+    while (call_index < module->inline_call_count) {
+        const RccIrInlineCall* call = &module->inline_calls[call_index];
+        if (call_index == ancestor_index) return true;
+        if (call->parent_index_plus_one == 0u) return false;
+        call_index = call->parent_index_plus_one - 1u;
+    }
+    return false;
+}
+
+static bool verified_append_debug_inline_calls(
+    Module* destination, const RccIrModule* source,
+    const RccX86EncodedFunction* encoded, const ObjSymbol* function_symbol,
+    char* error, size_t error_size) {
+    size_t* global_index_plus_one = NULL;
+    if (!destination || !source || !encoded || !function_symbol ||
+        (source->inline_call_count != 0u && !source->inline_calls)) {
+        if (error && error_size != 0u) {
+            snprintf(error, error_size,
+                     "verified inline debug metadata is incomplete");
+        }
+        return false;
+    }
+    if (source->inline_call_count == 0u) return true;
+    if (source->inline_call_count >
+        SIZE_MAX / sizeof(*global_index_plus_one)) {
+        if (error && error_size != 0u) {
+            snprintf(error, error_size,
+                     "verified inline debug map is too large");
+        }
+        return false;
+    }
+    global_index_plus_one = rcc_alloc(
+        source->inline_call_count * sizeof(*global_index_plus_one));
+    memset(global_index_plus_one, 0,
+           source->inline_call_count * sizeof(*global_index_plus_one));
+    for (size_t call_index = 0u;
+         call_index < source->inline_call_count; ++call_index) {
+        const RccIrInlineCall* call = &source->inline_calls[call_index];
+        uint32_t local_start = UINT32_MAX;
+        uint32_t local_end = 0u;
+        for (size_t range_index = 0u;
+             range_index < encoded->inline_range_count; ++range_index) {
+            const RccX86CodeInlineRange* range =
+                &encoded->inline_ranges[range_index];
+            size_t range_call_index;
+            uint32_t range_end;
+            if (range->call_index_plus_one == 0u ||
+                range->call_index_plus_one > source->inline_call_count) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "encoded inline range refers to an unknown call");
+                }
+                rcc_free(global_index_plus_one);
+                return false;
+            }
+            range_call_index = range->call_index_plus_one - 1u;
+            if (!verified_inline_is_within(
+                    source, range_call_index, call_index)) continue;
+            if (range->size == 0u || range->offset > UINT32_MAX - range->size) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "encoded inline range overflows");
+                }
+                rcc_free(global_index_plus_one);
+                return false;
+            }
+            range_end = range->offset + range->size;
+            if (range->offset < local_start) local_start = range->offset;
+            if (range_end > local_end) local_end = range_end;
+        }
+        if (local_start == UINT32_MAX) continue;
+        if (local_end <= local_start ||
+            local_end > function_symbol->size ||
+            function_symbol->value > UINT32_MAX - local_end) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "verified inline range is outside its function");
+            }
+            rcc_free(global_index_plus_one);
+            return false;
+        }
+        if (!call->caller || !call->callee || !call->filename ||
+            !call->filename[0] || call->line == 0u ||
+            call->parent_index_plus_one > call_index ||
+            (call->parent_index_plus_one != 0u &&
+             global_index_plus_one[call->parent_index_plus_one - 1u] == 0u)) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "verified inline call tree is inconsistent");
+            }
+            rcc_free(global_index_plus_one);
+            return false;
+        }
+        {
+            SourceLoc location = {
+                call->filename, (int)call->line, (int)call->column};
+            size_t global_index = module_begin_debug_inline_call(
+                destination, (const Decl*)call->caller,
+                (const Decl*)call->callee, location,
+                (uint32_t)(function_symbol->value + local_start),
+                call->parent_index_plus_one == 0u
+                    ? 0u
+                    : global_index_plus_one[
+                        call->parent_index_plus_one - 1u]);
+            module_end_debug_inline_call(
+                destination, global_index,
+                (uint32_t)(function_symbol->value + local_end));
+            global_index_plus_one[call_index] = global_index + 1u;
+        }
+    }
+    rcc_free(global_index_plus_one);
+    return true;
+}
+
 static void verified_emit_debug_sections(
     ObjectFile* object, Module* data_module, const AST* ast,
     const char* translation_unit,
@@ -850,6 +966,17 @@ static void verified_emit_debug_sections(
         module_add_debug_frame_save(
             debug_module, save->save_pc, save->dwarf_register,
             save->frame_offset);
+    }
+    for (size_t index = 0u;
+         index < data_module->debug_inline_call_count; ++index) {
+        const ModuleDebugInlineCall* call =
+            &data_module->debug_inline_calls[index];
+        size_t debug_index = module_begin_debug_inline_call(
+            debug_module, call->caller, call->callee,
+            call->call_location, call->code_start,
+            call->parent_index_plus_one);
+        module_end_debug_inline_call(
+            debug_module, debug_index, call->code_end);
     }
     for (int index = 0; index < data_module->symbol_count; ++index) {
         verified_copy_debug_symbol(debug_module, &data_module->symbols[index]);
@@ -1021,6 +1148,21 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             return verified_reason(
                 RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
                 "function '%s' object emission failed: %s",
+                declaration->name, pipeline_error);
+        }
+        if (g_opts.debug_info &&
+            !verified_append_debug_inline_calls(
+                data_module, module, &encoded,
+                objfile_find_symbol(object, object_name),
+                pipeline_error, sizeof(pipeline_error))) {
+            rcc_free(debug_variable_locations);
+            rcc_free(scoped_name);
+            rcc_x86_encoded_function_release(&encoded);
+            rcc_ir_module_destroy(module);
+            objfile_free(object);
+            return verified_reason(
+                RCC_VERIFIED_OBJECT_INVALID, reason, reason_size,
+                "function '%s' debug inline recording failed: %s",
                 declaration->name, pipeline_error);
         }
         if (g_opts.debug_info &&

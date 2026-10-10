@@ -26,8 +26,9 @@
   「inliningやloop optimizationが存在しない」とは分類しない。
 - DWARF line/info/frame、stack location、多数のC/C++ type DIEと、nested
   lexical block内stack localのv4 location listは実装済みだが、全lifetime／
-  register配置を追跡する完全なlocation list、inline attribution、任意prologueの
-  CFIは未完了。
+  register配置を追跡する完全なlocation list、全inline attribution、任意prologueの
+  CFIは未完了。verified backendでは最適化inlineのorigin／call-site rangeを
+  i686/AMD64でDWARFへ出力する経路を追加済み。
   RinOS-native i686/x86_64 self-hostは、成功済みhost stage2 reproductionとは別項目。
 - `.github/workflows/ci.yml`はGCC/Clangの`test-ci`、full `test-cxx`、独立sanitizer jobを
   設定済み。workflowの存在だけでは成功を証明しないため、下記CI実行確認項目は
@@ -1755,6 +1756,10 @@
         DIEとして出力し、abstract-originにformal parameter DIEを含める。
         `test-debug-info`で両archのnested parent/child、PC range包含、宣言元
         parameterのname/type/locationを検証
+  - [x] verified backendで最適化inlineのorigin／呼出し位置をIRからMIR・x86
+        legalization・encoded PC rangeまで伝播し、relocation付きDWARF inline DIEを
+        出力。C++ inline host/leafのabstract origin、call-site file/line/column、
+        function内PC rangeをi686/AMD64 `-g -O2 -fverified-backend`で検証
   - [ ] `.debug_info`の全inline attribution／全scopeの宣言開始・終了に一致する
         location lists、register・piece location追跡、非標準prologueを含む
         完全なCFI/unwind

@@ -21,6 +21,7 @@ typedef struct {
     size_t fixup_capacity;
     size_t relocation_capacity;
     size_t source_range_capacity;
+    size_t inline_range_capacity;
     size_t local_location_capacity;
     size_t epilogue_capacity;
     char* error;
@@ -111,6 +112,43 @@ static bool x86_add_source_range(
     ranges[encoder->output.source_range_count].source_statement =
         instruction->source_statement;
     ++encoder->output.source_range_count;
+    return true;
+}
+
+static bool x86_add_inline_range(
+    RccX86Encoder* encoder, const RccX86LegalInstruction* instruction,
+    uint32_t offset) {
+    size_t capacity;
+    RccX86CodeInlineRange* ranges;
+    if (!instruction ||
+        instruction->source_inline_call_index_plus_one == 0u) return true;
+    if (encoder->output.code_size == offset) return true;
+    if (encoder->output.code_size < offset ||
+        encoder->output.code_size - offset > UINT32_MAX) {
+        return x86_encode_error(
+            encoder, "x86 inline range is outside encoded instruction");
+    }
+    if (encoder->output.inline_range_count ==
+            encoder->inline_range_capacity) {
+        capacity = encoder->inline_range_capacity == 0u
+            ? 32u : encoder->inline_range_capacity * 2u;
+        if (capacity < encoder->output.inline_range_count + 1u ||
+            capacity > SIZE_MAX / sizeof(*ranges)) {
+            return x86_encode_error(
+                encoder, "x86 inline range table is too large");
+        }
+        ranges = rcc_realloc(
+            encoder->output.inline_ranges, capacity * sizeof(*ranges));
+        encoder->output.inline_ranges = ranges;
+        encoder->inline_range_capacity = capacity;
+    }
+    ranges = encoder->output.inline_ranges;
+    ranges[encoder->output.inline_range_count].offset = offset;
+    ranges[encoder->output.inline_range_count].size =
+        (uint32_t)(encoder->output.code_size - offset);
+    ranges[encoder->output.inline_range_count].call_index_plus_one =
+        instruction->source_inline_call_index_plus_one;
+    ++encoder->output.inline_range_count;
     return true;
 }
 
@@ -2919,6 +2957,7 @@ void rcc_x86_encoded_function_release(RccX86EncodedFunction* encoded) {
     }
     rcc_free(encoded->relocations);
     rcc_free(encoded->source_ranges);
+    rcc_free(encoded->inline_ranges);
     rcc_free(encoded->local_locations);
     rcc_free(encoded->epilogues);
     rcc_free(encoded->callee_saves);
@@ -2939,6 +2978,7 @@ bool rcc_x86_verify_encoded_function(
         !encoded->block_offsets || encoded->block_count == 0u ||
         (encoded->relocation_count != 0u && !encoded->relocations) ||
         (encoded->source_range_count != 0u && !encoded->source_ranges) ||
+        (encoded->inline_range_count != 0u && !encoded->inline_ranges) ||
         (encoded->local_location_count != 0u &&
          !encoded->local_locations) ||
         (encoded->epilogue_count != 0u && !encoded->epilogues) ||
@@ -3071,6 +3111,30 @@ bool rcc_x86_verify_encoded_function(
             }
         }
     }
+    for (size_t index = 0u; index < encoded->inline_range_count; ++index) {
+        const RccX86CodeInlineRange* range = &encoded->inline_ranges[index];
+        if (range->call_index_plus_one == 0u || range->size == 0u ||
+            range->offset >= encoded->code_size ||
+            range->size > encoded->code_size - range->offset) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "x86 encoded inline range is invalid");
+            }
+            return false;
+        }
+        if (index != 0u) {
+            uint32_t previous_end =
+                encoded->inline_ranges[index - 1u].offset +
+                encoded->inline_ranges[index - 1u].size;
+            if (range->offset < previous_end) {
+                if (error && error_size != 0u) {
+                    snprintf(error, error_size,
+                             "x86 encoded inline ranges overlap");
+                }
+                return false;
+            }
+        }
+    }
     for (size_t index = 0u; index < encoded->local_location_count; ++index) {
         const RccX86CodeLocalLocation* location =
             &encoded->local_locations[index];
@@ -3126,6 +3190,7 @@ bool rcc_x86_encode_function(
             uint32_t offset = (uint32_t)encoder.output.code_size;
             if (!x86_emit_instruction(&encoder, instruction) ||
                 !x86_add_source_range(&encoder, instruction, offset) ||
+                !x86_add_inline_range(&encoder, instruction, offset) ||
                 !x86_add_local_location(&encoder, instruction)) {
                 goto cleanup;
             }

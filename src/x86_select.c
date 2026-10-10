@@ -448,6 +448,8 @@ static bool x86_select_instruction(
     }
     machine->source_declaration = instruction->source_declaration;
     machine->source_statement = instruction->source_statement;
+    machine->source_inline_call_index_plus_one =
+        instruction->source_inline_call_index_plus_one;
     ++selected->source_instruction_count;
     return true;
 }

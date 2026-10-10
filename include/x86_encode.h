@@ -32,6 +32,13 @@ typedef struct {
 } RccX86CodeSourceRange;
 
 typedef struct {
+    uint32_t offset;
+    uint32_t size;
+    /* One-based RccIrModule inline-call index. */
+    size_t call_index_plus_one;
+} RccX86CodeInlineRange;
+
+typedef struct {
     /* Borrowed AST declaration; valid while the originating AST is alive. */
     const void* declaration;
     /* DWARF frame-base-relative byte offset after final frame layout. */
@@ -64,6 +71,8 @@ typedef struct {
     size_t relocation_count;
     RccX86CodeSourceRange* source_ranges;
     size_t source_range_count;
+    RccX86CodeInlineRange* inline_ranges;
+    size_t inline_range_count;
     RccX86CodeLocalLocation* local_locations;
     size_t local_location_count;
     RccX86CodeEpilogue* epilogues;

@@ -101,6 +101,7 @@ struct RccMirInstruction {
     const void* source_declaration;
     /* Borrowed AST statement used only for verified debug-range tracking. */
     const void* source_statement;
+    size_t source_inline_call_index_plus_one;
     RccMirBlock* block;
     RccMirInstruction* previous;
     RccMirInstruction* next;

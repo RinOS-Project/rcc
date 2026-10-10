@@ -27,3 +27,13 @@ extern "C" int verified_cpp_debug_overaligned_local()
     aligned.value = 41;
     return aligned.value;
 }
+
+static inline int verified_cpp_debug_inline_leaf(int value)
+{
+    return value + 5;
+}
+
+extern "C" int verified_cpp_debug_inline_host(int value)
+{
+    return verified_cpp_debug_inline_leaf(value) * 2;
+}

@@ -5,6 +5,7 @@
 #include "rcc.h"
 #include "ast_cxx.h"
 #include "ir_lower.h"
+#include "optimize.h"
 #include "ir_pass.h"
 #include "mir.h"
 #include "mir_alloc.h"
@@ -109,6 +110,7 @@ typedef struct {
     RccIrBlockId continue_target;
     RccIrLowerLoopFrame* wide_loop;
     const Stmt* current_statement;
+    size_t active_debug_inline_call_plus_one;
     RccIrValue aggregate_return_address;
     const Expr* aggregate_result_destination_call;
     RccIrLowerValue aggregate_result_destination;
@@ -744,6 +746,8 @@ static RccIrInstruction* lower_append(
         context->unsupported = true;
     } else {
         instruction->source_statement = context->current_statement;
+        instruction->source_inline_call_index_plus_one =
+            context->active_debug_inline_call_plus_one;
     }
     return instruction;
 }
@@ -9960,60 +9964,107 @@ static bool lower_statement_has_goto_label(const Stmt* statement) {
 
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression) {
-    RccIrLowerValue value = lower_expression_impl(context, expression);
+    RccIrLowerValue value;
     RccIrLowerValue null_value;
     RccIrLowerValue condition;
     RccIrLowerValue adjustment;
     RccIrLowerValue adjusted;
     RccIrValue operands[3];
     RccIrInstruction* instruction;
-    bool volatile_access = value.volatile_access;
+    bool volatile_access;
+    size_t previous_inline_call_plus_one =
+        context ? context->active_debug_inline_call_plus_one : 0u;
+    const Decl* inline_caller = NULL;
+    const Decl* inline_callee = NULL;
+    SourceLoc call_location = {NULL, 0, 0};
+    if (context && g_opts.debug_info && expression &&
+        rcc_optimize_inline_debug_info(
+            expression, &inline_caller, &inline_callee, &call_location) &&
+        inline_caller == context->declaration && call_location.filename &&
+        call_location.filename[0] && call_location.line > 0 &&
+        call_location.column >= 0) {
+        size_t call_index = rcc_ir_module_add_inline_call(
+            context->module, inline_caller, inline_callee,
+            call_location.filename,
+            (uint32_t)call_location.line,
+            (uint32_t)call_location.column,
+            previous_inline_call_plus_one);
+        if (call_index == SIZE_MAX) {
+            rcc_fatal("invalid optimized inline debug origin");
+            return lower_invalid_value();
+        }
+        context->active_debug_inline_call_plus_one = call_index + 1u;
+    }
+    value = lower_expression_impl(context, expression);
     if (!value.valid || !expression ||
         !expression->cxx_member_pointer_adjustment_valid) {
-        return value;
+        goto cleanup;
     }
+    volatile_access = value.volatile_access;
     if (type_is_cxx_member_function_pointer(expression->type)) {
-        return lower_adjust_member_function_pointer(
+        value = lower_adjust_member_function_pointer(
             context, value, expression->cxx_member_pointer_adjustment);
+        goto cleanup;
     }
     if (!expression->type || expression->type->kind != TYPE_PTR ||
         !expression->type->cxx_is_member_pointer ||
         value.type.kind != RCC_IR_TYPE_INTEGER ||
         (value.type.bit_width != 32u && value.type.bit_width != 64u)) {
         context->unsupported = true;
-        return lower_invalid_value();
+        value = lower_invalid_value();
+        goto cleanup;
     }
     null_value = lower_integer_constant(
         context, value.type, true,
         value.type.bit_width == 64u ? UINT64_MAX : UINT32_MAX);
-    if (!null_value.valid) return lower_invalid_value();
+    if (!null_value.valid) {
+        value = lower_invalid_value();
+        goto cleanup;
+    }
     operands[0] = value.value;
     operands[1] = null_value.value;
     instruction = lower_append(context, RCC_IR_ICMP,
                                rcc_ir_type_integer(1u), operands, 2u,
                                NULL, 0u);
-    if (!instruction) return lower_invalid_value();
+    if (!instruction) {
+        value = lower_invalid_value();
+        goto cleanup;
+    }
     rcc_ir_set_predicate(instruction, RCC_IR_ICMP_NE);
     condition = lower_value(instruction->result,
                             rcc_ir_type_integer(1u), true);
     adjustment = lower_integer_constant(
         context, value.type, true,
         (uint64_t)(int64_t)expression->cxx_member_pointer_adjustment);
-    if (!adjustment.valid) return lower_invalid_value();
+    if (!adjustment.valid) {
+        value = lower_invalid_value();
+        goto cleanup;
+    }
     operands[0] = value.value;
     operands[1] = adjustment.value;
     instruction = lower_append(context, RCC_IR_ADD, value.type,
                                operands, 2u, NULL, 0u);
-    if (!instruction) return lower_invalid_value();
+    if (!instruction) {
+        value = lower_invalid_value();
+        goto cleanup;
+    }
     adjusted = lower_value(instruction->result, value.type, true);
     operands[0] = condition.value;
     operands[1] = adjusted.value;
     operands[2] = value.value;
     instruction = lower_append(context, RCC_IR_SELECT, value.type,
                                operands, 3u, NULL, 0u);
-    if (!instruction) return lower_invalid_value();
+    if (!instruction) {
+        value = lower_invalid_value();
+        goto cleanup;
+    }
     value = lower_value(instruction->result, value.type, true);
     value.volatile_access = volatile_access;
+cleanup:
+    if (context) {
+        context->active_debug_inline_call_plus_one =
+            previous_inline_call_plus_one;
+    }
     return value;
 }
 

@@ -100,6 +100,16 @@ typedef struct RccIrModule RccIrModule;
 typedef struct RccIrConstant RccIrConstant;
 
 typedef struct {
+    /* Borrowed declarations and filename; valid while the source AST lives. */
+    const void* caller;
+    const void* callee;
+    const char* filename;
+    uint32_t line;
+    uint32_t column;
+    size_t parent_index_plus_one;
+} RccIrInlineCall;
+
+typedef struct {
     size_t first_operand;
     size_t operand_count;
     uint32_t size;
@@ -140,6 +150,8 @@ struct RccIrInstruction {
     const void* source_declaration;
     /* Borrowed AST statement used only for verified debug-range tracking. */
     const void* source_statement;
+    /* One-based IR-module inline-call index, or zero outside an inline body. */
+    size_t source_inline_call_index_plus_one;
     RccIrBlock* block;
     RccIrInstruction* previous;
     RccIrInstruction* next;
@@ -188,6 +200,9 @@ struct RccIrModule {
     RccIrConstant* first_constant;
     RccIrConstant* last_constant;
     size_t constant_count;
+    RccIrInlineCall* inline_calls;
+    size_t inline_call_count;
+    size_t inline_call_capacity;
 };
 
 RccIrType rcc_ir_type_void(void);
@@ -202,6 +217,10 @@ void rcc_ir_module_destroy(RccIrModule* module);
 const RccIrConstant* rcc_ir_module_intern_constant(
     RccIrModule* module, const void* data, size_t size,
     uint32_t alignment);
+size_t rcc_ir_module_add_inline_call(
+    RccIrModule* module, const void* caller, const void* callee,
+    const char* filename, uint32_t line, uint32_t column,
+    size_t parent_index_plus_one);
 RccIrFunction* rcc_ir_function_add(RccIrModule* module, const char* name,
                                   RccIrType return_type,
                                   const RccIrType* parameter_types,

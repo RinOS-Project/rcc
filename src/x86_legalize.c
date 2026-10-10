@@ -342,11 +342,14 @@ static void x86_legal_tag_source(
     const RccX86Instruction* source) {
     RccX86LegalInstruction* instruction;
     if (!block || !source ||
-        (!source->source_statement && !source->source_declaration)) return;
+        (!source->source_statement && !source->source_declaration &&
+         source->source_inline_call_index_plus_one == 0u)) return;
     instruction = previous ? previous->next : block->first;
     while (instruction) {
         instruction->source_statement = source->source_statement;
         instruction->source_declaration = source->source_declaration;
+        instruction->source_inline_call_index_plus_one =
+            source->source_inline_call_index_plus_one;
         instruction = instruction->next;
     }
 }
@@ -523,6 +526,8 @@ static bool x86_legal_copy_selected_metadata(
     destination->symbol_is_tls = source->symbol_is_tls;
     destination->has_callee = source->has_callee;
     destination->sysv_variadic_call = source->sysv_variadic_call;
+    destination->source_inline_call_index_plus_one =
+        source->source_inline_call_index_plus_one;
     if (source->symbol) destination->symbol = rcc_strdup(source->symbol);
     return true;
 }

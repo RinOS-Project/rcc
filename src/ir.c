@@ -161,7 +161,41 @@ void rcc_ir_module_destroy(RccIrModule* module) {
         rcc_free(constant);
         constant = next_constant;
     }
+    rcc_free(module->inline_calls);
     rcc_free(module);
+}
+
+size_t rcc_ir_module_add_inline_call(
+    RccIrModule* module, const void* caller, const void* callee,
+    const char* filename, uint32_t line, uint32_t column,
+    size_t parent_index_plus_one) {
+    size_t capacity;
+    size_t index;
+    if (!module || !caller || !callee || !filename || !filename[0] ||
+        line == 0u || parent_index_plus_one > module->inline_call_count) {
+        return SIZE_MAX;
+    }
+    if (module->inline_call_count == module->inline_call_capacity) {
+        capacity = module->inline_call_capacity < 8u
+            ? 8u : module->inline_call_capacity * 2u;
+        if (capacity < module->inline_call_capacity ||
+            capacity > SIZE_MAX / sizeof(*module->inline_calls)) {
+            rcc_fatal("IR inline-call table is too large");
+            return SIZE_MAX;
+        }
+        module->inline_calls = rcc_realloc(
+            module->inline_calls, capacity * sizeof(*module->inline_calls));
+        module->inline_call_capacity = capacity;
+    }
+    index = module->inline_call_count++;
+    module->inline_calls[index].caller = caller;
+    module->inline_calls[index].callee = callee;
+    module->inline_calls[index].filename = filename;
+    module->inline_calls[index].line = line;
+    module->inline_calls[index].column = column;
+    module->inline_calls[index].parent_index_plus_one =
+        parent_index_plus_one;
+    return index;
 }
 
 const RccIrConstant* rcc_ir_module_intern_constant(
@@ -1373,6 +1407,26 @@ bool rcc_ir_verify_module(const RccIrModule* module, char* error,
         }
         return false;
     }
+    if ((module->inline_call_count != 0u && !module->inline_calls) ||
+        module->inline_call_count > module->inline_call_capacity) {
+        if (error && error_size != 0u) {
+            snprintf(error, error_size,
+                     "IR inline-call table is inconsistent");
+        }
+        return false;
+    }
+    for (size_t index = 0u; index < module->inline_call_count; ++index) {
+        const RccIrInlineCall* call = &module->inline_calls[index];
+        if (!call->caller || !call->callee || !call->filename ||
+            !call->filename[0] || call->line == 0u ||
+            call->parent_index_plus_one > index) {
+            if (error && error_size != 0u) {
+                snprintf(error, error_size,
+                         "IR inline-call record is invalid");
+            }
+            return false;
+        }
+    }
     for (const RccIrConstant* constant = module->first_constant;
          constant; constant = constant->next) {
         if (!constant->name || !constant->name[0] || !constant->data ||
@@ -1423,6 +1477,20 @@ bool rcc_ir_verify_module(const RccIrModule* module, char* error,
                              "duplicate IR function '%s'", function->name);
                 }
                 return false;
+            }
+        }
+        for (const RccIrBlock* block = function->first_block;
+             block; block = block->next) {
+            for (const RccIrInstruction* instruction = block->first;
+                 instruction; instruction = instruction->next) {
+                if (instruction->source_inline_call_index_plus_one >
+                    module->inline_call_count) {
+                    if (error && error_size != 0u) {
+                        snprintf(error, error_size,
+                                 "IR instruction has an invalid inline-call index");
+                    }
+                    return false;
+                }
             }
         }
         last = function;

@@ -81,6 +81,7 @@ struct RccX86Instruction {
     const void* source_declaration;
     /* Borrowed AST statement used only for verified debug-range tracking. */
     const void* source_statement;
+    size_t source_inline_call_index_plus_one;
     bool cycle_break;
     RccX86Instruction* previous;
     RccX86Instruction* next;
