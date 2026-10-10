@@ -163,6 +163,14 @@ int choose_pointer_subsequence(T*, const void*) {
     return 72;
 }
 
+int choose_pointer_subsequence_non_template(void*) {
+    return 73;
+}
+
+int choose_pointer_subsequence_non_template(const void*) {
+    return 74;
+}
+
 template<typename T>
 int choose_nearer_base(T*, ConversionBaseRoot*) {
     return 81;
@@ -354,6 +362,7 @@ int main(void) {
                        static_cast<const int&&>(const_value)) == 174 &&
                    choose_pointer_bool(pointer, pointer) == 62 &&
                    choose_pointer_subsequence(pointer, pointer) == 71 &&
+                   choose_pointer_subsequence_non_template(pointer) == 73 &&
                    choose_nearer_base(leaf_pointer, leaf_pointer) == 82 &&
                    choose_nearer_base_reference(leaf_pointer, leaf) == 86 &&
                    choose_nearer_base_reference_non_template(leaf) == 88 &&

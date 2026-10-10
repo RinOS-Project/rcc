@@ -2279,7 +2279,11 @@ separately recorded WSL startup failure.
   targets ambiguous. The focused overload target passes i686/AMD64 generation,
   generated AMD64 execution, expected ambiguity/no-object checks, and GCC C++20
   positive and negative comparisons.
+- [x] Apply equal-rank qualification-subset ordering to ordinary conversions
+  to `void*` targets: `int*` selects `void*` over `const void*`, while
+  `const void*` versus `volatile void*` remains ambiguous. GCC C++20 agrees;
+  the same focused gate verifies both target widths and generated AMD64
+  execution, plus negative diagnostics without object output.
 - [ ] Continue proper-subsequence ordering for other standard-conversion
-  shapes, including qualification interactions and nested pointer targets;
-  user-defined conversion ties and complete function-template partial
-  ordering remain open.
+  shapes, including nested pointer targets; user-defined conversion ties and
+  complete function-template partial ordering remain open.

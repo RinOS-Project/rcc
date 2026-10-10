@@ -8075,6 +8075,22 @@ static int cxx_conversion_vector_relation(
             left_targets[index]->base && right_targets[index]->base) {
             Type* left_pointee = left_targets[index]->base;
             Type* right_pointee = right_targets[index]->base;
+            if (left_pointee->kind == TYPE_VOID &&
+                right_pointee->kind == TYPE_VOID) {
+                bool left_subset =
+                    (!left_pointee->is_const || right_pointee->is_const) &&
+                    (!left_pointee->is_volatile ||
+                     right_pointee->is_volatile);
+                bool right_subset =
+                    (!right_pointee->is_const || left_pointee->is_const) &&
+                    (!right_pointee->is_volatile ||
+                     left_pointee->is_volatile);
+                if (left_subset && !right_subset) {
+                    left_better = true;
+                } else if (right_subset && !left_subset) {
+                    right_better = true;
+                }
+            }
             bool matching_cv =
                 left_pointee->is_const == right_pointee->is_const &&
                 left_pointee->is_volatile == right_pointee->is_volatile;
