@@ -568,7 +568,11 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     bool is_volatile_method = false;
     CxxRefQualifier ref_qualifier = CXX_REF_QUAL_NONE;
 
-    if (func && cls) {
+    if (func && cls && func->func_is_cxx_method && func->type) {
+        is_const_method = func->type->is_const;
+        is_volatile_method = func->type->is_volatile;
+        ref_qualifier = func->type->function_ref_qualifier;
+    } else if (func && cls) {
         for (struct CxxMember* member = cls->members; member;
              member = member->next) {
             if (member->method && member->method->decl == func) {
@@ -735,9 +739,25 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         return cxx_mangle_function(func, ns, cls);
     }
 
-    base = cxx_mangle_name(func->name, ns, cls);
-    strcpy(buf, base);
-    pos = strlen(buf);
+    if (tmpl->member_method && func->name &&
+        strcmp(func->name, "operator conversion") == 0) {
+        size_t base_length;
+        base = cxx_mangle_function(func, ns, cls);
+        base_length = strlen(base);
+        if (!func->func_params && base_length > 0u &&
+            base[base_length - 1u] == 'v') {
+            --base_length;
+        }
+        if (base_length >= sizeof(buf) - 32u) {
+            rcc_fatal("C++ template conversion function name is too long");
+        }
+        memcpy(buf, base, base_length);
+        pos = base_length;
+    } else {
+        base = cxx_mangle_name(func->name, ns, cls);
+        strcpy(buf, base);
+        pos = strlen(buf);
+    }
     buf[pos++] = 'I';
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
@@ -3411,6 +3431,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->is_hidden_friend = false;
     tmpl->kind = TMPL_CLASS;
     tmpl->class_def = NULL;
+    tmpl->member_method = NULL;
     tmpl->alias_type = NULL;
     tmpl->enclosing_template = NULL;
     tmpl->is_constexpr = false;
@@ -5562,6 +5583,13 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         function_type->has_prototype = definition->type
             ? definition->type->has_prototype : true;
         function_type->function_is_noexcept = definition->func_is_noexcept;
+        function_type->is_const = definition->type
+            ? definition->type->is_const : false;
+        function_type->is_volatile = definition->type
+            ? definition->type->is_volatile : false;
+        function_type->function_ref_qualifier = definition->type
+            ? definition->type->function_ref_qualifier
+            : CXX_REF_QUAL_NONE;
         instance = decl_func(definition->name, function_type, parameters,
                              template_clone_stmt(tmpl, definition->func_body,
                                                  args, arg_count, value_args,
@@ -5588,6 +5616,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->func_cxx_namespace_scope = tmpl->ns;
         instance->func_is_template_instance = true;
         instance->func_template_owner = tmpl;
+        instance->func_is_cxx_method = definition->func_is_cxx_method;
+        instance->func_method_owner = definition->func_method_owner;
         instance->func_template_arg_count = arg_count;
         if (arg_count > 0) {
             instance->func_template_args = ast_arena_alloc(
@@ -5616,7 +5646,9 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->func_has_cxx_linkage = true;
         instance->func_friend_access = tmpl->friend_access;
         instance->link_name = rcc_intern(cxx_mangle_function_template(
-            instance, tmpl->ns, NULL, tmpl, args, value_args,
+            instance, tmpl->ns,
+            tmpl->member_method ? tmpl->member_method->owner : NULL,
+            tmpl, args, value_args,
             value_present));
 
         tmpl->instances = ast_arena_grow(
@@ -6672,6 +6704,7 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
     method->is_defaulted = false;
     method->is_constructor = false;
     method->is_destructor = false;
+    method->member_template = NULL;
     method->vtable_index = -1;
 
     return method;

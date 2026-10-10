@@ -2553,21 +2553,31 @@ separately recorded WSL startup failure.
   diagnostics on both targets, and fallback positives compile for both.
   The native-Windows `test-cxx` aggregate also passes. No nested-type parser
   change was needed.
-- [ ] Implement class-scope member function templates, starting with
-  conversion-function templates: parse the member template declaration,
-  deduce template arguments from the required conversion result type, evaluate
-  constraints, instantiate the member with its class/`this` ABI, and compare
-  selected specialization identity in overload resolution. A GCC C++20 oracle
-  accepts `template<class T> operator T() const` and diagnoses an `int` versus
-  `double` overload call as ambiguous; RCC currently emits 14 parser errors
-  before overload resolution. The target-type deduction rule is specified in
-  [`temp.deduct.conv`](https://timsong-cpp.github.io/cppwp/std20/temp.deduct.conv),
-  and user-defined sequence ordering is specified in
-  [`over.ics.rank`](https://timsong-cpp.github.io/cppwp/std20/over.ics.rank).
-  This syntax/instantiation gap is broader than the completed non-template
-  conversion-function identity fix; do not mark it complete until valid
-  single-candidate conversions and ambiguous overload cases pass GCC-oracle,
-  i686/AMD64, and generated-code tests.
+- [x] Parse and lower conversion-function templates in non-template classes.
+  Deduce template arguments from the required conversion result, evaluate
+  supported `requires` constraints, instantiate a real member specialization
+  with the implicit-object ABI, and carry its identity into existing user-
+  defined conversion ranking. The focused test checks direct and argument
+  conversions, `sizeof(T)` constraint filtering against `int`/`double`
+  overloads, and GCC-confirmed ambiguity for an unconstrained `operator T()`.
+  `test-cxx-conversion-operator` passes GCC C++20 `-Werror`, i686/AMD64
+  assembly/object generation, generated AMD64 execution, verified-backend
+  object generation, and ambiguous-diagnostic/no-output checks for both
+  targets.
+- [x] Re-run dependent nested-`typename` regressions after the parser changes.
+  `test-cxx-class-template-dependent-nested-type` passes on native Windows,
+  including exact class/function-template diagnostics, i686/AMD64 generation,
+  and generated-code execution. There was no uncommitted parser/fixture diff in
+  the child checkout to carry forward.
+- [ ] Extend member function templates beyond conversion operators in
+  non-template classes, including ordinary member templates, class-template
+  member templates, inherited conversion templates, explicit specialization,
+  full constraint ordering, and non-type/template-template edge cases. The
+  initial conversion-template implementation does not complete general
+  class-scope member-template support. Conversion target deduction and
+  user-defined sequence ranking are specified in
+  [`temp.deduct.conv`](https://timsong-cpp.github.io/cppwp/std20/temp.deduct.conv)
+  and [`over.ics.rank`](https://timsong-cpp.github.io/cppwp/std20/over.ics.rank).
 
 ## RCC continuation (2026-10-11, SysV flexible-array ABI and native Clang tests)
 

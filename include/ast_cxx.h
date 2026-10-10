@@ -309,6 +309,9 @@ struct CxxTemplate {
         Decl* func_def;
         Decl* var_def;
     };
+    /* Preserve member qualifiers and owning-class ABI metadata when a
+     * function-template specialization is selected. */
+    CxxMethod* member_method;
 
     /* The expanded type of a bounded alias template.  Alias templates do
      * not have an object or function body; their specialization is resolved
@@ -416,6 +419,7 @@ struct CxxMethod {
     bool is_defaulted;
     bool is_constructor;
     bool is_destructor;
+    CxxTemplate* member_template;
     int vtable_index;        /* -1 if not virtual */
 };
 

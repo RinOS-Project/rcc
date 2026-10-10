@@ -2261,7 +2261,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
                                             bool* is_constexpr,
                                             bool* is_noexcept,
                                             bool* is_consteval);
-CxxTemplate* parse_cxx_template(void);
+CxxTemplate* parse_cxx_template(AccessSpec member_access);
 bool rcc_parse_cxx_deduction_guide(void);
 static void add_cxx_declaration(AST* ast, Stmt* statement,
                                 bool c_language_linkage,
@@ -6468,7 +6468,7 @@ static void register_ordinary_class_methods(CxxClass* cls) {
 
         constructor = method && method->is_constructor
             ? constructor_info_for_method(cls, method) : NULL;
-        if (!method || !method->decl ||
+        if (!method || !method->decl || method->member_template ||
             (!method->decl->func_body && !method->is_pure_virtual) ||
             method->is_deleted ||
             method->is_defaulted ||
@@ -7289,6 +7289,68 @@ static bool cxx_class_alias_template_starts(void) {
     return token && token->type == TOK_USING;
 }
 
+static Token* cxx_conversion_member_skip_specifiers(Token* token) {
+    while (token) {
+        if (token->type == TOK_EXPLICIT) {
+            token = token->next;
+            if (token && token->type == TOK_LPAREN) {
+                int depth = 0;
+                do {
+                    if (token->type == TOK_LPAREN) ++depth;
+                    else if (token->type == TOK_RPAREN) --depth;
+                    token = token->next;
+                } while (token && depth > 0);
+            }
+        } else if (token->type == TOK_INLINE ||
+                   token->type == TOK___INLINE__ ||
+                   token->type == TOK_VIRTUAL ||
+                   token->type == TOK_STATIC ||
+                   token->type == TOK_CONSTEXPR ||
+                   token->type == TOK_CONSTEVAL) {
+            token = token->next;
+        } else {
+            break;
+        }
+    }
+    return token;
+}
+
+static bool cxx_class_conversion_template_starts(void) {
+    Token* token;
+    int angle_depth = 0;
+    if (!check(TOK_TEMPLATE)) return false;
+    token = parser.cur->next;
+    if (!token || token->type != TOK_LT) return false;
+    for (; token; token = token->next) {
+        if (token->type == TOK_LT) {
+            ++angle_depth;
+        } else if (token->type == TOK_GT) {
+            if (--angle_depth == 0) {
+                token = token->next;
+                break;
+            }
+        } else if (token->type == TOK_RSHIFT) {
+            angle_depth -= 2;
+            if (angle_depth <= 0) {
+                token = token->next;
+                break;
+            }
+        }
+    }
+    if (token && token->type == TOK_REQUIRES) {
+        token = token->next;
+        if (!token || token->type != TOK_LPAREN) return false;
+        int depth = 0;
+        do {
+            if (token->type == TOK_LPAREN) ++depth;
+            else if (token->type == TOK_RPAREN) --depth;
+            token = token->next;
+        } while (token && depth > 0);
+    }
+    token = cxx_conversion_member_skip_specifiers(token);
+    return token && token->type == TOK_OPERATOR;
+}
+
 /* Parse the body and ABI metadata of a class after its source name has
  * already been consumed.  Explicit template specializations use this same
  * path so their class body cannot be mistaken for a primary-template body. */
@@ -7405,7 +7467,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
             if (cxx_friend_function_template_starts()) {
                 CxxTemplate* tmpl;
                 advance(); /* template */
-                tmpl = parse_cxx_template();
+                tmpl = parse_cxx_template(current_access);
                 if (!tmpl || tmpl->kind != TMPL_FUNCTION ||
                     !tmpl->friend_access) {
                     rcc_error(peek()->loc,
@@ -7423,13 +7485,29 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                 SourceLoc template_loc = peek()->loc;
                 CxxTemplate* member_template;
                 advance(); /* template */
-                member_template = parse_cxx_template();
+                member_template = parse_cxx_template(current_access);
                 if (!member_template || member_template->kind != TMPL_ALIAS) {
                     rcc_error(template_loc,
                               "class-scope alias template declaration is invalid");
                 } else {
                     cxx_class_add_alias_template(
                         cls, member_template, current_access, template_loc);
+                }
+                continue;
+            }
+
+            /* Conversion-function templates are retained as class methods
+             * and specialized from the required destination type. */
+            if (cxx_class_conversion_template_starts()) {
+                SourceLoc template_loc = peek()->loc;
+                CxxTemplate* member_template;
+                advance(); /* template */
+                member_template = parse_cxx_template(current_access);
+                if (!member_template ||
+                    member_template->kind != TMPL_FUNCTION ||
+                    !member_template->member_method) {
+                    rcc_error(template_loc,
+                              "class-scope conversion function template is invalid");
                 }
                 continue;
             }
@@ -8105,7 +8183,7 @@ static CxxNamespace* parse_cxx_namespace(AST* ast, CxxNamespace* parent,
             }
             cxx_namespace_add_class(ns, cls);
         } else if (match(TOK_TEMPLATE)) {
-            CxxTemplate* tmpl = parse_cxx_template();
+            CxxTemplate* tmpl = parse_cxx_template(ACCESS_PUBLIC);
             cxx_namespace_add_template(ns, tmpl);
         } else if (check(TOK_INLINE) && check_next(TOK_NAMESPACE)) {
             advance();
@@ -9227,7 +9305,7 @@ static bool cxx_template_declaration_is_alias(void) {
     return false;
 }
 
-CxxTemplate* parse_cxx_template(void) {
+CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     SourceLoc loc = previous()->loc;
     CxxTemplate* parameter_outer_template = active_template;
     int explicit_class_alignment = 0;
@@ -9549,6 +9627,40 @@ CxxTemplate* parse_cxx_template(void) {
      * consumed by class-template deduction and must not become a callable
      * namespace function. */
     if (rcc_parse_cxx_deduction_guide()) {
+        active_template = parameter_outer_template;
+        return tmpl;
+    }
+
+    Token* member_template_declaration =
+        cxx_conversion_member_skip_specifiers(parser.cur);
+    if (active_class && member_template_declaration &&
+        member_template_declaration->type == TOK_OPERATOR) {
+        CxxClass* owner = active_class;
+        struct CxxMember* previous_tail = owner->members;
+        struct CxxMember* new_member;
+        CxxMethod* method;
+        while (previous_tail && previous_tail->next) {
+            previous_tail = previous_tail->next;
+        }
+        tmpl->kind = TMPL_FUNCTION;
+        tmpl->ns = active_namespace ? active_namespace : g_global_namespace;
+        parse_class_member(owner, member_access);
+        new_member = previous_tail ? previous_tail->next : owner->members;
+        method = new_member ? new_member->method : NULL;
+        if (!method || !method->decl) {
+            rcc_error(loc,
+                      "conversion function template did not declare a method");
+            active_template = parameter_outer_template;
+            return tmpl;
+        }
+        method->member_template = tmpl;
+        method->decl->func_is_cxx_method = true;
+        method->decl->func_method_owner = owner->type;
+        tmpl->member_method = method;
+        tmpl->func_def = method->decl;
+        tmpl->name = ast_arena_strdup(method->source_name
+                                          ? method->source_name
+                                          : method->decl->name);
         active_template = parameter_outer_template;
         return tmpl;
     }
@@ -13097,6 +13209,165 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
     }
     if (specificity) *specificity += 16;
     return type_is_compatible(pattern, actual);
+}
+
+static TypeMethod* cxx_find_materialized_conversion_template(
+    Type* aggregate, Decl* declaration) {
+    for (TypeMethod* method = aggregate ? aggregate->methods : NULL;
+         method; method = method->next) {
+        if (method->function_decl == declaration) return method;
+    }
+    return NULL;
+}
+
+static TypeMethod* cxx_materialize_conversion_template(
+    Type* aggregate, CxxMethod* method, Type* target) {
+    CxxTemplate* tmpl = method ? method->member_template : NULL;
+    Type* deduction_target = target;
+    Type* arguments[32] = { NULL };
+    int64_t values[32] = { 0 };
+    bool value_present[32] = { false };
+    bool unsupported_constraint = false;
+    int specificity = 0;
+    Decl* instance;
+    Type* object_type;
+    Type* qualified_owner;
+    TypeParam* this_type_parameter;
+    TypeMethod* lowered;
+    TypeMethod** tail;
+
+    if (!aggregate || !method || !tmpl || !tmpl->func_def || !target ||
+        tmpl->param_count < 0 || tmpl->param_count > 32) {
+        return NULL;
+    }
+    if (deduction_target->is_reference) {
+        deduction_target = deduction_target->base;
+    }
+    if (!deduction_target || !tmpl->func_def->type ||
+        tmpl->func_def->type->kind != TYPE_FUNC ||
+        !deduce_function_template_type(
+            tmpl, tmpl->func_def->type->ret_type, deduction_target,
+            arguments, values, value_present, &specificity)) {
+        return NULL;
+    }
+
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind == TPARAM_NONTYPE) {
+            if (!value_present[index] && parameter->has_default &&
+                parameter->default_value &&
+                eval_template_integer_expression(
+                    parameter->default_value,
+                    parameter->default_context
+                        ? parameter->default_context : tmpl,
+                    values, value_present, &values[index])) {
+                value_present[index] = true;
+            }
+            if (!value_present[index]) return NULL;
+            arguments[index] = parameter->type;
+        } else if (!arguments[index] && parameter->has_default &&
+                   parameter->default_type) {
+            arguments[index] = substitute_template_type(
+                tmpl, parameter->default_type, arguments, tmpl->param_count,
+                values, value_present);
+        }
+        if (!arguments[index]) return NULL;
+    }
+    if (!cxx_template_constraint_satisfied(
+            tmpl, arguments, values, value_present, tmpl->func_def->loc,
+            false, &unsupported_constraint)) {
+        if (unsupported_constraint) {
+            rcc_error(tmpl->func_def->loc,
+                      "conversion-function template constraint cannot be evaluated");
+        }
+        return NULL;
+    }
+
+    instance = (Decl*)cxx_template_instantiate_with_values(
+        tmpl, arguments, values, value_present, tmpl->param_count);
+    if (!instance || !instance->type ||
+        instance->type->kind != TYPE_FUNC ||
+        !instance->type->ret_type) {
+        return NULL;
+    }
+    lowered = cxx_find_materialized_conversion_template(aggregate, instance);
+    if (lowered) return lowered;
+
+    qualified_owner = method->owner ? method->owner->type : NULL;
+    if (!qualified_owner) return NULL;
+    if (method->is_const || method->is_volatile) {
+        Type* cv_owner = ast_arena_alloc(sizeof(*cv_owner));
+        *cv_owner = *qualified_owner;
+        cv_owner->is_const = method->is_const;
+        cv_owner->is_volatile = method->is_volatile;
+        qualified_owner = cv_owner;
+    }
+    object_type = type_ptr(qualified_owner);
+    instance->func_is_cxx_method = true;
+    instance->func_method_owner = method->owner->type;
+    instance->func_has_cxx_linkage = true;
+    instance->func_has_local_linkage =
+        method->owner->type->cxx_scope_identity != NULL;
+    instance->func_this_param = decl_param(
+        "this", object_type, -1, instance->loc);
+
+    this_type_parameter = ast_arena_alloc(sizeof(*this_type_parameter));
+    this_type_parameter->name = "this";
+    this_type_parameter->type = object_type;
+    this_type_parameter->is_bitfield = false;
+    this_type_parameter->bit_width = 0u;
+    this_type_parameter->is_static = false;
+    this_type_parameter->initializer = NULL;
+    this_type_parameter->is_deprecated = false;
+    this_type_parameter->deprecated_message = NULL;
+    this_type_parameter->cxx_no_unique_address = false;
+    this_type_parameter->cxx_access = ACCESS_PUBLIC;
+    this_type_parameter->next = instance->type->params;
+    {
+        Type* method_type = ast_arena_alloc(sizeof(*method_type));
+        *method_type = *instance->type;
+        method_type->params = this_type_parameter;
+        instance->type = method_type;
+    }
+
+    instance->name = instance->link_name;
+    lowered = ast_arena_alloc(sizeof(*lowered));
+    lowered->name = method->source_name;
+    lowered->return_type = instance->type->ret_type;
+    lowered->function_decl = instance;
+    lowered->kind = TYPE_METHOD_FUNCTION;
+    lowered->cxx_access = (unsigned char)method->access;
+    lowered->is_explicit = method->is_explicit;
+    lowered->is_noexcept = method->is_noexcept;
+    lowered->ref_qualifier = method->ref_qualifier;
+    lowered->this_owner = method->owner->type;
+    lowered->this_adjustment = 0;
+    lowered->next = NULL;
+    tail = &aggregate->methods;
+    while (*tail) tail = &(*tail)->next;
+    *tail = lowered;
+    if (active_ast) ast_add_decl(active_ast, instance);
+    return lowered;
+}
+
+void rcc_parser_cxx_materialize_conversion_templates(
+    Type* aggregate, Type* target) {
+    CxxClass* cls;
+    if (!aggregate || !target ||
+        (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
+        return;
+    }
+    cls = aggregate->cxx_class;
+    for (struct CxxMember* member = cls ? cls->members : NULL;
+         member; member = member->next) {
+        CxxMethod* method = member->method;
+        if (!method || !method->member_template ||
+            !method->source_name ||
+            strcmp(method->source_name, "operator conversion") != 0) {
+            continue;
+        }
+        (void)cxx_materialize_conversion_template(aggregate, method, target);
+    }
 }
 
 /* Function-call template deduction applies the by-value parameter
@@ -20277,7 +20548,7 @@ AST* rcc_parse_cxx(TokenList* tokens) {
         } else if (match(TOK_NAMESPACE)) {
             (void)parse_cxx_namespace(ast, g_global_namespace, false);
         } else if (match(TOK_TEMPLATE)) {
-            CxxTemplate* tmpl = parse_cxx_template();
+            CxxTemplate* tmpl = parse_cxx_template(ACCESS_PUBLIC);
             if (g_global_namespace && tmpl &&
                 tmpl->kind != TMPL_DEDUCTION_GUIDE) {
                 cxx_namespace_add_template(g_global_namespace, tmpl);

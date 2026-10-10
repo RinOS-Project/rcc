@@ -53,6 +53,23 @@ public:
     }
 };
 
+class TemplatedConversionSource {
+public:
+    template <class T>
+    operator T() const {
+        return static_cast<T>(67);
+    }
+};
+
+class ConstrainedTemplatedConversionSource {
+public:
+    template <class T>
+        requires (sizeof(T) == 4)
+    operator T() const {
+        return static_cast<T>(73);
+    }
+};
+
 struct ReferenceConversionResult {
     int value;
 };
@@ -137,6 +154,14 @@ int choose_conversion(int value) {
     return value + 100;
 }
 
+int choose_constrained_conversion(int) {
+    return 101;
+}
+
+int choose_constrained_conversion(double) {
+    return 102;
+}
+
 long choose_conversion(long value) {
     return value + 200;
 }
@@ -194,12 +219,18 @@ int main() {
     RankedMeter ranked_meter;
     PromotionMeter promotion_meter;
     FloatingPromotionMeter floating_promotion_meter;
+    TemplatedConversionSource templated_source;
+    ConstrainedTemplatedConversionSource constrained_templated_source;
     int direct = meter;
+    int templated_direct = templated_source;
     int argument = take_integer(meter);
+    int templated_argument = take_integer(templated_source);
     long widened = take_long(meter);
 
     if (!flag) return 1;
-    if (direct != 7 || argument != 7 || widened != 7 ||
+    if (direct != 7 || templated_direct != 67 ||
+        templated_argument != 67 || argument != 7 || widened != 7 ||
+        choose_constrained_conversion(constrained_templated_source) != 101 ||
         return_integer() != 9 || return_long() != 11 ||
         choose_conversion(meter) != 107 ||
         take_template_integer(0, meter) != 17 ||

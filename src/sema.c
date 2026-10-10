@@ -2736,6 +2736,31 @@ static int sema_cxx_conversion_object_rank(TypeMethod* method,
     return rank;
 }
 
+static void sema_register_materialized_conversion_templates(Type* aggregate) {
+    if (!current_ast || !aggregate || !aggregate->cxx_class) return;
+    for (TypeMethod* method = aggregate->methods; method;
+         method = method->next) {
+        Decl* declaration = method->function_decl;
+        bool already_registered = false;
+        if (!declaration || !declaration->func_is_template_instance ||
+            !declaration->func_is_cxx_method ||
+            !declaration->func_method_owner ||
+            declaration->func_method_owner->cxx_class !=
+                aggregate->cxx_class ||
+            !method->name ||
+            strcmp(method->name, "operator conversion") != 0) {
+            continue;
+        }
+        for (DeclList* item = current_ast->decls; item; item = item->next) {
+            if (item->decl == declaration) {
+                already_registered = true;
+                break;
+            }
+        }
+        if (!already_registered) ast_add_decl(current_ast, declaration);
+    }
+}
+
 /* Find an ordinary public conversion function whose result can reach the
  * requested target through one standard conversion.  A user-defined
  * conversion cannot be chained with a second user-defined conversion.  The
@@ -2754,6 +2779,8 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
         return NULL;
     }
+    rcc_parser_cxx_materialize_conversion_templates(aggregate, target);
+    sema_register_materialized_conversion_templates(aggregate);
     for (method = aggregate->methods; method; method = method->next) {
         Type* result_type;
         int object_rank;
