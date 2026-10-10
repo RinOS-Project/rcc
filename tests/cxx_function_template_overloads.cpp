@@ -391,6 +391,26 @@ int choose_nearer_base_pointer_non_template(ConversionBaseMiddle*) {
     return 90;
 }
 
+int choose_derived_base_qualification(ConversionBaseRoot*) {
+    return 99;
+}
+
+int choose_derived_base_qualification(const ConversionBaseRoot*) {
+    return 100;
+}
+
+template<typename T>
+int choose_derived_base_qualification_template(
+    T*, ConversionBaseRoot*) {
+    return 101;
+}
+
+template<typename T>
+int choose_derived_base_qualification_template(
+    T*, const ConversionBaseRoot*) {
+    return 102;
+}
+
 int choose_fixed_enum_promotion(unsigned char) {
     return 211;
 }
@@ -696,6 +716,9 @@ int main(void) {
                    choose_nearer_base_reference_non_template(leaf) == 88 &&
                    choose_nearer_base_pointer_non_template(leaf_pointer) ==
                        90 &&
+                   choose_derived_base_qualification(leaf_pointer) == 99 &&
+                   choose_derived_base_qualification_template(
+                       pointer, leaf_pointer) == 101 &&
                    choose_fixed_enum_promotion(
                        conversion_fixed_byte_value) == 211 &&
                    choose_fixed_enum_template(

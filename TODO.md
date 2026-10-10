@@ -2298,6 +2298,11 @@ separately recorded WSL startup failure.
   base-pointer candidates ambiguous even when `void*` is also viable. GCC C++20
   agrees; the focused target passes both architectures, host execution, and
   expected ambiguity diagnostics with no object output.
+- [x] Cover equal-rank derived-to-base pointer conversions where only one
+  target adds pointee `const`: `Leaf*` selects `Root*` over `const Root*` for
+  both ordinary overloads and function-template candidates. The focused target
+  passes i686/AMD64 generation, freestanding i686 and AMD64 host execution, and
+  GCC C++20 `-Werror`.
 - [ ] Continue proper-subsequence ordering for other standard-conversion
   shapes with different conversion components; user-defined conversion ties
   and complete function-template partial ordering remain open.
