@@ -1661,8 +1661,15 @@
   - [x] 再帰struct／unionのmember type参照をDIE生成後のforward-reference
         patchで解決し、自己参照pointerが実aggregate DIEを指すことを
         i686/AMD64のobject debug-info回帰で検証
+  - [x] 完全layout済みでvirtual base closureを持たないC++ classについて、
+        `DW_TAG_inheritance`へ直接基底型・固定subobject offset・accessibilityを
+        出力し、派生型のflatten済み`TypeField`から継承メンバーを除外。public／
+        privateの複数継承、基底offset、直メンバーとの区別をi686/AMD64で検証。
+        virtual／未解決base layoutは誤った固定offset DIEへ変換せず、旧出力を
+        維持しているため引き続き未完
   - [x] enum型と列挙子へ`DW_TAG_enumeration_type`／`DW_TAG_enumerator`と
-        signed constant valueを出力し、i686/AMD64のobject・link回帰で検証
+        signed／unsigned constant valueを出力し、unsigned full-width値を含む
+        i686/AMD64のobject・link回帰で検証
   - [x] 非再帰function typeへ`DW_TAG_subroutine_type`と戻り型・parameter
         type DIEを出力し、再帰function typeのforward referenceもpatchで
         解決してi686/AMD64のdebug-info回帰で検証

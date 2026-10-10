@@ -6,6 +6,7 @@
 #include "rcc.h"
 #include "objfile.h"
 #include "codegen.h"
+#include "ast_cxx.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -961,6 +962,26 @@ static DebugTypeEntry* debug_type_add(DebugTypeContext* context,
     return entry;
 }
 
+static bool debug_type_has_supported_inheritance(const Type* type) {
+    CxxClass* class_info;
+    if (!type || type->kind != TYPE_STRUCT || !type->cxx_class) return false;
+    class_info = type->cxx_class;
+    if (class_info->base_count <= 0 || type->size < 0 ||
+        class_info->virtual_base_count != 0 || !class_info->bases ||
+        !class_info->base_offsets) {
+        return false;
+    }
+    for (int index = 0; index < class_info->base_count; ++index) {
+        CxxClass* base = class_info->bases[index].base;
+        if (!base || !base->type || base->type->size < 0 ||
+            class_info->bases[index].is_virtual ||
+            class_info->base_offsets[index] < 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static void debug_type_collect(DebugTypeContext* context, const Type* type) {
     DebugTypeEntry* entry;
     size_t entry_index;
@@ -990,6 +1011,14 @@ static void debug_type_collect(DebugTypeContext* context, const Type* type) {
          * DIEs are emitted. */
         entry = debug_type_add(context, type);
         entry->collecting = true;
+        if (debug_type_has_supported_inheritance(type)) {
+            CxxClass* class_info = type->cxx_class;
+            for (int index = 0; index < class_info->base_count; ++index) {
+                debug_type_collect(context,
+                                   class_info->bases[index].base->type);
+                entry = debug_type_find(context, type);
+            }
+        }
         for (TypeField* field = type->fields; field; field = field->next) {
             if (field->type) debug_type_collect(context, field->type);
             entry = debug_type_find(context, type);
@@ -1417,13 +1446,46 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
             }
             section_add_byte(info, 0u);
         } else if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+            bool emit_inheritance =
+                debug_type_has_supported_inheritance(type);
+            CxxClass* class_info = emit_inheritance ? type->cxx_class : NULL;
             section_add_byte(info, type->kind == TYPE_UNION ? 13u : 12u);
             debug_line_u32(info, debug_str_add(strings, debug_type_name(type)));
             debug_line_u32(info, (uint32_t)(type->size < 0 ? 0 : type->size));
+            if (emit_inheritance) {
+                for (int base_index = 0;
+                     base_index < class_info->base_count; ++base_index) {
+                    CxxClass* base = class_info->bases[base_index].base;
+                    DebugTypeEntry* base_type =
+                        debug_type_find(context, base->type);
+                    if (!base_type) {
+                        rcc_fatal(
+                            "DWARF inheritance base type was not collected");
+                        return;
+                    }
+                    section_add_byte(info, 43u); /* DW_TAG_inheritance */
+                    debug_type_ref(info, patches, base_type);
+                    debug_expr_member_location(
+                        info, class_info->base_offsets[base_index]);
+                    if (class_info->bases[base_index].access >
+                        ACCESS_PRIVATE) {
+                        rcc_fatal(
+                            "DWARF inheritance accessibility is invalid");
+                        return;
+                    }
+                    section_add_byte(
+                        info, (uint8_t)(class_info->bases[base_index].access +
+                                        1));
+                }
+            }
             for (TypeField* field = type->fields; field; field = field->next) {
                 DebugTypeEntry* field_type;
                 uint64_t data_bit_offset;
                 if (!field->name || !field->type) continue;
+                if (emit_inheritance && field->cxx_declaring_class &&
+                    field->cxx_declaring_class != class_info) {
+                    continue;
+                }
                 field_type = debug_type_find(context, field->type);
                 if (!field_type) {
                     rcc_fatal("DWARF aggregate field type was not collected");
@@ -3909,6 +3971,17 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 43u);
+    debug_line_uleb(abbrev, 0x1cu);    /* DW_TAG_inheritance */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x02u);    /* DW_AT_data_member_location */
+    debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0x32u);    /* DW_AT_accessibility */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

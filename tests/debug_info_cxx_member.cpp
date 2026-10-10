@@ -11,8 +11,38 @@ public:
     static int create_value(int seed) { return seed + 1; }
 };
 
+struct DebugInheritanceLeft {
+    int left;
+};
+
+struct DebugInheritanceRight {
+    char right;
+};
+
+class DebugInheritanceDerived : public DebugInheritanceLeft,
+                                private DebugInheritanceRight {
+public:
+    short own;
+};
+
+struct DebugVirtualInheritanceBase {
+    int virtual_member;
+};
+
+struct DebugVirtualInheritanceDerived : virtual DebugVirtualInheritanceBase {
+    int direct;
+};
+
 int debug_member_object_entry(DebugMemberObject* object) {
     return object->read() + DebugMemberObject::create_value(object->value);
+}
+
+int debug_inheritance_entry(DebugInheritanceDerived* object) {
+    return object->left + object->own;
+}
+
+int debug_virtual_inheritance_entry(DebugVirtualInheritanceDerived* object) {
+    return object->virtual_member + object->direct;
 }
 
 int debug_reference_type_entry(int& lvalue, int&& rvalue) {

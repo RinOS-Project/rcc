@@ -311,6 +311,171 @@ static void verify_cxx_member_accessibility(const char* path,
     objfile_free(object);
 }
 
+static uint64_t find_structure_type_die(const ObjSection* info,
+                                        const ObjSection* strings,
+                                        const char* name)
+{
+    if (!info || !strings || !name) return UINT64_MAX;
+    for (uint64_t offset = 11u; offset + 9u <= info->size; ++offset) {
+        uint32_t name_offset;
+        if (info->data[offset] != 12u) continue;
+        name_offset = read_u32(info->data, offset + 1u);
+        if (name_offset < strings->size &&
+            strcmp((const char*)strings->data + name_offset, name) == 0) {
+            return offset;
+        }
+    }
+    return UINT64_MAX;
+}
+
+static void verify_cxx_inheritance_dies(const char* path,
+                                        uint16_t architecture)
+{
+    static const uint8_t inheritance_abbrev[] = {
+        43u, 0x1cu, 0u, 0x49u, 0x13u, 0x02u, 0x18u, 0x32u, 0x0bu, 0u, 0u
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    uint64_t derived_die;
+    bool found_public_left = false;
+    bool found_private_right = false;
+    bool found_own_member = false;
+    bool leaked_inherited_member = false;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_sequence(abbrev->data, abbrev->size,
+                             inheritance_abbrev,
+                             sizeof(inheritance_abbrev)));
+
+    derived_die = find_structure_type_die(
+        info, strings, "DebugInheritanceDerived");
+    assert(derived_die != UINT64_MAX);
+    {
+        uint64_t cursor = derived_die + 9u;
+        while (cursor < info->size && info->data[cursor] != 0u) {
+            uint8_t child = info->data[cursor++];
+            if (child == 43u) {
+                uint32_t base_type_offset;
+                uint32_t base_name_offset;
+                uint64_t expression_size;
+                uint64_t expression_cursor;
+                uint64_t base_offset;
+                uint8_t accessibility;
+                assert(cursor + 4u <= info->size);
+                base_type_offset = read_u32(info->data, cursor);
+                cursor += 4u;
+                assert((uint64_t)base_type_offset + 5u <= info->size &&
+                       info->data[base_type_offset] == 12u);
+                base_name_offset = read_u32(info->data,
+                                            base_type_offset + 1u);
+                assert(base_name_offset < strings->size);
+                expression_size = read_uleb(info->data, info->size,
+                                            &cursor);
+                assert(expression_size == 2u &&
+                       cursor + expression_size + 1u <= info->size &&
+                       info->data[cursor] == 0x23u);
+                expression_cursor = cursor + 1u;
+                base_offset = read_uleb(info->data,
+                                        cursor + expression_size,
+                                        &expression_cursor);
+                assert(expression_cursor == cursor + expression_size);
+                cursor += expression_size;
+                accessibility = info->data[cursor++];
+                if (strcmp((const char*)strings->data + base_name_offset,
+                           "DebugInheritanceLeft") == 0) {
+                    assert(base_offset == 0u && accessibility == 1u);
+                    found_public_left = true;
+                } else if (strcmp(
+                               (const char*)strings->data + base_name_offset,
+                               "DebugInheritanceRight") == 0) {
+                    assert(base_offset == 4u && accessibility == 3u);
+                    found_private_right = true;
+                } else {
+                    assert(false && "unexpected direct base type");
+                }
+            } else {
+                uint32_t member_name_offset;
+                uint64_t expression_size;
+                assert(child == 14u || child == 17u);
+                assert(cursor + 8u <= info->size);
+                member_name_offset = read_u32(info->data, cursor);
+                assert(member_name_offset < strings->size);
+                cursor += 8u;
+                expression_size = read_uleb(info->data, info->size,
+                                            &cursor);
+                assert(expression_size <= info->size - cursor);
+                cursor += expression_size;
+                if (child == 17u) {
+                    assert(cursor + 8u <= info->size);
+                    cursor += 8u;
+                }
+                assert(cursor < info->size);
+                ++cursor; /* DW_AT_accessibility */
+                if (strcmp((const char*)strings->data + member_name_offset,
+                           "own") == 0) {
+                    found_own_member = true;
+                }
+                if (strcmp((const char*)strings->data + member_name_offset,
+                           "left") == 0 ||
+                    strcmp((const char*)strings->data + member_name_offset,
+                           "right") == 0) {
+                    leaked_inherited_member = true;
+                }
+            }
+        }
+    }
+    assert(found_public_left && found_private_right && found_own_member &&
+           !leaked_inherited_member);
+
+    /* Virtual inheritance still uses the legacy flattened representation;
+     * it must not be mislabeled as a fixed-offset non-virtual base. */
+    {
+        uint64_t virtual_die = find_structure_type_die(
+            info, strings, "DebugVirtualInheritanceDerived");
+        bool found_virtual_member = false;
+        bool found_inheritance = false;
+        uint64_t cursor;
+        assert(virtual_die != UINT64_MAX);
+        cursor = virtual_die + 9u;
+        while (cursor < info->size && info->data[cursor] != 0u) {
+            uint8_t child = info->data[cursor++];
+            if (child == 43u) {
+                found_inheritance = true;
+                break;
+            }
+            assert(child == 14u || child == 17u);
+            assert(cursor + 8u <= info->size);
+            {
+                uint32_t member_name_offset = read_u32(info->data, cursor);
+                uint64_t expression_size;
+                assert(member_name_offset < strings->size);
+                cursor += 8u;
+                expression_size = read_uleb(info->data, info->size,
+                                            &cursor);
+                assert(expression_size <= info->size - cursor);
+                cursor += expression_size;
+                if (child == 17u) {
+                    assert(cursor + 8u <= info->size);
+                    cursor += 8u;
+                }
+                assert(cursor < info->size);
+                ++cursor;
+                if (strcmp((const char*)strings->data + member_name_offset,
+                           "virtual_member") == 0) {
+                    found_virtual_member = true;
+                }
+            }
+        }
+        assert(!found_inheritance && found_virtual_member);
+    }
+    objfile_free(object);
+}
+
 static bool has_reference_type_die(const ObjSection* info,
                                    uint8_t abbreviation)
 {
@@ -2949,6 +3114,8 @@ int main(int argc, char** argv)
     verify_static_member_containing_type(argv[15], ARCH_X64);
     verify_cxx_member_accessibility(argv[14], ARCH_X86);
     verify_cxx_member_accessibility(argv[15], ARCH_X64);
+    verify_cxx_inheritance_dies(argv[14], ARCH_X86);
+    verify_cxx_inheritance_dies(argv[15], ARCH_X64);
     verify_cxx_method_accessibility(argv[14], ARCH_X86);
     verify_cxx_method_accessibility(argv[15], ARCH_X64);
     verify_cxx_reference_type_dies(argv[14], ARCH_X86);
