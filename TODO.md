@@ -1843,6 +1843,11 @@
         BINDIR=build/wsl-gcc/bin TEST_OUT=build/wsl-gcc/tests CC=gcc test-ci`
         passed on the Linux/WSL host, including both target architectures.
 - [ ] Clang full `test-ci` production gateを実行し、同じ全経路の成功を記録する
+  - [x] Native WindowsでMSYS2 Clang 18.1.4を使い、分離した
+        `OBJDIR=obj/clang`でRCC++をビルドして
+        `test-cxx-function-template-overloads`を実行。i686/AMD64出力、AMD64
+        実行、曖昧性・交差変換negative、GCC oracleを確認。これはfocused
+        host/compiler検証であり、full `test-ci`完了の代用ではない。
   - Windows/MSYS2 Clang attempt reached `test-compiler-builtins` but its PE
     linker could not resolve the RinOS i686 `_main` entry; WSL startup returned
     `Wsl/Service/CreateInstance/E_ACCESSDENIED`. This is not a passing production
