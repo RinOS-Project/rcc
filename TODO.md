@@ -2297,3 +2297,15 @@ separately recorded WSL startup failure.
 - [ ] Continue proper-subsequence ordering for other standard-conversion
   shapes with different conversion components; user-defined conversion ties
   and complete function-template partial ordering remain open.
+
+## C++ regression follow-up (2026-10-10, fixed-enum promotion ranking)
+
+- [x] Treat conversion from an unscoped fixed-underlying enum to either its
+  underlying type or that type's integral promotion as Promotion rank, and
+  prefer the underlying-type destination when both overloads are viable. Apply
+  the ordering in ordinary overloads and function-template candidates. The
+  focused gate passes i686/AMD64 generation, generated AMD64 execution, and
+  GCC C++20 `-Werror` execution.
+- [ ] Extend conversion-sequence ordering to reference bindings and other
+  promotion/conversion pairs; proper subsequences, user-defined conversion
+  ties, and complete function-template partial ordering remain open.

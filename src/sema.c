@@ -7686,6 +7686,19 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     if (sema_is_scoped_enum(source) || sema_is_scoped_enum(target)) {
         return type_is_compatible(source, target) ? 0 : -1;
     }
+    if (source->kind == TYPE_ENUM && source->enum_has_fixed_underlying &&
+        source->enum_underlying_type) {
+        Type* underlying = source->enum_underlying_type;
+        Type* promoted_underlying = sema_integer_promotion(underlying);
+        if (cxx_same_parameter_type(target, underlying, true) ||
+            (promoted_underlying &&
+             cxx_same_parameter_type(target, promoted_underlying, true))) {
+            /* Both the fixed underlying type and its integral promotion
+             * are promotion destinations; their relative order is handled
+             * when viable overload sequences tie. */
+            return 1;
+        }
+    }
     if (cxx_same_parameter_type(source, target, true)) return 0;
 
     if (sema_cxx_derived_to_base_value_conversion(
@@ -7773,6 +7786,12 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     }
     if ((type_is_integer(source) || source->kind == TYPE_ENUM) &&
         (type_is_integer(target) || target->kind == TYPE_ENUM)) {
+        if (source->kind == TYPE_ENUM &&
+            source->enum_has_fixed_underlying) {
+            /* The two permitted fixed-enum promotions were handled above;
+             * all other integral destinations are conversions. */
+            return 2;
+        }
         if ((source->kind == TYPE_ENUM || source->kind < TYPE_INT) &&
             target == type_int) {
             return 1;
@@ -7804,6 +7823,41 @@ int rcc_sema_cxx_conversion_rank(Expr* argument, Type* source,
     typed_argument = *argument;
     typed_argument.type = source;
     return cxx_conversion_rank(&typed_argument, target);
+}
+
+int rcc_sema_cxx_enum_promotion_target_relation(Type* source,
+                                                Type* left_target,
+                                                Type* right_target) {
+    Type* underlying;
+    Type* promoted_underlying;
+    bool left_is_underlying;
+    bool right_is_underlying;
+    bool left_is_promoted;
+    bool right_is_promoted;
+    if (source && source->is_reference) source = source->base;
+    if (!source || source->kind != TYPE_ENUM || source->enum_is_scoped ||
+        !source->enum_has_fixed_underlying || !source->enum_underlying_type ||
+        !left_target || !right_target || left_target->is_reference ||
+        right_target->is_reference) {
+        return 0;
+    }
+    underlying = source->enum_underlying_type;
+    promoted_underlying = sema_integer_promotion(underlying);
+    if (!promoted_underlying ||
+        cxx_same_parameter_type(underlying, promoted_underlying, true)) {
+        return 0;
+    }
+    left_is_underlying =
+        cxx_same_parameter_type(left_target, underlying, true);
+    right_is_underlying =
+        cxx_same_parameter_type(right_target, underlying, true);
+    left_is_promoted =
+        cxx_same_parameter_type(left_target, promoted_underlying, true);
+    right_is_promoted =
+        cxx_same_parameter_type(right_target, promoted_underlying, true);
+    if (left_is_underlying && right_is_promoted) return 1;
+    if (right_is_underlying && left_is_promoted) return -1;
+    return 0;
 }
 
 static bool sema_cxx_exact_function_signature(Type* candidate,
@@ -8034,6 +8088,17 @@ static int cxx_conversion_vector_relation(
             } else {
                 right_better = true;
             }
+        }
+        if (left[index] == right[index] && left[index] == 1 &&
+            index >= argument_offset && argument && argument->expr &&
+            left_targets && right_targets && left_targets[index] &&
+            right_targets[index]) {
+            int enum_promotion_relation =
+                rcc_sema_cxx_enum_promotion_target_relation(
+                    argument->expr->type, left_targets[index],
+                    right_targets[index]);
+            if (enum_promotion_relation > 0) left_better = true;
+            if (enum_promotion_relation < 0) right_better = true;
         }
         if (left[index] == right[index] && left[index] == 2 &&
             left_targets && right_targets && left_targets[index] &&

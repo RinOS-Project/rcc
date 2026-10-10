@@ -14777,6 +14777,7 @@ typedef struct CxxFunctionTemplateMatch {
     bool has_function_parameter_pack;
     int conversion_ranks[32];
     Type* conversion_targets[32];
+    Type* conversion_sources[32];
     int conversion_rank_count;
     Decl* instance;
     Type* substitution_failure_type;
@@ -15521,6 +15522,12 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
         }
         target = target->base;
     }
+    if (!target_is_reference && source->kind == TYPE_ENUM &&
+        source->enum_has_fixed_underlying && !source->enum_is_scoped) {
+        /* Keep fixed-enum promotions distinct from other arithmetic
+         * conversions while reusing the semantic ranker's viability rules. */
+        return rcc_sema_cxx_conversion_rank(argument, source, target);
+    }
     if (type_is_compatible(source, target)) {
         return cxx_parser_template_qualification_relation(
                    source, target, !target_is_reference, NULL)
@@ -15736,7 +15743,8 @@ static void cxx_report_function_template_nested_type_failure(
 
 static bool cxx_function_template_instance_viable(
     Decl* instance, ExprList* call_arguments, int* ranks,
-    Type** conversion_targets, int rank_capacity, int* rank_count) {
+    Type** conversion_targets, Type** conversion_sources,
+    int rank_capacity, int* rank_count) {
     TypeParam* parameter;
     DeclList* declaration;
     ExprList* argument;
@@ -15757,6 +15765,10 @@ static bool cxx_function_template_instance_viable(
             if (conversion_targets) {
                 conversion_targets[index] = parameter->type;
             }
+            if (conversion_sources) {
+                conversion_sources[index] =
+                    cxx_parser_expression_type(argument->expr);
+            }
         }
         argument = argument->next;
         parameter = parameter->next;
@@ -15772,6 +15784,7 @@ static bool cxx_function_template_instance_viable(
                 int index = (*rank_count)++;
                 ranks[index] = 32;
                 if (conversion_targets) conversion_targets[index] = NULL;
+                if (conversion_sources) conversion_sources[index] = NULL;
             }
             argument = argument->next;
         }
@@ -15821,7 +15834,14 @@ static int cxx_template_conversion_vector_relation(
             Type* left_target = left->conversion_targets[index];
             Type* right_target = right->conversion_targets[index];
             int qualification_relation = 0;
+            if (left->conversion_sources[index]) {
+                qualification_relation =
+                    rcc_sema_cxx_enum_promotion_target_relation(
+                        left->conversion_sources[index], left_target,
+                        right_target);
+            }
             if (left_target && right_target &&
+                qualification_relation == 0 &&
                 left_target->is_reference && right_target->is_reference &&
                 left_target->is_rvalue_reference !=
                     right_target->is_rvalue_reference) {
@@ -16222,7 +16242,7 @@ static bool prepare_cxx_function_template_match(
     }
     if (!cxx_function_template_instance_viable(
             match->instance, call_arguments, match->conversion_ranks,
-            match->conversion_targets,
+            match->conversion_targets, match->conversion_sources,
             (int)(sizeof(match->conversion_ranks) /
                   sizeof(match->conversion_ranks[0])),
             &match->conversion_rank_count)) {

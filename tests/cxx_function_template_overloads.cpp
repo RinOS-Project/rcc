@@ -2,6 +2,10 @@ struct ConversionBaseRoot {};
 struct ConversionBaseMiddle : ConversionBaseRoot {};
 struct ConversionBaseLeaf : ConversionBaseMiddle {};
 
+enum ConversionFixedByte : unsigned char {
+    conversion_fixed_byte_value = 1
+};
+
 struct ConversionMemberPointerRoot {
     int value;
 
@@ -215,6 +219,24 @@ int choose_nearer_base_pointer_non_template(ConversionBaseMiddle*) {
     return 90;
 }
 
+int choose_fixed_enum_promotion(unsigned char) {
+    return 211;
+}
+
+int choose_fixed_enum_promotion(int) {
+    return 212;
+}
+
+template<typename T>
+int choose_fixed_enum_template(T, unsigned char) {
+    return 213;
+}
+
+template<typename T>
+int choose_fixed_enum_template(T, int) {
+    return 214;
+}
+
 template<typename T>
 int choose_nearer_member_pointer(
     T, int ConversionMemberPointerMiddle::*) {
@@ -388,6 +410,10 @@ int main(void) {
                    choose_nearer_base_reference_non_template(leaf) == 88 &&
                    choose_nearer_base_pointer_non_template(leaf_pointer) ==
                        90 &&
+                   choose_fixed_enum_promotion(
+                       conversion_fixed_byte_value) == 211 &&
+                   choose_fixed_enum_template(
+                       value, conversion_fixed_byte_value) == 213 &&
                    choose_nearer_member_pointer(
                        0, &ConversionMemberPointerRoot::value) == 191 &&
                    choose_nearer_member_pointer_non_template(
