@@ -6842,6 +6842,10 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
         cls = existing;
     }
     if (!cls) cls = cxx_class_new(class_name, loc);
+    /* Friend-name matching is needed while this class body is parsed. Give
+     * the class its namespace identity before member declarations are read;
+     * namespace registration still happens after the complete definition. */
+    cls->ns = active_namespace ? active_namespace : g_global_namespace;
     if (active_template && active_template->kind == TMPL_CLASS &&
         active_template->param_count > 0 &&
         !active_template->templated_class &&

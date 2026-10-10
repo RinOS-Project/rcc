@@ -5767,6 +5767,7 @@ typedef struct CxxAliasTemplateLookupResult {
     CxxClassAliasTemplate* alias_template;
     CxxClass* declaring_class;
     AccessSpec access;
+    AccessSpec inheritance_access;
     bool found_non_alias;
     bool ambiguous;
 } CxxAliasTemplateLookupResult;
@@ -5806,6 +5807,7 @@ static CxxAliasTemplateLookupResult cxx_class_lookup_alias_template_recursive(
         result.alias_template = alias_template;
         result.declaring_class = declaring_class;
         result.access = alias_template->access;
+        result.inheritance_access = ACCESS_PUBLIC;
         return result;
     }
     if (cxx_class_find_type_alias(cls, name) ||
@@ -5823,6 +5825,7 @@ static CxxAliasTemplateLookupResult cxx_class_lookup_alias_template_recursive(
         CxxClass* base = cls->bases[index].base;
         CxxAliasTemplateLookupResult candidate;
         AccessSpec access;
+        AccessSpec inheritance_access;
         if (!base && cls->bases[index].type_pattern) {
             base = cls->bases[index].type_pattern->cxx_class;
             if (!base && cls->bases[index].type_pattern->cxx_template) {
@@ -5853,15 +5856,23 @@ static CxxAliasTemplateLookupResult cxx_class_lookup_alias_template_recursive(
         if (cls->bases[index].access > access) {
             access = cls->bases[index].access;
         }
+        inheritance_access = candidate.inheritance_access;
+        if (cls->bases[index].access > inheritance_access) {
+            inheritance_access = cls->bases[index].access;
+        }
         if (!result.alias_template) {
             result.alias_template = candidate.alias_template;
             result.declaring_class = candidate.declaring_class;
             result.access = access;
+            result.inheritance_access = inheritance_access;
         } else if (result.alias_template != candidate.alias_template) {
             result.ambiguous = true;
             return result;
         } else if (access < result.access) {
             result.access = access;
+        }
+        if (inheritance_access < result.inheritance_access) {
+            result.inheritance_access = inheritance_access;
         }
     }
     return result;
@@ -5894,6 +5905,52 @@ static bool cxx_class_alias_access_context_is_derived_from(
     return false;
 }
 
+static bool cxx_class_friend_name_matches(const CxxClass* target,
+                                          const CxxClass* candidate,
+                                          const char* friend_name) {
+    const char* normalized = friend_name;
+    const char* namespace_name;
+    char qualified_name[512];
+    size_t namespace_length;
+    size_t class_length;
+    if (!target || !candidate || !candidate->name || !friend_name) {
+        return false;
+    }
+    while (normalized[0] == ':' && normalized[1] == ':') normalized += 2;
+    if (!strstr(normalized, "::")) {
+        return target->ns == candidate->ns &&
+               strcmp(normalized, candidate->name) == 0;
+    }
+    namespace_name = cxx_namespace_qualified_name(candidate->ns);
+    namespace_length = namespace_name ? strlen(namespace_name) : 0u;
+    class_length = strlen(candidate->name);
+    if (namespace_length + (namespace_length ? 2u : 0u) + class_length >=
+        sizeof(qualified_name)) {
+        return false;
+    }
+    if (namespace_length) {
+        memcpy(qualified_name, namespace_name, namespace_length);
+        memcpy(qualified_name + namespace_length, "::", 2u);
+        memcpy(qualified_name + namespace_length + 2u, candidate->name,
+               class_length + 1u);
+    } else {
+        memcpy(qualified_name, candidate->name, class_length + 1u);
+    }
+    return strcmp(normalized, qualified_name) == 0;
+}
+
+static bool cxx_class_grants_friendship_to(const CxxClass* target,
+                                           const CxxClass* candidate) {
+    if (!target || !candidate) return false;
+    for (int index = 0; index < target->friend_class_count; ++index) {
+        if (cxx_class_friend_name_matches(
+                target, candidate, target->friend_class_names[index])) {
+            return true;
+        }
+    }
+    return false;
+}
+
 CxxClassAliasTemplate* cxx_class_find_inherited_alias_template(
     CxxClass* cls, const char* name, CxxClass* access_context,
     CxxClass** declaring_class, bool* ambiguous, bool* accessible) {
@@ -5908,6 +5965,10 @@ CxxClassAliasTemplate* cxx_class_find_inherited_alias_template(
     }
     if (!result.alias_template || result.ambiguous) return NULL;
     if (accessible) {
+        bool friend_of_lookup = cxx_class_grants_friendship_to(
+            cls, access_context);
+        bool friend_of_declarer = cxx_class_grants_friendship_to(
+            result.declaring_class, access_context);
         if (result.alias_template->access == ACCESS_PUBLIC &&
             result.access == ACCESS_PUBLIC) {
             *accessible = true;
@@ -5918,6 +5979,18 @@ CxxClassAliasTemplate* cxx_class_find_inherited_alias_template(
             /* A class may use a public/protected member inherited through
              * its own private base; that edge restricts descendants, not the
              * class that declared the inheritance. */
+            *accessible = true;
+        } else if (friend_of_lookup &&
+                   (result.declaring_class == cls ||
+                    result.alias_template->access != ACCESS_PRIVATE)) {
+            /* A friend of the lookup class has that class's access to
+             * inherited public/protected members and its own private aliases,
+             * but not private aliases declared by a base. */
+            *accessible = true;
+        } else if (friend_of_declarer &&
+                   result.inheritance_access == ACCESS_PUBLIC) {
+            /* Friendship of a base grants access to its private aliases only
+             * when the name is reachable through public inheritance. */
             *accessible = true;
         } else if (result.alias_template->access != ACCESS_PRIVATE &&
                    result.access != ACCESS_PRIVATE) {

@@ -24,6 +24,19 @@ struct ClassTemplateAliasAmbiguousRight {
 struct ClassTemplateAliasAmbiguous
     : ClassTemplateAliasAmbiguousLeft, ClassTemplateAliasAmbiguousRight {};
 
+struct FriendAliasPrivateBase {
+private:
+    template<typename U> using Hidden = U*;
+};
+
+struct FriendAliasPrivateDerived : public FriendAliasPrivateBase {
+    friend struct FriendAliasPrivateDerivedAccess;
+};
+
+struct FriendAliasPrivateDerivedAccess {
+    using Hidden = FriendAliasPrivateDerived::Hidden<int>;
+};
+
 ClassTemplateAliasAccessOwner<int>::template PrivateAlias<long>
     private_alias;
 ClassTemplateAliasAccessOwner<int>::template ProtectedAlias<long>

@@ -323,7 +323,16 @@
           AMD64 execution, exact access diagnostics, and no invalid `.ro`;
           related non-type-template, function-reference, requires-type, and
           inherited dependent-alias regressions pass.
-    - [ ] Friend access for inherited alias templates remains open.
+    - [x] Honor friend-class access for inherited alias templates: a base
+          friend can reach that base's private alias through public
+          inheritance, and a derived-class friend can use protected aliases
+          even through private inheritance; a derived-class friend still cannot
+          reach a private alias declared by a base. Cover namespace-qualified
+          friendship, i686/AMD64 generation, C++11/C++20, AMD64 execution,
+          exact negative diagnostics, and no invalid `.ro` in
+          `test-cxx-alias-templates`.
+    - [ ] Out-of-class friend-function bodies still need inherited alias access
+          during parser-time name lookup.
 - [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target
