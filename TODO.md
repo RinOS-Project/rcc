@@ -2385,8 +2385,10 @@ separately recorded WSL startup failure.
   prefer `int* const&` over `const int* const&` for an `int*` lvalue, for both
   ordinary and function-template overloads. The focused overload gate passes
   i686/AMD64 generation and execution, GCC C++20 `-Werror`, and existing
-  ambiguity diagnostics. The full native-Windows `test-cxx` aggregate passes
-  for the ranking change.
+  ambiguity diagnostics. It also preserves ambiguity for incomparable
+  `const int&` versus `volatile int&` candidates in ordinary and function-
+  template overloads, with no object output and matching GCC diagnostics. The
+  full native-Windows `test-cxx` aggregate passes for the ranking change.
 - [x] Correct the positive function-template fixture that passed `nullptr`
   to a `bool` parameter: use explicit `static_cast<bool>(nullptr)`, which GCC
   accepts, while preserving the separate regression that implicit

@@ -2612,6 +2612,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 		test $$status -ne 0
 	$(GREP) -q "ambiguous function template overload for 'select_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(GREP) -q "ambiguous function template overload for 'select_incomparable_reference_template'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	@set +e; $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro \
 		tests/cxx_function_template_overloads_partial_order_invalid.cpp \
@@ -2619,6 +2621,11 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 		test $$status -ne 0
 	$(GREP) -q "ambiguous function template overload for 'select_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(GREP) -q "ambiguous function template overload for 'select_incomparable_reference_template'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log)
+	$(GREP) -q "select_incomparable_reference_template" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log)
 	$(GREP) -F -q "ambiguous function template overload for 'select_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
@@ -2678,12 +2685,15 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "select_incomparable_void_pointer_cv" $(TEST_OUT)/cxx-function-template-overloads/void-pointer-cv-invalid-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x86.ro tests/cxx_non_template_nested_pointer_cv_ambiguity.cpp,$(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x86.log)
 	$(GREP) -F -q "ambiguous overload for 'select_incomparable_nested_pointer_cv'" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x86.log
+	$(GREP) -F -q "ambiguous overload for 'select_incomparable_reference_cv'" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x64.ro tests/cxx_non_template_nested_pointer_cv_ambiguity.cpp,$(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x64.log)
 	$(GREP) -F -q "ambiguous overload for 'select_incomparable_nested_pointer_cv'" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x64.log
+	$(GREP) -F -q "ambiguous overload for 'select_incomparable_reference_cv'" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_non_template_nested_pointer_cv_ambiguity.cpp,$(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-gcc.log)
 	$(GREP) -F -q "select_incomparable_nested_pointer_cv" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-gcc.log
+	$(GREP) -F -q "select_incomparable_reference_cv" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-gcc.log
 	@echo "RCC++ function-template overload and expression-deduction tests completed"
 
 test-cxx-function-template-references-posix: $(RCXX_TARGET)
@@ -3512,8 +3522,12 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log)
 	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_reference_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log)
 	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_reference_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log)
+	$(GREP) -F -q "select_incomparable_reference_template" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log)
 	$(GREP) -F -q "ambiguous function template overload for 'select_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
@@ -3573,12 +3587,15 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(GREP) -F -q "select_incomparable_void_pointer_cv" $(TEST_OUT)/cxx-function-template-overloads/void-pointer-cv-invalid-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x86.ro tests/cxx_non_template_nested_pointer_cv_ambiguity.cpp,$(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x86.log)
 	$(GREP) -F -q "ambiguous overload for 'select_incomparable_nested_pointer_cv'" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x86.log
+	$(GREP) -F -q "ambiguous overload for 'select_incomparable_reference_cv'" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x64.ro tests/cxx_non_template_nested_pointer_cv_ambiguity.cpp,$(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x64.log)
 	$(GREP) -F -q "ambiguous overload for 'select_incomparable_nested_pointer_cv'" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x64.log
+	$(GREP) -F -q "ambiguous overload for 'select_incomparable_reference_cv'" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_non_template_nested_pointer_cv_ambiguity.cpp,$(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-gcc.log)
 	$(GREP) -F -q "select_incomparable_nested_pointer_cv" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-gcc.log
+	$(GREP) -F -q "select_incomparable_reference_cv" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-gcc.log
 
 test-cxx-function-template-references: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-references)
