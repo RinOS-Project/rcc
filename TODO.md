@@ -2077,3 +2077,17 @@ separately recorded WSL startup failure.
   UDC ties involving conversion-function selection, packs, constraints, and
   full function-template partial ordering. This fix is bounded, not full
   overload-resolution conformance.
+
+## C++ regression follow-up (2026-10-10, conversion-function best candidate)
+
+- [x] Continue conversion-function candidate ranking after a tie so a later
+  better standard conversion can replace the tied candidates, and carry the
+  selected conversion function into call resolution instead of looking up the
+  shared internal name again. `RankedMeter` declares tied `float`/`double`
+  conversion candidates before the exact `int` conversion; the focused target
+  passes i686 and AMD64 generation/execution, verified-backend object checks,
+  and native GCC C++20 `-Werror` execution.
+- [ ] Complete standard conversion-sequence ordering, including promotion
+  distinctions, subsequences, reference binding, derived-to-base conversions,
+  conversion-function ties, packs, constraints, and full partial ordering.
+  This fix remains bounded and does not claim general conformance.

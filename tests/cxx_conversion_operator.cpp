@@ -16,7 +16,26 @@ public:
     }
 };
 
+class RankedMeter {
+public:
+    operator float() {
+        return 13.0f;
+    }
+
+    operator double() {
+        return 17.0;
+    }
+
+    operator int() {
+        return 19;
+    }
+};
+
 int take_integer(int value) {
+    return value;
+}
+
+int take_ranked_integer(int value) {
     return value;
 }
 
@@ -60,6 +79,7 @@ long return_long() {
 int main() {
     Meter meter{7};
     Flag flag{1};
+    RankedMeter ranked_meter;
     int direct = meter;
     int argument = take_integer(meter);
     long widened = take_long(meter);
@@ -69,6 +89,7 @@ int main() {
         return_integer() != 9 || return_long() != 11 ||
         choose_conversion(meter) != 107 ||
         take_template_integer(0, meter) != 17 ||
-        choose_template_conversion(0, meter) != 107) return 1;
+        choose_template_conversion(0, meter) != 107 ||
+        take_ranked_integer(ranked_meter) != 19) return 1;
     return 0;
 }

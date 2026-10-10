@@ -2621,6 +2621,7 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
     TypeMethod* method;
     TypeMethod* result = NULL;
     int result_rank = INT_MAX;
+    bool tied_best = false;
     if (ambiguous) *ambiguous = false;
     if (!aggregate || !target ||
         (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
@@ -2660,16 +2661,13 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         if (!result || rank < result_rank) {
             result = method;
             result_rank = rank;
-            if (ambiguous) *ambiguous = false;
+            tied_best = false;
             continue;
         }
-        if (result) {
-            if (ambiguous) *ambiguous = true;
-            return NULL;
-        }
-        result = method;
+        if (rank == result_rank) tied_best = true;
     }
-    return result;
+    if (ambiguous) *ambiguous = tied_best;
+    return tied_best ? NULL : result;
 }
 
 static bool cxx_reference_object_compatible(const Type* source,
@@ -2978,6 +2976,7 @@ reference_binding_validated:
             *source = *e;
             member = expr_member(source, conversion->name, e->loc);
             Expr* call = expr_call(member, NULL, e->loc);
+            call->call_method = conversion;
             *e = *call;
             sema_expr(e);
             return e->type && sema_cxx_conversion_result_rank(e->type, target) >= 0
@@ -13268,8 +13267,14 @@ static Type* sema_expr(Expr* expr) {
                      * function-pointer value. */
                     arguments_analyzed = true;
                 } else {
-                    method = sema_select_cxx_member_method(
-                        expr, owner, member->member_name, &ambiguous_lookup);
+                    method = expr->call_method &&
+                             expr->call_method->kind ==
+                                 TYPE_METHOD_FUNCTION &&
+                             expr->call_method->function_decl
+                        ? expr->call_method
+                        : sema_select_cxx_member_method(
+                              expr, owner, member->member_name,
+                              &ambiguous_lookup);
                     if (ambiguous_lookup) {
                         rcc_error(expr->loc,
                                   "ambiguous member lookup for '%s'",
