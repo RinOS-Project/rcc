@@ -2547,6 +2547,31 @@ static bool cxx_template_redeclaration_expr_list_matches(
     return !left && !right;
 }
 
+static bool cxx_template_redeclaration_initializer_list_matches(
+    const ExprList* left, const CxxTemplate* left_template,
+    const CxxRequiresParameterScope* left_requires_params,
+    const ExprList* right, const CxxTemplate* right_template,
+    const CxxRequiresParameterScope* right_requires_params, int depth) {
+    while (left && right) {
+        if (left->designator_kind != right->designator_kind ||
+            (left->designator_kind == INIT_DESIGNATOR_INDEX &&
+             left->designator_index != right->designator_index) ||
+            (left->designator_kind == INIT_DESIGNATOR_FIELD &&
+             (!left->designator_field || !right->designator_field ||
+              strcmp(left->designator_field,
+                     right->designator_field) != 0)) ||
+            !cxx_template_redeclaration_expr_matches(
+                left->expr, left_template, left_requires_params,
+                right->expr, right_template, right_requires_params,
+                depth + 1)) {
+            return false;
+        }
+        left = left->next;
+        right = right->next;
+    }
+    return !left && !right;
+}
+
 typedef enum {
     CXX_REDECL_REQUIREMENT_EXPRESSION,
     CXX_REDECL_REQUIREMENT_NESTED,
@@ -2952,6 +2977,22 @@ static bool cxx_template_redeclaration_expr_matches(
                        left->cast_expr, left_template,
                        left_requires_params, right->cast_expr,
                        right_template, right_requires_params, depth + 1);
+        case EXPR_COMPOUND:
+            return left->compound_value_init ==
+                       right->compound_value_init &&
+                left->compound_copy_init == right->compound_copy_init &&
+                left->compound_paren_init == right->compound_paren_init &&
+                left->compound_designator_wrapper ==
+                    right->compound_designator_wrapper &&
+                (!!left->compound_type == !!right->compound_type) &&
+                (!left->compound_type ||
+                 cxx_template_redeclaration_type_matches(
+                     left->compound_type, left_template,
+                     right->compound_type, right_template, depth + 1)) &&
+                cxx_template_redeclaration_initializer_list_matches(
+                    left->compound_init, left_template,
+                    left_requires_params, right->compound_init,
+                    right_template, right_requires_params, depth + 1);
         case EXPR_CXX_TYPEID:
             return left->cxx_typeid_is_type == right->cxx_typeid_is_type &&
                 (!!left->cxx_typeid_operand_type ==
