@@ -31,8 +31,17 @@ struct DebugVirtualInheritanceBase {
     int virtual_member;
 };
 
-struct DebugVirtualInheritanceDerived : virtual DebugVirtualInheritanceBase {
+struct DebugVirtualInheritanceOther {
+    short other_member;
+};
+
+struct DebugVirtualInheritanceDerived : virtual DebugVirtualInheritanceBase,
+                                        virtual DebugVirtualInheritanceOther {
     int direct;
+};
+
+struct DebugVirtualInheritanceLayer : DebugVirtualInheritanceDerived {
+    short layer;
 };
 
 int debug_member_object_entry(DebugMemberObject* object) {
@@ -47,8 +56,8 @@ int debug_inheritance_entry(DebugInheritanceDerived* object) {
     return object->left + object->own;
 }
 
-int debug_virtual_inheritance_entry(DebugVirtualInheritanceDerived* object) {
-    return object->virtual_member + object->direct;
+int debug_virtual_inheritance_entry(DebugVirtualInheritanceLayer* object) {
+    return object->virtual_member + object->direct + object->layer;
 }
 
 int debug_reference_type_entry(int& lvalue, int&& rvalue) {

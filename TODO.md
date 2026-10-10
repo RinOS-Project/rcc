@@ -1661,12 +1661,13 @@
   - [x] 再帰struct／unionのmember type参照をDIE生成後のforward-reference
         patchで解決し、自己参照pointerが実aggregate DIEを指すことを
         i686/AMD64のobject debug-info回帰で検証
-  - [x] 完全layout済みでvirtual base closureを持たないC++ classについて、
-        `DW_TAG_inheritance`へ直接基底型・固定subobject offset・accessibilityを
-        出力し、派生型のflatten済み`TypeField`から継承メンバーを除外。public／
-        privateの複数継承、基底offset、直メンバーとの区別をi686/AMD64で検証。
-        virtual／未解決base layoutは誤った固定offset DIEへ変換せず、旧出力を
-        維持しているため引き続き未完
+  - [x] 完全layout済みC++ classの直接基底を`DW_TAG_inheritance`で表し、
+        non-virtual baseは固定subobject offset、virtual baseはRinOSの各subobject
+        vbase pointer／relative-offset tableをたどる`DW_AT_data_member_location`
+        expressionと`DW_AT_virtuality`で出力。派生型のflatten済み`TypeField`から
+        継承メンバーを除外し、public/private複数継承、複数virtual-base table
+        index、virtual baseを持つ型をnon-virtual intermediate経由で継承する経路を
+        i686/AMD64で検証。未解決／不完全base layoutは引き続き未完
   - [x] source locationを持つtranslation-unit scopeのC/C++ `typedef`
         declarationへ`DW_TAG_typedef`、実基底型参照、file/line/columnを出力し、
         C/C++双方のi686/AMD64 debug-info回帰で検証。C++ `using` aliasとclass内

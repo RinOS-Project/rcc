@@ -328,6 +328,86 @@ static uint64_t find_structure_type_die(const ObjSection* info,
     return UINT64_MAX;
 }
 
+static const char* verify_skip_cxx_member_die(const ObjSection* info,
+                                             const ObjSection* strings,
+                                             uint64_t* cursor,
+                                             uint8_t abbreviation)
+{
+    uint32_t name_offset;
+    uint64_t expression_size;
+    assert(info != NULL && strings != NULL && cursor != NULL);
+    assert(abbreviation == 14u || abbreviation == 17u);
+    assert(*cursor + 8u <= info->size);
+    name_offset = read_u32(info->data, *cursor);
+    assert(name_offset < strings->size);
+    *cursor += 8u; /* name and type reference */
+    expression_size = read_uleb(info->data, info->size, cursor);
+    assert(expression_size <= info->size - *cursor);
+    *cursor += expression_size;
+    if (abbreviation == 17u) {
+        assert(*cursor + 8u <= info->size);
+        *cursor += 8u; /* bit size and data bit offset */
+    }
+    assert(*cursor < info->size);
+    ++*cursor; /* accessibility */
+    return (const char*)strings->data + name_offset;
+}
+
+static void verify_virtual_inheritance_child(
+    const ObjSection* info, const ObjSection* strings, uint64_t* cursor,
+    const char* expected_base, uint16_t architecture,
+    uint32_t expected_vbase_pointer_offset, uint32_t expected_table_index,
+    uint8_t expected_access)
+{
+    uint32_t type_offset;
+    uint32_t type_name_offset;
+    uint64_t expression_size;
+    uint64_t expression_end;
+    uint64_t expression_cursor;
+    uint64_t value;
+    uint32_t pointer_size = architecture == ARCH_X64 ? 8u : 4u;
+    assert(info != NULL && strings != NULL && cursor != NULL);
+    assert(*cursor + 4u <= info->size);
+    type_offset = read_u32(info->data, *cursor);
+    *cursor += 4u;
+    assert((uint64_t)type_offset + 5u <= info->size &&
+           info->data[type_offset] == 12u);
+    type_name_offset = read_u32(info->data, type_offset + 1u);
+    assert(type_name_offset < strings->size &&
+           strcmp((const char*)strings->data + type_name_offset,
+                  expected_base) == 0);
+
+    expression_size = read_uleb(info->data, info->size, cursor);
+    assert(expression_size <= info->size - *cursor);
+    expression_end = *cursor + expression_size;
+    expression_cursor = *cursor;
+    assert(expression_cursor < expression_end &&
+           info->data[expression_cursor++] == 0x12u); /* DW_OP_dup */
+    assert(expression_cursor < expression_end &&
+           info->data[expression_cursor++] == 0x23u); /* plus_uconst */
+    value = read_uleb(info->data, expression_end, &expression_cursor);
+    assert(value == expected_vbase_pointer_offset);
+    assert(expression_cursor + 2u <= expression_end &&
+           info->data[expression_cursor++] == 0x94u &&
+           info->data[expression_cursor++] == pointer_size);
+    assert(expression_cursor < expression_end &&
+           info->data[expression_cursor++] == 0x10u); /* DW_OP_constu */
+    value = read_uleb(info->data, expression_end, &expression_cursor);
+    assert(value == (uint64_t)expected_table_index * pointer_size);
+    assert(expression_cursor + 2u <= expression_end &&
+           info->data[expression_cursor++] == 0x22u &&
+           info->data[expression_cursor++] == 0x94u);
+    assert(expression_cursor < expression_end &&
+           info->data[expression_cursor++] == pointer_size);
+    assert(expression_cursor < expression_end &&
+           info->data[expression_cursor++] == 0x22u &&
+           expression_cursor == expression_end);
+    *cursor = expression_end;
+    assert(*cursor + 2u <= info->size);
+    assert(info->data[(*cursor)++] == 1u); /* DW_VIRTUALITY_virtual */
+    assert(info->data[(*cursor)++] == expected_access);
+}
+
 static void verify_cxx_inheritance_dies(const char* path,
                                         uint16_t architecture)
 {
@@ -432,46 +512,109 @@ static void verify_cxx_inheritance_dies(const char* path,
     assert(found_public_left && found_private_right && found_own_member &&
            !leaked_inherited_member);
 
-    /* Virtual inheritance still uses the legacy flattened representation;
-     * it must not be mislabeled as a fixed-offset non-virtual base. */
+    /* Direct virtual bases use the real vbase-pointer-table expression, while
+     * a non-virtual intermediate keeps its own fixed subobject offset. */
     {
         uint64_t virtual_die = find_structure_type_die(
             info, strings, "DebugVirtualInheritanceDerived");
-        bool found_virtual_member = false;
-        bool found_inheritance = false;
+        unsigned virtual_base_count = 0u;
+        bool found_direct_member = false;
+        bool leaked_virtual_member = false;
         uint64_t cursor;
         assert(virtual_die != UINT64_MAX);
         cursor = virtual_die + 9u;
         while (cursor < info->size && info->data[cursor] != 0u) {
             uint8_t child = info->data[cursor++];
-            if (child == 43u) {
-                found_inheritance = true;
-                break;
+            if (child == 45u) {
+                const char* base_name = virtual_base_count == 0u
+                    ? "DebugVirtualInheritanceBase"
+                    : "DebugVirtualInheritanceOther";
+                static const uint8_t virtual_inheritance_abbrev[] = {
+                    45u, 0x1cu, 0u, 0x49u, 0x13u, 0x02u, 0x18u,
+                    0x4cu, 0x0bu, 0x32u, 0x0bu, 0u, 0u
+                };
+                assert(contains_sequence(abbrev->data, abbrev->size,
+                                         virtual_inheritance_abbrev,
+                                         sizeof(virtual_inheritance_abbrev)));
+                verify_virtual_inheritance_child(
+                    info, strings, &cursor, base_name, architecture,
+                    architecture == ARCH_X64 ? 8u : 4u,
+                    virtual_base_count, 1u);
+                ++virtual_base_count;
+                continue;
             }
             assert(child == 14u || child == 17u);
-            assert(cursor + 8u <= info->size);
             {
-                uint32_t member_name_offset = read_u32(info->data, cursor);
-                uint64_t expression_size;
-                assert(member_name_offset < strings->size);
-                cursor += 8u;
-                expression_size = read_uleb(info->data, info->size,
-                                            &cursor);
-                assert(expression_size <= info->size - cursor);
-                cursor += expression_size;
-                if (child == 17u) {
-                    assert(cursor + 8u <= info->size);
-                    cursor += 8u;
+                const char* member_name = verify_skip_cxx_member_die(
+                    info, strings, &cursor, child);
+                if (strcmp(member_name, "direct") == 0) {
+                    found_direct_member = true;
                 }
-                assert(cursor < info->size);
-                ++cursor;
-                if (strcmp((const char*)strings->data + member_name_offset,
-                           "virtual_member") == 0) {
-                    found_virtual_member = true;
+                if (strcmp(member_name, "virtual_member") == 0) {
+                    leaked_virtual_member = true;
                 }
             }
         }
-        assert(!found_inheritance && found_virtual_member);
+        assert(virtual_base_count == 2u && found_direct_member &&
+               !leaked_virtual_member);
+    }
+    {
+        uint64_t base_die = find_structure_type_die(
+            info, strings, "DebugVirtualInheritanceBase");
+        uint64_t layer_die = find_structure_type_die(
+            info, strings, "DebugVirtualInheritanceLayer");
+        bool found_base_member = false;
+        bool found_nonvirtual_base = false;
+        bool found_layer_member = false;
+        uint64_t cursor;
+        assert(base_die != UINT64_MAX && layer_die != UINT64_MAX);
+        cursor = base_die + 9u;
+        while (cursor < info->size && info->data[cursor] != 0u) {
+            uint8_t child = info->data[cursor++];
+            assert(child == 14u || child == 17u);
+            if (strcmp(verify_skip_cxx_member_die(info, strings, &cursor,
+                                                 child),
+                       "virtual_member") == 0) {
+                found_base_member = true;
+            }
+        }
+        assert(found_base_member);
+
+        cursor = layer_die + 9u;
+        while (cursor < info->size && info->data[cursor] != 0u) {
+            uint8_t child = info->data[cursor++];
+            if (child == 43u) {
+                uint32_t base_type_offset;
+                uint32_t base_name_offset;
+                uint64_t expression_size;
+                assert(cursor + 4u <= info->size);
+                base_type_offset = read_u32(info->data, cursor);
+                cursor += 4u;
+                assert((uint64_t)base_type_offset + 5u <= info->size &&
+                       info->data[base_type_offset] == 12u);
+                base_name_offset = read_u32(info->data,
+                                            base_type_offset + 1u);
+                assert(base_name_offset < strings->size &&
+                       strcmp((const char*)strings->data + base_name_offset,
+                              "DebugVirtualInheritanceDerived") == 0);
+                expression_size = read_uleb(info->data, info->size,
+                                            &cursor);
+                assert(expression_size == 2u &&
+                       info->data[cursor] == 0x23u &&
+                       info->data[cursor + 1u] == 0u);
+                cursor += expression_size;
+                assert(cursor < info->size && info->data[cursor++] == 1u);
+                found_nonvirtual_base = true;
+                continue;
+            }
+            assert(child == 14u || child == 17u);
+            if (strcmp(verify_skip_cxx_member_die(info, strings, &cursor,
+                                                 child),
+                       "layer") == 0) {
+                found_layer_member = true;
+            }
+        }
+        assert(found_nonvirtual_base && found_layer_member);
     }
     objfile_free(object);
 }

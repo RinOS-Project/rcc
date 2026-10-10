@@ -830,6 +830,64 @@ static void debug_line_sleb(ObjSection* section, int64_t value) {
 
 static uint32_t debug_str_add(ObjSection* strings, const char* value);
 static void debug_expr_member_location(ObjSection* info, int offset);
+static bool debug_expression_uleb(uint8_t* expression, size_t capacity,
+                                 size_t* size, uint64_t value);
+
+static int debug_class_virtual_base_index(const CxxClass* class_info,
+                                          const CxxClass* base) {
+    if (!class_info || !base) return -1;
+    for (int index = 0; index < class_info->virtual_base_count; ++index) {
+        if (class_info->virtual_bases[index].base == base) return index;
+    }
+    return -1;
+}
+
+static void debug_expr_virtual_base_location(
+    ObjSection* info, const CxxClass* class_info, int virtual_base_index,
+    int architecture) {
+    uint8_t expression[32];
+    size_t size = 0u;
+    uint32_t pointer_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t table_entry_offset;
+    if (!info || !class_info || virtual_base_index < 0 ||
+        virtual_base_index >= class_info->virtual_base_count ||
+        class_info->virtual_base_pointer_offset < 0 ||
+        !class_info->virtual_bases[virtual_base_index].base ||
+        class_info->virtual_bases[virtual_base_index].offset < 0) {
+        rcc_fatal("DWARF virtual-base location has incomplete layout");
+        return;
+    }
+    table_entry_offset = (uint64_t)(unsigned)virtual_base_index * pointer_size;
+
+    /* The ABI stores a pointer to signed, pointer-width offsets at the
+     * per-subobject vbase-pointer slot. DW_AT_data_member_location supplies
+     * the containing object's address on the expression stack. */
+    expression[size++] = 0x12u; /* DW_OP_dup: retain the subobject address */
+    expression[size++] = 0x23u; /* DW_OP_plus_uconst: vbase-pointer slot */
+    if (!debug_expression_uleb(
+            expression, sizeof(expression), &size,
+            (uint64_t)(unsigned)class_info->virtual_base_pointer_offset)) {
+        rcc_fatal("DWARF virtual-base expression exceeds its buffer");
+        return;
+    }
+    expression[size++] = 0x94u; /* DW_OP_deref_size: load table pointer */
+    expression[size++] = (uint8_t)pointer_size;
+    expression[size++] = 0x10u; /* DW_OP_constu: table entry byte offset */
+    if (!debug_expression_uleb(expression, sizeof(expression), &size,
+                               table_entry_offset)) {
+        rcc_fatal("DWARF virtual-base expression exceeds its buffer");
+        return;
+    }
+    expression[size++] = 0x22u; /* DW_OP_plus: address the selected entry */
+    expression[size++] = 0x94u; /* DW_OP_deref_size: load relative offset */
+    expression[size++] = (uint8_t)pointer_size;
+    expression[size++] = 0x22u; /* DW_OP_plus: add to subobject address */
+
+    debug_line_uleb(info, size);
+    for (size_t index = 0u; index < size; ++index) {
+        section_add_byte(info, expression[index]);
+    }
+}
 
 typedef struct DebugTypeEntry {
     const Type* type;
@@ -966,17 +1024,29 @@ static bool debug_type_has_supported_inheritance(const Type* type) {
     CxxClass* class_info;
     if (!type || type->kind != TYPE_STRUCT || !type->cxx_class) return false;
     class_info = type->cxx_class;
-    if (class_info->base_count <= 0 || type->size < 0 ||
-        class_info->virtual_base_count != 0 || !class_info->bases ||
+    if (class_info->base_count <= 0 || !type->is_complete || type->size < 0 ||
+        !class_info->bases ||
         !class_info->base_offsets) {
+        return false;
+    }
+    if (class_info->virtual_base_count > 0 &&
+        (!class_info->virtual_bases ||
+         class_info->virtual_base_pointer_offset < 0)) {
         return false;
     }
     for (int index = 0; index < class_info->base_count; ++index) {
         CxxClass* base = class_info->bases[index].base;
-        if (!base || !base->type || base->type->size < 0 ||
-            class_info->bases[index].is_virtual ||
-            class_info->base_offsets[index] < 0) {
+        if (!base || !base->type || !base->type->is_complete ||
+            base->type->size < 0 || class_info->base_offsets[index] < 0) {
             return false;
+        }
+        if (class_info->bases[index].is_virtual) {
+            int virtual_index = debug_class_virtual_base_index(class_info,
+                                                               base);
+            if (virtual_index < 0 ||
+                class_info->virtual_bases[virtual_index].offset < 0) {
+                return false;
+            }
         }
     }
     return true;
@@ -1456,6 +1526,8 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                 for (int base_index = 0;
                      base_index < class_info->base_count; ++base_index) {
                     CxxClass* base = class_info->bases[base_index].base;
+                    bool virtual_base =
+                        class_info->bases[base_index].is_virtual;
                     DebugTypeEntry* base_type =
                         debug_type_find(context, base->type);
                     if (!base_type) {
@@ -1463,10 +1535,20 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                             "DWARF inheritance base type was not collected");
                         return;
                     }
-                    section_add_byte(info, 43u); /* DW_TAG_inheritance */
+                    section_add_byte(info, virtual_base ? 45u : 43u);
                     debug_type_ref(info, patches, base_type);
-                    debug_expr_member_location(
-                        info, class_info->base_offsets[base_index]);
+                    if (virtual_base) {
+                        int virtual_index = debug_class_virtual_base_index(
+                            class_info, base);
+                        debug_expr_virtual_base_location(
+                            info, class_info, virtual_index,
+                            g_opts.target_arch == ARCH_X64
+                                ? ARCH_X64 : ARCH_X86);
+                        section_add_byte(info, 1u); /* DW_VIRTUALITY_virtual */
+                    } else {
+                        debug_expr_member_location(
+                            info, class_info->base_offsets[base_index]);
+                    }
                     if (class_info->bases[base_index].access >
                         ACCESS_PRIVATE) {
                         rcc_fatal(
@@ -4016,6 +4098,19 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 45u);
+    debug_line_uleb(abbrev, 0x1cu);    /* DW_TAG_inheritance */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x02u);    /* DW_AT_data_member_location */
+    debug_line_uleb(abbrev, 0x18u);    /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0x4cu);    /* DW_AT_virtuality */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x32u);    /* DW_AT_accessibility */
+    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
