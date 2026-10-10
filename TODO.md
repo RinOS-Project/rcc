@@ -1667,6 +1667,10 @@
         privateの複数継承、基底offset、直メンバーとの区別をi686/AMD64で検証。
         virtual／未解決base layoutは誤った固定offset DIEへ変換せず、旧出力を
         維持しているため引き続き未完
+  - [x] source locationを持つtranslation-unit scopeのC/C++ `typedef`
+        declarationへ`DW_TAG_typedef`、実基底型参照、file/line/columnを出力し、
+        C/C++双方のi686/AMD64 debug-info回帰で検証。C++ `using` aliasとclass内
+        aliasをAST declarationとして保持・出力する対応は引き続き未完
   - [x] enum型と列挙子へ`DW_TAG_enumeration_type`／`DW_TAG_enumerator`と
         signed／unsigned constant valueを出力し、unsigned full-width値を含む
         i686/AMD64のobject・link回帰で検証

@@ -476,6 +476,59 @@ static void verify_cxx_inheritance_dies(const char* path,
     objfile_free(object);
 }
 
+static void verify_typedef_die(const char* path, uint16_t architecture,
+                              const char* typedef_name)
+{
+    static const uint8_t typedef_abbrev[] = {
+        44u, 0x16u, 0u, 0x03u, 0x0eu, 0x49u, 0x13u, 0x3au, 0x06u,
+        0x3bu, 0x06u, 0x39u, 0x06u, 0u, 0u
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    bool found = false;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_sequence(abbrev->data, abbrev->size,
+                             typedef_abbrev, sizeof(typedef_abbrev)));
+    for (uint64_t die = 11u; die + 21u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint32_t type_offset;
+        uint32_t file_index;
+        uint32_t line;
+        uint32_t column;
+        uint32_t base_name_offset;
+        if (info->data[die] != 44u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   typedef_name) != 0) {
+            continue;
+        }
+        type_offset = read_u32(info->data, die + 5u);
+        file_index = read_u32(info->data, die + 9u);
+        line = read_u32(info->data, die + 13u);
+        column = read_u32(info->data, die + 17u);
+        assert((uint64_t)type_offset + 7u <= info->size &&
+               info->data[type_offset] == 5u);
+        base_name_offset = read_u32(info->data, type_offset + 1u);
+        assert(base_name_offset < strings->size &&
+               strcmp((const char*)strings->data + base_name_offset,
+                      "unsigned int") == 0);
+        assert(info->data[type_offset + 5u] == 4u &&
+               info->data[type_offset + 6u] == 0x07u);
+        assert(file_index > 0u && line > 0u && column > 0u);
+        found = true;
+        break;
+    }
+    assert(found);
+    objfile_free(object);
+}
+
 static bool has_reference_type_die(const ObjSection* info,
                                    uint8_t abbreviation)
 {
@@ -3092,6 +3145,8 @@ int main(int argc, char** argv)
                              "DEBUG_ENUM_NEGATIVE", 4u, 0x05u, -2);
     verify_signed_enum_dwarf(argv[2], ARCH_X64, "debug_enum", "int",
                              "DEBUG_ENUM_NEGATIVE", 4u, 0x05u, -2);
+    verify_typedef_die(argv[1], ARCH_X86, "DebugInfoWord");
+    verify_typedef_die(argv[2], ARCH_X64, "DebugInfoWord");
     verify_legacy_statement_line_rows(argv[2], ARCH_X64);
     verify_debug_object(argv[3], ARCH_X64, 0x002bu,
                         "tests/hello.cpp", "main", NULL);
@@ -3116,6 +3171,8 @@ int main(int argc, char** argv)
     verify_cxx_member_accessibility(argv[15], ARCH_X64);
     verify_cxx_inheritance_dies(argv[14], ARCH_X86);
     verify_cxx_inheritance_dies(argv[15], ARCH_X64);
+    verify_typedef_die(argv[14], ARCH_X86, "DebugMemberWord");
+    verify_typedef_die(argv[15], ARCH_X64, "DebugMemberWord");
     verify_cxx_method_accessibility(argv[14], ARCH_X86);
     verify_cxx_method_accessibility(argv[15], ARCH_X64);
     verify_cxx_reference_type_dies(argv[14], ARCH_X86);

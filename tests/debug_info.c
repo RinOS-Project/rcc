@@ -1,3 +1,5 @@
+typedef unsigned int DebugInfoWord;
+
 int debug_global_data = 7;
 extern int debug_global_data;
 static int debug_file_static;

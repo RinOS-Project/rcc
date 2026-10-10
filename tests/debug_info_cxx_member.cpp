@@ -1,3 +1,5 @@
+typedef unsigned int DebugMemberWord;
+
 class DebugMemberObject {
 private:
     int secret : 4;
@@ -35,6 +37,10 @@ struct DebugVirtualInheritanceDerived : virtual DebugVirtualInheritanceBase {
 
 int debug_member_object_entry(DebugMemberObject* object) {
     return object->read() + DebugMemberObject::create_value(object->value);
+}
+
+DebugMemberWord debug_typedef_entry(DebugMemberWord value) {
+    return value;
 }
 
 int debug_inheritance_entry(DebugInheritanceDerived* object) {

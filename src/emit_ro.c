@@ -3253,6 +3253,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     ObjSection* info;
     int function_count = 0;
     int global_count = 0;
+    int typedef_count = 0;
     int file_count = 0;
     size_t file_capacity;
     int info_section;
@@ -3277,6 +3278,24 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     for (DeclList* item = mod->debug_ast ? mod->debug_ast->decls : NULL;
          item; item = item->next) {
         Decl* declaration = item->decl;
+        Type* typedef_type;
+        if (!declaration || declaration->kind != DECL_TYPEDEF ||
+            !declaration->name || !declaration->loc.filename ||
+            declaration->loc.filename[0] == '\0' ||
+            declaration->loc.line <= 0 || declaration->loc.column < 0) {
+            continue;
+        }
+        typedef_type = declaration->typedef_type
+            ? declaration->typedef_type : declaration->type;
+        if (!typedef_type) continue;
+        ++typedef_count;
+        debug_type_collect(&types, typedef_type);
+        debug_file_add(&files, &file_count, &file_capacity,
+                       declaration->loc.filename);
+    }
+    for (DeclList* item = mod->debug_ast ? mod->debug_ast->decls : NULL;
+         item; item = item->next) {
+        Decl* declaration = item->decl;
         const ModuleSymbol* symbol = debug_find_global_symbol(mod, declaration);
         if (!symbol || debug_find_global_decl(mod, symbol) != declaration ||
             !declaration->loc.filename ||
@@ -3288,7 +3307,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         debug_file_add(&files, &file_count, &file_capacity,
                        declaration->loc.filename);
     }
-    if (function_count == 0 && global_count == 0) {
+    if (function_count == 0 && global_count == 0 && typedef_count == 0) {
         rcc_free(functions);
         rcc_free(files);
         return;
@@ -3984,6 +4003,21 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 44u);
+    debug_line_uleb(abbrev, 0x16u);    /* DW_TAG_typedef */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
 
     unit_length_offset = info->size;
@@ -4000,6 +4034,35 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
 
     debug_emit_type_dies(info, strings, &types, &type_patches);
     debug_type_patches_free(&type_patches);
+
+    for (DeclList* item = mod->debug_ast ? mod->debug_ast->decls : NULL;
+         item; item = item->next) {
+        Decl* declaration = item->decl;
+        Type* typedef_type;
+        DebugTypeEntry* type_entry;
+        int file_index;
+        if (!declaration || declaration->kind != DECL_TYPEDEF ||
+            !declaration->name || !declaration->loc.filename ||
+            declaration->loc.filename[0] == '\0' ||
+            declaration->loc.line <= 0 || declaration->loc.column < 0) {
+            continue;
+        }
+        typedef_type = declaration->typedef_type
+            ? declaration->typedef_type : declaration->type;
+        type_entry = debug_type_find(&types, typedef_type);
+        file_index = debug_line_file_index(
+            files, file_count, declaration->loc.filename);
+        if (!typedef_type || !type_entry || file_index <= 0) {
+            rcc_fatal("DWARF typedef is missing its type or source file");
+            return;
+        }
+        section_add_byte(info, 44u); /* DW_TAG_typedef */
+        debug_line_u32(info, debug_str_add(strings, declaration->name));
+        debug_type_ref(info, NULL, type_entry);
+        debug_line_u32(info, (uint32_t)file_index);
+        debug_line_u32(info, (uint32_t)declaration->loc.line);
+        debug_line_u32(info, (uint32_t)declaration->loc.column);
+    }
 
     for (size_t index = 0u; index < inline_origin_count; ++index) {
         const Decl* callee = inline_origins[index].declaration;
