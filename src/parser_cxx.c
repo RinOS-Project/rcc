@@ -15388,17 +15388,69 @@ static bool cxx_parser_expression_is_lvalue(Expr* expression) {
     }
 }
 
+/* `type_is_compatible()` intentionally ignores cv-qualification on pointer
+ * targets.  For overload ranking, however, identity and qualification
+ * conversions are distinct exact-match sequences, and qualification may not
+ * be added through an unprotected pointer level (`T**` -> `const T**`). */
+static bool cxx_parser_template_qualification_relation_internal(
+    const Type* source, const Type* target, bool protected_level,
+    bool nested_level, bool ignore_current_qualification,
+    bool* requires_qualification) {
+    bool added_const;
+    bool added_volatile;
+    if (!source || !target) return false;
+    added_const = target->is_const && !source->is_const;
+    added_volatile = target->is_volatile && !source->is_volatile;
+    if (!ignore_current_qualification &&
+        ((source->is_const && !target->is_const) ||
+         (source->is_volatile && !target->is_volatile) ||
+         (nested_level && (added_const || added_volatile) &&
+          !protected_level))) {
+        return false;
+    }
+    if (!ignore_current_qualification &&
+        (added_const || added_volatile) && requires_qualification) {
+        *requires_qualification = true;
+    }
+    if (source->kind == TYPE_PTR || target->kind == TYPE_PTR) {
+        if (source->kind != TYPE_PTR || target->kind != TYPE_PTR) {
+            return false;
+        }
+        /* Top-level cv on a by-value pointer is ignored.  Its pointee is the
+         * first qualification level; deeper additions need a const/volatile
+         * intermediate pointer to protect them. */
+        return cxx_parser_template_qualification_relation_internal(
+            source->base, target->base,
+            ignore_current_qualification
+                ? false : (target->is_const || target->is_volatile),
+            !ignore_current_qualification, false,
+            requires_qualification);
+    }
+    return true;
+}
+
+static bool cxx_parser_template_qualification_relation(
+    const Type* source, const Type* target, bool ignore_top_level,
+    bool* requires_qualification) {
+    if (requires_qualification) *requires_qualification = false;
+    return cxx_parser_template_qualification_relation_internal(
+        source, target, false, false, ignore_top_level,
+        requires_qualification);
+}
+
 static int cxx_parser_template_conversion_rank(Expr* argument,
                                                 Type* target) {
     Type* source;
     Type* source_base;
     Type* target_base;
+    bool target_is_reference;
     if (!argument || !target) return -1;
     source = cxx_parser_expression_type(argument);
     if (!source) return -1;
     if (source->is_reference) source = source->base;
     if (!source) return -1;
 
+    target_is_reference = target->is_reference;
     if (target->is_reference) {
         bool is_lvalue = cxx_parser_expression_is_lvalue(argument);
         bool binds_const_lvalue = target->base && target->base->is_const;
@@ -15409,7 +15461,11 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
         }
         target = target->base;
     }
-    if (type_is_compatible(source, target)) return 0;
+    if (type_is_compatible(source, target)) {
+        return cxx_parser_template_qualification_relation(
+                   source, target, !target_is_reference, NULL)
+            ? 0 : -1;
+    }
     if (source->kind == TYPE_NULLPTR && target->kind == TYPE_BOOL) {
         return 1;
     }
@@ -15452,6 +15508,33 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
         return 2;
     }
     return -1;
+}
+
+static int cxx_parser_function_template_overload_conversion_rank(
+    Expr* argument, Type* target) {
+    Type* source;
+    Type* conversion_target;
+    bool target_is_reference;
+    bool requires_qualification = false;
+    int rank = cxx_parser_template_conversion_rank(argument, target);
+    if (rank < 0) return rank;
+    if (rank == 0) {
+        source = cxx_parser_expression_type(argument);
+        if (!source || !target) return -1;
+        if (source->is_reference) source = source->base;
+        target_is_reference = target->is_reference;
+        conversion_target = target_is_reference ? target->base : target;
+        if (!source || !conversion_target ||
+            !cxx_parser_template_qualification_relation(
+                source, conversion_target, !target_is_reference,
+                &requires_qualification)) {
+            return -1;
+        }
+        return requires_qualification ? 1 : 0;
+    }
+    /* Preserve the existing coarse order while leaving space between exact
+     * match, qualification, promotion, conversion, and ellipsis sequences. */
+    return rank * 4;
 }
 
 static Type* cxx_function_template_find_dependent_nested_type(
@@ -15549,7 +15632,7 @@ static bool cxx_function_template_instance_viable(
     argument = call_arguments;
     if (rank_count) *rank_count = 0;
     while (argument && parameter) {
-        int rank = cxx_parser_template_conversion_rank(
+        int rank = cxx_parser_function_template_overload_conversion_rank(
             argument->expr, parameter->type);
         if (rank < 0) return false;
         if (ranks && rank_count && *rank_count >= rank_capacity) return false;
@@ -15564,7 +15647,7 @@ static bool cxx_function_template_instance_viable(
             if (ranks && rank_count && *rank_count >= rank_capacity) {
                 return false;
             }
-            if (ranks && rank_count) ranks[(*rank_count)++] = 8;
+            if (ranks && rank_count) ranks[(*rank_count)++] = 12;
             argument = argument->next;
         }
     }

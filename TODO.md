@@ -2041,3 +2041,18 @@ separately recorded WSL startup failure.
 - [ ] Extend conversion-sequence comparison beyond the current rank vector to
   identity/subsequence, qualification, reference binding, derived-to-base,
   user-defined conversion, and full template partial-ordering interactions.
+
+## C++ regression follow-up (2026-10-10, exact-match qualification ranking)
+
+- [x] Distinguish identity from cv-qualification conversions in viable
+  function-template candidate vectors, while retaining the existing coarse
+  conversion ranks used by class-template deduction. Reject unsafe nested
+  pointer qualification additions. The crossed identity/qualification versus
+  promotion/conversion fixture diagnoses ambiguity on i686 and AMD64; GCC
+  C++20 agrees, and RCC emits no `.ro`. The full native-Windows `test-cxx`
+  aggregate passes.
+- [ ] Complete standard conversion-sequence ordering, including proper
+  subsequences, reference-binding refinements, derived-to-base and
+  user-defined conversions, plus their interactions with packs, constraints,
+  and template partial ordering. This focused qualification fix is not full
+  overload-resolution conformance.
