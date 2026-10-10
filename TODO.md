@@ -2051,6 +2051,12 @@ separately recorded WSL startup failure.
   promotion/conversion fixture diagnoses ambiguity on i686 and AMD64; GCC
   C++20 agrees, and RCC emits no `.ro`. The full native-Windows `test-cxx`
   aggregate passes.
+- [x] Rank array-to-pointer decay as an exact-match transformation rather
+  than a promotion, preserve the additional qualification step for
+  `T[N]` -> `const T*`, and classify decay followed by pointer-to-void as a
+  Conversion-rank sequence. The GCC-confirmed crossed regression is ambiguous
+  on both RCC targets, produces no `.ro`, and passes with the full
+  native-Windows `test-cxx` aggregate.
 - [ ] Complete standard conversion-sequence ordering, including proper
   subsequences, reference-binding refinements, derived-to-base and
   user-defined conversions, plus their interactions with packs, constraints,

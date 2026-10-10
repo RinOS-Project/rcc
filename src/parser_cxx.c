@@ -15518,6 +15518,30 @@ static int cxx_parser_function_template_overload_conversion_rank(
     bool requires_qualification = false;
     int rank = cxx_parser_template_conversion_rank(argument, target);
     if (rank < 0) return rank;
+    if (rank == 1 && target && !target->is_reference &&
+        target->kind == TYPE_PTR) {
+        source = cxx_parser_expression_type(argument);
+        if (source && source->is_reference) source = source->base;
+        if (source && source->kind == TYPE_ARRAY && source->base &&
+            target->base) {
+            if (type_is_compatible(source->base, target->base)) {
+                if (!cxx_parser_template_qualification_relation(
+                        source->base, target->base, false,
+                        &requires_qualification)) {
+                    return -1;
+                }
+                /* Array-to-pointer decay is an exact-match transformation;
+                 * adding cv to its pointed-to element is a qualification
+                 * conversion and must remain distinguishable from identity. */
+                return requires_qualification ? 1 : 0;
+            }
+            if (target->base->kind == TYPE_VOID) {
+                /* Decay followed by pointer-to-void conversion has Conversion
+                 * rank, not Promotion rank. */
+                return 8;
+            }
+        }
+    }
     if (rank == 0) {
         source = cxx_parser_expression_type(argument);
         if (!source || !target) return -1;

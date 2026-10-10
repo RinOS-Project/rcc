@@ -2619,17 +2619,20 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log)
 	$(GREP) -F -q "ambiguous function template overload for 'select_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_qualified_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log,2)
+	$(GREP) -F -q "ambiguous function template overload for 'select_array_qualified_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log,3)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log)
 	$(GREP) -F -q "ambiguous function template overload for 'select_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_qualified_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log,2)
+	$(GREP) -F -q "ambiguous function template overload for 'select_array_qualified_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log,3)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log)
 	$(GREP) -F -q "select_crossed" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 	$(GREP) -F -q "select_qualified_crossed" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
+	$(GREP) -F -q "select_array_qualified_crossed" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 	@echo "RCC++ function-template overload and expression-deduction tests completed"
 
 test-cxx-function-template-references-posix: $(RCXX_TARGET)
@@ -3464,17 +3467,20 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log)
 	$(GREP) -F -q "ambiguous function template overload for 'select_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_qualified_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log,2)
+	$(GREP) -F -q "ambiguous function template overload for 'select_array_qualified_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log,3)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro)
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log)
 	$(GREP) -F -q "ambiguous function template overload for 'select_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_qualified_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log,2)
+	$(GREP) -F -q "ambiguous function template overload for 'select_array_qualified_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log,3)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log)
 	$(GREP) -F -q "select_crossed" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 	$(GREP) -F -q "select_qualified_crossed" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
+	$(GREP) -F -q "select_array_qualified_crossed" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 
 test-cxx-function-template-references: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-references)
