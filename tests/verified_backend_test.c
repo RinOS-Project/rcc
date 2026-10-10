@@ -4124,6 +4124,32 @@ static void verify_optimized_switch_loop_labels(const char* path)
     objfile_free(object);
 }
 
+static void verify_switch_nested_case_object(const char* path)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* symbol;
+    int (RINOS_ABI *function)(int);
+    size_t mapping_size;
+    void* memory;
+    void* address;
+
+    assert(object != NULL && object->arch == ARCH_X64 && sizeof(void*) == 8u);
+    text = objfile_get_section(object, ".text");
+    symbol = objfile_find_symbol(
+        object, "verified_switch_nested_case");
+    assert(text != NULL && symbol != NULL && symbol->type == SYM_GLOBAL &&
+           symbol->binding == BIND_CODE && symbol->section == 0);
+    memory = map_text(object, text, &mapping_size);
+    address = symbol_address(memory, symbol);
+    memcpy(&function, &address, sizeof(function));
+    /* Dispatch to a nested case bypasses its enclosing false if condition. */
+    assert(function(1) == 1);
+    assert(function(0) == 0 && function(2) == 0 && function(-1) == 0);
+    assert(verified_unmap(memory, mapping_size) == 0);
+    objfile_free(object);
+}
+
 static void verify_tls_object(const char* path, uint16_t arch,
                               bool imported)
 {
@@ -4477,6 +4503,11 @@ int main(int argc, char** argv)
     if (argc == 3 && strcmp(argv[1], "--switch-loop-labels") == 0) {
         verify_optimized_switch_loop_labels(argv[2]);
         puts("Verified optimized switch loop-label execution passed");
+        return 0;
+    }
+    if (argc == 3 && strcmp(argv[1], "--switch-nested-case") == 0) {
+        verify_switch_nested_case_object(argv[2]);
+        puts("Verified nested switch case dispatch passed");
         return 0;
     }
     assert(argc == 6 || argc == 8 || argc == 10 || argc == 12 ||

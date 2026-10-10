@@ -438,6 +438,7 @@ endif
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
+.PHONY: test-verified-switch-nested
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
 .PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates
@@ -13974,7 +13975,7 @@ test-verified-i686-floating-operations: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2-run,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2.s $(TEST_OUT)/verified-backend/float-ops-i686-harness.s)
 	@echo "Verified i686 x87 floating unary/update/select C/C++ O0/O2 execution passed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-switch-nested
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \
@@ -14137,12 +14138,6 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/verified-backend/tls-cxx-x86.rin
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
 		$(TEST_OUT)/verified-backend/tls-cxx-x64.rin
-	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
-		-o $(TEST_OUT)/verified-backend/switch-nested.ro \
-		tests/verified_backend_switch_fallback.c \
-		>$(TEST_OUT)/verified-backend/switch-nested.log
-	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
-		$(TEST_OUT)/verified-backend/switch-nested.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/array-fallback.ro \
 		tests/verified_backend_array_fallback.c \
@@ -14491,6 +14486,30 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(TEST_OUT)/verified-backend/verify-x64 --tls-object \
 		$(TEST_OUT)/verified-backend/tls-cxx-x64.ro x64
 	@echo "Verified backend production object and fallback tests completed"
+
+test-verified-switch-nested: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-switch-nested)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-switch-nested/nested.ro \
+		tests/verified_backend_switch_nested_case.c \
+		>$(TEST_OUT)/verified-switch-nested/nested.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/verified-switch-nested/nested.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-switch-nested/nested.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-switch-nested/nested-o2.ro \
+		tests/verified_backend_switch_nested_case.c \
+		>$(TEST_OUT)/verified-switch-nested/nested-o2.log
+	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
+		$(TEST_OUT)/verified-switch-nested/nested-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-switch-nested/nested-o2.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-switch-nested/verify \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-switch-nested/verify --switch-nested-case \
+		$(TEST_OUT)/verified-switch-nested/nested.ro
+	$(TEST_OUT)/verified-switch-nested/verify --switch-nested-case \
+		$(TEST_OUT)/verified-switch-nested/nested-o2.ro
 
 test-assignment-constraints: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/assignment-constraints)

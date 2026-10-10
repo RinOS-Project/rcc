@@ -1204,6 +1204,9 @@
   - [x] `switch`内のgoto label配下にある`case`を収集し、前段caseからのgotoと
         switch直dispatchを同じlabel/case CFGへ合流させる。両archの通常/O2で
         fallbackなし、x86_64で両経路を実行検証
+  - [x] 偽になる条件式の内側にあるnested `case`へswitch dispatchする経路を、
+        AMD64 verified backendの`-O0`/`-O2`でfallbackなし生成し、case/defaultの
+        runtime結果を検証
   - [x] `do`/`for`本体の`return`/`break`終端をSSA CFGとして保持し、continue edgeが
         必要とするcondition/increment blockも検証する。switch内caseのreturn/break/
         continueを両arch通常/O2でfallbackなし、x86_64実行で検証
@@ -1535,26 +1538,24 @@
         `{13, 7}`を渡した結果137を、`-O0`/`-O2`かつfallbackなしで検証。
       - [x] trivial C aggregateのvariadic callを最大2個のINTEGER eightbyteまで
         拡張し、両wordがregisterに入る場合と両wordがstackへ送られる場合を実行検証。
-        1 GPRだけ空いた境界では分割せず、専用legacy-object fixtureへ分離して
-        `-O0`/`-O2`で実際のcomplete backendの結果を実行確認。
+        1 GPRだけ空いた境界ではaggregate全体をstackへ配置し、残りのGPRを後続引数に
+        保持する経路もC/C++ `-O0`/`-O2`でfallbackなし実行確認。
       - [x] single SSE eightbyteに分類される単一`float`／`double` field aggregateを
         variadic call-siteからmarshalし、C/C++ objectでXMM register、最後のXMM register、
         SSE register枯渇後のstack配置を`-O0`/`-O2`実行検証。
       - [x] 2個のSSE eightbyteを持つtrivial aggregateを両XMM registerへ渡す経路と、
-        SSE bank枯渇後に両方stackへ置く経路をC/C++で実行検証する。残り1 XMM slotでは
-        分割せず専用legacy-object fixtureへ分離し、`-O0`/`-O2`で実行確認する。
-        C/C++の`-O0`/`-O2`でfallbackなしの両XMM／全stack経路を実行し、
-        one-XMM-slot straddleは専用legacy-only fixtureのcomplete backend結果を実行確認。
+        SSE bank枯渇後に両方stackへ置く経路と、残り1 XMM slotでは全体をstackへ置いて
+        XMM cursorを保持するstraddle経路をC/C++ `-O0`/`-O2`でfallbackなし実行検証。
       - [x] 最大2個のINTEGER/SSE eightbyteで構成されるmixed GP/SSE aggregateを、
         必要な両register bankに余裕がある場合と両bank枯渇後のstack配置でmarshalする。
-        一方のbankだけが不足する境界ではaggregate全体を分割せずcomplete legacy objectへ
-        fallbackし、C/C++の`-O0`/`-O2`でregister／全stack経路とlegacy境界経路を
-        runtime検証。
+        一方のbankだけが不足する境界でもaggregate全体をstackへ配置し、残るregister bankを
+        後続引数に保持する。C/C++の`-O0`/`-O2`でregister／全stack／片bank straddleを
+        fallbackなしでruntime検証。
       - [x] nonvariadic x86_64 SysVのnamed trivial aggregate parameterをeightbyteごとの
         INTEGER/SSE classでfunction entryとcall-site双方に分類する。C/C++の`-O0`/`-O2`で
-        register配置と全体stack配置を実行検証し、typed ABIで未対応のregister straddleは
-        complete legacy-object fallbackで実行確認。mixed GP/SSEのregister配置と両bank
-        exhaustion後のstack配置をfallbackなしで実行し、片bankだけの境界はlegacy objectで確認。
+        register配置と全体stack配置を実行検証し、register straddleではaggregate全体をstackへ
+        配置する。mixed GP/SSEのregister配置、両bank exhaustion後のstack配置、片bank straddleを
+        fallbackなしで実行確認。
       - [x] variadic functionのnamed trivial aggregate parameterについて、GP/XMM
         register配置と両bank exhaustion時のwhole-stack配置をfunction entry、call-site、
         `va_start` overflow位置まで接続。C/C++の`-O0`/`-O2`でregister／stack後の
@@ -1576,8 +1577,8 @@
         eightbyteを持つtrivial aggregateに限定される。nonvariadic named aggregate parametersも同じ
         bounded INTEGER/SSE分類でregister／whole-stack loweringと実行検証を完了し、variadic
         functionのbounded named aggregateもregister／whole-stack配置と`va_start` cursorを
-        C/C++ O0/O2で実行検証した。片bankだけのregister straddleはcomplete legacy backendで
-        実行する。alignmentが16-byteを超えるcaller、
+        C/C++ O0/O2で実行検証した。片bankだけのregister straddleもwhole-stack assignmentで
+        typed verified backendから実行する。alignmentが16-byteを超えるcaller、
         bounded profile外のnamed aggregate layouts、残るadjusted-`va_list`形態は未実装であり、
         このparent checkboxは未完了のままにする。
   - [x] x86_64 SysVで`va_list*`を受け取るhelperの`va_arg(*p, T)`／

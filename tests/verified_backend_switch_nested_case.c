@@ -1,7 +1,7 @@
-int verified_switch_nested_label_fallback(int value)
+int verified_switch_nested_case(int value)
 {
     switch (value) {
-        if (value) {
+        if (value != 1) {
             case 1:
                 return 1;
         }
