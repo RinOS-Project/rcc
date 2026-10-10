@@ -92,6 +92,7 @@ EXPECT_FAILURE = $(subst /,\,$(subst ./,,$(1))) >$(subst /,\,$(2)) 2>&1 & if not
 CHECK_NONEMPTY = powershell -NoProfile -Command "if (-not (Test-Path -LiteralPath '$(1)') -or (Get-Item -LiteralPath '$(1)').Length -eq 0) { exit 1 }"
 COPY_FILE = powershell -NoProfile -Command "Copy-Item -LiteralPath '$(1)' -Destination '$(2)' -Force"
 ASSERT_ABSENT = powershell -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { exit 1 }"
+REMOVE_FILE = powershell -NoProfile -Command "if (Test-Path -LiteralPath '$(1)') { Remove-Item -LiteralPath '$(1)' -Force }"
 CHECK_NO_SIGN_TEMP = powershell -NoProfile -Command "$$bad=Get-ChildItem -LiteralPath '$(1)' -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $$_.Name -like '*.rcc-unsigned-*' -or $$_.Name -like '*.rld-unsigned-*' -or $$_.Name -like '*.rcc-signed-*' }; if ($$bad) { exit 1 }"
 define PARALLEL_SIGNING
 powershell -NoProfile -Command "$$a=Start-Process -FilePath '$(RCC_TARGET)' -ArgumentList @('--target','i686-unknown-rinos','--sign-profile','debug','--python','python3','--rinsign','tests/fake_rinsign.py','--sign-key','tests/signing_test_private.key','--public-key','tests/signing_test_public.der','-o','$(SIGN_TEST_DIR)/parallel.rin','tests/hello.c') -PassThru; $$b=Start-Process -FilePath '$(RCC_TARGET)' -ArgumentList @('--target','i686-unknown-rinos','--sign-profile','debug','--python','python3','--rinsign','tests/fake_rinsign.py','--sign-key','tests/signing_test_private.key','--public-key','tests/signing_test_public.der','-o','$(SIGN_TEST_DIR)/parallel.rin','tests/hello.c') -PassThru; Wait-Process -Id $$a.Id,$$b.Id; $$a.Refresh(); $$b.Refresh(); if ($$a.ExitCode -ne 0 -or $$b.ExitCode -ne 0) { exit 1 }"
@@ -111,6 +112,7 @@ VERIFIED_BACKEND_X86_HOST_CFLAGS = -m32 $(CFLAGS)
 COMPARE_FILES = cmp "$(1)" "$(2)"
 COPY_FILE = cp "$(1)" "$(2)"
 ASSERT_ABSENT = test ! -e "$(1)"
+REMOVE_FILE = rm -f "$(1)"
 CHECK_NO_SIGN_TEMP = test -z "$$(find "$(1)" -type f \( -name '*.rcc-unsigned-*' -o -name '*.rld-unsigned-*' -o -name '*.rcc-signed-*' \) -print -quit)"
 define PARALLEL_SIGNING
 $(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug --python python3 --rinsign tests/fake_rinsign.py --sign-key tests/signing_test_private.key --public-key tests/signing_test_public.der -o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & first=$$!; $(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug --python python3 --rinsign tests/fake_rinsign.py --sign-key tests/signing_test_private.key --public-key tests/signing_test_public.der -o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & second=$$!; wait $$first; wait $$second
@@ -2613,6 +2615,16 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 		test $$status -ne 0
 	$(GREP) -q "ambiguous function template overload for 'select_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'select_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'select_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log)
+	$(GREP) -F -q "select_crossed" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 	@echo "RCC++ function-template overload and expression-deduction tests completed"
 
 test-cxx-function-template-references-posix: $(RCXX_TARGET)
@@ -3443,6 +3455,16 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log)
 	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'select_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'select_crossed'" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_crossed_conversion_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log)
+	$(GREP) -F -q "select_crossed" $(TEST_OUT)/cxx-function-template-overloads/crossed-invalid-gcc.log
 
 test-cxx-function-template-references: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-references)

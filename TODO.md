@@ -2029,3 +2029,15 @@ separately recorded WSL startup failure.
 - [ ] Complete standard function-template partial ordering and conversion
   ranking, including reference/cv adjustments, packs, constraints, and less
   common conversion-sequence ties. This focused fix is not full conformance.
+
+## C++ regression follow-up (2026-10-10, crossed function-template conversions)
+
+- [x] Preserve crossed per-argument conversion vectors as incomparable and do
+  not let the pattern-specificity fallback select a winner. The regression's
+  candidates require `[2, 1, 0]` and `[0, 2, 0]` conversion ranks respectively;
+  GCC and RCC both diagnose ambiguity, and RCC emits no `.ro` for i686/AMD64.
+  The focused overload target includes the GCC reference check, and the full
+  native-Windows `test-cxx` aggregate passes.
+- [ ] Extend conversion-sequence comparison beyond the current rank vector to
+  identity/subsequence, qualification, reference binding, derived-to-base,
+  user-defined conversion, and full template partial-ordering interactions.

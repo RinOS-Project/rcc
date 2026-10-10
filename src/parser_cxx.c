@@ -14815,7 +14815,7 @@ typedef struct CxxConstraintLocalParameters {
 
 static int cxx_template_conversion_vector_relation(
     const CxxFunctionTemplateMatch* left,
-    const CxxFunctionTemplateMatch* right);
+    const CxxFunctionTemplateMatch* right, bool* incomparable);
 
 static bool cxx_constraint_identifier_is_local(
     const CxxConstraintLocalParameters* scopes, const Expr* expression) {
@@ -15339,9 +15339,11 @@ static int cxx_function_template_match_relation(
     int conversion_relation;
     int constraint_relation;
     bool constraints_comparable;
+    bool conversions_incomparable;
     if (!left || !right) return 0;
-    conversion_relation =
-        cxx_template_conversion_vector_relation(left, right);
+    conversion_relation = cxx_template_conversion_vector_relation(
+        left, right, &conversions_incomparable);
+    if (conversions_incomparable) return 0;
     if (conversion_relation != 0) return conversion_relation;
     if (left->specificity != right->specificity) {
         return left->specificity > right->specificity ? 1 : -1;
@@ -15578,9 +15580,10 @@ static bool cxx_function_template_instance_viable(
 
 static int cxx_template_conversion_vector_relation(
     const CxxFunctionTemplateMatch* left,
-    const CxxFunctionTemplateMatch* right) {
+    const CxxFunctionTemplateMatch* right, bool* incomparable) {
     bool left_better = false;
     bool right_better = false;
+    if (incomparable) *incomparable = false;
     if (!left || !right || left->conversion_rank_count !=
         right->conversion_rank_count) return 0;
     for (int index = 0; index < left->conversion_rank_count; ++index) {
@@ -15593,6 +15596,7 @@ static int cxx_template_conversion_vector_relation(
     }
     if (left_better && !right_better) return 1;
     if (right_better && !left_better) return -1;
+    if (left_better && right_better && incomparable) *incomparable = true;
     return 0;
 }
 
