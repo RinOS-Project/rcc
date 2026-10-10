@@ -27,6 +27,28 @@ struct NestedTypeCarrier {
     using value_type = int;
 };
 
+struct NestedTypeChainInner {
+    using value_type = long;
+};
+
+struct NestedTypeChainOuter {
+    using value_type = NestedTypeChainInner;
+};
+
+template <typename T>
+struct NestedTypeChain {
+    typename T::value_type::value_type value;
+
+    typename T::value_type::value_type read() const {
+        return value;
+    }
+};
+
+template <typename T>
+typename T::value_type::value_type function_template_nested_type_chain() {
+    return 43;
+}
+
 template <typename T>
 struct TypeParameterNestedType {
     typename T::value_type value;
@@ -80,6 +102,8 @@ int main() {
     NestedTypeDerived<int> integer(17);
     NestedTypeDerived<long long> wide(29);
     TypeParameterNestedType<NestedTypeCarrier> type_parameter(37);
+    NestedTypeChain<NestedTypeChainOuter> chained_type;
+    chained_type.value = 41;
     dmi_effect_count = 0;
     DmiEffects<int> effects;
     DmiEffects<long long> wide_effects;
@@ -91,6 +115,9 @@ int main() {
     return integer.read() == 17 && integer.read_base_type() == 17 &&
                    wide.read() == 29 && wide.read_base_type() == 29 &&
                    type_parameter.read() == 37 &&
+                   chained_type.read() == 41 &&
+                   function_template_nested_type_chain<
+                       NestedTypeChainOuter>() == 43 &&
                    dmi_effect_count == 4 && effects.called == 7 &&
                    effects.side_effect == 8 && effects.values[0] == 7 &&
                    effects.values[1] == 11 && effects.matrix[0][0] == 1 &&

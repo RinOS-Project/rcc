@@ -1071,6 +1071,13 @@
           and `T::value_type`; verify return types, local declarations, and
           runtime values for i686 and AMD64 with
           `make SHELL=cmd.exe test-cxx-class-template-dependent-nested-type`.
+    - [x] Resolve chained dependent type-ids such as
+          `typename T::value_type::nested_type` after template substitution in
+          class-template members and function-template return types. Apply
+          access checks at each alias hop and diagnose missing/private later
+          components; verify i686 freestanding execution, AMD64 execution,
+          exact negative diagnostic counts for both targets, and GCC C++20
+          acceptance/rejection in `test-cxx-class-template-dependent-nested-type`.
     - [x] At concrete class-template substitution, diagnose missing and
           inaccessible dependent nested aliases instead of retaining an
           unresolved layout type; keep still-dependent names deferred and

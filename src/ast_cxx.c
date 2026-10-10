@@ -3601,14 +3601,15 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 tmpl->func_def->func_method_owner->cxx_class;
         }
         if (!access_context && tmpl) access_context = tmpl->templated_class;
-        CxxTypeAlias* alias = owner->cxx_class
-            ? cxx_class_find_inherited_type_alias(
-                  owner->cxx_class, type->cxx_dependent_member_name,
-                  access_context, &alias_ambiguous, &alias_accessible)
-            : NULL;
-        if (alias && alias_accessible) {
+        Type* nested_type = NULL;
+        bool nested_path_resolved = owner->cxx_class &&
+            cxx_class_resolve_nested_type_path(
+                owner->cxx_class, type->cxx_dependent_member_name,
+                access_context, &nested_type, &alias_ambiguous,
+                &alias_accessible);
+        if (nested_path_resolved && nested_type) {
             return template_substitute_type(
-                tmpl, alias->type, args, arg_count, value_args,
+                tmpl, nested_type, args, arg_count, value_args,
                 value_present);
         }
         {
@@ -6174,6 +6175,63 @@ CxxTypeAlias* cxx_class_find_inherited_type_alias(
         }
     }
     return result.alias;
+}
+
+bool cxx_class_resolve_nested_type_path(
+    CxxClass* cls, const char* path, CxxClass* access_context,
+    Type** resolved_type, bool* ambiguous, bool* accessible) {
+    const char* component;
+    CxxClass* owner = cls;
+    unsigned depth = 0;
+
+    if (resolved_type) *resolved_type = NULL;
+    if (ambiguous) *ambiguous = false;
+    if (accessible) *accessible = true;
+    if (!owner || !path || !*path) return false;
+
+    component = path;
+    while (component && *component) {
+        const char* separator = strstr(component, "::");
+        size_t component_length = separator
+            ? (size_t)(separator - component) : strlen(component);
+        char component_name[512];
+        bool component_ambiguous = false;
+        bool component_accessible = false;
+        CxxTypeAlias* alias;
+        Type* nested_type;
+
+        if (depth++ >= 64u || component_length == 0u ||
+            component_length >= sizeof(component_name)) {
+            return false;
+        }
+        memcpy(component_name, component, component_length);
+        component_name[component_length] = '\0';
+        alias = cxx_class_find_inherited_type_alias(
+            owner, component_name, access_context,
+            &component_ambiguous, &component_accessible);
+        if (component_ambiguous) {
+            if (ambiguous) *ambiguous = true;
+            return false;
+        }
+        if (!alias) return false;
+        if (!component_accessible) {
+            if (accessible) *accessible = false;
+            return false;
+        }
+
+        nested_type = alias->type;
+        if (!separator) {
+            if (resolved_type) *resolved_type = nested_type;
+            return nested_type != NULL;
+        }
+        if (separator[2] == '\0' || !nested_type ||
+            !nested_type->cxx_class) {
+            return false;
+        }
+        owner = nested_type->cxx_class;
+        component = separator + 2;
+    }
+    return false;
 }
 
 typedef struct CxxAliasTemplateClassPath {

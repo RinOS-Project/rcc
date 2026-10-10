@@ -10689,25 +10689,26 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         bool inherited_alias_accessible = false;
         CxxClass* access_context = tmpl->active_class_instance
             ? tmpl->active_class_instance : tmpl->templated_class;
-        CxxTypeAlias* alias = owner->cxx_class
-            ? cxx_class_find_inherited_type_alias(
-                  owner->cxx_class, type->cxx_dependent_member_name,
-                  access_context, &inherited_alias_ambiguous,
-                  &inherited_alias_accessible)
-            : NULL;
-        if (alias) {
-            if (!inherited_alias_accessible) {
-                rcc_error(parser.cur ? parser.cur->loc
-                                     : (SourceLoc){"<template>", 0, 0},
-                          "dependent nested type '%s' is inaccessible in class '%s'",
-                          type->cxx_dependent_member_name,
-                          owner->cxx_class && owner->cxx_class->name
-                              ? owner->cxx_class->name : "<unnamed>");
-                return type_int;
-            }
+        Type* nested_type = NULL;
+        bool nested_path_resolved = owner->cxx_class &&
+            cxx_class_resolve_nested_type_path(
+                owner->cxx_class, type->cxx_dependent_member_name,
+                access_context, &nested_type,
+                &inherited_alias_ambiguous,
+                &inherited_alias_accessible);
+        if (nested_path_resolved && nested_type) {
             return substitute_template_type(
-                tmpl, alias->type, arguments, argument_count,
+                tmpl, nested_type, arguments, argument_count,
                 value_args, value_present);
+        }
+        if (!inherited_alias_accessible) {
+            rcc_error(parser.cur ? parser.cur->loc
+                                 : (SourceLoc){"<template>", 0, 0},
+                      "dependent nested type '%s' is inaccessible in class '%s'",
+                      type->cxx_dependent_member_name,
+                      owner->cxx_class && owner->cxx_class->name
+                          ? owner->cxx_class->name : "<unnamed>");
+            return type_int;
         }
         rcc_error(parser.cur ? parser.cur->loc
                              : (SourceLoc){"<template>", 0, 0},
@@ -15672,9 +15673,10 @@ static void cxx_report_function_template_nested_type_failure(
     Type* unresolved, CxxTemplate* tmpl, SourceLoc loc) {
     const char* member_name;
     CxxClass* owner;
-    CxxTypeAlias* alias;
+    Type* resolved_type = NULL;
     bool ambiguous = false;
-    bool accessible = false;
+    bool accessible = true;
+    bool path_resolved;
     CxxClass* access_context = tmpl ? tmpl->active_class_instance : NULL;
     if (!unresolved || !unresolved->cxx_dependent_member_name) return;
     member_name = unresolved->cxx_dependent_member_name;
@@ -15689,16 +15691,17 @@ static void cxx_report_function_template_nested_type_failure(
         access_context = tmpl->func_def->func_method_owner->cxx_class;
     }
     if (!access_context && tmpl) access_context = tmpl->templated_class;
-    alias = cxx_class_find_inherited_type_alias(
-        owner, member_name, access_context, &ambiguous, &accessible);
-    if (alias && !accessible) {
+    path_resolved = cxx_class_resolve_nested_type_path(
+        owner, member_name, access_context, &resolved_type,
+        &ambiguous, &accessible);
+    if (!path_resolved && !accessible) {
         rcc_error(loc,
                   "dependent nested type '%s' is inaccessible in class '%s'",
                   member_name, owner->name ? owner->name : "<unnamed>");
-    } else if (!alias && ambiguous) {
+    } else if (!path_resolved && ambiguous) {
         rcc_error(loc, "nested type '%s' is ambiguous in class '%s'",
                   member_name, owner->name ? owner->name : "<unnamed>");
-    } else if (!alias) {
+    } else if (!path_resolved) {
         rcc_error(loc,
                   "class '%s' has no unique accessible nested type '%s'",
                   owner->name ? owner->name : "<unnamed>", member_name);
@@ -17279,38 +17282,105 @@ static Type* parse_cxx_type_spec(void) {
                     owner_type->cxx_template == active_template) {
                     owner_class = active_class;
                 }
-                member_name = rcc_intern(advance()->value.str_val);
-                member_alias = owner_class
-                    ? cxx_class_find_type_alias(owner_class, member_name)
-                    : NULL;
-                if (member_alias && member_alias->access == ACCESS_PUBLIC) {
-                    t = member_alias->type;
-                } else if (owner_type->cxx_dependent &&
-                           owner_type->cxx_template_param_index >= 0) {
-                    char dependent_name[512];
-                    int written = snprintf(dependent_name,
-                                           sizeof(dependent_name),
-                                           "%s::%s",
-                                           owner_name ? owner_name
-                                                      : owner_type->tag,
-                                           member_name);
+                {
+                    char nested_path[512];
+                    Token* first_member = advance();
+                    int written = snprintf(nested_path, sizeof(nested_path),
+                                           "%s", first_member->value.str_val);
+                    bool has_nested_suffix = false;
                     if (written < 0 ||
-                        (size_t)written >= sizeof(dependent_name)) {
-                        rcc_error(loc,
-                                  "dependent nested type name is too long");
+                        (size_t)written >= sizeof(nested_path)) {
+                        rcc_error(loc, "dependent nested type name is too long");
                         t = type_int;
                     } else {
-                        t = type_struct(rcc_intern(dependent_name));
-                        t->cxx_dependent = true;
-                        t->cxx_template_param_index =
-                            owner_type->cxx_template_param_index;
-                        t->cxx_dependent_member_name = member_name;
+                        size_t path_length = (size_t)written;
+                        while (check(TOK_SCOPE) && parser.cur->next &&
+                               parser.cur->next->type == TOK_IDENT) {
+                            Token* suffix;
+                            advance();
+                            suffix = advance();
+                            has_nested_suffix = true;
+                            written = snprintf(
+                                nested_path + path_length,
+                                sizeof(nested_path) - path_length,
+                                "::%s", suffix->value.str_val);
+                            if (written < 0 ||
+                                (size_t)written >=
+                                    sizeof(nested_path) - path_length) {
+                                rcc_error(loc,
+                                          "dependent nested type name is too long");
+                                path_length = sizeof(nested_path);
+                                break;
+                            }
+                            path_length += (size_t)written;
+                        }
+                        member_name = rcc_intern(nested_path);
+                        member_alias = owner_class && !has_nested_suffix
+                            ? cxx_class_find_type_alias(owner_class,
+                                                        member_name)
+                            : NULL;
+                        if (path_length >= sizeof(nested_path)) {
+                            t = type_int;
+                        } else if (owner_type->cxx_dependent &&
+                                   owner_type->cxx_template_param_index >= 0) {
+                            char dependent_name[1024];
+                            int dependent_written = snprintf(
+                                dependent_name, sizeof(dependent_name),
+                                "%s::%s", owner_name ? owner_name
+                                                      : owner_type->tag,
+                                member_name);
+                            if (dependent_written < 0 ||
+                                (size_t)dependent_written >=
+                                    sizeof(dependent_name)) {
+                                rcc_error(loc,
+                                          "dependent nested type name is too long");
+                                t = type_int;
+                            } else {
+                                t = type_struct(rcc_intern(dependent_name));
+                                t->cxx_dependent = true;
+                                t->cxx_template_param_index =
+                                    owner_type->cxx_template_param_index;
+                                t->cxx_dependent_member_name = member_name;
+                            }
+                        } else if (has_nested_suffix && owner_class) {
+                            Type* resolved_type = NULL;
+                            bool path_ambiguous = false;
+                            bool path_accessible = true;
+                            if (cxx_class_resolve_nested_type_path(
+                                    owner_class, member_name, active_class,
+                                    &resolved_type, &path_ambiguous,
+                                    &path_accessible)) {
+                                t = resolved_type;
+                            } else if (path_ambiguous) {
+                                rcc_error(loc,
+                                          "nested type '%s' is ambiguous in class '%s'",
+                                          member_name,
+                                          owner_class->name
+                                              ? owner_class->name : "<unnamed>");
+                                t = type_int;
+                            } else if (!path_accessible) {
+                                rcc_error(loc,
+                                          "nested type '%s' is inaccessible in class '%s'",
+                                          member_name,
+                                          owner_class->name
+                                              ? owner_class->name : "<unnamed>");
+                                t = type_int;
+                            } else {
+                                rcc_error(loc,
+                                          "unknown or inaccessible nested type '%s'",
+                                          member_name);
+                                t = type_int;
+                            }
+                        } else if (member_alias &&
+                                   member_alias->access == ACCESS_PUBLIC) {
+                            t = member_alias->type;
+                        } else {
+                            rcc_error(loc,
+                                      "unknown or inaccessible nested type '%s'",
+                                      member_name);
+                            t = type_int;
+                        }
                     }
-                } else {
-                    rcc_error(loc,
-                              "unknown or inaccessible nested type '%s'",
-                              member_name);
-                    t = type_int;
                 }
             }
         }

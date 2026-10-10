@@ -456,6 +456,9 @@ bool cxx_class_is_same_or_derived_from(CxxClass* cls, CxxClass* target);
 CxxTypeAlias* cxx_class_find_inherited_type_alias(
     CxxClass* cls, const char* name, CxxClass* access_context,
     bool* ambiguous, bool* accessible);
+bool cxx_class_resolve_nested_type_path(
+    CxxClass* cls, const char* path, CxxClass* access_context,
+    Type** resolved_type, bool* ambiguous, bool* accessible);
 CxxTypeAlias* cxx_class_find_direct_public_base_type_alias(
     CxxClass* cls, const char* name, bool* ambiguous);
 void cxx_class_add_member(CxxClass* cls, Decl* decl, AccessSpec access, bool is_static);
