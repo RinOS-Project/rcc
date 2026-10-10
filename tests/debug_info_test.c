@@ -1717,10 +1717,24 @@ static void verify_optimized_verified_debug_object(
                                   &is_location_list, &branch_offset));
     assert(has_location && branch_offset < 0 && is_location_list);
     {
+        int64_t branch_start;
+        int64_t branch_end;
+        int64_t result_start;
+        int64_t result_end;
         int64_t loop_start;
         int64_t loop_end;
         int64_t outer_start;
         int64_t outer_end;
+        assert(find_location_list_bounds(
+            info, strings, locations, "branch_value",
+            "verified_debug_branch_scope", architecture,
+            &branch_start, &branch_end));
+        assert(find_location_list_bounds(
+            info, strings, locations, "result",
+            "verified_debug_branch_scope", architecture,
+            &result_start, &result_end));
+        assert(result_start < branch_start && branch_start < branch_end);
+        assert(branch_end < result_end);
         assert(find_location_list_bounds(
             info, strings, locations, "verified_loop_index",
             "verified_debug_for_scope", architecture,
@@ -3503,10 +3517,24 @@ static void verify_verified_debug_object(const char* path,
                                   &is_location_list, &branch_offset));
     assert(has_location && branch_offset < 0 && is_location_list);
     {
+        int64_t branch_start;
+        int64_t branch_end;
+        int64_t result_start;
+        int64_t result_end;
         int64_t loop_start;
         int64_t loop_end;
         int64_t outer_start;
         int64_t outer_end;
+        assert(find_location_list_bounds(
+            info, strings, locations, "branch_value",
+            "verified_debug_branch_scope", architecture,
+            &branch_start, &branch_end));
+        assert(find_location_list_bounds(
+            info, strings, locations, "result",
+            "verified_debug_branch_scope", architecture,
+            &result_start, &result_end));
+        assert(result_start < branch_start && branch_start < branch_end);
+        assert(branch_end < result_end);
         assert(find_location_list_bounds(
             info, strings, locations, "verified_loop_index",
             "verified_debug_for_scope", architecture,
