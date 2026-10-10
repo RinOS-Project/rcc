@@ -2230,3 +2230,20 @@ separately recorded WSL startup failure.
 - [ ] Continue standard conversion ordering for class-by-value and
   pointer-to-member conversions, reference interactions, and general proper
   subsequences. This does not complete C++20 overload-resolution conformance.
+
+## C++ regression follow-up (2026-10-10, derived-to-base reference ranking)
+
+- [x] Compare equal-rank derived-to-base conversions to class references by
+  referred-to class, in both ordinary and function-template overload sets.
+  `Leaf&` now selects `Middle&` over `Root&`; incomparable/unrelated targets
+  retain their existing behavior. Keep this tie-break limited to matching
+  reference/value forms and cv-qualified reference targets. The focused target
+  passes i686/AMD64 generation, AMD64 runtime, existing ambiguity diagnostics,
+  and GCC C++20 `-Werror` execution.
+- [x] Add cv/value-category reference regressions for mutable and const
+  lvalues, prvalues, and const xvalues; GCC C++20 and RCC agree in the focused
+  overload target.
+- [ ] Continue proper-subsequence comparisons, pointer-to-member conversions,
+  user-defined conversion ties, constraints, parameter packs, and full
+  function-template partial ordering; these bounded ranking rules do not
+  establish complete C++20 overload-resolution conformance.

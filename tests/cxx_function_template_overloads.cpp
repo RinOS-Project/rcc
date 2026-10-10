@@ -113,6 +113,26 @@ int choose_reference_binding(const T&&) {
 }
 
 template<typename T>
+int choose_reference_cv_category(T&) {
+    return 171;
+}
+
+template<typename T>
+int choose_reference_cv_category(const T&) {
+    return 172;
+}
+
+template<typename T>
+int choose_rvalue_cv_category(T&&) {
+    return 173;
+}
+
+template<typename T>
+int choose_rvalue_cv_category(const T&&) {
+    return 174;
+}
+
+template<typename T>
 int choose_pointer_bool(T*, bool) {
     return 61;
 }
@@ -140,6 +160,24 @@ int choose_nearer_base(T*, ConversionBaseRoot*) {
 template<typename T>
 int choose_nearer_base(T*, ConversionBaseMiddle*) {
     return 82;
+}
+
+template<typename T>
+int choose_nearer_base_reference(T*, ConversionBaseRoot&) {
+    return 85;
+}
+
+template<typename T>
+int choose_nearer_base_reference(T*, ConversionBaseMiddle&) {
+    return 86;
+}
+
+int choose_nearer_base_reference_non_template(ConversionBaseRoot&) {
+    return 87;
+}
+
+int choose_nearer_base_reference_non_template(ConversionBaseMiddle&) {
+    return 88;
 }
 
 template<typename T>
@@ -198,6 +236,7 @@ static int consume_conversion_value_cleanup_root(
 int main(void) {
     int value = 5;
     int* pointer = &value;
+    const int const_value = 6;
     ConversionBaseLeaf leaf;
     ConversionBaseLeaf* leaf_pointer = &leaf;
     ConversionValueLeaf value_leaf;
@@ -221,9 +260,16 @@ int main(void) {
                    choose_cv_qualification(pointer) == 30 &&
                    choose_reference_binding(value) == 51 &&
                    choose_reference_binding(0) == 52 &&
+                   choose_reference_cv_category(value) == 171 &&
+                   choose_reference_cv_category(const_value) == 172 &&
+                   choose_rvalue_cv_category(0) == 173 &&
+                   choose_rvalue_cv_category(
+                       static_cast<const int&&>(const_value)) == 174 &&
                    choose_pointer_bool(pointer, pointer) == 62 &&
                    choose_pointer_subsequence(pointer, pointer) == 71 &&
                    choose_nearer_base(leaf_pointer, leaf_pointer) == 82 &&
+                   choose_nearer_base_reference(leaf_pointer, leaf) == 86 &&
+                   choose_nearer_base_reference_non_template(leaf) == 88 &&
                    choose_base_over_void(leaf_pointer, leaf_pointer) == 83 &&
                    choose_nearer_base_value(
                        value_leaf_pointer, value_leaf) == 92 &&

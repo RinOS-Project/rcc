@@ -15873,20 +15873,33 @@ static int cxx_template_conversion_vector_relation(
             if (qualification_relation == 0 &&
                 left->conversion_ranks[index] == 8 &&
                 left_target && right_target &&
-                !left_target->is_reference &&
-                !right_target->is_reference &&
-                left_target->kind == TYPE_STRUCT &&
-                right_target->kind == TYPE_STRUCT &&
-                left_target->cxx_class && right_target->cxx_class &&
-                left_target->cxx_class != right_target->cxx_class) {
-                if (cxx_template_class_derives_from(
-                        left_target->cxx_class,
-                        right_target->cxx_class, 0u)) {
-                    qualification_relation = 1;
-                } else if (cxx_template_class_derives_from(
-                               right_target->cxx_class,
-                               left_target->cxx_class, 0u)) {
-                    qualification_relation = -1;
+                left_target->is_reference == right_target->is_reference) {
+                Type* left_class_target = left_target->is_reference
+                    ? left_target->base : left_target;
+                Type* right_class_target = right_target->is_reference
+                    ? right_target->base : right_target;
+                bool matching_cv = left_class_target && right_class_target &&
+                    (!left_target->is_reference ||
+                     (left_class_target->is_const ==
+                          right_class_target->is_const &&
+                      left_class_target->is_volatile ==
+                          right_class_target->is_volatile));
+                if (matching_cv && left_class_target && right_class_target &&
+                    left_class_target->kind == TYPE_STRUCT &&
+                    right_class_target->kind == TYPE_STRUCT &&
+                    left_class_target->cxx_class &&
+                    right_class_target->cxx_class &&
+                    left_class_target->cxx_class !=
+                        right_class_target->cxx_class) {
+                    if (cxx_template_class_derives_from(
+                            left_class_target->cxx_class,
+                            right_class_target->cxx_class, 0u)) {
+                        qualification_relation = 1;
+                    } else if (cxx_template_class_derives_from(
+                                   right_class_target->cxx_class,
+                                   left_class_target->cxx_class, 0u)) {
+                        qualification_relation = -1;
+                    }
                 }
             }
             if (qualification_relation > 0) left_better = true;
