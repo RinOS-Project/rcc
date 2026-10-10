@@ -2698,6 +2698,44 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
     return -1;
 }
 
+/* Rank the implicit object binding for a conversion function.  Conversion
+ * functions use the same ref-qualifier and cv rules as other member calls. */
+static int sema_cxx_conversion_object_rank(TypeMethod* method,
+                                           Expr* source_expression) {
+    Type* source_type;
+    Type* this_pointer_type;
+    Type* this_type;
+    bool source_is_lvalue;
+    int rank = 0;
+    if (!method) return -1;
+    if (!source_expression || !source_expression->type) return 0;
+    source_type = source_expression->type;
+    if (source_type->is_reference) source_type = source_type->base;
+    if (!source_type) return -1;
+    this_pointer_type = method->function_decl &&
+                        method->function_decl->func_this_param
+        ? method->function_decl->func_this_param->type : NULL;
+    this_type = this_pointer_type && this_pointer_type->kind == TYPE_PTR
+        ? this_pointer_type->base : NULL;
+    if (!this_type) return -1;
+    if ((source_type->is_const && !this_type->is_const) ||
+        (source_type->is_volatile && !this_type->is_volatile)) {
+        return -1;
+    }
+    source_is_lvalue = is_lvalue(source_expression);
+    if (method->ref_qualifier == CXX_REF_QUAL_LVALUE &&
+        !source_is_lvalue) {
+        if (!this_type->is_const) return -1;
+        ++rank;
+    } else if (method->ref_qualifier == CXX_REF_QUAL_RVALUE &&
+               source_is_lvalue) {
+        return -1;
+    }
+    if (this_type->is_const && !source_type->is_const) ++rank;
+    if (this_type->is_volatile && !source_type->is_volatile) ++rank;
+    return rank;
+}
+
 /* Find an ordinary public conversion function whose result can reach the
  * requested target through one standard conversion.  A user-defined
  * conversion cannot be chained with a second user-defined conversion.  The
@@ -2705,7 +2743,8 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
  * cast need to make the same decision without silently picking one. */
 static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
                                                    Type* target,
-                                                   bool* ambiguous) {
+                                                   bool* ambiguous,
+                                                   Expr* source_expression) {
     TypeMethod* method;
     TypeMethod* result = NULL;
     int result_rank = INT_MAX;
@@ -2717,7 +2756,9 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
     }
     for (method = aggregate->methods; method; method = method->next) {
         Type* result_type;
+        int object_rank;
         int rank;
+        int candidate_rank;
         if (method->kind != TYPE_METHOD_FUNCTION ||
             !method->function_decl || !method->return_type ||
             !method->name || strcmp(method->name, "operator conversion") != 0 ||
@@ -2725,8 +2766,12 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
             method->function_decl->func_params) {
             continue;
         }
+        object_rank = sema_cxx_conversion_object_rank(
+            method, source_expression);
+        if (object_rank < 0) continue;
         result_type = method->return_type;
         if (target->is_reference) {
+            if (!target->base) continue;
             if (result_type->is_reference) {
                 if (target->is_rvalue_reference &&
                     !result_type->is_rvalue_reference) {
@@ -2746,13 +2791,14 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         }
         rank = sema_cxx_conversion_result_rank(result_type, target);
         if (rank < 0) continue;
-        if (!result || rank < result_rank) {
+        candidate_rank = rank * 4 + object_rank;
+        if (!result || candidate_rank < result_rank) {
             result = method;
-            result_rank = rank;
+            result_rank = candidate_rank;
             tied_best = false;
             continue;
         }
-        if (rank == result_rank) tied_best = true;
+        if (candidate_rank == result_rank) tied_best = true;
     }
     if (ambiguous) *ambiguous = tied_best;
     return tied_best ? NULL : result;
@@ -2944,7 +2990,7 @@ reference_binding_source:
              source_object->kind == TYPE_UNION)) {
             bool ambiguous = false;
             TypeMethod* conversion = sema_find_cxx_conversion_method(
-                source_object, target, &ambiguous);
+                source_object, target, &ambiguous, e);
             if (!ambiguous && conversion) {
                 Expr* source_expression =
                     ast_arena_alloc(sizeof(*source_expression));
@@ -3092,7 +3138,7 @@ reference_binding_validated:
         (e->type->kind == TYPE_STRUCT || e->type->kind == TYPE_UNION)) {
         bool ambiguous = false;
         TypeMethod* conversion = sema_find_cxx_conversion_method(
-            e->type, target, &ambiguous);
+            e->type, target, &ambiguous, e);
         if (ambiguous) return NULL;
         if (conversion) {
             Expr* source = ast_arena_alloc(sizeof(*source));
@@ -7850,57 +7896,57 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         return 2;
     }
     if (target->is_reference) {
+        bool direct_binding_viable;
         target_base = target->base;
         if (source && source->kind == TYPE_PTR && source->is_reference) {
             source = source->base;
         }
-        if (!target_base ||
-            !source ||
-            (!target->is_rvalue_reference && !is_lvalue(argument) &&
-             !target_base->is_const) ||
-            (target->is_rvalue_reference && is_lvalue(argument))) {
-            return -1;
-        }
-        if ((source->is_const && !target_base->is_const) ||
-            (source->is_volatile && !target_base->is_volatile)) {
-            return -1;
-        }
-        if (cxx_same_parameter_type(source, target_base, false)) return 0;
-        {
-            bool source_subset = true;
-            bool target_subset = true;
-            if (sema_cxx_qualification_targets_related(
-                    source, target_base, false, &source_subset,
-                    &target_subset, 0u)) {
-                /* Qualification conversions are Exact Match rank, including
-                 * qualification added while binding a reference to an array
-                 * with a compatible known/unknown bound. */
-                return 0;
+        if (!target_base || !source) return -1;
+        direct_binding_viable =
+            (!source->is_const || target_base->is_const) &&
+            (!source->is_volatile || target_base->is_volatile) &&
+            (target->is_rvalue_reference || is_lvalue(argument) ||
+             target_base->is_const) &&
+            (!target->is_rvalue_reference || !is_lvalue(argument));
+        if (direct_binding_viable) {
+            if (cxx_same_parameter_type(source, target_base, false)) return 0;
+            {
+                bool source_subset = true;
+                bool target_subset = true;
+                if (sema_cxx_qualification_targets_related(
+                        source, target_base, false, &source_subset,
+                        &target_subset, 0u)) {
+                    /* Qualification conversions are Exact Match rank,
+                     * including qualification added while binding a
+                     * reference to an array with a compatible bound. */
+                    return 0;
+                }
             }
-        }
-        if (rcc_parser_is_cxx_mode() &&
-            (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
-            (target_base->kind == TYPE_STRUCT ||
-             target_base->kind == TYPE_UNION) &&
-            sema_cxx_unique_public_base(source, target_base, NULL)) {
-            /* Binding a reference to a public base subobject is a standard
-             * conversion.  implicit_cast() records the actual subobject
-             * displacement; keep the conversion rank here so overload
-             * resolution can distinguish Derived& from Base&. */
-            return 2;
+            if (rcc_parser_is_cxx_mode() &&
+                (source->kind == TYPE_STRUCT ||
+                 source->kind == TYPE_UNION) &&
+                (target_base->kind == TYPE_STRUCT ||
+                 target_base->kind == TYPE_UNION) &&
+                sema_cxx_unique_public_base(source, target_base, NULL)) {
+                /* Binding a reference to a public base subobject is a
+                 * standard conversion. implicit_cast() records the actual
+                 * subobject displacement for the generated code. */
+                return 2;
+            }
+            if (type_is_compatible(source, target_base)) return 1;
         }
         if (rcc_parser_is_cxx_mode() &&
             (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION)) {
             bool ambiguous = false;
             TypeMethod* conversion = sema_find_cxx_conversion_method(
-                source, target, &ambiguous);
+                source, target, &ambiguous, argument);
             if (ambiguous) return -1;
             if (conversion) {
                 return 3 + sema_cxx_conversion_result_rank(
                     conversion->return_type, target);
             }
         }
-        return type_is_compatible(source, target_base) ? 1 : -1;
+        return -1;
     }
     if (sema_is_scoped_enum(source) || sema_is_scoped_enum(target)) {
         return type_is_compatible(source, target) ? 0 : -1;
@@ -7934,7 +7980,7 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
         (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION)) {
         bool ambiguous = false;
         TypeMethod* conversion = sema_find_cxx_conversion_method(
-            source, target, &ambiguous);
+            source, target, &ambiguous, argument);
         if (conversion) {
             return 3 + sema_cxx_conversion_result_rank(
                 conversion->return_type, target);
@@ -8402,6 +8448,32 @@ static bool sema_cxx_select_function_pointer_overload(
 /* Overload conversion sequences are ordered per argument.  A scalar sum or
  * worst-rank tie breaker is not sufficient: candidates with ranks [0, 2] and
  * [1, 1], for example, are incomparable and must remain ambiguous. */
+static bool cxx_same_user_conversion_produces_rvalue(
+    Expr* argument, Type* left_target, Type* right_target) {
+    bool left_ambiguous = false;
+    bool right_ambiguous = false;
+    TypeMethod* left_conversion;
+    TypeMethod* right_conversion;
+    Type* result_type;
+    if (!argument || !argument->type || !left_target || !right_target ||
+        !left_target->is_reference || !right_target->is_reference ||
+        !left_target->base || !right_target->base ||
+        !cxx_same_parameter_type(left_target->base,
+                                 right_target->base, true)) {
+        return false;
+    }
+    left_conversion = sema_find_cxx_conversion_method(
+        argument->type, left_target, &left_ambiguous, argument);
+    right_conversion = sema_find_cxx_conversion_method(
+        argument->type, right_target, &right_ambiguous, argument);
+    if (left_ambiguous || right_ambiguous || !left_conversion ||
+        left_conversion != right_conversion ||
+        !(result_type = left_conversion->return_type)) {
+        return false;
+    }
+    return !result_type->is_reference || result_type->is_rvalue_reference;
+}
+
 static int cxx_conversion_vector_relation(
     const int* left, const int* right, Type* const* left_targets,
     Type* const* right_targets, ExprList* arguments, int argument_offset,
@@ -8411,8 +8483,21 @@ static int cxx_conversion_vector_relation(
     ExprList* argument = arguments;
     if (!left || !right || count < 0) return 0;
     for (int index = 0; index < count; ++index) {
+        bool reference_source_is_rvalue = false;
         if (left[index] < right[index]) left_better = true;
         if (left[index] > right[index]) right_better = true;
+        if (index >= argument_offset && argument && argument->expr) {
+            if (left[index] < 3) {
+                reference_source_is_rvalue =
+                    !is_lvalue(argument->expr);
+            } else if (left[index] == right[index] && left_targets &&
+                       right_targets) {
+                reference_source_is_rvalue =
+                    cxx_same_user_conversion_produces_rvalue(
+                        argument->expr, left_targets[index],
+                        right_targets[index]);
+            }
+        }
         /* Equal-rank standard sequences distinguish an rvalue-reference
          * binding to an rvalue from an lvalue-reference binding to it. Keep
          * this separate from rank calculation so another argument may still
@@ -8427,8 +8512,7 @@ static int cxx_conversion_vector_relation(
                                      right_targets[index]->base, true)) &&
             left_targets[index]->is_rvalue_reference !=
                 right_targets[index]->is_rvalue_reference &&
-            index >= argument_offset && argument &&
-            !is_lvalue(argument->expr)) {
+            reference_source_is_rvalue) {
             if (left_targets[index]->is_rvalue_reference) {
                 left_better = true;
             } else {

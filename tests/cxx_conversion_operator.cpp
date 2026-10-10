@@ -64,6 +64,28 @@ public:
     }
 };
 
+class RefQualifiedConversionSource {
+public:
+    operator ReferenceConversionResult() & {
+        return {47};
+    }
+
+    operator ReferenceConversionResult() && {
+        return {53};
+    }
+};
+
+class CvRefQualifiedConversionSource {
+public:
+    operator ReferenceConversionResult() const & {
+        return {59};
+    }
+
+    operator ReferenceConversionResult() && {
+        return {61};
+    }
+};
+
 int take_integer(int value) {
     return value;
 }
@@ -86,6 +108,10 @@ int choose_conversion_reference(ReferenceConversionResult&& value) {
 
 int choose_conversion_reference(const ReferenceConversionResult& value) {
     return value.value + 200;
+}
+
+int read_conversion_reference(const ReferenceConversionResult& value) {
+    return value.value;
 }
 
 long take_long(long value) {
@@ -127,6 +153,8 @@ long return_long() {
 
 int main() {
     Meter meter{7};
+    RefQualifiedConversionSource ref_qualified_source;
+    const CvRefQualifiedConversionSource const_ref_qualified_source{};
     Flag flag{1};
     RankedMeter ranked_meter;
     PromotionMeter promotion_meter;
@@ -144,7 +172,11 @@ int main() {
         take_ranked_integer(ranked_meter) != 19 ||
         take_promoted_integer(promotion_meter) != 23 ||
         take_promoted_double(floating_promotion_meter) != 31.0 ||
-        choose_conversion_reference(ReferenceConversionSource{}) != 143) {
+        choose_conversion_reference(ReferenceConversionSource{}) != 143 ||
+        read_conversion_reference(ref_qualified_source) != 47 ||
+        read_conversion_reference(RefQualifiedConversionSource{}) != 53 ||
+        read_conversion_reference(const_ref_qualified_source) != 59 ||
+        read_conversion_reference(CvRefQualifiedConversionSource{}) != 61) {
         return 1;
     }
     return 0;

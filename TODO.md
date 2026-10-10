@@ -2510,6 +2510,12 @@ separately recorded WSL startup failure.
   over `const ReferenceConversionResult&`. `test-cxx-conversion-operator`
   passes i686/AMD64 generation and execution, GCC C++20 `-Werror`, and its
   verified-backend object-generation checks.
+- [x] Select ref-qualified conversion operators from the source object's
+  lvalue/rvalue category and implicit-object cv binding, so `operator T() &`
+  and `operator T() &&` produce their respective results for lvalue and
+  rvalue sources. The focused conversion-operator target and the full
+  function-template-overload target pass for i686/AMD64 with GCC C++20
+  comparisons.
 - [ ] Extend user-defined conversion ranking to retain the selected conversion
   function through all candidate comparisons, including overloaded conversion
   functions and template/constraint interactions.
