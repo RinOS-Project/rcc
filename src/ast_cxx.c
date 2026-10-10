@@ -3508,6 +3508,55 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
     int index;
 
     if (!type) return NULL;
+    if (type->cxx_dependent_member_name && type->cxx_template &&
+        type->cxx_template_arg_count > 0) {
+        Type* owner_pattern = ast_arena_alloc(sizeof(*owner_pattern));
+        Type* owner;
+        Type* nested_type = NULL;
+        bool alias_ambiguous = false;
+        bool alias_accessible = false;
+        CxxClass* access_context;
+        bool nested_path_resolved;
+
+        *owner_pattern = *type;
+        owner_pattern->cxx_dependent_member_name = NULL;
+        owner = template_substitute_type(
+            tmpl, owner_pattern, args, arg_count, value_args, value_present);
+        if (owner && owner->cxx_dependent) {
+            Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
+            *unresolved = *type;
+            unresolved->cxx_class = owner->cxx_class;
+            return unresolved;
+        }
+        access_context = tmpl ? tmpl->active_class_instance : NULL;
+        if (!access_context && tmpl && tmpl->func_def &&
+            tmpl->func_def->func_method_owner) {
+            access_context =
+                tmpl->func_def->func_method_owner->cxx_class;
+        }
+        if (!access_context && tmpl) access_context = tmpl->templated_class;
+        nested_path_resolved = owner && owner->cxx_class &&
+            cxx_class_resolve_nested_type_path(
+                owner->cxx_class, type->cxx_dependent_member_name,
+                access_context, &nested_type, &alias_ambiguous,
+                &alias_accessible);
+        if (nested_path_resolved && nested_type) {
+            return template_substitute_type(
+                tmpl, nested_type, args, arg_count, value_args,
+                value_present);
+        }
+        {
+            Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
+            *unresolved = *type;
+            unresolved->cxx_class = owner ? owner->cxx_class : type->cxx_class;
+            unresolved->cxx_template = NULL;
+            unresolved->cxx_template_args = NULL;
+            unresolved->cxx_template_value_args = NULL;
+            unresolved->cxx_template_arg_count = 0;
+            unresolved->cxx_template_param_index = -1;
+            return unresolved;
+        }
+    }
     if (tmpl && type->cxx_class) {
         if (tmpl->active_class_instance &&
             tmpl->templated_class == type->cxx_class) {

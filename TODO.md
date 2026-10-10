@@ -1090,6 +1090,12 @@
           components; verify i686 freestanding execution, AMD64 execution,
           exact negative diagnostic counts for both targets, and GCC C++20
           acceptance/rejection in `test-cxx-class-template-dependent-nested-type`.
+    - [x] Preserve the complete nested path in requires-expression type
+          requirements, including `T::value_type::nested_type` and a dependent
+          class-template-id owner. Resolve the path after substitution, make a
+          missing later alias evaluate false, and verify i686/AMD64 generation,
+          AMD64 host execution, and GCC C++20 acceptance in
+          `test-cxx-requires-type`.
     - [x] At concrete class-template substitution, diagnose missing and
           inaccessible dependent nested aliases instead of retaining an
           unresolved layout type; keep still-dependent names deferred and

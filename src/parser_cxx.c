@@ -2783,21 +2783,55 @@ static Type* parse_cxx_requires_return_constraint(bool* return_type_convertible)
     return NULL;
 }
 
-/* Parse a bounded type-requirement form: a public nested `using` alias, or a
- * dependent `T::Alias` that can be resolved after template substitution.
- * Unresolved names remain carriers so sema can make the surrounding
- * requires-expression false without rejecting the whole expression. */
+/* Parse qualified type-requirement paths. Preserve every nested component
+ * and a dependent class-template owner until substitution can resolve the
+ * complete path. Unresolved names remain carriers so sema makes the
+ * requires-expression false without rejecting the surrounding declaration. */
+static const char* parse_cxx_requires_nested_path(SourceLoc loc) {
+    char path[512];
+    size_t length = 0;
+
+    if (!match(TOK_SCOPE) || !check(TOK_IDENT)) {
+        rcc_error(loc,
+                  "requires-expression type requirement expects a nested type");
+        return NULL;
+    }
+    for (;;) {
+        Token* component = advance();
+        size_t component_length = strlen(component->value.str_val);
+        size_t separator_length = length ? 2u : 0u;
+        if (length + separator_length >= sizeof(path) ||
+            component_length >= sizeof(path) - length - separator_length) {
+            rcc_error(loc,
+                      "requires-expression nested type path is too long");
+            return NULL;
+        }
+        if (separator_length) {
+            path[length++] = ':';
+            path[length++] = ':';
+        }
+        memcpy(path + length, component->value.str_val, component_length);
+        length += component_length;
+        path[length] = '\0';
+        if (!match(TOK_SCOPE)) break;
+        if (!check(TOK_IDENT)) {
+            rcc_error(loc,
+                      "requires-expression type requirement expects a nested type");
+            return NULL;
+        }
+    }
+    return rcc_intern(path);
+}
+
 static Type* parse_cxx_requires_type(SourceLoc loc) {
     const char* qualified;
+    const char* path = NULL;
     const char* separator;
-    const char* owner_name;
-    const char* member_name;
-    size_t owner_length;
-    char owner_buffer[512];
-    CxxClass* owner;
-    CxxTypeAlias* alias;
+    CxxClass* owner = NULL;
+    Type* owner_type = NULL;
+    Type* resolved_type = NULL;
     Type* dependent;
-    int parameter_index;
+    int parameter_index = -1;
 
     if (!match(TOK_TYPENAME)) return NULL;
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) {
@@ -2807,62 +2841,67 @@ static Type* parse_cxx_requires_type(SourceLoc loc) {
     }
     if (check(TOK_IDENT) && parser.cur->next &&
         parser.cur->next->type == TOK_LT) {
-        Type* owner_type = parse_cxx_type_spec();
-        const char* specialized_member = NULL;
-        CxxClass* specialized_class = owner_type
-            ? owner_type->cxx_class : NULL;
-        CxxTypeAlias* specialized_alias = NULL;
-        if (!match(TOK_SCOPE) || !check(TOK_IDENT)) {
+        owner_type = parse_cxx_type_spec();
+        owner = owner_type ? owner_type->cxx_class : NULL;
+        if (!owner && owner_type && owner_type->cxx_template &&
+            owner_type->cxx_template->kind == TMPL_CLASS) {
+            owner = owner_type->cxx_template->templated_class;
+        }
+        path = parse_cxx_requires_nested_path(loc);
+        if (!path) return NULL;
+        qualified = owner_type && owner_type->tag
+            ? owner_type->tag : "<template-id>";
+        parameter_index = owner_type && owner_type->cxx_dependent
+            ? owner_type->cxx_template_param_index : -1;
+        if (owner && cxx_class_resolve_nested_type_path(
+                         owner, path, active_class, &resolved_type,
+                         NULL, NULL)) {
+            return resolved_type;
+        }
+    } else {
+        char owner_buffer[512];
+        size_t owner_length;
+        separator = NULL;
+        qualified = parse_qualified_name();
+        if (!qualified) {
+            rcc_error(loc,
+                      "requires-expression type requirement expects a qualified type");
+            return NULL;
+        }
+        for (separator = strstr(qualified, "::"); separator;
+             separator = strstr(separator + 2, "::")) {
+            owner_length = (size_t)(separator - qualified);
+            if (owner_length == 0 || owner_length >= sizeof(owner_buffer)) {
+                continue;
+            }
+            memcpy(owner_buffer, qualified, owner_length);
+            owner_buffer[owner_length] = '\0';
+            owner = find_class(owner_buffer);
+            parameter_index = active_template_type_index(owner_buffer);
+            if (owner || parameter_index >= 0) {
+                path = rcc_intern(separator + 2);
+                break;
+            }
+        }
+        if (!path || !*path) {
             rcc_error(loc,
                       "requires-expression type requirement expects a nested type");
             return NULL;
         }
-        specialized_member = rcc_intern(advance()->value.str_val);
-        specialized_alias = specialized_class
-            ? cxx_class_find_type_alias(specialized_class,
-                                        specialized_member)
-            : NULL;
-        if (specialized_alias &&
-            specialized_alias->access == ACCESS_PUBLIC) {
-            return specialized_alias->type;
-        }
-        {
-            Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
-            if (owner_type) *unresolved = *owner_type;
-            else memset(unresolved, 0, sizeof(*unresolved));
-            unresolved->cxx_dependent = true;
-            unresolved->cxx_class = specialized_class;
-            unresolved->cxx_template_param_index = -1;
-            unresolved->cxx_dependent_member_name = specialized_member;
-            return unresolved;
+        if (owner && cxx_class_resolve_nested_type_path(
+                         owner, path, active_class, &resolved_type,
+                         NULL, NULL)) {
+            return resolved_type;
         }
     }
-    qualified = parse_qualified_name();
-    separator = qualified ? strrchr(qualified, ':') : NULL;
-    if (!separator || separator == qualified || separator[-1] != ':') {
-        rcc_error(loc,
-                  "requires-expression type requirement expects a nested type");
-        return NULL;
-    }
-    owner_length = (size_t)(separator - qualified - 1);
-    if (owner_length == 0 || owner_length >= sizeof(owner_buffer)) {
-        rcc_error(loc, "requires-expression type requirement owner is too long");
-        return NULL;
-    }
-    memcpy(owner_buffer, qualified, owner_length);
-    owner_buffer[owner_length] = '\0';
-    owner_name = rcc_intern(owner_buffer);
-    member_name = rcc_intern(separator + 1);
-    owner = find_class(owner_name);
-    parameter_index = active_template_type_index(owner_name);
-    alias = owner ? cxx_class_find_type_alias(owner, member_name) : NULL;
-    if (alias && alias->access == ACCESS_PUBLIC) return alias->type;
 
-    dependent = type_struct(qualified);
+    dependent = owner_type ? ast_arena_alloc(sizeof(*dependent))
+                          : type_struct(qualified);
+    if (owner_type) *dependent = *owner_type;
     dependent->cxx_dependent = true;
     dependent->cxx_class = owner;
     dependent->cxx_template_param_index = parameter_index;
-    dependent->cxx_dependent_member_name = member_name;
+    dependent->cxx_dependent_member_name = path;
     return dependent;
 }
 

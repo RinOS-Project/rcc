@@ -5447,6 +5447,10 @@ test-cxx-requires-expression: $(RCXX_TARGET)
 test-cxx-requires-type: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-requires-type)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-requires-type,cxx_requires_type.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-requires-type/nested-standard)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-requires-type/nested-standard,cxx_requires_nested_type_standard.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+		tests/cxx_requires_nested_type_standard.cpp
 
 test-cxx-inline-variables: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-inline-variables)
@@ -5967,6 +5971,10 @@ test-cxx-requires-type-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-requires-type/start-x64.o \
 		$(TEST_OUT)/cxx-requires-type/x64.o
 	$(TEST_OUT)/cxx-requires-type/x64
+	$(call MKDIR_P,$(TEST_OUT)/cxx-requires-type/nested-standard)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-requires-type/nested-standard,cxx_requires_nested_type_standard.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+		tests/cxx_requires_nested_type_standard.cpp
 	@echo "C++20 requires-expression type requirement tests completed"
 
 test-cxx-inline-variables-posix: $(RCXX_TARGET)
