@@ -57,6 +57,21 @@ struct ReferenceConversionResult {
     int value;
 };
 
+struct ConversionBasePointerTarget {
+    int value;
+};
+
+struct ConversionDerivedPointerTarget : ConversionBasePointerTarget {};
+
+class ConversionPointerSource {
+public:
+    ConversionDerivedPointerTarget* value;
+
+    operator ConversionDerivedPointerTarget*() const {
+        return value;
+    }
+};
+
 class ReferenceConversionSource {
 public:
     operator ReferenceConversionResult() && {
@@ -126,6 +141,24 @@ long choose_conversion(long value) {
     return value + 200;
 }
 
+int choose_pointer_conversion(ConversionBasePointerTarget*) {
+    return 71;
+}
+
+int choose_pointer_conversion(void*) {
+    return 73;
+}
+
+template<typename T>
+int choose_template_pointer_conversion(T, ConversionBasePointerTarget*) {
+    return 79;
+}
+
+template<typename T>
+int choose_template_pointer_conversion(T, void*) {
+    return 83;
+}
+
 template<typename T>
 int take_template_integer(T, int value) {
     return value + 10;
@@ -155,6 +188,8 @@ int main() {
     Meter meter{7};
     RefQualifiedConversionSource ref_qualified_source;
     const CvRefQualifiedConversionSource const_ref_qualified_source{};
+    ConversionDerivedPointerTarget derived_pointer_target{67};
+    ConversionPointerSource pointer_source{&derived_pointer_target};
     Flag flag{1};
     RankedMeter ranked_meter;
     PromotionMeter promotion_meter;
@@ -176,7 +211,9 @@ int main() {
         read_conversion_reference(ref_qualified_source) != 47 ||
         read_conversion_reference(RefQualifiedConversionSource{}) != 53 ||
         read_conversion_reference(const_ref_qualified_source) != 59 ||
-        read_conversion_reference(CvRefQualifiedConversionSource{}) != 61) {
+        read_conversion_reference(CvRefQualifiedConversionSource{}) != 61 ||
+        choose_pointer_conversion(pointer_source) != 71 ||
+        choose_template_pointer_conversion(0, pointer_source) != 79) {
         return 1;
     }
     return 0;

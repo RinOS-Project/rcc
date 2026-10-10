@@ -13158,7 +13158,7 @@ static bool cxx_function_template_type_contains_parameter(
 static int cxx_parser_template_conversion_rank(Expr* argument,
                                                 Type* target);
 static int cxx_parser_function_template_overload_conversion_rank(
-    Expr* argument, Type* target);
+    Expr* argument, Type* target, TypeMethod** conversion_method);
 
 /* C++17 adds an aggregate deduction candidate when no user-declared
  * constructor is available.  Keep this candidate deliberately ABI-bounded:
@@ -13677,7 +13677,7 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
             (cxx_function_template_type_contains_parameter(
                  tmpl, parameter->decl->type) ||
              cxx_parser_function_template_overload_conversion_rank(
-                 argument->expr, parameter->decl->type) < 0)) {
+                 argument->expr, parameter->decl->type, NULL) < 0)) {
             if (report_errors) {
                 rcc_error(argument->expr->loc,
                           "function template argument type does not match its "
@@ -14896,6 +14896,7 @@ typedef struct CxxFunctionTemplateMatch {
     int conversion_ranks[32];
     Type* conversion_targets[32];
     Type* conversion_sources[32];
+    TypeMethod* conversion_methods[32];
     int conversion_rank_count;
     Decl* instance;
     Type* substitution_failure_type;
@@ -15885,13 +15886,14 @@ static int cxx_parser_function_pointer_overload_rank(
 }
 
 static int cxx_parser_function_template_overload_conversion_rank(
-    Expr* argument, Type* target) {
+    Expr* argument, Type* target, TypeMethod** conversion_method) {
     Type* source;
     Type* conversion_target;
     bool target_is_reference;
     bool requires_qualification = false;
     bool is_function_overload_set = false;
     int rank;
+    if (conversion_method) *conversion_method = NULL;
     if (!argument || !target) return -1;
     rank = cxx_parser_function_pointer_overload_rank(
         argument, target, &is_function_overload_set);
@@ -15907,8 +15909,9 @@ static int cxx_parser_function_template_overload_conversion_rank(
     rank = cxx_parser_template_conversion_rank(argument, target);
     if (rank < 0) {
         source = cxx_parser_expression_type(argument);
-        int semantic_rank = rcc_sema_cxx_conversion_rank(
-            argument, source, target);
+        TypeMethod* selected_conversion = NULL;
+        int semantic_rank = rcc_sema_cxx_conversion_rank_with_method(
+            argument, source, target, &selected_conversion);
         if (semantic_rank == 2) {
             /* The parser-local template ranker does not model every
              * class-pointer standard conversion.  Semantic analysis uses 2
@@ -15920,6 +15923,7 @@ static int cxx_parser_function_template_overload_conversion_rank(
             /* Standard conversions rank ahead of user-defined conversions;
              * retain the standard conversion applied to the conversion
              * function's result when comparing two user-defined sequences. */
+            if (conversion_method) *conversion_method = selected_conversion;
             return 12 + semantic_rank - 3;
         }
         return rank;
@@ -16059,7 +16063,7 @@ static void cxx_report_function_template_nested_type_failure(
 static bool cxx_function_template_instance_viable(
     Decl* instance, ExprList* call_arguments, int* ranks,
     Type** conversion_targets, Type** conversion_sources,
-    int rank_capacity, int* rank_count) {
+    TypeMethod** conversion_methods, int rank_capacity, int* rank_count) {
     TypeParam* parameter;
     DeclList* declaration;
     ExprList* argument;
@@ -16070,8 +16074,9 @@ static bool cxx_function_template_instance_viable(
     argument = call_arguments;
     if (rank_count) *rank_count = 0;
     while (argument && parameter) {
+        TypeMethod* conversion_method = NULL;
         int rank = cxx_parser_function_template_overload_conversion_rank(
-            argument->expr, parameter->type);
+            argument->expr, parameter->type, &conversion_method);
         if (rank < 0) return false;
         if (ranks && rank_count && *rank_count >= rank_capacity) return false;
         if (ranks && rank_count) {
@@ -16083,6 +16088,9 @@ static bool cxx_function_template_instance_viable(
             if (conversion_sources) {
                 conversion_sources[index] =
                     cxx_parser_expression_type(argument->expr);
+            }
+            if (conversion_methods) {
+                conversion_methods[index] = conversion_method;
             }
         }
         argument = argument->next;
@@ -16100,6 +16108,7 @@ static bool cxx_function_template_instance_viable(
                 ranks[index] = 32;
                 if (conversion_targets) conversion_targets[index] = NULL;
                 if (conversion_sources) conversion_sources[index] = NULL;
+                if (conversion_methods) conversion_methods[index] = NULL;
             }
             argument = argument->next;
         }
@@ -16140,12 +16149,28 @@ static int cxx_template_conversion_vector_relation(
     if (!left || !right || left->conversion_rank_count !=
         right->conversion_rank_count) return 0;
     for (int index = 0; index < left->conversion_rank_count; ++index) {
-        if (left->conversion_ranks[index] < right->conversion_ranks[index]) {
+        int left_rank = left->conversion_ranks[index];
+        int right_rank = right->conversion_ranks[index];
+        bool left_user_conversion = left_rank >= 12 && left_rank < 32;
+        bool right_user_conversion = right_rank >= 12 && right_rank < 32;
+        if (left_user_conversion && right_user_conversion) {
+            if (left->conversion_methods[index] &&
+                left->conversion_methods[index] ==
+                    right->conversion_methods[index]) {
+                int relation = rcc_sema_cxx_user_conversion_target_relation(
+                    left->conversion_methods[index],
+                    left->conversion_targets[index],
+                    right->conversion_targets[index]);
+                if (relation > 0) left_better = true;
+                if (relation < 0) right_better = true;
+            }
+            /* Distinct user-defined conversions are indistinguishable; the
+             * trailing standard ranks are compared only for the same method. */
+        } else if (left_rank < right_rank) {
             left_better = true;
-        } else if (left->conversion_ranks[index] >
-                   right->conversion_ranks[index]) {
+        } else if (left_rank > right_rank) {
             right_better = true;
-        } else if (left->conversion_ranks[index] < 12) {
+        } else if (left_rank < 12) {
             Type* left_target = left->conversion_targets[index];
             Type* right_target = right->conversion_targets[index];
             int qualification_relation = 0;
@@ -16486,7 +16511,8 @@ static bool prepare_cxx_function_template_match(
                      (cxx_function_template_type_contains_parameter(
                           tmpl, parameter->decl->type) ||
                       cxx_parser_function_template_overload_conversion_rank(
-                          argument->expr, parameter->decl->type) < 0))) {
+                          argument->expr, parameter->decl->type,
+                          NULL) < 0))) {
                     return false;
                 }
             }
@@ -16607,6 +16633,7 @@ static bool prepare_cxx_function_template_match(
     if (!cxx_function_template_instance_viable(
             match->instance, call_arguments, match->conversion_ranks,
             match->conversion_targets, match->conversion_sources,
+            match->conversion_methods,
             (int)(sizeof(match->conversion_ranks) /
                   sizeof(match->conversion_ranks[0])),
             &match->conversion_rank_count)) {

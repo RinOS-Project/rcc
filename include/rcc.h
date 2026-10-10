@@ -173,9 +173,16 @@ struct AST* rcc_parse(struct TokenList* tokens);
 bool rcc_sema(struct AST* ast);
 bool rcc_sema_cxx_requires_satisfied(struct Expr* expression);
 bool rcc_sema_resolve_function_noexcept(struct Decl* declaration);
+struct TypeMethod;
 int rcc_sema_cxx_conversion_rank(struct Expr* expression,
                                  struct Type* source,
                                  struct Type* target);
+int rcc_sema_cxx_conversion_rank_with_method(
+    struct Expr* expression, struct Type* source, struct Type* target,
+    struct TypeMethod** conversion_method);
+int rcc_sema_cxx_user_conversion_target_relation(
+    struct TypeMethod* conversion_method, struct Type* left_target,
+    struct Type* right_target);
 int rcc_sema_cxx_enum_promotion_target_relation(struct Type* source,
                                                 struct Type* left_target,
                                                 struct Type* right_target);

@@ -2538,9 +2538,25 @@ separately recorded WSL startup failure.
   function-template-overload target pass for i686/AMD64 with GCC C++20
   comparisons. The complete `mingw32-make SHELL=cmd.exe test-cxx` aggregate
   also passes.
-- [ ] Extend user-defined conversion ranking to retain the selected conversion
-  function through all candidate comparisons, including overloaded conversion
-  functions and template/constraint interactions.
+- [x] Retain the selected implicit conversion-function identity through
+  ordinary and function-template overload comparisons. Candidates using the
+  same conversion function compare their trailing standard conversion
+  sequences; candidates using different conversion functions are not ordered
+  by those trailing ranks. GCC C++20 confirms both the `Base*` versus `void*`
+  selection after one `operator Derived*()` and ambiguity for distinct
+  conversion functions, including function-template overloads. The focused
+  gate passes i686/AMD64 generation, AMD64 execution, and negative diagnostics
+  with no output object; the full `test-cxx` aggregate passes.
+- [x] Re-run dependent nested-`typename` regressions after the semantic
+  changes. Class-template positives pass i686/AMD64 generation and AMD64
+  execution; function-template invalid fixtures report exactly six expected
+  diagnostics on both targets, and fallback positives compile for both.
+  The native-Windows `test-cxx` aggregate also passes. No nested-type parser
+  change was needed.
+- [ ] Extend conversion-sequence identity handling to conversion-function
+  template specialization and constraint interactions, and continue the other
+  open overload-resolution cases; this bounded fix does not complete C++20
+  overload resolution.
 
 ## RCC continuation (2026-10-11, SysV flexible-array ABI and native Clang tests)
 

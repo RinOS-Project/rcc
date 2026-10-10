@@ -5068,6 +5068,22 @@ test-cxx-conversion-operator-posix: $(RCXX_TARGET)
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-conversion-operator/x64.ro \
 		tests/cxx_conversion_operator.cpp
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-functions-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-operator/different-functions-gcc.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -DTEST_TEMPLATE_CASE=1 -fsyntax-only tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-template-functions-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-operator/different-template-functions-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/different-functions-x86.ro tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-functions-x86.log)
+	$(GREP) -F -q "ambiguous overload for 'choose_divergent_conversion'" $(TEST_OUT)/cxx-conversion-operator/different-functions-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/different-functions-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/different-functions-x64.ro tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-functions-x64.log)
+	$(GREP) -F -q "ambiguous overload for 'choose_divergent_conversion'" $(TEST_OUT)/cxx-conversion-operator/different-functions-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/different-functions-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_TEMPLATE_CASE=1 -c -o $(TEST_OUT)/cxx-conversion-operator/different-template-functions-x86.ro tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-template-functions-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'choose_divergent_template'" $(TEST_OUT)/cxx-conversion-operator/different-template-functions-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/different-template-functions-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_TEMPLATE_CASE=1 -c -o $(TEST_OUT)/cxx-conversion-operator/different-template-functions-x64.ro tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-template-functions-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'choose_divergent_template'" $(TEST_OUT)/cxx-conversion-operator/different-template-functions-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/different-template-functions-x64.ro)
 	@echo "RCC++ user-defined conversion operator tests completed"
 
 test-cxx-nonmember-operator-posix: $(RCXX_TARGET)
@@ -5416,6 +5432,22 @@ test-cxx-conversion-operator: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-conversion-operator/gcc-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-conversion-operator/x86.ro tests/cxx_conversion_operator.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-conversion-operator/x64.ro tests/cxx_conversion_operator.cpp
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-functions-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-operator/different-functions-gcc.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -DTEST_TEMPLATE_CASE=1 -fsyntax-only tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-template-functions-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-operator/different-template-functions-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/different-functions-x86.ro tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-functions-x86.log)
+	$(GREP) -F -q "ambiguous overload for 'choose_divergent_conversion'" $(TEST_OUT)/cxx-conversion-operator/different-functions-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/different-functions-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/different-functions-x64.ro tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-functions-x64.log)
+	$(GREP) -F -q "ambiguous overload for 'choose_divergent_conversion'" $(TEST_OUT)/cxx-conversion-operator/different-functions-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/different-functions-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_TEMPLATE_CASE=1 -c -o $(TEST_OUT)/cxx-conversion-operator/different-template-functions-x86.ro tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-template-functions-x86.log)
+	$(GREP) -F -q "ambiguous function template overload for 'choose_divergent_template'" $(TEST_OUT)/cxx-conversion-operator/different-template-functions-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/different-template-functions-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_TEMPLATE_CASE=1 -c -o $(TEST_OUT)/cxx-conversion-operator/different-template-functions-x64.ro tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-template-functions-x64.log)
+	$(GREP) -F -q "ambiguous function template overload for 'choose_divergent_template'" $(TEST_OUT)/cxx-conversion-operator/different-template-functions-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/different-template-functions-x64.ro)
 
 test-cxx-nonmember-operator: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nonmember-operator)
