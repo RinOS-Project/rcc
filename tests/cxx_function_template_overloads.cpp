@@ -130,7 +130,45 @@ struct ConversionValueLeaf : ConversionValueMiddle {
     int leaf_value;
 };
 
+struct ConversionValueVirtualRoot {
+    int root_value;
+};
+
+struct ConversionValueVirtualPrefix {
+    int prefix_value;
+};
+
+struct ConversionValueVirtualPayload : ConversionValueVirtualPrefix,
+                                       ConversionValueVirtualRoot {
+    int payload_value;
+};
+
+struct ConversionValueVirtualMiddle : virtual ConversionValueVirtualPayload {
+    int middle_value;
+};
+
+struct ConversionValueVirtualLeaf : ConversionValueVirtualMiddle {
+    int leaf_value;
+};
+
 int conversion_value_cleanup_count = 0;
+
+struct ConversionValueVirtualCleanupRoot {
+    int root_value;
+};
+
+struct ConversionValueVirtualCleanupMiddle :
+    virtual ConversionValueVirtualCleanupRoot {
+    int middle_value;
+};
+
+struct ConversionValueVirtualCleanupLeaf :
+    ConversionValueVirtualCleanupMiddle {
+    int leaf_value;
+    ~ConversionValueVirtualCleanupLeaf() {
+        ++conversion_value_cleanup_count;
+    }
+};
 
 struct ConversionValueCleanupRoot {
     int root_value;
@@ -792,6 +830,11 @@ static ConversionValueLeaf make_conversion_value_leaf(void) {
     return value;
 }
 
+static int consume_conversion_value_virtual_root(
+    ConversionValueVirtualRoot value) noexcept {
+    return value.root_value;
+}
+
 static ConversionValueCleanupLeaf make_conversion_value_cleanup_leaf(
     void) noexcept {
     return ConversionValueCleanupLeaf{{49}, {53}, 59};
@@ -799,6 +842,20 @@ static ConversionValueCleanupLeaf make_conversion_value_cleanup_leaf(
 
 static int consume_conversion_value_cleanup_root(
     ConversionValueCleanupRoot value) noexcept {
+    return value.root_value;
+}
+
+static ConversionValueVirtualCleanupLeaf
+make_conversion_value_virtual_cleanup_leaf(void) noexcept {
+    ConversionValueVirtualCleanupLeaf value;
+    value.root_value = 73;
+    value.middle_value = 79;
+    value.leaf_value = 83;
+    return value;
+}
+
+static int consume_conversion_value_virtual_cleanup_root(
+    ConversionValueVirtualCleanupRoot value) noexcept {
     return value.root_value;
 }
 
@@ -824,14 +881,30 @@ int main(void) {
     ConversionBaseLeaf* leaf_pointer = &leaf;
     ConversionValueLeaf value_leaf;
     ConversionValueLeaf* value_leaf_pointer = &value_leaf;
+    ConversionValueVirtualLeaf virtual_value_leaf;
     value_leaf.prefix_value = 37;
     value_leaf.root_value = 41;
     value_leaf.middle_value = 43;
     value_leaf.leaf_value = 47;
+    virtual_value_leaf.root_value = 61;
+    virtual_value_leaf.middle_value = 67;
+    virtual_value_leaf.leaf_value = 71;
     ConversionValueRoot root_copy = value_leaf;
     int cleanup_count_before = conversion_value_cleanup_count;
     int cleanup_root_value = consume_conversion_value_cleanup_root(
         make_conversion_value_cleanup_leaf());
+    int virtual_cleanup_count_before = conversion_value_cleanup_count;
+    int virtual_cleanup_root_value =
+        consume_conversion_value_virtual_cleanup_root(
+            make_conversion_value_virtual_cleanup_leaf());
+    if (consume_conversion_value_virtual_root(virtual_value_leaf) != 61) {
+        return 21;
+    }
+    if (virtual_cleanup_root_value != 73) return 22;
+    if (conversion_value_cleanup_count !=
+        virtual_cleanup_count_before + 2) {
+        return 23;
+    }
     short priority = 0;
     return choose_template(&value) == 25 &&
                    choose_template(value) == 10 &&
@@ -959,7 +1032,7 @@ int main(void) {
                        make_conversion_value_leaf()) == 94 &&
                    root_copy.root_value == 41 &&
                    cleanup_root_value == 53 &&
-                   conversion_value_cleanup_count == cleanup_count_before + 1
+                   virtual_cleanup_count_before == cleanup_count_before + 1
                ? 0
                : 1;
 }

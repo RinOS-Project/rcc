@@ -7031,11 +7031,7 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                        expr->cast_expr->type->cxx_class !=
                            expr->type->cxx_class) {
                 gen_lvalue(mod, expr->cast_expr);
-                if (expr->cxx_pointer_adjustment_valid &&
-                    expr->cxx_pointer_adjustment != 0) {
-                    emit_add_reg_imm(mod, EAX,
-                                     expr->cxx_pointer_adjustment);
-                }
+                gen_cxx_reference_adjustment32(mod, expr);
             } else {
                 rcc_error(expr->loc, "not an lvalue");
             }
@@ -11555,13 +11551,23 @@ static void gen_call(Module* mod, Expr* expr) {
                 argument_bytes += units * 4;
                 continue;
             }
-            if (argument->kind == EXPR_VA_ARG ||
-                !gen_expr_is_lvalue(argument)) {
+            if (args[i]->cxx_temporary_owner &&
+                argument->kind == EXPR_CAST &&
+                argument->cxx_virtual_base_adjustment) {
+                gen_expr(mod, argument->cast_expr);
+                emit_mov_mem_reg(
+                    mod, EBP,
+                    args[i]->cxx_temporary_owner->var_offset, EAX);
+                gen_cxx_reference_adjustment32(mod, argument);
+            } else if (argument->kind == EXPR_VA_ARG ||
+                       !gen_expr_is_lvalue(argument)) {
                 gen_expr(mod, argument);
             } else {
                 gen_lvalue(mod, argument);
             }
-            if (args[i]->cxx_temporary_owner) {
+            if (args[i]->cxx_temporary_owner &&
+                !(argument->kind == EXPR_CAST &&
+                  argument->cxx_virtual_base_adjustment)) {
                 int adjustment = argument->kind == EXPR_CAST &&
                         argument->cxx_pointer_adjustment_valid
                     ? argument->cxx_pointer_adjustment : 0;

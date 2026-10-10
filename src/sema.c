@@ -1011,22 +1011,57 @@ static bool sema_cxx_unique_public_base(Type* derived, Type* target,
     return sema_cxx_public_base(derived, target, adjustment, 0);
 }
 
-/* A derived-to-base value conversion is lowered as a copy of the selected
- * base subobject.  Keep this implementation to fixed public paths and a
- * bytewise-copyable target; call arguments separately schedule destruction
- * of a nontrivial source prvalue after the call. */
+/* A derived-to-base value conversion copies the selected base subobject.
+ * Require one public route and one base subobject overall, whether the route
+ * is fixed or passes through a virtual base.  Call arguments separately
+ * schedule destruction of a nontrivial source prvalue after the call. */
 static bool sema_cxx_derived_to_base_value_conversion(
     Expr* argument, Type* source, Type* target, int* adjustment,
+    int* virtual_index, int* nested_adjustment,
     bool allow_nontrivial_prvalue) {
+    int public_nonvirtual_paths;
+    int all_nonvirtual_paths;
+    int public_virtual_paths;
+    int all_virtual_paths;
+    int selected_virtual_index = -1;
+    int selected_nested_adjustment = 0;
+    if (virtual_index) *virtual_index = -1;
+    if (nested_adjustment) *nested_adjustment = 0;
     if (!rcc_parser_is_cxx_mode() || !source || !target ||
         source->kind != TYPE_STRUCT || target->kind != TYPE_STRUCT ||
+        type_is_compatible(source, target) ||
         !sema_cxx_trivially_copyable(target, 0) ||
         (!allow_nontrivial_prvalue && (!argument || !is_lvalue(argument)) &&
          !sema_cxx_trivially_destructible(source, 0))) {
         return false;
     }
-    return sema_cxx_unique_public_nonvirtual_base_path(
-        source, target, adjustment);
+    public_nonvirtual_paths = sema_cxx_nonvirtual_public_base_paths(
+        source, target, adjustment, 0u);
+    all_nonvirtual_paths = sema_cxx_nonvirtual_all_base_paths(
+        source, target, 0u);
+    public_virtual_paths = sema_cxx_public_virtual_member_base_paths(
+        source, target, &selected_virtual_index,
+        &selected_nested_adjustment);
+    all_virtual_paths = sema_cxx_all_virtual_member_base_paths(
+        source, target);
+    if (public_nonvirtual_paths + public_virtual_paths != 1 ||
+        all_nonvirtual_paths + all_virtual_paths != 1) {
+        return false;
+    }
+    if (public_virtual_paths == 1) {
+        CxxClass* source_class = source->cxx_class;
+        if (!source_class || selected_virtual_index < 0 ||
+            selected_virtual_index >= source_class->virtual_base_count ||
+            source_class->virtual_base_pointer_offset < 0) {
+            return false;
+        }
+        if (virtual_index) *virtual_index = selected_virtual_index;
+        if (nested_adjustment) {
+            *nested_adjustment = selected_nested_adjustment;
+        }
+        if (adjustment) *adjustment = 0;
+    }
+    return true;
 }
 
 static void sema_cxx_add_exception_tag(CxxCatch* handler, uint64_t tag,
@@ -2596,7 +2631,7 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
     if (type_is_compatible(source, target)) return 0;
     if (!reference_target &&
         sema_cxx_derived_to_base_value_conversion(
-            NULL, source, target, NULL, true)) {
+            NULL, source, target, NULL, NULL, NULL, true)) {
         return 2;
     }
     if (reference_target &&
@@ -2799,11 +2834,14 @@ static bool sema_is_null_pointer_constant(const Expr* expression) {
 static bool sema_cxx_apply_derived_to_base_value_cast(
     Expr* expression, Type* target, bool allow_nontrivial_prvalue) {
     int adjustment = 0;
+    int virtual_index = -1;
+    int nested_adjustment = 0;
     Expr* source;
     Expr* converted;
     if (!expression || !expression->type || !target ||
         !sema_cxx_derived_to_base_value_conversion(
             expression, expression->type, target, &adjustment,
+            &virtual_index, &nested_adjustment,
             allow_nontrivial_prvalue)) {
         return false;
     }
@@ -2812,6 +2850,16 @@ static bool sema_cxx_apply_derived_to_base_value_cast(
     converted = expr_cast(target, source, expression->loc);
     converted->cxx_pointer_adjustment_valid = adjustment != 0;
     converted->cxx_pointer_adjustment = adjustment;
+    if (virtual_index >= 0) {
+        CxxClass* source_class = source->type
+            ? source->type->cxx_class : NULL;
+        converted->cxx_virtual_base_adjustment = true;
+        converted->cxx_virtual_base_index = virtual_index;
+        converted->cxx_virtual_base_nested_adjustment = nested_adjustment;
+        converted->cxx_virtual_base_source_class = source_class;
+        converted->cxx_virtual_base_pointer_offset = source_class
+            ? source_class->virtual_base_pointer_offset : -1;
+    }
     *expression = *converted;
     return true;
 }
@@ -7867,7 +7915,7 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
     }
 
     if (sema_cxx_derived_to_base_value_conversion(
-            argument, source, target, NULL, true)) {
+            argument, source, target, NULL, NULL, NULL, true)) {
         return 2;
     }
 
@@ -9343,8 +9391,9 @@ static void sema_prepare_derived_to_base_value_argument_cleanup(
         !conversion->cast_expr->type ||
         conversion->cast_expr->type->kind != TYPE_STRUCT ||
         type_is_compatible(conversion->cast_expr->type, parameter_type) ||
-        !sema_cxx_unique_public_nonvirtual_base_path(
-            conversion->cast_expr->type, parameter_type, NULL)) {
+        !sema_cxx_derived_to_base_value_conversion(
+            conversion->cast_expr, conversion->cast_expr->type,
+            parameter_type, NULL, NULL, NULL, true)) {
         return;
     }
     source = conversion->cast_expr;

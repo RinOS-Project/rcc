@@ -415,10 +415,19 @@
         一度だけ破棄し、verified SSAのi686/AMD64両方でfallbackなし・実行確認
         する。`test-cxx-function-template-overloads` と
         `test-verified-cxx-temporary-cleanup` を参照
-  - [ ] class-by-value変換のvirtual base、nontrivial/deleted copy constructor、
-        呼び出し以外のfull-expression cleanup、および例外経路を実装・検証。
-        標準conversion subsequenceとpointer-to-memberを含む全rank/partial
-        orderingも未完了
+  - [x] trivially-copyable baseへのpublicでuniqueなclass-by-value変換を
+        nested virtual base経由にも拡張。全public/private/virtual経路を数えて
+        accessとambiguityを判定し、vbptrとvirtual base内の固定offsetから
+        実際のsubobjectをコピーする。nontrivial derived prvalue引数は
+        complete objectを保持してcall後に一度だけ破棄する。通常backendは
+        i686/AMD64生成とx64実行、GCC `-fno-elide-constructors`比較を確認。
+        verified backendは両archで2関数・fallbackなしを確認し、i686 objectを
+        検査。`test-cxx-function-template-overloads` と
+        `test-verified-cxx-virtual-base-value` を参照
+  - [ ] verified backendでのvirtual-base経由nontrivial-prvalue cleanup実行、
+        nontrivial/deleted target copy constructor、call引数以外のfull-expression
+        cleanup、例外経路を実装・検証。標準conversion subsequenceと
+        pointer-to-memberを含む全rank/partial orderingも未完了
   - [x] Namespace extension compatibility: verify reopened named and
         translation-unit anonymous namespaces, lookup through the transitive
         inline-namespace set for both namespace definitions and qualified

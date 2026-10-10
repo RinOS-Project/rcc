@@ -4343,11 +4343,7 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                        expr->cast_expr->type->cxx_class !=
                            expr->type->cxx_class) {
                 gen64_lvalue(mod, expr->cast_expr);
-                if (expr->cxx_pointer_adjustment_valid &&
-                    expr->cxx_pointer_adjustment != 0) {
-                    emit64_add_reg_imm(mod, RAX,
-                                       expr->cxx_pointer_adjustment);
-                }
+                gen64_cxx_reference_adjustment(mod, expr);
             } else {
                 rcc_error(expr->loc, "not an lvalue");
             }
@@ -8405,13 +8401,23 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                         emit64_mov_mem_reg(mod, RSP,
                                            layout->temp_offset + 8, RAX);
                         continue;
+                    } else if (args[i]->cxx_temporary_owner &&
+                        argument->kind == EXPR_CAST &&
+                        argument->cxx_virtual_base_adjustment) {
+                        gen64_expr(mod, argument->cast_expr);
+                        emit64_mov_mem_reg(
+                            mod, RBP,
+                            args[i]->cxx_temporary_owner->var_offset, RAX);
+                        gen64_cxx_reference_adjustment(mod, argument);
                     } else if (argument->kind == EXPR_VA_ARG ||
-                        !gen64_expr_is_lvalue(argument)) {
+                               !gen64_expr_is_lvalue(argument)) {
                         gen64_expr(mod, argument);
                     } else {
                         gen64_lvalue(mod, argument);
                     }
-                    if (args[i]->cxx_temporary_owner) {
+                    if (args[i]->cxx_temporary_owner &&
+                        !(argument->kind == EXPR_CAST &&
+                          argument->cxx_virtual_base_adjustment)) {
                         int adjustment = argument->kind == EXPR_CAST &&
                                 argument->cxx_pointer_adjustment_valid
                             ? argument->cxx_pointer_adjustment : 0;

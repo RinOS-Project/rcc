@@ -521,6 +521,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-member-pointer-data-posix
 .PHONY: test-verified-volatile
 .PHONY: test-verified-cxx-temporary-cleanup
+.PHONY: test-verified-cxx-virtual-base-value
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
 .PHONY: test-cxx-return-semantics
@@ -3577,7 +3578,7 @@ test-cxx-variable-templates: $(RCXX_TARGET)
 test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-overloads,cxx_function_template_overloads.cpp)
-	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe tests/cxx_function_template_overloads.cpp
+	g++ -std=c++20 -fno-elide-constructors -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe tests/cxx_function_template_overloads.cpp
 	$(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log)
 	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
@@ -3682,6 +3683,16 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_non_template_nested_pointer_cv_ambiguity.cpp,$(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-gcc.log)
 	$(GREP) -F -q "select_incomparable_nested_pointer_cv" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-gcc.log
 	$(GREP) -F -q "select_incomparable_reference_cv" $(TEST_OUT)/cxx-function-template-overloads/nested-pointer-cv-invalid-gcc.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-x86.ro tests/cxx_class_value_virtual_ambiguous.cpp,$(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-x86.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'consume_virtual_value_root'" $(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-x64.ro tests/cxx_class_value_virtual_ambiguous.cpp,$(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-x64.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'consume_virtual_value_root'" $(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_class_value_virtual_ambiguous.cpp,$(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-gcc.log)
+	$(GREP) -F -q "VirtualValueRoot' is an ambiguous base" $(TEST_OUT)/cxx-function-template-overloads/virtual-ambiguous-gcc.log
 
 test-cxx-function-template-references: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-references)
@@ -14005,6 +14016,30 @@ test-verified-cxx-temporary-cleanup: $(RCXX_TARGET) test-verified-cxx-reference-
 		--cxx-reference-object \
 		$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.ro x64
 
+test-verified-cxx-virtual-base-value: $(RCXX_TARGET) test-verified-cxx-reference-local
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-virtual-base-value-x86.ro \
+		tests/verified_backend_cxx_virtual_base_value.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x86.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-virtual-base-value-x64.ro \
+		tests/verified_backend_cxx_virtual_base_value.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x64.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x64.log,0)
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/cxx-virtual-base-value-x86.ro x86
+	$(call MKDIR_P,$(TEST_OUT)/cxx-virtual-base-value)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-virtual-base-value,verified_backend_cxx_virtual_base_value.cpp)
+
 test-verified-i686-floating-arithmetic: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-i686-x86.ro tests/verified_backend_float_i686_arithmetic.c >$(TEST_OUT)/verified-backend/float-i686-x86.log
@@ -14119,7 +14154,7 @@ test-verified-i686-floating-operations: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2-run,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2.s $(TEST_OUT)/verified-backend/float-ops-i686-harness.s)
 	@echo "Verified i686 x87 floating unary/update/select C/C++ O0/O2 execution passed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-switch-nested
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \

@@ -7132,6 +7132,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     for (argument = expression->call_args; argument;
          argument = argument->next) {
         RccIrLowerValue value;
+        bool temporary_owner_bound = false;
         const Type* argument_type = parameter && parameter->type
             ? parameter->type
             : argument->expr ? argument->expr->type : NULL;
@@ -7163,7 +7164,36 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                 ++sysv_flatten_gp_arguments_used;
             }
         }
-        if (member_pointer_call && argument == expression->call_args) {
+        if (argument->cxx_temporary_owner && argument->expr &&
+            argument->expr->kind == EXPR_CAST &&
+            argument->expr->cxx_virtual_base_adjustment &&
+            parameter && parameter->type &&
+            lower_abi_is_aggregate(parameter->type)) {
+            Expr* conversion = argument->expr;
+            RccIrLowerValue complete_object = lower_expression(
+                context, conversion->cast_expr);
+            if (!complete_object.valid ||
+                complete_object.type.kind != RCC_IR_TYPE_POINTER ||
+                !lower_bind_temporary_owner(
+                    context, argument->cxx_temporary_owner,
+                    complete_object) ||
+                !conversion->cxx_virtual_base_source_class ||
+                conversion->cxx_virtual_base_pointer_offset < 0 ||
+                conversion->cxx_virtual_base_index < 0 ||
+                conversion->cxx_virtual_base_index >=
+                    conversion->cxx_virtual_base_source_class
+                        ->virtual_base_count) {
+                rcc_free(operands);
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            value = lower_virtual_base_member_pointer_object(
+                context, complete_object,
+                conversion->cxx_virtual_base_pointer_offset,
+                conversion->cxx_virtual_base_index,
+                conversion->cxx_virtual_base_nested_adjustment);
+            temporary_owner_bound = true;
+        } else if (member_pointer_call && argument == expression->call_args) {
             value = member_pointer_receiver;
         } else if (parameter && parameter->type &&
             parameter->type->kind == TYPE_PTR &&
@@ -7217,7 +7247,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             }
             if (argument->cxx_temporary_owner) {
                 RccIrLowerValue complete_object = value;
-                if (argument->expr &&
+                if (!temporary_owner_bound && argument->expr &&
                     argument->expr->kind == EXPR_CAST &&
                     argument->expr->cxx_pointer_adjustment_valid) {
                     if (argument->expr->cxx_pointer_adjustment == INT_MIN) {
@@ -7229,10 +7259,11 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                         context, value,
                         -argument->expr->cxx_pointer_adjustment);
                 }
-                if (!complete_object.valid ||
-                    !lower_bind_temporary_owner(
-                        context, argument->cxx_temporary_owner,
-                        complete_object)) {
+                if (!temporary_owner_bound &&
+                    (!complete_object.valid ||
+                     !lower_bind_temporary_owner(
+                         context, argument->cxx_temporary_owner,
+                         complete_object))) {
                     rcc_free(operands);
                     context->unsupported = true;
                     return lower_invalid_value();
@@ -9303,7 +9334,23 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                     context->unsupported = true;
                     return lower_invalid_value();
                 }
-                if (expression->cxx_pointer_adjustment_valid) {
+                if (expression->cxx_virtual_base_adjustment) {
+                    CxxClass* source_class =
+                        expression->cxx_virtual_base_source_class;
+                    if (!source_class ||
+                        expression->cxx_virtual_base_pointer_offset < 0 ||
+                        expression->cxx_virtual_base_index < 0 ||
+                        expression->cxx_virtual_base_index >=
+                            source_class->virtual_base_count) {
+                        context->unsupported = true;
+                        return lower_invalid_value();
+                    }
+                    operand = lower_virtual_base_member_pointer_object(
+                        context, operand,
+                        expression->cxx_virtual_base_pointer_offset,
+                        expression->cxx_virtual_base_index,
+                        expression->cxx_virtual_base_nested_adjustment);
+                } else if (expression->cxx_pointer_adjustment_valid) {
                     operand = lower_adjusted_pointer(
                         context, operand,
                         expression->cxx_pointer_adjustment);
