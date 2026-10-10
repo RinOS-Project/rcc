@@ -2408,3 +2408,18 @@ separately recorded WSL startup failure.
 - [ ] Complete remaining C++20 overload-resolution conformance; proper
   subsequences, user-defined conversion ties, implicit-object refinements, and
   full function-template partial ordering remain open.
+
+## C++ regression follow-up (2026-10-10, cv-qualified derived-reference ranking)
+
+- [x] When equal-rank reference conversions target related classes, compare
+  the referred-to class relationship even if one candidate adds cv
+  qualification. For a `ConversionBaseLeaf` lvalue, both ordinary and
+  function-template overload sets now prefer `ConversionBaseMiddle&` over
+  `const ConversionBaseRoot&`. This fixes a reproduced RCC ambiguity and
+  agrees with GCC C++20. The focused overload target passes i686/AMD64
+  generation, AMD64 execution, GCC C++20 `-Werror`, and its existing
+  ambiguity/diagnostic checks.
+- [ ] Continue proper-subsequence coverage for other standard conversion
+  shapes, user-defined conversion ties, implicit-object refinements, and full
+  function-template partial ordering; this derived-reference rule is bounded
+  and does not complete overload-resolution conformance.
