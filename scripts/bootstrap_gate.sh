@@ -2,8 +2,8 @@
 set -eu
 
 ROOT=$(cd -- "$(dirname -- "$0")/.." && pwd)
-RCC="$ROOT/rcc.exe"
-RLD="$ROOT/rld.exe"
+RCC=${RCC:-"$ROOT/rcc.exe"}
+RLD=${RLD:-"$ROOT/rld.exe"}
 BOOTSTRAP="$ROOT/build/bootstrap"
 WIN_ROOT=$(wslpath -m "$ROOT")
 WIN_BOOTSTRAP="$WIN_ROOT/build/bootstrap"

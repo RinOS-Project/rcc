@@ -145,10 +145,10 @@ IR_X86_HOST_FLAGS = -m32
 IR_X86_INSPECT_CMD =
 endif
 
-# Host-side compiler-builtin fixtures execute the assembly produced by RCC.
+# Host-side freestanding i686 fixtures execute assembly produced by RCC.
 # These fixtures intentionally use no CRT/API symbols, so native Windows
 # MinGW can link them as freestanding 32-bit PE images even when its 32-bit
-# CRT is not installed.  An unresolved compiler-generated reference remains
+# CRT is not installed. An unresolved compiler-generated reference remains
 # a link error; this is not an inspect-only or skipped execution path.
 ifeq ($(OS),Windows_NT)
 ifneq ($(findstring clang,$(CC)),)
@@ -156,9 +156,11 @@ ifneq ($(findstring clang,$(CC)),)
 # its assembler preserves RCC's literal COFF symbol `main`. Rename only the
 # freestanding test entry; leave emitted objects and GCC/MinGW BFD unchanged.
 define RUN_COMPILER_BUILTINS_X86
-$(CC) -m32 -c -o $(1).obj $(2)
+$(CC) -m32 -c -o $(1).obj $(firstword $(2))
 $(OBJCOPY) --redefine-sym main=_main $(1).obj $(1)-entry.obj
-$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' -o $(1) $(1)-entry.obj
+$(if $(word 2,$(2)),$(CC) -m32 -c -o $(1)-extra.obj $(word 2,$(2)) && $(OBJCOPY) --redefine-sym main=_main $(1)-extra.obj $(1)-extra-entry.obj)
+$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' -o $(1) \
+	$(1)-entry.obj $(if $(word 2,$(2)),$(1)-extra-entry.obj)
 $(1)
 endef
 else
@@ -8728,10 +8730,7 @@ test-flexible-arrays: $(RCC_TARGET)
 ifeq ($(OS),Windows_NT)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/flexible-arrays/x86.s tests/flexible_array.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/flexible-arrays/run-test-x86 \
-		$(TEST_OUT)/flexible-arrays/x86.s
-	$(TEST_OUT)/flexible-arrays/run-test-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/flexible-arrays/run-test-x86,$(TEST_OUT)/flexible-arrays/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/flexible-arrays/x64.s tests/flexible_array.c
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
@@ -8793,10 +8792,7 @@ test-numeric-literals: $(RCC_TARGET)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/numeric-literals/x86.s tests/numeric_literals.c
 ifeq ($(OS),Windows_NT)
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/numeric-literals/x86 \
-		$(TEST_OUT)/numeric-literals/x86.s
-	$(TEST_OUT)/numeric-literals/x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/numeric-literals/x86,$(TEST_OUT)/numeric-literals/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/numeric-literals/x64.s tests/numeric_literals.c
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
@@ -8879,10 +8875,7 @@ test-floating-runtime-i686: $(RCC_TARGET)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/floating-runtime-i686/runtime.s \
 		tests/floating_runtime_i686.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/floating-runtime-i686/runtime.exe \
-		$(TEST_OUT)/floating-runtime-i686/runtime.s
-	$(TEST_OUT)/floating-runtime-i686/runtime.exe
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/floating-runtime-i686/runtime.exe,$(TEST_OUT)/floating-runtime-i686/runtime.s)
 	@echo "RCC i686 floating runtime and scalar ABI tests completed"
 else
 test-floating-runtime-i686: $(RCC_TARGET)
@@ -8939,10 +8932,7 @@ test-vla-runtime: $(RCC_TARGET)
 		-o $(TEST_OUT)/vla-runtime/x86.s tests/vla_runtime.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/vla-runtime/x64.s tests/vla_runtime.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/vla-runtime/x86.exe \
-		$(TEST_OUT)/vla-runtime/x86.s
-	$(TEST_OUT)/vla-runtime/x86.exe
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/vla-runtime/x86.exe,$(TEST_OUT)/vla-runtime/x86.s)
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
 		-o $(TEST_OUT)/vla-runtime/x64.exe \
 		$(TEST_OUT)/vla-runtime/x64.s
@@ -9583,10 +9573,7 @@ test-vla-declarator-variants: $(RCC_TARGET)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/vla-declarator-variants/x64.s \
 		tests/vla_declarator_variants.c
-	$(CC) -m32 -nostdlib -no-pie -Wl,--entry,main \
-		-o $(TEST_OUT)/vla-declarator-variants/x86 \
-		$(TEST_OUT)/vla-declarator-variants/x86.s
-	$(TEST_OUT)/vla-declarator-variants/x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/vla-declarator-variants/x86,$(TEST_OUT)/vla-declarator-variants/x86.s)
 	$(CC) -nostdlib -no-pie -Wl,--entry,main \
 		-o $(TEST_OUT)/vla-declarator-variants/x64 \
 		$(TEST_OUT)/vla-declarator-variants/x64.s
@@ -9965,8 +9952,18 @@ test-aggregate-flexible-abi: $(RCC_TARGET)
 	$(call AGGREGATE_X86_ABI_TEST,aggregate-flexible-abi,aggregate_flexible_abi_host.c)
 	$(CC) -c -o $(TEST_OUT)/aggregate-flexible-abi/x64.o \
 		$(TEST_OUT)/aggregate-flexible-abi/x64.s
+ifeq ($(OS),Windows_NT)
+ifneq ($(findstring clang,$(CC)),)
 	$(CC) -c -o $(TEST_OUT)/aggregate-flexible-abi/host-x64.o \
 		tests/aggregate_flexible_abi_host.c
+else
+	$(CC) -c -o $(TEST_OUT)/aggregate-flexible-abi/host-x64.o \
+		tests/aggregate_flexible_abi_host_win64.s
+endif
+else
+	$(CC) -c -o $(TEST_OUT)/aggregate-flexible-abi/host-x64.o \
+		tests/aggregate_flexible_abi_host.c
+endif
 	$(CC) -o $(TEST_OUT)/aggregate-flexible-abi/x64 \
 		$(TEST_OUT)/aggregate-flexible-abi/host-x64.o \
 		$(TEST_OUT)/aggregate-flexible-abi/x64.o
@@ -11668,10 +11665,7 @@ test-integer-literals: $(RCC_TARGET)
 ifeq ($(OS),Windows_NT)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/integer-literals/x86.s tests/integer_literal.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/integer-literals/run-test-x86 \
-		$(TEST_OUT)/integer-literals/x86.s
-	$(TEST_OUT)/integer-literals/run-test-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/integer-literals/run-test-x86,$(TEST_OUT)/integer-literals/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/integer-literals/x64.s tests/integer_literal.c
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
@@ -11718,10 +11712,7 @@ test-integer-promotions: $(RCC_TARGET)
 ifeq ($(OS),Windows_NT)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/integer-promotions/x86.s tests/integer_promotion.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/integer-promotions/run-test-x86 \
-		$(TEST_OUT)/integer-promotions/x86.s
-	$(TEST_OUT)/integer-promotions/run-test-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/integer-promotions/run-test-x86,$(TEST_OUT)/integer-promotions/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/integer-promotions/x64.s tests/integer_promotion.c
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
@@ -11758,10 +11749,7 @@ test-integer-conversions: $(RCC_TARGET)
 ifeq ($(OS),Windows_NT)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/integer-conversions/x86.s tests/integer_conversion.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/integer-conversions/run-test-x86 \
-		$(TEST_OUT)/integer-conversions/x86.s
-	$(TEST_OUT)/integer-conversions/run-test-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/integer-conversions/run-test-x86,$(TEST_OUT)/integer-conversions/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/integer-conversions/x64.s tests/integer_conversion.c
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
@@ -11791,10 +11779,7 @@ test-function-calls: $(RCC_TARGET)
 ifeq ($(OS),Windows_NT)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/function-calls/x86.s tests/function_call.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/function-calls/run-test-x86 \
-		$(TEST_OUT)/function-calls/x86.s
-	$(TEST_OUT)/function-calls/run-test-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/function-calls/run-test-x86,$(TEST_OUT)/function-calls/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/function-calls/x64.s tests/function_call.c
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
@@ -12006,9 +11991,7 @@ test-varargs: $(RCC_TARGET)
 		tests/varargs.c
 	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc -Ibootstrap/include -S \
 		-o $(TEST_OUT)/varargs/x86.s tests/varargs.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/varargs/run-test-x86 $(TEST_OUT)/varargs/x86.s
-	$(TEST_OUT)/varargs/run-test-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/varargs/run-test-x86,$(TEST_OUT)/varargs/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include -S \
 		-o $(TEST_OUT)/varargs/x64.s tests/varargs.c
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
@@ -12069,10 +12052,7 @@ test-scalar-comparisons: $(RCC_TARGET)
 ifeq ($(OS),Windows_NT)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/scalar-comparisons/x86.s tests/scalar_comparison.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/scalar-comparisons/run-test-x86 \
-		$(TEST_OUT)/scalar-comparisons/x86.s
-	$(TEST_OUT)/scalar-comparisons/run-test-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/scalar-comparisons/run-test-x86,$(TEST_OUT)/scalar-comparisons/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/scalar-comparisons/x64.s tests/scalar_comparison.c
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
@@ -12109,10 +12089,7 @@ test-aggregate-copy: $(RCC_TARGET)
 ifeq ($(OS),Windows_NT)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/aggregate-copy/x86.s tests/aggregate_copy.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/aggregate-copy/run-test-x86 \
-		$(TEST_OUT)/aggregate-copy/x86.s
-	$(TEST_OUT)/aggregate-copy/run-test-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/aggregate-copy/run-test-x86,$(TEST_OUT)/aggregate-copy/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/aggregate-copy/x64.s tests/aggregate_copy.c
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
@@ -12146,10 +12123,7 @@ test-aggregate-returns: $(RCC_TARGET)
 ifeq ($(OS),Windows_NT)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/aggregate-returns/x86.s tests/aggregate_return.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/aggregate-returns/run-test-x86 \
-		$(TEST_OUT)/aggregate-returns/x86.s
-	$(TEST_OUT)/aggregate-returns/run-test-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/aggregate-returns/run-test-x86,$(TEST_OUT)/aggregate-returns/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/aggregate-returns/x64.s tests/aggregate_return.c
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
@@ -12182,10 +12156,7 @@ ifeq ($(OS),Windows_NT)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/aggregate-packed-abi/x86.s \
 		tests/aggregate_packed_abi.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/aggregate-packed-abi/run-test-x86 \
-		$(TEST_OUT)/aggregate-packed-abi/x86.s
-	$(TEST_OUT)/aggregate-packed-abi/run-test-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/aggregate-packed-abi/run-test-x86,$(TEST_OUT)/aggregate-packed-abi/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/aggregate-packed-abi/x64.s \
 		tests/aggregate_packed_abi.c
@@ -12216,10 +12187,7 @@ test-compound-literals: $(RCC_TARGET)
 ifeq ($(OS),Windows_NT)
 	$(RCC_TARGET) --target i686-unknown-rinos -S \
 		-o $(TEST_OUT)/compound-literals/x86.s tests/compound_literal.c
-	$(CC) -m32 -nostdlib -no-pie '-Wl,--entry,main' \
-		-o $(TEST_OUT)/compound-literals/run-test-x86 \
-		$(TEST_OUT)/compound-literals/x86.s
-	$(TEST_OUT)/compound-literals/run-test-x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/compound-literals/run-test-x86,$(TEST_OUT)/compound-literals/x86.s)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -S \
 		-o $(TEST_OUT)/compound-literals/x64.s tests/compound_literal.c
 	$(CC) -nostdlib -no-pie '-Wl,--entry,main' \
@@ -12295,10 +12263,7 @@ test-static-locals: $(RCC_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/static-locals/x86.rin tests/static_locals.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/static-locals/x64.rin tests/static_locals.c
-	$(CC) -m32 -nostdlib -no-pie -Wl,--entry,main \
-		-o $(TEST_OUT)/static-locals/x86 \
-		$(TEST_OUT)/static-locals/x86.s
-	$(TEST_OUT)/static-locals/x86
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/static-locals/x86,$(TEST_OUT)/static-locals/x86.s)
 	$(CC) -nostdlib -no-pie -Wl,--entry,main \
 		-o $(TEST_OUT)/static-locals/x64 \
 		$(TEST_OUT)/static-locals/x64.s

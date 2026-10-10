@@ -2488,3 +2488,26 @@ separately recorded WSL startup failure.
 - [ ] Continue proper-subsequence coverage for other standard-conversion
   shapes; user-defined conversion ties and complete function-template partial
   ordering remain open.
+
+## RCC continuation (2026-10-11, SysV flexible-array ABI and native Clang tests)
+
+- [x] Classify structs with flexible array members as memory-passed SysV AMD64
+  aggregates for both arguments and returns. Add a round-trip ABI regression;
+  the focused gate passes with both MSYS2 Clang and MinGW GCC. The Windows GCC
+  host uses an explicit ABI harness because its `sysv_abi` C caller does not
+  agree with the SysV flexible-array convention; the test still exercises the
+  generated RCC code and checks both argument and hidden-result paths.
+- [x] Make the native-Windows Clang i686 freestanding test runner rename the
+  input COFF `main` symbol to `_main`, including when the entry harness is the
+  second input. This fixes Clang/LLD execution without changing RCC artifacts
+  or the GCC/MinGW path. The Clang test-ci targets through direct relocation
+  and the focused flexible-array ABI target pass; the dependent nested-type
+  C++20 target also passes with GCC. No parser/fixture diff remains.
+- [x] Allow `scripts/bootstrap_gate.sh` to select the built RCC/RLD with `RCC`
+  and `RLD` environment variables. With the current native Windows build,
+  bootstrap `core` (38 sources, i686 and x86_64, duplicate object comparison)
+  and `link` (stage1-a/b images, 33 objects per target) both pass.
+- [ ] Run the bootstrap stage1 execution and stage2 reproduction gates on a
+  supported POSIX host. The configured Ubuntu-24.04 WSL instance returns
+  `Wsl/Service/E_ACCESSDENIED`; the available Strawberry MinGW GCC rejects the
+  runner's POSIX `-rdynamic` option, so execution and stage2 are not verified.

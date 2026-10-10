@@ -1423,16 +1423,6 @@ static bool gen64_classify_type_at(const Type* type, int base_offset,
         }
         for (const TypeField* field = type->fields; field;
              field = field->next) {
-            /* A flexible array member contributes no bytes to the complete
-             * object type. SysV classifies the fixed prefix, so do not make
-             * an otherwise register-passed aggregate MEMORY merely because
-             * the member has no runtime extent. */
-            if (field->type && field->type->kind == TYPE_ARRAY &&
-                field->type->array_len == -1 &&
-                !field->type->array_bound &&
-                !field->type->array_unspecified_bound) {
-                continue;
-            }
             if (field->offset < 0 || field->offset > type->size ||
                 /* SysV classifies an aggregate as MEMORY when a field is
                  * not naturally aligned.  The containing type's alignment

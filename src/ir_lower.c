@@ -13,6 +13,7 @@
 #include "x86_select.h"
 #include "x86_legalize.h"
 #include "cxx_exception_type.h"
+#include <limits.h>
 
 typedef struct {
     RccIrValue value;
@@ -11574,7 +11575,13 @@ static bool lower_sysv_classify_type_at(
             if (field->type && field->type->kind == TYPE_ARRAY &&
                 field->type->array_len == -1 &&
                 !field->type->array_bound &&
-                !field->type->array_unspecified_bound) continue;
+                !field->type->array_unspecified_bound) {
+                /* Variable-sized aggregates are passed and returned in
+                 * memory by the SysV AMD64 ABI, even when their fixed prefix
+                 * would otherwise fit in integer registers. */
+                result->memory = true;
+                return true;
+            }
             if (!field->type || field->offset < 0 ||
                 field->offset > type->size ||
                 field->type->size > type->size - field->offset ||
