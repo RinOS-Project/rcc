@@ -48,6 +48,36 @@ int choose_template(T* value) {
 }
 
 template<typename T>
+int choose_fixed_over_pack(T) {
+    return 110;
+}
+
+template<typename... T>
+int choose_fixed_over_pack(T...) {
+    return 120;
+}
+
+template<typename T, typename... Rest>
+int choose_fixed_prefix_over_pack(T, Rest...) {
+    return 130;
+}
+
+template<typename... T>
+int choose_fixed_prefix_over_pack(T...) {
+    return 140;
+}
+
+template<typename T, typename... Rest>
+int choose_nonpack_over_empty_pack(T, Rest...) {
+    return 150;
+}
+
+template<typename T>
+int choose_nonpack_over_empty_pack(T) {
+    return 160;
+}
+
+template<typename T>
 T forward_template(T value) {
     return value;
 }
@@ -183,6 +213,9 @@ int main(void) {
     short priority = 0;
     return choose_template(&value) == 25 &&
                    choose_template(value) == 10 &&
+                   choose_fixed_over_pack(value) == 110 &&
+                   choose_fixed_prefix_over_pack(value, value) == 130 &&
+                   choose_nonpack_over_empty_pack(value) == 160 &&
                    forward_template(choose_template(&value)) == 25 &&
                    choose_conversion_before_partial_order(&value, priority) == 10 &&
                    choose_cv_qualification(pointer) == 30 &&

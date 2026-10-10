@@ -14773,6 +14773,8 @@ typedef struct CxxFunctionTemplateMatch {
     bool value_present[32];
     int argument_count;
     int specificity;
+    int fixed_function_parameter_count;
+    bool has_function_parameter_pack;
     int conversion_ranks[32];
     Type* conversion_targets[32];
     int conversion_rank_count;
@@ -15396,6 +15398,16 @@ static int cxx_function_template_match_relation(
     if (left->specificity != right->specificity) {
         return left->specificity > right->specificity ? 1 : -1;
     }
+    if (left->fixed_function_parameter_count !=
+        right->fixed_function_parameter_count) {
+        return left->fixed_function_parameter_count >
+                       right->fixed_function_parameter_count
+            ? 1 : -1;
+    }
+    if (left->has_function_parameter_pack !=
+        right->has_function_parameter_pack) {
+        return left->has_function_parameter_pack ? -1 : 1;
+    }
     constraint_relation = cxx_function_template_constraint_relation(
         left->tmpl, right->tmpl, &constraints_comparable);
     return constraints_comparable ? constraint_relation : 0;
@@ -15900,6 +15912,14 @@ static bool prepare_cxx_function_template_match(
     memset(match, 0, sizeof(*match));
     match->tmpl = tmpl;
     match->argument_count = tmpl->param_count;
+    for (DeclList* parameter = tmpl->func_def->func_params; parameter;
+         parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->param_is_pack) {
+            match->has_function_parameter_pack = true;
+        } else {
+            ++match->fixed_function_parameter_count;
+        }
+    }
     for (int index = 0; index < tmpl->param_count; ++index) {
         if (tmpl->params[index].is_pack) {
             if (tmpl->params[index].kind == TPARAM_TYPE) has_type_pack = true;

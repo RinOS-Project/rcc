@@ -471,6 +471,11 @@
         mixed type/non-type patterns, requires-clause viability,
         unsupported-constraint diagnostics, and orthogonal ambiguity
         diagnostics with dual-architecture regression coverage
+  - [x] Among otherwise equivalent function-template candidates, prefer the
+        overload with more fixed function parameters and prefer a non-pack
+        signature over a trailing function-parameter pack when fixed prefixes
+        tie. GCC C++20 reference checks and i686/AMD64 generated execution are
+        included in `test-cxx-function-template-overloads`.
   - [ ] full partial ordering, all parameter-pack deduction rules, and
         unsupported constexpr evaluation required for complete standard
         conformance
