@@ -7998,6 +7998,33 @@ static int cxx_conversion_vector_relation(
                 }
             }
         }
+        if (left[index] == right[index] && left[index] == 2 &&
+            left_targets && right_targets && left_targets[index] &&
+            right_targets[index] && left_targets[index]->kind == TYPE_PTR &&
+            right_targets[index]->kind == TYPE_PTR &&
+            left_targets[index]->cxx_is_member_pointer &&
+            right_targets[index]->cxx_is_member_pointer &&
+            left_targets[index]->base && right_targets[index]->base &&
+            cxx_same_parameter_type(left_targets[index]->base,
+                                    right_targets[index]->base, false) &&
+            left_targets[index]->cxx_member_pointer_owner &&
+            right_targets[index]->cxx_member_pointer_owner) {
+            CxxClass* left_owner =
+                left_targets[index]->cxx_member_pointer_owner->cxx_class;
+            CxxClass* right_owner =
+                right_targets[index]->cxx_member_pointer_owner->cxx_class;
+            if (left_owner && right_owner && left_owner != right_owner) {
+                /* For Base::* to Derived::* conversions, prefer the target
+                 * whose owner is nearer the source base class. */
+                if (sema_cxx_class_derives_from(
+                        right_owner, left_owner, 0)) {
+                    left_better = true;
+                } else if (sema_cxx_class_derives_from(
+                               left_owner, right_owner, 0)) {
+                    right_better = true;
+                }
+            }
+        }
         if (index >= argument_offset && argument) {
             argument = argument->next;
         }

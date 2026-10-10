@@ -2247,3 +2247,16 @@ separately recorded WSL startup failure.
   user-defined conversion ties, constraints, parameter packs, and full
   function-template partial ordering; these bounded ranking rules do not
   establish complete C++20 overload-resolution conformance.
+
+## C++ regression follow-up (2026-10-10, member-pointer owner ranking)
+
+- [x] Rank viable data-member-pointer conversions from a base owner to related
+  derived owners: `Root::*` selects `Middle::*` over `Leaf::*`, in ordinary and
+  function-template overloads. Delegate member-pointer viability to semantic
+  analysis instead of treating compatible member types as ordinary pointer
+  conversions. GCC C++20 agrees; the focused target passes i686/AMD64
+  generation, AMD64 execution, and both-architecture ambiguity diagnostics for
+  unrelated owners, with no invalid `.ro` output.
+- [ ] Extend member-pointer ranking to differing qualified member types,
+  member-function-pointer conversions, and virtual/inaccessible owner paths;
+  proper subsequences and full template partial ordering also remain open.

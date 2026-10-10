@@ -15553,6 +15553,16 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
         target->base && target->base->kind == TYPE_FUNC) {
         return type_is_compatible(source, target->base) ? 1 : -1;
     }
+    if (source->kind == TYPE_PTR && target->kind == TYPE_PTR &&
+        (source->cxx_is_member_pointer ||
+         target->cxx_is_member_pointer)) {
+        /* Member-pointer owner conversions are not ordinary pointer
+         * conversions. Delegate viability to sema so Base::* to Derived::*
+         * receives Conversion rank instead of being mistaken for an exact
+         * match merely because the pointed-to member types are compatible. */
+        return rcc_sema_cxx_conversion_rank(argument, source, target) == 2
+            ? 2 : -1;
+    }
     if (source->kind == TYPE_PTR && target->kind == TYPE_PTR) {
         source_base = source->base;
         target_base = target->base;
@@ -15820,6 +15830,43 @@ static int cxx_template_conversion_vector_relation(
                  * binding that same rvalue to an lvalue reference. */
                 qualification_relation = left_target->is_rvalue_reference
                     ? 1 : -1;
+            }
+            if (qualification_relation == 0 &&
+                left->conversion_ranks[index] == 8 &&
+                left_target && right_target &&
+                left_target->kind == TYPE_PTR &&
+                right_target->kind == TYPE_PTR &&
+                left_target->cxx_is_member_pointer &&
+                right_target->cxx_is_member_pointer &&
+                left_target->base && right_target->base &&
+                left_target->cxx_member_pointer_owner &&
+                right_target->cxx_member_pointer_owner) {
+                bool left_member_type_subset = true;
+                bool right_member_type_subset = true;
+                if (cxx_parser_template_qualification_targets_related(
+                        left_target->base, right_target->base, false,
+                        &left_member_type_subset,
+                        &right_member_type_subset, 0u) &&
+                    left_member_type_subset && right_member_type_subset) {
+                    CxxClass* left_owner =
+                        left_target->cxx_member_pointer_owner->cxx_class;
+                    CxxClass* right_owner =
+                        right_target->cxx_member_pointer_owner->cxx_class;
+                    if (left_owner && right_owner &&
+                        left_owner != right_owner) {
+                        /* Converting Base::* to Derived::* is ranked by how
+                         * near the destination owner is to the source base.
+                         * If right derives from left, left requires the
+                         * shorter owner conversion and is the better target. */
+                        if (cxx_template_class_derives_from(
+                                right_owner, left_owner, 0u)) {
+                            qualification_relation = 1;
+                        } else if (cxx_template_class_derives_from(
+                                       left_owner, right_owner, 0u)) {
+                            qualification_relation = -1;
+                        }
+                    }
+                }
             }
             if (qualification_relation == 0 &&
                 (left->conversion_ranks[index] == 1 ||

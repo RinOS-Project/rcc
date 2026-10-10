@@ -69,6 +69,13 @@ struct InaccessibleValueBase {
 
 struct InaccessibleValueDerived : private InaccessibleValueBase {};
 
+struct MemberPointerAmbiguousRoot {
+    int value;
+};
+
+struct MemberPointerAmbiguousLeft : MemberPointerAmbiguousRoot {};
+struct MemberPointerAmbiguousRight : MemberPointerAmbiguousRoot {};
+
 template<typename T>
 int select_unrelated_pointer_bases(T*, UnrelatedBaseLeft*) {
     return 11;
@@ -94,6 +101,18 @@ int select_inaccessible_base_value(T*, InaccessibleValueBase) {
     return 15;
 }
 
+template<typename T>
+int select_unrelated_member_pointer_owners(
+    T, int MemberPointerAmbiguousLeft::*) {
+    return 16;
+}
+
+template<typename T>
+int select_unrelated_member_pointer_owners(
+    T, int MemberPointerAmbiguousRight::*) {
+    return 17;
+}
+
 int main() {
     int value = 1;
     int values[2] = {};
@@ -109,5 +128,7 @@ int main() {
            select_unrelated_pointer_bases(&unrelated, &unrelated) +
            select_unrelated_value_bases(&unrelated_value, unrelated_value) +
            select_inaccessible_base_value(
-               &inaccessible_value, inaccessible_value);
+               &inaccessible_value, inaccessible_value) +
+           select_unrelated_member_pointer_owners(
+               0, &MemberPointerAmbiguousRoot::value);
 }

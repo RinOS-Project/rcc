@@ -2,6 +2,13 @@ struct ConversionBaseRoot {};
 struct ConversionBaseMiddle : ConversionBaseRoot {};
 struct ConversionBaseLeaf : ConversionBaseMiddle {};
 
+struct ConversionMemberPointerRoot {
+    int value;
+};
+
+struct ConversionMemberPointerMiddle : ConversionMemberPointerRoot {};
+struct ConversionMemberPointerLeaf : ConversionMemberPointerMiddle {};
+
 struct ConversionValueRoot {
     int root_value;
 };
@@ -181,6 +188,28 @@ int choose_nearer_base_reference_non_template(ConversionBaseMiddle&) {
 }
 
 template<typename T>
+int choose_nearer_member_pointer(
+    T, int ConversionMemberPointerMiddle::*) {
+    return 191;
+}
+
+template<typename T>
+int choose_nearer_member_pointer(
+    T, int ConversionMemberPointerLeaf::*) {
+    return 192;
+}
+
+int choose_nearer_member_pointer_non_template(
+    int ConversionMemberPointerMiddle::*) {
+    return 193;
+}
+
+int choose_nearer_member_pointer_non_template(
+    int ConversionMemberPointerLeaf::*) {
+    return 194;
+}
+
+template<typename T>
 int choose_base_over_void(T*, ConversionBaseRoot*) {
     return 83;
 }
@@ -270,6 +299,10 @@ int main(void) {
                    choose_nearer_base(leaf_pointer, leaf_pointer) == 82 &&
                    choose_nearer_base_reference(leaf_pointer, leaf) == 86 &&
                    choose_nearer_base_reference_non_template(leaf) == 88 &&
+                   choose_nearer_member_pointer(
+                       0, &ConversionMemberPointerRoot::value) == 191 &&
+                   choose_nearer_member_pointer_non_template(
+                       &ConversionMemberPointerRoot::value) == 193 &&
                    choose_base_over_void(leaf_pointer, leaf_pointer) == 83 &&
                    choose_nearer_base_value(
                        value_leaf_pointer, value_leaf) == 92 &&
