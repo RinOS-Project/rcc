@@ -171,6 +171,14 @@ int choose_pointer_subsequence_non_template(const void*) {
     return 74;
 }
 
+int choose_nested_pointer_qualification(int* const*) {
+    return 75;
+}
+
+int choose_nested_pointer_qualification(const int* const*) {
+    return 76;
+}
+
 template<typename T>
 int choose_nearer_base(T*, ConversionBaseRoot*) {
     return 81;
@@ -329,6 +337,7 @@ static int consume_conversion_value_cleanup_root(
 int main(void) {
     int value = 5;
     int* pointer = &value;
+    int** pointer_to_pointer = &pointer;
     int (ConversionMemberPointerRoot::*root_member_function)(int) const =
         &ConversionMemberPointerRoot::function;
     const int const_value = 6;
@@ -363,6 +372,8 @@ int main(void) {
                    choose_pointer_bool(pointer, pointer) == 62 &&
                    choose_pointer_subsequence(pointer, pointer) == 71 &&
                    choose_pointer_subsequence_non_template(pointer) == 73 &&
+                   choose_nested_pointer_qualification(pointer_to_pointer) ==
+                       75 &&
                    choose_nearer_base(leaf_pointer, leaf_pointer) == 82 &&
                    choose_nearer_base_reference(leaf_pointer, leaf) == 86 &&
                    choose_nearer_base_reference_non_template(leaf) == 88 &&

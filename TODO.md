@@ -2284,6 +2284,11 @@ separately recorded WSL startup failure.
   `const void*` versus `volatile void*` remains ambiguous. GCC C++20 agrees;
   the same focused gate verifies both target widths and generated AMD64
   execution, plus negative diagnostics without object output.
+- [x] Compare qualification subsets through nested ordinary pointer targets:
+  `int**` selects `int* const*` over `const int* const*`; incomparable
+  `const int* const*` and `volatile int* const*` targets remain ambiguous.
+  GCC C++20 agrees; the focused gate passes both architectures, generated
+  AMD64 execution, and negative diagnostic/no-object checks.
 - [ ] Continue proper-subsequence ordering for other standard-conversion
-  shapes, including nested pointer targets; user-defined conversion ties and
-  complete function-template partial ordering remain open.
+  shapes with different conversion components; user-defined conversion ties
+  and complete function-template partial ordering remain open.

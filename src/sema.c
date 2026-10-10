@@ -7593,6 +7593,47 @@ static int sema_cxx_member_type_qualification_relation(Type* left,
     return left_to_right && right_to_left ? 0 : 2;
 }
 
+/* Compare qualification decompositions of otherwise compatible ordinary
+ * pointer targets. Top-level parameter cv is ignored; cv at each pointee
+ * level contributes to the subset relation. The callers have already
+ * established that both argument conversions are viable. */
+static bool sema_cxx_qualification_targets_related(
+    Type* left, Type* right, bool ignore_current_qualification,
+    bool* left_subset, bool* right_subset, unsigned depth) {
+    if (!left || !right || depth > 64u || left->kind != right->kind) {
+        return false;
+    }
+    if (!ignore_current_qualification) {
+        if ((left->is_const && !right->is_const) ||
+            (left->is_volatile && !right->is_volatile)) {
+            *left_subset = false;
+        }
+        if ((!left->is_const && right->is_const) ||
+            (!left->is_volatile && right->is_volatile)) {
+            *right_subset = false;
+        }
+    }
+    if (left->kind == TYPE_PTR) {
+        if (left->cxx_is_member_pointer || right->cxx_is_member_pointer ||
+            !left->base || !right->base) {
+            return false;
+        }
+        return sema_cxx_qualification_targets_related(
+            left->base, right->base, false, left_subset, right_subset,
+            depth + 1u);
+    }
+    if (left->kind == TYPE_ARRAY) {
+        if (left->array_len >= 0 && right->array_len >= 0 &&
+            left->array_len != right->array_len) {
+            return false;
+        }
+        return sema_cxx_qualification_targets_related(
+            left->base, right->base, false, left_subset, right_subset,
+            depth + 1u);
+    }
+    return type_is_compatible(left, right);
+}
+
 static int cxx_conversion_rank(Expr* argument, Type* target) {
     Type* source;
     Type* source_base;
@@ -8075,22 +8116,6 @@ static int cxx_conversion_vector_relation(
             left_targets[index]->base && right_targets[index]->base) {
             Type* left_pointee = left_targets[index]->base;
             Type* right_pointee = right_targets[index]->base;
-            if (left_pointee->kind == TYPE_VOID &&
-                right_pointee->kind == TYPE_VOID) {
-                bool left_subset =
-                    (!left_pointee->is_const || right_pointee->is_const) &&
-                    (!left_pointee->is_volatile ||
-                     right_pointee->is_volatile);
-                bool right_subset =
-                    (!right_pointee->is_const || left_pointee->is_const) &&
-                    (!right_pointee->is_volatile ||
-                     left_pointee->is_volatile);
-                if (left_subset && !right_subset) {
-                    left_better = true;
-                } else if (right_subset && !left_subset) {
-                    right_better = true;
-                }
-            }
             bool matching_cv =
                 left_pointee->is_const == right_pointee->is_const &&
                 left_pointee->is_volatile == right_pointee->is_volatile;
@@ -8105,6 +8130,27 @@ static int cxx_conversion_vector_relation(
                 } else if (sema_cxx_class_derives_from(
                                right_pointee->cxx_class,
                                left_pointee->cxx_class, 0)) {
+                    right_better = true;
+                }
+            }
+        }
+        if (left[index] == right[index] &&
+            (left[index] == 1 || left[index] == 2) &&
+            left_targets && right_targets && left_targets[index] &&
+            right_targets[index] && !left_targets[index]->is_reference &&
+            !right_targets[index]->is_reference &&
+            left_targets[index]->kind == TYPE_PTR &&
+            right_targets[index]->kind == TYPE_PTR &&
+            !left_targets[index]->cxx_is_member_pointer &&
+            !right_targets[index]->cxx_is_member_pointer) {
+            bool left_subset = true;
+            bool right_subset = true;
+            if (sema_cxx_qualification_targets_related(
+                    left_targets[index], right_targets[index], true,
+                    &left_subset, &right_subset, 0u)) {
+                if (left_subset && !right_subset) {
+                    left_better = true;
+                } else if (right_subset && !left_subset) {
                     right_better = true;
                 }
             }
