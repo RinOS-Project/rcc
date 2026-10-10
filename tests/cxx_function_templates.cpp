@@ -75,7 +75,7 @@ int accept_bool(T value, bool flag) {
 }
 
 int call_null_bool_template() {
-    return accept_bool(3, nullptr);
+    return accept_bool(3, static_cast<bool>(nullptr));
 }
 
 template<typename T>
