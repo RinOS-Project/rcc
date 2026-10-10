@@ -5106,9 +5106,13 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-class-template-member-function-templates,cxx_class_template_member_function_templates.cpp)
 	$(GREP) -F -q "_ZNK3BoxIiE3addIlEEiT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE3addIsEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE4echoIlEET_S2_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi3EEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIlE3addIiEElT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
@@ -5127,9 +5131,13 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		> $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE3addIlEEiT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE3addIsEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE4echoIlEET_S2_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi3EEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIlE3addIiEElT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
@@ -5549,9 +5557,13 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-member-function-templates,cxx_class_template_member_function_templates.cpp)
 	$(GREP) -F -q "_ZNK3BoxIiE3addIlEEiT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE3addIsEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE4echoIlEET_S2_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi3EEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIlE3addIiEElT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
@@ -5570,9 +5582,13 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 		> $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE3addIlEEiT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE3addIsEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE4echoIlEET_S2_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi3EEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIlE3addIiEElT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log

@@ -5233,6 +5233,33 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 tmpl, expression->member_base, args, arg_count,
                 value_args, value_present);
             copy->member_field = NULL;
+            if (expression->member_template_argument_count > 0 &&
+                expression->member_template_arguments) {
+                copy->member_template_arguments = ast_arena_alloc(
+                    sizeof(copy->member_template_arguments[0]) *
+                    (size_t)expression->member_template_argument_count);
+                for (int index = 0;
+                     index < expression->member_template_argument_count;
+                     ++index) {
+                    CxxParsedTemplateArgument* destination =
+                        &copy->member_template_arguments[index];
+                    const CxxParsedTemplateArgument* source =
+                        &expression->member_template_arguments[index];
+                    *destination = *source;
+                    destination->type = template_substitute_type(
+                        tmpl, source->type, args, arg_count, value_args,
+                        value_present);
+                    destination->value_expression = template_clone_expr(
+                        tmpl, source->value_expression, args, arg_count,
+                        value_args, value_present);
+                    if (destination->value_expression &&
+                        expr_eval_integer_constant(
+                            destination->value_expression,
+                            &destination->value)) {
+                        destination->value_valid = true;
+                    }
+                }
+            }
             break;
         case EXPR_CAST:
             copy->cast_expr = template_clone_expr(

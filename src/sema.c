@@ -34,7 +34,8 @@ extern Decl* rcc_parser_cxx_resolve_function_pointer_template(
     const char*, CxxNamespace*, Type*, bool*, bool*, int*)
     __attribute__((weak));
 extern int rcc_parser_cxx_materialize_member_function_templates(
-    Type*, const char*, ExprList*, TypeMethod**, int, bool*)
+    Type*, const char*, ExprList*,
+    const CxxParsedTemplateArgument*, int, bool, TypeMethod**, int, bool*)
     __attribute__((weak));
 #endif
 
@@ -11068,6 +11069,7 @@ static TypeMethod* sema_select_cxx_member_method(
     Expr* call, Type* aggregate, const char* name,
     TypeMethod** member_template_candidates,
     int member_template_candidate_count,
+    bool template_arguments_specified,
     bool* ambiguous_lookup) {
     TypeMethod* method;
     TypeMethod** overload_methods;
@@ -11097,7 +11099,8 @@ static TypeMethod* sema_select_cxx_member_method(
     for (method = aggregate->methods; method; method = method->next) {
         if (method->kind == TYPE_METHOD_FUNCTION && method->function_decl &&
             method->name && strcmp(method->name, name) == 0 &&
-            !method->function_decl->func_is_template_instance) {
+            !method->function_decl->func_is_template_instance &&
+            !template_arguments_specified) {
             ++overload_method_count;
         }
     }
@@ -11113,7 +11116,8 @@ static TypeMethod* sema_select_cxx_member_method(
             if (method->kind == TYPE_METHOD_FUNCTION &&
                 method->function_decl && method->name &&
                 strcmp(method->name, name) == 0 &&
-                !method->function_decl->func_is_template_instance) {
+                !method->function_decl->func_is_template_instance &&
+                !template_arguments_specified) {
                 overload_methods[overload_index++] = method;
             }
         }
@@ -14313,8 +14317,9 @@ static Type* sema_expr(Expr* expr) {
                     expr->type = owner;
                     break;
                 }
-                method = sema_find_inline_method(owner,
-                                                 member->member_name);
+                method = member->member_has_template_arguments
+                    ? NULL
+                    : sema_find_inline_method(owner, member->member_name);
                 if (method) {
                     for (argument = expr->call_args; argument;
                          argument = argument->next) {
@@ -14391,6 +14396,9 @@ static Type* sema_expr(Expr* expr) {
                         member_template_candidate_count =
                             rcc_parser_cxx_materialize_member_function_templates(
                                 owner, member->member_name, expr->call_args,
+                                member->member_template_arguments,
+                                member->member_template_argument_count,
+                                member->member_has_template_arguments,
                                 member_template_candidates,
                                 (int)(sizeof(member_template_candidates) /
                                       sizeof(member_template_candidates[0])),
@@ -14413,6 +14421,7 @@ static Type* sema_expr(Expr* expr) {
                               expr, owner, member->member_name,
                               member_template_candidates,
                               member_template_candidate_count,
+                              member->member_has_template_arguments,
                               &ambiguous_lookup);
                     if (ambiguous_lookup) {
                         rcc_error(expr->loc,

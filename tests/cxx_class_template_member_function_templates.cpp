@@ -32,9 +32,12 @@ struct Box {
 int main() {
     Box<int> integers{4};
     Box<long> longs{5};
-    return integers.add(3L) == 7 && integers.echo(9L) == 9L &&
+    return integers.value < 10 && integers.add(3L) == 7 &&
+                   integers.echo(9L) == 9L &&
                    integers.identity(12L) == 12L &&
+                   integers.add<short>(2) == 6 &&
                    integers.add_constant() == 6 &&
+                   integers.add_constant<3>() == 7 &&
                    longs.add_constant() == 7L &&
                    integers.constrained_add(1L) == 5 &&
                    longs.constrained_add(1) == 6L && longs.add(2) == 7L

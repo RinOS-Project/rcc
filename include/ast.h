@@ -20,11 +20,20 @@ typedef struct GenericAssociation GenericAssociation;
 typedef struct TypeMethod TypeMethod;
 typedef struct CxxCatch CxxCatch;
 typedef struct CxxCleanupPlan CxxCleanupPlan;
+typedef struct CxxParsedTemplateArgument CxxParsedTemplateArgument;
 struct ExprList;
 struct Token;
 struct CxxClass;
 struct CxxNamespace;
 struct CxxTemplate;
+
+struct CxxParsedTemplateArgument {
+    bool is_type;
+    Type* type;
+    int64_t value;
+    bool value_valid;
+    Expr* value_expression;
+};
 
 /* ═══════════════════════════════════════
  * Type System
@@ -317,7 +326,10 @@ void rcc_parser_cxx_materialize_conversion_templates(
     Type* aggregate, Type* target);
 int rcc_parser_cxx_materialize_member_function_templates(
     Type* aggregate, const char* name, struct ExprList* arguments,
-    TypeMethod** candidates, int candidate_capacity,
+    const CxxParsedTemplateArgument* explicit_arguments,
+    int explicit_argument_count, bool explicit_arguments_specified,
+    TypeMethod** candidates,
+    int candidate_capacity,
     bool* constraint_unsupported);
 Expr* rcc_parse_cxx_concept_expression(void);
 Expr* rcc_parse_cxx_dependent_member(void);
@@ -774,6 +786,9 @@ struct Expr {
             Expr* member_base;
             const char* member_name;
             TypeField* member_field; /* Resolved during sema */
+            bool member_has_template_arguments;
+            CxxParsedTemplateArgument* member_template_arguments;
+            int member_template_argument_count;
         };
 
         /* EXPR_CAST */

@@ -7,6 +7,7 @@
 #include "token.h"
 #include "ast.h"
 #include "ast_cxx.h"
+#include "symtab.h"
 #include <limits.h>
 #include <stdio.h>
 
@@ -15222,12 +15223,233 @@ static Type* parse_qualified_class_alias_template_type(SourceLoc loc) {
     return result;
 }
 
-typedef struct CxxParsedTemplateArgument {
-    bool is_type;
-    Type* type;
-    int64_t value;
-    bool value_valid;
-} CxxParsedTemplateArgument;
+static Type* cxx_member_template_object_type(Expr* member) {
+    Expr* base = member ? member->member_base : NULL;
+    Type* type = base ? base->type : NULL;
+    if (!type && base && base->kind == EXPR_IDENT && base->ident_name) {
+        Symbol* symbol = g_symtab
+            ? symtab_lookup(g_symtab, base->ident_name) : NULL;
+        if (symbol) type = symbol->type;
+        if (!type && strcmp(base->ident_name, "this") == 0 && active_class) {
+            type = active_class->type;
+        }
+    }
+    if (type && type->is_reference && type->base) type = type->base;
+    if (member && member->kind == EXPR_PTR_MEMBER && type &&
+        type->kind == TYPE_PTR) {
+        type = type->base;
+    }
+    return type;
+}
+
+static CxxTemplate* cxx_find_member_function_template(
+    CxxClass* cls, const char* name) {
+    for (struct CxxMember* item = cls ? cls->members : NULL;
+         item; item = item->next) {
+        CxxMethod* method = item->method;
+        if (method && method->source_name && method->member_template &&
+            strcmp(method->source_name, name) == 0) {
+            return method->member_template;
+        }
+    }
+    return NULL;
+}
+
+static bool cxx_member_template_call_angle_follows(void) {
+    Token* token = parser.cur;
+    int angle_depth = 0;
+    int parentheses = 0;
+    int brackets = 0;
+    int braces = 0;
+    if (!token || token->type != TOK_LT) return false;
+    for (; token && token->type != TOK_EOF; token = token->next) {
+        if (token->type == TOK_LPAREN) {
+            ++parentheses;
+        } else if (token->type == TOK_RPAREN && parentheses > 0) {
+            --parentheses;
+        } else if (token->type == TOK_LBRACKET) {
+            ++brackets;
+        } else if (token->type == TOK_RBRACKET && brackets > 0) {
+            --brackets;
+        } else if (token->type == TOK_LBRACE) {
+            ++braces;
+        } else if (token->type == TOK_RBRACE && braces > 0) {
+            --braces;
+        } else if (!parentheses && !brackets && !braces &&
+                   angle_depth > 0 &&
+                   (token->type == TOK_RPAREN ||
+                    token->type == TOK_SEMICOLON ||
+                    token->type == TOK_QUESTION ||
+                    token->type == TOK_COLON ||
+                    token->type == TOK_AND || token->type == TOK_OR ||
+                    token->type == TOK_ASSIGN ||
+                    token->type == TOK_PLUS_ASSIGN ||
+                    token->type == TOK_MINUS_ASSIGN ||
+                    token->type == TOK_STAR_ASSIGN ||
+                    token->type == TOK_SLASH_ASSIGN ||
+                    token->type == TOK_PERCENT_ASSIGN ||
+                    token->type == TOK_AMP_ASSIGN ||
+                    token->type == TOK_PIPE_ASSIGN ||
+                    token->type == TOK_CARET_ASSIGN ||
+                    token->type == TOK_LSHIFT_ASSIGN ||
+                    token->type == TOK_RSHIFT_ASSIGN)) {
+            return false;
+        } else if (!parentheses && !brackets && !braces &&
+                   token->type == TOK_LT) {
+            ++angle_depth;
+        } else if (!parentheses && !brackets && !braces &&
+                   token->type == TOK_GT) {
+            if (--angle_depth == 0) {
+                return token->next && token->next->type == TOK_LPAREN;
+            }
+        } else if (!parentheses && !brackets && !braces &&
+                   token->type == TOK_RSHIFT) {
+            angle_depth -= 2;
+            if (angle_depth <= 0) {
+                return token->next && token->next->type == TOK_LPAREN;
+            }
+        }
+    }
+    return false;
+}
+
+static bool cxx_explicit_template_argument_starts_type(void) {
+    switch (peek()->type) {
+        case TOK_VOID:
+        case TOK_BOOL:
+        case TOK_CHAR:
+        case TOK_CHAR8_T:
+        case TOK_SHORT:
+        case TOK_INT:
+        case TOK_LONG:
+        case TOK_SIGNED:
+        case TOK_UNSIGNED:
+        case TOK_FLOAT:
+        case TOK_DOUBLE:
+        case TOK_CONST:
+        case TOK_VOLATILE:
+        case TOK_TYPENAME:
+        case TOK_CLASS:
+        case TOK_STRUCT:
+        case TOK_DECLTYPE:
+        case TOK___BUILTIN_VA_LIST:
+            return true;
+        case TOK_IDENT:
+        case TOK_SCOPE:
+            return rcc_parse_cxx_type_start();
+        default:
+            return false;
+    }
+}
+
+static bool cxx_member_template_argument_after_open_starts_type(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    bool result = match(TOK_LT) &&
+        cxx_explicit_template_argument_starts_type();
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    return result;
+}
+
+static bool cxx_member_template_argument_after_open_starts_value(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    bool result = false;
+    if (match(TOK_LT)) {
+        switch (peek()->type) {
+            case TOK_INT_LIT:
+            case TOK_CHAR_LIT:
+            case TOK_TRUE:
+            case TOK_FALSE:
+                result = true;
+                break;
+            case TOK_PLUS:
+            case TOK_MINUS:
+                result = peek()->next &&
+                    (peek()->next->type == TOK_INT_LIT ||
+                     peek()->next->type == TOK_CHAR_LIT);
+                break;
+            case TOK_IDENT:
+                if (active_template && peek()->value.str_val) {
+                    for (int index = 0;
+                         index < active_template->param_count; ++index) {
+                        TemplateParam* parameter =
+                            &active_template->params[index];
+                        if (parameter->kind == TPARAM_NONTYPE &&
+                            parameter->name &&
+                            strcmp(parameter->name,
+                                   peek()->value.str_val) == 0) {
+                            result = true;
+                            break;
+                        }
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    return result;
+}
+
+bool rcc_parse_cxx_member_template_arguments(Expr* member) {
+    Type* owner_type = cxx_member_template_object_type(member);
+    CxxClass* cls = owner_type ? owner_type->cxx_class : NULL;
+    CxxTemplate* member_template = cxx_find_member_function_template(
+        cls, member ? member->member_name : NULL);
+    CxxParsedTemplateArgument parsed[32] = { 0 };
+    int argument_count = 0;
+    if (!member || !check(TOK_LT) ||
+        !cxx_member_template_call_angle_follows() ||
+        (!member_template &&
+         !cxx_member_template_argument_after_open_starts_type() &&
+         !cxx_member_template_argument_after_open_starts_value())) {
+        return false;
+    }
+
+    member->member_has_template_arguments = true;
+    expect(TOK_LT, "<");
+    if (!check(TOK_GT) && !check(TOK_RSHIFT)) {
+        do {
+            CxxParsedTemplateArgument* argument;
+            if (argument_count >=
+                (int)(sizeof(parsed) / sizeof(parsed[0]))) {
+                rcc_error(peek()->loc,
+                          "member template argument limit exceeded");
+                while (!check(TOK_GT) && !check(TOK_RSHIFT) && !at_end()) {
+                    advance();
+                }
+                break;
+            }
+            argument = &parsed[argument_count++];
+            memset(argument, 0, sizeof(*argument));
+            if (cxx_explicit_template_argument_starts_type()) {
+                argument->is_type = true;
+                argument->type = parse_cxx_type_spec();
+            } else {
+                rcc_parser_set_cxx_template_default_mode(true);
+                argument->value_expression = parse_assignment_expression();
+                rcc_parser_set_cxx_template_default_mode(false);
+                argument->value_valid = argument->value_expression &&
+                    expr_eval_integer_constant(argument->value_expression,
+                                               &argument->value);
+            }
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_GT, ">");
+    member->member_template_argument_count = argument_count;
+    if (argument_count > 0) {
+        member->member_template_arguments = ast_arena_alloc(
+            sizeof(member->member_template_arguments[0]) *
+            (size_t)argument_count);
+        memcpy(member->member_template_arguments, parsed,
+               sizeof(parsed[0]) * (size_t)argument_count);
+    }
+    return true;
+}
 
 typedef struct CxxFunctionTemplateMatch {
     CxxTemplate* tmpl;
@@ -16773,6 +16995,7 @@ static bool prepare_cxx_function_template_match(
                 return false;
             }
             if (parameter->is_pack) {
+                int64_t explicit_value = explicit_arguments[index].value;
                 if (match->pack_count >= 32) return false;
                 if (parameter->kind == TPARAM_TYPE) {
                     if (!explicit_arguments[index].is_type ||
@@ -16780,10 +17003,20 @@ static bool prepare_cxx_function_template_match(
                     match->pack_arguments[match->pack_count] =
                         explicit_arguments[index].type;
                 } else {
+                    if (!explicit_arguments[index].value_valid &&
+                        (!explicit_arguments[index].value_expression ||
+                         !expr_eval_integer_constant(
+                             explicit_arguments[index].value_expression,
+                             &explicit_value))) {
+                        return false;
+                    }
                     if (explicit_arguments[index].is_type ||
-                        !explicit_arguments[index].value_valid) return false;
+                        (!explicit_arguments[index].value_valid &&
+                         !explicit_arguments[index].value_expression)) {
+                        return false;
+                    }
                     match->pack_values[match->pack_count] =
-                        explicit_arguments[index].value;
+                        explicit_value;
                     match->pack_value_present[match->pack_count] = true;
                 }
                 ++match->pack_count;
@@ -16792,9 +17025,16 @@ static bool prepare_cxx_function_template_match(
                     explicit_arguments[index].type;
                 if (!match->arguments[parameter_index]) return false;
             } else {
-                if (!explicit_arguments[index].value_valid) return false;
+                int64_t explicit_value = explicit_arguments[index].value;
+                if (!explicit_arguments[index].value_valid &&
+                    (!explicit_arguments[index].value_expression ||
+                     !expr_eval_integer_constant(
+                         explicit_arguments[index].value_expression,
+                         &explicit_value))) {
+                    return false;
+                }
                 match->arguments[parameter_index] = parameter->type;
-                match->values[parameter_index] = explicit_arguments[index].value;
+                match->values[parameter_index] = explicit_value;
                 match->value_present[parameter_index] = true;
             }
         }
@@ -16847,21 +17087,43 @@ static bool prepare_cxx_function_template_match(
             }
             if (argument) {
                 Type* actual = cxx_parser_expression_type(argument->expr);
-                bool deduced = actual && deduce_function_template_type(
-                    tmpl, parameter->decl->type,
-                    cxx_parser_template_deduction_argument(
-                        parameter->decl->type, actual),
-                    match->arguments, match->values,
-                    match->value_present, &specificity);
-                if (!actual ||
-                    (!deduced &&
-                     !cxx_function_template_find_dependent_nested_type(
-                         parameter->decl->type, 0u, false) &&
-                     (cxx_function_template_type_contains_parameter(
-                          tmpl, parameter->decl->type) ||
-                      cxx_parser_function_template_overload_conversion_rank(
-                          argument->expr, parameter->decl->type,
-                          NULL) < 0))) {
+                bool has_dependent_nested_type =
+                    cxx_function_template_find_dependent_nested_type(
+                        parameter->decl->type, 0u, false);
+                if (!actual) return false;
+                if (has_dependent_nested_type) {
+                    (void)deduce_function_template_type(
+                        tmpl, parameter->decl->type,
+                        cxx_parser_template_deduction_argument(
+                            parameter->decl->type, actual),
+                        match->arguments, match->values,
+                        match->value_present, &specificity);
+                    continue;
+                }
+                Type* parameter_type = substitute_template_type(
+                    tmpl, parameter->decl->type, match->arguments,
+                    tmpl->param_count, match->values,
+                    match->value_present);
+                bool has_undeduced_parameter =
+                    cxx_function_template_type_contains_parameter(
+                        tmpl, parameter_type);
+                if (has_undeduced_parameter) {
+                    bool deduced = deduce_function_template_type(
+                        tmpl, parameter->decl->type,
+                        cxx_parser_template_deduction_argument(
+                            parameter->decl->type, actual),
+                        match->arguments, match->values,
+                        match->value_present, &specificity);
+                    if (!deduced &&
+                        !cxx_function_template_find_dependent_nested_type(
+                            parameter->decl->type, 0u, false) &&
+                        cxx_parser_function_template_overload_conversion_rank(
+                            argument->expr, parameter_type, NULL) < 0) {
+                        return false;
+                    }
+                } else if (
+                    cxx_parser_function_template_overload_conversion_rank(
+                        argument->expr, parameter_type, NULL) < 0) {
                     return false;
                 }
             }
@@ -17076,6 +17338,8 @@ static TypeMethod* cxx_materialize_member_function_template(
 
 int rcc_parser_cxx_materialize_member_function_templates(
     Type* aggregate, const char* name, ExprList* arguments,
+    const CxxParsedTemplateArgument* explicit_arguments,
+    int explicit_argument_count, bool explicit_arguments_specified,
     TypeMethod** candidates, int candidate_capacity,
     bool* constraint_unsupported) {
     CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
@@ -17110,7 +17374,9 @@ int rcc_parser_cxx_materialize_member_function_templates(
         }
         active_namespace = tmpl->ns ? tmpl->ns : cls->ns;
         if (prepare_cxx_function_template_match(
-                tmpl, arguments, NULL, 0, &match,
+                tmpl, arguments,
+                explicit_arguments_specified ? explicit_arguments : NULL,
+                explicit_argument_count, &match,
                 &constraint_invalid, &constraint_unsupported)) {
             source_methods[match_count] = method;
             matches[match_count++] = match;

@@ -33,6 +33,7 @@ extern Type* rcc_parse_cxx_type_name(void) RCC_OPTIONAL_CXX;
 extern Type* rcc_parser_cxx_find_class_type(const char*) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_functional_cast(void) RCC_OPTIONAL_CXX;
 extern bool rcc_parse_cxx_type_start(void) RCC_OPTIONAL_CXX;
+extern bool rcc_parse_cxx_member_template_arguments(Expr*) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_template_call(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_concept_expression(void) RCC_OPTIONAL_CXX;
 extern Expr* rcc_parse_cxx_dependent_member(void) RCC_OPTIONAL_CXX;
@@ -1832,12 +1833,20 @@ static Expr* parse_postfix_tail(Expr* e) {
             Token* name = expect(TOK_IDENT, "member name");
             if (name) {
                 e = expr_member(e, name->value.str_val, loc);
+                if (parser_cxx_mode &&
+                    rcc_parse_cxx_member_template_arguments) {
+                    (void)rcc_parse_cxx_member_template_arguments(e);
+                }
             }
         } else if (match(TOK_ARROW)) {
             Token* name = expect(TOK_IDENT, "member name");
             if (name) {
                 Expr* m = expr_member(e, name->value.str_val, loc);
                 m->kind = EXPR_PTR_MEMBER;
+                if (parser_cxx_mode &&
+                    rcc_parse_cxx_member_template_arguments) {
+                    (void)rcc_parse_cxx_member_template_arguments(m);
+                }
                 e = m;
             }
         } else if (match(TOK_INC)) {
