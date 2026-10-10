@@ -1832,6 +1832,7 @@ static CxxTemplate* find_alias_template(const char* qualified_name);
 static CxxTemplate* find_template(const char* qualified_name, int kind);
 static CxxTemplate* find_concept(const char* qualified_name);
 static bool cxx_qualified_class_alias_template_starts(void);
+static Type* cxx_lambda_function_type(Type* return_type, DeclList* params);
 static bool consume_cxx_class_alias_template_owner(
     const char** owner_name_out);
 static Type* parse_template_template_default(SourceLoc loc);
@@ -1984,26 +1985,47 @@ static CxxFriendAccess* cxx_merge_friend_access(CxxFriendAccess* result,
 
 static CxxFriendAccess* cxx_find_friend_function_access(
     const char* name, Type* return_type, DeclList* parameters,
-    CxxFriendAccess* existing) {
+    CxxFriendAccess* existing, bool is_consteval,
+    Expr* noexcept_expression) {
     CxxNamespace* ns = active_namespace
         ? active_namespace : g_global_namespace;
+    CxxTemplate* current_template = active_template &&
+            active_template->kind == TMPL_FUNCTION
+        ? active_template : NULL;
+    Type* function_type = NULL;
     if (!ns || !name) return existing;
-    for (DeclList* declaration = ns->decls; declaration;
-         declaration = declaration->next) {
-        Decl* candidate = declaration->decl;
-        if (candidate && candidate->func_friend_access &&
-            cxx_friend_function_signature_matches(
-                ns, candidate, name, return_type, parameters)) {
-            existing = cxx_merge_friend_access(
-                existing, candidate->func_friend_access);
+    if (!current_template) {
+        for (DeclList* declaration = ns->decls; declaration;
+             declaration = declaration->next) {
+            Decl* candidate = declaration->decl;
+            if (candidate && candidate->func_friend_access &&
+                cxx_friend_function_signature_matches(
+                    ns, candidate, name, return_type, parameters)) {
+                existing = cxx_merge_friend_access(
+                    existing, candidate->func_friend_access);
+            }
+        }
+    } else {
+        function_type = cxx_lambda_function_type(return_type, parameters);
+        for (DeclList* parameter = parameters; parameter;
+             parameter = parameter->next) {
+            if (parameter->decl && parameter->decl->param_is_pack) {
+                function_type->variadic = true;
+                break;
+            }
         }
     }
     for (int index = 0; index < ns->template_count; ++index) {
         CxxTemplate* candidate = ns->templates[index];
         if (candidate && candidate->kind == TMPL_FUNCTION &&
             candidate->friend_access && candidate->func_def &&
-            cxx_friend_function_signature_matches(
-                ns, candidate->func_def, name, return_type, parameters)) {
+            (current_template
+                 ? cxx_function_template_friend_signature_matches(
+                       candidate, current_template, name, function_type,
+                       parameters, is_consteval, noexcept_expression)
+                 : cxx_friend_function_signature_matches(
+                       ns, candidate->func_def, name, return_type,
+                       parameters))) {
             existing = cxx_merge_friend_access(existing,
                                                candidate->friend_access);
         }
@@ -2116,19 +2138,26 @@ static bool cxx_friend_signature_use_is_allowed(
 
 static void cxx_validate_friend_function_signature_access(
     void* saved_context, const char* name, Type* return_type,
-    DeclList* parameters, Type* function_type, SourceLoc loc) {
+    DeclList* parameters, Type* function_type, SourceLoc loc,
+    bool is_consteval, Expr* noexcept_expression) {
     CxxFriendSignatureContext* context = saved_context;
     CxxNamespace* ns = active_namespace
         ? active_namespace : g_global_namespace;
     CxxFriendAccess* matching = NULL;
     if (!context) return;
     if (active_friend_signature_alias_uses) {
-        if (function_type) {
+        if (function_type && active_template &&
+            active_template->kind == TMPL_FUNCTION) {
+            matching = cxx_find_friend_function_access(
+                name, return_type, parameters, matching, is_consteval,
+                noexcept_expression);
+        } else if (function_type) {
             matching = cxx_find_friend_function_type_access(
                 ns, name, function_type, matching);
         } else if (name && return_type) {
             matching = cxx_find_friend_function_access(
-                name, return_type, parameters, matching);
+                name, return_type, parameters, matching, is_consteval,
+                noexcept_expression);
         }
         for (CxxFriendSignatureAliasUse* use =
                  active_friend_signature_alias_uses;
@@ -2156,9 +2185,11 @@ static void cxx_restore_friend_function_signature_access(
 
 static void cxx_end_friend_function_signature_access(
     void* saved_context, const char* name, Type* return_type,
-    DeclList* parameters, Type* function_type, SourceLoc loc) {
+    DeclList* parameters, Type* function_type, SourceLoc loc,
+    bool is_consteval, Expr* noexcept_expression) {
     cxx_validate_friend_function_signature_access(
-        saved_context, name, return_type, parameters, function_type, loc);
+        saved_context, name, return_type, parameters, function_type, loc,
+        is_consteval, noexcept_expression);
     cxx_restore_friend_function_signature_access(saved_context);
 }
 
@@ -2175,7 +2206,7 @@ void rcc_parser_cxx_end_function_signature_access(
         saved_context, name, return_type, parameters,
         function_type && function_type->kind == TYPE_FUNC
             ? function_type : NULL,
-        loc);
+        loc, false, NULL);
 }
 
 void* rcc_parser_cxx_mark_function_signature_alias_uses(void) {
@@ -2199,7 +2230,7 @@ void rcc_parser_cxx_validate_function_signature_access(
         saved_context, name, return_type, parameters,
         function_type && function_type->kind == TYPE_FUNC
             ? function_type : NULL,
-        loc);
+        loc, false, NULL);
 }
 
 void rcc_parser_cxx_restore_function_signature_access(void* saved_context) {
@@ -8819,7 +8850,8 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         Token* name = expect(TOK_IDENT, "function name");
         if (!name) {
             cxx_end_friend_function_signature_access(
-                friend_signature_context, NULL, NULL, NULL, NULL, loc);
+                friend_signature_context, NULL, NULL, NULL, NULL, loc,
+                *is_consteval, noexcept_expr);
             return NULL;
         }
         function_name = name->value.str_val;
@@ -8855,7 +8887,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     }
     cxx_end_friend_function_signature_access(
         friend_signature_context, function_name, return_type, params, NULL,
-        loc);
+        loc, *is_consteval, noexcept_expr);
     /* Emit only the verified non-dependent header subset.  Incomplete class
      * and template bodies remain deferred until their object model exists. */
     if (!parse_body && is_inline && type_is_complete(return_type) &&
@@ -8865,7 +8897,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     if (parse_body && check(TOK_LBRACE)) {
         active_friend_access_context = cxx_find_friend_function_access(
             function_name, return_type, params,
-            active_friend_access_context);
+            active_friend_access_context, *is_consteval, noexcept_expr);
         if (active_template && active_template->kind == TMPL_FUNCTION) {
             active_friend_access_context = cxx_merge_friend_access(
                 active_friend_access_context, active_template->friend_access);

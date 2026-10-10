@@ -353,9 +353,14 @@
           the same declaration must diagnose the latter; `test-cxx-alias-
           templates` checks exact three-error counts and no invalid object on
           i686/AMD64, while the complete alias-template gate passes.
-    - [ ] Include template parameter/constraint identity when matching
-          alias-bearing friend function-template overloads with otherwise
-          identical function parameter types.
+    - [x] Match alias-bearing friend function templates with the existing
+          bounded template-head/constraint and `noexcept(expression)`
+          equivalence logic, including renamed parameters; do not grant access
+          to an otherwise same-type overload with a different constraint.
+          `test-cxx-alias-templates` covers a matching constrained definition
+          with renamed parameters and a dependent noexcept expression, AMD64
+          execution, and a differing constraint rejected on both targets with
+          no `.ro` output.
 - [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target

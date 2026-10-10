@@ -2922,8 +2922,12 @@ static bool cxx_function_template_redeclaration_matches(
              0)) ||
         left->function_lowering != right->function_lowering ||
         left->is_noexcept != right->is_noexcept ||
-        left->func_def->func_noexcept_expr ||
-        right->func_def->func_noexcept_expr ||
+        (!!left->func_def->func_noexcept_expr !=
+         !!right->func_def->func_noexcept_expr) ||
+        (left->func_def->func_noexcept_expr &&
+         !cxx_template_redeclaration_expr_matches(
+             left->func_def->func_noexcept_expr, left, NULL,
+             right->func_def->func_noexcept_expr, right, NULL, 0)) ||
         left->is_constexpr != right->is_constexpr ||
         left->func_def->func_is_consteval !=
             right->func_def->func_is_consteval) {
@@ -2992,6 +2996,30 @@ static bool cxx_function_template_redeclaration_matches(
     }
     return !left_parameter && !right_parameter &&
            !left_declaration_parameter && !right_declaration_parameter;
+}
+
+bool cxx_function_template_friend_signature_matches(
+    const CxxTemplate* candidate, const CxxTemplate* current,
+    const char* function_name, Type* function_type,
+    DeclList* function_parameters, bool is_consteval,
+    Expr* noexcept_expression) {
+    Decl signature_declaration = {0};
+    CxxTemplate signature_template;
+    if (!candidate || !current || !function_name || !function_type ||
+        function_type->kind != TYPE_FUNC) {
+        return false;
+    }
+    signature_declaration.kind = DECL_FUNC;
+    signature_declaration.name = function_name;
+    signature_declaration.type = function_type;
+    signature_declaration.func_params = function_parameters;
+    signature_declaration.func_is_consteval = is_consteval;
+    signature_declaration.func_noexcept_expr = noexcept_expression;
+    signature_template = *current;
+    signature_template.name = function_name;
+    signature_template.func_def = &signature_declaration;
+    return cxx_function_template_redeclaration_matches(
+        candidate, &signature_template);
 }
 
 static void cxx_template_merge_friend_access(CxxTemplate* target,

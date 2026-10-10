@@ -47,3 +47,23 @@ struct FriendSignatureMultiAliasDerived
 
 FriendSignatureMultiAliasDerived::Hidden<int>
 friend_signature_multi_friend(), friend_signature_multi_non_friend();
+
+struct FriendSignatureConstrainedMismatchBase {
+private:
+    template<typename T>
+    using Hidden = T*;
+
+    template<typename T>
+    requires (sizeof(T) > 1)
+    friend Hidden<T> friend_signature_constrained_mismatch(T* value);
+};
+
+struct FriendSignatureConstrainedMismatchDerived
+    : public FriendSignatureConstrainedMismatchBase {};
+
+template<typename T>
+requires (sizeof(T) > 0)
+FriendSignatureConstrainedMismatchDerived::Hidden<T>
+friend_signature_constrained_mismatch(T* value) {
+    return value;
+}
