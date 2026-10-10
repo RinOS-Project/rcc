@@ -780,6 +780,10 @@ static size_t cxx_mangle_member_template_substitution_base(
     /* The enclosing class prefix and the completed member-name prefix are
      * already in the nested name before the function type is encoded. */
     size_t count = cls ? 2u : 0u;
+    /* A class-template specialization contributes its template-name prefix
+     * to the ABI substitution table in addition to the class and member
+     * prefixes. */
+    if (cls && cls->templ) ++count;
     for (CxxNamespace* current = ns; current && current->name;
          current = current->parent) {
         ++count;

@@ -593,6 +593,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-static-locals \
 	test-cxx-function-templates \
 	test-cxx-member-function-templates \
+	test-cxx-class-template-member-function-templates \
 	test-cxx-template-local-classes \
 	test-cxx-abbreviated-function-template \
 	test-cxx-abbreviated-function-template-invalid \
@@ -5099,6 +5100,51 @@ test-cxx-member-function-templates-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-member-function-templates/gcc-host \
 		tests/cxx_member_function_templates.cpp
 	$(TEST_OUT)/cxx-member-function-templates/gcc-host
+
+test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-member-function-templates)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-class-template-member-function-templates,cxx_class_template_member_function_templates.cpp)
+	$(GREP) -F -q "_ZNK3BoxIiE3addIlEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE4echoIlEET_S2_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIlE3addIiEElT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIlE12add_constantILi2EEElv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE15constrained_addIlEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIlE15constrained_addIiEElT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZN3BoxIiE8identityIlEET_S2_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	g++ -std=c++20 -Wall -Wextra -Werror -c \
+		-o $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
+		tests/cxx_class_template_member_function_templates.cpp
+	nm -g $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
+		> $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE3addIlEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE4echoIlEET_S2_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIlE3addIiEElT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIlE12add_constantILi2EEElv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE15constrained_addIlEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIlE15constrained_addIiEElT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZN3BoxIiE8identityIlEET_S2_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	g++ -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-host \
+		tests/cxx_class_template_member_function_templates.cpp
+	$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-conversion-operator/x86.ro \
@@ -5497,6 +5543,59 @@ test-cxx-member-function-templates: $(RCXX_TARGET)
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-member-function-templates/x64.ro \
 		tests/cxx_member_function_templates.cpp
+
+test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-member-function-templates)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-member-function-templates,cxx_class_template_member_function_templates.cpp)
+	$(GREP) -F -q "_ZNK3BoxIiE3addIlEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE4echoIlEET_S2_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIlE3addIiEElT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIlE12add_constantILi2EEElv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE15constrained_addIlEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIlE15constrained_addIiEElT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZN3BoxIiE8identityIlEET_S2_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	g++ -std=c++20 -Wall -Wextra -Werror -c \
+		-o $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
+		tests/cxx_class_template_member_function_templates.cpp
+	nm -g $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
+		> $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE3addIlEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE4echoIlEET_S2_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIlE3addIiEElT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIlE12add_constantILi2EEElv" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE15constrained_addIlEEiT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIlE15constrained_addIiEElT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZN3BoxIiE8identityIlEET_S2_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	g++ -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-host \
+		tests/cxx_class_template_member_function_templates.cpp
+	$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-host
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-class-template-member-function-templates/x86.ro \
+		tests/cxx_class_template_member_function_templates.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-class-template-member-function-templates/x64.ro \
+		tests/cxx_class_template_member_function_templates.cpp
 test-cxx-conversion-operator: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conversion-operator,cxx_conversion_operator.cpp)
@@ -5870,6 +5969,7 @@ test-cxx-aggregate-paren-init: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-aggregate-paren-init/base-cxx17-x64-host
 else
 test-cxx-member-function-templates: test-cxx-member-function-templates-posix
+test-cxx-class-template-member-function-templates: test-cxx-class-template-member-function-templates-posix
 test-cxx-conversion-operator: test-cxx-conversion-operator-posix
 test-cxx-nonmember-operator: test-cxx-nonmember-operator-posix
 test-cxx-spaceship: test-cxx-spaceship-posix
@@ -9428,6 +9528,8 @@ endif
 .PHONY: test-cxx-class-template-dependent-base-lookup-invalid
 .PHONY: test-cxx-member-function-templates \
 	test-cxx-member-function-templates-posix
+.PHONY: test-cxx-class-template-member-function-templates \
+	test-cxx-class-template-member-function-templates-posix
 .PHONY: test-cxx-class-template-specialization-ambiguous
 .PHONY: test-cxx-class-template-specialization-partial-order-invalid
 .PHONY: test-cxx-class-template-specialization-constraint-invalid

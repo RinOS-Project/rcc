@@ -7575,7 +7575,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                 continue;
             }
 
-            if (!active_template && cxx_class_function_template_starts()) {
+            if (cxx_class_function_template_starts()) {
                 SourceLoc template_loc = peek()->loc;
                 CxxTemplate* member_template;
                 advance(); /* template */
@@ -9316,84 +9316,15 @@ static CxxTemplate* cxx_template_snapshot_parameter_scope(
     return snapshot;
 }
 
-static bool cxx_template_declaration_is_alias(void) {
-    Token* token = parser.cur;
-    int angle_depth = 0;
-    int parentheses = 0;
-    int brackets = 0;
-    bool has_requires_clause = false;
-    int requires_braces = 0;
-
-    if (!token || token->type != TOK_LT) return false;
-    for (; token && token->type != TOK_EOF; token = token->next) {
-        if (token->type == TOK_LPAREN) {
-            ++parentheses;
-        } else if (token->type == TOK_RPAREN && parentheses > 0) {
-            --parentheses;
-        } else if (token->type == TOK_LBRACKET) {
-            ++brackets;
-        } else if (token->type == TOK_RBRACKET && brackets > 0) {
-            --brackets;
-        } else if (!parentheses && !brackets && token->type == TOK_LT) {
-            ++angle_depth;
-        } else if (!parentheses && !brackets && token->type == TOK_GT) {
-            if (--angle_depth == 0) {
-                token = token->next;
-                break;
-            }
-        } else if (!parentheses && !brackets &&
-                   token->type == TOK_RSHIFT) {
-            angle_depth -= 2;
-            if (angle_depth <= 0) {
-                token = token->next;
-                break;
-            }
-        }
-    }
-    for (; token && token->type != TOK_EOF; token = token->next) {
-        if (token->type == TOK_REQUIRES) {
-            has_requires_clause = true;
-        } else if (token->type == TOK_USING && !parentheses && !brackets &&
-                   requires_braces == 0) {
-            return true;
-        } else if (token->type == TOK_SEMICOLON && !parentheses &&
-                   !brackets && requires_braces == 0) {
-            return false;
-        } else if ((token->type == TOK_CLASS || token->type == TOK_STRUCT ||
-                    token->type == TOK_ENUM) && !parentheses && !brackets &&
-                   requires_braces == 0) {
-            return false;
-        } else if (token->type == TOK_LPAREN) {
-            ++parentheses;
-        } else if (token->type == TOK_RPAREN && parentheses > 0) {
-            --parentheses;
-        } else if (token->type == TOK_LBRACKET) {
-            ++brackets;
-        } else if (token->type == TOK_RBRACKET && brackets > 0) {
-            --brackets;
-        } else if (token->type == TOK_LBRACE && has_requires_clause) {
-            ++requires_braces;
-        } else if (token->type == TOK_RBRACE && requires_braces > 0) {
-            --requires_braces;
-        } else if (token->type == TOK_LBRACE && !has_requires_clause) {
-            return false;
-        }
-    }
-    return false;
-}
-
 CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     SourceLoc loc = previous()->loc;
     CxxTemplate* parameter_outer_template = active_template;
     int explicit_class_alignment = 0;
-    bool is_alias_template = active_class && parameter_outer_template &&
-        parameter_outer_template->kind == TMPL_CLASS &&
-        cxx_template_declaration_is_alias();
-
     expect(TOK_LT, "<");
 
     CxxTemplate* tmpl = cxx_template_new(loc);
-    if (is_alias_template) {
+    if (active_class && parameter_outer_template &&
+        parameter_outer_template->kind == TMPL_CLASS) {
         tmpl->enclosing_template = parameter_outer_template;
     }
     active_template = tmpl;
@@ -11371,6 +11302,67 @@ static DeclList* substitute_template_decl_parameters(
     return result;
 }
 
+static CxxTemplate* substitute_class_member_function_template(
+    CxxTemplate* class_template, CxxTemplate* member_template,
+    CxxMethod* method, Type** arguments, int argument_count,
+    const int64_t* value_args, const bool* value_present) {
+    CxxTemplate* copy;
+    if (!class_template || !member_template || !method || !method->decl) {
+        return NULL;
+    }
+    copy = ast_arena_alloc(sizeof(*copy));
+    *copy = *member_template;
+    copy->enclosing_template = NULL;
+    copy->func_def = method->decl;
+    copy->member_method = method;
+    copy->instances = NULL;
+    copy->instance_count = 0;
+    copy->pending_pack_args = NULL;
+    copy->pending_pack_values = NULL;
+    copy->pending_pack_value_present = NULL;
+    copy->pending_pack_count = -1;
+    copy->active_pack_parameters = NULL;
+    copy->active_class_instance = NULL;
+    if (member_template->param_count > 0) {
+        copy->params = ast_arena_alloc(
+            sizeof(*copy->params) * (size_t)member_template->param_count);
+        for (int index = 0; index < member_template->param_count; ++index) {
+            TemplateParam* destination = &copy->params[index];
+            TemplateParam* source = &member_template->params[index];
+            *destination = *source;
+            if (source->kind == TPARAM_NONTYPE) {
+                destination->type = substitute_template_type(
+                    class_template, source->type, arguments, argument_count,
+                    value_args, value_present);
+            }
+            if (source->has_default && source->kind == TPARAM_TYPE &&
+                source->default_type) {
+                destination->default_type = substitute_template_type(
+                    class_template, source->default_type, arguments,
+                    argument_count, value_args, value_present);
+            } else if (source->has_default &&
+                       source->kind == TPARAM_NONTYPE &&
+                       source->default_value) {
+                destination->default_value =
+                    cxx_template_clone_expr_with_values(
+                        class_template, source->default_value, arguments,
+                        argument_count, value_args, value_present);
+            }
+            destination->default_context = copy;
+        }
+    } else {
+        copy->params = NULL;
+    }
+    if (member_template->constraint) {
+        copy->constraint = cxx_template_clone_expr_with_values(
+            class_template, member_template->constraint, arguments,
+            argument_count, value_args, value_present);
+        copy->constraint_context = copy;
+    }
+    method->member_template = copy;
+    return copy;
+}
+
 static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
                                              CxxMethod* method,
                                              Type** arguments,
@@ -11422,6 +11414,9 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->is_const = method->is_const;
     copy->is_volatile = method->is_volatile;
     copy->ref_qualifier = method->ref_qualifier;
+    copy->decl->type->is_const = method->is_const;
+    copy->decl->type->is_volatile = method->is_volatile;
+    copy->decl->type->function_ref_qualifier = method->ref_qualifier;
     copy->is_constexpr = method->is_constexpr;
     copy->is_explicit = method->is_explicit;
     copy->is_noexcept = method->is_noexcept;
@@ -11445,6 +11440,11 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
         tmpl, method->decl->func_body, arguments, argument_count,
         value_args, value_present);
     tmpl->active_pack_parameters = saved_pack_parameters;
+    if (method->member_template) {
+        (void)substitute_class_member_function_template(
+            tmpl, method->member_template, copy, arguments, argument_count,
+            value_args, value_present);
+    }
     return copy;
 }
 
@@ -17086,7 +17086,7 @@ int rcc_parser_cxx_materialize_member_function_templates(
     CxxNamespace* saved_namespace = active_namespace;
     bool unsupported = false;
     if (constraint_unsupported) *constraint_unsupported = false;
-    if (!aggregate || !name || !cls || cls->templ ||
+    if (!aggregate || !name || !cls || aggregate->cxx_dependent ||
         (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
         return 0;
     }

@@ -317,8 +317,9 @@ struct CxxTemplate {
      * not have an object or function body; their specialization is resolved
      * before semantic analysis sees the enclosing declaration. */
     Type* alias_type;
-    /* Class-scope alias templates may refer to their enclosing class-template
-     * parameters. Their own parameters occupy the leading substitution slots. */
+    /* Templates declared in class scope may refer to their enclosing
+     * class-template parameters. Their own parameters occupy the leading
+     * substitution slots while the class pattern is being parsed. */
     CxxTemplate* enclosing_template;
 
     bool is_constexpr;

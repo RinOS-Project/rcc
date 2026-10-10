@@ -2584,13 +2584,23 @@ separately recorded WSL startup failure.
   object generation, generated AMD64 execution, exact symbol checks, and
   verified-backend output on both targets. The full native-Windows
   `test-cxx` aggregate also passes after this implementation.
-- [ ] Extend member-function-template support to templates inside class
-  templates, constructor templates, explicit member-template specializations,
-  inherited conversion templates, full C++20 constraint subsumption, and
-  remaining non-type/template-template/pack forms. Full Itanium ABI
-  substitution for more complex dependent signatures also remains. Conversion
-  target deduction and user-defined sequence ranking are specified in
-  [`temp.deduct.conv`](https://timsong-cpp.github.io/cppwp/std20/temp.deduct.conv)
+- [x] Instantiate named member-function templates within concrete
+  class-template specializations. Substitute enclosing class type parameters
+  through method declarations and bodies; preserve method cv/ref qualifiers,
+  staticness, default non-type arguments, and class-dependent `requires`
+  clauses. The focused Windows gate executes Box specializations for two class
+  argument types, checks eight GCC-Itanium symbols (including static and
+  defaulted non-type cases), emits/assembles i686 and AMD64 objects, executes
+  generated AMD64 code, and passes verified-backend output for both targets.
+  The full `test-cxx` rerun reached `test-cxx-language-core` but stopped when
+  E: ran out of space during `objcopy`; it is not counted as a full pass.
+- [ ] Add explicit template-argument syntax for member calls and extend member
+  function templates to constructors, explicit member-template
+  specializations, inherited conversion templates, full C++20 constraint
+  subsumption, and remaining non-type/template-template/pack forms. Full
+  Itanium ABI substitution for more complex dependent signatures also remains.
+  Conversion target deduction and user-defined sequence ranking are specified
+  in [`temp.deduct.conv`](https://timsong-cpp.github.io/cppwp/std20/temp.deduct.conv)
   and [`over.ics.rank`](https://timsong-cpp.github.io/cppwp/std20/over.ics.rank).
 
 ## RCC continuation (2026-10-11, SysV flexible-array ABI and native Clang tests)
