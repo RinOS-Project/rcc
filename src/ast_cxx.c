@@ -3085,6 +3085,20 @@ static bool cxx_template_redeclaration_expr_matches(
     }
 }
 
+bool cxx_template_constraint_mapping_matches(
+    const Expr* left, const CxxTemplate* left_template,
+    const Expr* right, const CxxTemplate* right_template) {
+    return cxx_template_redeclaration_expr_matches(
+        left, left_template, NULL, right, right_template, NULL, 0);
+}
+
+bool cxx_template_type_parameter_mapping_matches(
+    Type* left, const CxxTemplate* left_template,
+    Type* right, const CxxTemplate* right_template) {
+    return cxx_template_redeclaration_type_matches(
+        left, left_template, right, right_template, 0);
+}
+
 static bool cxx_function_template_redeclaration_matches(
     const CxxTemplate* left, const CxxTemplate* right) {
     Type* left_type;

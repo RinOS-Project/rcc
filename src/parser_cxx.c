@@ -14746,6 +14746,351 @@ typedef struct CxxFunctionTemplateMatch {
     Type* substitution_failure_type;
 } CxxFunctionTemplateMatch;
 
+typedef struct CxxConstraintAtom {
+    const Expr* origin;
+    const Expr* expression;
+    const CxxTemplate* parameter_context;
+} CxxConstraintAtom;
+
+typedef enum CxxConstraintNodeKind {
+    CXX_CONSTRAINT_ATOM,
+    CXX_CONSTRAINT_CONJUNCTION,
+    CXX_CONSTRAINT_DISJUNCTION
+} CxxConstraintNodeKind;
+
+typedef struct CxxConstraintNode {
+    CxxConstraintNodeKind kind;
+    CxxConstraintAtom atom;
+    struct CxxConstraintNode* left;
+    struct CxxConstraintNode* right;
+} CxxConstraintNode;
+
+typedef struct CxxConstraintClause {
+    CxxConstraintAtom* atoms;
+    size_t atom_count;
+} CxxConstraintClause;
+
+typedef struct CxxConstraintForm {
+    CxxConstraintClause* clauses;
+    size_t clause_count;
+} CxxConstraintForm;
+
+typedef struct CxxConstraintNormalForms {
+    CxxConstraintForm dnf;
+    CxxConstraintForm cnf;
+} CxxConstraintNormalForms;
+
+typedef struct CxxConstraintExpansionFrame {
+    CxxTemplate* concept_template;
+    const struct CxxConstraintExpansionFrame* parent;
+} CxxConstraintExpansionFrame;
+
+static int cxx_template_conversion_vector_relation(
+    const CxxFunctionTemplateMatch* left,
+    const CxxFunctionTemplateMatch* right);
+
+static CxxConstraintNode* cxx_constraint_expand(
+    const Expr* source, Expr* mapped, CxxTemplate* parameter_context,
+    const CxxConstraintExpansionFrame* concept_stack, unsigned depth) {
+    CxxConstraintNode* node;
+    if (!source || !mapped || depth > 256u) return NULL;
+
+    if (source->kind == EXPR_CALL && source->cxx_concept_template) {
+        CxxTemplate* concept = source->cxx_concept_template;
+        Type* arguments[32] = { NULL };
+        int64_t values[32] = { 0 };
+        bool value_present[32] = { false };
+        ExprList* argument = mapped->call_args;
+        Expr* instantiated;
+        CxxConstraintExpansionFrame frame;
+        if (mapped->kind != EXPR_CALL ||
+            mapped->cxx_concept_template != concept ||
+            concept->param_count < 0 || concept->param_count > 32 ||
+            !concept->constraint) {
+            return NULL;
+        }
+        for (const CxxConstraintExpansionFrame* active = concept_stack;
+             active; active = active->parent) {
+            if (active->concept_template == concept) return NULL;
+        }
+        for (int index = 0; index < concept->param_count; ++index) {
+            TemplateParam* parameter = &concept->params[index];
+            if (!argument || !argument->expr) return NULL;
+            if (parameter->kind == TPARAM_TYPE) {
+                arguments[index] = argument->expr->type;
+                if (!arguments[index]) return NULL;
+            } else if (parameter->kind == TPARAM_NONTYPE) {
+                if (!eval_template_integer_expression(
+                        argument->expr, parameter_context, NULL, NULL,
+                        &values[index])) {
+                    return NULL;
+                }
+                value_present[index] = true;
+            } else {
+                return NULL;
+            }
+            argument = argument->next;
+        }
+        if (argument) return NULL;
+        instantiated = cxx_template_clone_expr_with_values(
+            concept, concept->constraint, arguments, concept->param_count,
+            values, value_present);
+        if (!instantiated) return NULL;
+        frame.concept_template = concept;
+        frame.parent = concept_stack;
+        return cxx_constraint_expand(concept->constraint, instantiated,
+                                     parameter_context, &frame, depth + 1u);
+    }
+
+    if ((source->kind == EXPR_AND || source->kind == EXPR_OR) &&
+        mapped->kind == source->kind) {
+        node = ast_arena_alloc(sizeof(*node));
+        memset(node, 0, sizeof(*node));
+        node->kind = source->kind == EXPR_AND
+            ? CXX_CONSTRAINT_CONJUNCTION : CXX_CONSTRAINT_DISJUNCTION;
+        node->left = cxx_constraint_expand(
+            source->binary_lhs, mapped->binary_lhs, parameter_context,
+            concept_stack, depth + 1u);
+        node->right = cxx_constraint_expand(
+            source->binary_rhs, mapped->binary_rhs, parameter_context,
+            concept_stack, depth + 1u);
+        return node->left && node->right ? node : NULL;
+    }
+
+    node = ast_arena_alloc(sizeof(*node));
+    memset(node, 0, sizeof(*node));
+    node->kind = CXX_CONSTRAINT_ATOM;
+    node->atom.origin = source;
+    node->atom.expression = mapped;
+    node->atom.parameter_context = parameter_context;
+    return node;
+}
+
+static CxxConstraintForm cxx_constraint_form_single(
+    const CxxConstraintAtom* atom) {
+    CxxConstraintForm form;
+    form.clauses = ast_arena_alloc(sizeof(*form.clauses));
+    form.clauses[0].atoms = ast_arena_alloc(sizeof(*form.clauses[0].atoms));
+    form.clauses[0].atoms[0] = *atom;
+    form.clauses[0].atom_count = 1u;
+    form.clause_count = 1u;
+    return form;
+}
+
+static CxxConstraintForm cxx_constraint_form_combine(
+    CxxConstraintForm left, CxxConstraintForm right, bool cross_product) {
+    CxxConstraintForm result;
+    if (!cross_product) {
+        if (left.clause_count > SIZE_MAX - right.clause_count) {
+            rcc_fatal("C++ constraint normal form is too large");
+        }
+        result.clause_count = left.clause_count + right.clause_count;
+        if (result.clause_count > SIZE_MAX / sizeof(*result.clauses)) {
+            rcc_fatal("C++ constraint normal form is too large");
+        }
+        result.clauses = ast_arena_alloc(
+            result.clause_count * sizeof(*result.clauses));
+        memcpy(result.clauses, left.clauses,
+               left.clause_count * sizeof(*result.clauses));
+        memcpy(result.clauses + left.clause_count, right.clauses,
+               right.clause_count * sizeof(*result.clauses));
+        return result;
+    }
+    if (left.clause_count != 0u &&
+        right.clause_count > SIZE_MAX / left.clause_count) {
+        rcc_fatal("C++ constraint normal form is too large");
+    }
+    result.clause_count = left.clause_count * right.clause_count;
+    if (result.clause_count > SIZE_MAX / sizeof(*result.clauses)) {
+        rcc_fatal("C++ constraint normal form is too large");
+    }
+    result.clauses = ast_arena_alloc(
+        result.clause_count * sizeof(*result.clauses));
+    size_t output = 0u;
+    for (size_t left_index = 0; left_index < left.clause_count;
+         ++left_index) {
+        for (size_t right_index = 0; right_index < right.clause_count;
+             ++right_index) {
+            const CxxConstraintClause* left_clause =
+                &left.clauses[left_index];
+            const CxxConstraintClause* right_clause =
+                &right.clauses[right_index];
+            CxxConstraintClause* clause = &result.clauses[output++];
+            if (left_clause->atom_count > SIZE_MAX -
+                                               right_clause->atom_count) {
+                rcc_fatal("C++ constraint clause is too large");
+            }
+            clause->atom_count = left_clause->atom_count +
+                                 right_clause->atom_count;
+            if (clause->atom_count > SIZE_MAX / sizeof(*clause->atoms)) {
+                rcc_fatal("C++ constraint clause is too large");
+            }
+            clause->atoms = ast_arena_alloc(
+                clause->atom_count * sizeof(*clause->atoms));
+            memcpy(clause->atoms, left_clause->atoms,
+                   left_clause->atom_count * sizeof(*clause->atoms));
+            memcpy(clause->atoms + left_clause->atom_count,
+                   right_clause->atoms,
+                   right_clause->atom_count * sizeof(*clause->atoms));
+        }
+    }
+    return result;
+}
+
+static bool cxx_constraint_build_normal_forms(
+    const CxxConstraintNode* node, CxxConstraintNormalForms* forms) {
+    CxxConstraintNormalForms left;
+    CxxConstraintNormalForms right;
+    bool conjunction;
+    if (!node || !forms) return false;
+    if (node->kind == CXX_CONSTRAINT_ATOM) {
+        forms->dnf = cxx_constraint_form_single(&node->atom);
+        forms->cnf = forms->dnf;
+        return true;
+    }
+    if (!cxx_constraint_build_normal_forms(node->left, &left) ||
+        !cxx_constraint_build_normal_forms(node->right, &right)) {
+        return false;
+    }
+    conjunction = node->kind == CXX_CONSTRAINT_CONJUNCTION;
+    forms->dnf = cxx_constraint_form_combine(
+        left.dnf, right.dnf, conjunction);
+    forms->cnf = cxx_constraint_form_combine(
+        left.cnf, right.cnf, !conjunction);
+    return true;
+}
+
+static bool cxx_constraint_atoms_match(const CxxConstraintAtom* left,
+                                       const CxxConstraintAtom* right) {
+    return left && right && left->origin == right->origin &&
+        cxx_template_constraint_mapping_matches(
+            left->expression, left->parameter_context,
+            right->expression, right->parameter_context);
+}
+
+static bool cxx_constraint_clause_subsumes(
+    const CxxConstraintClause* disjunctive,
+    const CxxConstraintClause* conjunctive) {
+    for (size_t available = 0;
+         available < disjunctive->atom_count; ++available) {
+        for (size_t required = 0; required < conjunctive->atom_count;
+             ++required) {
+            if (cxx_constraint_atoms_match(
+                    &disjunctive->atoms[available],
+                    &conjunctive->atoms[required])) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool cxx_constraint_form_subsumes(
+    const CxxConstraintForm* dnf, const CxxConstraintForm* cnf) {
+    for (size_t disjunct = 0; disjunct < dnf->clause_count; ++disjunct) {
+        for (size_t conjunct = 0; conjunct < cnf->clause_count; ++conjunct) {
+            if (!cxx_constraint_clause_subsumes(
+                    &dnf->clauses[disjunct], &cnf->clauses[conjunct])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool cxx_constraint_function_parameters_match(
+    const CxxTemplate* left, const CxxTemplate* right) {
+    Type* left_function;
+    Type* right_function;
+    TypeParam* left_parameter;
+    TypeParam* right_parameter;
+    if (!left || !right || !left->func_def || !right->func_def) return false;
+    left_function = left->func_def->type;
+    right_function = right->func_def->type;
+    if (!left_function || !right_function ||
+        left_function->kind != TYPE_FUNC ||
+        right_function->kind != TYPE_FUNC ||
+        left_function->variadic != right_function->variadic ||
+        left_function->has_prototype != right_function->has_prototype) {
+        return false;
+    }
+    left_parameter = left_function->params;
+    right_parameter = right_function->params;
+    while (left_parameter && right_parameter) {
+        if (!cxx_template_type_parameter_mapping_matches(
+                left_parameter->type, left,
+                right_parameter->type, right)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return !left_parameter && !right_parameter;
+}
+
+/* Positive means left is more constrained; negative means right is.  A false
+ * `comparable` leaves candidates to the existing ordering rules when a
+ * concept's dependent non-type argument cannot yet be mapped symbolically. */
+static int cxx_function_template_constraint_relation(
+    CxxTemplate* left, CxxTemplate* right, bool* comparable) {
+    CxxTemplate* left_context;
+    CxxTemplate* right_context;
+    CxxConstraintNode* left_node;
+    CxxConstraintNode* right_node;
+    CxxConstraintNormalForms left_forms;
+    CxxConstraintNormalForms right_forms;
+    bool left_subsumes_right;
+    bool right_subsumes_left;
+    if (comparable) *comparable = true;
+    if (!left || !right) {
+        if (comparable) *comparable = false;
+        return 0;
+    }
+    if (!cxx_constraint_function_parameters_match(left, right)) {
+        if (comparable) *comparable = false;
+        return 0;
+    }
+    if (!left->constraint || !right->constraint) {
+        return left->constraint ? 1 : (right->constraint ? -1 : 0);
+    }
+    left_context = left->constraint_context ? left->constraint_context : left;
+    right_context = right->constraint_context ? right->constraint_context : right;
+    left_node = cxx_constraint_expand(left->constraint, left->constraint,
+                                      left_context, NULL, 0u);
+    right_node = cxx_constraint_expand(right->constraint, right->constraint,
+                                       right_context, NULL, 0u);
+    if (!left_node || !right_node ||
+        !cxx_constraint_build_normal_forms(left_node, &left_forms) ||
+        !cxx_constraint_build_normal_forms(right_node, &right_forms)) {
+        if (comparable) *comparable = false;
+        return 0;
+    }
+    left_subsumes_right = cxx_constraint_form_subsumes(
+        &left_forms.dnf, &right_forms.cnf);
+    right_subsumes_left = cxx_constraint_form_subsumes(
+        &right_forms.dnf, &left_forms.cnf);
+    if (left_subsumes_right == right_subsumes_left) return 0;
+    return left_subsumes_right ? 1 : -1;
+}
+
+static int cxx_function_template_match_relation(
+    const CxxFunctionTemplateMatch* left,
+    const CxxFunctionTemplateMatch* right) {
+    int conversion_relation;
+    int constraint_relation;
+    bool constraints_comparable;
+    if (!left || !right) return 0;
+    if (left->specificity != right->specificity) {
+        return left->specificity > right->specificity ? 1 : -1;
+    }
+    conversion_relation =
+        cxx_template_conversion_vector_relation(left, right);
+    if (conversion_relation != 0) return conversion_relation;
+    constraint_relation = cxx_function_template_constraint_relation(
+        left->tmpl, right->tmpl, &constraints_comparable);
+    return constraints_comparable ? constraint_relation : 0;
+}
+
 static int cxx_parser_type_pack_index(CxxTemplate* tmpl, Type* pattern) {
     if (!tmpl || !pattern || pattern->kind != TYPE_STRUCT ||
         !pattern->tag) return -1;
@@ -15726,23 +16071,25 @@ Expr* rcc_parse_cxx_template_call(void) {
             }
             return expr_int(0, loc);
         }
-        int selected = 0;
-        bool ambiguous = false;
-        for (int index = 1; index < match_count; ++index) {
-            CxxFunctionTemplateMatch* best = &matches[selected];
-            CxxFunctionTemplateMatch* candidate = &matches[index];
-            int conversion_relation =
-                cxx_template_conversion_vector_relation(candidate, best);
-            if (candidate->specificity > best->specificity ||
-                (candidate->specificity == best->specificity &&
-                 conversion_relation > 0)) {
-                if (!ambiguous) selected = index;
-            } else if (candidate->specificity == best->specificity &&
-                       conversion_relation == 0) {
-                ambiguous = true;
+        int selected = -1;
+        int best_count = 0;
+        for (int candidate_index = 0; candidate_index < match_count;
+             ++candidate_index) {
+            bool dominated = false;
+            for (int other_index = 0; other_index < match_count; ++other_index) {
+                if (candidate_index != other_index &&
+                    cxx_function_template_match_relation(
+                        &matches[other_index], &matches[candidate_index]) > 0) {
+                    dominated = true;
+                    break;
+                }
+            }
+            if (!dominated) {
+                selected = candidate_index;
+                ++best_count;
             }
         }
-        if (ambiguous) {
+        if (best_count != 1) {
             rcc_error(loc, "ambiguous function template overload for '%s'",
                       name);
             return expr_int(0, loc);

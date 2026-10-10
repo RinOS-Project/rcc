@@ -495,6 +495,15 @@ Expr* cxx_template_clone_expr(CxxTemplate* tmpl, Expr* expression,
 Expr* cxx_template_clone_expr_with_values(
     CxxTemplate* tmpl, Expr* expression, Type** args, int arg_count,
     const int64_t* value_args, const bool* value_present);
+/* Compare two already-substituted expressions as template-parameter mappings.
+ * Constraint ordering uses this only after confirming that both atomic
+ * constraints originate from the same source expression. */
+bool cxx_template_constraint_mapping_matches(
+    const Expr* left, const CxxTemplate* left_template,
+    const Expr* right, const CxxTemplate* right_template);
+bool cxx_template_type_parameter_mapping_matches(
+    Type* left, const CxxTemplate* left_template,
+    Type* right, const CxxTemplate* right_template);
 Expr* cxx_template_clone_pack_expansion(
     CxxTemplate* tmpl, Expr* pattern, const char* pack_name, int pack_index,
     Type** args, int arg_count, const int64_t* value_args,
