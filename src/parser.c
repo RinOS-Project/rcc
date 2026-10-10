@@ -66,6 +66,11 @@ extern void* rcc_parser_cxx_begin_function_friend_access(
     const char* name, Type* function_type) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_end_function_friend_access(void* saved_context)
     RCC_OPTIONAL_CXX;
+extern void* rcc_parser_cxx_begin_function_signature_access(bool file_scope)
+    RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_end_function_signature_access(
+    void* saved_context, const char* name, Type* function_type,
+    DeclList* parameters, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern void rcc_parser_cxx_add_value_binding(const char* name, Type* type)
     RCC_OPTIONAL_CXX;
 extern void* rcc_parser_cxx_using_scope_mark(void) RCC_OPTIONAL_CXX;
@@ -4658,6 +4663,7 @@ Stmt* parse_declaration(void) {
     Type* base_type;
     Type* type;
     Decl* declaration;
+    void* friend_signature_context = NULL;
     void* friend_access_mark = NULL;
     bool friend_access_context_active = false;
     int explicit_alignment = 0;
@@ -4704,7 +4710,18 @@ Stmt* parse_declaration(void) {
         is_consteval = true;
     }
     if (parser_cxx_mode && match(TOK_CONSTINIT)) is_constinit = true;
+    if (parser_cxx_mode &&
+        rcc_parser_cxx_begin_function_signature_access) {
+        friend_signature_context =
+            rcc_parser_cxx_begin_function_signature_access(
+                parser_function_scope_depth == 0);
+    }
     if (!is_type_start()) {
+        if (friend_signature_context &&
+            rcc_parser_cxx_end_function_signature_access) {
+            rcc_parser_cxx_end_function_signature_access(
+                friend_signature_context, NULL, NULL, NULL, peek()->loc);
+        }
         return parse_statement();
     }
 
@@ -4742,6 +4759,11 @@ Stmt* parse_declaration(void) {
 
     base_type = parse_type_spec();
     if (!base_type) {
+        if (friend_signature_context &&
+            rcc_parser_cxx_end_function_signature_access) {
+            rcc_parser_cxx_end_function_signature_access(
+                friend_signature_context, NULL, NULL, NULL, peek()->loc);
+        }
         rcc_error(loc, "expected type specifier");
         synchronize();
         return NULL;
@@ -4760,13 +4782,32 @@ Stmt* parse_declaration(void) {
 
     /* A standalone aggregate declaration has no declarator. Enum constants
      * were registered while parsing its body. */
-    if (match(TOK_SEMICOLON)) return stmt_null(loc);
+    if (match(TOK_SEMICOLON)) {
+        if (friend_signature_context &&
+            rcc_parser_cxx_end_function_signature_access) {
+            rcc_parser_cxx_end_function_signature_access(
+                friend_signature_context, NULL, NULL, NULL, loc);
+        }
+        return stmt_null(loc);
+    }
 
     if (parser_cxx_mode && rcc_parse_cxx_operator_declaration &&
         check(TOK_OPERATOR)) {
         Stmt* operator_declaration = rcc_parse_cxx_operator_declaration(
             base_type, loc);
-        if (operator_declaration) return operator_declaration;
+        if (operator_declaration) {
+            Decl* operator_decl = operator_declaration->kind == STMT_DECL
+                ? operator_declaration->decl : NULL;
+            if (friend_signature_context &&
+                rcc_parser_cxx_end_function_signature_access) {
+                rcc_parser_cxx_end_function_signature_access(
+                    friend_signature_context,
+                    operator_decl ? operator_decl->name : NULL,
+                    operator_decl ? operator_decl->type : NULL,
+                    NULL, loc);
+            }
+            return operator_declaration;
+        }
     }
 
     /* C++ direct initialization uses a different declarator grammar from C:
@@ -4778,7 +4819,14 @@ Stmt* parse_declaration(void) {
         Stmt* class_declaration = rcc_parse_cxx_class_local_declaration(
             base_type, storage, is_inline, is_constexpr, is_constinit,
             is_thread_local, loc);
-        if (class_declaration) return class_declaration;
+        if (class_declaration) {
+            if (friend_signature_context &&
+                rcc_parser_cxx_end_function_signature_access) {
+                rcc_parser_cxx_end_function_signature_access(
+                    friend_signature_context, NULL, NULL, NULL, loc);
+            }
+            return class_declaration;
+        }
     }
 
     if (!is_typedef && parser_cxx_mode &&
@@ -4786,10 +4834,24 @@ Stmt* parse_declaration(void) {
         Stmt* qualified_definition = rcc_parse_cxx_qualified_data_definition(
             base_type, storage, is_inline, is_constexpr, is_constinit,
             is_thread_local, loc);
-        if (qualified_definition) return qualified_definition;
+        if (qualified_definition) {
+            if (friend_signature_context &&
+                rcc_parser_cxx_end_function_signature_access) {
+                rcc_parser_cxx_end_function_signature_access(
+                    friend_signature_context, NULL, NULL, NULL, loc);
+            }
+            return qualified_definition;
+        }
     }
 
     type = parse_declarator(base_type, &declaration_name, &parameters);
+    if (friend_signature_context &&
+        rcc_parser_cxx_end_function_signature_access) {
+        rcc_parser_cxx_end_function_signature_access(
+            friend_signature_context, declaration_name, type, parameters,
+            loc);
+        friend_signature_context = NULL;
+    }
     type = parse_declarator_attributes(type);
     is_weak = is_weak || take_weak_attribute();
     type = apply_explicit_alignment(type, explicit_alignment, loc);

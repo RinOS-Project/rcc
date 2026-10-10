@@ -338,11 +338,18 @@
           overload; match namespace-qualified friend declarations as well.
           Verify both target widths, host execution, exact negative diagnostics,
           and no invalid object output in `test-cxx-alias-templates`.
-    - [ ] Friend access is not yet available while parsing an out-of-class
-          friend function's return or parameter declarators. Those signatures
-          are parsed before the shared parser can identify the matching
-          function declaration, so a private inherited alias used there still
-          needs a signature-independent grant lookup strategy.
+    - [x] Resolve private inherited aliases in out-of-class friend function
+          return and parameter declarators. Parse under provisional namespace
+          friend grants, then validate each recorded alias use against the
+          completed ordinary or function-template signature before accepting
+          it; unrelated same-name overloads remain rejected. Cover ordinary
+          and function-template return/parameter aliases, private member
+          access in a matching body, C++11/C++20, i686/AMD64 output, AMD64
+          execution, exact two-error diagnostics per target, and no invalid
+          object output in `test-cxx-alias-templates`.
+    - [ ] Apply signature-access validation independently to every
+          comma-separated function declarator sharing a declaration-specifier
+          alias type; current validation finalizes the first declarator.
 - [x] Treat class declarations in `extern "C"`/`extern "C++"` linkage blocks as
       C++ class declarations, and resolve elaborated `struct T` type specifiers
       back to the registered C++ class type; verify member access in both target
