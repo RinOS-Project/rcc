@@ -395,6 +395,26 @@ int choose_cv_nearer_base_reference_template(
     return 105;
 }
 
+int choose_cv_derived_base_reference(ConversionBaseRoot&) {
+    return 106;
+}
+
+int choose_cv_derived_base_reference(const ConversionBaseMiddle&) {
+    return 107;
+}
+
+template<typename T>
+int choose_cv_derived_base_reference_template(
+    T*, ConversionBaseRoot&) {
+    return 108;
+}
+
+template<typename T>
+int choose_cv_derived_base_reference_template(
+    T*, const ConversionBaseMiddle&) {
+    return 109;
+}
+
 int choose_nearer_base_reference_non_template(ConversionBaseRoot&) {
     return 87;
 }
@@ -736,6 +756,9 @@ int main(void) {
                    choose_cv_nearer_base_reference(leaf) == 103 &&
                    choose_cv_nearer_base_reference_template(
                        leaf_pointer, leaf) == 105 &&
+                   choose_cv_derived_base_reference(leaf) == 107 &&
+                   choose_cv_derived_base_reference_template(
+                       leaf_pointer, leaf) == 109 &&
                    choose_nearer_base_reference_non_template(leaf) == 88 &&
                    choose_nearer_base_pointer_non_template(leaf_pointer) ==
                        90 &&

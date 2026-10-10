@@ -2416,9 +2416,11 @@ separately recorded WSL startup failure.
   qualification. For a `ConversionBaseLeaf` lvalue, both ordinary and
   function-template overload sets now prefer `ConversionBaseMiddle&` over
   `const ConversionBaseRoot&`. This fixes a reproduced RCC ambiguity and
-  agrees with GCC C++20. The focused overload target passes i686/AMD64
-  generation, AMD64 execution, GCC C++20 `-Werror`, and its existing
-  ambiguity/diagnostic checks.
+  agrees with GCC C++20. The reverse cv direction (`ConversionBaseRoot&`
+  versus `const ConversionBaseMiddle&`) also selects the nearer class in both
+  overload forms. The focused overload target passes i686/AMD64 generation,
+  AMD64 execution, GCC C++20 `-Werror`, and its existing ambiguity/diagnostic
+  checks.
 - [ ] Continue proper-subsequence coverage for other standard conversion
   shapes, user-defined conversion ties, implicit-object refinements, and full
   function-template partial ordering; this derived-reference rule is bounded
