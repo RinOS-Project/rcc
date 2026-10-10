@@ -8120,12 +8120,23 @@ static int cxx_conversion_vector_relation(
                 left_pointee->is_const == right_pointee->is_const &&
                 left_pointee->is_volatile == right_pointee->is_volatile;
             if (matching_cv && left_pointee->kind == TYPE_STRUCT &&
-                right_pointee->kind == TYPE_STRUCT &&
-                left_pointee->cxx_class && right_pointee->cxx_class &&
-                left_pointee->cxx_class != right_pointee->cxx_class) {
-                if (sema_cxx_class_derives_from(
-                        left_pointee->cxx_class,
-                        right_pointee->cxx_class, 0)) {
+                left_pointee->cxx_class &&
+                right_pointee->kind == TYPE_VOID) {
+                left_better = true;
+            } else if (matching_cv && left_pointee->kind == TYPE_VOID &&
+                       right_pointee->kind == TYPE_STRUCT &&
+                       right_pointee->cxx_class) {
+                right_better = true;
+            } else if (matching_cv &&
+                       left_pointee->kind == TYPE_STRUCT &&
+                       right_pointee->kind == TYPE_STRUCT &&
+                       left_pointee->cxx_class &&
+                       right_pointee->cxx_class &&
+                       left_pointee->cxx_class !=
+                           right_pointee->cxx_class) {
+                if (sema_cxx_class_derives_from(left_pointee->cxx_class,
+                                                right_pointee->cxx_class,
+                                                0)) {
                     left_better = true;
                 } else if (sema_cxx_class_derives_from(
                                right_pointee->cxx_class,

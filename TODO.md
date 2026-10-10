@@ -2289,6 +2289,11 @@ separately recorded WSL startup failure.
   `const int* const*` and `volatile int* const*` targets remain ambiguous.
   GCC C++20 agrees; the focused gate passes both architectures, generated
   AMD64 execution, and negative diagnostic/no-object checks.
+- [x] Prefer an ordinary pointer-to-base conversion (`Leaf*` to `Root*`) over
+  a pointer-to-void conversion at equal Conversion rank. Keep the two unrelated
+  base-pointer candidates ambiguous even when `void*` is also viable. GCC C++20
+  agrees; the focused target passes both architectures, host execution, and
+  expected ambiguity diagnostics with no object output.
 - [ ] Continue proper-subsequence ordering for other standard-conversion
   shapes with different conversion components; user-defined conversion ties
   and complete function-template partial ordering remain open.

@@ -291,6 +291,14 @@ int choose_base_over_void(T*, void*) {
     return 84;
 }
 
+int choose_base_over_void_non_template(ConversionBaseRoot*) {
+    return 97;
+}
+
+int choose_base_over_void_non_template(void*) {
+    return 98;
+}
+
 template<typename T>
 int choose_nearer_base_value(T*, ConversionValueRoot value) {
     return value.root_value == 41 ? 91 : -91;
@@ -374,6 +382,7 @@ int main(void) {
                    choose_pointer_subsequence_non_template(pointer) == 73 &&
                    choose_nested_pointer_qualification(pointer_to_pointer) ==
                        75 &&
+                   choose_base_over_void_non_template(leaf_pointer) == 97 &&
                    choose_nearer_base(leaf_pointer, leaf_pointer) == 82 &&
                    choose_nearer_base_reference(leaf_pointer, leaf) == 86 &&
                    choose_nearer_base_reference_non_template(leaf) == 88 &&
