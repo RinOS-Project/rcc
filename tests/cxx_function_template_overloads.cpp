@@ -280,6 +280,14 @@ int choose_reference_qualification(const volatile int&) {
     return 232;
 }
 
+int choose_reference_pointer_qualification(const int* const&) {
+    return 245;
+}
+
+int choose_reference_pointer_qualification(int* const&) {
+    return 246;
+}
+
 template<typename T>
 int choose_reference_qualification_template(T, const int&) {
     return 241;
@@ -669,6 +677,7 @@ int main(void) {
                    choose_reference_cv_category(value) == 171 &&
                    choose_reference_cv_category(const_value) == 172 &&
                    choose_reference_qualification(value) == 231 &&
+                   choose_reference_pointer_qualification(pointer) == 246 &&
                    choose_reference_qualification_template(value, value) ==
                        241 &&
                    choose_reference_pointer_qualification_template(

@@ -2381,11 +2381,12 @@ separately recorded WSL startup failure.
   subsets when both candidates bind the same reference category, for ordinary
   and function-template overloads. With an `int` lvalue, `const int&` wins
   over `const volatile int&`; the ordinary case reproduced an RCC ambiguity.
-  Both cases agree with GCC C++20. A nested reference target also prefers
-  `int* const&` over `const int* const&` for an `int*` lvalue. The focused
-  overload gate passes i686/AMD64 generation and execution, GCC C++20
-  `-Werror`, and existing ambiguity diagnostics. The full native-Windows
-  `test-cxx` aggregate passes for the ranking change.
+  Both cases agree with GCC C++20. Nested pointer-reference targets also
+  prefer `int* const&` over `const int* const&` for an `int*` lvalue, for both
+  ordinary and function-template overloads. The focused overload gate passes
+  i686/AMD64 generation and execution, GCC C++20 `-Werror`, and existing
+  ambiguity diagnostics. The full native-Windows `test-cxx` aggregate passes
+  for the ranking change.
 - [x] Correct the positive function-template fixture that passed `nullptr`
   to a `bool` parameter: use explicit `static_cast<bool>(nullptr)`, which GCC
   accepts, while preserving the separate regression that implicit
