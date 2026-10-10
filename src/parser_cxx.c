@@ -15340,12 +15340,12 @@ static int cxx_function_template_match_relation(
     int constraint_relation;
     bool constraints_comparable;
     if (!left || !right) return 0;
-    if (left->specificity != right->specificity) {
-        return left->specificity > right->specificity ? 1 : -1;
-    }
     conversion_relation =
         cxx_template_conversion_vector_relation(left, right);
     if (conversion_relation != 0) return conversion_relation;
+    if (left->specificity != right->specificity) {
+        return left->specificity > right->specificity ? 1 : -1;
+    }
     constraint_relation = cxx_function_template_constraint_relation(
         left->tmpl, right->tmpl, &constraints_comparable);
     return constraints_comparable ? constraint_relation : 0;

@@ -2595,6 +2595,10 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-function-template-overloads/start-x64.o \
 		$(TEST_OUT)/cxx-function-template-overloads/x64.o
 	$(TEST_OUT)/cxx-function-template-overloads/x64
+	g++ -std=c++20 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/cxx-function-template-overloads/gcc-host \
+		tests/cxx_function_template_overloads.cpp
+	$(TEST_OUT)/cxx-function-template-overloads/gcc-host
 	@set +e; $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro \
 		tests/cxx_function_template_overloads_partial_order_invalid.cpp \
@@ -3433,6 +3437,8 @@ test-cxx-variable-templates: $(RCXX_TARGET)
 test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-overloads,cxx_function_template_overloads.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe tests/cxx_function_template_overloads.cpp
+	$(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log)
 	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log)

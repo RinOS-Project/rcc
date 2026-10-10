@@ -2016,3 +2016,16 @@ separately recorded WSL startup failure.
 - [ ] Complete local-class template constructor/member ABI corner cases,
   full dependent lookup/overload resolution, and the broader C++20 conformance
   items above; this regression pass is not a C++20-completion claim.
+
+## C++ regression follow-up (2026-10-10, function-template conversion ranking)
+
+- [x] Compare viable function-template candidates' per-argument implicit
+  conversion sequences before using template-pattern specificity as a
+  tie-break. The `T` versus `T*` overload fixture selects the generic `T`
+  candidate when its `short`-to-`int` promotion is better than the competing
+  `short`-to-`long` conversion, despite the latter candidate's more-specialized
+  pointer pattern. RCC-generated i686 and AMD64 executables and native GCC
+  C++20 all pass; the GCC check is part of Windows and POSIX overload targets.
+- [ ] Complete standard function-template partial ordering and conversion
+  ranking, including reference/cv adjustments, packs, constraints, and less
+  common conversion-sequence ties. This focused fix is not full conformance.
