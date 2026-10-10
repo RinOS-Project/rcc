@@ -15520,6 +15520,66 @@ static int cxx_function_template_constraint_relation(
     return left_subsumes_right ? 1 : -1;
 }
 
+static bool cxx_function_template_reference_adjustment_equivalent(
+    const CxxFunctionTemplateMatch* left,
+    const CxxFunctionTemplateMatch* right) {
+    Type* left_function;
+    Type* right_function;
+    TypeParam* left_parameter;
+    TypeParam* right_parameter;
+    bool saw_reference_adjustment = false;
+    if (!left || !right || !left->instance || !right->instance ||
+        !left->instance->type || !right->instance->type ||
+        left->has_function_parameter_pack ||
+        right->has_function_parameter_pack || !left->tmpl || !right->tmpl ||
+        left->instance->type->kind != TYPE_FUNC ||
+        right->instance->type->kind != TYPE_FUNC ||
+        left->instance->type->variadic != right->instance->type->variadic ||
+        left->instance->type->has_prototype !=
+            right->instance->type->has_prototype) {
+        return false;
+    }
+    for (int index = 0; index < left->tmpl->param_count; ++index) {
+        if (left->tmpl->params[index].is_pack) return false;
+    }
+    for (int index = 0; index < right->tmpl->param_count; ++index) {
+        if (right->tmpl->params[index].is_pack) return false;
+    }
+    left_function = left->instance->type;
+    right_function = right->instance->type;
+    left_parameter = left_function->params;
+    right_parameter = right_function->params;
+    while (left_parameter && right_parameter) {
+        Type* left_type = left_parameter->type;
+        Type* right_type = right_parameter->type;
+        bool left_is_reference;
+        bool right_is_reference;
+        if (!left_type || !right_type) return false;
+        left_is_reference = left_type->is_reference;
+        right_is_reference = right_type->is_reference;
+        if (left_is_reference != right_is_reference) {
+            saw_reference_adjustment = true;
+        }
+        if (left_is_reference) left_type = left_type->base;
+        if (right_is_reference) right_type = right_type->base;
+        if (!left_type || !right_type ||
+            !(type_is_arithmetic(left_type) ||
+              left_type->kind == TYPE_ENUM ||
+              left_type->kind == TYPE_STRUCT ||
+              left_type->kind == TYPE_UNION) ||
+            !(type_is_arithmetic(right_type) ||
+              right_type->kind == TYPE_ENUM ||
+              right_type->kind == TYPE_STRUCT ||
+              right_type->kind == TYPE_UNION) ||
+            !type_is_compatible(left_type, right_type)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return saw_reference_adjustment && !left_parameter && !right_parameter;
+}
+
 static int cxx_function_template_match_relation(
     const CxxFunctionTemplateMatch* left,
     const CxxFunctionTemplateMatch* right) {
@@ -15532,7 +15592,8 @@ static int cxx_function_template_match_relation(
         left, right, &conversions_incomparable);
     if (conversions_incomparable) return 0;
     if (conversion_relation != 0) return conversion_relation;
-    if (left->specificity != right->specificity) {
+    if (left->specificity != right->specificity &&
+        !cxx_function_template_reference_adjustment_equivalent(left, right)) {
         return left->specificity > right->specificity ? 1 : -1;
     }
     if (left->fixed_function_parameter_count !=
@@ -15871,7 +15932,11 @@ static int cxx_parser_function_template_overload_conversion_rank(
                 &requires_qualification)) {
             return -1;
         }
-        return requires_qualification ? 1 : 0;
+        /* Qualification needed to bind a reference does not lower the
+         * implicit conversion sequence below Exact Match. Keep the target
+         * type for the later reference-binding tie-break; in particular,
+         * `T` by value and `const T&` can remain indistinguishable. */
+        return requires_qualification && !target_is_reference ? 1 : 0;
     }
     /* Preserve the existing coarse order while leaving space between exact
      * match, qualification, promotion, standard/user-defined conversions,

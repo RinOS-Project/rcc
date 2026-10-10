@@ -2207,6 +2207,12 @@ separately recorded WSL startup failure.
   AMD64 execution, GCC `-Werror` execution, the focused overload target, and
   full native-Windows `test-cxx` pass. User-defined sequences and implicit-
   object parameters remain outside this tie-break.
+- [x] Do not let a reference wrapper alone make a function-template pattern
+  more specialized than its by-value counterpart when the non-pack scalar or
+  class parameter lists become equivalent after reference adjustment. GCC and
+  RCC both diagnose `T` versus `const T&`, `T&`, and `T&&` as ambiguous for the
+  tested lvalue/rvalue calls; i686/AMD64 negative checks are in the focused
+  overload target. Existing `T&&` versus `const T&&` cv ranking still passes.
 - [ ] Continue proper-subsequence ranking, derived-to-base ordering,
   user-defined conversion ties, and complete function-template partial
   ordering.
