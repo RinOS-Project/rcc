@@ -14977,6 +14977,29 @@ static bool cxx_parser_template_qualification_targets_related(
     return type_is_compatible(left, right);
 }
 
+static int cxx_parser_template_reference_array_bound_relation(
+    Type* left, Type* right, unsigned depth) {
+    if (!left || !right || depth > 64u || left->kind != right->kind) {
+        return 0;
+    }
+    if (left->kind == TYPE_ARRAY) {
+        if (left->array_len >= 0 && right->array_len < 0) return 1;
+        if (left->array_len < 0 && right->array_len >= 0) return -1;
+        if (left->array_len >= 0 && right->array_len >= 0 &&
+            left->array_len != right->array_len) return 0;
+        return cxx_parser_template_reference_array_bound_relation(
+            left->base, right->base, depth + 1u);
+    }
+    if (left->kind == TYPE_PTR) {
+        if (left->cxx_is_member_pointer || right->cxx_is_member_pointer) {
+            return 0;
+        }
+        return cxx_parser_template_reference_array_bound_relation(
+            left->base, right->base, depth + 1u);
+    }
+    return 0;
+}
+
 static int cxx_template_conversion_vector_relation(
     const CxxFunctionTemplateMatch* left,
     const CxxFunctionTemplateMatch* right, bool* incomparable);
@@ -16068,7 +16091,14 @@ static int cxx_template_conversion_vector_relation(
                 if (cxx_parser_template_qualification_targets_related(
                         left_target->base, right_target->base, false,
                         &left_subset, &right_subset, 0u)) {
-                    if (left_subset && !right_subset) {
+                    int array_bound_relation =
+                        cxx_parser_template_reference_array_bound_relation(
+                            left_target->base, right_target->base, 0u);
+                    if (array_bound_relation > 0) {
+                        qualification_relation = 1;
+                    } else if (array_bound_relation < 0) {
+                        qualification_relation = -1;
+                    } else if (left_subset && !right_subset) {
                         qualification_relation = 1;
                     } else if (right_subset && !left_subset) {
                         qualification_relation = -1;

@@ -7578,6 +7578,46 @@ static bool cxx_same_parameter_type(Type* source, Type* target,
     return type_is_compatible(source, target);
 }
 
+/* Function parameter type identity keeps array bounds in nested types. The
+ * ordinary compatibility relation intentionally treats an unknown array
+ * bound as compatible with a known bound, but that is too permissive for
+ * distinguishing overloads such as references to `int[]` and `int[1]`. */
+static bool cxx_parameter_array_bounds_match(Type* left, Type* right,
+                                             unsigned depth) {
+    TypeParam* left_parameter;
+    TypeParam* right_parameter;
+
+    if (!left || !right || left->kind != right->kind || depth > 64u) {
+        return false;
+    }
+    if (left->kind == TYPE_ARRAY) {
+        return left->array_len == right->array_len &&
+               cxx_parameter_array_bounds_match(left->base, right->base,
+                                                depth + 1u);
+    }
+    if (left->kind == TYPE_PTR) {
+        return cxx_parameter_array_bounds_match(left->base, right->base,
+                                                depth + 1u);
+    }
+    if (left->kind != TYPE_FUNC) return true;
+    if (!cxx_parameter_array_bounds_match(left->ret_type, right->ret_type,
+                                          depth + 1u)) {
+        return false;
+    }
+    left_parameter = left->params;
+    right_parameter = right->params;
+    while (left_parameter && right_parameter) {
+        if (!cxx_parameter_array_bounds_match(left_parameter->type,
+                                              right_parameter->type,
+                                              depth + 1u)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return left_parameter == NULL && right_parameter == NULL;
+}
+
 /* Compare the member type carried by two otherwise viable pointer-to-member
  * conversion sequences. Return 1 when the left target adds a strict subset of
  * the right target's cv qualification, -1 for the reverse, 0 for identical
@@ -7605,6 +7645,32 @@ static int sema_cxx_member_type_qualification_relation(Type* left,
     if (left_to_right && !right_to_left) return 1;
     if (right_to_left && !left_to_right) return -1;
     return left_to_right && right_to_left ? 0 : 2;
+}
+
+/* In reference-binding tie-breaks, a reference to an array of known bound is
+ * preferred to a reference to the otherwise-compatible array of unknown
+ * bound. Return 1 when the left target is more specific, -1 for the reverse. */
+static int sema_cxx_reference_array_bound_relation(Type* left, Type* right,
+                                                   unsigned depth) {
+    if (!left || !right || depth > 64u || left->kind != right->kind) {
+        return 0;
+    }
+    if (left->kind == TYPE_ARRAY) {
+        if (left->array_len >= 0 && right->array_len < 0) return 1;
+        if (left->array_len < 0 && right->array_len >= 0) return -1;
+        if (left->array_len >= 0 && right->array_len >= 0 &&
+            left->array_len != right->array_len) return 0;
+        return sema_cxx_reference_array_bound_relation(
+            left->base, right->base, depth + 1u);
+    }
+    if (left->kind == TYPE_PTR) {
+        if (left->cxx_is_member_pointer || right->cxx_is_member_pointer) {
+            return 0;
+        }
+        return sema_cxx_reference_array_bound_relation(
+            left->base, right->base, depth + 1u);
+    }
+    return 0;
 }
 
 static bool sema_cxx_exact_function_signature(Type* candidate, Type* target);
@@ -7752,6 +7818,18 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
             return -1;
         }
         if (cxx_same_parameter_type(source, target_base, false)) return 0;
+        {
+            bool source_subset = true;
+            bool target_subset = true;
+            if (sema_cxx_qualification_targets_related(
+                    source, target_base, false, &source_subset,
+                    &target_subset, 0u)) {
+                /* Qualification conversions are Exact Match rank, including
+                 * qualification added while binding a reference to an array
+                 * with a compatible known/unknown bound. */
+                return 0;
+            }
+        }
         if (rcc_parser_is_cxx_mode() &&
             (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION) &&
             (target_base->kind == TYPE_STRUCT ||
@@ -8309,7 +8387,15 @@ static int cxx_conversion_vector_relation(
                     left_targets[index]->base,
                     right_targets[index]->base, false, &left_subset,
                     &right_subset, 0u)) {
-                if (left_subset && !right_subset) {
+                int array_bound_relation =
+                    sema_cxx_reference_array_bound_relation(
+                        left_targets[index]->base,
+                        right_targets[index]->base, 0u);
+                if (array_bound_relation > 0) {
+                    left_better = true;
+                } else if (array_bound_relation < 0) {
+                    right_better = true;
+                } else if (left_subset && !right_subset) {
                     left_better = true;
                 } else if (right_subset && !left_subset) {
                     right_better = true;
@@ -10141,7 +10227,9 @@ static bool cxx_same_function_parameters(Type* left, Type* right) {
     right_parameter = right->params;
     while (left_parameter && right_parameter) {
         if (!cxx_same_parameter_type(left_parameter->type,
-                                     right_parameter->type, true)) {
+                                     right_parameter->type, true) ||
+            !cxx_parameter_array_bounds_match(left_parameter->type,
+                                              right_parameter->type, 0u)) {
             return false;
         }
         left_parameter = left_parameter->next;

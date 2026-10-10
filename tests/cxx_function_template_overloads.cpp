@@ -359,6 +359,42 @@ int choose_nested_pointer_qualification(const int* const*) {
     return 76;
 }
 
+int choose_array_bound_reference(int (&value)[]) {
+    return value[0] + 10;
+}
+
+int choose_array_bound_reference(int (&value)[1]) {
+    return value[0] + 20;
+}
+
+template<typename Element>
+int choose_array_bound_reference_template(Element (&value)[]) {
+    return value[0] + 30;
+}
+
+template<typename Element>
+int choose_array_bound_reference_template(Element (&value)[1]) {
+    return value[0] + 40;
+}
+
+int choose_array_bound_reference_cv(int (&value)[]) {
+    return value[0] + 50;
+}
+
+int choose_array_bound_reference_cv(const int (&value)[1]) {
+    return value[0] + 60;
+}
+
+template<typename Element>
+int choose_array_bound_reference_cv_template(Element (&value)[]) {
+    return value[0] + 70;
+}
+
+template<typename Element>
+int choose_array_bound_reference_cv_template(const Element (&value)[1]) {
+    return value[0] + 80;
+}
+
 template<typename T>
 int choose_nearer_base(T*, ConversionBaseRoot*) {
     return 81;
@@ -770,6 +806,7 @@ int main(void) {
     int value = 5;
     int* pointer = &value;
     int** pointer_to_pointer = &pointer;
+    int array_value[1] = { value };
     ConversionNoexceptFunctionPointer noexcept_pointer =
         &conversion_noexcept_function;
     ConversionExplicitThrowingFunctionPointer explicit_throwing_pointer =
@@ -822,6 +859,11 @@ int main(void) {
                    choose_pointer_subsequence_non_template(pointer) == 73 &&
                    choose_nested_pointer_qualification(pointer_to_pointer) ==
                        75 &&
+                   choose_array_bound_reference(array_value) == 25 &&
+                   choose_array_bound_reference_template(array_value) == 45 &&
+                   choose_array_bound_reference_cv(array_value) == 65 &&
+                   choose_array_bound_reference_cv_template(array_value) ==
+                       85 &&
                    choose_base_over_void_non_template(leaf_pointer) == 97 &&
                    choose_nearer_base(leaf_pointer, leaf_pointer) == 82 &&
                    choose_nearer_base_reference(leaf_pointer, leaf) == 86 &&

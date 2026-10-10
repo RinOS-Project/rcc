@@ -2446,3 +2446,16 @@ separately recorded WSL startup failure.
   shapes, user-defined conversion ties, implicit-object refinements, and full
   function-template partial ordering; this pointer-ranking rule is bounded
   and does not complete overload-resolution conformance.
+
+## C++ regression follow-up (2026-10-10, array-reference bound ranking)
+
+- [x] Keep references to arrays of known and unknown bound as distinct
+  overload parameter types, and apply the standard equal-rank reference-binding
+  tie-break so a reference to the matching known bound wins, even when the
+  unknown-bound candidate otherwise has fewer cv qualifiers. Cover ordinary
+  and function-template overloads with GCC C++20 oracle checks; the focused
+  gate passes i686/AMD64 generation, generated AMD64 execution, and GCC C++20
+  `-Werror` execution.
+- [ ] Continue proper-subsequence coverage for other standard-conversion
+  shapes; user-defined conversion ties and complete function-template partial
+  ordering remain open.
