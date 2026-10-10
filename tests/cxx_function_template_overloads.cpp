@@ -43,6 +43,16 @@ int choose_reference_binding(const T&&) {
     return 52;
 }
 
+template<typename T>
+int choose_pointer_bool(T*, bool) {
+    return 61;
+}
+
+template<typename T>
+int choose_pointer_bool(T*, void*) {
+    return 62;
+}
+
 int main(void) {
     int value = 5;
     int* pointer = &value;
@@ -53,7 +63,8 @@ int main(void) {
                    choose_conversion_before_partial_order(&value, priority) == 10 &&
                    choose_cv_qualification(pointer) == 30 &&
                    choose_reference_binding(value) == 51 &&
-                   choose_reference_binding(0) == 52
+                   choose_reference_binding(0) == 52 &&
+                   choose_pointer_bool(pointer, pointer) == 62
                ? 0
                : 1;
 }

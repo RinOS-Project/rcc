@@ -2142,3 +2142,15 @@ separately recorded WSL startup failure.
 - [ ] Continue proper-subsequence ranking, derived-to-base ordering,
   user-defined conversion ties, and complete function-template partial
   ordering.
+
+## C++ regression follow-up (2026-10-10, pointer-to-bool ranking coverage)
+
+- [x] Add a function-template regression where an `int*` argument can convert
+  to either `bool` or `void*`; the non-bool pointer conversion must win at the
+  same standard-conversion rank. GCC C++20 and RCC select `void*`; the focused
+  target checks i686/AMD64 generation, AMD64 execution, and GCC `-Werror`.
+  The compiler already implemented the expected result; this closes the
+  missing regression-coverage item without changing compiler behavior.
+- [ ] Continue proper-subsequence ranking, derived-to-base ordering,
+  user-defined conversion ties, and complete function-template partial
+  ordering.
