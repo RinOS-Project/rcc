@@ -3811,8 +3811,7 @@ static bool gen64_local_initializer(Module* mod, Type* type,
     if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
         initializer->type && type_is_compatible(type, initializer->type)) {
         int offset = 0;
-        if (initializer->kind == EXPR_VA_ARG ||
-            !gen64_expr_is_lvalue(initializer)) {
+        if (initializer->kind == EXPR_VA_ARG) {
             gen64_expr(mod, initializer);
         } else {
             gen64_lvalue(mod, initializer);
@@ -4341,6 +4340,20 @@ static void gen64_lvalue(Module* mod, Expr* expr) {
                 } else if ((expr->cxx_cast_kind == CXX_CAST_STATIC ||
                             expr->cxx_cast_kind == CXX_CAST_DYNAMIC) &&
                     expr->cxx_pointer_adjustment_valid &&
+                    expr->cxx_pointer_adjustment != 0) {
+                    emit64_add_reg_imm(mod, RAX,
+                                       expr->cxx_pointer_adjustment);
+                }
+            } else if (rcc_parser_is_cxx_mode() && expr->type &&
+                       expr->type->kind == TYPE_STRUCT &&
+                       expr->type->cxx_class && expr->cast_expr &&
+                       expr->cast_expr->type &&
+                       expr->cast_expr->type->kind == TYPE_STRUCT &&
+                       expr->cast_expr->type->cxx_class &&
+                       expr->cast_expr->type->cxx_class !=
+                           expr->type->cxx_class) {
+                gen64_lvalue(mod, expr->cast_expr);
+                if (expr->cxx_pointer_adjustment_valid &&
                     expr->cxx_pointer_adjustment != 0) {
                     emit64_add_reg_imm(mod, RAX,
                                        expr->cxx_pointer_adjustment);

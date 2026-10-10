@@ -13818,7 +13818,7 @@ test-verified-cxx-conditional-aggregate: $(RCXX_TARGET) test-verified-cxx-refere
 		-o $(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.ro \
 		tests/cxx_function_template_references.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log
-	$(GREP) -F -q "Verified backend fallback: function 'read_conditional_lifetime_argument' is outside the typed SSA subset" \
+	$(GREP) -F -q "Verified backend fallback: function '_ZNK23ConversionDerivedSourcecv25ConversionLifetimeDerivedEv' is outside the typed SSA subset" \
 		$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-nontrivial-conditional-fallback-x64.log,1)
 
