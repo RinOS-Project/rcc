@@ -1790,6 +1790,9 @@
         legalization・encoded PC rangeまで伝播し、relocation付きDWARF inline DIEを
         出力。C++ inline host/leafのabstract origin、call-site file/line/column、
         function内PC rangeをi686/AMD64 `-g -O2 -fverified-backend`で検証
+  - [x] verified C++ inlineを`host -> middle -> leaf`の2段へ拡張し、host内の
+        `DW_TAG_inlined_subroutine`親子構造、両call-siteのsource line、relocation先、
+        child PC rangeのparent containmentをi686/AMD64 `test-debug-info`で検証
   - [ ] `.debug_info`の全inline attribution／全scopeの宣言開始・終了に一致する
         location lists、register・piece location追跡、非標準prologueを含む
         完全なCFI/unwind

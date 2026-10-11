@@ -33,7 +33,12 @@ static inline int verified_cpp_debug_inline_leaf(int value)
     return value + 5;
 }
 
+static inline int verified_cpp_debug_inline_middle(int value)
+{
+    return verified_cpp_debug_inline_leaf(value) + 7;
+}
+
 extern "C" int verified_cpp_debug_inline_host(int value)
 {
-    return verified_cpp_debug_inline_leaf(value) * 2;
+    return verified_cpp_debug_inline_middle(value) * 2;
 }

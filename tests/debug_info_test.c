@@ -2289,8 +2289,15 @@ static void verify_verified_cpp_inline_debug(
     ObjSection* line;
     ObjSymbol* function;
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t middle_die = UINT64_MAX;
+    uint64_t leaf_die = UINT64_MAX;
+    uint64_t leaf_children_end = 0u;
+    uint64_t middle_start = 0u;
+    uint64_t middle_end = 0u;
     uint64_t leaf_start = 0u;
     uint64_t leaf_end = 0u;
+    uint32_t middle_call_line = 0u;
+    uint32_t leaf_call_line = 0u;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -2316,7 +2323,8 @@ static void verify_verified_cpp_inline_debug(
         name_offset = read_u32(info->data, origin_offset + 1u);
         if (name_offset >= strings->size) continue;
         inline_name = (const char*)strings->data + name_offset;
-        if (strcmp(inline_name, "verified_cpp_debug_inline_leaf") != 0) {
+        if (strcmp(inline_name, "verified_cpp_debug_inline_middle") != 0 &&
+            strcmp(inline_name, "verified_cpp_debug_inline_leaf") != 0) {
             continue;
         }
         low_pc_offset = die + 1u + 4u;
@@ -2335,20 +2343,43 @@ static void verify_verified_cpp_inline_debug(
         for (const ObjReloc* relocation = info->relocs;
              relocation; relocation = relocation->next) {
             if (relocation->offset != low_pc_offset) continue;
-            assert(relocation->symbol_name != NULL &&
-                   strcmp(relocation->symbol_name,
-                          "verified_cpp_debug_inline_host") == 0 &&
-                   relocation->addend >= 0);
-            leaf_start = (uint64_t)relocation->addend;
-            assert(leaf_start <= function->size &&
-                   call_length <= function->size - leaf_start);
-            leaf_end = leaf_start + call_length;
+            if (relocation->symbol_name == NULL ||
+                strcmp(relocation->symbol_name,
+                       "verified_cpp_debug_inline_host") != 0) {
+                break;
+            }
+            assert(relocation->addend >= 0);
+            uint64_t range_start = (uint64_t)relocation->addend;
+            uint64_t range_end;
+            assert(range_start <= function->size &&
+                   call_length <= function->size - range_start);
+            range_end = range_start + call_length;
+            if (strcmp(inline_name,
+                       "verified_cpp_debug_inline_middle") == 0) {
+                middle_die = die;
+                middle_start = range_start;
+                middle_end = range_end;
+                middle_call_line = call_line;
+            } else {
+                leaf_die = die;
+                leaf_children_end =
+                    die + 1u + 4u + address_size + 4u + 12u;
+                leaf_start = range_start;
+                leaf_end = range_end;
+                leaf_call_line = call_line;
+            }
             has_relocation = true;
             break;
         }
-        assert(has_relocation);
+        if (!has_relocation) continue;
     }
-    assert(leaf_end > leaf_start);
+    assert(middle_end > middle_start && leaf_end > leaf_start);
+    assert(middle_start <= leaf_start && leaf_end <= middle_end);
+    assert(middle_call_line == 43u && leaf_call_line == 38u);
+    assert(middle_die < leaf_die);
+    assert(leaf_children_end + 1u < info->size &&
+           info->data[leaf_children_end] == 0u &&
+           info->data[leaf_children_end + 1u] == 0u);
     objfile_free(object);
 }
 
