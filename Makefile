@@ -5134,6 +5134,10 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE18count_tagged_afterILi6EJilEEEiDp10PackTaggedIT0_XplT_Li1EEE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE20count_tagged_dividedILi6EJilEEEiDp10PackTaggedIT0_XdvT_Li2EEE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_remainderILi6EJilEEEiDp10PackTaggedIT0_XrmT_Li4EEE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJEEEiv" \
@@ -5163,10 +5167,14 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.ro tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_after'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_divided'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_remainder'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_after'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_divided'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_remainder'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log)
 	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log
@@ -5210,6 +5218,10 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK3BoxIiE12count_taggedILi7EJilEEEiDp10PackTaggedIT0_XT_EE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE18count_tagged_afterILi6EJilEEEiDp10PackTaggedIT0_XplT_Li1EEE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE20count_tagged_dividedILi6EJilEEEiDp10PackTaggedIT0_XdvT_Li2EEE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_remainderILi6EJilEEEiDp10PackTaggedIT0_XrmT_Li4EEE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
@@ -5671,6 +5683,10 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE18count_tagged_afterILi6EJilEEEiDp10PackTaggedIT0_XplT_Li1EEE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE20count_tagged_dividedILi6EJilEEEiDp10PackTaggedIT0_XdvT_Li2EEE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_remainderILi6EJilEEEiDp10PackTaggedIT0_XrmT_Li4EEE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJEEEiv" \
@@ -5700,10 +5716,14 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.ro tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_after'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_divided'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_remainder'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_after'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_divided'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_remainder'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log)
 	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log

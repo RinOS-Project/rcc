@@ -59,6 +59,16 @@ struct Box {
         return sizeof...(Args);
     }
 
+    template<int Tag, typename... Args>
+    int count_tagged_divided(PackTagged<Args, (Tag / 2)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_remainder(PackTagged<Args, (Tag % 4)>...) const {
+        return sizeof...(Args);
+    }
+
     template<int... Values>
     T add_constants() const {
         return (0 + ... + Values);
@@ -108,6 +118,12 @@ int main() {
                    integers.count_tagged_after<6>(
                        PackTagged<int, 7>{1},
                        PackTagged<long, 7>{2}) == 2 &&
+                   integers.count_tagged_divided<6>(
+                       PackTagged<int, 3>{1},
+                       PackTagged<long, 3>{2}) == 2 &&
+                   integers.count_tagged_remainder<6>(
+                       PackTagged<int, 2>{1},
+                       PackTagged<long, 2>{2}) == 2 &&
                    integers.add_constants<2, 3>() == 5 &&
                    integers.add_constants<>() == 0 &&
                    integers.identity(12L) == 12L &&

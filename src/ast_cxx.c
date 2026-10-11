@@ -809,7 +809,8 @@ static bool cxx_member_template_expression_supported(
             expression->unary_operand, tmpl);
     }
     if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
-        expression->kind == EXPR_MUL) {
+        expression->kind == EXPR_MUL || expression->kind == EXPR_DIV ||
+        expression->kind == EXPR_MOD) {
         return cxx_member_template_expression_supported(
                    expression->binary_lhs, tmpl) &&
                cxx_member_template_expression_supported(
@@ -874,6 +875,8 @@ static void cxx_member_template_expression_append(
     if (expression->kind == EXPR_ADD) operation = "pl";
     else if (expression->kind == EXPR_SUB) operation = "mi";
     else if (expression->kind == EXPR_MUL) operation = "ml";
+    else if (expression->kind == EXPR_DIV) operation = "dv";
+    else if (expression->kind == EXPR_MOD) operation = "rm";
     else if (expression->kind == EXPR_NEG) operation = "ng";
     if (!operation) return;
     size_t operation_length = strlen(operation);

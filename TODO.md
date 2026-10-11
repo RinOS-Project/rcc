@@ -2642,6 +2642,13 @@ separately recorded WSL startup failure.
   C++20 `-Wall -Wextra -Werror`, and verified-backend output for both targets.
   The complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx` and
   `test-c17` aggregates exit 0 after these additions.
+- [x] Encode dependent integer division and remainder in nested member-template
+  function-parameter pack patterns (`Tag / 2` and `Tag % 4`). Emit the Itanium
+  `dv` and `rm` expressions matching GCC exactly (`XdvT_Li2E` and
+  `XrmT_Li4E`). Positive calls execute; mismatched quotient and remainder
+  arguments are rejected on both targets without object output. The focused
+  gate and complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx`
+  aggregate pass.
 - [ ] Complete member-template deduction and overload selection for remaining
   general dependent non-type expressions and template-template forms,
   expansions involving
