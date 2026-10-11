@@ -1943,10 +1943,21 @@ static RccIrLowerValue lower_lvalue_address_impl(
                     address->result, rcc_ir_type_pointer(0u), true);
             }
             if (declaration->kind != DECL_VAR ||
-                !declaration->var_is_global ||
+                (!declaration->var_is_global &&
+                 !declaration->var_is_static_local) ||
                 !declaration->type || declaration->type->size <= 0 ||
                 declaration->type->is_reference ||
-                declaration->type->cleanup_function) {
+                declaration->type->cleanup_function ||
+                (declaration->var_is_static_local &&
+                 (declaration->var_dynamic_initializer ||
+                  declaration->var_reference_temporary_guard ||
+                  declaration->var_reference_temporary_owner ||
+                  declaration->var_cleanup || declaration->var_cleanups ||
+                  declaration->storage != STORAGE_STATIC ||
+                  declaration->type->kind == TYPE_ARRAY ||
+                  declaration->type->kind == TYPE_STRUCT ||
+                  declaration->type->kind == TYPE_UNION ||
+                  declaration->type->kind == TYPE_VECTOR))) {
                 context->unsupported = true;
                 return lower_invalid_value();
             }
@@ -12817,6 +12828,25 @@ static bool lower_declaration(RccIrLowerContext* context,
      * unsupported object and sending a malformed function to the verified
      * backend. */
     if (declaration->kind != DECL_VAR) return true;
+    if (declaration->var_is_static_local) {
+        if (!declaration->type || declaration->type->size <= 0 ||
+            declaration->type->is_reference ||
+            declaration->type->cleanup_function ||
+            declaration->var_dynamic_initializer ||
+            declaration->var_reference_temporary_guard ||
+            declaration->var_reference_temporary_owner ||
+            declaration->var_cleanup || declaration->var_cleanups ||
+            declaration->storage != STORAGE_STATIC || is_aggregate ||
+            !lower_type(declaration->type, &type) ||
+            type.kind == RCC_IR_TYPE_VOID) {
+            context->unsupported = true;
+            return false;
+        }
+        /* Constant-initialized scalar statics already have storage and their
+         * initializer in the data/TLS module.  The declaration itself has no
+         * per-call work; identifier lowering references that emitted symbol. */
+        return true;
+    }
     if (declaration->var_is_global || declaration->var_is_thread_local ||
         declaration->storage == STORAGE_EXTERN ||
         declaration->storage == STORAGE_STATIC || declaration->var_cleanup ||

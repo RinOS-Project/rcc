@@ -14837,14 +14837,14 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/tls-x86.ro \
 		tests/verified_backend_fallback.c \
 		>$(TEST_OUT)/verified-backend/tls-x86.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/tls-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/tls-x86.log,0)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/tls-x64.ro \
 		tests/verified_backend_fallback.c \
 		>$(TEST_OUT)/verified-backend/tls-x64.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/tls-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/tls-x64.log,0)
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
@@ -15240,9 +15240,9 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/verified-backend/virtual-dispatch-x64.ro
 	$(TEST_OUT)/verified-backend/verify-x64 --switch-loop-labels \
 		$(TEST_OUT)/verified-backend/x64-o2.ro
-	$(TEST_OUT)/verified-backend/verify-x64 --tls-object \
+	$(TEST_OUT)/verified-backend/verify-x64 --tls-local-object \
 		$(TEST_OUT)/verified-backend/tls-x86.ro x86
-	$(TEST_OUT)/verified-backend/verify-x64 --tls-object \
+	$(TEST_OUT)/verified-backend/verify-x64 --tls-local-object \
 		$(TEST_OUT)/verified-backend/tls-x64.ro x64
 	$(TEST_OUT)/verified-backend/verify-x64 --tls-import-object \
 		$(TEST_OUT)/verified-backend/tls-import-x86.ro x86

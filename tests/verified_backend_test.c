@@ -4169,20 +4169,35 @@ static void verify_switch_nested_case_object(const char* path)
 }
 
 static void verify_tls_object(const char* path, uint16_t arch,
-                              bool imported)
+                              bool imported, bool local_tls)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* text;
     ObjSection* tls;
+    ObjSection* data;
     ObjSymbol* symbol;
+    ObjSymbol* local_symbol = NULL;
+    ObjSymbol* local_data_symbol = NULL;
     ObjSection* section_cursor;
     int tls_section_index = 0;
+    int data_section_index = 0;
     size_t relocation_count = 0u;
+    size_t local_relocation_count = 0u;
+    size_t local_data_relocation_count = 0u;
 
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     tls = objfile_get_section(object, ".tls");
+    data = objfile_get_section(object, ".data");
     symbol = objfile_find_symbol(object, "verified_fallback_tls");
+    if (local_tls) {
+        local_symbol = objfile_find_symbol(
+            object,
+            "tests/verified_backend_fallback.c::__rcc_static_1_value");
+        local_data_symbol = objfile_find_symbol(
+            object,
+            "tests/verified_backend_fallback.c::__rcc_static_2_value");
+    }
     assert(text != NULL && text->type == SECT_CODE);
     assert((text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC |
                            SECT_FLAG_WRITE)) ==
@@ -4200,7 +4215,22 @@ static void verify_tls_object(const char* path, uint16_t arch,
         }
         assert(section_cursor == tls);
     }
+    for (section_cursor = object->sections;
+         section_cursor && section_cursor != data;
+         section_cursor = section_cursor->next) {
+        ++data_section_index;
+    }
     assert(symbol != NULL && symbol->binding == BIND_TLS);
+    if (local_tls) {
+        assert(local_symbol != NULL && local_symbol->type == SYM_LOCAL &&
+               local_symbol->binding == BIND_TLS && tls != NULL &&
+               local_symbol->section == tls_section_index);
+        assert(local_data_symbol != NULL &&
+               local_data_symbol->type == SYM_LOCAL &&
+               local_data_symbol->binding == BIND_DATA && data != NULL &&
+               local_data_symbol->section == data_section_index &&
+               data->type == SECT_DATA);
+    }
     if (imported) {
         assert(symbol->type == SYM_UNDEF && symbol->section == -1);
     } else {
@@ -4212,10 +4242,23 @@ static void verify_tls_object(const char* path, uint16_t arch,
          relocation = relocation->next) {
         size_t offset;
         uint8_t modrm;
+        if (local_tls && relocation->symbol_name &&
+            strcmp(relocation->symbol_name,
+                   "tests/verified_backend_fallback.c::__rcc_static_2_value") ==
+                0) {
+            ++local_data_relocation_count;
+        }
         if (relocation->type != RELOC_TLSOFF32S) continue;
-        assert(relocation->symbol_name != NULL &&
-               strcmp(relocation->symbol_name,
-                      "verified_fallback_tls") == 0);
+        assert(relocation->symbol_name != NULL);
+        if (local_tls && strcmp(
+                relocation->symbol_name,
+                "tests/verified_backend_fallback.c::__rcc_static_1_value") ==
+                0) {
+            ++local_relocation_count;
+        } else {
+            assert(strcmp(relocation->symbol_name,
+                          "verified_fallback_tls") == 0);
+        }
         assert(relocation->offset <= text->size &&
                sizeof(uint32_t) <= text->size - relocation->offset);
         offset = (size_t)relocation->offset;
@@ -4251,6 +4294,8 @@ static void verify_tls_object(const char* path, uint16_t arch,
         ++relocation_count;
     }
     assert(relocation_count >= (imported ? 1u : 3u));
+    if (local_tls) assert(local_relocation_count >= 1u);
+    if (local_tls) assert(local_data_relocation_count >= 1u);
     objfile_free(object);
 }
 
@@ -4505,16 +4550,18 @@ int main(int argc, char** argv)
     }
     if (argc == 4 &&
         (strcmp(argv[1], "--tls-object") == 0 ||
+         strcmp(argv[1], "--tls-local-object") == 0 ||
          strcmp(argv[1], "--tls-import-object") == 0)) {
         uint16_t arch;
         bool imported = strcmp(argv[1], "--tls-import-object") == 0;
+        bool local_tls = strcmp(argv[1], "--tls-local-object") == 0;
         if (strcmp(argv[3], "x86") == 0) {
             arch = ARCH_X86;
         } else {
             assert(strcmp(argv[3], "x64") == 0);
             arch = ARCH_X64;
         }
-        verify_tls_object(argv[2], arch, imported);
+        verify_tls_object(argv[2], arch, imported, local_tls);
         puts("Verified local-exec TLS object passed");
         return 0;
     }

@@ -385,12 +385,18 @@ static bool verified_add_constants(
 }
 
 static void verified_scope_static_relocations(
-    const AST* ast, const char* translation_unit,
+    const AST* ast, const Module* data_module,
+    const char* translation_unit,
     RccX86EncodedFunction* encoded) {
     size_t index;
     for (index = 0u; index < encoded->relocation_count; ++index) {
         RccX86CodeRelocation* relocation = &encoded->relocations[index];
-        if (verified_static_definition(ast, relocation->symbol)) {
+        const ModuleSymbol* data_symbol = data_module
+            ? module_lookup_symbol(data_module, relocation->symbol) : NULL;
+        bool is_local_data_definition = data_symbol &&
+            data_symbol->is_defined && !data_symbol->is_global;
+        if (verified_static_definition(ast, relocation->symbol) ||
+            is_local_data_definition) {
             char* scoped = verified_scoped_symbol(
                 translation_unit, relocation->symbol);
             rcc_free(relocation->symbol);
@@ -1123,7 +1129,8 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
                 "function '%s' constant emission failed: %s",
                 declaration->name, pipeline_error);
         }
-        verified_scope_static_relocations(ast, translation_unit, &encoded);
+        verified_scope_static_relocations(
+            ast, data_module, translation_unit, &encoded);
         object_name = decl_link_name(declaration);
         if (declaration->storage == STORAGE_STATIC) {
             scoped_name = verified_scoped_symbol(
