@@ -2627,15 +2627,19 @@ separately recorded WSL startup failure.
   pattern, including explicit empty member-template argument lists. Regressions
   cover empty, homogeneous, and heterogeneous deduced `Rest...` packs, plus
   empty and non-empty `add_constants` folds and `sizeof...(Args)` for empty
-  and heterogeneous argument sequences; exact Itanium names are checked
-  against GCC. The focused gate passes i686/AMD64 assembly and object
-  generation, generated AMD64 execution, GCC C++20 `-Wall -Wextra -Werror`,
-  and verified-backend output for both targets. The complete native-Windows
-  `mingw32-make SHELL=cmd.exe test-cxx` aggregate passed after the parser
-  change; the focused gate was rerun after adding the `sizeof...` cases.
+  and heterogeneous argument sequences. Deduce a pack through the nested
+  `PackPair<Args, Args>...` pattern, enforce the repeated type, and preserve
+  the nested template-id in GCC-matching Itanium mangling. Exact symbols are
+  checked against GCC, and a mismatched `PackPair<int, long>` is rejected on
+  both targets without producing an object (matching GCC's rejection). The
+  focused gate passes i686/AMD64 assembly and object generation, generated
+  AMD64 execution, GCC C++20 `-Wall -Wextra -Werror`, and verified-backend
+  output for both targets. The complete native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` aggregate exits 0.
 - [ ] Complete member-template deduction and overload selection for remaining
-  explicit non-type and template-template forms, multi-pack and nested pack
-  expansion combinations, and remaining overload edge cases; support
+  explicit non-type and template-template forms, expansions involving
+  multiple distinct packs and other nested patterns, and remaining overload
+  edge cases; support
   constructor templates, explicit member-template specializations, inherited
   conversion templates, full C++20 constraint subsumption, and complex
   dependent Itanium ABI substitutions. Conversion target deduction and

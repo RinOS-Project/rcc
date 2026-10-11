@@ -1,3 +1,9 @@
+template<typename First, typename Second>
+struct PackPair {
+    First first;
+    Second second;
+};
+
 template<typename T>
 struct Box {
     T value;
@@ -30,6 +36,11 @@ struct Box {
 
     template<typename... Args>
     int argument_count(Args...) const {
+        return sizeof...(Args);
+    }
+
+    template<typename... Args>
+    int count_matching_pairs(PackPair<Args, Args>...) const {
         return sizeof...(Args);
     }
 
@@ -73,6 +84,9 @@ int main() {
                    integers.echo_first(18, 2L, 'x') == 18 &&
                    integers.argument_count() == 0 &&
                    integers.argument_count(1, 2L, 'x') == 3 &&
+                   integers.count_matching_pairs(
+                       PackPair<int, int>{1, 2},
+                       PackPair<long, long>{3, 4}) == 2 &&
                    integers.add_constants<2, 3>() == 5 &&
                    integers.add_constants<>() == 0 &&
                    integers.identity(12L) == 12L &&

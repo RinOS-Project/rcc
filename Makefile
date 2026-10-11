@@ -5128,6 +5128,8 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE14argument_countIJilcEEEiDpT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE20count_matching_pairsIJilEEEiDp8PackPairIT_S3_E" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJEEEiv" \
@@ -5146,6 +5148,14 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZN3BoxIiE8identityIlEET_S2_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x86.ro tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x86.log)
+	$(GREP) -F -q "no matching member overload for 'count_matching_pairs'" $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.ro tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.log)
+	$(GREP) -F -q "no matching member overload for 'count_matching_pairs'" $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-gcc.log)
+	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.ro tests/cxx_class_template_dependent_member_return_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.log)
 	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.ro)
@@ -5180,6 +5190,8 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK3BoxIiE14argument_countIJEEEiDpT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE14argument_countIJilcEEEiDpT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE20count_matching_pairsIJilEEEiDp8PackPairIT_S3_E" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
@@ -5635,6 +5647,8 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE14argument_countIJilcEEEiDpT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE20count_matching_pairsIJilEEEiDp8PackPairIT_S3_E" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJEEEiv" \
@@ -5653,6 +5667,14 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZN3BoxIiE8identityIlEET_S2_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x86.ro tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x86.log)
+	$(GREP) -F -q "no matching member overload for 'count_matching_pairs'" $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.ro tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.log)
+	$(GREP) -F -q "no matching member overload for 'count_matching_pairs'" $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nested_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-gcc.log)
+	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nested-pack-invalid-gcc.log
 	g++ -std=c++20 -Wall -Wextra -Werror -c \
 		-o $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
 		tests/cxx_class_template_member_function_templates.cpp

@@ -928,6 +928,50 @@ static void cxx_mangle_template_type_append(
         CXX_MANGLE_TEMPLATE_APPEND('E');
         return;
     }
+    bool has_nested_non_type_argument = false;
+    if (type->cxx_template &&
+        type->cxx_template_arg_count > 0) {
+        for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+            if (index < type->cxx_template->param_count &&
+                type->cxx_template->params[index].kind == TPARAM_NONTYPE) {
+                has_nested_non_type_argument = true;
+                break;
+            }
+        }
+    }
+    if (type->kind == TYPE_STRUCT && type->cxx_template &&
+        type->cxx_template_arg_count > 0 && type->cxx_template_args &&
+        !has_nested_non_type_argument) {
+        CxxNamespace* namespace_stack[32];
+        int namespace_count = 0;
+        for (CxxNamespace* current = type->cxx_template->ns;
+             current && current->name; current = current->parent) {
+            if (namespace_count >=
+                (int)(sizeof(namespace_stack) / sizeof(namespace_stack[0]))) {
+                rcc_fatal("C++ member template namespace is too deep to mangle");
+            }
+            namespace_stack[namespace_count++] = current;
+        }
+        if (namespace_count > 0) CXX_MANGLE_TEMPLATE_APPEND('N');
+        for (int index = namespace_count - 1; index >= 0; --index) {
+            mangle_name(buf, pos, namespace_stack[index]->name);
+        }
+        mangle_name(buf, pos, type->cxx_template->name);
+        CXX_MANGLE_TEMPLATE_APPEND('I');
+        /* The template-name prefix enters the Itanium substitution table
+         * before its arguments; later repeated type parameters therefore use
+         * the same indices as GCC/Clang. */
+        if (context) {
+            context->next_substitution += (size_t)namespace_count + 1u;
+        }
+        for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+            cxx_mangle_template_type_append(
+                buf, pos, type->cxx_template_args[index], tmpl, context);
+        }
+        CXX_MANGLE_TEMPLATE_APPEND('E');
+        if (namespace_count > 0) CXX_MANGLE_TEMPLATE_APPEND('E');
+        return;
+    }
     {
         char* mangled = cxx_mangle_type(type);
         size_t length = strlen(mangled);
@@ -3802,16 +3846,58 @@ static int template_value_parameter_index(CxxTemplate* tmpl,
 }
 
 static int template_parameter_index_nested(CxxTemplate* tmpl, Type* type) {
-    int index;
+    int index = -1;
     if (!tmpl || !type) return -1;
     if (type->kind == TYPE_ARRAY) {
         index = template_value_parameter_index(tmpl, type->array_bound);
         if (index >= 0) return index;
     }
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
-        return template_parameter_index_nested(tmpl, type->base);
+        int nested = template_parameter_index_nested(tmpl, type->base);
+        if (nested == -2) return -2;
+        if (nested >= 0) index = nested;
     }
-    return template_type_parameter_index(tmpl, type);
+    if (type->kind == TYPE_STRUCT) {
+        int direct = template_type_parameter_index(tmpl, type);
+        if (direct >= 0) {
+            if (index >= 0 && index != direct) return -2;
+            index = direct;
+        }
+    }
+    if (type->kind == TYPE_FUNC) {
+        int nested = template_parameter_index_nested(tmpl, type->ret_type);
+        if (nested == -2) return -2;
+        if (nested >= 0) {
+            if (index >= 0 && index != nested) return -2;
+            index = nested;
+        }
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            nested = template_parameter_index_nested(tmpl, parameter->type);
+            if (nested == -2) return -2;
+            if (nested >= 0) {
+                if (index >= 0 && index != nested) return -2;
+                index = nested;
+            }
+        }
+    }
+    for (int nested_index = 0;
+         nested_index < type->cxx_template_arg_count; ++nested_index) {
+        int nested = type->cxx_template_args
+            ? template_parameter_index_nested(
+                  tmpl, type->cxx_template_args[nested_index])
+            : -1;
+        if (nested == -2) return -2;
+        if (nested < 0 && type->cxx_template_value_args) {
+            nested = template_value_parameter_index(
+                tmpl, type->cxx_template_value_args[nested_index]);
+        }
+        if (nested >= 0) {
+            if (index >= 0 && index != nested) return -2;
+            index = nested;
+        }
+    }
+    return index;
 }
 
 static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
