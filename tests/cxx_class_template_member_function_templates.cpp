@@ -64,7 +64,10 @@ int main() {
                    integers.echo_through_object(integers, 14) == 14 &&
                    integers.echo_through_object_deduced(integers, 15) == 15 &&
                    integers.echo_through_object_pack(integers, 16) == 16 &&
+                   integers.echo_first(17) == 17 &&
+                   integers.echo_first(18, 2L, 'x') == 18 &&
                    integers.add_constants<2, 3>() == 5 &&
+                   integers.add_constants<>() == 0 &&
                    integers.identity(12L) == 12L &&
                    integers.add<short>(2) == 6 &&
                    integers.add_constant() == 6 &&

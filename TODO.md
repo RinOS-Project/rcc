@@ -2624,17 +2624,18 @@ separately recorded WSL startup failure.
   nested member-template pack during enclosing-class substitution, defer its
   fold expression until member-template specialization, and emit GCC-matching
   Itanium pack encodings for template arguments and the `Dp` function-parameter
-  pattern. Regressions cover deduced `Rest...` and `add_constants<2, 3>()`;
-  both exact pack symbols are checked against GCC. The focused gate passes
-  i686/AMD64 assembly and object generation, generated AMD64 execution,
-  GCC C++20 `-Wall -Wextra -Werror`, and verified-backend output for both
-  targets. The complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx`
-  aggregate exits 0 on this revision.
+  pattern, including explicit empty member-template argument lists. Regressions
+  cover empty, homogeneous, and heterogeneous deduced `Rest...` packs, plus
+  empty and non-empty `add_constants` folds; exact Itanium names are checked
+  against GCC. The focused gate passes i686/AMD64 assembly and object
+  generation, generated AMD64 execution, GCC C++20 `-Wall -Wextra -Werror`,
+  and verified-backend output for both targets. The complete native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` aggregate exits 0 on this revision.
 - [ ] Complete member-template deduction and overload selection for remaining
-  non-type and template-template forms, pack deduction/expansion combinations
-  beyond the covered cases, and overload edge cases; support constructor
-  templates, explicit member-template specializations, inherited conversion
-  templates, full C++20 constraint subsumption, and remaining complex
+  explicit non-type and template-template forms, multi-pack and nested pack
+  expansion combinations, and remaining overload edge cases; support
+  constructor templates, explicit member-template specializations, inherited
+  conversion templates, full C++20 constraint subsumption, and complex
   dependent Itanium ABI substitutions. Conversion target deduction and
   user-defined sequence ranking are specified in
   [`temp.deduct.conv`](https://timsong-cpp.github.io/cppwp/std20/temp.deduct.conv)

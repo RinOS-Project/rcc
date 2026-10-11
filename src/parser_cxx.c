@@ -15379,6 +15379,13 @@ static bool cxx_member_template_call_angle_follows(void) {
     return false;
 }
 
+static bool cxx_member_template_empty_argument_call(void) {
+    Token* token = parser.cur;
+    return token && token->type == TOK_LT && token->next &&
+        token->next->type == TOK_GT && token->next->next &&
+        token->next->next->type == TOK_LPAREN;
+}
+
 static bool cxx_explicit_template_argument_starts_type(void) {
     switch (peek()->type) {
         case TOK_VOID:
@@ -15471,6 +15478,7 @@ bool rcc_parse_cxx_member_template_arguments(Expr* member) {
     if (!member || !check(TOK_LT) ||
         !cxx_member_template_call_angle_follows() ||
         (!member_template &&
+         !cxx_member_template_empty_argument_call() &&
          !cxx_member_template_argument_after_open_starts_type() &&
          !cxx_member_template_argument_after_open_starts_value())) {
         return false;
