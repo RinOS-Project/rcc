@@ -1892,6 +1892,13 @@
         full gateの成功ではない。GCCへ戻した後、`test-debug-info`、
         `test-cxx-function-templates`、`test-cxx-class-template-dependent-nested-type`
         は再実行して通過。
+  - [x] BFDの`pe-i386`/`i386:x86-64`とLLVMの`coff-i386`/`x86_64`という
+        COFF machine表記差をWindowsの`rcc_grep.ps1`で同一architectureとして扱う。
+        Clang 18.1.4でfull `test-ci`を再実行し、C17/C++20、IR/MIR、verified
+        backend、optimizer、ABI、image validation、golden/fuzz、linker等の
+        Windows実行可能なtargetが通過した。最初のWSL-only bootstrap target
+        `test-bootstrap-core`で`Wsl/Service/E_ACCESSDENIED`となり、この結果は
+        full `test-ci`の成功ではない。stage1実行とstage2再現は未実施。
   - Clang full `test-ci` production gateは未完了。WSL startupは
     `Wsl/Service/CreateInstance/E_ACCESSDENIED`であり、Linux CI/WSL上で
     全経路を実行する必要がある。

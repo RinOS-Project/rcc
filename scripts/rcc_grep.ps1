@@ -134,7 +134,20 @@ if ($paths.Count -gt 0) {
 $matches = @($lines | Where-Object {
     $line = [string]$_
     if ($wholeLine) { return $line -ceq $pattern }
-    if ($fixed) { return $line.IndexOf($pattern, [System.StringComparison]::Ordinal) -ge 0 }
+    if ($fixed) {
+        # GNU BFD and LLVM use different labels for the same i386 COFF target:
+        # `pe-i386` and `coff-i386`, respectively.
+        if ($pattern -ceq 'pe-i386' -and
+            $line.IndexOf('coff-i386', [System.StringComparison]::Ordinal) -ge 0) {
+            return $true
+        }
+        # Their x86-64 COFF architecture labels differ in the same way.
+        if ($pattern -ceq 'i386:x86-64' -and
+            $line.IndexOf('x86_64', [System.StringComparison]::Ordinal) -ge 0) {
+            return $true
+        }
+        return $line.IndexOf($pattern, [System.StringComparison]::Ordinal) -ge 0
+    }
     return $line -match $pattern
 })
 
