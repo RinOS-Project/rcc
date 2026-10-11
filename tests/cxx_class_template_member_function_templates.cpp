@@ -31,6 +31,10 @@ struct Box {
         return other.template echo<T>(value);
     }
 
+    T echo_through_object_deduced(const Box& other, T value) const {
+        return other.template echo(value);
+    }
+
     template<typename U>
     static U identity(U other) {
         return other;
@@ -44,6 +48,7 @@ int main() {
                    integers.echo(9L) == 9L &&
                    integers.echo_through_member(13) == 13 &&
                    integers.echo_through_object(integers, 14) == 14 &&
+                   integers.echo_through_object_deduced(integers, 15) == 15 &&
                    integers.identity(12L) == 12L &&
                    integers.add<short>(2) == 6 &&
                    integers.add_constant() == 6 &&

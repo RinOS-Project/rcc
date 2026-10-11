@@ -5116,6 +5116,8 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE19echo_through_objectERKS0_i" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE27echo_through_object_deducedERKS0_i" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi3EEEiv" \
@@ -5152,6 +5154,8 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK3BoxIiE19echo_through_memberEi" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE19echo_through_objectERKS0_i" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE27echo_through_object_deducedERKS0_i" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
@@ -5588,6 +5592,10 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK3BoxIiE4echoIiEET_S2_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE19echo_through_memberEi" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE19echo_through_objectERKS0_i" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE27echo_through_object_deducedERKS0_i" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
