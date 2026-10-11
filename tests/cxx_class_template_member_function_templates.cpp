@@ -49,8 +49,8 @@ struct Box {
         return sizeof...(Args);
     }
 
-    template<typename... Args>
-    int count_tagged(PackTagged<Args, 7>...) const {
+    template<int Tag, typename... Args>
+    int count_tagged(PackTagged<Args, Tag>...) const {
         return sizeof...(Args);
     }
 

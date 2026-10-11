@@ -660,6 +660,10 @@ struct Expr {
     /* A bounded named C++20 concept call is evaluated only while checking a
      * template constraint; it is never lowered as a runtime function call. */
     struct CxxTemplate* cxx_concept_template;
+    /* Lexical template scope for dependent non-type arguments in a nested
+     * class-template-id. Enclosing-class substitution must retain references
+     * that belong to a member template until that member is specialized. */
+    struct CxxTemplate* cxx_template_context;
     /* C++ `sizeof...(Pack)` is retained until a function-template
      * specialization supplies the pack length. */
     const char* sizeof_pack_name;

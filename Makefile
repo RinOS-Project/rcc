@@ -5130,7 +5130,7 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE20count_matching_pairsIJilEEEiDp8PackPairIT_S3_E" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
-	$(GREP) -F -q "_ZNK3BoxIiE12count_taggedIJilEEEiDp10PackTaggedIT_Li7EE" \
+	$(GREP) -F -q "_ZNK3BoxIiE12count_taggedILi7EJilEEEiDp10PackTaggedIT0_XT_EE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
@@ -5203,7 +5203,7 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE20count_matching_pairsIJilEEEiDp8PackPairIT_S3_E" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
-	$(GREP) -F -q "_ZNK3BoxIiE12count_taggedIJilEEEiDp10PackTaggedIT_Li7EE" \
+	$(GREP) -F -q "_ZNK3BoxIiE12count_taggedILi7EJilEEEiDp10PackTaggedIT0_XT_EE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
@@ -5661,7 +5661,7 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE20count_matching_pairsIJilEEEiDp8PackPairIT_S3_E" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
-	$(GREP) -F -q "_ZNK3BoxIiE12count_taggedIJilEEEiDp10PackTaggedIT_Li7EE" \
+	$(GREP) -F -q "_ZNK3BoxIiE12count_taggedILi7EJilEEEiDp10PackTaggedIT0_XT_EE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s

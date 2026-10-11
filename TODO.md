@@ -2629,17 +2629,19 @@ separately recorded WSL startup failure.
   empty and non-empty `add_constants` folds and `sizeof...(Args)` for empty
   and heterogeneous argument sequences. Deduce a pack through the nested
   `PackPair<Args, Args>...` pattern, enforce the repeated type, and preserve
-  the nested template-id in GCC-matching Itanium mangling. Also deduce
-  `PackTagged<Args, 7>...`, compare the fixed integral non-type argument, and
-  encode its `Li7E` ABI argument; exact nested-pack symbols are checked against
-  GCC. Mismatched `PackPair<int, long>` and `PackTagged<int, 8>` arguments are
-  rejected on both targets without producing an object (matching GCC's
-  rejection). The focused gate passes i686/AMD64 assembly and object
-  generation, generated AMD64 execution, GCC C++20 `-Wall -Wextra -Werror`,
-  and verified-backend output for both targets. The complete native-Windows
-  `mingw32-make SHELL=cmd.exe test-cxx` aggregate exits 0 after these additions.
+  the nested template-id in GCC-matching Itanium mangling. Deduce scalar `Tag`
+  from `PackTagged<Args, Tag>...` across each pack element, require one
+  consistent value, and encode the dependent argument as GCC's `XT_E`; exact
+  symbols match GCC. Mismatched `PackPair<int, long>` and mixed-tag
+  `PackTagged<int, 7>, PackTagged<long, 8>` arguments are rejected on both
+  targets without producing an object (matching GCC). The focused gate passes
+  i686/AMD64 assembly and object generation, generated AMD64 execution, GCC
+  C++20 `-Wall -Wextra -Werror`, and verified-backend output for both targets.
+  The complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx` and
+  `test-c17` aggregates exit 0 after these additions.
 - [ ] Complete member-template deduction and overload selection for remaining
-  dependent explicit non-type and template-template forms, expansions involving
+  general dependent non-type expressions and template-template forms,
+  expansions involving
   multiple distinct packs and other nested patterns, and remaining overload
   edge cases; support
   constructor templates, explicit member-template specializations, inherited

@@ -12709,9 +12709,13 @@ CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
 
 static bool cxx_expression_references_template_non_type_parameter(
     const Expr* expression, const CxxTemplate* tmpl) {
-    if (!expression || !tmpl) return false;
+    const CxxTemplate* expression_template;
+    if (!expression) return false;
+    expression_template = expression->cxx_template_context
+        ? expression->cxx_template_context : tmpl;
+    if (!expression_template) return false;
     if (expression->kind == EXPR_IDENT && expression->ident_name) {
-        for (const CxxTemplate* scope = tmpl; scope;
+        for (const CxxTemplate* scope = expression_template; scope;
              scope = scope->enclosing_template) {
             for (int index = 0; index < scope->param_count; ++index) {
                 const TemplateParam* parameter = &scope->params[index];
@@ -12728,10 +12732,10 @@ static bool cxx_expression_references_template_non_type_parameter(
         case EXPR_NOT:
         case EXPR_BITNOT:
             return cxx_expression_references_template_non_type_parameter(
-                expression->unary_operand, tmpl);
+                expression->unary_operand, expression_template);
         case EXPR_CAST:
             return cxx_expression_references_template_non_type_parameter(
-                expression->cast_expr, tmpl);
+                expression->cast_expr, expression_template);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -12751,16 +12755,16 @@ static bool cxx_expression_references_template_non_type_parameter(
         case EXPR_AND:
         case EXPR_OR:
             return cxx_expression_references_template_non_type_parameter(
-                       expression->binary_lhs, tmpl) ||
+                       expression->binary_lhs, expression_template) ||
                    cxx_expression_references_template_non_type_parameter(
-                       expression->binary_rhs, tmpl);
+                       expression->binary_rhs, expression_template);
         case EXPR_COND:
             return cxx_expression_references_template_non_type_parameter(
-                       expression->cond_test, tmpl) ||
+                       expression->cond_test, expression_template) ||
                    cxx_expression_references_template_non_type_parameter(
-                       expression->cond_then, tmpl) ||
+                       expression->cond_then, expression_template) ||
                    cxx_expression_references_template_non_type_parameter(
-                       expression->cond_else, tmpl);
+                       expression->cond_else, expression_template);
         default:
             return false;
     }
@@ -12802,6 +12806,9 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 value_expression = parse_assignment_expression();
                 rcc_parser_set_cxx_template_default_mode(false);
                 value_expressions[argument_count] = value_expression;
+                if (value_expression) {
+                    value_expression->cxx_template_context = active_template;
+                }
                 if (expr_eval_integer_constant(value_expression, &value)) {
                     values[argument_count] = value;
                     value_present[argument_count] = true;
@@ -13312,6 +13319,7 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
                     int64_t pattern_integer;
                     int64_t actual_integer;
                     bool actual_value_known = false;
+                    bool pattern_parameter_matched = false;
                     if (actual_class &&
                         actual_class->template_identity_tmpl &&
                         actual_class->template_identity_value_present &&
@@ -13335,10 +13343,37 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
                                                           &actual_integer)) {
                         actual_value_known = true;
                     }
+                    if (pattern_value &&
+                        pattern_value->kind == EXPR_IDENT &&
+                        pattern_value->ident_name && values &&
+                        value_present) {
+                        for (int parameter_index = 0;
+                             parameter_index < tmpl->param_count;
+                             ++parameter_index) {
+                            TemplateParam* parameter =
+                                &tmpl->params[parameter_index];
+                            if (parameter->kind != TPARAM_NONTYPE ||
+                                !parameter->name ||
+                                strcmp(parameter->name,
+                                       pattern_value->ident_name) != 0) {
+                                continue;
+                            }
+                            if (!actual_value_known ||
+                                (value_present[parameter_index] &&
+                                 values[parameter_index] != actual_integer)) {
+                                return false;
+                            }
+                            values[parameter_index] = actual_integer;
+                            value_present[parameter_index] = true;
+                            pattern_parameter_matched = true;
+                            break;
+                        }
+                    }
                     if (!pattern_value || !actual_value_known ||
-                        !expr_eval_integer_constant(pattern_value,
-                                                    &pattern_integer) ||
-                        pattern_integer != actual_integer) {
+                        (!pattern_parameter_matched &&
+                         (!expr_eval_integer_constant(pattern_value,
+                                                      &pattern_integer) ||
+                          pattern_integer != actual_integer))) {
                         return false;
                     }
                 } else {
@@ -14169,6 +14204,38 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                                   "function template pack argument does not match its expansion pattern");
                     }
                     return false;
+                }
+                for (int template_index = 0;
+                     template_index < tmpl->param_count;
+                     ++template_index) {
+                    TemplateParam* template_parameter =
+                        &tmpl->params[template_index];
+                    if (template_index == pack_index) continue;
+                    if (template_parameter->kind == TPARAM_TYPE &&
+                        !template_parameter->is_pack &&
+                        element_arguments[template_index]) {
+                        if (template_arguments[template_index] &&
+                            !type_is_compatible(
+                                template_arguments[template_index],
+                                element_arguments[template_index])) {
+                            return false;
+                        }
+                        template_arguments[template_index] =
+                            element_arguments[template_index];
+                    } else if (template_parameter->kind == TPARAM_NONTYPE &&
+                               !template_parameter->is_pack &&
+                               element_value_present[template_index]) {
+                        if (!template_values ||
+                            !template_value_present ||
+                            (template_value_present[template_index] &&
+                             template_values[template_index] !=
+                                 element_values[template_index])) {
+                            return false;
+                        }
+                        template_values[template_index] =
+                            element_values[template_index];
+                        template_value_present[template_index] = true;
+                    }
                 }
                 pack_arguments[(*pack_count)++] =
                     element_arguments[pack_index];
