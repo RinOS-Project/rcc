@@ -5992,16 +5992,18 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 test-cxx-conversion-operator: $(RCXX_TARGET) test-cxx-conversion-reference-ranking-ambiguous
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conversion-operator,cxx_conversion_operator.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator/function-reference)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conversion-operator/function-reference,cxx_function_reference_verified.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror \
 		-o $(TEST_OUT)/cxx-conversion-operator/gcc-host \
 		tests/cxx_conversion_operator.cpp
 	$(TEST_OUT)/cxx-conversion-operator/gcc-host
 	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_function_reference_verified.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-conversion-operator/function-reference-x86.ro tests/cxx_function_reference_verified.cpp >$(TEST_OUT)/cxx-conversion-operator/function-reference-x86.log 2>&1
-	$(GREP) -F -q "Verified backend: 5 function(s) emitted" $(TEST_OUT)/cxx-conversion-operator/function-reference-x86.log
+	$(GREP) -F -q "Verified backend: 6 function(s) emitted" $(TEST_OUT)/cxx-conversion-operator/function-reference-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-conversion-operator/function-reference-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-conversion-operator/function-reference-x64.ro tests/cxx_function_reference_verified.cpp >$(TEST_OUT)/cxx-conversion-operator/function-reference-x64.log 2>&1
-	$(GREP) -F -q "Verified backend: 5 function(s) emitted" $(TEST_OUT)/cxx-conversion-operator/function-reference-x64.log
+	$(GREP) -F -q "Verified backend: 6 function(s) emitted" $(TEST_OUT)/cxx-conversion-operator/function-reference-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-conversion-operator/function-reference-x64.log,0)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_conversion_operator_different_functions_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/different-functions-gcc.log)
 	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-operator/different-functions-gcc.log

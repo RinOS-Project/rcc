@@ -23,3 +23,7 @@ public:
 int invoke_function_reference(FunctionReferenceTarget& function) {
     return function();
 }
+
+int main() {
+    return invoke_function_reference(lvalue_function_target) == 97 ? 0 : 1;
+}
