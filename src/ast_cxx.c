@@ -831,6 +831,11 @@ static bool cxx_member_template_expression_supported(
                cxx_member_template_expression_supported(
                    expression->cond_else, tmpl);
     }
+    if (expression->kind == EXPR_CAST) {
+        return expression->cast_type &&
+               cxx_member_template_expression_supported(
+                   expression->cast_expr, tmpl);
+    }
     return false;
 }
 
@@ -886,6 +891,31 @@ static void cxx_member_template_expression_append(
             buf[(*pos)++] = '_';
             return;
         }
+    }
+    if (expression->kind == EXPR_CAST) {
+        const char* cast_operator = "cv";
+        char* cast_type = cxx_mangle_type(expression->cast_type);
+        size_t cast_type_length = cast_type ? strlen(cast_type) : 0u;
+        switch (expression->cxx_cast_kind) {
+            case CXX_CAST_STATIC: cast_operator = "sc"; break;
+            case CXX_CAST_REINTERPRET: cast_operator = "rc"; break;
+            case CXX_CAST_CONST: cast_operator = "cc"; break;
+            case CXX_CAST_DYNAMIC: cast_operator = "dc"; break;
+            case CXX_CAST_NONE: break;
+        }
+        if (!cast_type ||
+            *pos + cast_type_length + strlen(cast_operator) >=
+                CXX_MANGLE_BUFFER_SIZE) {
+            rcc_fatal("C++ member template cast expression is too long");
+        }
+        size_t cast_operator_length = strlen(cast_operator);
+        memcpy(buf + *pos, cast_operator, cast_operator_length);
+        *pos += cast_operator_length;
+        memcpy(buf + *pos, cast_type, cast_type_length);
+        *pos += cast_type_length;
+        cxx_member_template_expression_append(
+            buf, pos, expression->cast_expr, tmpl);
+        return;
     }
     if (expression->kind == EXPR_COND) {
         operation = "qu";

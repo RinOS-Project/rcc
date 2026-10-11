@@ -2663,6 +2663,11 @@ separately recorded WSL startup failure.
   Positive and mismatched-value tests cover both targets; exact symbols match
   GCC, with no object output for mismatches. Native-Windows `test-cxx` and
   `test-c17` aggregates both exit 0.
+- [x] Encode dependent integral `static_cast` expressions in nested
+  member-template pack patterns, using the Itanium `sc` operator and the
+  destination type. The full symbol matches GCC; valid calls execute and an
+  incorrect cast result is rejected on both targets without object output.
+  The focused gate and complete native-Windows `test-cxx` aggregate pass.
 - [ ] Complete member-template deduction and overload selection for remaining
   general dependent non-type expressions and template-template forms,
   expansions involving

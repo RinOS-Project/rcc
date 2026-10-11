@@ -5160,6 +5160,8 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE19count_tagged_selectILi6EJilEEEiDp10PackTaggedIT0_XqultT_Li7EgeT_Li6EleT_Li3EEE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE17count_tagged_castILi6EJilEEEiDp10PackTaggedIT0_XsciT_EE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJEEEiv" \
@@ -5202,6 +5204,7 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_logical_and'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_logical_or'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_select'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
@@ -5219,6 +5222,7 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_logical_and'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_logical_or'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_select'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log)
 	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log
@@ -5288,6 +5292,8 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK3BoxIiE23count_tagged_logical_orILi6EJilEEEiDp10PackTaggedIT0_XoogtT_Li8EleT_Li6EEE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE19count_tagged_selectILi6EJilEEEiDp10PackTaggedIT0_XqultT_Li7EgeT_Li6EleT_Li3EEE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE17count_tagged_castILi6EJilEEEiDp10PackTaggedIT0_XsciT_EE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
@@ -5775,6 +5781,8 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE19count_tagged_selectILi6EJilEEEiDp10PackTaggedIT0_XqultT_Li7EgeT_Li6EleT_Li3EEE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE17count_tagged_castILi6EJilEEEiDp10PackTaggedIT0_XsciT_EE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJEEEiv" \
@@ -5817,6 +5825,7 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_logical_and'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_logical_or'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_select'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
@@ -5834,6 +5843,7 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_logical_and'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_logical_or'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_select'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log)
 	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log

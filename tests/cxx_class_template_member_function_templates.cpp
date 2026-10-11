@@ -127,6 +127,11 @@ struct Box {
         return sizeof...(Args);
     }
 
+    template<int Tag, typename... Args>
+    int count_tagged_cast(PackTagged<Args, static_cast<int>(Tag)>...) const {
+        return sizeof...(Args);
+    }
+
     template<int... Values>
     T add_constants() const {
         return (0 + ... + Values);
@@ -215,6 +220,9 @@ int main() {
                    integers.count_tagged_select<6>(
                        PackTagged<int, 1>{1},
                        PackTagged<long, 1>{2}) == 2 &&
+                   integers.count_tagged_cast<6>(
+                       PackTagged<int, 6>{1},
+                       PackTagged<long, 6>{2}) == 2 &&
                    integers.add_constants<2, 3>() == 5 &&
                    integers.add_constants<>() == 0 &&
                    integers.identity(12L) == 12L &&
