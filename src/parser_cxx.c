@@ -16574,6 +16574,107 @@ static bool cxx_function_template_reference_adjustment_equivalent(
     return saw_reference_adjustment && !left_parameter && !right_parameter;
 }
 
+static bool cxx_function_template_array_bound_is_parameter(
+    const CxxTemplate* tmpl, const Type* array_type) {
+    const Expr* bound;
+    if (!tmpl || !array_type || array_type->kind != TYPE_ARRAY ||
+        !(bound = array_type->array_bound) || bound->kind != EXPR_IDENT ||
+        !bound->ident_name) {
+        return false;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        const TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind == TPARAM_NONTYPE && !parameter->is_pack &&
+            parameter->name &&
+            strcmp(parameter->name, bound->ident_name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* A fixed array extent pattern is more specialized than a direct non-type
+ * parameter extent when the remaining function parameter patterns match.
+ * Compare the original templates here: after call deduction both signatures
+ * have concrete extents, so the instantiated types cannot express this
+ * partial-ordering distinction. */
+static int cxx_function_template_array_extent_pattern_relation(
+    const CxxFunctionTemplateMatch* left,
+    const CxxFunctionTemplateMatch* right) {
+    Type* left_function;
+    Type* right_function;
+    TypeParam* left_parameter;
+    TypeParam* right_parameter;
+    bool left_better = false;
+    bool right_better = false;
+    if (!left || !right || !left->tmpl || !right->tmpl ||
+        !left->tmpl->func_def || !right->tmpl->func_def ||
+        !(left_function = left->tmpl->func_def->type) ||
+        !(right_function = right->tmpl->func_def->type) ||
+        left_function->kind != TYPE_FUNC ||
+        right_function->kind != TYPE_FUNC ||
+        left_function->variadic != right_function->variadic) {
+        return 0;
+    }
+    left_parameter = left_function->params;
+    right_parameter = right_function->params;
+    while (left_parameter && right_parameter) {
+        Type* left_pattern = left_parameter->type;
+        Type* right_pattern = right_parameter->type;
+        Type* left_array = left_pattern;
+        Type* right_array = right_pattern;
+        bool same_reference_category;
+        if (!left_pattern || !right_pattern) return 0;
+        same_reference_category =
+            left_pattern->is_reference == right_pattern->is_reference &&
+            (!left_pattern->is_reference ||
+             left_pattern->is_rvalue_reference ==
+                 right_pattern->is_rvalue_reference);
+        if (left_pattern->is_reference) left_array = left_pattern->base;
+        if (right_pattern->is_reference) right_array = right_pattern->base;
+        if (!same_reference_category || !left_array || !right_array) {
+            if (!cxx_template_type_parameter_mapping_matches(
+                    left_pattern, left->tmpl,
+                    right_pattern, right->tmpl)) {
+                return 0;
+            }
+        } else if (left_array->kind == TYPE_ARRAY &&
+                   right_array->kind == TYPE_ARRAY &&
+                   left_array->base && right_array->base &&
+                   cxx_template_type_parameter_mapping_matches(
+                       left_array->base, left->tmpl,
+                       right_array->base, right->tmpl)) {
+            bool left_extent_parameter =
+                cxx_function_template_array_bound_is_parameter(
+                    left->tmpl, left_array);
+            bool right_extent_parameter =
+                cxx_function_template_array_bound_is_parameter(
+                    right->tmpl, right_array);
+            if (left_array->array_len >= 0 && right_extent_parameter) {
+                left_better = true;
+            } else if (right_array->array_len >= 0 &&
+                       left_extent_parameter) {
+                right_better = true;
+            } else if (!cxx_template_type_parameter_mapping_matches(
+                           left_pattern, left->tmpl,
+                           right_pattern, right->tmpl)) {
+                return 0;
+            }
+        } else if (!cxx_template_type_parameter_mapping_matches(
+                       left_pattern, left->tmpl,
+                       right_pattern, right->tmpl)) {
+            return 0;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    if (left_parameter || right_parameter ||
+        (left_better && right_better)) {
+        return 0;
+    }
+    return left_better ? 1 : (right_better ? -1 : 0);
+}
+
 static int cxx_function_template_match_relation(
     const CxxFunctionTemplateMatch* left,
     const CxxFunctionTemplateMatch* right) {
@@ -16590,6 +16691,9 @@ static int cxx_function_template_match_relation(
         !cxx_function_template_reference_adjustment_equivalent(left, right)) {
         return left->specificity > right->specificity ? 1 : -1;
     }
+    int array_extent_relation =
+        cxx_function_template_array_extent_pattern_relation(left, right);
+    if (array_extent_relation != 0) return array_extent_relation;
     if (left->fixed_function_parameter_count !=
         right->fixed_function_parameter_count) {
         return left->fixed_function_parameter_count >

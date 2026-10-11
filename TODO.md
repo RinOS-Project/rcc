@@ -506,6 +506,11 @@
         distinct, non-subsuming atomic constraints ambiguous even when both
         evaluate true. GCC C++20, RCC++ dual-architecture diagnostics, and
         AMD64 execution pass in `test-cxx-function-template-overloads`.
+  - [x] Compare original function-template array-reference patterns when one
+        uses a direct non-type extent parameter and the other a fixed extent.
+        For `int[1]`, `T (&)[1]` now wins over `T (&)[N]`; GCC C++20, RCC++
+        i686/AMD64 generation, AMD64 execution, and the full native-Windows
+        `test-cxx` aggregate pass.
   - [ ] full partial ordering, all parameter-pack deduction rules, and
         unsupported constexpr evaluation required for complete standard
         conformance

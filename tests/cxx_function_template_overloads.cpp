@@ -499,6 +499,16 @@ int choose_array_bound_reference_cv_template(const Element (&value)[1]) {
     return value[0] + 80;
 }
 
+template<typename Element, int Extent>
+int choose_template_array_extent(Element (&value)[Extent]) {
+    return value[0] + 160;
+}
+
+template<typename Element>
+int choose_template_array_extent(Element (&value)[1]) {
+    return value[0] + 170;
+}
+
 template<typename T>
 int choose_nearer_base(T*, ConversionBaseRoot*) {
     return 81;
@@ -1012,6 +1022,7 @@ int main(void) {
                    choose_array_bound_reference_cv(array_value) == 65 &&
                    choose_array_bound_reference_cv_template(array_value) ==
                        85 &&
+                   choose_template_array_extent(array_value) == 175 &&
                    choose_base_over_void_non_template(leaf_pointer) == 97 &&
                    choose_nearer_base(leaf_pointer, leaf_pointer) == 82 &&
                    choose_nearer_base_reference(leaf_pointer, leaf) == 86 &&
