@@ -100,6 +100,23 @@ int select_crossed_array_pointer_extent(Element (*)[1],
     return 4;
 }
 
+template<int First, int Second>
+struct IncomparableRepeatedNontypeTag {};
+
+template<int Value, int First, int Second>
+int select_incomparable_repeated_nontype_order(
+    IncomparableRepeatedNontypeTag<Value, Value>,
+    IncomparableRepeatedNontypeTag<First, Second>) {
+    return 5;
+}
+
+template<int First, int Second, int Value>
+int select_incomparable_repeated_nontype_order(
+    IncomparableRepeatedNontypeTag<First, Second>,
+    IncomparableRepeatedNontypeTag<Value, Value>) {
+    return 6;
+}
+
 int main() {
     int value = 3;
     int* pointer = &value;
@@ -113,5 +130,8 @@ int main() {
            select_by_value_or_const_pointer_reference(pointer) +
            select_by_value_or_volatile_pointer_reference(pointer) +
            select_incomparable_constraints(value) +
-           select_crossed_array_pointer_extent(&array, &array);
+           select_crossed_array_pointer_extent(&array, &array) +
+           select_incomparable_repeated_nontype_order(
+               IncomparableRepeatedNontypeTag<1, 1>{},
+               IncomparableRepeatedNontypeTag<2, 2>{});
 }

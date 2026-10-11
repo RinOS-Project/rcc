@@ -16760,6 +16760,258 @@ static int cxx_function_template_array_extent_pattern_relation(
     return left_better ? 1 : (right_better ? -1 : 0);
 }
 
+typedef struct {
+    const CxxTemplate* left_template;
+    const CxxTemplate* right_template;
+    int left_to_right[32];
+    int right_to_left[32];
+    bool left_repeats_parameter;
+    bool right_repeats_parameter;
+    bool saw_parameter;
+} CxxFunctionTemplateNontypePattern;
+
+static int cxx_function_template_nontype_parameter_index(
+    const CxxTemplate* tmpl, const Expr* expression) {
+    if (!tmpl || !expression || expression->kind != EXPR_IDENT ||
+        !expression->ident_name) {
+        return -1;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        const TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind == TPARAM_NONTYPE && !parameter->is_pack &&
+            parameter->name &&
+            strcmp(parameter->name, expression->ident_name) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+static bool cxx_function_template_nontype_pattern_value_matches(
+    CxxFunctionTemplateNontypePattern* pattern,
+    const Expr* left_expression, const Expr* right_expression) {
+    int left_index = cxx_function_template_nontype_parameter_index(
+        pattern->left_template, left_expression);
+    int right_index = cxx_function_template_nontype_parameter_index(
+        pattern->right_template, right_expression);
+    if (left_index >= 0 || right_index >= 0) {
+        const TemplateParam* left_parameter;
+        const TemplateParam* right_parameter;
+        if (left_index < 0 || right_index < 0) return false;
+        left_parameter = &pattern->left_template->params[left_index];
+        right_parameter = &pattern->right_template->params[right_index];
+        if (!cxx_template_type_parameter_mapping_matches(
+                left_parameter->type, pattern->left_template,
+                right_parameter->type, pattern->right_template)) {
+            return false;
+        }
+        if (pattern->left_to_right[left_index] >= 0 &&
+            pattern->left_to_right[left_index] != right_index) {
+            pattern->left_repeats_parameter = true;
+        } else {
+            pattern->left_to_right[left_index] = right_index;
+        }
+        if (pattern->right_to_left[right_index] >= 0 &&
+            pattern->right_to_left[right_index] != left_index) {
+            pattern->right_repeats_parameter = true;
+        } else {
+            pattern->right_to_left[right_index] = left_index;
+        }
+        pattern->saw_parameter = true;
+        return true;
+    }
+    int64_t left_value;
+    int64_t right_value;
+    return left_expression && right_expression &&
+        expr_eval_integer_constant((Expr*)left_expression, &left_value) &&
+        expr_eval_integer_constant((Expr*)right_expression, &right_value) &&
+        left_value == right_value;
+}
+
+static bool cxx_function_template_nontype_pattern_type_matches(
+    CxxFunctionTemplateNontypePattern* pattern, Type* left, Type* right,
+    unsigned depth) {
+    if (!pattern || !left || !right || depth > 64u ||
+        left->kind != right->kind ||
+        left->is_const != right->is_const ||
+        left->is_volatile != right->is_volatile ||
+        left->is_atomic != right->is_atomic ||
+        left->is_restrict != right->is_restrict ||
+        left->is_reference != right->is_reference ||
+        left->is_rvalue_reference != right->is_rvalue_reference ||
+        left->is_unsigned != right->is_unsigned ||
+        left->cxx_is_member_pointer != right->cxx_is_member_pointer ||
+        left->cxx_dependent != right->cxx_dependent ||
+        (!!left->cxx_dependent_member_name !=
+         !!right->cxx_dependent_member_name) ||
+        (left->cxx_dependent_member_name &&
+         strcmp(left->cxx_dependent_member_name,
+                right->cxx_dependent_member_name) != 0) ||
+        (left->cxx_dependent &&
+         left->cxx_template_param_index !=
+             right->cxx_template_param_index)) {
+        return false;
+    }
+    switch (left->kind) {
+        case TYPE_PTR:
+        case TYPE_ARRAY:
+        case TYPE_VECTOR:
+            if (left->cxx_is_member_pointer ||
+                (left->kind == TYPE_ARRAY &&
+                 (left->array_len != right->array_len ||
+                  left->array_unspecified_bound !=
+                      right->array_unspecified_bound ||
+                  left->array_parameter_static !=
+                      right->array_parameter_static ||
+                  left->array_parameter_const !=
+                      right->array_parameter_const ||
+                  left->array_parameter_volatile !=
+                      right->array_parameter_volatile ||
+                  left->array_parameter_restrict !=
+                      right->array_parameter_restrict ||
+                  (left->array_len < 0 &&
+                   (left->array_bound || right->array_bound)))) ||
+                (left->kind == TYPE_VECTOR &&
+                 (left->size != right->size ||
+                  left->array_len != right->array_len))) {
+                return false;
+            }
+            return cxx_function_template_nontype_pattern_type_matches(
+                pattern, left->base, right->base, depth + 1u);
+        case TYPE_FUNC: {
+            TypeParam* left_parameter = left->params;
+            TypeParam* right_parameter = right->params;
+            if (left->variadic != right->variadic ||
+                left->has_prototype != right->has_prototype ||
+                left->function_is_noexcept != right->function_is_noexcept ||
+                left->function_ref_qualifier !=
+                    right->function_ref_qualifier ||
+                !cxx_function_template_nontype_pattern_type_matches(
+                    pattern, left->ret_type, right->ret_type, depth + 1u)) {
+                return false;
+            }
+            while (left_parameter && right_parameter) {
+                if (!cxx_function_template_nontype_pattern_type_matches(
+                        pattern, left_parameter->type,
+                        right_parameter->type, depth + 1u)) {
+                    return false;
+                }
+                left_parameter = left_parameter->next;
+                right_parameter = right_parameter->next;
+            }
+            return !left_parameter && !right_parameter;
+        }
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+            if (!left->tag || !right->tag ||
+                strcmp(left->tag, right->tag) != 0 ||
+                (!!left->cxx_namespace != !!right->cxx_namespace) ||
+                (left->cxx_namespace &&
+                 strcmp(left->cxx_namespace, right->cxx_namespace) != 0) ||
+                (!!left->cxx_scope_identity !=
+                 !!right->cxx_scope_identity) ||
+                (left->cxx_scope_identity &&
+                 strcmp(left->cxx_scope_identity,
+                        right->cxx_scope_identity) != 0) ||
+                (!!left->cxx_template != !!right->cxx_template) ||
+                (left->cxx_template &&
+                 left->cxx_template != right->cxx_template) ||
+                left->cxx_template_arg_count !=
+                    right->cxx_template_arg_count) {
+                return false;
+            }
+            if (left->cxx_template_arg_count == 0) {
+                return cxx_template_type_parameter_mapping_matches(
+                    left, pattern->left_template, right,
+                    pattern->right_template);
+            }
+            if (!left->cxx_template_args || !right->cxx_template_args) {
+                return false;
+            }
+            for (int index = 0; index < left->cxx_template_arg_count;
+                 ++index) {
+                Type* left_argument = left->cxx_template_args[index];
+                Type* right_argument = right->cxx_template_args[index];
+                Expr* left_value = left->cxx_template_value_args
+                    ? left->cxx_template_value_args[index] : NULL;
+                Expr* right_value = right->cxx_template_value_args
+                    ? right->cxx_template_value_args[index] : NULL;
+                if (!!left_argument != !!right_argument ||
+                    (!!left_value != !!right_value) ||
+                    (left_argument &&
+                     !cxx_function_template_nontype_pattern_type_matches(
+                         pattern, left_argument, right_argument,
+                         depth + 1u)) ||
+                    (left_value &&
+                     !cxx_function_template_nontype_pattern_value_matches(
+                         pattern, left_value, right_value))) {
+                    return false;
+                }
+            }
+            return true;
+        default:
+            return cxx_template_type_parameter_mapping_matches(
+                left, pattern->left_template, right,
+                pattern->right_template);
+    }
+}
+
+/* Compare a bounded subset of transformed-template deduction: when matching
+ * class-template-id arguments are direct non-type parameters, repeated use of
+ * one parameter imposes an equality constraint and is more specialized than
+ * independent parameters. Other expression and pack shapes stay with the
+ * existing ordering rules. */
+static int cxx_function_template_repeated_nontype_pattern_relation(
+    const CxxFunctionTemplateMatch* left,
+    const CxxFunctionTemplateMatch* right) {
+    CxxFunctionTemplateNontypePattern pattern = {0};
+    TypeParam* left_parameter;
+    TypeParam* right_parameter;
+    if (!left || !right || !left->tmpl || !right->tmpl ||
+        !left->tmpl->func_def || !right->tmpl->func_def ||
+        !left->tmpl->func_def->type || !right->tmpl->func_def->type ||
+        left->tmpl->func_def->type->kind != TYPE_FUNC ||
+        right->tmpl->func_def->type->kind != TYPE_FUNC ||
+        left->tmpl->param_count < 0 || right->tmpl->param_count < 0 ||
+        left->tmpl->param_count > 32 || right->tmpl->param_count > 32 ||
+        left->tmpl->func_def->type->variadic !=
+            right->tmpl->func_def->type->variadic ||
+        left->tmpl->func_def->type->has_prototype !=
+            right->tmpl->func_def->type->has_prototype) {
+        return 0;
+    }
+    for (DeclList* parameter = left->tmpl->func_def->func_params;
+         parameter; parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->param_is_pack) return 0;
+    }
+    for (DeclList* parameter = right->tmpl->func_def->func_params;
+         parameter; parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->param_is_pack) return 0;
+    }
+    pattern.left_template = left->tmpl;
+    pattern.right_template = right->tmpl;
+    for (int index = 0; index < 32; ++index) {
+        pattern.left_to_right[index] = -1;
+        pattern.right_to_left[index] = -1;
+    }
+    left_parameter = left->tmpl->func_def->type->params;
+    right_parameter = right->tmpl->func_def->type->params;
+    while (left_parameter && right_parameter) {
+        if (!cxx_function_template_nontype_pattern_type_matches(
+                &pattern, left_parameter->type, right_parameter->type, 0u)) {
+            return 0;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    if (left_parameter || right_parameter || !pattern.saw_parameter ||
+        pattern.left_repeats_parameter ==
+            pattern.right_repeats_parameter) {
+        return 0;
+    }
+    return pattern.left_repeats_parameter ? 1 : -1;
+}
+
 static int cxx_function_template_match_relation(
     const CxxFunctionTemplateMatch* left,
     const CxxFunctionTemplateMatch* right) {
@@ -16772,6 +17024,9 @@ static int cxx_function_template_match_relation(
         left, right, &conversions_incomparable);
     if (conversions_incomparable) return 0;
     if (conversion_relation != 0) return conversion_relation;
+    int repeated_nontype_relation =
+        cxx_function_template_repeated_nontype_pattern_relation(left, right);
+    if (repeated_nontype_relation != 0) return repeated_nontype_relation;
     if (left->specificity != right->specificity &&
         !cxx_function_template_reference_adjustment_equivalent(left, right)) {
         return left->specificity > right->specificity ? 1 : -1;

@@ -258,6 +258,21 @@ int choose_expression_non_type_pack_partial_order(
     return 181;
 }
 
+template<int First, int Second>
+struct FunctionTemplateTwoValueTag {};
+
+template<int First, int Second>
+int choose_dependent_non_type_partial_order(
+    FunctionTemplateTwoValueTag<First, Second>) {
+    return 190;
+}
+
+template<int Value>
+int choose_dependent_non_type_partial_order(
+    FunctionTemplateTwoValueTag<Value, Value>) {
+    return 191;
+}
+
 template<typename T, typename... Rest>
 int choose_pointer_pack_over_value(T*, Rest...) {
     return 147;
@@ -1060,6 +1075,8 @@ int main(void) {
                    choose_expression_non_type_pack_partial_order<1, 2>(
                        FunctionTemplateExpressionValuePackTag<2>{},
                        FunctionTemplateExpressionValuePackTag<3>{}) == 181 &&
+                   choose_dependent_non_type_partial_order(
+                       FunctionTemplateTwoValueTag<4, 4>{}) == 191 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&
