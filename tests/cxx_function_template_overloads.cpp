@@ -330,6 +330,30 @@ int count_class_pointer_pack_expansion(
     return 220 + sizeof...(Types);
 }
 
+template<typename... Types>
+int choose_compound_pointer_pack_order(
+    FunctionTemplatePackPartialOrderBox<Types*...>) {
+    return 223;
+}
+
+template<typename First, typename... Rest>
+int choose_compound_pointer_pack_order(
+    FunctionTemplatePackPartialOrderBox<First*, Rest...>) {
+    return 224;
+}
+
+template<typename... Types>
+int choose_compound_pointer_over_plain_pack(
+    FunctionTemplatePackPartialOrderBox<Types*...>) {
+    return 225;
+}
+
+template<typename... Types>
+int choose_compound_pointer_over_plain_pack(
+    FunctionTemplatePackPartialOrderBox<Types...>) {
+    return 226;
+}
+
 template<template<typename> class Template, typename T>
 int choose_template_template_partial_order(Template<T>) {
     return 194;
@@ -1225,6 +1249,19 @@ int main(void) {
                    count_class_pointer_pack_expansion(
                        FunctionTemplatePackPartialOrderBox<int*, short*>{}) ==
                        222 &&
+                   choose_compound_pointer_pack_order(
+                       FunctionTemplatePackPartialOrderBox<>{}) == 223 &&
+                   choose_compound_pointer_pack_order(
+                       FunctionTemplatePackPartialOrderBox<int*, short>{}) ==
+                       224 &&
+                   choose_compound_pointer_over_plain_pack(
+                       FunctionTemplatePackPartialOrderBox<>{}) == 225 &&
+                   choose_compound_pointer_over_plain_pack(
+                       FunctionTemplatePackPartialOrderBox<int*, short*>{}) ==
+                       225 &&
+                   choose_compound_pointer_over_plain_pack(
+                       FunctionTemplatePackPartialOrderBox<int, short*>{}) ==
+                       226 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&

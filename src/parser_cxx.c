@@ -17814,11 +17814,67 @@ static int cxx_function_template_type_pack_parameter_index(
     return -1;
 }
 
-/* Handle a narrow transformed-template case where both function parameters
- * are the same class-template-id with one trailing type-pack expansion. The
- * expansion pattern must be the function's type pack directly. This is
- * enough to order Box<Ts...> against Box<First, Rest...> without pretending
- * that a pack is one scalar deduced type. */
+/* Compare one element of a class-template-id pack expansion. A pack parameter
+ * acts as a scalar type parameter for this element only; deductions for that
+ * pack are intentionally not merged across expansion elements. */
+static bool cxx_function_template_class_pack_expansion_deduce_element(
+    const CxxTemplate* parameter_template, int parameter_pack_index,
+    Type* parameter_pattern, const CxxTemplate* argument_template,
+    int argument_pack_index, Type* argument_pattern,
+    Type** deduced_arguments, bool* supported) {
+    TemplateParam parameter_params[32];
+    TemplateParam argument_params[32];
+    Type* element_deduced_arguments[32] = { NULL };
+    CxxTemplate parameter_template_view;
+    CxxTemplate argument_template_view;
+    bool nested_supported = false;
+    bool deduced;
+    if (supported) *supported = false;
+    if (!parameter_template || !argument_template ||
+        parameter_template->param_count <= 0 ||
+        argument_template->param_count <= 0 ||
+        parameter_template->param_count > 32 ||
+        argument_template->param_count > 32 || parameter_pack_index < 0 ||
+        parameter_pack_index >= parameter_template->param_count ||
+        argument_pack_index < 0 ||
+        argument_pack_index >= argument_template->param_count ||
+        !parameter_pattern || !argument_pattern || !deduced_arguments) {
+        return false;
+    }
+    memcpy(parameter_params, parameter_template->params,
+           sizeof(TemplateParam) * (size_t)parameter_template->param_count);
+    memcpy(argument_params, argument_template->params,
+           sizeof(TemplateParam) * (size_t)argument_template->param_count);
+    parameter_params[parameter_pack_index].is_pack = false;
+    argument_params[argument_pack_index].is_pack = false;
+    parameter_template_view = *parameter_template;
+    parameter_template_view.params = parameter_params;
+    argument_template_view = *argument_template;
+    argument_template_view.params = argument_params;
+    memcpy(element_deduced_arguments, deduced_arguments,
+           sizeof(Type*) * (size_t)parameter_template->param_count);
+    deduced = cxx_function_template_partial_order_deduce_type(
+        &parameter_template_view, parameter_pattern,
+        &argument_template_view, argument_pattern,
+        element_deduced_arguments, &nested_supported, 0u);
+    if (!nested_supported) return false;
+    if (!deduced) {
+        if (supported) *supported = true;
+        return false;
+    }
+    for (int index = 0; index < parameter_template->param_count; ++index) {
+        if (index != parameter_pack_index &&
+            parameter_template->params[index].kind == TPARAM_TYPE &&
+            element_deduced_arguments[index]) {
+            deduced_arguments[index] = element_deduced_arguments[index];
+        }
+    }
+    if (supported) *supported = true;
+    return true;
+}
+
+/* Handle transformed-template deduction when both function parameters use
+ * the same class-template-id with one trailing type-pack expansion. */
 static bool cxx_function_template_class_pack_expansion_deduce(
     const CxxFunctionTemplateMatch* parameter_match,
     const CxxFunctionTemplateMatch* argument_match, bool* supported) {
@@ -17838,7 +17894,9 @@ static bool cxx_function_template_class_pack_expansion_deduce(
     int argument_template_pack_index = -1;
     int parameter_pack_count = 0;
     int argument_pack_count = 0;
-    Type** deduced_arguments;
+    bool parameter_direct_pack_pattern;
+    bool argument_direct_pack_pattern;
+    Type* deduced_arguments[32] = { NULL };
     if (supported) *supported = false;
     if (!parameter_match || !argument_match || !parameter_match->tmpl ||
         !argument_match->tmpl || parameter_match->has_function_parameter_pack ||
@@ -17921,39 +17979,79 @@ static bool cxx_function_template_class_pack_expansion_deduce(
     }
     if (parameter_pack_index != parameter_argument_count - 1 ||
         argument_pack_index != argument_argument_count - 1 ||
-        cxx_function_template_type_pack_parameter_index(
-            parameter_match->tmpl,
+        cxx_parser_template_parameter_pack_index(
+            (CxxTemplate*)parameter_match->tmpl,
             parameter_arguments[parameter_pack_index]) !=
             parameter_template_pack_index ||
-        cxx_function_template_type_pack_parameter_index(
-            argument_match->tmpl, argument_arguments[argument_pack_index]) !=
+        cxx_parser_template_parameter_pack_index(
+            (CxxTemplate*)argument_match->tmpl,
+            argument_arguments[argument_pack_index]) !=
             argument_template_pack_index) {
         return false;
     }
+    parameter_direct_pack_pattern =
+        cxx_function_template_type_pack_parameter_index(
+            parameter_match->tmpl,
+            parameter_arguments[parameter_pack_index]) ==
+        parameter_template_pack_index;
+    argument_direct_pack_pattern =
+        cxx_function_template_type_pack_parameter_index(
+            argument_match->tmpl,
+            argument_arguments[argument_pack_index]) ==
+        argument_template_pack_index;
     for (int index = 0; index < parameter_class_template->param_count; ++index) {
         if (parameter_class_template->params[index].kind != TPARAM_TYPE) {
             return false;
         }
     }
-    if (supported) *supported = true;
     int parameter_fixed_count = parameter_pack_index;
     int argument_fixed_count = argument_pack_index;
-    if (parameter_fixed_count > argument_fixed_count) return false;
-    deduced_arguments = ast_arena_alloc(
-        sizeof(*deduced_arguments) *
-        (size_t)parameter_match->tmpl->param_count);
-    memset(deduced_arguments, 0,
-           sizeof(*deduced_arguments) *
-               (size_t)parameter_match->tmpl->param_count);
-    for (int index = 0; index < parameter_fixed_count; ++index) {
-        bool nested_supported = false;
-        if (!cxx_function_template_partial_order_deduce_type(
-                parameter_match->tmpl, parameter_arguments[index],
-                argument_match->tmpl, argument_arguments[index],
-                deduced_arguments, &nested_supported, 0u) ||
-            !nested_supported) {
+    /* A compound expansion cannot be shifted across a fixed prefix by treating
+     * its pack as an unconstrained scalar. Keep those patterns unordered; the
+     * prefix-shift ordering below is valid for direct type-pack expansions. */
+    if (parameter_fixed_count != argument_fixed_count &&
+        (!parameter_direct_pack_pattern ||
+         !argument_direct_pack_pattern)) {
+        if (supported) *supported = true;
+        return false;
+    }
+    int common_fixed_count = parameter_fixed_count < argument_fixed_count
+        ? parameter_fixed_count : argument_fixed_count;
+    for (int index = 0; index < common_fixed_count; ++index) {
+        bool element_supported = false;
+        if (!cxx_function_template_class_pack_expansion_deduce_element(
+                parameter_match->tmpl, parameter_template_pack_index,
+                parameter_arguments[index], argument_match->tmpl,
+                argument_template_pack_index, argument_arguments[index],
+                deduced_arguments, &element_supported)) {
+            if (element_supported && supported) *supported = true;
             return false;
         }
+    }
+    if (parameter_fixed_count > argument_fixed_count) {
+        if (supported) *supported = true;
+        return false;
+    }
+    for (int index = parameter_fixed_count;
+         index < argument_fixed_count; ++index) {
+        bool element_supported = false;
+        if (!cxx_function_template_class_pack_expansion_deduce_element(
+                parameter_match->tmpl, parameter_template_pack_index,
+                parameter_arguments[parameter_pack_index],
+                argument_match->tmpl, argument_template_pack_index,
+                argument_arguments[index], deduced_arguments,
+                &element_supported)) {
+            if (element_supported && supported) *supported = true;
+            return false;
+        }
+    }
+    if (!cxx_function_template_class_pack_expansion_deduce_element(
+            parameter_match->tmpl, parameter_template_pack_index,
+            parameter_arguments[parameter_pack_index], argument_match->tmpl,
+            argument_template_pack_index,
+            argument_arguments[argument_pack_index], deduced_arguments,
+            supported)) {
+        return false;
     }
     return true;
 }
