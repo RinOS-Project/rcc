@@ -86,6 +86,11 @@ struct Box {
     int count_tagged_cast(PackTagged<Args, static_cast<int>(Tag)>...) const {
         return sizeof...(Args);
     }
+
+    template<int Tag, typename... Args>
+    int count_tagged_c_style_cast(PackTagged<Args, (int)Tag>...) const {
+        return sizeof...(Args);
+    }
 };
 
 int main() {
@@ -107,5 +112,6 @@ int main() {
         box.count_tagged_logical_and<6>(PackTagged<int, 0>{1}) +
         box.count_tagged_logical_or<6>(PackTagged<int, 0>{1}) +
         box.count_tagged_select<6>(PackTagged<int, 0>{1}) +
-        box.count_tagged_cast<6>(PackTagged<int, 5>{1});
+        box.count_tagged_cast<6>(PackTagged<int, 5>{1}) +
+        box.count_tagged_c_style_cast<6>(PackTagged<int, 5>{1});
 }

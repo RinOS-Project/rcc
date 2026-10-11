@@ -2668,6 +2668,10 @@ separately recorded WSL startup failure.
   destination type. The full symbol matches GCC; valid calls execute and an
   incorrect cast result is rejected on both targets without object output.
   The focused gate and complete native-Windows `test-cxx` aggregate pass.
+- [x] Encode dependent integral C-style casts in nested member-template pack
+  patterns with the Itanium `cv` operator. GCC symbol matching, positive
+  execution, and mismatched-value rejection without object output pass on the
+  focused i686/AMD64 gate.
 - [ ] Complete member-template deduction and overload selection for remaining
   general dependent non-type expressions and template-template forms,
   expansions involving
