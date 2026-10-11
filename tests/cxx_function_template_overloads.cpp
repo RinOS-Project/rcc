@@ -226,6 +226,16 @@ int choose_pack_pointer_partial_order(T*, Rest...) {
     return 146;
 }
 
+template<typename... Types>
+int choose_pointer_expansion_partial_order(Types*...) {
+    return 201;
+}
+
+template<typename First, typename... Rest>
+int choose_pointer_expansion_partial_order(First*, Rest*...) {
+    return 202;
+}
+
 template<int Value>
 struct FunctionTemplateValuePackTag {};
 
@@ -1072,6 +1082,13 @@ int main(void) {
                    choose_fixed_over_pack(value) == 110 &&
                    choose_fixed_prefix_over_pack(value, value) == 130 &&
                    choose_pack_pointer_partial_order(pointer, value) == 146 &&
+                   choose_pointer_expansion_partial_order() == 201 &&
+                   choose_pointer_expansion_partial_order(pointer) == 202 &&
+                   choose_pointer_expansion_partial_order(pointer,
+                                                          &priority) == 202 &&
+                   choose_pointer_expansion_partial_order(pointer,
+                                                          &priority,
+                                                          pointer) == 202 &&
                    choose_non_type_pack_partial_order(
                        FunctionTemplateValuePackTag<1>{}) == 171 &&
                    choose_non_type_pack_partial_order(

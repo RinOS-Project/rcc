@@ -2792,3 +2792,15 @@ separately recorded WSL startup failure.
   patterns remain ambiguous under GCC and RCC and produce no RCC object.
 - [x] Re-run the complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx`
   aggregate after this ordering change; all C++ regressions pass (exit 0).
+
+## RCC continuation (2026-10-11, pointer-pack partial-ordering regressions)
+
+- [x] Gate the C++20 comparison of `Types*...` with `First*, Rest*...`:
+  the all-pack overload wins for an empty call, while the fixed-first pattern
+  wins for one through three pointer arguments with heterogeneous pointee
+  types. Also verify crossed `First*, Rest...` / `First, Rest*...` patterns
+  remain ambiguous and emit no object. GCC C++20 and the RCC i686/AMD64
+  focused overload target pass; this target is part of `test-cxx` CI coverage.
+- [ ] Continue general C++20 function-template partial ordering across
+  transformed-template deduction, remaining pack shapes, dependent
+  non-type/template-template parameters, constraints, and conversion ties.

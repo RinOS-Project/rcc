@@ -134,9 +134,20 @@ int select_incomparable_fixed_nontype_order(
     return 8;
 }
 
+template<typename First, typename... Rest>
+int select_crossed_pointer_pack_order(First*, Rest...) {
+    return 9;
+}
+
+template<typename First, typename... Rest>
+int select_crossed_pointer_pack_order(First, Rest*...) {
+    return 10;
+}
+
 int main() {
     int value = 3;
     int* pointer = &value;
+    char character = 0;
     int array[1] = { value };
     return (int)select_template((short)1, (short)2) +
            select_incomparable_reference_template(1, value) +
@@ -153,5 +164,6 @@ int main() {
                IncomparableRepeatedNontypeTag<2, 2>{}) +
            select_incomparable_fixed_nontype_order(
                IncomparableFixedNontypeTag<1, 1>{},
-               IncomparableFixedNontypeTag<1, 1>{});
+               IncomparableFixedNontypeTag<1, 1>{}) +
+           select_crossed_pointer_pack_order(pointer, &character);
 }
