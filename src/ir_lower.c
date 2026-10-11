@@ -9327,6 +9327,11 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                  expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
                 RccIrLowerValue address = lower_lvalue_address(
                     context, expression);
+                if (expression->type->kind == TYPE_PTR &&
+                    expression->type->base &&
+                    expression->type->base->kind == TYPE_FUNC) {
+                    return address;
+                }
                 if (expression->type->base &&
                     (expression->type->base->kind == TYPE_ARRAY ||
                      expression->type->base->kind == TYPE_STRUCT ||
