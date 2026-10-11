@@ -5092,7 +5092,7 @@ test-cxx-conversion-operator-posix: $(RCXX_TARGET) test-cxx-conversion-reference
 		-o $(TEST_OUT)/cxx-conversion-operator/function-reference-x86.ro \
 		tests/cxx_function_reference_verified.cpp \
 		>$(TEST_OUT)/cxx-conversion-operator/function-reference-x86.log 2>&1
-	$(GREP) -F -q "Verified backend: 4 function(s) emitted" \
+	$(GREP) -F -q "Verified backend: 6 function(s) emitted" \
 		$(TEST_OUT)/cxx-conversion-operator/function-reference-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-conversion-operator/function-reference-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
@@ -5100,7 +5100,7 @@ test-cxx-conversion-operator-posix: $(RCXX_TARGET) test-cxx-conversion-reference
 		-o $(TEST_OUT)/cxx-conversion-operator/function-reference-x64.ro \
 		tests/cxx_function_reference_verified.cpp \
 		>$(TEST_OUT)/cxx-conversion-operator/function-reference-x64.log 2>&1
-	$(GREP) -F -q "Verified backend: 4 function(s) emitted" \
+	$(GREP) -F -q "Verified backend: 6 function(s) emitted" \
 		$(TEST_OUT)/cxx-conversion-operator/function-reference-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-conversion-operator/function-reference-x64.log,0)
 
