@@ -2886,6 +2886,18 @@ separately recorded WSL startup failure.
 - [x] Verify empty, single-element, and multi-element expansions against GCC
   C++20; the focused overload gate passes for i686 and AMD64 generation and
   AMD64 execution, including existing ambiguity/no-object diagnostics.
-- [ ] Implement C++20 partial ordering between class-template-id pack-expansion
-  patterns. Repeated or mixed pack sources, non-type/template-template packs,
-  and interactions with constraints/conversion ties also remain open.
+- [x] Implement bounded transformed-template ordering between
+  `Box<Types...>` and `Box<First, Rest...>` when both function parameters use
+  the same class-template-id and directly expand one trailing type pack. The
+  nonempty case prefers the fixed-first pattern; `Box<>` remains viable only
+  for the all-pack pattern.
+- [x] Permit zero actual class-template arguments when deducing a direct
+  trailing type-pack expansion, and verify empty, single-element, and
+  multi-element calls against GCC C++20.
+- [x] Run the focused
+  `mingw32-make SHELL=cmd.exe test-cxx-function-template-overloads` gate and
+  the complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx` suite; both
+  pass (exit 0), including i686/AMD64 generation and AMD64 execution.
+- [ ] Extend ordering beyond direct trailing type packs to compound/repeated or
+  mixed pack sources, non-type/template-template packs, and interactions with
+  constraints and conversion-sequence ties.

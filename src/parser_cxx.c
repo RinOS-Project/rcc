@@ -13639,7 +13639,8 @@ static bool deduce_function_template_type_with_pack(
                         expansion_index < class_pack_index ||
                         actual_argument_count < expansion_index ||
                         actual_argument_count > 32 ||
-                        !actual_arguments || !pattern_arguments ||
+                        (actual_argument_count > 0 && !actual_arguments) ||
+                        !pattern_arguments ||
                         function_pack_index < 0 || !deduced_pack_args ||
                         !deduced_pack_count || !deduced_pack_seen ||
                         function_pack_index >= tmpl->param_count ||
@@ -17748,6 +17749,201 @@ static bool cxx_function_template_partial_order_deduces(
     return true;
 }
 
+static int cxx_function_template_type_pack_parameter_index(
+    const CxxTemplate* tmpl, const Type* type) {
+    if (!tmpl || !type || type->kind != TYPE_STRUCT || !type->tag ||
+        !type->cxx_dependent || type->cxx_template || type->cxx_class ||
+        type->cxx_template_arg_count != 0 || type->is_const ||
+        type->is_volatile || type->is_atomic || type->is_restrict ||
+        type->is_reference || type->is_rvalue_reference) {
+        return -1;
+    }
+    if (type->cxx_template_param_index >= 0 &&
+        type->cxx_template_param_index < tmpl->param_count) {
+        const TemplateParam* parameter =
+            &tmpl->params[type->cxx_template_param_index];
+        if (parameter->kind == TPARAM_TYPE && parameter->is_pack &&
+            parameter->name && strcmp(parameter->name, type->tag) == 0) {
+            return type->cxx_template_param_index;
+        }
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        const TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind == TPARAM_TYPE && parameter->is_pack &&
+            parameter->name && strcmp(parameter->name, type->tag) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+/* Handle a narrow transformed-template case where both function parameters
+ * are the same class-template-id with one trailing type-pack expansion. The
+ * expansion pattern must be the function's type pack directly. This is
+ * enough to order Box<Ts...> against Box<First, Rest...> without pretending
+ * that a pack is one scalar deduced type. */
+static bool cxx_function_template_class_pack_expansion_deduce(
+    const CxxFunctionTemplateMatch* parameter_match,
+    const CxxFunctionTemplateMatch* argument_match, bool* supported) {
+    Type* parameter_function;
+    Type* argument_function;
+    Type* parameter_type;
+    Type* argument_type;
+    CxxTemplate* parameter_class_template = NULL;
+    CxxTemplate* argument_class_template = NULL;
+    Type** parameter_arguments = NULL;
+    Type** argument_arguments = NULL;
+    int parameter_argument_count = 0;
+    int argument_argument_count = 0;
+    int parameter_pack_index = -1;
+    int argument_pack_index = -1;
+    int parameter_template_pack_index = -1;
+    int argument_template_pack_index = -1;
+    int parameter_pack_count = 0;
+    int argument_pack_count = 0;
+    Type** deduced_arguments;
+    if (supported) *supported = false;
+    if (!parameter_match || !argument_match || !parameter_match->tmpl ||
+        !argument_match->tmpl || parameter_match->has_function_parameter_pack ||
+        argument_match->has_function_parameter_pack ||
+        !parameter_match->tmpl->func_def || !argument_match->tmpl->func_def ||
+        parameter_match->tmpl->param_count <= 0 ||
+        argument_match->tmpl->param_count <= 0 ||
+        parameter_match->tmpl->param_count > 32 ||
+        argument_match->tmpl->param_count > 32) {
+        return false;
+    }
+    for (int index = 0; index < parameter_match->tmpl->param_count; ++index) {
+        const TemplateParam* parameter =
+            &parameter_match->tmpl->params[index];
+        if (parameter->kind != TPARAM_TYPE) return false;
+        if (parameter->is_pack) {
+            ++parameter_pack_count;
+            parameter_template_pack_index = index;
+        }
+    }
+    for (int index = 0; index < argument_match->tmpl->param_count; ++index) {
+        const TemplateParam* parameter = &argument_match->tmpl->params[index];
+        if (parameter->kind != TPARAM_TYPE) return false;
+        if (parameter->is_pack) {
+            ++argument_pack_count;
+            argument_template_pack_index = index;
+        }
+    }
+    if (parameter_pack_count != 1 || argument_pack_count != 1) return false;
+    parameter_function = parameter_match->tmpl->func_def->type;
+    argument_function = argument_match->tmpl->func_def->type;
+    if (!parameter_function || !argument_function ||
+        parameter_function->kind != TYPE_FUNC ||
+        argument_function->kind != TYPE_FUNC ||
+        parameter_function->variadic != argument_function->variadic ||
+        parameter_function->has_prototype != argument_function->has_prototype ||
+        !parameter_function->params || !argument_function->params ||
+        parameter_function->params->next || argument_function->params->next) {
+        return false;
+    }
+    parameter_type = parameter_function->params->type;
+    argument_type = argument_function->params->type;
+    if (!parameter_type || !argument_type ||
+        parameter_type->kind != TYPE_STRUCT ||
+        argument_type->kind != TYPE_STRUCT ||
+        parameter_type->is_const != argument_type->is_const ||
+        parameter_type->is_volatile != argument_type->is_volatile ||
+        parameter_type->is_reference != argument_type->is_reference ||
+        parameter_type->is_rvalue_reference !=
+            argument_type->is_rvalue_reference) {
+        return false;
+    }
+    cxx_function_template_class_type_pattern_arguments(
+        parameter_type, &parameter_class_template, &parameter_arguments,
+        &parameter_argument_count);
+    cxx_function_template_class_type_pattern_arguments(
+        argument_type, &argument_class_template, &argument_arguments,
+        &argument_argument_count);
+    if (!parameter_class_template ||
+        parameter_class_template != argument_class_template ||
+        parameter_argument_count <= 0 || argument_argument_count <= 0 ||
+        !parameter_arguments || !argument_arguments ||
+        !parameter_type->cxx_template_arg_pack_expansions ||
+        !argument_type->cxx_template_arg_pack_expansions) {
+        return false;
+    }
+    for (int index = 0; index < parameter_argument_count; ++index) {
+        if (parameter_type->cxx_template_arg_pack_expansions[index]) {
+            if (parameter_pack_index >= 0 ||
+                index != parameter_argument_count - 1) return false;
+            parameter_pack_index = index;
+        }
+    }
+    for (int index = 0; index < argument_argument_count; ++index) {
+        if (argument_type->cxx_template_arg_pack_expansions[index]) {
+            if (argument_pack_index >= 0 ||
+                index != argument_argument_count - 1) return false;
+            argument_pack_index = index;
+        }
+    }
+    if (parameter_pack_index != parameter_argument_count - 1 ||
+        argument_pack_index != argument_argument_count - 1 ||
+        cxx_function_template_type_pack_parameter_index(
+            parameter_match->tmpl,
+            parameter_arguments[parameter_pack_index]) !=
+            parameter_template_pack_index ||
+        cxx_function_template_type_pack_parameter_index(
+            argument_match->tmpl, argument_arguments[argument_pack_index]) !=
+            argument_template_pack_index) {
+        return false;
+    }
+    for (int index = 0; index < parameter_class_template->param_count; ++index) {
+        if (parameter_class_template->params[index].kind != TPARAM_TYPE) {
+            return false;
+        }
+    }
+    if (supported) *supported = true;
+    int parameter_fixed_count = parameter_pack_index;
+    int argument_fixed_count = argument_pack_index;
+    if (parameter_fixed_count > argument_fixed_count) return false;
+    deduced_arguments = ast_arena_alloc(
+        sizeof(*deduced_arguments) *
+        (size_t)parameter_match->tmpl->param_count);
+    memset(deduced_arguments, 0,
+           sizeof(*deduced_arguments) *
+               (size_t)parameter_match->tmpl->param_count);
+    for (int index = 0; index < parameter_fixed_count; ++index) {
+        bool nested_supported = false;
+        if (!cxx_function_template_partial_order_deduce_type(
+                parameter_match->tmpl, parameter_arguments[index],
+                argument_match->tmpl, argument_arguments[index],
+                deduced_arguments, &nested_supported, 0u) ||
+            !nested_supported) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static int cxx_function_template_class_pack_expansion_relation(
+    const CxxFunctionTemplateMatch* left,
+    const CxxFunctionTemplateMatch* right, bool* handled,
+    bool* equivalent) {
+    bool left_supported = false;
+    bool right_supported = false;
+    bool left_deduced = cxx_function_template_class_pack_expansion_deduce(
+        left, right, &left_supported);
+    bool right_deduced = cxx_function_template_class_pack_expansion_deduce(
+        right, left, &right_supported);
+    if (handled) *handled = false;
+    if (equivalent) *equivalent = false;
+    if (!left_supported || !right_supported) return 0;
+    if (handled) *handled = true;
+    if (left_deduced && right_deduced) {
+        if (equivalent) *equivalent = true;
+        return 0;
+    }
+    if (right_deduced) return 1;
+    if (left_deduced) return -1;
+    return 0;
+}
+
 static int cxx_function_template_type_pattern_relation(
     const CxxFunctionTemplateMatch* left,
     const CxxFunctionTemplateMatch* right, bool* handled,
@@ -17758,6 +17954,10 @@ static int cxx_function_template_type_pattern_relation(
     bool right_deduced;
     if (handled) *handled = false;
     if (equivalent) *equivalent = false;
+    int class_pack_relation =
+        cxx_function_template_class_pack_expansion_relation(
+            left, right, handled, equivalent);
+    if (handled && *handled) return class_pack_relation;
     left_deduced = cxx_function_template_partial_order_deduces(
         left, right, &left_supported);
     right_deduced = cxx_function_template_partial_order_deduces(
