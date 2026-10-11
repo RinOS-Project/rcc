@@ -226,6 +226,22 @@ int choose_pack_pointer_partial_order(T*, Rest...) {
     return 146;
 }
 
+template<int Value>
+struct FunctionTemplateValuePackTag {};
+
+template<int... Values>
+int choose_non_type_pack_partial_order(
+    FunctionTemplateValuePackTag<Values>...) {
+    return 170;
+}
+
+template<int Value, int... Rest>
+int choose_non_type_pack_partial_order(
+    FunctionTemplateValuePackTag<Value>,
+    FunctionTemplateValuePackTag<Rest>...) {
+    return 171;
+}
+
 template<typename T, typename... Rest>
 int choose_pointer_pack_over_value(T*, Rest...) {
     return 147;
@@ -1013,6 +1029,11 @@ int main(void) {
                    choose_fixed_over_pack(value) == 110 &&
                    choose_fixed_prefix_over_pack(value, value) == 130 &&
                    choose_pack_pointer_partial_order(pointer, value) == 146 &&
+                   choose_non_type_pack_partial_order(
+                       FunctionTemplateValuePackTag<1>{}) == 171 &&
+                   choose_non_type_pack_partial_order(
+                       FunctionTemplateValuePackTag<1>{},
+                       FunctionTemplateValuePackTag<2>{}) == 171 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&
