@@ -4187,6 +4187,185 @@ static int template_value_parameter_index(CxxTemplate* tmpl,
 }
 
 static int template_parameter_pack_index_nested(CxxTemplate* tmpl,
+                                                Type* type);
+
+static int template_parameter_pack_index_merge(int current, int nested) {
+    if (nested == -1) return current;
+    if (current == -1) return nested;
+    return current == nested ? current : -2;
+}
+
+static int template_parameter_pack_index_expression(CxxTemplate* tmpl,
+                                                    Expr* expression) {
+    int result = -1;
+    if (!tmpl || !expression) return -1;
+    if (expression->kind == EXPR_IDENT && expression->ident_name) {
+        int index = template_value_parameter_index(tmpl, expression);
+        return index >= 0 && tmpl->params[index].is_pack ? index : -1;
+    }
+    if (expression->sizeof_pack_name) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->is_pack && parameter->name &&
+                strcmp(parameter->name,
+                       expression->sizeof_pack_name) == 0) {
+                result = template_parameter_pack_index_merge(result, index);
+            }
+        }
+    }
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT:
+            result = template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->unary_operand));
+            return template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_nested(
+                            tmpl, expression->sizeof_type));
+        case EXPR_CAST:
+            return template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->cast_expr));
+        case EXPR_CXX_TYPEID:
+            result = template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_nested(
+                            tmpl, expression->cxx_typeid_operand_type));
+            return template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->cxx_typeid_operand));
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_ASSIGN:
+        case EXPR_ADD_ASSIGN:
+        case EXPR_SUB_ASSIGN:
+        case EXPR_MUL_ASSIGN:
+        case EXPR_DIV_ASSIGN:
+        case EXPR_MOD_ASSIGN:
+        case EXPR_AND_ASSIGN:
+        case EXPR_OR_ASSIGN:
+        case EXPR_XOR_ASSIGN:
+        case EXPR_LSHIFT_ASSIGN:
+        case EXPR_RSHIFT_ASSIGN:
+        case EXPR_COMMA:
+        case EXPR_CXX_MEMBER_PTR_DOT:
+        case EXPR_CXX_MEMBER_PTR_ARROW:
+            result = template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->binary_lhs));
+            return template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->binary_rhs));
+        case EXPR_COND:
+            result = template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->cond_test));
+            result = template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->cond_then));
+            return template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->cond_else));
+        case EXPR_CALL:
+            result = template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->call_func));
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                result = template_parameter_pack_index_merge(
+                    result, template_parameter_pack_index_expression(
+                                tmpl, argument->expr));
+            }
+            return result;
+        case EXPR_INDEX:
+            result = template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->index_base));
+            return template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->index_expr));
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->member_base));
+        case EXPR_COMPOUND:
+            for (ExprList* item = expression->compound_init; item;
+                 item = item->next) {
+                result = template_parameter_pack_index_merge(
+                    result, template_parameter_pack_index_expression(
+                                tmpl, item->expr));
+            }
+            return result;
+        case EXPR_GENERIC:
+            result = template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->generic_control));
+            for (GenericAssociation* association =
+                     expression->generic_associations;
+                 association; association = association->next) {
+                result = template_parameter_pack_index_merge(
+                    result, template_parameter_pack_index_expression(
+                                tmpl, association->expr));
+            }
+            return result;
+        case EXPR_CXX_FOLD:
+            result = template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->cxx_fold_init));
+            return template_parameter_pack_index_merge(
+                result, template_parameter_pack_index_expression(
+                            tmpl, expression->cxx_fold_pattern));
+        case EXPR_CXX_REQUIRES:
+            for (ExprList* item = expression->cxx_requires_nested; item;
+                 item = item->next) {
+                result = template_parameter_pack_index_merge(
+                    result, template_parameter_pack_index_expression(
+                                tmpl, item->expr));
+            }
+            return result;
+        case EXPR_VA_START:
+        case EXPR_VA_END:
+        case EXPR_VA_COPY:
+        case EXPR_VA_ARG:
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+        case EXPR_CXX_THIS:
+        case EXPR_IDENT:
+            return result;
+    }
+    return result;
+}
+
+static int template_parameter_pack_index_nested(CxxTemplate* tmpl,
                                                 Type* type) {
     int index = -1;
     if (!tmpl || !type) return -1;
@@ -4235,9 +4414,8 @@ static int template_parameter_pack_index_nested(CxxTemplate* tmpl,
             : -1;
         if (nested == -2) return -2;
         if (nested < 0 && type->cxx_template_value_args) {
-            nested = template_value_parameter_index(
+            nested = template_parameter_pack_index_expression(
                 tmpl, type->cxx_template_value_args[nested_index]);
-            if (nested >= 0 && !tmpl->params[nested].is_pack) nested = -1;
         }
         if (nested >= 0) {
             if (index >= 0 && index != nested) return -2;
