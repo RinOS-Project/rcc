@@ -78,6 +78,16 @@ int select_by_value_or_volatile_pointer_reference(T* volatile& value) {
     return value != nullptr;
 }
 
+template<typename T> requires (sizeof(T) > 0)
+int select_incomparable_constraints(T) {
+    return 1;
+}
+
+template<typename T> requires (sizeof(T) >= 1)
+int select_incomparable_constraints(T) {
+    return 2;
+}
+
 int main() {
     int value = 3;
     int* pointer = &value;
@@ -88,5 +98,6 @@ int main() {
            select_by_value_or_rvalue_reference(3) +
            select_by_value_or_pointer_lvalue_reference(pointer) +
            select_by_value_or_const_pointer_reference(pointer) +
-           select_by_value_or_volatile_pointer_reference(pointer);
+           select_by_value_or_volatile_pointer_reference(pointer) +
+           select_incomparable_constraints(value);
 }

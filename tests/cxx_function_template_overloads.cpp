@@ -236,6 +236,29 @@ int choose_pointer_pack_over_value(T) {
     return 148;
 }
 
+template<typename T>
+concept PackOrderHasValue = requires(T candidate) {
+    candidate.value;
+};
+
+template<typename T>
+concept PackOrderHasValueAndSize =
+    PackOrderHasValue<T> && (sizeof(T) >= sizeof(int));
+
+struct PackOrderConstrainedValue {
+    int value;
+};
+
+template<PackOrderHasValue T>
+int choose_constraint_partial_order(T) {
+    return 149;
+}
+
+template<PackOrderHasValueAndSize T>
+int choose_constraint_partial_order(T) {
+    return 150;
+}
+
 template<typename T, typename... Rest>
 int choose_nonpack_over_empty_pack(T, Rest...) {
     return 150;
@@ -905,6 +928,7 @@ static int consume_conversion_value_virtual_cleanup_root(
 int main(void) {
     int value = 5;
     int* pointer = &value;
+    PackOrderConstrainedValue constrained_value = { value };
     ConversionPointerTrailingSequence conversion_pointer{&value};
     int** pointer_to_pointer = &pointer;
     int array_value[1] = { value };
@@ -956,6 +980,7 @@ int main(void) {
                    choose_fixed_prefix_over_pack(value, value) == 130 &&
                    choose_pack_pointer_partial_order(pointer, value) == 146 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
+                   choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&
                    forward_template(choose_template(&value)) == 25 &&
                    choose_conversion_before_partial_order(&value, priority) == 10 &&

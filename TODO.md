@@ -501,6 +501,11 @@
         `choose(T...)` for a pointer followed by another argument. GCC C++20,
         RCC++ i686/AMD64 generation, and AMD64 execution pass in
         `test-cxx-function-template-overloads`.
+  - [x] Rank constrained overloads by named-concept subsumption: select a
+        concept that adds a requirement over a shared named concept, and keep
+        distinct, non-subsuming atomic constraints ambiguous even when both
+        evaluate true. GCC C++20, RCC++ dual-architecture diagnostics, and
+        AMD64 execution pass in `test-cxx-function-template-overloads`.
   - [ ] full partial ordering, all parameter-pack deduction rules, and
         unsupported constexpr evaluation required for complete standard
         conformance
