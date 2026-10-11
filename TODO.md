@@ -2837,6 +2837,22 @@ separately recorded WSL startup failure.
   remaining transformed-template shapes, packs, dependent non-type and
   template-template parameters, constraints, and conversion ties.
 
+## RCC continuation (2026-10-12, class-template type packs in function ordering)
+
+- [x] Preserve structural matching for class templates with a trailing type
+  parameter pack when deducing and ordering function-template patterns. A
+  `PackBox<T*>` overload now outranks `PackBox<T>` when instantiated from a
+  class declared as `template<typename... Types>`, while the general pattern
+  remains selected for non-pointer types.
+- [x] Verify the GCC C++20 oracle and focused overload gate, including i686
+  and AMD64 code generation, AMD64 execution, and existing invalid-overload
+  diagnostics.
+- [x] Complete the full native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` regression suite after this change.
+- [ ] Continue general C++20 function-template partial ordering across
+  remaining transformed-template shapes, pack arities and placements,
+  dependent non-type/template-template parameters, constraints, and ties.
+
 ## RCC continuation (2026-10-12, cv-sensitive template argument identity)
 
 - [x] Keep class-template specializations with nested cv-qualified type

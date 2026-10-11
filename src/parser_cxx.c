@@ -11022,8 +11022,12 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             class_instance->template_identity_tmpl;
         int identity_argument_count =
             class_instance->template_identity_arg_count;
-        bool type_only_identity = identity_argument_count ==
-            identity_template->param_count;
+        int identity_pack_index = cxx_class_pack_index(identity_template);
+        int identity_fixed_argument_count = identity_pack_index >= 0
+            ? identity_pack_index : identity_template->param_count;
+        bool type_only_identity = identity_pack_index >= 0
+            ? identity_argument_count >= identity_fixed_argument_count
+            : identity_argument_count == identity_template->param_count;
         bool identity_changed = false;
         Type** identity_arguments = ast_arena_alloc(
             sizeof(*identity_arguments) * (size_t)identity_argument_count);
@@ -11038,9 +11042,19 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         memset(identity_value_present, 0,
                sizeof(*identity_value_present) * (size_t)identity_argument_count);
         for (int index = 0; type_only_identity &&
+             index < identity_template->param_count; ++index) {
+            if (identity_template->params[index].kind != TPARAM_TYPE) {
+                type_only_identity = false;
+            }
+        }
+        for (int index = 0; type_only_identity &&
              index < identity_argument_count; ++index) {
-            if (identity_template->params[index].kind != TPARAM_TYPE ||
-                identity_template->params[index].is_pack ||
+            int parameter_index = identity_pack_index >= 0 &&
+                    index >= identity_pack_index
+                ? identity_pack_index : index;
+            if (parameter_index >= identity_template->param_count ||
+                identity_template->params[parameter_index].kind !=
+                    TPARAM_TYPE ||
                 !class_instance->template_identity_args ||
                 !class_instance->template_identity_args[index]) {
                 type_only_identity = false;
@@ -13416,8 +13430,7 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
         if (pattern_uses_identity && pattern_template) {
             bool type_only_template = true;
             for (int index = 0; index < pattern_template->param_count; ++index) {
-                if (pattern_template->params[index].kind != TPARAM_TYPE ||
-                    pattern_template->params[index].is_pack) {
+                if (pattern_template->params[index].kind != TPARAM_TYPE) {
                     type_only_template = false;
                     break;
                 }
@@ -13451,15 +13464,23 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
                 return false;
             }
             if (actual_template == pattern_template) {
+                int pattern_pack_index =
+                    cxx_class_pack_index(pattern_template);
+                int fixed_pattern_count = pattern_pack_index >= 0
+                    ? pattern_pack_index : pattern_template->param_count;
                 if (actual_argument_count != pattern_argument_count ||
                     (actual_argument_count > 0 &&
-                     (!actual_arguments || !pattern_arguments))) {
+                     (!actual_arguments || !pattern_arguments)) ||
+                    actual_argument_count < fixed_pattern_count) {
                     return false;
                 }
                 for (int index = 0; index < actual_argument_count; ++index) {
-                    TemplateParam* template_parameter = index <
+                    int parameter_index = pattern_pack_index >= 0 &&
+                            index >= pattern_pack_index
+                        ? pattern_pack_index : index;
+                    TemplateParam* template_parameter = parameter_index <
                             pattern_template->param_count
-                        ? &pattern_template->params[index] : NULL;
+                        ? &pattern_template->params[parameter_index] : NULL;
                     if (template_parameter &&
                         template_parameter->kind == TPARAM_TYPE) {
                         if (!deduce_function_template_type(
@@ -17322,8 +17343,7 @@ static bool cxx_function_template_partial_order_deduce_type(
             for (int index = 0;
                  index < parameter_class_template->param_count; ++index) {
                 if (parameter_class_template->params[index].kind !=
-                        TPARAM_TYPE ||
-                    parameter_class_template->params[index].is_pack) {
+                    TPARAM_TYPE) {
                     return false;
                 }
             }

@@ -279,6 +279,21 @@ struct FunctionTemplateTwoValueTag {};
 template<typename T>
 struct FunctionTemplatePartialOrderBox {};
 
+template<typename... Types>
+struct FunctionTemplatePackPartialOrderBox {};
+
+template<typename T>
+int choose_template_pack_partial_order(
+    FunctionTemplatePackPartialOrderBox<T>) {
+    return 197;
+}
+
+template<typename T>
+int choose_template_pack_partial_order(
+    FunctionTemplatePackPartialOrderBox<T*>) {
+    return 198;
+}
+
 template<template<typename> class Template, typename T>
 int choose_template_template_partial_order(Template<T>) {
     return 194;
@@ -1142,6 +1157,10 @@ int main(void) {
                        FunctionTemplatePartialOrderBox<int>{}) == 195 &&
                    choose_template_template_partial_order(
                        FunctionTemplatePartialOrderBox<int*>{}) == 196 &&
+                   choose_template_pack_partial_order(
+                       FunctionTemplatePackPartialOrderBox<int>{}) == 197 &&
+                   choose_template_pack_partial_order(
+                       FunctionTemplatePackPartialOrderBox<int*>{}) == 198 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&

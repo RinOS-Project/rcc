@@ -4639,8 +4639,26 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             class_instance->template_identity_tmpl;
         int identity_argument_count =
             class_instance->template_identity_arg_count;
-        bool type_only_identity = identity_argument_count ==
-            identity_template->param_count;
+        int identity_pack_index = -1;
+        bool identity_pack_supported = true;
+        for (int parameter_index = 0;
+             parameter_index < identity_template->param_count;
+             ++parameter_index) {
+            TemplateParam* parameter =
+                &identity_template->params[parameter_index];
+            if (!parameter->is_pack) continue;
+            if (identity_pack_index >= 0 ||
+                parameter_index != identity_template->param_count - 1 ||
+                parameter->kind != TPARAM_TYPE) {
+                identity_pack_supported = false;
+                break;
+            }
+            identity_pack_index = parameter_index;
+        }
+        bool type_only_identity = identity_pack_supported &&
+            (identity_pack_index >= 0
+                 ? identity_argument_count >= identity_pack_index
+                 : identity_argument_count == identity_template->param_count);
         bool identity_changed = false;
         Type** identity_arguments = ast_arena_alloc(
             sizeof(*identity_arguments) * (size_t)identity_argument_count);
@@ -4654,11 +4672,22 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                sizeof(*identity_values) * (size_t)identity_argument_count);
         memset(identity_value_present, 0,
                sizeof(*identity_value_present) * (size_t)identity_argument_count);
+        for (int parameter_index = 0; type_only_identity &&
+             parameter_index < identity_template->param_count;
+             ++parameter_index) {
+            if (identity_template->params[parameter_index].kind !=
+                TPARAM_TYPE) {
+                type_only_identity = false;
+            }
+        }
         for (int argument_index = 0; type_only_identity &&
              argument_index < identity_argument_count; ++argument_index) {
-            if (identity_template->params[argument_index].kind !=
+            int parameter_index = identity_pack_index >= 0 &&
+                    argument_index >= identity_pack_index
+                ? identity_pack_index : argument_index;
+            if (parameter_index >= identity_template->param_count ||
+                identity_template->params[parameter_index].kind !=
                     TPARAM_TYPE ||
-                identity_template->params[argument_index].is_pack ||
                 !class_instance->template_identity_args ||
                 !class_instance->template_identity_args[argument_index]) {
                 type_only_identity = false;
