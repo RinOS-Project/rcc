@@ -117,6 +117,23 @@ int select_incomparable_repeated_nontype_order(
     return 6;
 }
 
+template<int First, int Second>
+struct IncomparableFixedNontypeTag {};
+
+template<int First, int Second>
+int select_incomparable_fixed_nontype_order(
+    IncomparableFixedNontypeTag<1, First>,
+    IncomparableFixedNontypeTag<Second, 1>) {
+    return 7;
+}
+
+template<int First, int Second>
+int select_incomparable_fixed_nontype_order(
+    IncomparableFixedNontypeTag<First, 1>,
+    IncomparableFixedNontypeTag<1, Second>) {
+    return 8;
+}
+
 int main() {
     int value = 3;
     int* pointer = &value;
@@ -133,5 +150,8 @@ int main() {
            select_crossed_array_pointer_extent(&array, &array) +
            select_incomparable_repeated_nontype_order(
                IncomparableRepeatedNontypeTag<1, 1>{},
-               IncomparableRepeatedNontypeTag<2, 2>{});
+               IncomparableRepeatedNontypeTag<2, 2>{}) +
+           select_incomparable_fixed_nontype_order(
+               IncomparableFixedNontypeTag<1, 1>{},
+               IncomparableFixedNontypeTag<1, 1>{});
 }

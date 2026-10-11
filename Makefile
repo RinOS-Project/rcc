@@ -2643,6 +2643,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro)
 	$(GREP) -q "ambiguous function template overload for 'select_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(GREP) -q "ambiguous function template overload for 'select_incomparable_fixed_nontype_order'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "ambiguous function template overload for 'select_incomparable_reference_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "ambiguous function template overload for 'select_by_value_or_const_reference'" \
@@ -2670,6 +2672,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro)
 	$(GREP) -q "ambiguous function template overload for 'select_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(GREP) -q "ambiguous function template overload for 'select_incomparable_fixed_nontype_order'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "ambiguous function template overload for 'select_incomparable_reference_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "ambiguous function template overload for 'select_by_value_or_const_reference'" \
@@ -2689,6 +2693,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 	$(GREP) -q "ambiguous function template overload for 'select_crossed_array_pointer_extent'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log)
+	$(GREP) -q "select_incomparable_fixed_nontype_order" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -q "select_incomparable_reference_template" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -q "select_by_value_or_const_reference" \
@@ -3614,9 +3620,12 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-overloads,cxx_function_template_overloads.cpp)
 	g++ -std=c++20 -fno-elide-constructors -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe tests/cxx_function_template_overloads.cpp
 	$(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro)
 	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_repeated_nontype_order'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_fixed_nontype_order'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_reference_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_const_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_lvalue_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
@@ -3624,9 +3633,12 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_pointer_lvalue_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_const_pointer_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_volatile_pointer_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro)
 	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_repeated_nontype_order'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_fixed_nontype_order'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_reference_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_const_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_lvalue_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
@@ -3636,6 +3648,7 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_volatile_pointer_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log)
 	$(GREP) -F -q "select_incomparable_repeated_nontype_order" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
+	$(GREP) -F -q "select_incomparable_fixed_nontype_order" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -F -q "select_incomparable_reference_template" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -F -q "select_by_value_or_const_reference" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -F -q "select_by_value_or_lvalue_reference" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log

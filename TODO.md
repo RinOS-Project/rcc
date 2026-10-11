@@ -2782,3 +2782,13 @@ separately recorded WSL startup failure.
   execution, crossed-ambiguity diagnostics with no output object, the focused
   `test-cxx-function-template-overloads` gate, and the complete native-Windows
   `mingw32-make SHELL=cmd.exe test-cxx` aggregate.
+
+## RCC continuation (2026-10-11, fixed non-type function pattern ordering)
+
+- [x] Prefer a dependent class-template-id pattern with a fixed integral
+  argument (`Tag<First, 7>`) over the otherwise matching independent-parameter
+  pattern (`Tag<First, Second>`). GCC C++20 confirms selection; RCC i686/AMD64
+  generated execution and the focused overload gate pass. Crossed fixed-value
+  patterns remain ambiguous under GCC and RCC and produce no RCC object.
+- [x] Re-run the complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx`
+  aggregate after this ordering change; all C++ regressions pass (exit 0).

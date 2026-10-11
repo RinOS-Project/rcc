@@ -16767,6 +16767,8 @@ typedef struct {
     int right_to_left[32];
     bool left_repeats_parameter;
     bool right_repeats_parameter;
+    bool left_has_fixed_value_constraint;
+    bool right_has_fixed_value_constraint;
     bool saw_parameter;
 } CxxFunctionTemplateNontypePattern;
 
@@ -16794,10 +16796,37 @@ static bool cxx_function_template_nontype_pattern_value_matches(
         pattern->left_template, left_expression);
     int right_index = cxx_function_template_nontype_parameter_index(
         pattern->right_template, right_expression);
+    if (left_index >= 0 && right_index < 0) {
+        int64_t right_value;
+        if (!right_expression ||
+            !expr_eval_integer_constant((Expr*)right_expression,
+                                        &right_value)) {
+            return false;
+        }
+        if (pattern->left_to_right[left_index] >= 0) {
+            pattern->left_repeats_parameter = true;
+        }
+        pattern->right_has_fixed_value_constraint = true;
+        pattern->saw_parameter = true;
+        return true;
+    }
+    if (left_index < 0 && right_index >= 0) {
+        int64_t left_value;
+        if (!left_expression ||
+            !expr_eval_integer_constant((Expr*)left_expression,
+                                        &left_value)) {
+            return false;
+        }
+        if (pattern->right_to_left[right_index] >= 0) {
+            pattern->right_repeats_parameter = true;
+        }
+        pattern->left_has_fixed_value_constraint = true;
+        pattern->saw_parameter = true;
+        return true;
+    }
     if (left_index >= 0 || right_index >= 0) {
         const TemplateParam* left_parameter;
         const TemplateParam* right_parameter;
-        if (left_index < 0 || right_index < 0) return false;
         left_parameter = &pattern->left_template->params[left_index];
         right_parameter = &pattern->right_template->params[right_index];
         if (!cxx_template_type_parameter_mapping_matches(
@@ -16958,15 +16987,17 @@ static bool cxx_function_template_nontype_pattern_type_matches(
 
 /* Compare a bounded subset of transformed-template deduction: when matching
  * class-template-id arguments are direct non-type parameters, repeated use of
- * one parameter imposes an equality constraint and is more specialized than
- * independent parameters. Other expression and pack shapes stay with the
- * existing ordering rules. */
+ * one parameter or a fixed integral value imposes a pattern constraint and is
+ * more specialized than an independent parameter. Crossed constraints remain
+ * unordered. Other expression and pack shapes stay with the existing rules. */
 static int cxx_function_template_repeated_nontype_pattern_relation(
     const CxxFunctionTemplateMatch* left,
     const CxxFunctionTemplateMatch* right) {
     CxxFunctionTemplateNontypePattern pattern = {0};
     TypeParam* left_parameter;
     TypeParam* right_parameter;
+    bool left_more_specialized;
+    bool right_more_specialized;
     if (!left || !right || !left->tmpl || !right->tmpl ||
         !left->tmpl->func_def || !right->tmpl->func_def ||
         !left->tmpl->func_def->type || !right->tmpl->func_def->type ||
@@ -17004,12 +17035,15 @@ static int cxx_function_template_repeated_nontype_pattern_relation(
         left_parameter = left_parameter->next;
         right_parameter = right_parameter->next;
     }
-    if (left_parameter || right_parameter || !pattern.saw_parameter ||
-        pattern.left_repeats_parameter ==
-            pattern.right_repeats_parameter) {
+    if (left_parameter || right_parameter || !pattern.saw_parameter) {
         return 0;
     }
-    return pattern.left_repeats_parameter ? 1 : -1;
+    left_more_specialized = pattern.left_repeats_parameter ||
+        pattern.left_has_fixed_value_constraint;
+    right_more_specialized = pattern.right_repeats_parameter ||
+        pattern.right_has_fixed_value_constraint;
+    if (left_more_specialized == right_more_specialized) return 0;
+    return left_more_specialized ? 1 : -1;
 }
 
 static int cxx_function_template_match_relation(
