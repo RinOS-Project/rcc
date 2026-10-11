@@ -1034,6 +1034,11 @@ int main(void) {
                    choose_non_type_pack_partial_order(
                        FunctionTemplateValuePackTag<1>{},
                        FunctionTemplateValuePackTag<2>{}) == 171 &&
+                   choose_non_type_pack_partial_order<1>(
+                       FunctionTemplateValuePackTag<1>{}) == 171 &&
+                   choose_non_type_pack_partial_order<1, 2>(
+                       FunctionTemplateValuePackTag<1>{},
+                       FunctionTemplateValuePackTag<2>{}) == 171 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&
