@@ -14282,6 +14282,14 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
     argument = call_arguments;
     while (parameter && argument) {
         if (parameter->decl && parameter->decl->param_is_pack) {
+            if (parameter->next) {
+                /* A non-trailing function parameter pack is a non-deduced
+                 * context. Leave the argument cursor for the following
+                 * fixed parameter; absent another deduction source, the
+                 * template parameter pack remains empty. */
+                parameter = parameter->next;
+                continue;
+            }
             int pack_index = cxx_parser_template_parameter_pack_index(
                 tmpl, parameter->decl->type);
             bool value_pack = pack_index >= 0 &&
@@ -18074,8 +18082,23 @@ static bool prepare_cxx_function_template_match(
              * ordering score for `T` versus `T*`. */
             ExprList* argument = call_arguments;
             int index = parameter->decl ? parameter->decl->param_index : 0;
+            for (DeclList* previous = tmpl->func_def->func_params;
+                 previous && previous != parameter;
+                 previous = previous->next) {
+                if (previous->decl && previous->decl->param_is_pack) {
+                    index += match->pack_count - 1;
+                }
+            }
             while (argument && index-- > 0) argument = argument->next;
             if (parameter->decl && parameter->decl->param_is_pack) {
+                if (parameter->next) {
+                    /* A function parameter pack before a later parameter is
+                     * a non-deduced context. Its elements come only from
+                     * explicit template arguments (or another deduction
+                     * source), not by consuming every remaining call
+                     * argument as if the pack were trailing. */
+                    continue;
+                }
                 if (match->pack_count == 0) {
                     int pack_index =
                         cxx_parser_template_parameter_pack_index(

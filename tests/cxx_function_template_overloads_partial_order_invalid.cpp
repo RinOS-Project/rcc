@@ -144,6 +144,11 @@ int select_crossed_pointer_pack_order(First, Rest*...) {
     return 10;
 }
 
+template<typename... Rest>
+int select_nontrailing_function_pack_too_many(Rest..., int) {
+    return 11;
+}
+
 int main() {
     int value = 3;
     int* pointer = &value;
@@ -165,5 +170,6 @@ int main() {
            select_incomparable_fixed_nontype_order(
                IncomparableFixedNontypeTag<1, 1>{},
                IncomparableFixedNontypeTag<1, 1>{}) +
-           select_crossed_pointer_pack_order(pointer, &character);
+           select_crossed_pointer_pack_order(pointer, &character) +
+           select_nontrailing_function_pack_too_many(value, value + 1);
 }

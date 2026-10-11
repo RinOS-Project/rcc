@@ -236,6 +236,11 @@ int choose_pointer_expansion_partial_order(First*, Rest*...) {
     return 202;
 }
 
+template<typename... Rest>
+int choose_nontrailing_function_pack(Rest..., int) {
+    return 203;
+}
+
 template<int Value>
 struct FunctionTemplateValuePackTag {};
 
@@ -1089,6 +1094,11 @@ int main(void) {
                    choose_pointer_expansion_partial_order(pointer,
                                                           &priority,
                                                           pointer) == 202 &&
+                   choose_nontrailing_function_pack(7) == 203 &&
+                   choose_nontrailing_function_pack<short>(
+                       (short)4, 7) == 203 &&
+                   choose_nontrailing_function_pack<int, short>(
+                       4, (short)5, 7) == 203 &&
                    choose_non_type_pack_partial_order(
                        FunctionTemplateValuePackTag<1>{}) == 171 &&
                    choose_non_type_pack_partial_order(

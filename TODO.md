@@ -2804,3 +2804,16 @@ separately recorded WSL startup failure.
 - [ ] Continue general C++20 function-template partial ordering across
   transformed-template deduction, remaining pack shapes, dependent
   non-type/template-template parameters, constraints, and conversion ties.
+
+## RCC continuation (2026-10-11, non-trailing function parameter packs)
+
+- [x] Treat a function parameter pack before a fixed suffix as non-deduced
+  during call deduction; with no explicit pack arguments it remains empty and
+  the suffix consumes the next call argument. Explicit one- and two-element
+  packs shift suffix argument mapping correctly, while an extra call argument
+  with an undeduced empty pack is rejected. GCC C++20 and the focused RCC
+  overload gate pass for i686/AMD64 generation and AMD64 execution; invalid
+  compilation emits no object.
+- [ ] Extend function-pack deduction to remaining pack-expansion shapes and
+  interactions with other deduction sources; full C++20 partial ordering and
+  deduction remain incomplete.
