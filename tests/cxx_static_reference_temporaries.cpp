@@ -58,6 +58,13 @@ struct ThreadLocalReferenceBase {
     }
 };
 
+static const ThreadLocalReferenceBase* thread_local_block_reference(
+    int initial_value) {
+    static thread_local const ThreadLocalReferenceBase& reference =
+        ThreadLocalReferenceBase{initial_value};
+    return &reference;
+}
+
 struct ThreadLocalReferenceDerived : ThreadLocalReferenceBase {
     explicit ThreadLocalReferenceDerived(int initial_value)
         : ThreadLocalReferenceBase(initial_value) {
@@ -137,6 +144,14 @@ extern "C" int cxx_static_reference_tls_worker(int value) {
     const ThreadLocalReferenceBase& local_converted_reference =
         ThreadLocalReferenceConversionSource{value + 30};
     if (local_converted_reference.value != value + 50) return 4;
+    const ThreadLocalReferenceBase* block_first =
+        thread_local_block_reference(value + 70);
+    /* A different second value verifies per-thread initialization only once. */
+    const ThreadLocalReferenceBase* block_second =
+        thread_local_block_reference(value + 71);
+    if (block_first != block_second || block_first->value != value + 70) {
+        return 6;
+    }
     return 0;
 }
 #endif

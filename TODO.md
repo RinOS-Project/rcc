@@ -568,6 +568,17 @@
         TSD destructors. Host thread-exit regressions exist. Keep open until
         RinOS target execution and broader initializer/lifetime forms are
         verified.
+  - [x] Extend the TLS fixture with a function-local block-scope
+        `static thread_local const Base&` bound to a class prvalue. Repeated
+        calls with different initializer values verify the generated per-thread
+        guard path and retain the referent after the helper's block exits.
+        GCC/Clang C++20 syntax checks and RCC i686/AMD64 assembly and legacy
+        `.ro` generation pass; the POSIX assembly gate now checks the helper is
+        present on both targets.
+  - [ ] Run the POSIX pthread host assertions for the new block-scope case,
+        including one-time per-thread initialization and thread-exit cleanup
+        order. The current Windows host cannot assemble the emitted ELF TLS;
+        WSL returns `E_ACCESSDENIED`.
   - [x] Verify namespace-scope `thread_local const T&` bindings to direct and
         derived-to-base class prvalues: i686/AMD64 generation must emit
         `__cxa_thread_atexit`, repeated access in one thread must reuse its
