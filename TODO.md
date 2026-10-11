@@ -2813,7 +2813,8 @@ separately recorded WSL startup failure.
   packs shift suffix argument mapping correctly, while an extra call argument
   with an undeduced empty pack is rejected. GCC C++20 and the focused RCC
   overload gate pass for i686/AMD64 generation and AMD64 execution; invalid
-  compilation emits no object.
+  compilation emits no object. The full native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` suite also passes (exit 0).
 - [ ] Extend function-pack deduction to remaining pack-expansion shapes and
   interactions with other deduction sources; full C++20 partial ordering and
   deduction remain incomplete.
