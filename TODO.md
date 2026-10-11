@@ -2685,6 +2685,13 @@ separately recorded WSL startup failure.
   non-empty packs, and reject an element whose encoded size does not match the
   deduced pack. The focused i686/AMD64 gate, complete native-Windows `test-cxx`
   aggregate, and complete `test-c17` aggregate pass.
+- [x] Deduce nested member-template type packs whose non-type argument uses
+  `sizeof(Args)`. Substitute each deduced element type before constant
+  evaluation and emit GCC-identical Itanium `st`/type-substitution encodings;
+  verify empty and heterogeneous packs, and reject `PackTagged<int, 8>` when
+  the pattern requires `sizeof(int) == 4` on i686/AMD64 and GCC. The focused
+  target and full native-Windows `test-cxx` aggregate pass. RCC source commit
+  `74da05a22516e00cacb0c36e62cc44081686c03d` is on local `main`, not pushed.
 - [ ] Complete member-template deduction and overload selection for remaining
   general dependent non-type expressions and template-template forms,
   expansions involving
