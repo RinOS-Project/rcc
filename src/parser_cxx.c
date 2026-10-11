@@ -16593,11 +16593,100 @@ static bool cxx_function_template_array_bound_is_parameter(
     return false;
 }
 
+static bool cxx_function_template_array_extent_type_pattern_relation(
+    Type* left_pattern, const CxxTemplate* left_template,
+    Type* right_pattern, const CxxTemplate* right_template,
+    int* relation, unsigned depth) {
+    int nested_relation = 0;
+    int extent_relation = 0;
+    if (relation) *relation = 0;
+    if (!left_pattern || !right_pattern || depth > 64u) return false;
+    if (left_pattern->kind != right_pattern->kind) {
+        return cxx_template_type_parameter_mapping_matches(
+            left_pattern, left_template, right_pattern, right_template);
+    }
+    if (left_pattern->kind == TYPE_PTR) {
+        if (left_pattern->is_const != right_pattern->is_const ||
+            left_pattern->is_volatile != right_pattern->is_volatile ||
+            left_pattern->is_restrict != right_pattern->is_restrict ||
+            left_pattern->is_atomic != right_pattern->is_atomic ||
+            left_pattern->cxx_is_member_pointer !=
+                right_pattern->cxx_is_member_pointer ||
+            left_pattern->cxx_is_member_pointer) {
+            return cxx_template_type_parameter_mapping_matches(
+                left_pattern, left_template, right_pattern, right_template);
+        }
+        return cxx_function_template_array_extent_type_pattern_relation(
+            left_pattern->base, left_template, right_pattern->base,
+            right_template, relation, depth + 1u);
+    }
+    if (left_pattern->kind == TYPE_ARRAY) {
+        bool left_extent_parameter;
+        bool right_extent_parameter;
+        if (left_pattern->is_const != right_pattern->is_const ||
+            left_pattern->is_volatile != right_pattern->is_volatile ||
+            left_pattern->is_restrict != right_pattern->is_restrict ||
+            left_pattern->is_atomic != right_pattern->is_atomic ||
+            left_pattern->array_unspecified_bound !=
+                right_pattern->array_unspecified_bound ||
+            left_pattern->array_parameter_static !=
+                right_pattern->array_parameter_static ||
+            left_pattern->array_parameter_const !=
+                right_pattern->array_parameter_const ||
+            left_pattern->array_parameter_volatile !=
+                right_pattern->array_parameter_volatile ||
+            left_pattern->array_parameter_restrict !=
+                right_pattern->array_parameter_restrict ||
+            !cxx_function_template_array_extent_type_pattern_relation(
+                left_pattern->base, left_template, right_pattern->base,
+                right_template, &nested_relation, depth + 1u)) {
+            return false;
+        }
+        left_extent_parameter =
+            cxx_function_template_array_bound_is_parameter(
+                left_template, left_pattern);
+        right_extent_parameter =
+            cxx_function_template_array_bound_is_parameter(
+                right_template, right_pattern);
+        if (left_pattern->array_len >= 0 && right_extent_parameter) {
+            extent_relation = 1;
+        } else if (right_pattern->array_len >= 0 &&
+                   left_extent_parameter) {
+            extent_relation = -1;
+        } else if (nested_relation != 0) {
+            /* Preserve exact outer bounds while a more deeply nested extent
+             * carries the partial-ordering distinction. */
+            if (left_pattern->array_len < 0 ||
+                right_pattern->array_len < 0 ||
+                left_pattern->array_len != right_pattern->array_len) {
+                return false;
+            }
+        } else if (!cxx_template_type_parameter_mapping_matches(
+                       left_pattern, left_template, right_pattern,
+                       right_template)) {
+            return false;
+        }
+        if (extent_relation != 0 && nested_relation != 0 &&
+            extent_relation != nested_relation) {
+            return false;
+        }
+        if (relation) {
+            *relation = extent_relation != 0 ? extent_relation
+                                             : nested_relation;
+        }
+        return true;
+    }
+    return cxx_template_type_parameter_mapping_matches(
+        left_pattern, left_template, right_pattern, right_template);
+}
+
 /* A fixed array extent pattern is more specialized than a direct non-type
  * parameter extent when the remaining function parameter patterns match.
  * Compare the original templates here: after call deduction both signatures
  * have concrete extents, so the instantiated types cannot express this
- * partial-ordering distinction. */
+ * partial-ordering distinction. Walk matching pointer/array layers as well as
+ * direct array references so pointers to fixed-bound arrays retain the same
+ * deduction ordering. */
 static int cxx_function_template_array_extent_pattern_relation(
     const CxxFunctionTemplateMatch* left,
     const CxxFunctionTemplateMatch* right) {
@@ -16623,6 +16712,7 @@ static int cxx_function_template_array_extent_pattern_relation(
         Type* right_pattern = right_parameter->type;
         Type* left_array = left_pattern;
         Type* right_array = right_pattern;
+        int parameter_relation = 0;
         bool same_reference_category;
         if (!left_pattern || !right_pattern) return 0;
         same_reference_category =
@@ -16638,33 +16728,13 @@ static int cxx_function_template_array_extent_pattern_relation(
                     right_pattern, right->tmpl)) {
                 return 0;
             }
-        } else if (left_array->kind == TYPE_ARRAY &&
-                   right_array->kind == TYPE_ARRAY &&
-                   left_array->base && right_array->base &&
-                   cxx_template_type_parameter_mapping_matches(
-                       left_array->base, left->tmpl,
-                       right_array->base, right->tmpl)) {
-            bool left_extent_parameter =
-                cxx_function_template_array_bound_is_parameter(
-                    left->tmpl, left_array);
-            bool right_extent_parameter =
-                cxx_function_template_array_bound_is_parameter(
-                    right->tmpl, right_array);
-            if (left_array->array_len >= 0 && right_extent_parameter) {
-                left_better = true;
-            } else if (right_array->array_len >= 0 &&
-                       left_extent_parameter) {
-                right_better = true;
-            } else if (!cxx_template_type_parameter_mapping_matches(
-                           left_pattern, left->tmpl,
-                           right_pattern, right->tmpl)) {
-                return 0;
-            }
-        } else if (!cxx_template_type_parameter_mapping_matches(
-                       left_pattern, left->tmpl,
-                       right_pattern, right->tmpl)) {
+        } else if (!cxx_function_template_array_extent_type_pattern_relation(
+                       left_array, left->tmpl, right_array, right->tmpl,
+                       &parameter_relation, 0u)) {
             return 0;
         }
+        if (parameter_relation > 0) left_better = true;
+        if (parameter_relation < 0) right_better = true;
         left_parameter = left_parameter->next;
         right_parameter = right_parameter->next;
     }

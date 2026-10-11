@@ -2770,3 +2770,15 @@ separately recorded WSL startup failure.
   each RLD: total link time falls from about 4–5 minutes per image to about
   13 seconds for all four, with byte-identical SHA-256 outputs across the
   before/after versions and between stage1-a/stage1-b.
+
+## RCC continuation (2026-10-11, pointer-to-array extent partial ordering)
+
+- [x] Preserve fixed array-bound specialization through pointer and nested
+  array layers when comparing the original function-template parameter
+  patterns. `T (*)[1]` now outranks `T (*)[N]` for a one-element-array pointer;
+  nested multidimensional array pointers are covered as well. Crossed patterns
+  specializing opposite parameters remain ambiguous and emit no object.
+- [x] Verify GCC C++20 oracle behavior, i686/AMD64 code generation and AMD64
+  execution, crossed-ambiguity diagnostics with no output object, the focused
+  `test-cxx-function-template-overloads` gate, and the complete native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` aggregate.

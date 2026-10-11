@@ -509,6 +509,27 @@ int choose_template_array_extent(Element (&value)[1]) {
     return value[0] + 170;
 }
 
+template<typename Element, int Extent>
+int choose_template_array_pointer_extent(Element (*value)[Extent]) {
+    return (*value)[0] + 180;
+}
+
+template<typename Element>
+int choose_template_array_pointer_extent(Element (*value)[1]) {
+    return (*value)[0] + 190;
+}
+
+template<typename Element, int Extent>
+int choose_template_nested_array_pointer_extent(
+    Element (*value)[2][Extent]) {
+    return (*value)[0][0] + 200;
+}
+
+template<typename Element>
+int choose_template_nested_array_pointer_extent(Element (*value)[2][1]) {
+    return (*value)[0][0] + 210;
+}
+
 template<typename T>
 int choose_nearer_base(T*, ConversionBaseRoot*) {
     return 81;
@@ -942,6 +963,9 @@ int main(void) {
     ConversionPointerTrailingSequence conversion_pointer{&value};
     int** pointer_to_pointer = &pointer;
     int array_value[1] = { value };
+    int (*array_pointer)[1] = &array_value;
+    int matrix_value[2][1] = { { value }, { value + 1 } };
+    int (*matrix_pointer)[2][1] = &matrix_value;
     ConversionNoexceptFunctionPointer noexcept_pointer =
         &conversion_noexcept_function;
     ConversionExplicitThrowingFunctionPointer explicit_throwing_pointer =
@@ -1023,6 +1047,10 @@ int main(void) {
                    choose_array_bound_reference_cv_template(array_value) ==
                        85 &&
                    choose_template_array_extent(array_value) == 175 &&
+                   choose_template_array_pointer_extent(array_pointer) ==
+                       195 &&
+                   choose_template_nested_array_pointer_extent(
+                       matrix_pointer) == 215 &&
                    choose_base_over_void_non_template(leaf_pointer) == 97 &&
                    choose_nearer_base(leaf_pointer, leaf_pointer) == 82 &&
                    choose_nearer_base_reference(leaf_pointer, leaf) == 86 &&
