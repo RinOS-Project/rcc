@@ -159,6 +159,21 @@ int select_crossed_pointer_pack_order(First, Rest*...) {
     return 10;
 }
 
+template<typename... Types>
+struct IncomparableClassPointerPackBox {};
+
+template<typename... Types>
+int select_incomparable_class_pointer_pack_expansion(
+    IncomparableClassPointerPackBox<Types*...>) {
+    return 12;
+}
+
+template<typename First, typename... Rest>
+int select_incomparable_class_pointer_pack_expansion(
+    IncomparableClassPointerPackBox<First*, Rest*...>) {
+    return 13;
+}
+
 template<typename... Rest>
 int select_nontrailing_function_pack_too_many(Rest..., int) {
     return 11;
@@ -188,5 +203,7 @@ int main() {
            select_incomparable_class_type_patterns(
                IncomparableTypePatternTag<int*, int*>{}) +
            select_crossed_pointer_pack_order(pointer, &character) +
+           select_incomparable_class_pointer_pack_expansion(
+               IncomparableClassPointerPackBox<int*>{}) +
            select_nontrailing_function_pack_too_many(value, value + 1);
 }

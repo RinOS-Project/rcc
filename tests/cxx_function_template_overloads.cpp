@@ -324,6 +324,12 @@ int choose_class_template_pack_expansion_order(
     return 214;
 }
 
+template<typename... Types>
+int count_class_pointer_pack_expansion(
+    FunctionTemplatePackPartialOrderBox<Types*...>) {
+    return 220 + sizeof...(Types);
+}
+
 template<template<typename> class Template, typename T>
 int choose_template_template_partial_order(Template<T>) {
     return 194;
@@ -1212,6 +1218,13 @@ int main(void) {
                    choose_class_template_pack_expansion_order(
                        FunctionTemplatePackPartialOrderBox<int, short>{}) ==
                        214 &&
+                   count_class_pointer_pack_expansion(
+                       FunctionTemplatePackPartialOrderBox<>{}) == 220 &&
+                   count_class_pointer_pack_expansion(
+                       FunctionTemplatePackPartialOrderBox<int*>{}) == 221 &&
+                   count_class_pointer_pack_expansion(
+                       FunctionTemplatePackPartialOrderBox<int*, short*>{}) ==
+                       222 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&

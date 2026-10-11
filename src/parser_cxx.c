@@ -13015,6 +13015,43 @@ static bool cxx_expression_references_template_non_type_parameter(
     }
 }
 
+static bool cxx_type_pattern_contains_dependent_component(
+    const Type* type, unsigned depth) {
+    if (!type) return false;
+    if (type->cxx_dependent) return true;
+    /* Type patterns are finite trees.  Treat an unusually deep pattern as
+     * dependent so class-template-id parsing preserves it for substitution
+     * instead of prematurely instantiating a partially dependent type. */
+    if (depth >= 64u) return true;
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
+        if (cxx_type_pattern_contains_dependent_component(type->base,
+                                                           depth + 1u)) {
+            return true;
+        }
+    } else if (type->kind == TYPE_FUNC) {
+        if (cxx_type_pattern_contains_dependent_component(type->ret_type,
+                                                           depth + 1u)) {
+            return true;
+        }
+        for (TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (cxx_type_pattern_contains_dependent_component(
+                    parameter->type, depth + 1u)) {
+                return true;
+            }
+        }
+    }
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        if (type->cxx_template_args &&
+            cxx_type_pattern_contains_dependent_component(
+                type->cxx_template_args[index], depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc) {
     Type* arguments[32] = { NULL };
@@ -13176,8 +13213,8 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
     expect(TOK_GT, ">");
     for (int argument_index = 0; argument_index < argument_count;
          ++argument_index) {
-        if (arguments[argument_index] &&
-            arguments[argument_index]->cxx_dependent) {
+        if (cxx_type_pattern_contains_dependent_component(
+                arguments[argument_index], 0u)) {
             Type* dependent = type_struct(tmpl->name ? tmpl->name :
                                           "dependent-template");
             dependent->cxx_dependent = true;
