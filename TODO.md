@@ -1545,6 +1545,10 @@
   - [x] 配列型`va_list`を引数調整して受け取る非variadic helper内で、pointer経由の
         `va_arg`、`va_copy`、`va_end`をlowerし、copy側の読み取りがsource cursorを
         変えず、helper側の消費がcallerへ反映されることをx64 runtimeで検証
+  - [x] C++ `va_list&` helperのtyped-SSA loweringを確認し、参照経由の
+        `va_copy`がsource cursorを進めず、参照先での`va_arg`がcallerのcursorを
+        進めることを検証。i686/AMD64 `-O0`とAMD64 `-O2`のverified objectで
+        fallbackなし、AMD64 host executionで結果90を確認
   - [ ] Extend typed-SSA x86_64 SysV variadic coverage beyond the verified
         scalar-FP and bounded aggregate profiles below. Remaining work is
         nontrivial/unsupported aggregate layouts and adjusted-`va_list` shapes;

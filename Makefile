@@ -14983,7 +14983,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/va-list-pointer-cxx-x86.ro \
 		tests/verified_backend_va_list_pointer.cpp \
 		>$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x86.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
@@ -14991,7 +14991,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64.ro \
 		tests/verified_backend_va_list_pointer.cpp \
 		>$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
@@ -14999,7 +14999,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		-o $(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64-o2.ro \
 		tests/verified_backend_va_list_pointer.cpp \
 		>$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/va-list-pointer-cxx-x64-o2.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \

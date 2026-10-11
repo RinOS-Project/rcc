@@ -288,7 +288,7 @@ static void verify_va_list_pointer_cxx_object(
         memory = map_text(object, text, &mapping_size);
         address = symbol_address(memory, symbol);
         memcpy(&function, &address, sizeof(function));
-        assert(function() == 40);
+        assert(function() == 90);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);
