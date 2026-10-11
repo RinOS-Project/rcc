@@ -655,6 +655,44 @@ bool type_is_same_template_argument(Type* a, Type* b) {
             return !left_parameter && !right_parameter;
         case TYPE_STRUCT:
         case TYPE_UNION:
+            {
+                bool has_pack_expansion = false;
+                if (a->cxx_template_arg_pack_expansions ||
+                    b->cxx_template_arg_pack_expansions) {
+                    if (!a->cxx_template_arg_pack_expansions ||
+                        !b->cxx_template_arg_pack_expansions ||
+                        a->cxx_template != b->cxx_template ||
+                        a->cxx_template_arg_count !=
+                            b->cxx_template_arg_count) {
+                        return false;
+                    }
+                    for (int index = 0; index < a->cxx_template_arg_count;
+                         ++index) {
+                        if (a->cxx_template_arg_pack_expansions[index] !=
+                            b->cxx_template_arg_pack_expansions[index]) {
+                            return false;
+                        }
+                        has_pack_expansion = has_pack_expansion ||
+                            a->cxx_template_arg_pack_expansions[index];
+                    }
+                    if (has_pack_expansion) {
+                        if (a->cxx_template_arg_count > 0 &&
+                            (!a->cxx_template_args ||
+                             !b->cxx_template_args)) {
+                            return false;
+                        }
+                        for (int index = 0;
+                             index < a->cxx_template_arg_count; ++index) {
+                            if (!type_is_same_template_argument(
+                                    a->cxx_template_args[index],
+                                    b->cxx_template_args[index])) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
+                }
+            }
             if (a->cxx_class || b->cxx_class) {
                 return a->cxx_class && b->cxx_class &&
                        (a->cxx_class == b->cxx_class ||

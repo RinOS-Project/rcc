@@ -3085,7 +3085,14 @@ static bool cxx_template_redeclaration_type_matches(
             return false;
         }
         for (int index = 0; index < left->cxx_template_arg_count; ++index) {
-            if (!cxx_template_redeclaration_type_matches(
+            bool left_pack_expansion =
+                left->cxx_template_arg_pack_expansions &&
+                left->cxx_template_arg_pack_expansions[index];
+            bool right_pack_expansion =
+                right->cxx_template_arg_pack_expansions &&
+                right->cxx_template_arg_pack_expansions[index];
+            if (left_pack_expansion != right_pack_expansion ||
+                !cxx_template_redeclaration_type_matches(
                     left->cxx_template_args[index], left_template,
                     right->cxx_template_args[index], right_template,
                     depth + 1)) {
@@ -4756,7 +4763,11 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         Type* nested_arguments[32] = { NULL };
         int64_t nested_values[32] = { 0 };
         bool nested_value_present[32] = { false };
+        Expr* nested_value_expressions[32] = { NULL };
+        bool nested_pack_expansions[32] = { false };
+        int nested_count = 0;
         int pack_index = -1;
+        bool still_dependent = false;
         CxxClass* instantiated;
         if (type->cxx_template_arg_count >
             (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
@@ -4783,6 +4794,99 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             TemplateParam* parameter = parameter_index >= 0 &&
                     parameter_index < type->cxx_template->param_count
                 ? &type->cxx_template->params[parameter_index] : NULL;
+            bool is_pack_expansion =
+                type->cxx_template_arg_pack_expansions &&
+                type->cxx_template_arg_pack_expansions[nested_index];
+            if (is_pack_expansion) {
+                Type* pattern_argument = type->cxx_template_args
+                    ? type->cxx_template_args[nested_index] : NULL;
+                int expansion_pack_index =
+                    template_parameter_pack_index_nested(tmpl,
+                                                         pattern_argument);
+                if (pack_index < 0 || nested_index < pack_index ||
+                    nested_index != type->cxx_template_arg_count - 1 ||
+                    !parameter || parameter->kind != TPARAM_TYPE ||
+                    !parameter->is_pack || !tmpl ||
+                    expansion_pack_index < 0 ||
+                    expansion_pack_index >= tmpl->param_count ||
+                    tmpl->params[expansion_pack_index].kind != TPARAM_TYPE ||
+                    !tmpl->params[expansion_pack_index].is_pack) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "dependent class-template pack expansion has "
+                              "an invalid type-pack pattern");
+                    return NULL;
+                }
+                if (tmpl->pending_pack_count < 0) {
+                    if (nested_count >=
+                        (int)(sizeof(nested_arguments) /
+                              sizeof(nested_arguments[0]))) {
+                        rcc_error((SourceLoc){"<template>", 0, 0},
+                                  "dependent class template argument limit "
+                                  "exceeded");
+                        return NULL;
+                    }
+                    nested_arguments[nested_count] = template_substitute_type(
+                        tmpl, pattern_argument, args, arg_count,
+                        value_args, value_present);
+                    if (!nested_arguments[nested_count]) return NULL;
+                    nested_pack_expansions[nested_count] = true;
+                    still_dependent = true;
+                    ++nested_count;
+                    continue;
+                }
+                if (tmpl->pending_pack_count > 0 &&
+                    !tmpl->pending_pack_args) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "class-template pack expansion is missing its "
+                              "deduced type arguments");
+                    return NULL;
+                }
+                for (int pack_value = 0;
+                     pack_value < tmpl->pending_pack_count; ++pack_value) {
+                    Type* expanded_arguments[32] = { NULL };
+                    int64_t expanded_values[32] = { 0 };
+                    bool expanded_value_present[32] = { false };
+                    if (nested_count >=
+                        (int)(sizeof(nested_arguments) /
+                              sizeof(nested_arguments[0])) ||
+                        arg_count < 0 ||
+                        (arg_count > 0 && !args) ||
+                        arg_count > (int)(sizeof(expanded_arguments) /
+                                          sizeof(expanded_arguments[0]))) {
+                        rcc_error((SourceLoc){"<template>", 0, 0},
+                                  "expanded class template argument limit "
+                                  "exceeded");
+                        return NULL;
+                    }
+                    if (arg_count > 0) {
+                        memcpy(expanded_arguments, args,
+                               sizeof(Type*) * (size_t)arg_count);
+                        if (value_args && value_present) {
+                            memcpy(expanded_values, value_args,
+                                   sizeof(int64_t) * (size_t)arg_count);
+                            memcpy(expanded_value_present, value_present,
+                                   sizeof(bool) * (size_t)arg_count);
+                        }
+                    }
+                    expanded_arguments[expansion_pack_index] =
+                        tmpl->pending_pack_args[pack_value];
+                    nested_arguments[nested_count] = template_substitute_type(
+                        tmpl, pattern_argument, expanded_arguments, arg_count,
+                        expanded_values, expanded_value_present);
+                    if (!nested_arguments[nested_count]) return NULL;
+                    still_dependent = still_dependent ||
+                        nested_arguments[nested_count]->cxx_dependent;
+                    ++nested_count;
+                }
+                continue;
+            }
+            if (nested_count >=
+                (int)(sizeof(nested_arguments) /
+                      sizeof(nested_arguments[0]))) {
+                rcc_error((SourceLoc){"<template>", 0, 0},
+                          "dependent class template argument limit exceeded");
+                return NULL;
+            }
             if (parameter && parameter->kind == TPARAM_NONTYPE) {
                 Expr* value_expression = type->cxx_template_value_args
                     ? type->cxx_template_value_args[nested_index] : NULL;
@@ -4799,15 +4903,16 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 if (!substituted_expression ||
                     !expr_eval_integer_constant(
                         substituted_expression,
-                        &nested_values[nested_index])) {
+                        &nested_values[nested_count])) {
                     rcc_error(value_expression->loc,
                               "dependent class-template non-type argument "
                               "must be an integer constant expression");
                     return NULL;
                 }
-                nested_arguments[nested_index] = parameter->type
+                nested_value_expressions[nested_count] = value_expression;
+                nested_arguments[nested_count] = parameter->type
                     ? parameter->type : type_int;
-                nested_value_present[nested_index] = true;
+                nested_value_present[nested_count] = true;
             } else {
                 if (!parameter) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
@@ -4815,16 +4920,46 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                               "not match its parameter list");
                     return NULL;
                 }
-                nested_arguments[nested_index] = template_substitute_type(
+                nested_arguments[nested_count] = template_substitute_type(
                     tmpl, type->cxx_template_args[nested_index], args,
                     arg_count, value_args, value_present);
-                if (!nested_arguments[nested_index]) return NULL;
+                if (!nested_arguments[nested_count]) return NULL;
+                still_dependent = still_dependent ||
+                    nested_arguments[nested_count]->cxx_dependent;
             }
+            ++nested_count;
+        }
+        if (still_dependent) {
+            Type* dependent_type = ast_arena_alloc(sizeof(*dependent_type));
+            *dependent_type = *type;
+            dependent_type->cxx_class = NULL;
+            dependent_type->cxx_dependent = true;
+            dependent_type->cxx_template_args = nested_count > 0
+                ? ast_arena_alloc(sizeof(Type*) * (size_t)nested_count) : NULL;
+            dependent_type->cxx_template_value_args = nested_count > 0
+                ? ast_arena_alloc(sizeof(Expr*) * (size_t)nested_count) : NULL;
+            dependent_type->cxx_template_arg_pack_expansions =
+                type->cxx_template_arg_pack_expansions && nested_count > 0
+                    ? ast_arena_alloc(sizeof(bool) * (size_t)nested_count)
+                    : NULL;
+            if (nested_count > 0) {
+                memcpy(dependent_type->cxx_template_args, nested_arguments,
+                       sizeof(Type*) * (size_t)nested_count);
+                memcpy(dependent_type->cxx_template_value_args,
+                       nested_value_expressions,
+                       sizeof(Expr*) * (size_t)nested_count);
+                if (dependent_type->cxx_template_arg_pack_expansions) {
+                    memcpy(dependent_type->cxx_template_arg_pack_expansions,
+                           nested_pack_expansions,
+                           sizeof(bool) * (size_t)nested_count);
+                }
+            }
+            dependent_type->cxx_template_arg_count = nested_count;
+            return dependent_type;
         }
         instantiated = rcc_cxx_instantiate_class_template(
             type->cxx_template, nested_arguments, nested_values,
-            nested_value_present,
-            type->cxx_template_arg_count,
+            nested_value_present, nested_count,
             (SourceLoc){"<template>", 0, 0});
         return instantiated ? instantiated->type : NULL;
     }

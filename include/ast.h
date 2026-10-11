@@ -204,6 +204,10 @@ struct Type {
     const char* cxx_dependent_member_name;
     Type** cxx_template_args;
     int cxx_template_arg_count;
+    /* A dependent template-id argument can be a type-pack expansion (for
+     * example `Box<Head, Tail...>`).  This parallel bitmap is present only
+     * for pattern types and remains clear on concrete specializations. */
+    bool* cxx_template_arg_pack_expansions;
     /* Dependent class/template-template specializations may carry integral
      * arguments such as `Owner<N>` even though their type carriers are all
      * represented in cxx_template_args. Keep the source expressions in a

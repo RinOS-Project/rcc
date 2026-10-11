@@ -2879,7 +2879,13 @@ separately recorded WSL startup failure.
 - [x] Run the complete native-Windows
   `mingw32-make SHELL=cmd.exe test-cxx` regression suite after this change; it
   completed successfully (exit 0).
-- [ ] Parse and implement pack-expansion arguments nested in a class-template-id
-  such as `PackBox<First, Rest...>`, including variable-arity deduction,
-  specialization, and partial ordering. RCC currently rejects the ellipsis
-  while parsing the template argument list; the example remains unsupported.
+- [x] Parse and implement the bounded trailing type-pack form nested in a
+  class-template-id, such as `PackBox<First, Rest...>`. Deduction now captures
+  zero, one, or multiple `Rest` types and function-template substitution
+  rebuilds the class-template argument list before specialization.
+- [x] Verify empty, single-element, and multi-element expansions against GCC
+  C++20; the focused overload gate passes for i686 and AMD64 generation and
+  AMD64 execution, including existing ambiguity/no-object diagnostics.
+- [ ] Implement C++20 partial ordering between class-template-id pack-expansion
+  patterns. Repeated or mixed pack sources, non-type/template-template packs,
+  and interactions with constraints/conversion ties also remain open.
