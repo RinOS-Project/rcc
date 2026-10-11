@@ -810,7 +810,9 @@ static bool cxx_member_template_expression_supported(
     }
     if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
         expression->kind == EXPR_MUL || expression->kind == EXPR_DIV ||
-        expression->kind == EXPR_MOD) {
+        expression->kind == EXPR_MOD || expression->kind == EXPR_BITAND ||
+        expression->kind == EXPR_BITOR || expression->kind == EXPR_BITXOR ||
+        expression->kind == EXPR_LSHIFT || expression->kind == EXPR_RSHIFT) {
         return cxx_member_template_expression_supported(
                    expression->binary_lhs, tmpl) &&
                cxx_member_template_expression_supported(
@@ -877,6 +879,11 @@ static void cxx_member_template_expression_append(
     else if (expression->kind == EXPR_MUL) operation = "ml";
     else if (expression->kind == EXPR_DIV) operation = "dv";
     else if (expression->kind == EXPR_MOD) operation = "rm";
+    else if (expression->kind == EXPR_BITAND) operation = "an";
+    else if (expression->kind == EXPR_BITOR) operation = "or";
+    else if (expression->kind == EXPR_BITXOR) operation = "eo";
+    else if (expression->kind == EXPR_LSHIFT) operation = "ls";
+    else if (expression->kind == EXPR_RSHIFT) operation = "rs";
     else if (expression->kind == EXPR_NEG) operation = "ng";
     if (!operation) return;
     size_t operation_length = strlen(operation);

@@ -69,6 +69,31 @@ struct Box {
         return sizeof...(Args);
     }
 
+    template<int Tag, typename... Args>
+    int count_tagged_and(PackTagged<Args, (Tag & 3)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_or(PackTagged<Args, (Tag | 1)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_xor(PackTagged<Args, (Tag ^ 3)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_left_shift(PackTagged<Args, (Tag << 1)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_right_shift(PackTagged<Args, (Tag >> 1)>...) const {
+        return sizeof...(Args);
+    }
+
     template<int... Values>
     T add_constants() const {
         return (0 + ... + Values);
@@ -124,6 +149,21 @@ int main() {
                    integers.count_tagged_remainder<6>(
                        PackTagged<int, 2>{1},
                        PackTagged<long, 2>{2}) == 2 &&
+                   integers.count_tagged_and<6>(
+                       PackTagged<int, 2>{1},
+                       PackTagged<long, 2>{2}) == 2 &&
+                   integers.count_tagged_or<6>(
+                       PackTagged<int, 7>{1},
+                       PackTagged<long, 7>{2}) == 2 &&
+                   integers.count_tagged_xor<6>(
+                       PackTagged<int, 5>{1},
+                       PackTagged<long, 5>{2}) == 2 &&
+                   integers.count_tagged_left_shift<3>(
+                       PackTagged<int, 6>{1},
+                       PackTagged<long, 6>{2}) == 2 &&
+                   integers.count_tagged_right_shift<12>(
+                       PackTagged<int, 6>{1},
+                       PackTagged<long, 6>{2}) == 2 &&
                    integers.add_constants<2, 3>() == 5 &&
                    integers.add_constants<>() == 0 &&
                    integers.identity(12L) == 12L &&

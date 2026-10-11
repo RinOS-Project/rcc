@@ -2649,6 +2649,12 @@ separately recorded WSL startup failure.
   arguments are rejected on both targets without object output. The focused
   gate and complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx`
   aggregate pass.
+- [x] Encode dependent bitwise AND/OR/XOR and left/right shifts in nested
+  member-template function-parameter pack patterns. Emit the Itanium `an`,
+  `or`, `eo`, `ls`, and `rs` expressions matching GCC exactly. Positive calls
+  execute; mismatched results are rejected on both targets without object
+  output. The focused gate and complete native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` aggregate pass.
 - [ ] Complete member-template deduction and overload selection for remaining
   general dependent non-type expressions and template-template forms,
   expansions involving

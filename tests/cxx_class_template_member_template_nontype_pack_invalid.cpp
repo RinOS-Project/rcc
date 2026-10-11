@@ -23,6 +23,31 @@ struct Box {
     int count_tagged_remainder(PackTagged<Args, (Tag % 4)>...) const {
         return sizeof...(Args);
     }
+
+    template<int Tag, typename... Args>
+    int count_tagged_and(PackTagged<Args, (Tag & 3)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_or(PackTagged<Args, (Tag | 1)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_xor(PackTagged<Args, (Tag ^ 3)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_left_shift(PackTagged<Args, (Tag << 1)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_right_shift(PackTagged<Args, (Tag >> 1)>...) const {
+        return sizeof...(Args);
+    }
 };
 
 int main() {
@@ -32,5 +57,10 @@ int main() {
         PackTagged<long, 8>{2}) +
         box.count_tagged_after<6>(PackTagged<int, 8>{1}) +
         box.count_tagged_divided<6>(PackTagged<int, 4>{1}) +
-        box.count_tagged_remainder<6>(PackTagged<int, 3>{1});
+        box.count_tagged_remainder<6>(PackTagged<int, 3>{1}) +
+        box.count_tagged_and<6>(PackTagged<int, 3>{1}) +
+        box.count_tagged_or<6>(PackTagged<int, 6>{1}) +
+        box.count_tagged_xor<6>(PackTagged<int, 4>{1}) +
+        box.count_tagged_left_shift<3>(PackTagged<int, 7>{1}) +
+        box.count_tagged_right_shift<12>(PackTagged<int, 5>{1});
 }
