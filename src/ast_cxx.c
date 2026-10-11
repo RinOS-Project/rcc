@@ -788,6 +788,111 @@ typedef struct CxxMemberTemplateMangleContext {
     size_t next_substitution;
 } CxxMemberTemplateMangleContext;
 
+static bool cxx_member_template_expression_supported(
+    Expr* expression, CxxTemplate* tmpl) {
+    int64_t value;
+    if (!expression) return false;
+    if (expr_eval_integer_constant(expression, &value)) return true;
+    if (expression->kind == EXPR_IDENT && expression->ident_name && tmpl) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_NONTYPE && !parameter->is_pack &&
+                parameter->name &&
+                strcmp(parameter->name, expression->ident_name) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+    if (expression->kind == EXPR_NEG) {
+        return cxx_member_template_expression_supported(
+            expression->unary_operand, tmpl);
+    }
+    if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
+        expression->kind == EXPR_MUL) {
+        return cxx_member_template_expression_supported(
+                   expression->binary_lhs, tmpl) &&
+               cxx_member_template_expression_supported(
+                   expression->binary_rhs, tmpl);
+    }
+    return false;
+}
+
+static void cxx_member_template_expression_append(
+    char* buf, size_t* pos, Expr* expression, CxxTemplate* tmpl) {
+    int64_t value;
+    const char* operation = NULL;
+    if (expr_eval_integer_constant(expression, &value)) {
+        char* type = cxx_mangle_type(
+            expression->type ? expression->type : type_int);
+        size_t type_length = type ? strlen(type) : 0u;
+        if (!type || *pos + type_length + 32u >= CXX_MANGLE_BUFFER_SIZE) {
+            rcc_fatal("C++ member template expression is too long");
+        }
+        buf[(*pos)++] = 'L';
+        memcpy(buf + *pos, type, type_length);
+        *pos += type_length;
+        if (value < 0) {
+            uint64_t magnitude = (uint64_t)(-(value + 1)) + 1u;
+            *pos += (size_t)snprintf(
+                buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos, "n%llu",
+                (unsigned long long)magnitude);
+        } else {
+            *pos += (size_t)snprintf(
+                buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos, "%lld",
+                (long long)value);
+        }
+        buf[(*pos)++] = 'E';
+        return;
+    }
+    if (expression->kind == EXPR_IDENT && expression->ident_name) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind != TPARAM_NONTYPE || parameter->is_pack ||
+                !parameter->name ||
+                strcmp(parameter->name, expression->ident_name) != 0) {
+                continue;
+            }
+            if (*pos + 16u >= CXX_MANGLE_BUFFER_SIZE) {
+                rcc_fatal("C++ member template expression is too long");
+            }
+            buf[(*pos)++] = 'T';
+            if (index > 0) {
+                int written = snprintf(buf + *pos,
+                                       CXX_MANGLE_BUFFER_SIZE - *pos,
+                                       "%d", index - 1);
+                if (written < 0 || (size_t)written >=
+                        CXX_MANGLE_BUFFER_SIZE - *pos) {
+                    rcc_fatal("C++ member template parameter index is too long");
+                }
+                *pos += (size_t)written;
+            }
+            buf[(*pos)++] = '_';
+            return;
+        }
+    }
+    if (expression->kind == EXPR_ADD) operation = "pl";
+    else if (expression->kind == EXPR_SUB) operation = "mi";
+    else if (expression->kind == EXPR_MUL) operation = "ml";
+    else if (expression->kind == EXPR_NEG) operation = "ng";
+    if (!operation) return;
+    size_t operation_length = strlen(operation);
+    if (*pos + operation_length >= CXX_MANGLE_BUFFER_SIZE) {
+        rcc_fatal("C++ member template expression is too long");
+    }
+    memcpy(buf + *pos, operation, operation_length);
+    *pos += operation_length;
+    if (expression->kind == EXPR_NEG) {
+        cxx_member_template_expression_append(
+            buf, pos, expression->unary_operand, tmpl);
+    } else {
+        cxx_member_template_expression_append(
+            buf, pos, expression->binary_lhs, tmpl);
+        cxx_member_template_expression_append(
+            buf, pos, expression->binary_rhs, tmpl);
+    }
+}
+
 static void cxx_mangle_member_template_substitution(
     char* buf, size_t* pos, size_t index) {
     static const char digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -930,6 +1035,7 @@ static void cxx_mangle_template_type_append(
     }
     int64_t nested_value_arguments[32] = { 0 };
     int nested_value_parameter_indices[32];
+    Expr* nested_value_expressions[32] = { NULL };
     for (int index = 0;
          index < (int)(sizeof(nested_value_parameter_indices) /
                        sizeof(nested_value_parameter_indices[0]));
@@ -973,9 +1079,16 @@ static void cxx_mangle_template_type_append(
                         }
                     }
                 }
+                if (nested_value_parameter_indices[index] < 0 &&
+                    cxx_member_template_expression_supported(
+                        value_expression, tmpl)) {
+                    nested_value_expressions[index] = value_expression;
+                }
                 if (nested_value_parameter_indices[index] < 0) {
-                    nested_value_arguments_encodable = false;
-                    break;
+                    if (!nested_value_expressions[index]) {
+                        nested_value_arguments_encodable = false;
+                        break;
+                    }
                 }
             }
         }
@@ -1026,6 +1139,11 @@ static void cxx_mangle_template_type_append(
                         *pos += (size_t)written;
                     }
                     CXX_MANGLE_TEMPLATE_APPEND('_');
+                    CXX_MANGLE_TEMPLATE_APPEND('E');
+                } else if (nested_value_expressions[index]) {
+                    CXX_MANGLE_TEMPLATE_APPEND('X');
+                    cxx_member_template_expression_append(
+                        buf, pos, nested_value_expressions[index], tmpl);
                     CXX_MANGLE_TEMPLATE_APPEND('E');
                 } else {
                     int64_t value = nested_value_arguments[index];

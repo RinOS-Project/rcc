@@ -54,6 +54,11 @@ struct Box {
         return sizeof...(Args);
     }
 
+    template<int Tag, typename... Args>
+    int count_tagged_after(PackTagged<Args, (Tag + 1)>...) const {
+        return sizeof...(Args);
+    }
+
     template<int... Values>
     T add_constants() const {
         return (0 + ... + Values);
@@ -98,6 +103,9 @@ int main() {
                        PackPair<int, int>{1, 2},
                        PackPair<long, long>{3, 4}) == 2 &&
                    integers.count_tagged(
+                       PackTagged<int, 7>{1},
+                       PackTagged<long, 7>{2}) == 2 &&
+                   integers.count_tagged_after<6>(
                        PackTagged<int, 7>{1},
                        PackTagged<long, 7>{2}) == 2 &&
                    integers.add_constants<2, 3>() == 5 &&

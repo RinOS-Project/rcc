@@ -13371,8 +13371,9 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
                     }
                     if (!pattern_value || !actual_value_known ||
                         (!pattern_parameter_matched &&
-                         (!expr_eval_integer_constant(pattern_value,
-                                                      &pattern_integer) ||
+                         (!eval_template_integer_expression(
+                              pattern_value, tmpl, values, value_present,
+                              &pattern_integer) ||
                           pattern_integer != actual_integer))) {
                         return false;
                     }
@@ -17368,6 +17369,75 @@ static bool prepare_cxx_function_template_match(
             int index = parameter->decl ? parameter->decl->param_index : 0;
             while (argument && index-- > 0) argument = argument->next;
             if (parameter->decl && parameter->decl->param_is_pack) {
+                if (match->pack_count == 0) {
+                    int pack_index = cxx_parser_type_pack_index(
+                        tmpl, parameter->decl->type);
+                    while (argument) {
+                        Type* actual =
+                            cxx_parser_expression_type(argument->expr);
+                        Type* element_arguments[32] = { NULL };
+                        int64_t element_values[32] = { 0 };
+                        bool element_value_present[32] = { false };
+                        int element_specificity = 0;
+                        if (!actual || pack_index < 0 ||
+                            match->pack_count >=
+                                (int)(sizeof(match->pack_arguments) /
+                                      sizeof(match->pack_arguments[0]))) {
+                            return false;
+                        }
+                        memcpy(element_arguments, match->arguments,
+                               sizeof(element_arguments));
+                        memcpy(element_values, match->values,
+                               sizeof(element_values));
+                        memcpy(element_value_present, match->value_present,
+                               sizeof(element_value_present));
+                        if (!deduce_function_template_type(
+                                tmpl, parameter->decl->type,
+                                cxx_parser_template_deduction_argument(
+                                    parameter->decl->type, actual),
+                                element_arguments, element_values,
+                                element_value_present,
+                                &element_specificity) ||
+                            !element_arguments[pack_index]) {
+                            return false;
+                        }
+                        for (int template_index = 0;
+                             template_index < tmpl->param_count;
+                             ++template_index) {
+                            TemplateParam* template_parameter =
+                                &tmpl->params[template_index];
+                            if (template_index == pack_index) continue;
+                            if (template_parameter->kind == TPARAM_TYPE &&
+                                !template_parameter->is_pack &&
+                                element_arguments[template_index]) {
+                                if (match->arguments[template_index] &&
+                                    !type_is_compatible(
+                                        match->arguments[template_index],
+                                        element_arguments[template_index])) {
+                                    return false;
+                                }
+                                match->arguments[template_index] =
+                                    element_arguments[template_index];
+                            } else if (
+                                template_parameter->kind == TPARAM_NONTYPE &&
+                                !template_parameter->is_pack &&
+                                element_value_present[template_index]) {
+                                if (match->value_present[template_index] &&
+                                    match->values[template_index] !=
+                                        element_values[template_index]) {
+                                    return false;
+                                }
+                                match->values[template_index] =
+                                    element_values[template_index];
+                                match->value_present[template_index] = true;
+                            }
+                        }
+                        match->pack_arguments[match->pack_count++] =
+                            element_arguments[pack_index];
+                        specificity += element_specificity;
+                        argument = argument->next;
+                    }
+                }
                 continue;
             }
             if (argument) {

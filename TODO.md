@@ -2634,7 +2634,10 @@ separately recorded WSL startup failure.
   consistent value, and encode the dependent argument as GCC's `XT_E`; exact
   symbols match GCC. Mismatched `PackPair<int, long>` and mixed-tag
   `PackTagged<int, 7>, PackTagged<long, 8>` arguments are rejected on both
-  targets without producing an object (matching GCC). The focused gate passes
+  targets without producing an object (matching GCC). Evaluate explicitly
+  supplied `Tag` in a nested `Tag + 1` NTTP pattern; its `XplT_Li1E` expression
+  encoding matches GCC exactly, and tags that do not equal `Tag + 1` are
+  rejected on both targets. The focused gate passes
   i686/AMD64 assembly and object generation, generated AMD64 execution, GCC
   C++20 `-Wall -Wextra -Werror`, and verified-backend output for both targets.
   The complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx` and
