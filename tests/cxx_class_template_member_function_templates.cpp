@@ -23,6 +23,16 @@ struct Box {
         return other;
     }
 
+    template<typename U, typename... Rest>
+    U echo_first(U first, Rest...) const {
+        return first;
+    }
+
+    template<int... Values>
+    T add_constants() const {
+        return (0 + ... + Values);
+    }
+
     T echo_through_member(T other) const {
         return this->template echo<T>(other);
     }
@@ -33,6 +43,10 @@ struct Box {
 
     T echo_through_object_deduced(const Box& other, T value) const {
         return other.template echo(value);
+    }
+
+    T echo_through_object_pack(const Box& other, T value) const {
+        return other.template echo_first(value, value);
     }
 
     template<typename U>
@@ -49,6 +63,8 @@ int main() {
                    integers.echo_through_member(13) == 13 &&
                    integers.echo_through_object(integers, 14) == 14 &&
                    integers.echo_through_object_deduced(integers, 15) == 15 &&
+                   integers.echo_through_object_pack(integers, 16) == 16 &&
+                   integers.add_constants<2, 3>() == 5 &&
                    integers.identity(12L) == 12L &&
                    integers.add<short>(2) == 6 &&
                    integers.add_constant() == 6 &&

@@ -6841,9 +6841,13 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
             } else {
                 do {
                     const char* pname = NULL;
+                    bool parameter_pack = false;
                     Type* ptype = parse_cxx_type_spec();
+                    parameter_pack = match(TOK_ELLIPSIS);
                     ptype = rcc_parser_parse_cxx_declarator(ptype, &pname,
                                                             NULL);
+                    parameter_pack = parameter_pack ||
+                        rcc_parser_last_cxx_declarator_was_pack();
                     Expr* default_argument = NULL;
                     if (match(TOK_ASSIGN)) {
                         default_argument = parse_assignment_expression();
@@ -6853,6 +6857,13 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                                   "parameter without a default follows a default argument");
                     }
                     Decl* p = decl_param(pname, ptype, param_idx++, peek()->loc);
+                    p->param_is_pack = parameter_pack;
+                    if (parameter_pack &&
+                        (!active_template ||
+                         active_template->kind != TMPL_FUNCTION)) {
+                        rcc_error(p->loc,
+                                  "function parameter packs require a function template");
+                    }
                     p->param_default = default_argument;
                     decllist_append(&params, p);
                 } while (match(TOK_COMMA));
@@ -6966,6 +6977,12 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
         /* Create method */
         CxxMethod* method = cxx_method_new(name, type, params, body, loc);
+        for (DeclList* parameter = params; parameter; parameter = parameter->next) {
+            if (parameter->decl && parameter->decl->param_is_pack) {
+                method->decl->type->variadic = true;
+                break;
+            }
+        }
         method->decl->type->is_const = is_const;
         method->decl->type->is_volatile = is_volatile;
         method->decl->type->function_ref_qualifier = ref_qualifier;
@@ -11261,6 +11278,23 @@ static DeclList* substitute_template_decl_parameters(
         if (parameter->param_is_pack) {
             int pack_index = cxx_template_pack_index_in_type(
                 tmpl, parameter->type);
+            if (pack_index < 0 && tmpl && tmpl->kind == TMPL_CLASS) {
+                Type* parameter_type = substitute_template_type(
+                    tmpl, parameter->type, arguments, argument_count,
+                    value_args, value_present);
+                Decl* copy = decl_param(
+                    parameter->name, parameter_type,
+                    next_parameter_index++, parameter->loc);
+                copy->param_is_pack = true;
+                copy->param_array_type = substitute_template_type(
+                    tmpl, parameter->param_array_type, arguments,
+                    argument_count, value_args, value_present);
+                copy->param_default = cxx_template_clone_expr_with_values(
+                    tmpl, parameter->param_default, arguments,
+                    argument_count, value_args, value_present);
+                decllist_append(&result, copy);
+                continue;
+            }
             if (pack_index < 0 || !tmpl || tmpl->pending_pack_count < 0 ||
                 tmpl->params[pack_index].kind != TPARAM_TYPE ||
                 (tmpl->pending_pack_count > 0 && !tmpl->pending_pack_args)) {

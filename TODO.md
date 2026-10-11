@@ -2619,13 +2619,24 @@ separately recorded WSL startup failure.
   after dependent call substitution on both architectures. Expanded name
   buffers also keep deeply nested template friend-function mangling working.
   Native-Windows `test-cxx` and `test-c17` aggregates pass.
+- [x] Support function-parameter packs and non-type template packs in named
+  member-function templates of class-template specializations. Preserve the
+  nested member-template pack during enclosing-class substitution, defer its
+  fold expression until member-template specialization, and emit GCC-matching
+  Itanium pack encodings for template arguments and the `Dp` function-parameter
+  pattern. Regressions cover deduced `Rest...` and `add_constants<2, 3>()`;
+  both exact pack symbols are checked against GCC. The focused gate passes
+  i686/AMD64 assembly and object generation, generated AMD64 execution,
+  GCC C++20 `-Wall -Wextra -Werror`, and verified-backend output for both
+  targets. The complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx`
+  aggregate exits 0 on this revision.
 - [ ] Complete member-template deduction and overload selection for remaining
-  non-type,
-  template-template, and pack forms; and support constructor templates,
-  explicit member-template specializations, inherited conversion templates,
-  and full C++20 constraint subsumption. Full Itanium ABI substitution for
-  more complex dependent signatures also remains. Conversion target deduction
-  and user-defined sequence ranking are specified in
+  non-type and template-template forms, pack deduction/expansion combinations
+  beyond the covered cases, and overload edge cases; support constructor
+  templates, explicit member-template specializations, inherited conversion
+  templates, full C++20 constraint subsumption, and remaining complex
+  dependent Itanium ABI substitutions. Conversion target deduction and
+  user-defined sequence ranking are specified in
   [`temp.deduct.conv`](https://timsong-cpp.github.io/cppwp/std20/temp.deduct.conv)
   and [`over.ics.rank`](https://timsong-cpp.github.io/cppwp/std20/over.ics.rank).
 

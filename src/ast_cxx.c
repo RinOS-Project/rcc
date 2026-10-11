@@ -1019,6 +1019,10 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         TemplateParam* parameter = &tmpl->params[index];
         if (parameter->kind == TPARAM_TYPE) {
             if (parameter->is_pack && tmpl->pending_pack_count >= 0) {
+                if (pos + 2u >= sizeof(buf)) {
+                    rcc_fatal("C++ template function name is too long");
+                }
+                buf[pos++] = 'J';
                 for (int pack_index = 0;
                      pack_index < tmpl->pending_pack_count; ++pack_index) {
                     char* type_mangled = cxx_mangle_type(
@@ -1031,6 +1035,7 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                     memcpy(buf + pos, type_mangled, type_length);
                     pos += type_length;
                 }
+                buf[pos++] = 'E';
                 continue;
             }
             const char* type_mangled;
@@ -1053,10 +1058,11 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         if (parameter->is_pack && tmpl->pending_pack_count >= 0) {
             char* type_mangled = cxx_mangle_type(parameter->type);
             size_t type_length = type_mangled ? strlen(type_mangled) : 0u;
-            if (!type_mangled || pos + (type_length + 32u) *
+            if (!type_mangled || pos + 2u + (type_length + 32u) *
                     (size_t)tmpl->pending_pack_count >= sizeof(buf) - 32u) {
                 rcc_fatal("C++ template function name is too long");
             }
+            buf[pos++] = 'J';
             for (int pack_index = 0;
                  pack_index < tmpl->pending_pack_count; ++pack_index) {
                 buf[pos++] = 'L';
@@ -1078,6 +1084,7 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                         (long long)tmpl->pending_pack_values[pack_index]);
                 }
             }
+            buf[pos++] = 'E';
             continue;
         }
         if (parameter->kind == TPARAM_NONTYPE && value_present &&
@@ -1125,6 +1132,15 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
             for (DeclList* parameter = parameters; parameter;
              parameter = parameter->next) {
                 if (encode_member_signature) {
+                    if (parameter->decl &&
+                        parameter->decl->param_is_pack) {
+                        if (pos + 2u >= sizeof(buf)) {
+                            rcc_fatal(
+                                "C++ member template signature is too long");
+                        }
+                        buf[pos++] = 'D';
+                        buf[pos++] = 'p';
+                    }
                     cxx_mangle_template_type_append(
                         buf, &pos, parameter->decl->type, tmpl,
                         &member_mangle_context);
@@ -5083,6 +5099,22 @@ static ExprList* template_clone_expr_list(CxxTemplate* tmpl, ExprList* list,
     return result;
 }
 
+static bool template_pack_is_deferred_member_pack(
+    CxxTemplate* tmpl, const char* pack_name) {
+    for (CxxTemplate* current = tmpl; current;
+         current = current->enclosing_template) {
+        for (int index = 0; current->params &&
+                            index < current->param_count; ++index) {
+            TemplateParam* parameter = &current->params[index];
+            if (parameter->is_pack && parameter->name && pack_name &&
+                strcmp(parameter->name, pack_name) == 0) {
+                return false;
+            }
+        }
+    }
+    return tmpl && tmpl->kind == TMPL_CLASS && pack_name;
+}
+
 static GenericAssociation* template_clone_associations(
         CxxTemplate* tmpl, GenericAssociation* list, Type** args,
     int arg_count, const int64_t* value_args, const bool* value_present) {
@@ -5109,10 +5141,34 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
     Expr* copy;
     if (!expression) return NULL;
     if (expression->kind == EXPR_CXX_FOLD) {
+        if (template_pack_is_deferred_member_pack(
+                tmpl, expression->cxx_fold_pack_name)) {
+            copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->type = template_substitute_type(
+                tmpl, expression->type, args, arg_count,
+                value_args, value_present);
+            copy->cxx_fold_init = template_clone_expr(
+                tmpl, expression->cxx_fold_init, args, arg_count,
+                value_args, value_present);
+            copy->cxx_fold_pattern = template_clone_expr(
+                tmpl, expression->cxx_fold_pattern, args, arg_count,
+                value_args, value_present);
+            return copy;
+        }
         return template_clone_pack_fold(tmpl, expression, args, arg_count,
                                         value_args, value_present);
     }
     if (expression->kind == EXPR_SIZEOF && expression->sizeof_pack_name) {
+        if (template_pack_is_deferred_member_pack(
+                tmpl, expression->sizeof_pack_name)) {
+            copy = ast_arena_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->type = template_substitute_type(
+                tmpl, expression->type, args, arg_count,
+                value_args, value_present);
+            return copy;
+        }
         if (!tmpl || tmpl->pending_pack_count < 0) {
             rcc_error(expression->loc,
                       "sizeof... requires a function-template pack specialization");
