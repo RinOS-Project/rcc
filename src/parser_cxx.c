@@ -10905,6 +10905,38 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         substituted->is_restrict = type->is_restrict;
         return substituted;
     }
+    /* The unqualified injected-class-name in a class-template member
+     * declaration is represented as a dependent tag-only carrier. Replace
+     * that carrier with the active specialization before rebuilding method
+     * parameter types. */
+    if (tmpl && tmpl->active_class_instance && tmpl->templated_class &&
+        tmpl->active_class_instance->type && type->kind == TYPE_STRUCT) {
+        bool matches_active_class = false;
+        if (!type->cxx_class && type->cxx_dependent && type->tag &&
+            tmpl->templated_class->type &&
+            tmpl->templated_class->type->tag &&
+            strcmp(type->tag,
+                   tmpl->templated_class->type->tag) == 0) {
+            const char* type_namespace = type->cxx_namespace;
+            const char* class_namespace =
+                tmpl->templated_class->type->cxx_namespace;
+            matches_active_class =
+                (!type_namespace && !class_namespace) ||
+                (type_namespace && class_namespace &&
+                 strcmp(type_namespace, class_namespace) == 0);
+        }
+        if (matches_active_class) {
+            Type* instance_type = tmpl->active_class_instance->type;
+            if (type == tmpl->templated_class->type) return instance_type;
+            substituted = ast_arena_alloc(sizeof(*substituted));
+            *substituted = *instance_type;
+            substituted->is_const = type->is_const;
+            substituted->is_volatile = type->is_volatile;
+            substituted->is_atomic = type->is_atomic;
+            substituted->is_restrict = type->is_restrict;
+            return substituted;
+        }
+    }
     if (type->cxx_dependent && type->cxx_dependent_member_name &&
         type->cxx_template_param_index >= 0 &&
         type->cxx_template_param_index < argument_count &&
@@ -16641,6 +16673,10 @@ static bool cxx_function_template_instance_viable(
     if (!instance || instance->kind != DECL_FUNC || !instance->type ||
         instance->type->kind != TYPE_FUNC) return false;
     parameter = instance->type->params;
+    /* Member-template materialization prepends the ABI `this` parameter to
+     * the function type after its first call.  Reused specializations must
+     * still be checked only against the explicit source arguments. */
+    if (instance->func_this_param && parameter) parameter = parameter->next;
     declaration = instance->func_params;
     argument = call_arguments;
     if (rank_count) *rank_count = 0;
@@ -17273,7 +17309,7 @@ static TypeMethod* cxx_materialize_member_function_template(
     instance->func_has_cxx_linkage = true;
     instance->func_has_local_linkage =
         owner_type->cxx_scope_identity != NULL;
-    if (!method->is_static) {
+    if (!method->is_static && !instance->func_this_param) {
         Type* qualified_owner = owner_type;
         Type* object_type;
         TypeParam* this_type_parameter;
@@ -17304,7 +17340,7 @@ static TypeMethod* cxx_materialize_member_function_template(
             method_type->params = this_type_parameter;
             instance->type = method_type;
         }
-    } else {
+    } else if (method->is_static) {
         instance->func_this_param = NULL;
     }
     if (instance->link_name) instance->name = instance->link_name;
@@ -17361,6 +17397,7 @@ int rcc_parser_cxx_materialize_member_function_templates(
         CxxFunctionTemplateMatch match;
         bool constraint_invalid = false;
         bool constraint_unsupported = false;
+        bool matched;
         if (!method || !tmpl || !method->source_name ||
             strcmp(method->source_name, name) != 0 || method->is_constructor ||
             method->is_destructor || method->is_virtual) {
@@ -17373,11 +17410,12 @@ int rcc_parser_cxx_materialize_member_function_templates(
             break;
         }
         active_namespace = tmpl->ns ? tmpl->ns : cls->ns;
-        if (prepare_cxx_function_template_match(
+        matched = prepare_cxx_function_template_match(
                 tmpl, arguments,
                 explicit_arguments_specified ? explicit_arguments : NULL,
                 explicit_argument_count, &match,
-                &constraint_invalid, &constraint_unsupported)) {
+                &constraint_invalid, &constraint_unsupported);
+        if (matched) {
             source_methods[match_count] = method;
             matches[match_count++] = match;
         }

@@ -15374,7 +15374,9 @@ static void sema_stmt(Stmt* stmt) {
                     }
                 } else if (!current_func_auto_return_pending &&
                            current_func_ret &&
-                           current_func_ret->kind != TYPE_VOID) {
+                           current_func_ret->kind != TYPE_VOID &&
+                           (!stmt->return_val->type ||
+                            !stmt->return_val->type->cxx_dependent)) {
                     if (!implicit_cast(stmt->return_val, current_func_ret)) {
                         if (rcc_parser_is_cxx_mode() &&
                             current_func_ret->is_reference) {

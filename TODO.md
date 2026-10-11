@@ -2589,7 +2589,7 @@ separately recorded WSL startup failure.
   through method declarations and bodies; preserve method cv/ref qualifiers,
   staticness, default non-type arguments, and class-dependent `requires`
   clauses. The focused Windows gate executes Box specializations for two class
-  argument types, checks twelve GCC-Itanium symbols (including static,
+  argument types, checks thirteen GCC-Itanium symbols (including static,
   deduced/explicit type arguments, and defaulted/explicit non-type arguments),
   emits/assembles i686 and AMD64 objects, executes generated AMD64 code, and
   passes verified-backend output for both targets. A first full `test-cxx`
@@ -2601,14 +2601,26 @@ separately recorded WSL startup failure.
   regression includes `add<short>(2)`, `add_constant<3>()`, and a comparison
   expression before template calls to guard the `<` lookahead. Also parse and
   substitute a dependent `this->template echo<T>(...)` call in a class-template
-  method. The focused gate passes GCC C++20 `-Wall -Wextra -Werror`, twelve
+  method. The focused gate passes GCC C++20 `-Wall -Wextra -Werror`, thirteen
   exact Itanium symbol checks against GCC, i686/AMD64 assembly and object
   generation, generated AMD64 execution, and verified-backend output for both
   targets. The nested dependent-`typename` gates retain their exact diagnostic
   counts on both architectures. The complete native-Windows `test-cxx`
   aggregate passes.
-- [ ] Extend explicit member-call arguments to dependent `.` object lookup and
-  partial deduction; complete remaining non-type,
+- [x] Resolve explicit member-template calls through a dependent `.` object
+  (`other.template echo<T>(value)`) after class substitution. Reuse an already
+  materialized specialization without duplicating its ABI `this` parameter,
+  substitute the injected-class-name parameter to the active class
+  specialization, and preserve GCC-compatible Itanium mangling for
+  `const Box&`. The regression checks the exact symbol
+  `_ZNK3BoxIiE19echo_through_objectERKS0_i`, passes GCC C++20 execution,
+  i686/AMD64 assembly and object generation, and verified-backend output on
+  both targets. A negative regression confirms an incompatible return remains
+  diagnosed after dependent call substitution on both architectures. The
+  expanded name buffers also keep deeply nested template friend-function
+  mangling working. Native-Windows `test-cxx` and `test-c17` aggregates pass.
+- [ ] Extend explicit member-call arguments to partial deduction; complete
+  remaining non-type,
   template-template, and pack forms; and support constructor templates,
   explicit member-template specializations, inherited conversion templates,
   and full C++20 constraint subsumption. Full Itanium ABI substitution for

@@ -19,6 +19,8 @@ CxxNamespace* g_global_namespace = NULL;
  * Name Mangling (Itanium C++ ABI style)
  * ═══════════════════════════════════════ */
 
+#define CXX_MANGLE_BUFFER_SIZE 8192u
+
 static const char* cxx_operator_abi_code(const char* name) {
     if (!name) return NULL;
     if (strcmp(name, "operator new") == 0) return "nw";
@@ -81,26 +83,32 @@ static void mangle_name(char* buf, size_t* pos, const char* name) {
         if (suffix_length == 0u || *suffix != '_') {
             rcc_fatal("C++ user-defined literal name is invalid");
         }
-        if (*pos + suffix_length + 34u >= 256u) {
+        if (*pos + suffix_length + 34u >= CXX_MANGLE_BUFFER_SIZE) {
             rcc_fatal("C++ mangled name is too long");
         }
         /* Itanium ABI integer literal operator: `li` + length + suffix. */
         buf[(*pos)++] = 'l';
         buf[(*pos)++] = 'i';
-        *pos += (size_t)snprintf(buf + *pos, 256u - *pos, "%lu%s",
+        *pos += (size_t)snprintf(buf + *pos,
+                                 CXX_MANGLE_BUFFER_SIZE - *pos, "%lu%s",
                                  (unsigned long)suffix_length, suffix);
         return;
     }
     if (operator_code) {
         len = strlen(operator_code);
-        if (*pos + len >= 256u) rcc_fatal("C++ mangled name is too long");
+        if (*pos + len >= CXX_MANGLE_BUFFER_SIZE) {
+            rcc_fatal("C++ mangled name is too long");
+        }
         memcpy(buf + *pos, operator_code, len);
         *pos += len;
         return;
     }
     len = strlen(name);
-    if (*pos + 32u + len >= 256u) rcc_fatal("C++ mangled name is too long");
-    *pos += (size_t)snprintf(buf + *pos, 256u - *pos, "%lu%s",
+    if (*pos + 32u + len >= CXX_MANGLE_BUFFER_SIZE) {
+        rcc_fatal("C++ mangled name is too long");
+    }
+    *pos += (size_t)snprintf(buf + *pos,
+                             CXX_MANGLE_BUFFER_SIZE - *pos, "%lu%s",
                              (unsigned long)len, name);
 }
 
@@ -165,7 +173,7 @@ static void mangle_nested_method_prefix(char* buf, size_t* pos,
 }
 
 static void cxx_mangle_type_char(char* buf, size_t* pos, char value) {
-    if (*pos + 1u >= 256u) {
+    if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
         rcc_fatal("C++ type name is too long");
     }
     buf[(*pos)++] = value;
@@ -219,7 +227,9 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         return;
     }
     mangle_name(buf, pos, tmpl->name);
-    if (*pos + 1u >= 256u) rcc_fatal("C++ template class name is too long");
+    if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
+        rcc_fatal("C++ template class name is too long");
+    }
     buf[(*pos)++] = 'I';
     for (int index = 0; expanded_pack && index < pack_parameter_index;
          ++index) {
@@ -238,20 +248,23 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
             if (template_value_args[index] < 0) {
                 uint64_t magnitude = (uint64_t)(
                     -(template_value_args[index] + 1)) + 1u;
-                written = snprintf(buf + *pos, 256u - *pos, "n%lluE",
+                written = snprintf(buf + *pos,
+                                   CXX_MANGLE_BUFFER_SIZE - *pos, "n%lluE",
                                    (unsigned long long)magnitude);
             } else {
-                written = snprintf(buf + *pos, 256u - *pos, "%lldE",
+                written = snprintf(buf + *pos,
+                                   CXX_MANGLE_BUFFER_SIZE - *pos, "%lldE",
                                    (long long)template_value_args[index]);
             }
-            if (written < 0 || (size_t)written >= 256u - *pos) {
+            if (written < 0 ||
+                (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
                 rcc_fatal("C++ template class name is too long");
             }
             *pos += (size_t)written;
         }
     }
     if (expanded_pack) {
-        if (*pos + 1u >= 256u) {
+        if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
             rcc_fatal("C++ template class name is too long");
         }
         buf[(*pos)++] = 'J';
@@ -268,7 +281,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                     !template_value_args) {
                     rcc_fatal("C++ template class value pack argument is missing");
                 }
-                if (*pos + 1u >= 256u) {
+                if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
                     rcc_fatal("C++ template class name is too long");
                 }
                 buf[(*pos)++] = 'L';
@@ -279,20 +292,25 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                         (uint64_t)(-(
                             template_value_args[pack_parameter_index + pack_index] +
                             1)) + 1u;
-                    written = snprintf(buf + *pos, 256u - *pos, "n%lluE",
+                    written = snprintf(
+                        buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos, "n%lluE",
                                        (unsigned long long)magnitude);
                 } else {
-                    written = snprintf(buf + *pos, 256u - *pos, "%lldE",
+                    written = snprintf(buf + *pos,
+                                       CXX_MANGLE_BUFFER_SIZE - *pos, "%lldE",
                         (long long)template_value_args[
                             pack_parameter_index + pack_index]);
                 }
-                if (written < 0 || (size_t)written >= 256u - *pos) {
+                if (written < 0 ||
+                    (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
                     rcc_fatal("C++ template class name is too long");
                 }
                 *pos += (size_t)written;
             }
         }
-        if (*pos + 1u >= 256u) rcc_fatal("C++ template class name is too long");
+        if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
+            rcc_fatal("C++ template class name is too long");
+        }
         buf[(*pos)++] = 'E';
     }
     for (int index = 0; index < tmpl->param_count; ++index) {
@@ -306,7 +324,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 !template_value_args) {
                 rcc_fatal("C++ template class value argument is missing");
             }
-            if (*pos + 1u >= 256u) {
+            if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
                 rcc_fatal("C++ template class name is too long");
             }
             buf[(*pos)++] = 'L';
@@ -314,13 +332,16 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
             if (template_value_args[index] < 0) {
                 uint64_t magnitude =
                     (uint64_t)(-(template_value_args[index] + 1)) + 1u;
-                written = snprintf(buf + *pos, 256u - *pos, "n%lluE",
+                written = snprintf(buf + *pos,
+                                   CXX_MANGLE_BUFFER_SIZE - *pos, "n%lluE",
                                    (unsigned long long)magnitude);
             } else {
-                written = snprintf(buf + *pos, 256u - *pos, "%lldE",
+                written = snprintf(buf + *pos,
+                                   CXX_MANGLE_BUFFER_SIZE - *pos, "%lldE",
                                    (long long)template_value_args[index]);
             }
-            if (written < 0 || (size_t)written >= 256u - *pos) {
+            if (written < 0 ||
+                (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
                 rcc_fatal("C++ template class name is too long");
             }
             *pos += (size_t)written;
@@ -337,7 +358,9 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
             rcc_fatal("unsupported C++ template class parameter");
         }
     }
-    if (*pos + 1u >= 256u) rcc_fatal("C++ template class name is too long");
+    if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
+        rcc_fatal("C++ template class name is too long");
+    }
     buf[(*pos)++] = 'E';
 }
 
@@ -456,9 +479,11 @@ static void cxx_mangle_type_append_context(
         case TYPE_FLOAT:  cxx_mangle_type_char(buf, pos, 'f'); break;
         case TYPE_DOUBLE: cxx_mangle_type_char(buf, pos, 'd'); break;
         case TYPE_VECTOR: {
-            int written = snprintf(buf + *pos, 256u - *pos, "Dv%d_",
+            int written = snprintf(buf + *pos,
+                                   CXX_MANGLE_BUFFER_SIZE - *pos, "Dv%d_",
                                    type->array_len);
-            if (written < 0 || (size_t)written >= 256u - *pos) {
+            if (written < 0 ||
+                (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
                 rcc_fatal("C++ vector type name is too long");
             }
             *pos += (size_t)written;
@@ -481,22 +506,28 @@ static void cxx_mangle_type_append_context(
                 if (!type->tag) {
                     rcc_fatal("C++ anonymous type cannot be mangled");
                 }
-                mangle_name(buf, pos, type->tag);
+                if (type->cxx_class) {
+                    mangle_class_name(buf, pos, type->cxx_class);
+                } else {
+                    mangle_name(buf, pos, type->tag);
+                }
                 cxx_mangle_record_class_type(context, type);
             }
             break;
         case TYPE_ARRAY: {
-            char base_mangled[256];
+            char base_mangled[CXX_MANGLE_BUFFER_SIZE];
             size_t base_pos = 0u;
             int written;
             cxx_mangle_type_append_context(
                 base_mangled, &base_pos, type->base, context);
             base_mangled[base_pos] = '\0';
             written = type->array_len >= 0
-                ? snprintf(buf + *pos, 256u - *pos, "A%d%s",
+                ? snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos, "A%d%s",
                            type->array_len, base_mangled)
-                : snprintf(buf + *pos, 256u - *pos, "A_%s", base_mangled);
-            if (written < 0 || (size_t)written >= 256u - *pos) {
+                : snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                           "A_%s", base_mangled);
+            if (written < 0 ||
+                (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
                 rcc_fatal("C++ array type name is too long");
             }
             *pos += (size_t)written;
@@ -529,7 +560,7 @@ static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type) {
 
 /* Mangle a type */
 char* cxx_mangle_type(Type* type) {
-    static char buf[256];
+    static char buf[CXX_MANGLE_BUFFER_SIZE];
     size_t pos = 0u;
     cxx_mangle_type_append(buf, &pos, type);
     buf[pos] = '\0';
@@ -538,7 +569,7 @@ char* cxx_mangle_type(Type* type) {
 
 /* Mangle a simple name with namespace */
 char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls) {
-    static char buf[512];
+    static char buf[CXX_MANGLE_BUFFER_SIZE];
     size_t pos = 0;
 
     /* _Z prefix for mangled names */
@@ -561,7 +592,7 @@ char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls) {
 
 static char* cxx_mangle_member_template_function_name(
     Decl* func, CxxNamespace* ns, CxxClass* cls) {
-    static char buf[1024];
+    static char buf[CXX_MANGLE_BUFFER_SIZE];
     size_t pos = 0;
     bool is_const_method = func && func->type && func->type->is_const;
     bool is_volatile_method = func && func->type && func->type->is_volatile;
@@ -581,7 +612,7 @@ static char* cxx_mangle_member_template_function_name(
 
 /* Mangle a function */
 char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
-    static char buf[1024];
+    static char buf[CXX_MANGLE_BUFFER_SIZE];
     size_t pos = 0;
     CxxMangleContext mangle_context = {0};
     bool is_const_method = false;
@@ -648,10 +679,23 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
         }
     }
 
+    /* A member's nested-name prefix contributes substitutions before its
+     * source parameter types.  Record the primary class and then the current
+     * specialization so parameters that name the enclosing class use the
+     * same Itanium substitutions as other C++ compilers. */
+    if (cls && cls->templ && cls->templ->templated_class &&
+        cls->templ->templated_class->type) {
+        cxx_mangle_record_class_type(
+            &mangle_context, cls->templ->templated_class->type);
+    }
+    if (cls && cls->type) {
+        cxx_mangle_record_class_type(&mangle_context, cls->type);
+    }
+
     /* Add parameter types */
     if (func->func_params) {
         for (DeclList* p = func->func_params; p; p = p->next) {
-            char type_mangled[256];
+            char type_mangled[CXX_MANGLE_BUFFER_SIZE];
             size_t type_length = 0u;
             cxx_mangle_type_append_context(
                 type_mangled, &type_length, p->decl->type,
@@ -750,7 +794,7 @@ static void cxx_mangle_member_template_substitution(
     char encoded[sizeof(size_t) * 8u];
     size_t count = 0u;
     size_t value;
-    if (*pos + 2u >= 1024u) {
+    if (*pos + 2u >= CXX_MANGLE_BUFFER_SIZE) {
         rcc_fatal("C++ member template signature is too long");
     }
     buf[(*pos)++] = 'S';
@@ -764,12 +808,12 @@ static void cxx_mangle_member_template_substitution(
         value /= 36u;
     } while (value != 0u);
     while (count > 0u) {
-        if (*pos + 1u >= 1024u) {
+        if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
             rcc_fatal("C++ member template signature is too long");
         }
         buf[(*pos)++] = encoded[--count];
     }
-    if (*pos + 1u >= 1024u) {
+    if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
         rcc_fatal("C++ member template signature is too long");
     }
     buf[(*pos)++] = '_';
@@ -795,7 +839,7 @@ static void cxx_mangle_template_type_append(
     char* buf, size_t* pos, Type* type, CxxTemplate* tmpl,
     CxxMemberTemplateMangleContext* context) {
 #define CXX_MANGLE_TEMPLATE_APPEND(value) do { \
-    if (*pos + 1u >= 1024u) { \
+    if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) { \
         rcc_fatal("C++ member template signature is too long"); \
     } \
     buf[(*pos)++] = (value); \
@@ -832,9 +876,11 @@ static void cxx_mangle_template_type_append(
             }
             CXX_MANGLE_TEMPLATE_APPEND('T');
             if (parameter_index > 0) {
-                int written = snprintf(buf + *pos, 1024u - *pos,
+                int written = snprintf(buf + *pos,
+                                       CXX_MANGLE_BUFFER_SIZE - *pos,
                                        "%d", parameter_index - 1);
-                if (written < 0 || (size_t)written >= 1024u - *pos) {
+                if (written < 0 ||
+                    (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
                     rcc_fatal("C++ member template parameter index is too long");
                 }
                 *pos += (size_t)written;
@@ -849,9 +895,11 @@ static void cxx_mangle_template_type_append(
     }
     if (type->kind == TYPE_ARRAY) {
         int written = type->array_len >= 0
-            ? snprintf(buf + *pos, 1024u - *pos, "A%d_", type->array_len)
-            : snprintf(buf + *pos, 1024u - *pos, "A_");
-        if (written < 0 || (size_t)written >= 1024u - *pos) {
+            ? snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                       "A%d_", type->array_len)
+            : snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos, "A_");
+        if (written < 0 ||
+            (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
             rcc_fatal("C++ member template array type is too long");
         }
         *pos += (size_t)written;
@@ -883,7 +931,7 @@ static void cxx_mangle_template_type_append(
     {
         char* mangled = cxx_mangle_type(type);
         size_t length = strlen(mangled);
-        if (*pos + length >= 1024u) {
+        if (*pos + length >= CXX_MANGLE_BUFFER_SIZE) {
             rcc_fatal("C++ member template signature is too long");
         }
         memcpy(buf + *pos, mangled, length);
@@ -897,7 +945,7 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                                            Type** type_args,
                                            const int64_t* value_args,
                                            const bool* value_present) {
-    static char buf[1024];
+    static char buf[CXX_MANGLE_BUFFER_SIZE];
     char* base;
     size_t pos;
     bool has_value_argument = false;
@@ -1107,7 +1155,7 @@ static char* cxx_mangle_variable_template(Decl* variable, CxxNamespace* ns,
                                            CxxTemplate* tmpl, Type** type_args,
                                            const int64_t* value_args,
                                            const bool* value_present) {
-    static char buf[1024];
+    static char buf[CXX_MANGLE_BUFFER_SIZE];
     char* base;
     size_t pos;
 

@@ -5114,6 +5114,8 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE19echo_through_memberEi" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE19echo_through_objectERKS0_i" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi3EEEiv" \
@@ -5128,6 +5130,12 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZN3BoxIiE8identityIlEET_S2_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.ro tests/cxx_class_template_dependent_member_return_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.log)
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.ro tests/cxx_class_template_dependent_member_return_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.log)
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.ro)
 	g++ -std=c++20 -Wall -Wextra -Werror -c \
 		-o $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
 		tests/cxx_class_template_member_function_templates.cpp
@@ -5143,6 +5151,8 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE19echo_through_memberEi" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE19echo_through_objectERKS0_i" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi2EEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE12add_constantILi3EEEiv" \
@@ -5157,6 +5167,12 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZN3BoxIiE8identityIlEET_S2_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.ro tests/cxx_class_template_dependent_member_return_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.log)
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.ro tests/cxx_class_template_dependent_member_return_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.log)
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/dependent-return-invalid-x64.ro)
 	g++ -std=c++20 -Wall -Wextra -Werror \
 		-o $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-host \
 		tests/cxx_class_template_member_function_templates.cpp
