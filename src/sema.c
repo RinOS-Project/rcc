@@ -2719,6 +2719,20 @@ static int sema_cxx_reference_conversion_source_relation(
         !target->is_reference || !target->base) {
         return 0;
     }
+    /* [over.match.best] prefers a conversion function whose returned
+     * reference kind matches a directly-bound function reference.  Unlike
+     * object references, both function-reference categories participate in
+     * this tie-break; do not discard the non-matching result during
+     * viability checking. */
+    if (target->base->kind == TYPE_FUNC &&
+        left_result->is_reference && right_result->is_reference) {
+        bool left_matches = left_result->is_rvalue_reference ==
+                            target->is_rvalue_reference;
+        bool right_matches = right_result->is_rvalue_reference ==
+                             target->is_rvalue_reference;
+        if (left_matches != right_matches) return left_matches ? 1 : -1;
+        return 0;
+    }
     left_source = left_result->is_reference ? left_result->base : left_result;
     right_source = right_result->is_reference
         ? right_result->base : right_result;
@@ -2859,7 +2873,8 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
             method, source_expression);
         if (object_rank < 0) continue;
         result_type = method->return_type;
-        if (target->is_reference) {
+        if (target->is_reference &&
+            (!target->base || target->base->kind != TYPE_FUNC)) {
             if (!target->base) continue;
             if (result_type->is_reference) {
                 if (target->is_rvalue_reference &&
@@ -3095,7 +3110,8 @@ reference_binding_source:
         }
         if (!conversion_attempted && rcc_parser_is_cxx_mode() &&
             (referred->kind == TYPE_STRUCT ||
-             referred->kind == TYPE_UNION) &&
+             referred->kind == TYPE_UNION ||
+             referred->kind == TYPE_FUNC) &&
             (source_object->kind == TYPE_STRUCT ||
              source_object->kind == TYPE_UNION)) {
             bool ambiguous = false;
@@ -3119,9 +3135,10 @@ reference_binding_source:
         }
         return NULL;
 reference_binding_validated:
-        if ((!target->is_rvalue_reference && !is_lvalue(e) &&
-             !referred->is_const) ||
-            (target->is_rvalue_reference && is_lvalue(e))) {
+        if (referred->kind != TYPE_FUNC &&
+            ((!target->is_rvalue_reference && !is_lvalue(e) &&
+              !referred->is_const) ||
+             (target->is_rvalue_reference && is_lvalue(e)))) {
             return NULL;
         }
         return target;

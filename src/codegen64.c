@@ -7109,6 +7109,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             } else if (decl->type && decl->type->is_reference) {
                 gen64_lvalue(mod, expr);
                 if (expr->type && expr->type->kind != TYPE_ARRAY &&
+                    expr->type->kind != TYPE_FUNC &&
                     expr->type->kind != TYPE_STRUCT &&
                     expr->type->kind != TYPE_UNION &&
                     expr->type->kind != TYPE_VECTOR &&

@@ -140,6 +140,43 @@ public:
     }
 };
 
+using FunctionReferenceConversionTarget = int();
+
+int call_lvalue_function_conversion() {
+    return 97;
+}
+
+int call_rvalue_function_conversion() {
+    return 101;
+}
+
+class FunctionReferenceConversionSource {
+public:
+    operator FunctionReferenceConversionTarget&() const {
+        return call_lvalue_function_conversion;
+    }
+
+    operator FunctionReferenceConversionTarget&&() const {
+        return static_cast<FunctionReferenceConversionTarget&&>(
+            call_rvalue_function_conversion);
+    }
+};
+
+class RvalueFunctionReferenceSource {
+public:
+    operator FunctionReferenceConversionTarget&&() const {
+        return static_cast<FunctionReferenceConversionTarget&&>(
+            call_rvalue_function_conversion);
+    }
+};
+
+class LvalueFunctionReferenceSource {
+public:
+    operator FunctionReferenceConversionTarget&() const {
+        return call_lvalue_function_conversion;
+    }
+};
+
 int take_integer(int value) {
     return value;
 }
@@ -239,6 +276,17 @@ int main() {
     Meter meter{7};
     RefQualifiedConversionSource ref_qualified_source;
     const CvRefQualifiedConversionSource const_ref_qualified_source{};
+    FunctionReferenceConversionSource function_reference_source;
+    FunctionReferenceConversionTarget& lvalue_function =
+        function_reference_source;
+    FunctionReferenceConversionTarget&& rvalue_function =
+        function_reference_source;
+    RvalueFunctionReferenceSource rvalue_function_reference_source;
+    LvalueFunctionReferenceSource lvalue_function_reference_source;
+    FunctionReferenceConversionTarget& lvalue_function_from_rvalue =
+        rvalue_function_reference_source;
+    FunctionReferenceConversionTarget&& rvalue_function_from_lvalue =
+        lvalue_function_reference_source;
     ConversionDerivedPointerTarget derived_pointer_target{67};
     ConversionPointerSource pointer_source{&derived_pointer_target};
     ConversionReferenceRankingSource reference_ranking_source;
@@ -272,6 +320,9 @@ int main() {
         read_conversion_reference(RefQualifiedConversionSource{}) != 53 ||
         read_conversion_reference(const_ref_qualified_source) != 59 ||
         read_conversion_reference(CvRefQualifiedConversionSource{}) != 61 ||
+        lvalue_function() != 97 || rvalue_function() != 101 ||
+        lvalue_function_from_rvalue() != 101 ||
+        rvalue_function_from_lvalue() != 97 ||
         read_conversion_reference_base(reference_ranking_source) != 83 ||
         choose_pointer_conversion(pointer_source) != 71 ||
         choose_template_pointer_conversion(0, pointer_source) != 79) {
