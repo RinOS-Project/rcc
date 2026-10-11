@@ -53,6 +53,17 @@ public:
     }
 };
 
+class ConversionObjectVsResultSource {
+public:
+    operator int() & {
+        return 103;
+    }
+
+    operator long() const & {
+        return 107;
+    }
+};
+
 class TemplatedConversionSource {
 public:
     template <class T>
@@ -290,6 +301,7 @@ int main() {
     ConversionDerivedPointerTarget derived_pointer_target{67};
     ConversionPointerSource pointer_source{&derived_pointer_target};
     ConversionReferenceRankingSource reference_ranking_source;
+    ConversionObjectVsResultSource object_vs_result_source;
     Flag flag{1};
     RankedMeter ranked_meter;
     PromotionMeter promotion_meter;
@@ -324,6 +336,7 @@ int main() {
         lvalue_function_from_rvalue() != 101 ||
         rvalue_function_from_lvalue() != 97 ||
         read_conversion_reference_base(reference_ranking_source) != 83 ||
+        take_long(object_vs_result_source) != 103 ||
         choose_pointer_conversion(pointer_source) != 71 ||
         choose_template_pointer_conversion(0, pointer_source) != 79) {
         return 1;

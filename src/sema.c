@@ -2834,7 +2834,8 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
     typedef struct {
         TypeMethod* method;
         Type* result_type;
-        int rank;
+        int result_rank;
+        int object_rank;
     } ConversionCandidate;
     TypeMethod* method;
     ConversionCandidate* candidates;
@@ -2861,7 +2862,6 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         Type* result_type;
         int object_rank;
         int rank;
-        int candidate_rank;
         if (method->kind != TYPE_METHOD_FUNCTION ||
             !method->function_decl || !method->return_type ||
             !method->name || strcmp(method->name, "operator conversion") != 0 ||
@@ -2895,10 +2895,10 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         }
         rank = sema_cxx_conversion_result_rank(result_type, target);
         if (rank < 0) continue;
-        candidate_rank = rank * 4 + object_rank;
         candidates[candidate_count].method = method;
         candidates[candidate_count].result_type = result_type;
-        candidates[candidate_count].rank = candidate_rank;
+        candidates[candidate_count].result_rank = rank;
+        candidates[candidate_count].object_rank = object_rank;
         ++candidate_count;
     }
     for (size_t index = 0u; index < candidate_count; ++index) {
@@ -2906,9 +2906,17 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         for (size_t other = 0u; other < candidate_count; ++other) {
             int relation;
             if (index == other) continue;
-            if (candidates[other].rank < candidates[index].rank) {
+            if (candidates[other].object_rank <
+                candidates[index].object_rank) {
                 relation = 1;
-            } else if (candidates[other].rank > candidates[index].rank) {
+            } else if (candidates[other].object_rank >
+                       candidates[index].object_rank) {
+                relation = -1;
+            } else if (candidates[other].result_rank <
+                       candidates[index].result_rank) {
+                relation = 1;
+            } else if (candidates[other].result_rank >
+                       candidates[index].result_rank) {
                 relation = -1;
             } else {
                 relation = sema_cxx_reference_conversion_source_relation(
