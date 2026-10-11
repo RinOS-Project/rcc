@@ -6935,6 +6935,17 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         expression->call_func->ident_decl->kind == DECL_FUNC) {
         callee = expression->call_func->ident_decl;
         function_type = callee->type;
+    } else if (expression->call_func->type &&
+               expression->call_func->type->kind == TYPE_FUNC) {
+        function_type = expression->call_func->type;
+        callee_value = lower_lvalue_address(
+            context, expression->call_func);
+        if (!callee_value.valid ||
+            callee_value.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        indirect = true;
     } else {
         if (expression->call_abi_function_type) {
             function_type = expression->call_abi_function_type;
@@ -9114,6 +9125,17 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
         case EXPR_IDENT:
             if (expression->ident_decl &&
                 expression->ident_decl->kind == DECL_FUNC) {
+                return lower_lvalue_address(context, expression);
+            }
+            if (expression->type &&
+                expression->type->kind == TYPE_FUNC) {
+                return lower_lvalue_address(context, expression);
+            }
+            if (expression->type &&
+                expression->type->kind == TYPE_PTR &&
+                expression->type->is_reference &&
+                expression->type->base &&
+                expression->type->base->kind == TYPE_FUNC) {
                 return lower_lvalue_address(context, expression);
             }
             if (expression->type &&

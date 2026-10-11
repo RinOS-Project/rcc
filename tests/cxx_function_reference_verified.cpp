@@ -19,3 +19,7 @@ public:
             rvalue_function_target);
     }
 };
+
+int invoke_function_reference(FunctionReferenceTarget& function) {
+    return function();
+}
