@@ -381,6 +381,29 @@ int choose_pointer_subsequence(T*, const void*) {
     return 72;
 }
 
+struct ConversionPointerTrailingSequence {
+    int* value;
+    operator int*() const { return value; }
+};
+
+int choose_same_conversion_trailing_sequence(int*) {
+    return 241;
+}
+
+int choose_same_conversion_trailing_sequence(const int*) {
+    return 242;
+}
+
+template<typename Tag>
+int choose_same_conversion_trailing_sequence_template(Tag, int*) {
+    return 243;
+}
+
+template<typename Tag>
+int choose_same_conversion_trailing_sequence_template(Tag, const int*) {
+    return 244;
+}
+
 int choose_pointer_subsequence_non_template(void*) {
     return 73;
 }
@@ -862,6 +885,7 @@ static int consume_conversion_value_virtual_cleanup_root(
 int main(void) {
     int value = 5;
     int* pointer = &value;
+    ConversionPointerTrailingSequence conversion_pointer{&value};
     int** pointer_to_pointer = &pointer;
     int array_value[1] = { value };
     ConversionNoexceptFunctionPointer noexcept_pointer =
@@ -930,6 +954,10 @@ int main(void) {
                    choose_pointer_bool(pointer, pointer) == 62 &&
                    choose_pointer_subsequence(pointer, pointer) == 71 &&
                    choose_pointer_subsequence_non_template(pointer) == 73 &&
+                   choose_same_conversion_trailing_sequence(
+                       conversion_pointer) == 241 &&
+                   choose_same_conversion_trailing_sequence_template(
+                       value, conversion_pointer) == 243 &&
                    choose_nested_pointer_qualification(pointer_to_pointer) ==
                        75 &&
                    choose_array_bound_reference(array_value) == 25 &&

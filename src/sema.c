@@ -8747,7 +8747,8 @@ static int cxx_conversion_vector_relation(
             }
         }
         if (left[index] == right[index] &&
-            (left[index] == 1 || left[index] == 2) &&
+            (left[index] == 0 || left[index] == 1 ||
+             left[index] == 2) &&
             left_targets && right_targets && left_targets[index] &&
             right_targets[index] && !left_targets[index]->is_reference &&
             !right_targets[index]->is_reference &&
@@ -8757,6 +8758,10 @@ static int cxx_conversion_vector_relation(
             !right_targets[index]->cxx_is_member_pointer) {
             bool left_subset = true;
             bool right_subset = true;
+            /* Identity is a proper subsequence of a qualification
+             * conversion, even though both have Exact Match rank. This also
+             * applies to the trailing standard sequences after the same
+             * user-defined conversion function. */
             if (sema_cxx_qualification_targets_related(
                     left_targets[index], right_targets[index], true,
                     &left_subset, &right_subset, 0u)) {
