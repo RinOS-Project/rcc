@@ -788,6 +788,10 @@ typedef struct CxxMemberTemplateMangleContext {
     size_t next_substitution;
 } CxxMemberTemplateMangleContext;
 
+static void cxx_mangle_template_type_append(
+    char* buf, size_t* pos, Type* type, CxxTemplate* tmpl,
+    CxxMemberTemplateMangleContext* context);
+
 static bool cxx_member_template_expression_supported(
     Expr* expression, CxxTemplate* tmpl) {
     int64_t value;
@@ -815,6 +819,10 @@ static bool cxx_member_template_expression_supported(
             }
         }
         return false;
+    }
+    if (expression->kind == EXPR_SIZEOF && expression->sizeof_type) {
+        return cxx_function_template_type_parameter_index(
+                   tmpl, expression->sizeof_type) >= 0;
     }
     if (expression->kind == EXPR_NEG || expression->kind == EXPR_NOT ||
         expression->kind == EXPR_BITNOT) {
@@ -852,7 +860,8 @@ static bool cxx_member_template_expression_supported(
 }
 
 static void cxx_member_template_expression_append(
-    char* buf, size_t* pos, Expr* expression, CxxTemplate* tmpl) {
+    char* buf, size_t* pos, Expr* expression, CxxTemplate* tmpl,
+    CxxMemberTemplateMangleContext* context) {
     int64_t value;
     const char* operation = NULL;
     if (expr_eval_integer_constant(expression, &value)) {
@@ -933,6 +942,19 @@ static void cxx_member_template_expression_append(
             return;
         }
     }
+    if (expression->kind == EXPR_SIZEOF && expression->sizeof_type) {
+        if (cxx_function_template_type_parameter_index(
+                tmpl, expression->sizeof_type) >= 0) {
+            if (*pos + 2u >= CXX_MANGLE_BUFFER_SIZE) {
+                rcc_fatal("C++ member template expression is too long");
+            }
+            buf[(*pos)++] = 's';
+            buf[(*pos)++] = 't';
+            cxx_mangle_template_type_append(
+                buf, pos, expression->sizeof_type, tmpl, context);
+            return;
+        }
+    }
     if (expression->kind == EXPR_CAST) {
         const char* cast_operator = "cv";
         char* cast_type = cxx_mangle_type(expression->cast_type);
@@ -955,7 +977,7 @@ static void cxx_member_template_expression_append(
         memcpy(buf + *pos, cast_type, cast_type_length);
         *pos += cast_type_length;
         cxx_member_template_expression_append(
-            buf, pos, expression->cast_expr, tmpl);
+            buf, pos, expression->cast_expr, tmpl, context);
         return;
     }
     if (expression->kind == EXPR_COND) {
@@ -991,19 +1013,19 @@ static void cxx_member_template_expression_append(
     if (expression->kind == EXPR_NEG || expression->kind == EXPR_NOT ||
         expression->kind == EXPR_BITNOT) {
         cxx_member_template_expression_append(
-            buf, pos, expression->unary_operand, tmpl);
+            buf, pos, expression->unary_operand, tmpl, context);
     } else if (expression->kind == EXPR_COND) {
         cxx_member_template_expression_append(
-            buf, pos, expression->cond_test, tmpl);
+            buf, pos, expression->cond_test, tmpl, context);
         cxx_member_template_expression_append(
-            buf, pos, expression->cond_then, tmpl);
+            buf, pos, expression->cond_then, tmpl, context);
         cxx_member_template_expression_append(
-            buf, pos, expression->cond_else, tmpl);
+            buf, pos, expression->cond_else, tmpl, context);
     } else {
         cxx_member_template_expression_append(
-            buf, pos, expression->binary_lhs, tmpl);
+            buf, pos, expression->binary_lhs, tmpl, context);
         cxx_member_template_expression_append(
-            buf, pos, expression->binary_rhs, tmpl);
+            buf, pos, expression->binary_rhs, tmpl, context);
     }
 }
 
@@ -1257,7 +1279,8 @@ static void cxx_mangle_template_type_append(
                 } else if (nested_value_expressions[index]) {
                     CXX_MANGLE_TEMPLATE_APPEND('X');
                     cxx_member_template_expression_append(
-                        buf, pos, nested_value_expressions[index], tmpl);
+                        buf, pos, nested_value_expressions[index], tmpl,
+                        context);
                     CXX_MANGLE_TEMPLATE_APPEND('E');
                 } else {
                     int64_t value = nested_value_arguments[index];

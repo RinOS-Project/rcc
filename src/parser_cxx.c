@@ -11045,8 +11045,13 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                               "is missing");
                     return NULL;
                 }
+                Expr* substituted_value_expression =
+                    cxx_template_clone_expr_with_values(
+                        tmpl, value_expression, arguments, argument_count,
+                        value_args, value_present);
                 if (eval_template_integer_expression(
-                        value_expression, tmpl, value_args, value_present,
+                        substituted_value_expression, tmpl, value_args,
+                        value_present,
                         &nested_values[nested_index])) {
                     nested_value_present[nested_index] = true;
                 } else if (cxx_expression_references_template_non_type_parameter(
@@ -12742,6 +12747,22 @@ static bool cxx_expression_references_template_non_type_parameter(
         }
         return false;
     }
+    if (expression->kind == EXPR_SIZEOF && expression->sizeof_type) {
+        for (const CxxTemplate* scope = expression_template; scope;
+             scope = scope->enclosing_template) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                const TemplateParam* parameter = &scope->params[index];
+                if (parameter->kind == TPARAM_TYPE && parameter->name &&
+                    expression->sizeof_type->kind == TYPE_STRUCT &&
+                    expression->sizeof_type->tag &&
+                    strcmp(parameter->name,
+                           expression->sizeof_type->tag) == 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
     switch (expression->kind) {
         case EXPR_NEG:
         case EXPR_NOT:
@@ -13387,7 +13408,10 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
                     if (!pattern_value || !actual_value_known ||
                         (!pattern_parameter_matched &&
                          (!eval_template_integer_expression(
-                              pattern_value, tmpl, values, value_present,
+                              cxx_template_clone_expr_with_values(
+                                  tmpl, pattern_value, arguments,
+                                  tmpl->param_count, values, value_present),
+                              tmpl, values, value_present,
                               &pattern_integer) ||
                           pattern_integer != actual_integer))) {
                         return false;
