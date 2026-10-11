@@ -216,6 +216,16 @@ int choose_fixed_prefix_over_pack(T...) {
     return 140;
 }
 
+template<typename... T>
+int choose_pack_pointer_partial_order(T...) {
+    return 145;
+}
+
+template<typename T, typename... Rest>
+int choose_pack_pointer_partial_order(T*, Rest...) {
+    return 146;
+}
+
 template<typename T, typename... Rest>
 int choose_nonpack_over_empty_pack(T, Rest...) {
     return 150;
@@ -934,6 +944,7 @@ int main(void) {
                    choose_template(value) == 10 &&
                    choose_fixed_over_pack(value) == 110 &&
                    choose_fixed_prefix_over_pack(value, value) == 130 &&
+                   choose_pack_pointer_partial_order(pointer, value) == 146 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&
                    forward_template(choose_template(&value)) == 25 &&
                    choose_conversion_before_partial_order(&value, priority) == 10 &&
