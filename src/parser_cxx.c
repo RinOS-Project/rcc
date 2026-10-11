@@ -14179,7 +14179,8 @@ static Type* deduce_class_template_from_constructor(
         tmpl->param_count, loc);
 }
 
-static int cxx_parser_type_pack_index(CxxTemplate* tmpl, Type* pattern);
+static int cxx_parser_template_parameter_pack_index(
+    CxxTemplate* tmpl, Type* pattern);
 
 static bool cxx_expression_uses_sizeof_pack_name(
     const Expr* expression, const char* pack_name) {
@@ -14271,6 +14272,8 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                                                int* specificity,
                                                bool report_errors,
                                                Type** pack_arguments,
+                                               int64_t* pack_values,
+                                               bool* pack_value_present,
                                                int* pack_count) {
     DeclList* parameter;
     ExprList* argument;
@@ -14279,9 +14282,12 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
     argument = call_arguments;
     while (parameter && argument) {
         if (parameter->decl && parameter->decl->param_is_pack) {
-            int pack_index = cxx_parser_type_pack_index(
+            int pack_index = cxx_parser_template_parameter_pack_index(
                 tmpl, parameter->decl->type);
-            if (!pack_arguments || !pack_count || pack_index < 0) {
+            bool value_pack = pack_index >= 0 &&
+                tmpl->params[pack_index].kind == TPARAM_NONTYPE;
+            if (!pack_arguments || !pack_count || pack_index < 0 ||
+                (value_pack && (!pack_values || !pack_value_present))) {
                 if (report_errors) {
                     rcc_error(parameter->decl->loc,
                               "function parameter pack is not a type pack");
@@ -14335,7 +14341,9 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                         tmpl, parameter->decl->type, deduction_actual,
                         element_arguments, element_values,
                         element_value_present, &element_specificity) &&
-                    element_arguments[pack_index];
+                    (value_pack
+                         ? element_value_present[pack_index]
+                         : element_arguments[pack_index] != NULL);
                 tmpl->pending_pack_count = saved_pending_pack_count;
                 if (!element_deduced) {
                     if (report_errors) {
@@ -14376,8 +14384,15 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                         template_value_present[template_index] = true;
                     }
                 }
-                pack_arguments[(*pack_count)++] =
-                    element_arguments[pack_index];
+                if (value_pack) {
+                    pack_values[*pack_count] = element_values[pack_index];
+                    pack_value_present[*pack_count] = true;
+                    ++*pack_count;
+                } else {
+                    pack_arguments[*pack_count] =
+                        element_arguments[pack_index];
+                    ++*pack_count;
+                }
                 if (specificity) *specificity += element_specificity;
                 argument = argument->next;
             }
@@ -16779,13 +16794,96 @@ static int cxx_function_template_match_relation(
     return constraints_comparable ? constraint_relation : 0;
 }
 
-static int cxx_parser_type_pack_index_merge(int current, int nested) {
+static int cxx_parser_template_pack_index_merge(int current, int nested) {
     if (nested == -1) return current;
     if (current == -1) return nested;
     return current == nested ? current : -2;
 }
 
-static int cxx_parser_type_pack_index(CxxTemplate* tmpl, Type* pattern) {
+static int cxx_parser_template_value_pack_index_expression(
+    CxxTemplate* tmpl, const Expr* expression) {
+    int result = -1;
+    if (!tmpl || !expression) return -1;
+    if (expression->kind == EXPR_IDENT && expression->ident_name) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_NONTYPE && parameter->is_pack &&
+                parameter->name &&
+                strcmp(parameter->name, expression->ident_name) == 0) {
+                return index;
+            }
+        }
+        return -1;
+    }
+    if (expression->kind == EXPR_SIZEOF &&
+        expression->sizeof_pack_name) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->is_pack && parameter->name &&
+                strcmp(parameter->name,
+                       expression->sizeof_pack_name) == 0) {
+                result = cxx_parser_template_pack_index_merge(result, index);
+            }
+        }
+    }
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_CAST:
+            return cxx_parser_template_pack_index_merge(
+                result, cxx_parser_template_value_pack_index_expression(
+                            tmpl, expression->kind == EXPR_CAST
+                                ? expression->cast_expr
+                                : expression->unary_operand));
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            result = cxx_parser_template_pack_index_merge(
+                result, cxx_parser_template_value_pack_index_expression(
+                            tmpl, expression->binary_lhs));
+            return cxx_parser_template_pack_index_merge(
+                result, cxx_parser_template_value_pack_index_expression(
+                            tmpl, expression->binary_rhs));
+        case EXPR_COND:
+            result = cxx_parser_template_pack_index_merge(
+                result, cxx_parser_template_value_pack_index_expression(
+                            tmpl, expression->cond_test));
+            result = cxx_parser_template_pack_index_merge(
+                result, cxx_parser_template_value_pack_index_expression(
+                            tmpl, expression->cond_then));
+            return cxx_parser_template_pack_index_merge(
+                result, cxx_parser_template_value_pack_index_expression(
+                            tmpl, expression->cond_else));
+        case EXPR_SIZEOF:
+            if (expression->sizeof_type) {
+                result = cxx_parser_template_pack_index_merge(
+                    result, cxx_parser_template_parameter_pack_index(
+                                tmpl, expression->sizeof_type));
+            }
+            return result;
+        default:
+            return result;
+    }
+}
+
+static int cxx_parser_template_parameter_pack_index(CxxTemplate* tmpl,
+                                                    Type* pattern) {
     int result = -1;
     if (!tmpl || !pattern) return -1;
     if (pattern->kind == TYPE_STRUCT && pattern->tag) {
@@ -16798,22 +16896,30 @@ static int cxx_parser_type_pack_index(CxxTemplate* tmpl, Type* pattern) {
         }
     }
     if (pattern->kind == TYPE_PTR || pattern->kind == TYPE_ARRAY) {
-        result = cxx_parser_type_pack_index_merge(
-            result, cxx_parser_type_pack_index(tmpl, pattern->base));
+        result = cxx_parser_template_pack_index_merge(
+            result, cxx_parser_template_parameter_pack_index(
+                        tmpl, pattern->base));
     } else if (pattern->kind == TYPE_FUNC) {
-        result = cxx_parser_type_pack_index_merge(
-            result, cxx_parser_type_pack_index(tmpl, pattern->ret_type));
+        result = cxx_parser_template_pack_index_merge(
+            result, cxx_parser_template_parameter_pack_index(
+                        tmpl, pattern->ret_type));
         for (TypeParam* parameter = pattern->params; parameter;
              parameter = parameter->next) {
-            result = cxx_parser_type_pack_index_merge(
-                result, cxx_parser_type_pack_index(tmpl, parameter->type));
+            result = cxx_parser_template_pack_index_merge(
+                result, cxx_parser_template_parameter_pack_index(
+                            tmpl, parameter->type));
         }
     }
     for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
-        result = cxx_parser_type_pack_index_merge(
-            result, cxx_parser_type_pack_index(
+        result = cxx_parser_template_pack_index_merge(
+            result, cxx_parser_template_parameter_pack_index(
                         tmpl, pattern->cxx_template_args
                                   ? pattern->cxx_template_args[index] : NULL));
+        result = cxx_parser_template_pack_index_merge(
+            result, cxx_parser_template_value_pack_index_expression(
+                        tmpl, pattern->cxx_template_value_args
+                                  ? pattern->cxx_template_value_args[index]
+                                  : NULL));
     }
     return result;
 }
@@ -17682,8 +17788,11 @@ static bool prepare_cxx_function_template_match(
             while (argument && index-- > 0) argument = argument->next;
             if (parameter->decl && parameter->decl->param_is_pack) {
                 if (match->pack_count == 0) {
-                    int pack_index = cxx_parser_type_pack_index(
+                    int pack_index =
+                        cxx_parser_template_parameter_pack_index(
                         tmpl, parameter->decl->type);
+                    bool value_pack = pack_index >= 0 &&
+                        tmpl->params[pack_index].kind == TPARAM_NONTYPE;
                     int function_pack_count = 0;
                     for (ExprList* remaining = argument; remaining;
                          remaining = remaining->next) {
@@ -17727,7 +17836,9 @@ static bool prepare_cxx_function_template_match(
                                 element_arguments, element_values,
                                 element_value_present,
                                 &element_specificity) &&
-                            element_arguments[pack_index];
+                            (value_pack
+                                 ? element_value_present[pack_index]
+                                 : element_arguments[pack_index] != NULL);
                         tmpl->pending_pack_count =
                             saved_pending_pack_count;
                         if (!element_deduced) {
@@ -17764,8 +17875,16 @@ static bool prepare_cxx_function_template_match(
                                 match->value_present[template_index] = true;
                             }
                         }
-                        match->pack_arguments[match->pack_count++] =
-                            element_arguments[pack_index];
+                        if (value_pack) {
+                            match->pack_values[match->pack_count] =
+                                element_values[pack_index];
+                            match->pack_value_present[match->pack_count] =
+                                true;
+                            ++match->pack_count;
+                        } else {
+                            match->pack_arguments[match->pack_count++] =
+                                element_arguments[pack_index];
+                        }
                         specificity += element_specificity;
                         argument = argument->next;
                     }
@@ -17829,18 +17948,22 @@ static bool prepare_cxx_function_template_match(
         if (!deduce_function_template_arguments(
                 tmpl, call_arguments, match->arguments, match->values,
                 match->value_present, &specificity, false,
-                match->pack_arguments, &match->pack_count)) {
+                match->pack_arguments, match->pack_values,
+                match->pack_value_present, &match->pack_count)) {
             return false;
         }
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
             if (parameter->is_pack) {
-                if (match->pack_count > 0) {
+                if (parameter->kind == TPARAM_TYPE &&
+                    match->pack_count > 0) {
                     match->arguments[index] = match->pack_arguments[0];
-                } else {
+                } else if (parameter->kind == TPARAM_TYPE) {
                     /* The argument slot is only a cache key placeholder;
                      * the expanded parameter list carries the actual ABI. */
                     match->arguments[index] = type_void;
+                } else if (parameter->kind == TPARAM_NONTYPE) {
+                    match->arguments[index] = parameter->type;
                 }
             } else if (parameter->kind == TPARAM_NONTYPE) {
                 if (!match->value_present[index] && parameter->has_default &&
@@ -18779,11 +18902,14 @@ Expr* rcc_parse_cxx_template_call(void) {
                 int64_t diagnostic_values[32] = { 0 };
                 bool diagnostic_present[32] = { false };
                 Type* diagnostic_pack[32] = { NULL };
+                int64_t diagnostic_pack_values[32] = { 0 };
+                bool diagnostic_pack_value_present[32] = { false };
                 int diagnostic_pack_count = 0;
                 (void)deduce_function_template_arguments(
                     tmpl, call_arguments, diagnostic_arguments,
                     diagnostic_values, diagnostic_present, NULL, true,
-                    diagnostic_pack, &diagnostic_pack_count);
+                    diagnostic_pack, diagnostic_pack_values,
+                    diagnostic_pack_value_present, &diagnostic_pack_count);
                 rcc_error(loc, "no matching function template overload for '%s'",
                           name);
             } else {
