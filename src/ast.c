@@ -475,8 +475,8 @@ static bool cxx_template_class_instances_compatible(
         }
         if (parameter->kind == TPARAM_TYPE) {
             if (!left_arguments || !right_arguments ||
-                !type_is_compatible(left_arguments[index],
-                                    right_arguments[index])) {
+                !type_is_same_template_argument(left_arguments[index],
+                                                right_arguments[index])) {
                 return false;
             }
         } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -603,6 +603,68 @@ bool type_is_compatible(Type* a, Type* b) {
                  strcmp(a->cxx_namespace, b->cxx_namespace) == 0));
     }
     return true;
+}
+
+bool type_is_same_template_argument(Type* a, Type* b) {
+    TypeParam* left_parameter;
+    TypeParam* right_parameter;
+    if (!a || !b || a->kind != b->kind ||
+        a->is_const != b->is_const || a->is_volatile != b->is_volatile ||
+        a->is_atomic != b->is_atomic || a->is_restrict != b->is_restrict ||
+        a->is_reference != b->is_reference ||
+        a->is_rvalue_reference != b->is_rvalue_reference ||
+        a->is_unsigned != b->is_unsigned ||
+        a->is_plain_char != b->is_plain_char || a->is_char8 != b->is_char8 ||
+        a->cxx_is_member_pointer != b->cxx_is_member_pointer) {
+        return false;
+    }
+    if (a == b) return true;
+    switch (a->kind) {
+        case TYPE_PTR:
+            return (!a->cxx_is_member_pointer ||
+                    type_is_same_template_argument(
+                        a->cxx_member_pointer_owner,
+                        b->cxx_member_pointer_owner)) &&
+                   type_is_same_template_argument(a->base, b->base);
+        case TYPE_ARRAY:
+            return a->array_len == b->array_len &&
+                   a->array_unspecified_bound ==
+                       b->array_unspecified_bound &&
+                   type_is_same_template_argument(a->base, b->base);
+        case TYPE_VECTOR:
+            return a->size == b->size && a->array_len == b->array_len &&
+                   type_is_same_template_argument(a->base, b->base);
+        case TYPE_FUNC:
+            if (a->function_is_noexcept != b->function_is_noexcept ||
+                a->function_ref_qualifier != b->function_ref_qualifier ||
+                a->variadic != b->variadic ||
+                a->has_prototype != b->has_prototype ||
+                !type_is_same_template_argument(a->ret_type, b->ret_type)) {
+                return false;
+            }
+            left_parameter = a->params;
+            right_parameter = b->params;
+            while (left_parameter && right_parameter) {
+                if (!type_is_same_template_argument(left_parameter->type,
+                                                    right_parameter->type)) {
+                    return false;
+                }
+                left_parameter = left_parameter->next;
+                right_parameter = right_parameter->next;
+            }
+            return !left_parameter && !right_parameter;
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+            if (a->cxx_class || b->cxx_class) {
+                return a->cxx_class && b->cxx_class &&
+                       (a->cxx_class == b->cxx_class ||
+                        cxx_template_class_instances_compatible(
+                            a->cxx_class, b->cxx_class));
+            }
+            return type_is_compatible(a, b);
+        default:
+            return type_is_compatible(a, b);
+    }
 }
 
 bool ast_cxx_is_aggregate(const Type* type) {

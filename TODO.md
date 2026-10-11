@@ -2836,3 +2836,17 @@ separately recorded WSL startup failure.
 - [ ] Continue general C++20 function-template partial ordering across
   remaining transformed-template shapes, packs, dependent non-type and
   template-template parameters, constraints, and conversion ties.
+
+## RCC continuation (2026-10-12, cv-sensitive template argument identity)
+
+- [x] Keep class-template specializations with nested cv-qualified type
+  arguments distinct in the instantiation cache and type identity checks;
+  order `Box<T*>` against `Box<const T*>` to match GCC C++20 for both
+  `Box<int*>` and `Box<const int*>`.
+- [x] Verify the focused overload gate, including GCC oracle, i686/AMD64 code
+  generation, AMD64 execution, and ambiguity/no-object diagnostics.
+- [x] Run the complete native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` suite after the identity change.
+- [ ] Continue general C++20 function-template partial ordering across
+  remaining transformed-template shapes, packs, dependent non-type and
+  template-template parameters, constraints, and conversion ties.

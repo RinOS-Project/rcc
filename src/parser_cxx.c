@@ -11725,7 +11725,7 @@ static bool class_template_instance_matches(
         } else if (!arguments || !arguments[index] ||
                    !tmpl->instances[instance_index].args ||
                    !tmpl->instances[instance_index].args[index] ||
-                   !type_is_compatible(
+                   !type_is_same_template_argument(
                        tmpl->instances[instance_index].args[index],
                        arguments[index])) {
             return false;
@@ -11745,7 +11745,7 @@ static bool class_template_instance_matches(
                 ? tmpl->pending_pack_args[index]
                 : arguments[pack_index + index];
             if (!expected || !tmpl->instances[instance_index].pack_args ||
-                !type_is_compatible(
+                !type_is_same_template_argument(
                     tmpl->instances[instance_index].pack_args[index],
                     expected)) {
                 return false;
@@ -17190,8 +17190,7 @@ static int cxx_function_template_repeated_nontype_pattern_relation(
 static int cxx_function_template_type_parameter_index(
     const CxxTemplate* tmpl, const Type* type) {
     if (!tmpl || !type) return -1;
-    if (type->is_const || type->is_volatile || type->is_atomic ||
-        type->is_restrict || type->is_reference ||
+    if (type->is_atomic || type->is_restrict || type->is_reference ||
         type->is_rvalue_reference) {
         return -1;
     }
@@ -17238,6 +17237,15 @@ static bool cxx_function_template_partial_order_deduce_type(
         parameter_template, parameter_pattern);
     if (parameter_index >= 0) {
         if (supported) *supported = true;
+        /* A cv-qualified template parameter can only be deduced from an
+         * argument carrying the same qualification. An unqualified
+         * parameter, conversely, may absorb qualification from the argument
+         * (for example T* against const U*). */
+        if ((parameter_pattern->is_const && !argument_pattern->is_const) ||
+            (parameter_pattern->is_volatile &&
+             !argument_pattern->is_volatile)) {
+            return false;
+        }
         if (deduced_arguments[parameter_index]) {
             return cxx_template_type_parameter_mapping_matches(
                 deduced_arguments[parameter_index], argument_template,

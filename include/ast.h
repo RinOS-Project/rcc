@@ -384,6 +384,9 @@ bool type_is_vector(Type* t);
 bool type_is_function(Type* t);
 bool type_is_complete(Type* t);
 bool type_is_compatible(Type* a, Type* b);
+/* Exact type identity for C++ type template arguments. Unlike general
+ * compatibility, this retains cv qualification at every nested type level. */
+bool type_is_same_template_argument(Type* a, Type* b);
 bool ast_cxx_is_aggregate(const Type* type);
 int ast_cxx_aggregate_element_count(const Type* type);
 bool ast_cxx_aggregate_element(const Type* type, int index,
