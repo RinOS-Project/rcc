@@ -426,6 +426,80 @@ bool type_is_complete(Type* t) {
     return true;
 }
 
+static bool cxx_template_class_instances_compatible(
+    const CxxClass* left, const CxxClass* right) {
+    const CxxTemplate* left_template;
+    const CxxTemplate* right_template;
+    Type** left_arguments;
+    Type** right_arguments;
+    int left_argument_count;
+    int right_argument_count;
+    int64_t* left_values;
+    int64_t* right_values;
+    bool* left_value_present;
+    bool* right_value_present;
+    if (!left || !right) return false;
+    left_template = left->template_identity_tmpl
+        ? left->template_identity_tmpl : left->templ;
+    right_template = right->template_identity_tmpl
+        ? right->template_identity_tmpl : right->templ;
+    if (!left_template || left_template != right_template) return false;
+    left_arguments = left->template_identity_tmpl
+        ? left->template_identity_args : left->template_args;
+    right_arguments = right->template_identity_tmpl
+        ? right->template_identity_args : right->template_args;
+    left_argument_count = left->template_identity_tmpl
+        ? left->template_identity_arg_count : left->template_arg_count;
+    right_argument_count = right->template_identity_tmpl
+        ? right->template_identity_arg_count : right->template_arg_count;
+    left_values = left->template_identity_tmpl
+        ? left->template_identity_value_args : left->template_value_args;
+    right_values = right->template_identity_tmpl
+        ? right->template_identity_value_args : right->template_value_args;
+    left_value_present = left->template_identity_tmpl
+        ? left->template_identity_value_present : left->template_value_present;
+    right_value_present = right->template_identity_tmpl
+        ? right->template_identity_value_present : right->template_value_present;
+    if (left_argument_count < 0 ||
+        left_argument_count != right_argument_count) {
+        return false;
+    }
+    for (int index = 0; index < left_argument_count; ++index) {
+        int parameter_index = index < left_template->param_count
+            ? index : left_template->param_count - 1;
+        const TemplateParam* parameter;
+        if (parameter_index < 0 || !left_template->params) return false;
+        parameter = &left_template->params[parameter_index];
+        if (index >= left_template->param_count && !parameter->is_pack) {
+            return false;
+        }
+        if (parameter->kind == TPARAM_TYPE) {
+            if (!left_arguments || !right_arguments ||
+                !type_is_compatible(left_arguments[index],
+                                    right_arguments[index])) {
+                return false;
+            }
+        } else if (parameter->kind == TPARAM_NONTYPE) {
+            if (!left_values || !right_values || !left_value_present ||
+                !right_value_present || !left_value_present[index] ||
+                !right_value_present[index] ||
+                left_values[index] != right_values[index]) {
+                return false;
+            }
+        } else if (parameter->kind == TPARAM_TEMPLATE) {
+            if (!left_arguments || !right_arguments ||
+                !left_arguments[index] || !right_arguments[index] ||
+                left_arguments[index]->cxx_template !=
+                    right_arguments[index]->cxx_template) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool type_is_compatible(Type* a, Type* b) {
     TypeParam* ap;
     TypeParam* bp;
@@ -498,7 +572,10 @@ bool type_is_compatible(Type* a, Type* b) {
          * namespaces (and can then incorrectly reuse a class-template
          * specialization). */
         if (a->cxx_class || b->cxx_class) {
-            return a->cxx_class && a->cxx_class == b->cxx_class;
+            return a->cxx_class && b->cxx_class &&
+                   (a->cxx_class == b->cxx_class ||
+                    cxx_template_class_instances_compatible(
+                        a->cxx_class, b->cxx_class));
         }
         if (a->tag || b->tag) {
             return a->tag && b->tag && strcmp(a->tag, b->tag) == 0 &&

@@ -2818,3 +2818,21 @@ separately recorded WSL startup failure.
 - [ ] Extend function-pack deduction to remaining pack-expansion shapes and
   interactions with other deduction sources; full C++20 partial ordering and
   deduction remain incomplete.
+
+## RCC continuation (2026-10-12, class-template-id type-pattern ordering)
+
+- [x] Substitute dependent type arguments stored on instantiated class-template
+  identities when building function-template specializations, then compare
+  matching `Box<T*>` and `Box<T>` patterns by transformed-template deduction.
+  `Box<int*>` selects `Box<T*>`, while `Box<int>` selects `Box<T>` over a
+  template-template fallback. Crossed `First*, Second` / `First, Second*`
+  patterns remain ambiguous.
+- [x] Verify GCC C++20 behavior and the focused
+  `test-cxx-function-template-overloads` gate, including RCC i686/AMD64
+  generation and AMD64 execution plus ambiguous-diagnostic/no-object checks.
+- [x] Rerun the complete native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` suite on the final source; all C++
+  regression tests pass (exit 0).
+- [ ] Continue general C++20 function-template partial ordering across
+  remaining transformed-template shapes, packs, dependent non-type and
+  template-template parameters, constraints, and conversion ties.

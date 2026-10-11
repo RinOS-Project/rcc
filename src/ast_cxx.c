@@ -4628,6 +4628,96 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         return replacement;
     }
 
+    /* Function-template parameters can occur inside an already-instantiated
+     * class-template-id. Substitute the primary-template identity arguments
+     * before the overload resolver checks the resulting function type. */
+    if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        type->cxx_class && type->cxx_class->template_identity_tmpl &&
+        type->cxx_class->template_identity_arg_count > 0) {
+        CxxClass* class_instance = type->cxx_class;
+        CxxTemplate* identity_template =
+            class_instance->template_identity_tmpl;
+        int identity_argument_count =
+            class_instance->template_identity_arg_count;
+        bool type_only_identity = identity_argument_count ==
+            identity_template->param_count;
+        bool identity_changed = false;
+        Type** identity_arguments = ast_arena_alloc(
+            sizeof(*identity_arguments) * (size_t)identity_argument_count);
+        int64_t* identity_values = ast_arena_alloc(
+            sizeof(*identity_values) * (size_t)identity_argument_count);
+        bool* identity_value_present = ast_arena_alloc(
+            sizeof(*identity_value_present) * (size_t)identity_argument_count);
+        memset(identity_arguments, 0,
+               sizeof(*identity_arguments) * (size_t)identity_argument_count);
+        memset(identity_values, 0,
+               sizeof(*identity_values) * (size_t)identity_argument_count);
+        memset(identity_value_present, 0,
+               sizeof(*identity_value_present) * (size_t)identity_argument_count);
+        for (int argument_index = 0; type_only_identity &&
+             argument_index < identity_argument_count; ++argument_index) {
+            if (identity_template->params[argument_index].kind !=
+                    TPARAM_TYPE ||
+                identity_template->params[argument_index].is_pack ||
+                !class_instance->template_identity_args ||
+                !class_instance->template_identity_args[argument_index]) {
+                type_only_identity = false;
+                break;
+            }
+            identity_arguments[argument_index] = template_substitute_type(
+                tmpl,
+                class_instance->template_identity_args[argument_index],
+                args, arg_count, value_args, value_present);
+            if (!identity_arguments[argument_index]) return NULL;
+            identity_changed = identity_changed ||
+                identity_arguments[argument_index] !=
+                    class_instance->template_identity_args[argument_index];
+        }
+        if (type_only_identity && identity_changed) {
+            bool identity_still_dependent = false;
+            for (int argument_index = 0;
+                 argument_index < identity_argument_count;
+                 ++argument_index) {
+                if (identity_arguments[argument_index]->cxx_dependent) {
+                    identity_still_dependent = true;
+                    break;
+                }
+            }
+            if (identity_still_dependent) {
+                Type* dependent_type = ast_arena_alloc(sizeof(*dependent_type));
+                *dependent_type = *type;
+                dependent_type->cxx_class = NULL;
+                dependent_type->cxx_dependent = true;
+                dependent_type->cxx_template = identity_template;
+                dependent_type->cxx_template_param_index = -1;
+                dependent_type->cxx_template_args = ast_arena_alloc(
+                    sizeof(Type*) * (size_t)identity_argument_count);
+                memcpy(dependent_type->cxx_template_args, identity_arguments,
+                       sizeof(Type*) * (size_t)identity_argument_count);
+                dependent_type->cxx_template_arg_count =
+                    identity_argument_count;
+                return dependent_type;
+            }
+            CxxClass* substituted_class = rcc_cxx_instantiate_class_template(
+                identity_template, identity_arguments, identity_values,
+                identity_value_present, identity_argument_count,
+                (SourceLoc){"<template>", 0, 0});
+            if (!substituted_class || !substituted_class->type) return NULL;
+            replacement = substituted_class->type;
+            if (type->is_const || type->is_volatile || type->is_atomic ||
+                type->is_restrict) {
+                Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                *qualified = *replacement;
+                qualified->is_const = type->is_const;
+                qualified->is_volatile = type->is_volatile;
+                qualified->is_atomic = type->is_atomic;
+                qualified->is_restrict = type->is_restrict;
+                return qualified;
+            }
+            return replacement;
+        }
+    }
+
     /* A class-template specialization appearing in a function-template body
      * is incomplete until the outer template arguments are substituted.  Keep
      * the template and its argument patterns on the dependent carrier so the

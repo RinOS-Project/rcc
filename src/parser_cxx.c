@@ -11010,6 +11010,90 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                       : type->cxx_dependent_member_name);
         return type_int;
     }
+    /* A class-template-id in a function-template signature can already have
+     * a CxxClass instance while its identity arguments still contain the
+     * function's dependent parameters (for example Box<T*>). Substitute that
+     * identity before overload viability checks the instantiated parameter. */
+    if ((type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        type->cxx_class && type->cxx_class->template_identity_tmpl &&
+        type->cxx_class->template_identity_arg_count > 0) {
+        CxxClass* class_instance = type->cxx_class;
+        CxxTemplate* identity_template =
+            class_instance->template_identity_tmpl;
+        int identity_argument_count =
+            class_instance->template_identity_arg_count;
+        bool type_only_identity = identity_argument_count ==
+            identity_template->param_count;
+        bool identity_changed = false;
+        Type** identity_arguments = ast_arena_alloc(
+            sizeof(*identity_arguments) * (size_t)identity_argument_count);
+        int64_t* identity_values = ast_arena_alloc(
+            sizeof(*identity_values) * (size_t)identity_argument_count);
+        bool* identity_value_present = ast_arena_alloc(
+            sizeof(*identity_value_present) * (size_t)identity_argument_count);
+        memset(identity_arguments, 0,
+               sizeof(*identity_arguments) * (size_t)identity_argument_count);
+        memset(identity_values, 0,
+               sizeof(*identity_values) * (size_t)identity_argument_count);
+        memset(identity_value_present, 0,
+               sizeof(*identity_value_present) * (size_t)identity_argument_count);
+        for (int index = 0; type_only_identity &&
+             index < identity_argument_count; ++index) {
+            if (identity_template->params[index].kind != TPARAM_TYPE ||
+                identity_template->params[index].is_pack ||
+                !class_instance->template_identity_args ||
+                !class_instance->template_identity_args[index]) {
+                type_only_identity = false;
+                break;
+            }
+            identity_arguments[index] = substitute_template_type(
+                tmpl, class_instance->template_identity_args[index],
+                arguments, argument_count, value_args, value_present);
+            if (!identity_arguments[index]) return NULL;
+            identity_changed = identity_changed ||
+                identity_arguments[index] !=
+                    class_instance->template_identity_args[index];
+        }
+        if (type_only_identity && identity_changed) {
+            bool identity_still_dependent = false;
+            for (int index = 0; index < identity_argument_count; ++index) {
+                if (identity_arguments[index]->cxx_dependent) {
+                    identity_still_dependent = true;
+                    break;
+                }
+            }
+            if (identity_still_dependent) {
+                substituted = ast_arena_alloc(sizeof(*substituted));
+                *substituted = *type;
+                substituted->cxx_class = NULL;
+                substituted->cxx_dependent = true;
+                substituted->cxx_template = identity_template;
+                substituted->cxx_template_param_index = -1;
+                substituted->cxx_template_args = ast_arena_alloc(
+                    sizeof(Type*) * (size_t)identity_argument_count);
+                memcpy(substituted->cxx_template_args, identity_arguments,
+                       sizeof(Type*) * (size_t)identity_argument_count);
+                substituted->cxx_template_arg_count = identity_argument_count;
+                return substituted;
+            }
+            base = instantiate_class_template(
+                identity_template, identity_arguments, identity_values,
+                identity_value_present, identity_argument_count,
+                (SourceLoc){"<template>", 0, 0});
+            if (!base) return NULL;
+            if (type->is_const || type->is_volatile || type->is_atomic ||
+                type->is_restrict) {
+                substituted = ast_arena_alloc(sizeof(*substituted));
+                *substituted = *base;
+                substituted->is_const = type->is_const;
+                substituted->is_volatile = type->is_volatile;
+                substituted->is_atomic = type->is_atomic;
+                substituted->is_restrict = type->is_restrict;
+                return substituted;
+            }
+            return base;
+        }
+    }
     if (type->cxx_dependent && type->cxx_template &&
         type->cxx_template_param_index < 0 &&
         type->cxx_template_arg_count > 0) {
@@ -13264,6 +13348,29 @@ bool rcc_parse_cxx_deduction_guide(void) {
     return true;
 }
 
+static void cxx_function_template_class_type_pattern_arguments(
+    Type* type, CxxTemplate** template_out, Type*** arguments_out,
+    int* argument_count_out) {
+    CxxClass* cls = type ? type->cxx_class : NULL;
+    if (template_out) *template_out = NULL;
+    if (arguments_out) *arguments_out = NULL;
+    if (argument_count_out) *argument_count_out = 0;
+    if (!type) return;
+    if (cls && cls->template_identity_tmpl) {
+        if (template_out) *template_out = cls->template_identity_tmpl;
+        if (arguments_out) *arguments_out = cls->template_identity_args;
+        if (argument_count_out) {
+            *argument_count_out = cls->template_identity_arg_count;
+        }
+        return;
+    }
+    if (template_out) *template_out = type->cxx_template;
+    if (arguments_out) *arguments_out = type->cxx_template_args;
+    if (argument_count_out) {
+        *argument_count_out = type->cxx_template_arg_count;
+    }
+}
+
 static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
                                           Type* actual, Type** arguments,
                                           int64_t* values,
@@ -13297,131 +13404,157 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
             }
         }
     }
-    if (pattern->kind == TYPE_STRUCT && actual->kind == TYPE_STRUCT &&
-        pattern->cxx_template && pattern->cxx_template_arg_count > 0) {
-        CxxClass* actual_class = actual->cxx_class;
-        CxxTemplate* actual_template = actual_class &&
-                actual_class->template_identity_tmpl
-            ? actual_class->template_identity_tmpl
-            : actual->cxx_template;
-        Type** actual_arguments = actual_class &&
-                actual_class->template_identity_tmpl
-            ? actual_class->template_identity_args
-            : actual_class && actual_class->templ
-                ? actual_class->template_args
-                : actual->cxx_template_args;
-        int actual_argument_count = actual_class &&
-                actual_class->template_identity_tmpl
-            ? actual_class->template_identity_arg_count
-            : actual_class && actual_class->templ
-                ? actual_class->template_arg_count
-                : actual->cxx_template_arg_count;
-        if (actual_template &&
-            actual_template != pattern->cxx_template) {
-            return false;
-        }
-        if (actual_template == pattern->cxx_template) {
-            if (actual_argument_count != pattern->cxx_template_arg_count ||
-                (actual_argument_count > 0 &&
-                 (!actual_arguments || !pattern->cxx_template_args))) {
-                return false;
-            }
-            for (int index = 0; index < actual_argument_count; ++index) {
-                TemplateParam* template_parameter = index <
-                        pattern->cxx_template->param_count
-                    ? &pattern->cxx_template->params[index] : NULL;
-                if (template_parameter &&
-                    template_parameter->kind == TPARAM_TYPE) {
-                    if (!deduce_function_template_type(
-                            tmpl, pattern->cxx_template_args[index],
-                            actual_arguments[index], arguments, values,
-                            value_present, specificity)) {
-                        return false;
-                    }
-                } else if (template_parameter &&
-                           template_parameter->kind == TPARAM_TEMPLATE) {
-                    if (!pattern->cxx_template_args[index] ||
-                        !actual_arguments[index] ||
-                        pattern->cxx_template_args[index]->cxx_template !=
-                            actual_arguments[index]->cxx_template) {
-                        return false;
-                    }
-                } else if (template_parameter &&
-                           template_parameter->kind == TPARAM_NONTYPE) {
-                    Expr* pattern_value = pattern->cxx_template_value_args
-                        ? pattern->cxx_template_value_args[index] : NULL;
-                    Expr* actual_value = actual->cxx_template_value_args
-                        ? actual->cxx_template_value_args[index] : NULL;
-                    int64_t pattern_integer;
-                    int64_t actual_integer;
-                    bool actual_value_known = false;
-                    bool pattern_parameter_matched = false;
-                    if (actual_class &&
-                        actual_class->template_identity_tmpl &&
-                        actual_class->template_identity_value_present &&
-                        actual_class->template_identity_value_args &&
-                        index <
-                            actual_class->template_identity_arg_count &&
-                        actual_class->template_identity_value_present[index]) {
-                        actual_integer =
-                            actual_class->template_identity_value_args[index];
-                        actual_value_known = true;
-                    } else if (actual_class && actual_class->templ &&
-                               actual_class->template_value_present &&
-                               actual_class->template_value_args &&
-                               index < actual_class->template_arg_count &&
-                               actual_class->template_value_present[index]) {
-                        actual_integer =
-                            actual_class->template_value_args[index];
-                        actual_value_known = true;
-                    } else if (actual_value &&
-                               expr_eval_integer_constant(actual_value,
-                                                          &actual_integer)) {
-                        actual_value_known = true;
-                    }
-                    if (pattern_value &&
-                        pattern_value->kind == EXPR_IDENT &&
-                        pattern_value->ident_name && values &&
-                        value_present) {
-                        for (int parameter_index = 0;
-                             parameter_index < tmpl->param_count;
-                             ++parameter_index) {
-                            TemplateParam* parameter =
-                                &tmpl->params[parameter_index];
-                            if (parameter->kind != TPARAM_NONTYPE ||
-                                !parameter->name ||
-                                strcmp(parameter->name,
-                                       pattern_value->ident_name) != 0) {
-                                continue;
-                            }
-                            if (!actual_value_known ||
-                                (value_present[parameter_index] &&
-                                 values[parameter_index] != actual_integer)) {
-                                return false;
-                            }
-                            values[parameter_index] = actual_integer;
-                            value_present[parameter_index] = true;
-                            pattern_parameter_matched = true;
-                            break;
-                        }
-                    }
-                    if (!pattern_value || !actual_value_known ||
-                        (!pattern_parameter_matched &&
-                         (!eval_template_integer_expression(
-                              cxx_template_clone_expr_with_values(
-                                  tmpl, pattern_value, arguments,
-                                  tmpl->param_count, values, value_present),
-                              tmpl, values, value_present,
-                              &pattern_integer) ||
-                          pattern_integer != actual_integer))) {
-                        return false;
-                    }
-                } else {
-                    return false;
+    if (pattern->kind == TYPE_STRUCT && actual->kind == TYPE_STRUCT) {
+        CxxTemplate* pattern_template = NULL;
+        Type** pattern_arguments = NULL;
+        int pattern_argument_count = 0;
+        bool pattern_uses_identity = pattern->cxx_class &&
+            pattern->cxx_class->template_identity_tmpl;
+        cxx_function_template_class_type_pattern_arguments(
+            pattern, &pattern_template, &pattern_arguments,
+            &pattern_argument_count);
+        if (pattern_uses_identity && pattern_template) {
+            bool type_only_template = true;
+            for (int index = 0; index < pattern_template->param_count; ++index) {
+                if (pattern_template->params[index].kind != TPARAM_TYPE ||
+                    pattern_template->params[index].is_pack) {
+                    type_only_template = false;
+                    break;
                 }
             }
-            if (specificity) *specificity += 16;
-            return true;
+            if (!type_only_template) {
+                pattern_template = NULL;
+                pattern_arguments = NULL;
+                pattern_argument_count = 0;
+            }
+        }
+        if (pattern_template && pattern_argument_count > 0) {
+            CxxClass* actual_class = actual->cxx_class;
+            CxxTemplate* actual_template = actual_class &&
+                    actual_class->template_identity_tmpl
+                ? actual_class->template_identity_tmpl
+                : actual->cxx_template;
+            Type** actual_arguments = actual_class &&
+                    actual_class->template_identity_tmpl
+                ? actual_class->template_identity_args
+                : actual_class && actual_class->templ
+                    ? actual_class->template_args
+                    : actual->cxx_template_args;
+            int actual_argument_count = actual_class &&
+                    actual_class->template_identity_tmpl
+                ? actual_class->template_identity_arg_count
+                : actual_class && actual_class->templ
+                    ? actual_class->template_arg_count
+                    : actual->cxx_template_arg_count;
+            if (actual_template &&
+                actual_template != pattern_template) {
+                return false;
+            }
+            if (actual_template == pattern_template) {
+                if (actual_argument_count != pattern_argument_count ||
+                    (actual_argument_count > 0 &&
+                     (!actual_arguments || !pattern_arguments))) {
+                    return false;
+                }
+                for (int index = 0; index < actual_argument_count; ++index) {
+                    TemplateParam* template_parameter = index <
+                            pattern_template->param_count
+                        ? &pattern_template->params[index] : NULL;
+                    if (template_parameter &&
+                        template_parameter->kind == TPARAM_TYPE) {
+                        if (!deduce_function_template_type(
+                                tmpl, pattern_arguments[index],
+                                actual_arguments[index], arguments, values,
+                                value_present, specificity)) {
+                            return false;
+                        }
+                    } else if (template_parameter &&
+                               template_parameter->kind == TPARAM_TEMPLATE) {
+                        if (!pattern_arguments[index] ||
+                            !actual_arguments[index] ||
+                            pattern_arguments[index]->cxx_template !=
+                                actual_arguments[index]->cxx_template) {
+                            return false;
+                        }
+                    } else if (template_parameter &&
+                               template_parameter->kind == TPARAM_NONTYPE) {
+                        Expr* pattern_value = pattern->cxx_template_value_args
+                            ? pattern->cxx_template_value_args[index] : NULL;
+                        Expr* actual_value = actual->cxx_template_value_args
+                            ? actual->cxx_template_value_args[index] : NULL;
+                        int64_t pattern_integer;
+                        int64_t actual_integer;
+                        bool actual_value_known = false;
+                        bool pattern_parameter_matched = false;
+                        if (actual_class &&
+                            actual_class->template_identity_tmpl &&
+                            actual_class->template_identity_value_present &&
+                            actual_class->template_identity_value_args &&
+                            index <
+                                actual_class->template_identity_arg_count &&
+                            actual_class->template_identity_value_present[index]) {
+                            actual_integer = actual_class
+                                ->template_identity_value_args[index];
+                            actual_value_known = true;
+                        } else if (actual_class && actual_class->templ &&
+                                   actual_class->template_value_present &&
+                                   actual_class->template_value_args &&
+                                   index < actual_class->template_arg_count &&
+                                   actual_class->template_value_present[index]) {
+                            actual_integer =
+                                actual_class->template_value_args[index];
+                            actual_value_known = true;
+                        } else if (actual_value &&
+                                   expr_eval_integer_constant(
+                                       actual_value, &actual_integer)) {
+                            actual_value_known = true;
+                        }
+                        if (pattern_value &&
+                            pattern_value->kind == EXPR_IDENT &&
+                            pattern_value->ident_name && values &&
+                            value_present) {
+                            for (int parameter_index = 0;
+                                 parameter_index < tmpl->param_count;
+                                 ++parameter_index) {
+                                TemplateParam* parameter =
+                                    &tmpl->params[parameter_index];
+                                if (parameter->kind != TPARAM_NONTYPE ||
+                                    !parameter->name ||
+                                    strcmp(parameter->name,
+                                           pattern_value->ident_name) != 0) {
+                                    continue;
+                                }
+                                if (!actual_value_known ||
+                                    (value_present[parameter_index] &&
+                                     values[parameter_index] !=
+                                         actual_integer)) {
+                                    return false;
+                                }
+                                values[parameter_index] = actual_integer;
+                                value_present[parameter_index] = true;
+                                pattern_parameter_matched = true;
+                                break;
+                            }
+                        }
+                        if (!pattern_value || !actual_value_known ||
+                            (!pattern_parameter_matched &&
+                             (!eval_template_integer_expression(
+                                  cxx_template_clone_expr_with_values(
+                                      tmpl, pattern_value, arguments,
+                                      tmpl->param_count, values,
+                                      value_present),
+                                  tmpl, values, value_present,
+                                  &pattern_integer) ||
+                              pattern_integer != actual_integer))) {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                if (specificity) *specificity += 16;
+                return true;
+            }
         }
     }
     if (pattern->kind == TYPE_PTR && pattern->is_reference) {
@@ -17054,13 +17187,273 @@ static int cxx_function_template_repeated_nontype_pattern_relation(
     return left_more_specialized ? 1 : -1;
 }
 
+static int cxx_function_template_type_parameter_index(
+    const CxxTemplate* tmpl, const Type* type) {
+    if (!tmpl || !type) return -1;
+    if (type->is_const || type->is_volatile || type->is_atomic ||
+        type->is_restrict || type->is_reference ||
+        type->is_rvalue_reference) {
+        return -1;
+    }
+    if (type->kind == TYPE_STRUCT && type->cxx_dependent &&
+        !(type->cxx_class && type->cxx_class->template_identity_tmpl) &&
+        !type->cxx_template && type->cxx_template_arg_count == 0 &&
+        type->cxx_template_param_index >= 0 &&
+        type->cxx_template_param_index < tmpl->param_count &&
+        tmpl->params[type->cxx_template_param_index].kind == TPARAM_TYPE &&
+        !tmpl->params[type->cxx_template_param_index].is_pack) {
+        return type->cxx_template_param_index;
+    }
+    if (type->kind == TYPE_STRUCT && type->tag &&
+        !(type->cxx_class && type->cxx_class->template_identity_tmpl) &&
+        !type->cxx_dependent_member_name &&
+        type->cxx_template_arg_count == 0) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            const TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_TYPE && !parameter->is_pack &&
+                parameter->name && strcmp(parameter->name, type->tag) == 0) {
+                return index;
+            }
+        }
+    }
+    return -1;
+}
+
+/* Deduce one transformed function-template parameter pattern from another.
+ * This bounded structural subset handles ordinary type parameters nested in
+ * pointers and matching class-template-ids. Other shapes stay with the
+ * existing ordering paths. */
+static bool cxx_function_template_partial_order_deduce_type(
+    const CxxTemplate* parameter_template, Type* parameter_pattern,
+    const CxxTemplate* argument_template, Type* argument_pattern,
+    Type** deduced_arguments, bool* supported, unsigned depth) {
+    int parameter_index;
+    int argument_index;
+    if (supported) *supported = false;
+    if (!parameter_template || !parameter_pattern || !argument_template ||
+        !argument_pattern || !deduced_arguments || depth > 64u) {
+        return false;
+    }
+    parameter_index = cxx_function_template_type_parameter_index(
+        parameter_template, parameter_pattern);
+    if (parameter_index >= 0) {
+        if (supported) *supported = true;
+        if (deduced_arguments[parameter_index]) {
+            return cxx_template_type_parameter_mapping_matches(
+                deduced_arguments[parameter_index], argument_template,
+                argument_pattern, argument_template);
+        }
+        deduced_arguments[parameter_index] = argument_pattern;
+        return true;
+    }
+    argument_index = cxx_function_template_type_parameter_index(
+        argument_template, argument_pattern);
+    if (parameter_pattern->kind != argument_pattern->kind) {
+        /* A transformed template parameter cannot satisfy a structural
+         * pointer or class-template pattern, but this is a valid deduction
+         * failure and therefore participates in ordering as an unordered
+         * direction. */
+        if (supported && argument_index >= 0) *supported = true;
+        return false;
+    }
+    if (parameter_pattern->is_const != argument_pattern->is_const ||
+        parameter_pattern->is_volatile != argument_pattern->is_volatile ||
+        parameter_pattern->is_atomic != argument_pattern->is_atomic ||
+        parameter_pattern->is_restrict != argument_pattern->is_restrict ||
+        parameter_pattern->is_reference != argument_pattern->is_reference ||
+        parameter_pattern->is_rvalue_reference !=
+            argument_pattern->is_rvalue_reference ||
+        parameter_pattern->is_unsigned != argument_pattern->is_unsigned ||
+        parameter_pattern->cxx_is_member_pointer !=
+            argument_pattern->cxx_is_member_pointer ||
+        parameter_pattern->cxx_dependent_member_name ||
+        argument_pattern->cxx_dependent_member_name) {
+        return false;
+    }
+    switch (parameter_pattern->kind) {
+        case TYPE_PTR:
+            if (parameter_pattern->cxx_is_member_pointer ||
+                !parameter_pattern->base || !argument_pattern->base) {
+                return false;
+            }
+            return cxx_function_template_partial_order_deduce_type(
+                parameter_template, parameter_pattern->base,
+                argument_template, argument_pattern->base,
+                deduced_arguments, supported, depth + 1u);
+        case TYPE_STRUCT:
+        case TYPE_UNION: {
+            CxxTemplate* parameter_class_template = NULL;
+            CxxTemplate* argument_class_template = NULL;
+            Type** parameter_arguments = NULL;
+            Type** actual_arguments = NULL;
+            int parameter_argument_count = 0;
+            int actual_argument_count = 0;
+            if (!parameter_pattern->cxx_class &&
+                !parameter_pattern->cxx_template &&
+                !argument_pattern->cxx_class &&
+                !argument_pattern->cxx_template &&
+                parameter_pattern->cxx_template_arg_count == 0 &&
+                argument_pattern->cxx_template_arg_count == 0) {
+                return cxx_template_type_parameter_mapping_matches(
+                    parameter_pattern, parameter_template,
+                    argument_pattern, argument_template);
+            }
+            cxx_function_template_class_type_pattern_arguments(
+                parameter_pattern, &parameter_class_template,
+                &parameter_arguments, &parameter_argument_count);
+            cxx_function_template_class_type_pattern_arguments(
+                argument_pattern, &argument_class_template,
+                &actual_arguments, &actual_argument_count);
+            if (!parameter_class_template ||
+                parameter_class_template != argument_class_template ||
+                parameter_argument_count != actual_argument_count ||
+                parameter_argument_count <= 0 || !parameter_arguments ||
+                !actual_arguments) {
+                return false;
+            }
+            for (int index = 0;
+                 index < parameter_class_template->param_count; ++index) {
+                if (parameter_class_template->params[index].kind !=
+                        TPARAM_TYPE ||
+                    parameter_class_template->params[index].is_pack) {
+                    return false;
+                }
+            }
+            for (int index = 0;
+                 index < parameter_argument_count; ++index) {
+                Type* parameter_argument = parameter_arguments[index];
+                Type* actual_argument = actual_arguments[index];
+                bool nested_supported = false;
+                bool nested_deduced;
+                if (!parameter_argument || !actual_argument) {
+                    if (supported) *supported = false;
+                    return false;
+                }
+                nested_deduced = cxx_function_template_partial_order_deduce_type(
+                        parameter_template, parameter_argument,
+                        argument_template, actual_argument,
+                        deduced_arguments, &nested_supported, depth + 1u);
+                if (!nested_supported) {
+                    if (supported) *supported = false;
+                    return false;
+                }
+                if (!nested_deduced) {
+                    if (supported) *supported = true;
+                    return false;
+                }
+            }
+            if (supported) *supported = true;
+            return true;
+        }
+        default:
+            return cxx_template_type_parameter_mapping_matches(
+                parameter_pattern, parameter_template,
+                argument_pattern, argument_template);
+    }
+}
+
+static bool cxx_function_template_partial_order_deduces(
+    const CxxFunctionTemplateMatch* parameter_match,
+    const CxxFunctionTemplateMatch* argument_match, bool* supported) {
+    Type* parameter_function;
+    Type* argument_function;
+    Type** deduced_arguments;
+    if (supported) *supported = false;
+    if (!parameter_match || !argument_match || !parameter_match->tmpl ||
+        !argument_match->tmpl || parameter_match->has_function_parameter_pack ||
+        argument_match->has_function_parameter_pack ||
+        parameter_match->tmpl->param_count < 0 ||
+        argument_match->tmpl->param_count < 0 ||
+        !parameter_match->tmpl->func_def ||
+        !argument_match->tmpl->func_def ||
+        !(parameter_function = parameter_match->tmpl->func_def->type) ||
+        !(argument_function = argument_match->tmpl->func_def->type) ||
+        parameter_function->kind != TYPE_FUNC ||
+        argument_function->kind != TYPE_FUNC ||
+        parameter_function->variadic != argument_function->variadic ||
+        parameter_function->has_prototype != argument_function->has_prototype) {
+        return false;
+    }
+    deduced_arguments = ast_arena_alloc(
+        sizeof(*deduced_arguments) *
+        (size_t)parameter_match->tmpl->param_count);
+    memset(deduced_arguments, 0,
+           sizeof(*deduced_arguments) *
+           (size_t)parameter_match->tmpl->param_count);
+    for (int index = 0; index < parameter_match->tmpl->param_count; ++index) {
+        const TemplateParam* parameter = &parameter_match->tmpl->params[index];
+        if (parameter->kind != TPARAM_TYPE || parameter->is_pack) return false;
+    }
+    for (int index = 0; index < argument_match->tmpl->param_count; ++index) {
+        const TemplateParam* parameter = &argument_match->tmpl->params[index];
+        if (parameter->kind != TPARAM_TYPE || parameter->is_pack) return false;
+    }
+    TypeParam* parameter = parameter_function->params;
+    TypeParam* argument = argument_function->params;
+    while (parameter && argument) {
+        bool parameter_supported = false;
+        /* Reference collapsing and top-level reference adjustment have their
+         * own established ordering rules; this structural subset handles
+         * pointer and class-template-id patterns only. */
+        if ((parameter->type && parameter->type->kind == TYPE_PTR &&
+             (parameter->type->is_reference ||
+              parameter->type->is_rvalue_reference)) ||
+            (argument->type && argument->type->kind == TYPE_PTR &&
+             (argument->type->is_reference ||
+              argument->type->is_rvalue_reference))) {
+            return false;
+        }
+        if (!cxx_function_template_partial_order_deduce_type(
+                parameter_match->tmpl, parameter->type,
+                argument_match->tmpl, argument->type, deduced_arguments,
+                &parameter_supported, 0u)) {
+            if (parameter_supported && supported) *supported = true;
+            return false;
+        }
+        if (!parameter_supported) return false;
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    if (parameter || argument) return false;
+    if (supported) *supported = true;
+    return true;
+}
+
+static int cxx_function_template_type_pattern_relation(
+    const CxxFunctionTemplateMatch* left,
+    const CxxFunctionTemplateMatch* right, bool* handled,
+    bool* equivalent) {
+    bool left_supported = false;
+    bool right_supported = false;
+    bool left_deduced;
+    bool right_deduced;
+    if (handled) *handled = false;
+    if (equivalent) *equivalent = false;
+    left_deduced = cxx_function_template_partial_order_deduces(
+        left, right, &left_supported);
+    right_deduced = cxx_function_template_partial_order_deduces(
+        right, left, &right_supported);
+    if (!left_supported || !right_supported) return 0;
+    if (handled) *handled = true;
+    if (left_deduced && right_deduced) {
+        if (equivalent) *equivalent = true;
+        return 0;
+    }
+    if (right_deduced) return 1;
+    if (left_deduced) return -1;
+    return 0;
+}
+
 static int cxx_function_template_match_relation(
     const CxxFunctionTemplateMatch* left,
     const CxxFunctionTemplateMatch* right) {
     int conversion_relation;
     int constraint_relation;
+    int type_pattern_relation;
     bool constraints_comparable;
     bool conversions_incomparable;
+    bool type_patterns_handled;
+    bool type_patterns_equivalent;
     if (!left || !right) return 0;
     conversion_relation = cxx_template_conversion_vector_relation(
         left, right, &conversions_incomparable);
@@ -17069,22 +17462,31 @@ static int cxx_function_template_match_relation(
     int repeated_nontype_relation =
         cxx_function_template_repeated_nontype_pattern_relation(left, right);
     if (repeated_nontype_relation != 0) return repeated_nontype_relation;
-    if (left->specificity != right->specificity &&
+    type_pattern_relation = cxx_function_template_type_pattern_relation(
+        left, right, &type_patterns_handled, &type_patterns_equivalent);
+    if (type_patterns_handled && type_pattern_relation != 0) {
+        return type_pattern_relation;
+    }
+    if (type_patterns_handled && !type_patterns_equivalent) return 0;
+    if (!type_patterns_handled &&
+        left->specificity != right->specificity &&
         !cxx_function_template_reference_adjustment_equivalent(left, right)) {
         return left->specificity > right->specificity ? 1 : -1;
     }
-    int array_extent_relation =
-        cxx_function_template_array_extent_pattern_relation(left, right);
-    if (array_extent_relation != 0) return array_extent_relation;
-    if (left->fixed_function_parameter_count !=
-        right->fixed_function_parameter_count) {
-        return left->fixed_function_parameter_count >
-                       right->fixed_function_parameter_count
-            ? 1 : -1;
-    }
-    if (left->has_function_parameter_pack !=
-        right->has_function_parameter_pack) {
-        return left->has_function_parameter_pack ? -1 : 1;
+    if (!type_patterns_handled) {
+        int array_extent_relation =
+            cxx_function_template_array_extent_pattern_relation(left, right);
+        if (array_extent_relation != 0) return array_extent_relation;
+        if (left->fixed_function_parameter_count !=
+            right->fixed_function_parameter_count) {
+            return left->fixed_function_parameter_count >
+                           right->fixed_function_parameter_count
+                ? 1 : -1;
+        }
+        if (left->has_function_parameter_pack !=
+            right->has_function_parameter_pack) {
+            return left->has_function_parameter_pack ? -1 : 1;
+        }
     }
     constraint_relation = cxx_function_template_constraint_relation(
         left->tmpl, right->tmpl, &constraints_comparable);
@@ -17649,7 +18051,9 @@ static bool cxx_function_template_instance_viable(
         TypeMethod* conversion_method = NULL;
         int rank = cxx_parser_function_template_overload_conversion_rank(
             argument->expr, parameter->type, &conversion_method);
-        if (rank < 0) return false;
+        if (rank < 0) {
+            return false;
+        }
         if (ranks && rank_count && *rank_count >= rank_capacity) return false;
         if (ranks && rank_count) {
             int index = (*rank_count)++;

@@ -120,6 +120,21 @@ int select_incomparable_repeated_nontype_order(
 template<int First, int Second>
 struct IncomparableFixedNontypeTag {};
 
+template<typename First, typename Second>
+struct IncomparableTypePatternTag {};
+
+template<typename First, typename Second>
+int select_incomparable_class_type_patterns(
+    IncomparableTypePatternTag<First*, Second>) {
+    return 12;
+}
+
+template<typename First, typename Second>
+int select_incomparable_class_type_patterns(
+    IncomparableTypePatternTag<First, Second*>) {
+    return 13;
+}
+
 template<int First, int Second>
 int select_incomparable_fixed_nontype_order(
     IncomparableFixedNontypeTag<1, First>,
@@ -170,6 +185,8 @@ int main() {
            select_incomparable_fixed_nontype_order(
                IncomparableFixedNontypeTag<1, 1>{},
                IncomparableFixedNontypeTag<1, 1>{}) +
+           select_incomparable_class_type_patterns(
+               IncomparableTypePatternTag<int*, int*>{}) +
            select_crossed_pointer_pack_order(pointer, &character) +
            select_nontrailing_function_pack_too_many(value, value + 1);
 }

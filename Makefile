@@ -2606,6 +2606,8 @@ test-cxx-variable-templates-posix: $(RCXX_TARGET)
 
 test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-function-template-overloads/x86.s \
 		tests/cxx_function_template_overloads.cpp
@@ -2645,6 +2647,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "ambiguous function template overload for 'select_incomparable_fixed_nontype_order'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(GREP) -q "ambiguous function template overload for 'select_incomparable_class_type_patterns'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "ambiguous function template overload for 'select_crossed_pointer_pack_order'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "no matching function template overload for 'select_nontrailing_function_pack_too_many'" \
@@ -2678,6 +2682,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "ambiguous function template overload for 'select_incomparable_fixed_nontype_order'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(GREP) -q "ambiguous function template overload for 'select_incomparable_class_type_patterns'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "ambiguous function template overload for 'select_crossed_pointer_pack_order'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "no matching function template overload for 'select_nontrailing_function_pack_too_many'" \
@@ -2702,6 +2708,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log)
 	$(GREP) -q "select_incomparable_fixed_nontype_order" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
+	$(GREP) -q "select_incomparable_class_type_patterns" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -q "select_crossed_pointer_pack_order" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
@@ -3629,6 +3637,8 @@ test-cxx-variable-templates: $(RCXX_TARGET)
 
 test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-overloads,cxx_function_template_overloads.cpp)
 	g++ -std=c++20 -fno-elide-constructors -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe tests/cxx_function_template_overloads.cpp
 	$(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe
@@ -3638,6 +3648,7 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_repeated_nontype_order'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_fixed_nontype_order'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_class_type_patterns'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_crossed_pointer_pack_order'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "no matching function template overload for 'select_nontrailing_function_pack_too_many'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_reference_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
@@ -3653,6 +3664,7 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous function template overload for 'select_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_repeated_nontype_order'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_fixed_nontype_order'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_class_type_patterns'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_crossed_pointer_pack_order'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "no matching function template overload for 'select_nontrailing_function_pack_too_many'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_reference_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
@@ -3665,6 +3677,7 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log)
 	$(GREP) -F -q "select_incomparable_repeated_nontype_order" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -F -q "select_incomparable_fixed_nontype_order" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
+	$(GREP) -F -q "select_incomparable_class_type_patterns" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -F -q "select_crossed_pointer_pack_order" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -F -q "select_nontrailing_function_pack_too_many" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -F -q "select_incomparable_reference_template" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
