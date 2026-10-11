@@ -2702,6 +2702,51 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
     return -1;
 }
 
+/* [over.ics.rank] also distinguishes reference bindings with the same target
+ * type but different source class types.  When both results are derived from
+ * the referred-to class, converting from the less-derived source is better:
+ * Middle& -> Root& is better than Leaf& -> Root& when Leaf derives from
+ * Middle.  Keep this relation partial; unrelated source classes remain tied. */
+static int sema_cxx_reference_conversion_source_relation(
+    Type* left_result, Type* right_result, Type* target) {
+    Type* left_source;
+    Type* right_source;
+    Type* referred_type;
+    CxxClass* left_class;
+    CxxClass* right_class;
+    CxxClass* target_class;
+    if (!left_result || !right_result || !target ||
+        !target->is_reference || !target->base) {
+        return 0;
+    }
+    left_source = left_result->is_reference ? left_result->base : left_result;
+    right_source = right_result->is_reference
+        ? right_result->base : right_result;
+    referred_type = target->base;
+    if (!left_source || !right_source ||
+        left_source->kind != TYPE_STRUCT ||
+        right_source->kind != TYPE_STRUCT ||
+        referred_type->kind != TYPE_STRUCT ||
+        left_source->is_const != right_source->is_const ||
+        left_source->is_volatile != right_source->is_volatile) {
+        return 0;
+    }
+    left_class = left_source->cxx_class;
+    right_class = right_source->cxx_class;
+    target_class = referred_type->cxx_class;
+    if (!left_class || !right_class || !target_class ||
+        left_class == right_class ||
+        (left_class != target_class &&
+         !sema_cxx_unique_public_base(left_source, referred_type, NULL)) ||
+        (right_class != target_class &&
+         !sema_cxx_unique_public_base(right_source, referred_type, NULL))) {
+        return 0;
+    }
+    if (sema_cxx_class_derives_from(right_class, left_class, 0u)) return 1;
+    if (sema_cxx_class_derives_from(left_class, right_class, 0u)) return -1;
+    return 0;
+}
+
 /* Rank the implicit object binding for a conversion function.  Conversion
  * functions use the same ref-qualifier and cv rules as other member calls. */
 static int sema_cxx_conversion_object_rank(TypeMethod* method,
@@ -2772,10 +2817,17 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
                                                    Type* target,
                                                    bool* ambiguous,
                                                    Expr* source_expression) {
+    typedef struct {
+        TypeMethod* method;
+        Type* result_type;
+        int rank;
+    } ConversionCandidate;
     TypeMethod* method;
-    TypeMethod* result = NULL;
-    int result_rank = INT_MAX;
-    bool tied_best = false;
+    ConversionCandidate* candidates;
+    size_t method_count = 0u;
+    size_t candidate_count = 0u;
+    size_t best_index = 0u;
+    size_t best_count = 0u;
     if (ambiguous) *ambiguous = false;
     if (!aggregate || !target ||
         (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
@@ -2783,6 +2835,14 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
     }
     rcc_parser_cxx_materialize_conversion_templates(aggregate, target);
     sema_register_materialized_member_templates(aggregate);
+    for (method = aggregate->methods; method; method = method->next) {
+        if (method_count >= SIZE_MAX / sizeof(*candidates)) {
+            rcc_fatal("C++ conversion candidate table is too large");
+        }
+        ++method_count;
+    }
+    candidates = ast_arena_alloc(
+        sizeof(*candidates) * (method_count > 0u ? method_count : 1u));
     for (method = aggregate->methods; method; method = method->next) {
         Type* result_type;
         int object_rank;
@@ -2821,16 +2881,37 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         rank = sema_cxx_conversion_result_rank(result_type, target);
         if (rank < 0) continue;
         candidate_rank = rank * 4 + object_rank;
-        if (!result || candidate_rank < result_rank) {
-            result = method;
-            result_rank = candidate_rank;
-            tied_best = false;
-            continue;
-        }
-        if (candidate_rank == result_rank) tied_best = true;
+        candidates[candidate_count].method = method;
+        candidates[candidate_count].result_type = result_type;
+        candidates[candidate_count].rank = candidate_rank;
+        ++candidate_count;
     }
-    if (ambiguous) *ambiguous = tied_best;
-    return tied_best ? NULL : result;
+    for (size_t index = 0u; index < candidate_count; ++index) {
+        bool dominated = false;
+        for (size_t other = 0u; other < candidate_count; ++other) {
+            int relation;
+            if (index == other) continue;
+            if (candidates[other].rank < candidates[index].rank) {
+                relation = 1;
+            } else if (candidates[other].rank > candidates[index].rank) {
+                relation = -1;
+            } else {
+                relation = sema_cxx_reference_conversion_source_relation(
+                    candidates[other].result_type,
+                    candidates[index].result_type, target);
+            }
+            if (relation > 0) {
+                dominated = true;
+                break;
+            }
+        }
+        if (!dominated) {
+            best_index = index;
+            ++best_count;
+        }
+    }
+    if (ambiguous) *ambiguous = best_count > 1;
+    return best_count == 1 ? candidates[best_index].method : NULL;
 }
 
 static bool cxx_reference_object_compatible(const Type* source,
@@ -3029,6 +3110,7 @@ reference_binding_source:
                 member = expr_member(source_expression, conversion->name,
                                      e->loc);
                 call = expr_call(member, NULL, e->loc);
+                call->call_method = conversion;
                 *e = *call;
                 sema_expr(e);
                 conversion_attempted = true;

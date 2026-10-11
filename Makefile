@@ -453,6 +453,7 @@ endif
 .PHONY: print-host-cc test-c17 test-c-old-style test-c-multi-declarator test-restrict-qualifier test-determinism test-property-gate test-fuzz test-ci
 .PHONY: test-cxx-range-for test-cxx-iterator-range-for test-cxx-selection-init test-cxx-exception-cleanup test-cxx-const-member-overload test-cxx-ref-qualified-overload test-cxx-ref-qualified-overload-invalid test-cxx-volatile-member-overload test-cxx-volatile-member-overload-invalid test-cxx-member-lifetime test-cxx-global-constructor
 .PHONY: test-cxx-operator-arrow
+.PHONY: test-cxx-conversion-reference-ranking-ambiguous
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
 .PHONY: test-verified-switch-nested
 .PHONY: test-cxx-variable-templates
@@ -5038,7 +5039,7 @@ endif
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
 	@echo "RCC++ dependent template-template value diagnostics completed"
 
-test-cxx-conversion-operator-posix: $(RCXX_TARGET)
+test-cxx-conversion-operator-posix: $(RCXX_TARGET) test-cxx-conversion-reference-ranking-ambiguous
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-conversion-operator/x86.s \
@@ -5954,7 +5955,7 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-class-template-member-function-templates/x64.ro \
 		tests/cxx_class_template_member_function_templates.cpp
-test-cxx-conversion-operator: $(RCXX_TARGET)
+test-cxx-conversion-operator: $(RCXX_TARGET) test-cxx-conversion-reference-ranking-ambiguous
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-operator)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conversion-operator,cxx_conversion_operator.cpp)
 	g++ -std=c++20 -Wall -Wextra -Werror \
@@ -15613,3 +15614,14 @@ $(OBJDIR)/main_rld.o: $(INCDIR)/rcc.h $(INCDIR)/linker.h
 $(OBJDIR)/linker.o: $(INCDIR)/rcc.h $(INCDIR)/linker.h $(INCDIR)/objfile.h
 $(OBJDIR)/main_rar.o: $(INCDIR)/rcc.h $(INCDIR)/archive.h
 $(OBJDIR)/archive.o: $(INCDIR)/rcc.h $(INCDIR)/archive.h $(INCDIR)/objfile.h
+
+test-cxx-conversion-reference-ranking-ambiguous: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_conversion_reference_ranking_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x86.ro tests/cxx_conversion_reference_ranking_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x86.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'consume_reference_base'" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x64.ro tests/cxx_conversion_reference_ranking_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x64.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'consume_reference_base'" $(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-reference-ranking-ambiguous/x64.ro)

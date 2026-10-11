@@ -80,6 +80,28 @@ struct ConversionBasePointerTarget {
 
 struct ConversionDerivedPointerTarget : ConversionBasePointerTarget {};
 
+struct ConversionReferenceBase {
+    int value;
+};
+
+struct ConversionReferenceMiddle : ConversionReferenceBase {};
+
+struct ConversionReferenceLeaf : ConversionReferenceMiddle {};
+
+class ConversionReferenceRankingSource {
+public:
+    ConversionReferenceMiddle middle;
+    ConversionReferenceLeaf leaf;
+
+    operator ConversionReferenceMiddle&() {
+        return middle;
+    }
+
+    operator ConversionReferenceLeaf&() {
+        return leaf;
+    }
+};
+
 class ConversionPointerSource {
 public:
     ConversionDerivedPointerTarget* value;
@@ -143,6 +165,10 @@ int choose_conversion_reference(const ReferenceConversionResult& value) {
 }
 
 int read_conversion_reference(const ReferenceConversionResult& value) {
+    return value.value;
+}
+
+int read_conversion_reference_base(const ConversionReferenceBase& value) {
     return value.value;
 }
 
@@ -215,12 +241,15 @@ int main() {
     const CvRefQualifiedConversionSource const_ref_qualified_source{};
     ConversionDerivedPointerTarget derived_pointer_target{67};
     ConversionPointerSource pointer_source{&derived_pointer_target};
+    ConversionReferenceRankingSource reference_ranking_source;
     Flag flag{1};
     RankedMeter ranked_meter;
     PromotionMeter promotion_meter;
     FloatingPromotionMeter floating_promotion_meter;
     TemplatedConversionSource templated_source;
     ConstrainedTemplatedConversionSource constrained_templated_source;
+    reference_ranking_source.middle.value = 83;
+    reference_ranking_source.leaf.value = 89;
     int direct = meter;
     int templated_direct = templated_source;
     int argument = take_integer(meter);
@@ -243,6 +272,7 @@ int main() {
         read_conversion_reference(RefQualifiedConversionSource{}) != 53 ||
         read_conversion_reference(const_ref_qualified_source) != 59 ||
         read_conversion_reference(CvRefQualifiedConversionSource{}) != 61 ||
+        read_conversion_reference_base(reference_ranking_source) != 83 ||
         choose_pointer_conversion(pointer_source) != 71 ||
         choose_template_pointer_conversion(0, pointer_source) != 79) {
         return 1;
