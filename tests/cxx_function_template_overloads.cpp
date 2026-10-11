@@ -294,6 +294,18 @@ int choose_template_pack_partial_order(
     return 198;
 }
 
+template<typename First>
+int choose_template_class_pack_partial_order(
+    FunctionTemplatePackPartialOrderBox<First, int>) {
+    return 199;
+}
+
+template<typename First>
+int choose_template_class_pack_partial_order(
+    FunctionTemplatePackPartialOrderBox<First*, int>) {
+    return 200;
+}
+
 template<template<typename> class Template, typename T>
 int choose_template_template_partial_order(Template<T>) {
     return 194;
@@ -1161,6 +1173,12 @@ int main(void) {
                        FunctionTemplatePackPartialOrderBox<int>{}) == 197 &&
                    choose_template_pack_partial_order(
                        FunctionTemplatePackPartialOrderBox<int*>{}) == 198 &&
+                   choose_template_class_pack_partial_order(
+                       FunctionTemplatePackPartialOrderBox<int, int>{}) ==
+                       199 &&
+                   choose_template_class_pack_partial_order(
+                       FunctionTemplatePackPartialOrderBox<int*, int>{}) ==
+                       200 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&

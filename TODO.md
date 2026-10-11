@@ -2866,3 +2866,20 @@ separately recorded WSL startup failure.
 - [ ] Continue general C++20 function-template partial ordering across
   remaining transformed-template shapes, packs, dependent non-type and
   template-template parameters, constraints, and conversion ties.
+
+## RCC continuation (2026-10-12, multi-argument class-pack ordering)
+
+- [x] Extend function-template ordering coverage to a trailing class type pack
+  instantiated with multiple actual arguments. `PackBox<T*, int>` is preferred
+  over `PackBox<T, int>` for `PackBox<int*, int>`, while the general pattern
+  remains selected for `PackBox<int, int>`.
+- [x] Verify the GCC C++20 oracle and focused overload gate, including i686 and
+  AMD64 generation, AMD64 execution, and the existing ambiguity/no-output
+  diagnostics.
+- [x] Run the complete native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` regression suite after this change; it
+  completed successfully (exit 0).
+- [ ] Parse and implement pack-expansion arguments nested in a class-template-id
+  such as `PackBox<First, Rest...>`, including variable-arity deduction,
+  specialization, and partial ordering. RCC currently rejects the ellipsis
+  while parsing the template argument list; the example remains unsupported.
