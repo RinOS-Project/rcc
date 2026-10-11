@@ -496,6 +496,11 @@
         signature over a trailing function-parameter pack when fixed prefixes
         tie. GCC C++20 reference checks and i686/AMD64 generated execution are
         included in `test-cxx-function-template-overloads`.
+  - [x] Cover C++20 pack partial ordering where `g(T*, U...)` beats `g(T)` for
+        a pointer argument, and where `choose(T*, Rest...)` beats an all-pack
+        `choose(T...)` for a pointer followed by another argument. GCC C++20,
+        RCC++ i686/AMD64 generation, and AMD64 execution pass in
+        `test-cxx-function-template-overloads`.
   - [ ] full partial ordering, all parameter-pack deduction rules, and
         unsupported constexpr evaluation required for complete standard
         conformance
