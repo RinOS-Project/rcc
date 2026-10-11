@@ -13311,11 +13311,33 @@ static bool deduce_function_template_type(CxxTemplate* tmpl, Type* pattern,
                         ? actual->cxx_template_value_args[index] : NULL;
                     int64_t pattern_integer;
                     int64_t actual_integer;
-                    if (!pattern_value || !actual_value ||
+                    bool actual_value_known = false;
+                    if (actual_class &&
+                        actual_class->template_identity_tmpl &&
+                        actual_class->template_identity_value_present &&
+                        actual_class->template_identity_value_args &&
+                        index <
+                            actual_class->template_identity_arg_count &&
+                        actual_class->template_identity_value_present[index]) {
+                        actual_integer =
+                            actual_class->template_identity_value_args[index];
+                        actual_value_known = true;
+                    } else if (actual_class && actual_class->templ &&
+                               actual_class->template_value_present &&
+                               actual_class->template_value_args &&
+                               index < actual_class->template_arg_count &&
+                               actual_class->template_value_present[index]) {
+                        actual_integer =
+                            actual_class->template_value_args[index];
+                        actual_value_known = true;
+                    } else if (actual_value &&
+                               expr_eval_integer_constant(actual_value,
+                                                          &actual_integer)) {
+                        actual_value_known = true;
+                    }
+                    if (!pattern_value || !actual_value_known ||
                         !expr_eval_integer_constant(pattern_value,
                                                     &pattern_integer) ||
-                        !expr_eval_integer_constant(actual_value,
-                                                    &actual_integer) ||
                         pattern_integer != actual_integer) {
                         return false;
                     }

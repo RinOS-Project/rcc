@@ -928,20 +928,29 @@ static void cxx_mangle_template_type_append(
         CXX_MANGLE_TEMPLATE_APPEND('E');
         return;
     }
-    bool has_nested_non_type_argument = false;
-    if (type->cxx_template &&
-        type->cxx_template_arg_count > 0) {
+    int64_t nested_value_arguments[32] = { 0 };
+    bool nested_value_arguments_encodable = type && type->cxx_template &&
+        type->cxx_template_arg_count > 0 &&
+        type->cxx_template_arg_count <=
+            (int)(sizeof(nested_value_arguments) /
+                  sizeof(nested_value_arguments[0]));
+    if (nested_value_arguments_encodable) {
         for (int index = 0; index < type->cxx_template_arg_count; ++index) {
             if (index < type->cxx_template->param_count &&
                 type->cxx_template->params[index].kind == TPARAM_NONTYPE) {
-                has_nested_non_type_argument = true;
-                break;
+                Expr* value_expression = type->cxx_template_value_args
+                    ? type->cxx_template_value_args[index] : NULL;
+                if (!value_expression || !expr_eval_integer_constant(
+                        value_expression, &nested_value_arguments[index])) {
+                    nested_value_arguments_encodable = false;
+                    break;
+                }
             }
         }
     }
     if (type->kind == TYPE_STRUCT && type->cxx_template &&
         type->cxx_template_arg_count > 0 && type->cxx_template_args &&
-        !has_nested_non_type_argument) {
+        nested_value_arguments_encodable) {
         CxxNamespace* namespace_stack[32];
         int namespace_count = 0;
         for (CxxNamespace* current = type->cxx_template->ns;
@@ -965,8 +974,33 @@ static void cxx_mangle_template_type_append(
             context->next_substitution += (size_t)namespace_count + 1u;
         }
         for (int index = 0; index < type->cxx_template_arg_count; ++index) {
-            cxx_mangle_template_type_append(
-                buf, pos, type->cxx_template_args[index], tmpl, context);
+            TemplateParam* parameter = index < type->cxx_template->param_count
+                ? &type->cxx_template->params[index] : NULL;
+            if (parameter && parameter->kind == TPARAM_NONTYPE) {
+                int64_t value = nested_value_arguments[index];
+                CXX_MANGLE_TEMPLATE_APPEND('L');
+                cxx_mangle_template_type_append(
+                    buf, pos, parameter->type, tmpl, context);
+                int written;
+                if (value < 0) {
+                    uint64_t magnitude = (uint64_t)(-(value + 1)) + 1u;
+                    written = snprintf(
+                        buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                        "n%lluE", (unsigned long long)magnitude);
+                } else {
+                    written = snprintf(
+                        buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                        "%lldE", (long long)value);
+                }
+                if (written < 0 || (size_t)written >=
+                        CXX_MANGLE_BUFFER_SIZE - *pos) {
+                    rcc_fatal("C++ member template argument is too long");
+                }
+                *pos += (size_t)written;
+            } else {
+                cxx_mangle_template_type_append(
+                    buf, pos, type->cxx_template_args[index], tmpl, context);
+            }
         }
         CXX_MANGLE_TEMPLATE_APPEND('E');
         if (namespace_count > 0) CXX_MANGLE_TEMPLATE_APPEND('E');

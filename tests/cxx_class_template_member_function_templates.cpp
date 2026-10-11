@@ -4,6 +4,11 @@ struct PackPair {
     Second second;
 };
 
+template<typename ValueType, int Tag>
+struct PackTagged {
+    ValueType value;
+};
+
 template<typename T>
 struct Box {
     T value;
@@ -41,6 +46,11 @@ struct Box {
 
     template<typename... Args>
     int count_matching_pairs(PackPair<Args, Args>...) const {
+        return sizeof...(Args);
+    }
+
+    template<typename... Args>
+    int count_tagged(PackTagged<Args, 7>...) const {
         return sizeof...(Args);
     }
 
@@ -87,6 +97,9 @@ int main() {
                    integers.count_matching_pairs(
                        PackPair<int, int>{1, 2},
                        PackPair<long, long>{3, 4}) == 2 &&
+                   integers.count_tagged(
+                       PackTagged<int, 7>{1},
+                       PackTagged<long, 7>{2}) == 2 &&
                    integers.add_constants<2, 3>() == 5 &&
                    integers.add_constants<>() == 0 &&
                    integers.identity(12L) == 12L &&
