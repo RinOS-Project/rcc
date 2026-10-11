@@ -28,6 +28,11 @@ struct Box {
         return first;
     }
 
+    template<typename... Args>
+    int argument_count(Args...) const {
+        return sizeof...(Args);
+    }
+
     template<int... Values>
     T add_constants() const {
         return (0 + ... + Values);
@@ -66,6 +71,8 @@ int main() {
                    integers.echo_through_object_pack(integers, 16) == 16 &&
                    integers.echo_first(17) == 17 &&
                    integers.echo_first(18, 2L, 'x') == 18 &&
+                   integers.argument_count() == 0 &&
+                   integers.argument_count(1, 2L, 'x') == 3 &&
                    integers.add_constants<2, 3>() == 5 &&
                    integers.add_constants<>() == 0 &&
                    integers.identity(12L) == 12L &&

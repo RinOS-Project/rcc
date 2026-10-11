@@ -5124,6 +5124,10 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE10echo_firstIiJlcEEET_S2_DpT0_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE14argument_countIJEEEiDpT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE14argument_countIJilcEEEiDpT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJEEEiv" \
@@ -5172,6 +5176,10 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK3BoxIiE10echo_firstIiJEEET_S2_DpT0_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE10echo_firstIiJlcEEET_S2_DpT0_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE14argument_countIJEEEiDpT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE14argument_countIJilcEEEiDpT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
@@ -5622,6 +5630,10 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK3BoxIiE10echo_firstIiJEEET_S2_DpT0_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE10echo_firstIiJlcEEET_S2_DpT0_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE14argument_countIJEEEiDpT_" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE14argument_countIJilcEEEiDpT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s

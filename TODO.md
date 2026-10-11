@@ -2626,11 +2626,13 @@ separately recorded WSL startup failure.
   Itanium pack encodings for template arguments and the `Dp` function-parameter
   pattern, including explicit empty member-template argument lists. Regressions
   cover empty, homogeneous, and heterogeneous deduced `Rest...` packs, plus
-  empty and non-empty `add_constants` folds; exact Itanium names are checked
+  empty and non-empty `add_constants` folds and `sizeof...(Args)` for empty
+  and heterogeneous argument sequences; exact Itanium names are checked
   against GCC. The focused gate passes i686/AMD64 assembly and object
   generation, generated AMD64 execution, GCC C++20 `-Wall -Wextra -Werror`,
   and verified-backend output for both targets. The complete native-Windows
-  `mingw32-make SHELL=cmd.exe test-cxx` aggregate exits 0 on this revision.
+  `mingw32-make SHELL=cmd.exe test-cxx` aggregate passed after the parser
+  change; the focused gate was rerun after adding the `sizeof...` cases.
 - [ ] Complete member-template deduction and overload selection for remaining
   explicit non-type and template-template forms, multi-pack and nested pack
   expansion combinations, and remaining overload edge cases; support
