@@ -94,6 +94,39 @@ struct Box {
         return sizeof...(Args);
     }
 
+    template<int Tag, typename... Args>
+    int count_tagged_logical_not(PackTagged<Args, (!Tag)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_complement(PackTagged<Args, (~Tag)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_equal(PackTagged<Args, (Tag == 6)>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_logical_and(
+        PackTagged<Args, ((Tag == 6) && (Tag != 0))>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_logical_or(
+        PackTagged<Args, ((Tag > 8) || (Tag <= 6))>...) const {
+        return sizeof...(Args);
+    }
+
+    template<int Tag, typename... Args>
+    int count_tagged_select(
+        PackTagged<Args, (Tag < 7 ? (Tag >= 6) : (Tag <= 3))>...) const {
+        return sizeof...(Args);
+    }
+
     template<int... Values>
     T add_constants() const {
         return (0 + ... + Values);
@@ -164,6 +197,24 @@ int main() {
                    integers.count_tagged_right_shift<12>(
                        PackTagged<int, 6>{1},
                        PackTagged<long, 6>{2}) == 2 &&
+                   integers.count_tagged_logical_not<0>(
+                       PackTagged<int, 1>{1},
+                       PackTagged<long, 1>{2}) == 2 &&
+                   integers.count_tagged_complement<6>(
+                       PackTagged<int, -7>{1},
+                       PackTagged<long, -7>{2}) == 2 &&
+                   integers.count_tagged_equal<6>(
+                       PackTagged<int, 1>{1},
+                       PackTagged<long, 1>{2}) == 2 &&
+                   integers.count_tagged_logical_and<6>(
+                       PackTagged<int, 1>{1},
+                       PackTagged<long, 1>{2}) == 2 &&
+                   integers.count_tagged_logical_or<6>(
+                       PackTagged<int, 1>{1},
+                       PackTagged<long, 1>{2}) == 2 &&
+                   integers.count_tagged_select<6>(
+                       PackTagged<int, 1>{1},
+                       PackTagged<long, 1>{2}) == 2 &&
                    integers.add_constants<2, 3>() == 5 &&
                    integers.add_constants<>() == 0 &&
                    integers.identity(12L) == 12L &&

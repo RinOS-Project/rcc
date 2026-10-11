@@ -2655,6 +2655,14 @@ separately recorded WSL startup failure.
   execute; mismatched results are rejected on both targets without object
   output. The focused gate and complete native-Windows
   `mingw32-make SHELL=cmd.exe test-cxx` aggregate pass.
+- [x] Encode dependent unary `!`/`~`, comparison and logical expressions, and
+  conditional expressions in nested member-template pack patterns. Emit
+  GCC-matching Itanium `nt`, `co`, comparison/logical, and `qu` encodings.
+  Track parenthesis depth so `>` inside a non-type template expression remains
+  a relational operator while an unparenthesized `>` closes the template-id.
+  Positive and mismatched-value tests cover both targets; exact symbols match
+  GCC, with no object output for mismatches. Native-Windows `test-cxx` and
+  `test-c17` aggregates both exit 0.
 - [ ] Complete member-template deduction and overload selection for remaining
   general dependent non-type expressions and template-template forms,
   expansions involving

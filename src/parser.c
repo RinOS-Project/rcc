@@ -131,6 +131,7 @@ static int parser_pack_depth;
 static bool parser_cxx_mode;
 static int parser_cxx_standard = 20;
 static bool parser_cxx_template_default_mode;
+static int parser_cxx_template_paren_depth;
 static const char* parser_function_name;
 static const char* parser_function_name_stack[64];
 static ParserTypeName* parser_function_type_names_stack[64];
@@ -216,6 +217,11 @@ void rcc_parser_function_scope_pop(void) {
 }
 
 void rcc_parser_set_cxx_template_default_mode(bool enabled) {
+    if (enabled && !parser_cxx_template_default_mode) {
+        parser_cxx_template_paren_depth = 0;
+    } else if (!enabled) {
+        parser_cxx_template_paren_depth = 0;
+    }
     parser_cxx_template_default_mode = enabled;
 }
 
@@ -1765,8 +1771,17 @@ static Expr* parse_primary(void) {
         if (fold) return fold;
     }
     if (match(TOK_LPAREN)) {
+        bool tracks_template_parentheses =
+            parser_cxx_template_default_mode;
+        if (tracks_template_parentheses) {
+            ++parser_cxx_template_paren_depth;
+        }
         Expr* e = parse_expression();
         expect(TOK_RPAREN, ")");
+        if (tracks_template_parentheses &&
+            parser_cxx_template_paren_depth > 0) {
+            --parser_cxx_template_paren_depth;
+        }
         if (e) e->cxx_parenthesized = true;
         return e;
     }
@@ -2123,9 +2138,11 @@ static Expr* parse_relational(void) {
 
     while (1) {
         SourceLoc loc = peek()->loc;
-        /* In a non-type template default, the closing `>` terminates the
-         * default expression rather than acting as a relational operator. */
-        if (parser_cxx_template_default_mode && check(TOK_GT)) break;
+        /* At top level in a non-type template argument, `>` closes the
+         * template-id. Parenthesized expressions may still use it as the
+         * relational operator. */
+        if (parser_cxx_template_default_mode &&
+            parser_cxx_template_paren_depth == 0 && check(TOK_GT)) break;
         if (match(TOK_LT)) {
             e = expr_binary(EXPR_LT, e, parse_shift(), loc);
         } else if (match(TOK_GT)) {

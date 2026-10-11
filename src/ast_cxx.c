@@ -804,7 +804,8 @@ static bool cxx_member_template_expression_supported(
         }
         return false;
     }
-    if (expression->kind == EXPR_NEG) {
+    if (expression->kind == EXPR_NEG || expression->kind == EXPR_NOT ||
+        expression->kind == EXPR_BITNOT) {
         return cxx_member_template_expression_supported(
             expression->unary_operand, tmpl);
     }
@@ -812,11 +813,23 @@ static bool cxx_member_template_expression_supported(
         expression->kind == EXPR_MUL || expression->kind == EXPR_DIV ||
         expression->kind == EXPR_MOD || expression->kind == EXPR_BITAND ||
         expression->kind == EXPR_BITOR || expression->kind == EXPR_BITXOR ||
-        expression->kind == EXPR_LSHIFT || expression->kind == EXPR_RSHIFT) {
+        expression->kind == EXPR_LSHIFT || expression->kind == EXPR_RSHIFT ||
+        expression->kind == EXPR_EQ || expression->kind == EXPR_NE ||
+        expression->kind == EXPR_LT || expression->kind == EXPR_GT ||
+        expression->kind == EXPR_LE || expression->kind == EXPR_GE ||
+        expression->kind == EXPR_AND || expression->kind == EXPR_OR) {
         return cxx_member_template_expression_supported(
                    expression->binary_lhs, tmpl) &&
                cxx_member_template_expression_supported(
                    expression->binary_rhs, tmpl);
+    }
+    if (expression->kind == EXPR_COND) {
+        return cxx_member_template_expression_supported(
+                   expression->cond_test, tmpl) &&
+               cxx_member_template_expression_supported(
+                   expression->cond_then, tmpl) &&
+               cxx_member_template_expression_supported(
+                   expression->cond_else, tmpl);
     }
     return false;
 }
@@ -874,7 +887,9 @@ static void cxx_member_template_expression_append(
             return;
         }
     }
-    if (expression->kind == EXPR_ADD) operation = "pl";
+    if (expression->kind == EXPR_COND) {
+        operation = "qu";
+    } else if (expression->kind == EXPR_ADD) operation = "pl";
     else if (expression->kind == EXPR_SUB) operation = "mi";
     else if (expression->kind == EXPR_MUL) operation = "ml";
     else if (expression->kind == EXPR_DIV) operation = "dv";
@@ -884,7 +899,17 @@ static void cxx_member_template_expression_append(
     else if (expression->kind == EXPR_BITXOR) operation = "eo";
     else if (expression->kind == EXPR_LSHIFT) operation = "ls";
     else if (expression->kind == EXPR_RSHIFT) operation = "rs";
+    else if (expression->kind == EXPR_EQ) operation = "eq";
+    else if (expression->kind == EXPR_NE) operation = "ne";
+    else if (expression->kind == EXPR_LT) operation = "lt";
+    else if (expression->kind == EXPR_GT) operation = "gt";
+    else if (expression->kind == EXPR_LE) operation = "le";
+    else if (expression->kind == EXPR_GE) operation = "ge";
+    else if (expression->kind == EXPR_AND) operation = "aa";
+    else if (expression->kind == EXPR_OR) operation = "oo";
     else if (expression->kind == EXPR_NEG) operation = "ng";
+    else if (expression->kind == EXPR_NOT) operation = "nt";
+    else if (expression->kind == EXPR_BITNOT) operation = "co";
     if (!operation) return;
     size_t operation_length = strlen(operation);
     if (*pos + operation_length >= CXX_MANGLE_BUFFER_SIZE) {
@@ -892,9 +917,17 @@ static void cxx_member_template_expression_append(
     }
     memcpy(buf + *pos, operation, operation_length);
     *pos += operation_length;
-    if (expression->kind == EXPR_NEG) {
+    if (expression->kind == EXPR_NEG || expression->kind == EXPR_NOT ||
+        expression->kind == EXPR_BITNOT) {
         cxx_member_template_expression_append(
             buf, pos, expression->unary_operand, tmpl);
+    } else if (expression->kind == EXPR_COND) {
+        cxx_member_template_expression_append(
+            buf, pos, expression->cond_test, tmpl);
+        cxx_member_template_expression_append(
+            buf, pos, expression->cond_then, tmpl);
+        cxx_member_template_expression_append(
+            buf, pos, expression->cond_else, tmpl);
     } else {
         cxx_member_template_expression_append(
             buf, pos, expression->binary_lhs, tmpl);
