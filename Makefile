@@ -5164,6 +5164,10 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE25count_tagged_c_style_castILi6EJilEEEiDp10PackTaggedIT0_XcviT_EE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_pack_sizeIJilEEEiDp10PackTaggedIT_XsZT_EE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_pack_sizeIJEEEiDp10PackTaggedIT_XsZT_EE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJEEEiv" \
@@ -5208,6 +5212,7 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_select'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_c_style_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_pack_size'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
@@ -5227,6 +5232,7 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_select'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_c_style_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_pack_size'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log)
 	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log
@@ -5241,6 +5247,10 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 		tests/cxx_class_template_member_function_templates.cpp
 	nm -g $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
 		> $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_pack_sizeIJilEEEiDp10PackTaggedIT_XsZT_EE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_pack_sizeIJEEEiDp10PackTaggedIT_XsZT_EE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE3addIlEEiT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE3addIsEEiT_" \
@@ -5791,6 +5801,10 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE25count_tagged_c_style_castILi6EJilEEEiDp10PackTaggedIT0_XcviT_EE" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_pack_sizeIJilEEEiDp10PackTaggedIT_XsZT_EE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
+	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_pack_sizeIJEEEiDp10PackTaggedIT_XsZT_EE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJLi2ELi3EEEEiv" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/x64.s
 	$(GREP) -F -q "_ZNK3BoxIiE13add_constantsIJEEEiv" \
@@ -5835,6 +5849,7 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_select'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_c_style_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_pack_size'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log)
 	$(GREP) -F -q "no matching member overload for 'count_tagged'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
@@ -5854,6 +5869,7 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 	$(GREP) -F -q "no matching member overload for 'count_tagged_select'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(GREP) -F -q "no matching member overload for 'count_tagged_c_style_cast'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
+	$(GREP) -F -q "no matching member overload for 'count_tagged_pack_size'" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_member_template_nontype_pack_invalid.cpp,$(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log)
 	$(GREP) -F -q "no matching function for call" $(TEST_OUT)/cxx-class-template-member-function-templates/nontype-pack-invalid-gcc.log
@@ -5862,6 +5878,10 @@ test-cxx-class-template-member-function-templates: $(RCXX_TARGET)
 		tests/cxx_class_template_member_function_templates.cpp
 	nm -g $(TEST_OUT)/cxx-class-template-member-function-templates/gcc.o \
 		> $(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_pack_sizeIJilEEEiDp10PackTaggedIT_XsZT_EE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
+	$(GREP) -F -q "_ZNK3BoxIiE22count_tagged_pack_sizeIJEEEiDp10PackTaggedIT_XsZT_EE" \
+		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE3addIlEEiT_" \
 		$(TEST_OUT)/cxx-class-template-member-function-templates/gcc-symbols.log
 	$(GREP) -F -q "_ZNK3BoxIiE3addIsEEiT_" \

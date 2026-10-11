@@ -2672,6 +2672,12 @@ separately recorded WSL startup failure.
   patterns with the Itanium `cv` operator. GCC symbol matching, positive
   execution, and mismatched-value rejection without object output pass on the
   focused i686/AMD64 gate.
+- [x] Deduce nested member-template parameter packs whose element pattern uses
+  `sizeof...(Args)` as a dependent non-type template argument. Emit the Itanium
+  `sZ` pack-size expression with GCC-identical symbols, handle both empty and
+  non-empty packs, and reject an element whose encoded size does not match the
+  deduced pack. The focused i686/AMD64 gate, complete native-Windows `test-cxx`
+  aggregate, and complete `test-c17` aggregate pass.
 - [ ] Complete member-template deduction and overload selection for remaining
   general dependent non-type expressions and template-template forms,
   expansions involving

@@ -12727,6 +12727,21 @@ static bool cxx_expression_references_template_non_type_parameter(
         }
         return false;
     }
+    if (expression->kind == EXPR_SIZEOF &&
+        expression->sizeof_pack_name) {
+        for (const CxxTemplate* scope = expression_template; scope;
+             scope = scope->enclosing_template) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                const TemplateParam* parameter = &scope->params[index];
+                if (parameter->is_pack && parameter->name &&
+                    strcmp(parameter->name,
+                           expression->sizeof_pack_name) == 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
     switch (expression->kind) {
         case EXPR_NEG:
         case EXPR_NOT:
@@ -14142,6 +14157,88 @@ static Type* deduce_class_template_from_constructor(
 
 static int cxx_parser_type_pack_index(CxxTemplate* tmpl, Type* pattern);
 
+static bool cxx_expression_uses_sizeof_pack_name(
+    const Expr* expression, const char* pack_name) {
+    if (!expression || !pack_name) return false;
+    if (expression->kind == EXPR_SIZEOF && expression->sizeof_pack_name) {
+        return strcmp(expression->sizeof_pack_name, pack_name) == 0;
+    }
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            return cxx_expression_uses_sizeof_pack_name(
+                expression->unary_operand, pack_name);
+        case EXPR_CAST:
+            return cxx_expression_uses_sizeof_pack_name(
+                expression->cast_expr, pack_name);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return cxx_expression_uses_sizeof_pack_name(
+                       expression->binary_lhs, pack_name) ||
+                   cxx_expression_uses_sizeof_pack_name(
+                       expression->binary_rhs, pack_name);
+        case EXPR_COND:
+            return cxx_expression_uses_sizeof_pack_name(
+                       expression->cond_test, pack_name) ||
+                   cxx_expression_uses_sizeof_pack_name(
+                       expression->cond_then, pack_name) ||
+                   cxx_expression_uses_sizeof_pack_name(
+                       expression->cond_else, pack_name);
+        default:
+            return false;
+    }
+}
+
+static bool cxx_type_uses_sizeof_pack_name(
+    const Type* type, const char* pack_name) {
+    if (!type || !pack_name) return false;
+    if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
+        cxx_type_uses_sizeof_pack_name(type->base, pack_name)) {
+        return true;
+    }
+    if (type->kind == TYPE_FUNC) {
+        if (cxx_type_uses_sizeof_pack_name(type->ret_type, pack_name)) {
+            return true;
+        }
+        for (const TypeParam* parameter = type->params; parameter;
+             parameter = parameter->next) {
+            if (cxx_type_uses_sizeof_pack_name(parameter->type, pack_name)) {
+                return true;
+            }
+        }
+    }
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        if (type->cxx_template_args &&
+            cxx_type_uses_sizeof_pack_name(
+                type->cxx_template_args[index], pack_name)) {
+            return true;
+        }
+        if (type->cxx_template_value_args &&
+            cxx_expression_uses_sizeof_pack_name(
+                type->cxx_template_value_args[index], pack_name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                                                ExprList* call_arguments,
                                                Type** template_arguments,
@@ -14160,7 +14257,6 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
         if (parameter->decl && parameter->decl->param_is_pack) {
             int pack_index = cxx_parser_type_pack_index(
                 tmpl, parameter->decl->type);
-            (void)pack_index;
             if (!pack_arguments || !pack_count || pack_index < 0) {
                 if (report_errors) {
                     rcc_error(parameter->decl->loc,
@@ -14168,6 +14264,17 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                 }
                 return false;
             }
+            int function_pack_count = 0;
+            for (ExprList* remaining = argument; remaining;
+                 remaining = remaining->next) {
+                ++function_pack_count;
+            }
+            bool has_dependent_pack_size =
+                pack_index < tmpl->param_count &&
+                tmpl->params[pack_index].name &&
+                cxx_type_uses_sizeof_pack_name(
+                    parameter->decl->type,
+                    tmpl->params[pack_index].name);
             while (argument) {
                 Type* actual = cxx_parser_expression_type(argument->expr);
                 if (!actual) {
@@ -14194,12 +14301,19 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                 Type* deduction_actual =
                     cxx_parser_template_deduction_argument(
                         parameter->decl->type, actual);
-                if (pack_index >= tmpl->param_count ||
-                    !deduce_function_template_type(
+                int saved_pending_pack_count = tmpl->pending_pack_count;
+                bool element_deduced;
+                if (has_dependent_pack_size) {
+                    tmpl->pending_pack_count = function_pack_count;
+                }
+                element_deduced = pack_index < tmpl->param_count &&
+                    deduce_function_template_type(
                         tmpl, parameter->decl->type, deduction_actual,
                         element_arguments, element_values,
-                        element_value_present, &element_specificity) ||
-                    !element_arguments[pack_index]) {
+                        element_value_present, &element_specificity) &&
+                    element_arguments[pack_index];
+                tmpl->pending_pack_count = saved_pending_pack_count;
+                if (!element_deduced) {
                     if (report_errors) {
                         rcc_error(argument->expr->loc,
                                   "function template pack argument does not match its expansion pattern");
@@ -17372,6 +17486,17 @@ static bool prepare_cxx_function_template_match(
                 if (match->pack_count == 0) {
                     int pack_index = cxx_parser_type_pack_index(
                         tmpl, parameter->decl->type);
+                    int function_pack_count = 0;
+                    for (ExprList* remaining = argument; remaining;
+                         remaining = remaining->next) {
+                        ++function_pack_count;
+                    }
+                    bool has_dependent_pack_size = pack_index >= 0 &&
+                        pack_index < tmpl->param_count &&
+                        tmpl->params[pack_index].name &&
+                        cxx_type_uses_sizeof_pack_name(
+                            parameter->decl->type,
+                            tmpl->params[pack_index].name);
                     while (argument) {
                         Type* actual =
                             cxx_parser_expression_type(argument->expr);
@@ -17391,14 +17516,23 @@ static bool prepare_cxx_function_template_match(
                                sizeof(element_values));
                         memcpy(element_value_present, match->value_present,
                                sizeof(element_value_present));
-                        if (!deduce_function_template_type(
+                        int saved_pending_pack_count =
+                            tmpl->pending_pack_count;
+                        bool element_deduced;
+                        if (has_dependent_pack_size) {
+                            tmpl->pending_pack_count = function_pack_count;
+                        }
+                        element_deduced = deduce_function_template_type(
                                 tmpl, parameter->decl->type,
                                 cxx_parser_template_deduction_argument(
                                     parameter->decl->type, actual),
                                 element_arguments, element_values,
                                 element_value_present,
-                                &element_specificity) ||
-                            !element_arguments[pack_index]) {
+                                &element_specificity) &&
+                            element_arguments[pack_index];
+                        tmpl->pending_pack_count =
+                            saved_pending_pack_count;
+                        if (!element_deduced) {
                             return false;
                         }
                         for (int template_index = 0;

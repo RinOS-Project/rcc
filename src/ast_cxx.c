@@ -804,6 +804,18 @@ static bool cxx_member_template_expression_supported(
         }
         return false;
     }
+    if (expression->kind == EXPR_SIZEOF &&
+        expression->sizeof_pack_name && tmpl) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->is_pack && parameter->name &&
+                strcmp(parameter->name,
+                       expression->sizeof_pack_name) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
     if (expression->kind == EXPR_NEG || expression->kind == EXPR_NOT ||
         expression->kind == EXPR_BITNOT) {
         return cxx_member_template_expression_supported(
@@ -877,6 +889,35 @@ static void cxx_member_template_expression_append(
             if (*pos + 16u >= CXX_MANGLE_BUFFER_SIZE) {
                 rcc_fatal("C++ member template expression is too long");
             }
+            buf[(*pos)++] = 'T';
+            if (index > 0) {
+                int written = snprintf(buf + *pos,
+                                       CXX_MANGLE_BUFFER_SIZE - *pos,
+                                       "%d", index - 1);
+                if (written < 0 || (size_t)written >=
+                        CXX_MANGLE_BUFFER_SIZE - *pos) {
+                    rcc_fatal("C++ member template parameter index is too long");
+                }
+                *pos += (size_t)written;
+            }
+            buf[(*pos)++] = '_';
+            return;
+        }
+    }
+    if (expression->kind == EXPR_SIZEOF &&
+        expression->sizeof_pack_name) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (!parameter->is_pack || !parameter->name ||
+                strcmp(parameter->name,
+                       expression->sizeof_pack_name) != 0) {
+                continue;
+            }
+            if (*pos + 16u >= CXX_MANGLE_BUFFER_SIZE) {
+                rcc_fatal("C++ member template expression is too long");
+            }
+            buf[(*pos)++] = 's';
+            buf[(*pos)++] = 'Z';
             buf[(*pos)++] = 'T';
             if (index > 0) {
                 int written = snprintf(buf + *pos,
