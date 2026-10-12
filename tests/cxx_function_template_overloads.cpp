@@ -459,6 +459,30 @@ struct FunctionTemplateMemberCallInheritedTemplateDerived
 struct FunctionTemplateMemberCallInheritedTemplateVirtualDerived
     : virtual FunctionTemplateMemberCallInheritedTemplateBase {};
 
+struct FunctionTemplateMemberCallInheritedTemplatePadding {
+    int padding;
+};
+
+struct FunctionTemplateMemberCallInheritedTemplateMultipleDerived
+    : FunctionTemplateMemberCallInheritedTemplatePadding,
+      FunctionTemplateMemberCallInheritedTemplateBase {};
+
+struct FunctionTemplateMemberCallInheritedTemplateOtherBase {
+    int other_value;
+
+    template<typename T>
+    int adjust(T argument) {
+        return other_value + argument + 100;
+    }
+};
+
+struct FunctionTemplateMemberCallInheritedTemplateUsingDerived
+    : FunctionTemplateMemberCallInheritedTemplatePadding,
+      FunctionTemplateMemberCallInheritedTemplateBase,
+      FunctionTemplateMemberCallInheritedTemplateOtherBase {
+    using FunctionTemplateMemberCallInheritedTemplateBase::adjust;
+};
+
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
     static int value(int argument) { return argument - 1; }
 };
@@ -1971,6 +1995,21 @@ int main(void) {
     virtual_inherited_template.base_value = 1;
     if (virtual_inherited_template.adjust(4) != 5) {
         return 131;
+    }
+    FunctionTemplateMemberCallInheritedTemplateMultipleDerived
+        multiple_inherited_template;
+    multiple_inherited_template.padding = 0;
+    multiple_inherited_template.base_value = 2;
+    if (multiple_inherited_template.adjust(3) != 5) {
+        return 132;
+    }
+    FunctionTemplateMemberCallInheritedTemplateUsingDerived
+        using_inherited_template;
+    using_inherited_template.padding = 0;
+    using_inherited_template.base_value = 2;
+    using_inherited_template.other_value = 50;
+    if (using_inherited_template.adjust(3) != 5) {
+        return 133;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<

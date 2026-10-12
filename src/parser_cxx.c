@@ -1902,6 +1902,11 @@ static bool cxx_dependent_integer_call_same_parameter_types(
     return !left_parameter && !right_parameter;
 }
 
+static bool class_uses_base_member(CxxClass* cls, CxxClass* base,
+                                   const char* name);
+static bool class_has_using_base_member_name(CxxClass* cls,
+                                             const char* name);
+
 static bool cxx_class_has_visible_member_template_named(
     CxxClass* cls, const char* name, unsigned depth) {
     bool declares_name = false;
@@ -1918,11 +1923,17 @@ static bool cxx_class_has_visible_member_template_named(
         declares_name = true;
         if (method && method->member_template) return true;
     }
-    if (declares_name) return false;
+    if (declares_name && !class_has_using_base_member_name(cls, name)) {
+        return false;
+    }
     for (int base_index = 0; base_index < cls->base_count; ++base_index) {
         CxxClass* base = cls->bases[base_index].base;
         if (!base && cls->bases[base_index].base_name) {
             base = find_class(cls->bases[base_index].base_name);
+        }
+        if (class_has_using_base_member_name(cls, name) &&
+            !class_uses_base_member(cls, base, name)) {
+            continue;
         }
         if (cxx_class_has_visible_member_template_named(
                 base, name, depth + 1u)) {
@@ -6569,8 +6580,9 @@ static bool class_declares_method_name(CxxClass* cls, const char* name) {
     return false;
 }
 
-static bool class_uses_base_member(CxxClass* cls, CxxClass* base,
-                                   const char* name) {
+static bool class_uses_base_member_with_access(CxxClass* cls, CxxClass* base,
+                                               const char* name,
+                                               AccessSpec* access) {
     if (!cls || !base || !name) return false;
     for (int index = 0; index < cls->using_base_member_count; ++index) {
         const char* base_name = cls->using_base_members[index].base_name;
@@ -6579,15 +6591,26 @@ static bool class_uses_base_member(CxxClass* cls, CxxClass* base,
         if (!base_name || !member_name || strcmp(member_name, name) != 0) {
             continue;
         }
-        if (strcmp(base_name, base->name) == 0) return true;
+        if (strcmp(base_name, base->name) == 0) {
+            if (access) *access = cls->using_base_members[index].access;
+            return true;
+        }
         suffix = strstr(base_name, "::");
         while (suffix) {
             suffix += 2;
-            if (strcmp(suffix, base->name) == 0) return true;
+            if (strcmp(suffix, base->name) == 0) {
+                if (access) *access = cls->using_base_members[index].access;
+                return true;
+            }
             suffix = strstr(suffix, "::");
         }
     }
     return false;
+}
+
+static bool class_uses_base_member(CxxClass* cls, CxxClass* base,
+                                   const char* name) {
+    return class_uses_base_member_with_access(cls, base, name, NULL);
 }
 
 static bool class_has_using_base_member_name(CxxClass* cls,
@@ -20553,10 +20576,11 @@ static bool prepare_cxx_function_template_match(
 }
 
 static bool cxx_member_template_this_adjustment(
-    CxxClass* derived, CxxClass* owner, unsigned depth, int* adjustment) {
-    CxxClass* base;
-    int nested_adjustment;
-    int64_t total_adjustment;
+    CxxClass* derived, CxxClass* owner, unsigned depth, int* adjustment,
+    bool* ambiguous) {
+    int found_adjustment = 0;
+    bool found = false;
+    if (ambiguous) *ambiguous = false;
     if (!derived || !owner || !adjustment || depth > 64u) return false;
     if (derived == owner) {
         *adjustment = 0;
@@ -20565,22 +20589,37 @@ static bool cxx_member_template_this_adjustment(
     if (cxx_class_virtual_base_offset(derived, owner, adjustment)) {
         return true;
     }
-    if (derived->base_count != 1) return false;
-    base = derived->bases[0].base;
-    if (!base && derived->bases[0].base_name) {
-        base = find_class(derived->bases[0].base_name);
+    for (int base_index = 0; base_index < derived->base_count; ++base_index) {
+        CxxClass* base = derived->bases[base_index].base;
+        int nested_adjustment = 0;
+        int64_t total_adjustment;
+        bool nested_ambiguous = false;
+        if (!base && derived->bases[base_index].base_name) {
+            base = find_class(derived->bases[base_index].base_name);
+        }
+        if (!base || !derived->base_offsets ||
+            derived->base_offsets[base_index] < 0 ||
+            !cxx_member_template_this_adjustment(
+                base, owner, depth + 1u, &nested_adjustment,
+                &nested_ambiguous)) {
+            if (nested_ambiguous && ambiguous) *ambiguous = true;
+            continue;
+        }
+        total_adjustment = (int64_t)derived->base_offsets[base_index] +
+                           nested_adjustment;
+        if (total_adjustment < INT_MIN || total_adjustment > INT_MAX) {
+            return false;
+        }
+        if (!found) {
+            found_adjustment = (int)total_adjustment;
+            found = true;
+        } else if (found_adjustment != (int)total_adjustment) {
+            if (ambiguous) *ambiguous = true;
+            return false;
+        }
     }
-    if (!base || !derived->base_offsets || derived->base_offsets[0] < 0 ||
-        !cxx_member_template_this_adjustment(
-            base, owner, depth + 1u, &nested_adjustment)) {
-        return false;
-    }
-    total_adjustment = (int64_t)derived->base_offsets[0] +
-                       nested_adjustment;
-    if (total_adjustment < INT_MIN || total_adjustment > INT_MAX) {
-        return false;
-    }
-    *adjustment = (int)total_adjustment;
+    if (!found || (ambiguous && *ambiguous)) return false;
+    *adjustment = found_adjustment;
     return true;
 }
 
@@ -20673,8 +20712,7 @@ static bool cxx_collect_member_function_template_sources(
     unsigned depth, CxxMethod** methods, AccessSpec* accesses,
     int capacity, int* count) {
     bool declares_name = false;
-    CxxClass* inherited_owner = NULL;
-    int inherited_owner_count = 0;
+    bool has_using = class_has_using_base_member_name(cls, name);
     if (!cls || !name || !methods || !accesses || !count || capacity < 0 ||
         depth > 64u) {
         return false;
@@ -20685,9 +20723,22 @@ static bool cxx_collect_member_function_template_sources(
         const char* member_name = method
             ? cxx_method_source_name(method)
             : (member->decl ? member->decl->name : NULL);
+        AccessSpec method_access;
         if (!member_name || strcmp(member_name, name) != 0) continue;
         declares_name = true;
         if (!method || !method->member_template) continue;
+        method_access = method->access > inherited_access
+            ? method->access : inherited_access;
+        bool already_collected = false;
+        for (int index = 0; index < *count; ++index) {
+            if (methods[index] != method) continue;
+            if (method_access < accesses[index]) {
+                accesses[index] = method_access;
+            }
+            already_collected = true;
+            break;
+        }
+        if (already_collected) continue;
         if (*count >= capacity) {
             rcc_error(method->decl ? method->decl->loc
                                    : method->member_template->func_def->loc,
@@ -20696,45 +20747,38 @@ static bool cxx_collect_member_function_template_sources(
             return false;
         }
         methods[*count] = method;
-        accesses[*count] = method->access > inherited_access
-            ? method->access : inherited_access;
+        accesses[*count] = method_access;
         ++*count;
     }
-    if (declares_name) return true;
-    if (class_has_using_base_member_name(cls, name)) return false;
-    if (cls->base_count > 1) {
-        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
-            CxxClass* base = cls->bases[base_index].base;
-            if (!base && cls->bases[base_index].base_name) {
-                base = find_class(cls->bases[base_index].base_name);
-            }
-            if (cxx_class_has_visible_member_template_named(base, name, 0u)) {
-                return false;
-            }
-        }
-        return true;
-    }
+    if (declares_name && !has_using) return true;
     for (int base_index = 0; base_index < cls->base_count; ++base_index) {
         CxxClass* base = cls->bases[base_index].base;
+        AccessSpec base_access = inherited_access;
+        AccessSpec using_access = ACCESS_PUBLIC;
+        bool selected_by_using;
         if (!base && cls->bases[base_index].base_name) {
             base = find_class(cls->bases[base_index].base_name);
         }
-        if (!base) return false;
+        if (!base) continue;
+        selected_by_using = class_uses_base_member_with_access(
+            cls, base, name, &using_access);
+        if (has_using && !selected_by_using) continue;
         if (!cxx_class_has_visible_member_template_named(base, name, 0u)) {
             continue;
         }
-        inherited_owner = base;
-        ++inherited_owner_count;
+        if (cls->bases[base_index].access > base_access) {
+            base_access = cls->bases[base_index].access;
+        }
+        if (selected_by_using && using_access > base_access) {
+            base_access = using_access;
+        }
+        if (!cxx_collect_member_function_template_sources(
+                base, name, base_access, depth + 1u, methods, accesses,
+                capacity, count)) {
+            return false;
+        }
     }
-    if (inherited_owner_count > 1) return false;
-    if (!inherited_owner) return true;
-    AccessSpec base_access = inherited_access;
-    if (cls->bases[0].access > base_access) {
-        base_access = cls->bases[0].access;
-    }
-    return cxx_collect_member_function_template_sources(
-        inherited_owner, name, base_access, depth + 1u, methods, accesses,
-        capacity, count);
+    return true;
 }
 
 static int cxx_materialize_member_function_templates_internal(
@@ -20832,10 +20876,18 @@ static int cxx_materialize_member_function_templates_internal(
         }
         if (!dominated) {
             int this_adjustment = 0;
+            bool ambiguous_this_adjustment = false;
             CxxMethod* method = matched_methods[index];
             if (!method->is_static &&
                 !cxx_member_template_this_adjustment(
-                    cls, method->owner, 0u, &this_adjustment)) {
+                    cls, method->owner, 0u, &this_adjustment,
+                    &ambiguous_this_adjustment)) {
+                if (ambiguous_this_adjustment) {
+                    rcc_error(method->decl ? method->decl->loc
+                                           : matches[index].instance->loc,
+                              "ambiguous base subobject for inherited member function template '%s'",
+                              method->source_name ? method->source_name : name);
+                }
                 continue;
             }
             TypeMethod* lowered = cxx_materialize_member_function_template(

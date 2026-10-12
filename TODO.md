@@ -3291,10 +3291,16 @@ remains a separate open item.
   test-cxx-function-template-overloads` gate and the full
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
   aggregate (both exit 0).
-- [ ] Extend inherited lookup to multiple-base and using-declaration cases;
-  validate inherited non-static receiver adjustment; continue with non-integer
-  explicit arguments/selected conversions, variadic/NTTP-pack calls, broader
-  dependent expressions, and remaining C++20 overload-ranking rules.
+- [x] Extend inherited template lookup through multiple bases when exactly one
+  base contributes the name, and honor a `using Base::member` selection among
+  competing bases. Verify nonzero receiver adjustment by reading inherited
+  state; verify unselected competing templates diagnose ambiguity against GCC
+  C++20, with i686/AMD64 generation and host execution.
+- [x] Validate inherited non-static receiver adjustment for ordinary,
+  virtual-base, and multiple-base paths; pass the focused and full C++ gates.
+- [ ] Continue with non-integer explicit arguments/selected conversions,
+  variadic/NTTP-pack calls, broader dependent expressions, and remaining C++20
+  overload-ranking rules.
 
 ## RCC continuation (2026-10-13, inherited member-function templates)
 
@@ -3309,8 +3315,12 @@ remains a separate open item.
   test-cxx-function-template-overloads` gate and the full
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
   aggregate (both exit 0).
-- [ ] Extend inherited template lookup to multiple-base and using-declaration
-  cases; continue with non-integer explicit arguments/selected conversions,
+- [x] Extend inherited template lookup through multiple bases when exactly one
+  base contributes the name, and honor a `using Base::member` selection among
+  competing bases. Verify nonzero receiver adjustment by reading inherited
+  state; verify unselected competing templates diagnose ambiguity against GCC
+  C++20, with i686/AMD64 generation and host execution.
+- [ ] Continue with non-integer explicit arguments/selected conversions,
   variadic/NTTP-pack calls, broader dependent expressions, and remaining C++20
   overload-ranking rules.
 
@@ -3328,7 +3338,11 @@ remains a separate open item.
   test-cxx-function-template-overloads` gate and full
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
   aggregate (both exit 0).
-- [ ] Extend inherited template lookup to multiple-base and using-declaration
-  cases; continue with non-integer explicit arguments/selected conversions,
+- [x] Extend inherited template lookup through multiple bases when exactly one
+  base contributes the name, and honor a `using Base::member` selection among
+  competing bases. Verify nonzero receiver adjustment by reading inherited
+  state; verify unselected competing templates diagnose ambiguity against GCC
+  C++20, with i686/AMD64 generation and host execution.
+- [ ] Continue with non-integer explicit arguments/selected conversions,
   variadic/NTTP-pack calls, broader dependent expressions, and remaining C++20
   overload-ranking rules.

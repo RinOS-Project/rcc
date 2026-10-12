@@ -10999,6 +10999,39 @@ static bool sema_cxx_member_method_lookup_ambiguous(
     return false;
 }
 
+static bool sema_cxx_member_template_lookup_ambiguous(
+    Type* aggregate, const char* name, TypeMethod** candidates,
+    int candidate_count) {
+    CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
+    CxxClass* first_owner = NULL;
+    if (!cls || !name || !candidates || candidate_count < 2) return false;
+    for (int index = 0; index < cls->using_base_member_count; ++index) {
+        const char* using_name = cls->using_base_members[index].member_name;
+        if (using_name && strcmp(using_name, name) == 0) {
+            /* Multiple using-declarations intentionally form one overload
+             * set; the source collector has already limited candidates to
+             * those selected bases. */
+            return false;
+        }
+    }
+    for (int index = 0; index < candidate_count; ++index) {
+        TypeMethod* method = candidates[index];
+        Decl* declaration = method
+            ? (method->source_decl ? method->source_decl
+                                   : method->function_decl)
+            : NULL;
+        CxxClass* owner = declaration && declaration->func_method_owner
+            ? declaration->func_method_owner->cxx_class : NULL;
+        if (!owner) continue;
+        if (!first_owner) {
+            first_owner = owner;
+        } else if (owner != first_owner) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool sema_cxx_class_declares_member_name(Type* aggregate,
                                                 const char* name) {
     CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
@@ -14575,7 +14608,16 @@ static Type* sema_expr(Expr* expr) {
                         break;
                     }
                     sema_register_materialized_member_templates(owner);
-                    method = expr->call_method &&
+                    if (sema_cxx_member_template_lookup_ambiguous(
+                            owner, member->member_name,
+                            member_template_candidates,
+                            member_template_candidate_count) ||
+                        sema_cxx_member_lookup_ambiguous(
+                            owner, member->member_name)) {
+                        ambiguous_lookup = true;
+                        method = NULL;
+                    } else {
+                        method = expr->call_method &&
                              expr->call_method->kind ==
                                  TYPE_METHOD_FUNCTION &&
                              expr->call_method->function_decl
@@ -14586,6 +14628,7 @@ static Type* sema_expr(Expr* expr) {
                               member_template_candidate_count,
                               member->member_has_template_arguments,
                               &ambiguous_lookup);
+                    }
                     if (ambiguous_lookup) {
                         rcc_error(expr->loc,
                                   "ambiguous member lookup for '%s'",
