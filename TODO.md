@@ -3181,10 +3181,10 @@ remains a separate open item.
   generation, AMD64 host execution, GCC host execution, and ambiguity
   diagnostics; commit the implementation and regression as `213b352` on local
   `main`. Do not push.
-- [ ] Complete the full native-Windows `mingw32-make SHELL=cmd.exe CC=gcc
-  TEST_OUT=build/tests -j1 test-cxx` gate for this change and record its final
-  exit status. The prior invocation did not yield a final status after reaching
-  the pure-virtual target; that target passes when run independently.
+- [x] Complete the full native-Windows `mingw32-make SHELL=cmd.exe CC=gcc
+  TEST_OUT=build/tests -j1 test-cxx` gate for this change; it completed with
+  exit status 0. The full output is retained in
+  `build/tests/test-cxx-full-gate.log`.
 - [ ] Extend dependent constexpr member-call ranking to variadic overloads,
   NTTP packs, arbitrary dependent call expressions, and other member/receiver
   forms; full C++20 partial ordering and conversion ranking remain incomplete.
