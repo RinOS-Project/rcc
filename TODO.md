@@ -3396,3 +3396,19 @@ remains a separate open item.
   implementation and the focused gate was rerun after the added regression).
 - [ ] Continue variadic/NTTP-pack dependent calls, broader arithmetic
   conversions and expressions, and remaining C++20 overload-ranking rules.
+
+## RCC continuation (2026-10-13, dependent non-type pack member calls)
+
+- [x] Expand a dependent `Head::template value<Values...>()` member-template
+  call while deducing a non-type function-template pack from a class-type
+  pack expansion. Preserve pending pack values through dependent type/value
+  substitution and overload partial ordering. Cover non-empty and empty packs,
+  compare against GCC C++20, generate i686/AMD64 code, and execute the
+  AMD64-host regression.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate and full
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  aggregate (both exit 0 after the empty-pack case was added).
+- [ ] Continue broader variadic/NTTP-pack dependent calls, expressions, and
+  remaining C++20 overload-ranking rules.

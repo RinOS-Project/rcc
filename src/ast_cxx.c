@@ -4809,11 +4809,19 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                     !parameter->is_pack || !tmpl ||
                     expansion_pack_index < 0 ||
                     expansion_pack_index >= tmpl->param_count ||
-                    tmpl->params[expansion_pack_index].kind != TPARAM_TYPE ||
                     !tmpl->params[expansion_pack_index].is_pack) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
                               "dependent class-template pack expansion has "
-                              "an invalid type-pack pattern");
+                              "an invalid parameter-pack pattern");
+                    return NULL;
+                }
+                bool value_pack = tmpl->params[expansion_pack_index].kind ==
+                    TPARAM_NONTYPE;
+                if (tmpl->params[expansion_pack_index].kind != TPARAM_TYPE &&
+                    !value_pack) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "dependent class-template pack expansion has "
+                              "an unsupported parameter kind");
                     return NULL;
                 }
                 if (tmpl->pending_pack_count < 0) {
@@ -4835,10 +4843,16 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                     continue;
                 }
                 if (tmpl->pending_pack_count > 0 &&
-                    !tmpl->pending_pack_args) {
+                    (value_pack
+                         ? (!tmpl->pending_pack_values ||
+                            !tmpl->pending_pack_value_present)
+                         : !tmpl->pending_pack_args)) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
-                              "class-template pack expansion is missing its "
-                              "deduced type arguments");
+                              value_pack
+                                  ? "class-template pack expansion is missing "
+                                    "its deduced non-type arguments"
+                                  : "class-template pack expansion is missing "
+                                    "its deduced type arguments");
                     return NULL;
                 }
                 for (int pack_value = 0;
@@ -4868,8 +4882,15 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                    sizeof(bool) * (size_t)arg_count);
                         }
                     }
-                    expanded_arguments[expansion_pack_index] =
-                        tmpl->pending_pack_args[pack_value];
+                    if (value_pack) {
+                        expanded_values[expansion_pack_index] =
+                            tmpl->pending_pack_values[pack_value];
+                        expanded_value_present[expansion_pack_index] =
+                            tmpl->pending_pack_value_present[pack_value];
+                    } else {
+                        expanded_arguments[expansion_pack_index] =
+                            tmpl->pending_pack_args[pack_value];
+                    }
                     nested_arguments[nested_count] = template_substitute_type(
                         tmpl, pattern_argument, expanded_arguments, arg_count,
                         expanded_values, expanded_value_present);
@@ -6274,28 +6295,158 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->member_field = NULL;
             if (expression->member_template_argument_count > 0 &&
                 expression->member_template_arguments) {
-                copy->member_template_arguments = ast_arena_alloc(
-                    sizeof(copy->member_template_arguments[0]) *
-                    (size_t)expression->member_template_argument_count);
-                for (int index = 0;
-                     index < expression->member_template_argument_count;
-                     ++index) {
-                    CxxParsedTemplateArgument* destination =
-                        &copy->member_template_arguments[index];
+                int source_count = expression->member_template_argument_count;
+                int destination_count = source_count;
+                bool expand_arguments = false;
+                bool defer_expansion = false;
+                for (int index = 0; index < source_count; ++index) {
                     const CxxParsedTemplateArgument* source =
                         &expression->member_template_arguments[index];
-                    *destination = *source;
-                    destination->type = template_substitute_type(
-                        tmpl, source->type, args, arg_count, value_args,
-                        value_present);
-                    destination->value_expression = template_clone_expr(
-                        tmpl, source->value_expression, args, arg_count,
-                        value_args, value_present);
-                    if (destination->value_expression &&
-                        expr_eval_integer_constant(
-                            destination->value_expression,
-                            &destination->value)) {
-                        destination->value_valid = true;
+                    Expr* expansion = source->value_expression;
+                    if (source->is_type || !expansion ||
+                        !expansion->cxx_pack_expansion) {
+                        continue;
+                    }
+                    expand_arguments = true;
+                    if (!tmpl || tmpl->pending_pack_count < 0) {
+                        defer_expansion = true;
+                        continue;
+                    }
+                    if (tmpl->pending_pack_count > 32 ||
+                        destination_count >
+                            32 - tmpl->pending_pack_count) {
+                        rcc_error(expansion->loc,
+                                  "member template argument pack expansion "
+                                  "exceeds the supported argument limit");
+                        defer_expansion = true;
+                        continue;
+                    }
+                    destination_count += tmpl->pending_pack_count - 1;
+                }
+                if (expand_arguments && !defer_expansion) {
+                    for (int index = 0; index < source_count; ++index) {
+                        const CxxParsedTemplateArgument* source =
+                            &expression->member_template_arguments[index];
+                        Expr* expansion = source->value_expression;
+                        const char* pack_name;
+                        TemplateParam* value_pack = NULL;
+                        int pack_matches = 0;
+                        if (source->is_type || !expansion ||
+                            !expansion->cxx_pack_expansion) {
+                            continue;
+                        }
+                        pack_name = expansion->cxx_pack_expansion_name;
+                        if (tmpl && tmpl->params) {
+                            for (int parameter_index = 0;
+                                 parameter_index < tmpl->param_count;
+                                 ++parameter_index) {
+                                TemplateParam* parameter =
+                                    &tmpl->params[parameter_index];
+                                if (parameter->kind != TPARAM_NONTYPE ||
+                                    !parameter->is_pack || !parameter->name ||
+                                    (pack_name && strcmp(parameter->name,
+                                                         pack_name) != 0) ||
+                                    !template_expr_contains_identifier(
+                                        expansion->cxx_pack_expansion_pattern
+                                            ? expansion->cxx_pack_expansion_pattern
+                                            : expansion,
+                                        parameter->name)) {
+                                    continue;
+                                }
+                                value_pack = parameter;
+                                pack_name = parameter->name;
+                                ++pack_matches;
+                            }
+                        }
+                        if (pack_matches != 1 || !value_pack || !pack_name) {
+                            rcc_error(expansion->loc,
+                                      pack_matches == 0
+                                          ? "member template argument pack "
+                                            "expansion does not name a "
+                                            "non-type parameter pack"
+                                          : "member template argument pack "
+                                            "expansion names multiple packs");
+                            defer_expansion = true;
+                        }
+                    }
+                }
+                if (defer_expansion) destination_count = source_count;
+                copy->member_template_argument_count = destination_count;
+                copy->member_template_arguments = destination_count > 0
+                    ? ast_arena_alloc(
+                          sizeof(copy->member_template_arguments[0]) *
+                          (size_t)destination_count)
+                    : NULL;
+                {
+                    int destination_index = 0;
+                    for (int index = 0; index < source_count; ++index) {
+                        const CxxParsedTemplateArgument* source =
+                            &expression->member_template_arguments[index];
+                        Expr* expansion = source->value_expression;
+                        if (!defer_expansion && !source->is_type &&
+                            expansion && expansion->cxx_pack_expansion) {
+                            const char* pack_name =
+                                expansion->cxx_pack_expansion_name;
+                            TemplateParam* value_pack = NULL;
+                            for (int parameter_index = 0;
+                                 tmpl && tmpl->params &&
+                                 parameter_index < tmpl->param_count;
+                                 ++parameter_index) {
+                                TemplateParam* parameter =
+                                    &tmpl->params[parameter_index];
+                                if (parameter->kind == TPARAM_NONTYPE &&
+                                    parameter->is_pack && parameter->name &&
+                                    (!pack_name ||
+                                     strcmp(parameter->name, pack_name) == 0) &&
+                                    template_expr_contains_identifier(
+                                        expansion->cxx_pack_expansion_pattern
+                                            ? expansion->cxx_pack_expansion_pattern
+                                            : expansion,
+                                        parameter->name)) {
+                                    pack_name = parameter->name;
+                                    value_pack = parameter;
+                                    break;
+                                }
+                            }
+                            for (int pack_index = 0;
+                                 pack_index < tmpl->pending_pack_count;
+                                 ++pack_index) {
+                                CxxParsedTemplateArgument* destination =
+                                    &copy->member_template_arguments[
+                                        destination_index++];
+                                *destination = *source;
+                                destination->type = NULL;
+                                destination->value_expression =
+                                    template_clone_pack_pattern(
+                                        tmpl,
+                                        expansion->cxx_pack_expansion_pattern
+                                            ? expansion->cxx_pack_expansion_pattern
+                                            : expansion,
+                                        pack_name, pack_index, args, arg_count,
+                                        value_args, value_present, value_pack);
+                                destination->value_valid =
+                                    destination->value_expression &&
+                                    expr_eval_integer_constant(
+                                        destination->value_expression,
+                                        &destination->value);
+                            }
+                            continue;
+                        }
+                        CxxParsedTemplateArgument* destination =
+                            &copy->member_template_arguments[destination_index++];
+                        *destination = *source;
+                        destination->type = template_substitute_type(
+                            tmpl, source->type, args, arg_count, value_args,
+                            value_present);
+                        destination->value_expression = template_clone_expr(
+                            tmpl, source->value_expression, args, arg_count,
+                            value_args, value_present);
+                        if (destination->value_expression &&
+                            expr_eval_integer_constant(
+                                destination->value_expression,
+                                &destination->value)) {
+                            destination->value_valid = true;
+                        }
                     }
                 }
             }
