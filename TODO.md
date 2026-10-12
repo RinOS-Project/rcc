@@ -3259,5 +3259,22 @@ remains a separate open item.
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
   aggregate (both exit 0).
 - [ ] Continue with variadic/NTTP-pack calls, non-integer conversions,
-  inherited and non-static receiver lookup, and broader dependent expressions
-  and C++20 overload-ranking rules.
+  non-integer explicit arguments or selected conversions, inherited and
+  non-static receiver lookup, broader dependent expressions, and remaining
+  C++20 overload-ranking rules.
+
+## RCC continuation (2026-10-13, non-integer overload competitors)
+
+- [x] Include viable non-integer parameter types in overload ranking for
+  dependent constexpr calls whose explicit arguments are integer constants;
+  retain the evaluator's integer-only restriction for the selected constexpr
+  call. Verify exact-match integer versus floating-conversion selection against
+  GCC C++20, with i686/AMD64 output and AMD64 execution.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate and the full
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  aggregate (both exit 0).
+- [ ] Continue with non-integer explicit arguments and selected conversions,
+  variadic/NTTP-pack calls, inherited and non-static receiver lookup, broader
+  dependent expressions, and remaining C++20 overload-ranking rules.

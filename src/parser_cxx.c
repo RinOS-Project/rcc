@@ -2050,8 +2050,7 @@ static bool cxx_eval_dependent_integer_member_template_call(
             Type* argument_type = cxx_parser_expression_type(argument->expr);
             Type* parameter_type = parameter->decl->type;
             if (!argument_type || !type_is_integer(argument_type) ||
-                !cxx_dependent_integer_call_parameter_supported(
-                    parameter_type)) {
+                !parameter_type) {
                 return false;
             }
             if (!cxx_dependent_integer_call_reference_viable(
@@ -2069,9 +2068,7 @@ static bool cxx_eval_dependent_integer_member_template_call(
         }
         if (viable && argument) return false;
         while (viable && parameter) {
-            if (!parameter->decl || !parameter->decl->param_default ||
-                !cxx_dependent_integer_call_parameter_supported(
-                    parameter->decl->type)) {
+            if (!parameter->decl || !parameter->decl->param_default) {
                 return false;
             }
             if (!cxx_dependent_integer_call_reference_viable(
@@ -2128,6 +2125,28 @@ static bool cxx_eval_dependent_integer_member_template_call(
         function->func_this_param ||
         !type_is_integer(function->type->ret_type)) {
         return false;
+    }
+    ExprList* argument = arguments;
+    DeclList* parameter = function->func_params;
+    for (; argument && parameter;
+         argument = argument->next, parameter = parameter->next) {
+        if (!parameter->decl ||
+            !cxx_dependent_integer_call_parameter_supported(
+                parameter->decl->type) ||
+            !cxx_dependent_integer_call_reference_viable(
+                argument->expr, parameter->decl->type)) {
+            return false;
+        }
+    }
+    while (parameter) {
+        if (!parameter->decl || !parameter->decl->param_default ||
+            !cxx_dependent_integer_call_parameter_supported(
+                parameter->decl->type) ||
+            !cxx_dependent_integer_call_reference_viable(
+                parameter->decl->param_default, parameter->decl->type)) {
+            return false;
+        }
+        parameter = parameter->next;
     }
     return rcc_sema_eval_constexpr_integer_call(function, arguments, result);
 }

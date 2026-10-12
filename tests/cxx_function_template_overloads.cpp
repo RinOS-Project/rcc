@@ -415,6 +415,21 @@ struct FunctionTemplateMemberCallOrdinaryFallback {
     }
 };
 
+struct FunctionTemplateMemberCallNonIntegerOverload {
+    static constexpr int value(int argument) {
+        return argument + 1;
+    }
+
+    static constexpr int value(double) {
+        return 99;
+    }
+
+    template<typename T>
+    static constexpr int value(T* argument) {
+        return *argument + 2;
+    }
+};
+
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
     static int value(int argument) { return argument - 1; }
 };
@@ -761,6 +776,21 @@ int choose_member_call_mixed_overload_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         3, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
     return 268;
+}
+
+template<typename Head, int Argument, typename... Types>
+int choose_member_call_noninteger_competitor_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(Argument), Head,
+        FunctionTemplateValuePackTag<Argument>, Types...>) {
+    return 269;
+}
+
+template<typename Item, int Argument, typename... Remaining>
+int choose_member_call_noninteger_competitor_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        3, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
+    return 270;
 }
 
 template<typename Head, typename... Types>
@@ -1808,6 +1838,18 @@ int main(void) {
                 5, FunctionTemplateMemberCallOrdinaryFallback,
                 FunctionTemplateValuePackTag<4>, short>{}) != 267) {
         return 121;
+    }
+    if (choose_member_call_noninteger_competitor_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                3, FunctionTemplateMemberCallNonIntegerOverload,
+                FunctionTemplateValuePackTag<2>, short>{}) != 270) {
+        return 122;
+    }
+    if (choose_member_call_noninteger_competitor_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                5, FunctionTemplateMemberCallNonIntegerOverload,
+                FunctionTemplateValuePackTag<4>, short>{}) != 269) {
+        return 123;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<
