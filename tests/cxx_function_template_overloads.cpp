@@ -912,6 +912,20 @@ int choose_member_call_nontype_pack_class_pack_order(
     return 286;
 }
 
+template<typename Head, int... Values>
+int choose_member_call_nontype_pack_expression_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::template value<(Values + 1)...>(), Head,
+        FunctionTemplateValuePackTag<Values>...>) {
+    return 287;
+}
+
+template<typename Head, typename... Tags>
+int choose_member_call_nontype_pack_expression_class_pack_order(
+    FunctionTemplateMemberValuePackBox<1, Head, Tags...>) {
+    return 288;
+}
+
 template<typename Head, int Argument, typename... Types>
 int choose_member_call_mixed_overload_class_pack_order(
     FunctionTemplateMemberValuePackBox<
@@ -2054,6 +2068,18 @@ int main(void) {
             FunctionTemplateMemberValuePackBox<
                 0, FunctionTemplateMemberCallNonTypePack>{}) != 285) {
         return 145;
+    }
+    if (choose_member_call_nontype_pack_expression_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                5, FunctionTemplateMemberCallNonTypePack,
+                FunctionTemplateValuePackTag<1>,
+                FunctionTemplateValuePackTag<2> >{}) != 287) {
+        return 146;
+    }
+    if (choose_member_call_nontype_pack_expression_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                0, FunctionTemplateMemberCallNonTypePack>{}) != 287) {
+        return 147;
     }
     if (choose_member_call_mixed_overload_class_pack_order(
             FunctionTemplateMemberValuePackBox<

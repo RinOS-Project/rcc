@@ -17006,6 +17006,9 @@ static bool cxx_member_template_argument_after_open_starts_value(void) {
     bool result = false;
     if (match(TOK_LT)) {
         switch (peek()->type) {
+            case TOK_LPAREN:
+                result = true;
+                break;
             case TOK_INT_LIT:
             case TOK_CHAR_LIT:
             case TOK_TRUE:

@@ -3412,3 +3412,18 @@ remains a separate open item.
   aggregate (both exit 0 after the empty-pack case was added).
 - [ ] Continue broader variadic/NTTP-pack dependent calls, expressions, and
   remaining C++20 overload-ranking rules.
+
+## RCC continuation (2026-10-13, parenthesized NTTP pack expressions)
+
+- [x] Recognize parenthesized non-type expressions as explicit arguments to a
+  dependent member-template call. Cover `Head::template value<(Values + 1)...>()`
+  with both empty and non-empty packs, compare against GCC C++20, generate
+  i686/AMD64 code, and execute the AMD64-host regression.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate (exit 0).
+- [x] Pass the full native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  aggregate after this parser change (exit 0).
+- [ ] Continue broader expression-pack patterns, interactions between
+  multiple expansions, and remaining C++20 overload-ranking rules.
