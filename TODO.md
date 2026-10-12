@@ -2982,6 +2982,10 @@ separately recorded WSL startup failure.
 - [x] Compare `Head::value + 1` against fixed value `2` with GCC C++20: the
   fixed overload wins when `Head::value` is `1`, and the dependent overload
   wins when `Head::value` is `3`.
+- [x] Compare the conditional expression
+  `Head::value == 3 ? 5 : Head::value + 1` against fixed value `2`; GCC and RCC
+  choose the fixed overload for value `1` and the dependent expression for
+  value `3`.
 - [x] Run
   `mingw32-make SHELL=cmd.exe test-cxx-function-template-overloads`; i686 and
   AMD64 generation, AMD64 host execution, GCC execution, and existing

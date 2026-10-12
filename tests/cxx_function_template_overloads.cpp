@@ -455,6 +455,19 @@ int choose_member_arithmetic_value_class_pack_order(
     return 238;
 }
 
+template<typename Head, typename... Types>
+int choose_member_conditional_value_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        (Head::value == 3 ? 5 : Head::value + 1), Head, Types...>) {
+    return 239;
+}
+
+template<typename Head, typename... Types>
+int choose_member_conditional_value_class_pack_order(
+    FunctionTemplateMemberValuePackBox<2, Head, Types...>) {
+    return 240;
+}
+
 template<template<typename> class Template, typename T>
 int choose_template_template_partial_order(Template<T>) {
     return 194;
@@ -1296,6 +1309,16 @@ int main(void) {
             FunctionTemplateMemberValuePackBox<
                 4, FunctionTemplateMemberValueThree>{}) != 237) {
         return 84;
+    }
+    if (choose_member_conditional_value_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                2, FunctionTemplateMemberValueOne>{}) != 240) {
+        return 85;
+    }
+    if (choose_member_conditional_value_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                5, FunctionTemplateMemberValueThree>{}) != 239) {
+        return 86;
     }
     short priority = 0;
     return choose_template(&value) == 25 &&
