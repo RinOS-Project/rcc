@@ -3099,8 +3099,8 @@ remains a separate open item.
 - [x] Extend dependent constexpr member-call ordering to unique public static
   constexpr calls with fixed integer-constant arguments and exact arity.
 - [ ] Extend beyond fixed integer arguments and the tested single remappable
-  scalar function-template NTTP argument; overloaded/defaulted or variadic
-  member sets, other receiver/member forms and return types, and general C++20
+  scalar function-template NTTP argument; variadic member sets, other
+  receiver/member forms and return types, and general C++20
   partial ordering, constraints, and conversion-sequence ties remain open.
 
 ## RCC continuation (2026-10-12, constexpr member-call arguments)
@@ -3168,7 +3168,23 @@ remains a separate open item.
   suite (exit 0), including both target widths and AMD64 execution.
 - [x] Commit the implementation and regression on local `main` as
   `c6bce80c101b6af55116ea8455142d255e4e0b59`; do not push.
-- [ ] Extend dependent constexpr member-call ranking to defaulted and variadic
-  overloads, NTTP packs, arbitrary dependent call expressions, and other
-  member/receiver forms; full C++20 partial ordering and conversion ranking
-  remain incomplete.
+- [x] Extend dependent constexpr member-call overload ranking to fixed,
+  non-variadic public static constexpr integer-returning methods with
+  by-value integer parameters and trailing integer default arguments, when at
+  least one integer argument is explicit. Rank only supplied arguments using
+  the existing per-argument conversion dominance; evaluate omitted defaults
+  only on the uniquely selected candidate. Regression compares
+  `value(short, int = 1)` with `value(int)` and verifies both fixed-pattern and
+  dependent-call outcomes against GCC C++20.
+- [x] Pass `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` (exit 0), including i686/AMD64
+  generation, AMD64 host execution, GCC host execution, and ambiguity
+  diagnostics; commit the implementation and regression as `213b352` on local
+  `main`. Do not push.
+- [ ] Complete the full native-Windows `mingw32-make SHELL=cmd.exe CC=gcc
+  TEST_OUT=build/tests -j1 test-cxx` gate for this change and record its final
+  exit status. The prior invocation did not yield a final status after reaching
+  the pure-virtual target; that target passes when run independently.
+- [ ] Extend dependent constexpr member-call ranking to variadic overloads,
+  NTTP packs, arbitrary dependent call expressions, and other member/receiver
+  forms; full C++20 partial ordering and conversion ranking remain incomplete.
