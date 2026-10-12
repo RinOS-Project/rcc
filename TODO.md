@@ -3159,7 +3159,16 @@ remains a separate open item.
   execution.
 - [x] Commit the implementation and regression on local `main` as
   `5167167b7eb0d351416004e8f0c54beb9c247fea`; keep it local and do not push.
-- [ ] Extend dependent constexpr member-call ranking to multiple arguments,
-  defaulted and variadic overloads, NTTP packs, arbitrary dependent call
-  expressions, and other member/receiver forms; full C++20 partial ordering
-  and conversion ranking remain incomplete.
+- [x] Extend same-arity ranking to multiple integer arguments using the
+  per-argument conversion-rank dominance relation. The fixture compares
+  `value(int, int)` against `value(short, int)` and `value(int, short)`; GCC and
+  RCC select the unique exact-match candidate.
+- [x] Pass `test-cxx-function-template-overloads` and the complete native-
+  Windows `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  suite (exit 0), including both target widths and AMD64 execution.
+- [x] Commit the implementation and regression on local `main` as
+  `c6bce80c101b6af55116ea8455142d255e4e0b59`; do not push.
+- [ ] Extend dependent constexpr member-call ranking to defaulted and variadic
+  overloads, NTTP packs, arbitrary dependent call expressions, and other
+  member/receiver forms; full C++20 partial ordering and conversion ranking
+  remain incomplete.
