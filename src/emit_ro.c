@@ -1075,6 +1075,7 @@ static bool debug_type_is_dependent(const Type* type, unsigned depth) {
 }
 
 static void debug_type_collect(DebugTypeContext* context, const Type* type);
+static bool debug_type_has_integral_constant_encoding(const Type* type);
 
 static void debug_type_collect_class_template_arguments(
     DebugTypeContext* context, const CxxClass* class_info) {
@@ -1089,7 +1090,7 @@ static void debug_type_collect_class_template_arguments(
     argument_count = class_info->template_identity_tmpl
         ? class_info->template_identity_arg_count
         : class_info->template_arg_count;
-    if (!templ || !templ->params || argument_count <= 0) return;
+    if (!templ || !templ->params) return;
     for (int index = 0; index < templ->param_count; ++index) {
         TemplateParam* parameter = &templ->params[index];
         Type* argument_type = NULL;
@@ -1108,6 +1109,13 @@ static void debug_type_collect_class_template_arguments(
                         debug_type_collect(context, argument_type);
                     }
                 }
+            } else if (parameter->kind == TPARAM_NONTYPE &&
+                       index == templ->param_count - 1 &&
+                       parameter->type &&
+                       debug_type_has_integral_constant_encoding(
+                           parameter->type) &&
+                       !debug_type_is_dependent(parameter->type, 0u)) {
+                debug_type_collect(context, parameter->type);
             }
             continue;
         }
@@ -1676,7 +1684,7 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                     template_class->template_identity_tmpl
                         ? template_class->template_identity_value_present
                         : template_class->template_value_present;
-                if (templ && templ->params && argument_count > 0) {
+                if (templ && templ->params) {
                     for (int parameter_index = 0;
                          parameter_index < templ->param_count;
                          ++parameter_index) {
@@ -1685,8 +1693,8 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                         DebugTypeEntry* parameter_type = NULL;
                         if (!parameter->name) continue;
                         if (parameter->is_pack) {
-                            if (parameter->kind == TPARAM_TYPE &&
-                                parameter_index == templ->param_count - 1) {
+                            if (parameter_index == templ->param_count - 1 &&
+                                parameter->kind == TPARAM_TYPE) {
                                 section_add_byte(info, 50u);
                                 debug_line_u32(
                                     info, debug_str_add(strings,
@@ -1711,6 +1719,47 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                                     section_add_byte(info, 51u);
                                     debug_type_ref(info, patches,
                                                    parameter_type);
+                                }
+                                section_add_byte(info, 0u);
+                            } else if (
+                                parameter_index == templ->param_count - 1 &&
+                                parameter->kind == TPARAM_NONTYPE &&
+                                parameter->type &&
+                                debug_type_has_integral_constant_encoding(
+                                    parameter->type) &&
+                                !debug_type_is_dependent(
+                                    parameter->type, 0u)) {
+                                parameter_type = debug_type_find(
+                                    context, parameter->type);
+                                if (!parameter_type) {
+                                    rcc_fatal(
+                                        "DWARF class-template value-pack type was not collected");
+                                    return;
+                                }
+                                section_add_byte(info, 50u);
+                                debug_line_u32(
+                                    info, debug_str_add(strings,
+                                                        parameter->name));
+                                for (int pack_index = parameter_index;
+                                     pack_index < argument_count;
+                                     ++pack_index) {
+                                    if (!value_arguments || !value_present ||
+                                        !value_present[pack_index]) {
+                                        continue;
+                                    }
+                                    section_add_byte(
+                                        info, parameter->type->is_unsigned
+                                            ? 53u : 52u);
+                                    debug_type_ref(info, patches,
+                                                   parameter_type);
+                                    if (parameter->type->is_unsigned) {
+                                        debug_line_uleb(
+                                            info, (uint64_t)value_arguments[
+                                                pack_index]);
+                                    } else {
+                                        debug_line_sleb(
+                                            info, value_arguments[pack_index]);
+                                    }
                                 }
                                 section_add_byte(info, 0u);
                             }
@@ -4506,6 +4555,24 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     section_add_byte(abbrev, 0u);
     debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 52u);
+    debug_line_uleb(abbrev, 0x30u);    /* DW_TAG_template_value_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);    /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0du);    /* DW_FORM_sdata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 53u);
+    debug_line_uleb(abbrev, 0x30u);    /* DW_TAG_template_value_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);    /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0fu);    /* DW_FORM_udata */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

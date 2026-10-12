@@ -1763,11 +1763,13 @@
         `DW_TAG_template_type_parameter`と、signed/unsigned LEB値を保持する
         `DW_TAG_template_value_parameter`を出力。nested class type、正負のsigned
         値、unsigned 32-bit値をi686/AMD64の`test-debug-info`で検証。
-        trailing class-template type packsはGCC互換DWARF v4
-        `DW_TAG_GNU_template_parameter_pack`と実引数ごとのtype DIEで出力し、
-        empty packおよび複数要素packを同じ両arch gateで検証。template-template
-        arguments、non-type/function-template packs、未instantiateのdependent
-        alias/template definition DIEは未完
+        trailing class-template type packsと、non-dependent integral型を持つ
+        signed/unsigned non-type packsはGCC互換DWARF v4
+        `DW_TAG_GNU_template_parameter_pack`配下へ実引数ごとのtype/value DIEを
+        出力し、empty／複数要素とsigned／unsigned値を同じ両arch gateで検証。
+        template-template arguments、dependent-typed non-type packs、
+        function-template packs、未instantiateのdependent alias/template definition
+        DIEは未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
         type/value argumentsを保持し、subprogram DIE配下へtemplate type／
         integral value parameter DIEを出力。i686/AMD64の`test-debug-info`で
