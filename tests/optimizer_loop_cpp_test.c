@@ -123,8 +123,9 @@ static void verify_pair(const char* unoptimized_path,
 {
     static const char* const names[] = {
         "cxx_loop_for_two", "cxx_loop_while_two", "cxx_loop_do_two",
-        "cxx_loop_for_eight", "cxx_loop_while_eight", "cxx_loop_do_eight",
-        "cxx_loop_for_nine",
+        "cxx_loop_for_eight", "cxx_loop_for_large_stride",
+        "cxx_loop_while_eight", "cxx_loop_while_int64_min_stride",
+        "cxx_loop_do_eight", "cxx_loop_for_nine",
         "cxx_switch_constant_direct", "cxx_switch_constant_fallthrough",
         "cxx_switch_constant_no_match", "cxx_switch_constant_sizeof",
         "cxx_switch_constant_alignof", "cxx_if_constant_sizeof",
@@ -132,8 +133,8 @@ static void verify_pair(const char* unoptimized_path,
         "cxx_for_constant_sizeof_bound", "cxx_expression_constant_alignof"
     };
     static const int expected[] = {
-        146, 158, 166, 584, 632, 664, 801, 22, 8, 17, 71, 77, 83, 101,
-        107, 109, 256
+        146, 158, 166, 584, 502, 632, 97, 664, 801, 22, 8, 17, 71, 77,
+        83, 101, 107, 109, 256
     };
     (void)expected;
     ObjectFile* unoptimized = objfile_read(unoptimized_path);

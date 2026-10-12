@@ -38,6 +38,26 @@ extern "C" int cxx_loop_for_eight(void)
     return result;
 }
 
+extern "C" int cxx_loop_for_large_stride(void)
+{
+    int result = 0;
+    for (int index = 0; index < 1000; index += 500) {
+        result += index + 1;
+    }
+    return result;
+}
+
+extern "C" int cxx_loop_while_int64_min_stride(void)
+{
+    long long index = 9223372036854775807LL;
+    int result = 0;
+    while (index >= 0) {
+        result += 97;
+        index += (-9223372036854775807LL - 1LL);
+    }
+    return result;
+}
+
 extern "C" int cxx_loop_while_eight(void)
 {
     int index = 0;

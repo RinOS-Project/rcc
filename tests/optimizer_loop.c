@@ -146,6 +146,56 @@ int loop_stride_for_two(void)
     return result;
 }
 
+int loop_large_stride_for(void)
+{
+    int result = 0;
+    for (int index = 0; index < 1000; index += 500) {
+        result += index + 1;
+    }
+    return result;
+}
+
+int loop_large_stride_while(void)
+{
+    int index = 0;
+    int result = 0;
+    while (index < 10) {
+        result += index + 1;
+        index += 5;
+    }
+    return result;
+}
+
+int loop_int64_min_stride_while(void)
+{
+    long long index = 9223372036854775807LL;
+    int result = 0;
+    while (index >= 0) {
+        result += 97;
+        index += (-9223372036854775807LL - 1LL);
+    }
+    return result;
+}
+
+int loop_unsigned_high_stride_retained(void)
+{
+    unsigned long long index = 9223372036854775808ULL;
+    int result = 0;
+    for (; index > 7ULL; index += 9223372036854775808ULL) {
+        result += 1;
+    }
+    return result;
+}
+
+int loop_unreachable_large_stride_not_equal(void)
+{
+    int result = 0;
+    for (int index = 0; index != 11; index += 5) {
+        result += index;
+    }
+    return result;
+}
+
 int loop_stride_for_one(void)
 {
     int result = 0;
@@ -497,6 +547,17 @@ int do_descending_stride_two(void)
         result += 101;
         index -= 2;
     } while (index > 2);
+    return result;
+}
+
+int do_large_stride_descending(void)
+{
+    int index = 10;
+    int result = 0;
+    do {
+        result += index;
+        index -= 5;
+    } while (index > 0);
     return result;
 }
 

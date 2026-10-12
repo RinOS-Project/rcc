@@ -162,6 +162,23 @@ static void verify_pair(const char* unoptimized_path,
     assert(function_extent(optimized, "loop_assignment_increment") <
            function_extent(unoptimized, "loop_assignment_increment"));
     assert(function_extent(optimized, "loop_stride_for_two") > 0);
+    assert(function_local_label_count(optimized, "loop_large_stride_for") <
+           function_local_label_count(unoptimized, "loop_large_stride_for"));
+    assert(function_local_label_count(optimized, "loop_large_stride_while") <
+           function_local_label_count(unoptimized,
+                                      "loop_large_stride_while"));
+    assert(function_local_label_count(
+               optimized, "loop_int64_min_stride_while") <
+           function_local_label_count(
+               unoptimized, "loop_int64_min_stride_while"));
+    assert(function_local_label_count(
+               optimized, "loop_unsigned_high_stride_retained") ==
+           function_local_label_count(
+               unoptimized, "loop_unsigned_high_stride_retained"));
+    assert(function_local_label_count(
+               optimized, "loop_unreachable_large_stride_not_equal") ==
+           function_local_label_count(
+               unoptimized, "loop_unreachable_large_stride_not_equal"));
     assert(function_extent(optimized, "loop_stride_for_one") > 0);
     assert(function_extent(optimized, "loop_stride_for_assignment_two") > 0);
     assert(function_extent(optimized, "loop_stride_for_descending_two") > 0);
@@ -220,6 +237,10 @@ static void verify_pair(const char* unoptimized_path,
     assert(function_extent(optimized, "do_descending_two") > 0);
     assert(function_extent(optimized, "do_stride_two") > 0);
     assert(function_extent(optimized, "do_descending_stride_two") > 0);
+    assert(function_local_label_count(
+               optimized, "do_large_stride_descending") <
+           function_local_label_count(unoptimized,
+                                      "do_large_stride_descending"));
     assert(function_extent(optimized, "switch_constant_direct") <
            function_extent(unoptimized, "switch_constant_direct"));
     assert(function_extent(optimized, "switch_constant_fallthrough") <
@@ -671,6 +692,16 @@ static void verify_pair(const char* unoptimized_path,
                                       "loop_constant_eight") == 536);
         assert(generated_int_function(optimized, mapping,
                                       "loop_constant_nine") == 639);
+        assert(generated_int_function(optimized, mapping,
+                                      "loop_large_stride_for") == 502);
+        assert(generated_int_function(optimized, mapping,
+                                      "loop_large_stride_while") == 7);
+        assert(generated_int_function(optimized, mapping,
+                                      "loop_int64_min_stride_while") == 97);
+        assert(generated_int_function(optimized, mapping,
+                                      "loop_unsigned_high_stride_retained") == 1);
+        assert(generated_int_function(optimized, mapping,
+                                      "do_large_stride_descending") == 15);
         assert(zero_function() == 5);
         assert(zero_le_function() == 7);
         assert(zero_unsigned_function() == 11);

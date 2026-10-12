@@ -1433,9 +1433,11 @@
   - [x] 初期値が局所定数として確定するC17 `do-while`の`<`／`>`／`!=`単位増減bodyを
         1〜4回へbounded unrollし、wrap・方向不一致・body内の宣言・label・loop/control
         transfer・induction別変更を除外してi686/AMD64のcode-sizeと実行を回帰検証
-  - [x] C17の`while`／`do-while`で`i += 2`／`i -= 2`／`i = i + 2`のような
-        ±4以内の定数strideを同じoverflow・方向・`!=`到達性proofへ接続し、
-        1〜4回のi686/AMD64展開と実行を回帰検証
+  - [x] C17の`while`／`do-while`の定数stride解析を±4から非ゼロの符号付き
+        `int64_t`全域へ拡張し、`INT64_MIN`を含むoverflow・方向・`!=`到達性を
+        未定義の符号反転なしで証明できる場合だけ1〜8回展開する。`INT64_MAX`を
+        超える符号なしstrideは保持する。C17/C++20の大stride・最小負stride・
+        未到達`!=`をi686/AMD64 object構造と実行で回帰検証
   - [x] 定数初期値・境界で2〜4回と確定できるC17 `for`を、符号付き／符号なし
         比較とincrement overflow境界を確認した上で、宣言・label・loop-transfer・
         C++ cleanupを含まないbodyだけbounded unrollし、i686/AMD64のcode-sizeと
@@ -1451,9 +1453,11 @@
   - [x] 既存の整数変数を`for (i = literal; ...)`で初期化するC17形式を、
         宣言初期化と同じzero-trip／1-trip／2〜4-trip proofへ接続し、両archの
         code-sizeと実行結果を回帰検証
-  - [x] C17 `for`の`i += 2`／`i -= 2`／`i = i + 2`形式を±4以内のbounded
-        constant-stride proofへ接続し、符号付き／符号なしoverflow・方向・
-        `!=`到達性を保持した1〜4-trip展開と両archの実行回帰を追加
+  - [x] C17 `for`のconstant-stride proofを±4から非ゼロの符号付き`int64_t`全域へ
+        拡張し、signed／unsigned inductionのoverflow・方向・`!=`到達性を保持して
+        証明済み1〜8-tripだけ展開する。`INT64_MIN`の安全なstep magnitude計算と
+        `INT64_MAX`超の符号なしstride／到達不能`!=` loopの保持をC17/C++20
+        i686/AMD64 object構造・実行で回帰検証
   - [x] C17 `for`の5-trip／8-tripを展開し、9-tripは8回上限を越えるため
         loop control flowを保持する境界回帰を追加。i686/AMD64のO0/O1 objectで
         local-label数を比較し、生成AMD64 codeを実行。Native Windows runnerも
