@@ -3384,13 +3384,15 @@ remains a separate open item.
   constexpr member-call evaluation. Use semantic conversion ranking for
   floating overloads and the scalar constexpr evaluator to verify argument
   constants and the selected integer result. Cover an explicit `<double>`
-  member-template call and `float`-to-`double` promotion against an `int`
-  overload; compare with GCC C++20 and execute generated i686/AMD64 code on the
-  host.
+  member-template call, `float`-to-`double` promotion against an `int`
+  overload, and `float`-to-`int` conversion for the selected parameter;
+  compare with GCC C++20 and execute generated i686/AMD64 code on the host.
 - [x] Pass the focused native-Windows
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
-  test-cxx-function-template-overloads` gate and full
+  test-cxx-function-template-overloads` gate (including the added
+  float-to-integer regression) and full
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
-  aggregate (both exit 0).
+  aggregate (both exit 0; the full aggregate passed after the evaluator
+  implementation and the focused gate was rerun after the added regression).
 - [ ] Continue variadic/NTTP-pack dependent calls, broader arithmetic
   conversions and expressions, and remaining C++20 overload-ranking rules.

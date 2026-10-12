@@ -405,6 +405,12 @@ struct FunctionTemplateMemberCallFloatingOverload {
     }
 };
 
+struct FunctionTemplateMemberCallFloatingToInteger {
+    static constexpr int value(int argument) {
+        return argument + 10;
+    }
+};
+
 struct FunctionTemplateMemberCallMixedOverload {
     static constexpr int value(int argument) {
         return argument + 1;
@@ -869,6 +875,20 @@ int choose_member_call_floating_overload_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         1, Item, Remaining...>) {
     return 282;
+}
+
+template<typename Head, typename... Types>
+int choose_member_call_floating_to_integer_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(2.75f), Head, Types...>) {
+    return 283;
+}
+
+template<typename Item, typename... Remaining>
+int choose_member_call_floating_to_integer_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        1, Item, Remaining...>) {
+    return 284;
 }
 
 template<typename Head, int Argument, typename... Types>
@@ -1995,6 +2015,12 @@ int main(void) {
                 20, FunctionTemplateMemberCallFloatingOverload, int>{}) !=
         281) {
         return 141;
+    }
+    if (choose_member_call_floating_to_integer_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                12, FunctionTemplateMemberCallFloatingToInteger, int>{}) !=
+        283) {
+        return 142;
     }
     if (choose_member_call_mixed_overload_class_pack_order(
             FunctionTemplateMemberValuePackBox<
