@@ -3069,8 +3069,30 @@ remains a separate open item.
   UTF-8 execution charset; compile i686/AMD64 and execute both C17 and C++20
   AMD64 regressions (`test-language-boundaries` and
   `test-cxx-utf8-literals`, exit 0).
-- [ ] Complete the remaining narrow character-literal UCN rules and wide,
-  UTF-16, and UTF-32 literal encodings.
+- [x] Complete bounded ordinary narrow-character UCN handling for C17/C++20:
+  C17 rejects UCNs for prohibited basic/control code points, ordinary narrow
+  literals encode UCNs with RinOS's UTF-8 execution encoding, and a value that
+  encodes to multiple bytes uses the implementation-defined `int` character
+  constant representation. The C++20 `u8` one-code-unit constraint remains
+  enforced. Source status: `docs/implementation-status-rcc-narrow-character-literals-v1.md`.
+- [ ] Add support for wide, UTF-16, and UTF-32 literal encodings and continue
+  auditing the remaining C++ character-literal and execution-character-set
+  rules against GCC and the standard.
+
+## RCC continuation (2026-10-13, ordinary multibyte character constants)
+
+- [x] Encode ordinary multibyte character constants using the RinOS UTF-8
+  execution encoding and expose their implementation-defined packed value as
+  `int` in both C17 and C++20; keep one-byte and `u8` character literals on
+  their existing paths.
+- [x] Enforce C17 basic-source-character UCN restrictions while preserving
+  the `$`, `@`, and grave-accent exceptions; compare valid values and invalid
+  diagnostics with GCC.
+- [x] Compile i686/AMD64, execute generated C17 and C++20 AMD64 probes, and
+  execute GCC UTF-8 runtime oracles in `test-language-boundaries` and
+  `test-cxx-utf8-literals` (both exit 0).
+- [ ] Continue auditing other execution character sets and implement the
+  remaining wide, UTF-16, and UTF-32 literal forms.
 
 ## RCC continuation (2026-10-12, multiline macros and full production gate)
 

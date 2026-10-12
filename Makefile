@@ -6547,8 +6547,9 @@ test-cxx-designated-initializer: $(RCXX_TARGET)
 
 test-cxx-utf8-literals: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-utf8-literals)
-	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_utf8_literals.cpp
+	g++ -std=c++20 -Wall -Wextra -Werror -Wno-multichar -fsyntax-only tests/cxx_utf8_literals.cpp
 	g++ -std=c++20 -fexec-charset=UTF-8 -c \
+		-Wno-multichar \
 		-o $(TEST_OUT)/cxx-utf8-literals/gcc-oracle.o \
 		tests/cxx_utf8_literals.cpp
 	gcc -o $(TEST_OUT)/cxx-utf8-literals/gcc-oracle \
@@ -7630,9 +7631,10 @@ test-cxx-designated-initializer-posix: $(RCXX_TARGET)
 
 test-cxx-utf8-literals-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-utf8-literals)
-	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -Wno-multichar -fsyntax-only \
 		tests/cxx_utf8_literals.cpp
 	$(CXX) -std=c++20 -fexec-charset=UTF-8 -c \
+		-Wno-multichar \
 		-o $(TEST_OUT)/cxx-utf8-literals/gcc-oracle.o \
 		tests/cxx_utf8_literals.cpp
 	gcc -o $(TEST_OUT)/cxx-utf8-literals/gcc-oracle \
@@ -12044,10 +12046,16 @@ test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	$(CC) -o $(TEST_OUT)/language-boundaries/c-ucn-x64 \
 		$(TEST_OUT)/language-boundaries/c-ucn-x64.s
 	$(TEST_OUT)/language-boundaries/c-ucn-x64
-	gcc -std=c17 -fexec-charset=UTF-8 \
+	gcc -std=c17 -Wno-multichar -fexec-charset=UTF-8 \
 		-o $(TEST_OUT)/language-boundaries/c-ucn-gcc \
 		tests/c_string_ucn_utf8.c
 	$(TEST_OUT)/language-boundaries/c-ucn-gcc
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/c-ucn-basic-x86.ro tests/c_ucn_basic_character_invalid.c,$(TEST_OUT)/language-boundaries/c-ucn-basic-x86.log)
+	$(GREP) -F -q "C17 universal character name cannot designate a basic source character" $(TEST_OUT)/language-boundaries/c-ucn-basic-x86.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/language-boundaries/c-ucn-basic-x64.ro tests/c_ucn_basic_character_invalid.c,$(TEST_OUT)/language-boundaries/c-ucn-basic-x64.log)
+	$(GREP) -F -q "C17 universal character name cannot designate a basic source character" $(TEST_OUT)/language-boundaries/c-ucn-basic-x64.log
+	$(call EXPECT_FAILURE,gcc -std=c17 -fsyntax-only tests/c_ucn_basic_character_invalid.c,$(TEST_OUT)/language-boundaries/c-ucn-basic-gcc.log)
+	$(GREP) -F -q "universal character" $(TEST_OUT)/language-boundaries/c-ucn-basic-gcc.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/language-boundaries/c-x86.ro tests/unsupported_long_double.c,$(TEST_OUT)/language-boundaries/c-x86.log)
 	$(GREP) -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/c-x86.log

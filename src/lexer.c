@@ -225,6 +225,7 @@ Token* token_new(TokenType type, SourceLoc loc) {
     tok->int_overflow = false;
     tok->user_literal_suffix = NULL;
     tok->is_utf8_literal = false;
+    tok->is_multichar_literal = false;
     tok->string_length = 0u;
     tok->owns_string = false;
     return tok;
@@ -736,6 +737,14 @@ static int lex_utf8_escape(Lexer* lex, char* output, size_t capacity) {
                   "universal character name is not a valid Unicode code point");
         return 0;
     }
+    /* C17 excludes UCNs for basic source characters below U+00A0 except
+     * dollar, at-sign, and grave accent. */
+    if (!lexer_cxx_mode && codepoint < 0xa0u && codepoint != 0x24u &&
+        codepoint != 0x40u && codepoint != 0x60u) {
+        rcc_error(make_loc(lex),
+                  "C17 universal character name cannot designate a basic source character");
+        return 0;
+    }
     if (codepoint <= 0x7fu) {
         length = 1;
     } else if (codepoint <= 0x7ffu) {
@@ -838,33 +847,54 @@ static char lex_escape(Lexer* lex) {
 static Token* lex_char(Lexer* lex, SourceLoc loc, bool is_utf8) {
     advance(lex); /* skip ' */
 
-    char c;
-    if (peek(lex) == '\\') {
-        advance(lex);
-        if (is_utf8 && (peek(lex) == 'u' || peek(lex) == 'U')) {
-            char encoded[4];
-            int encoded_length = lex_utf8_escape(lex, encoded,
-                                                  sizeof(encoded));
-            if (encoded_length > 1) {
-                rcc_error(loc,
-                          "UTF-8 character literal must encode exactly one code unit");
+    uint32_t encoded_value = 0u;
+    unsigned code_unit_count = 0u;
+    bool saw_content = false;
+    while (peek(lex) && peek(lex) != '\'' && peek(lex) != '\n') {
+        char encoded[4];
+        int encoded_length = 1;
+        saw_content = true;
+        if (peek(lex) == '\\') {
+            advance(lex);
+            if (peek(lex) == 'u' || peek(lex) == 'U') {
+                encoded_length = lex_utf8_escape(
+                    lex, encoded, sizeof(encoded));
+            } else {
+                encoded[0] = lex_escape(lex);
             }
-            c = encoded_length == 1 ? encoded[0] : '\0';
         } else {
-            c = lex_escape(lex);
+            encoded[0] = advance(lex);
         }
-    } else {
-        c = advance(lex);
+        for (int index = 0; index < encoded_length; ++index) {
+            encoded_value = (encoded_value << 8) |
+                (uint32_t)(unsigned char)encoded[index];
+            if (code_unit_count < 5u) ++code_unit_count;
+        }
     }
 
     if (peek(lex) != '\'') {
         rcc_error(loc, "unterminated character literal");
+    } else {
+        advance(lex);
     }
-    advance(lex);
+    if (!saw_content) {
+        rcc_error(loc, "empty character literal");
+    }
+    if (is_utf8 && code_unit_count > 1u) {
+        rcc_error(loc,
+                  "UTF-8 character literal must encode exactly one code unit");
+    }
 
     Token* tok = token_new(TOK_CHAR_LIT, loc);
-    tok->value.char_val = c;
+    if (!is_utf8 && code_unit_count > 1u) {
+        tok->value.int_val = encoded_value <= (uint32_t)INT32_MAX
+            ? (int64_t)encoded_value
+            : (int64_t)encoded_value - INT64_C(0x100000000);
+    } else {
+        tok->value.char_val = (char)(uint8_t)encoded_value;
+    }
     tok->is_utf8_literal = is_utf8;
+    tok->is_multichar_literal = !is_utf8 && code_unit_count > 1u;
     return tok;
 }
 

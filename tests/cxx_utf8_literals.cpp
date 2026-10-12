@@ -5,6 +5,7 @@ extern "C" int probe_cxx_utf8_literals(void) {
     const char8_t* embedded_nul = u8"\u0000R";
     const char* ordinary_unicode = "\u0041\u03a9";
     const char* ordinary_nul = "\u0000R";
+    const int ordinary_multibyte_character = '\u03a9';
     char8_t marker = u8'R';
     char8_t escaped = u8'\u0041';
     char8_t nul_character = u8'\u0000';
@@ -23,5 +24,7 @@ extern "C" int probe_cxx_utf8_literals(void) {
            (ordinary_unicode[3] == 0) +
            (sizeof("\u0041\u03a9") == 4) +
            (sizeof("\u0000R") == 3) + (ordinary_nul[0] == 0) +
-           (ordinary_nul[1] == 'R') + (ordinary_nul[2] == 0);
+           (ordinary_nul[1] == 'R') + (ordinary_nul[2] == 0) +
+           (sizeof('\u03a9') == sizeof(int)) +
+           (ordinary_multibyte_character == 0xcea9);
 }

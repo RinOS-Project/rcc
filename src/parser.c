@@ -1591,12 +1591,16 @@ static Expr* parse_primary(void) {
     }
     if (match(TOK_CHAR_LIT)) {
         Token* literal = previous();
-        Expr* expression = expr_char(literal->value.char_val, loc);
+        Expr* expression = literal->is_multichar_literal
+            ? expr_int(literal->value.int_val, loc)
+            : expr_char(literal->value.char_val, loc);
         expression->is_cxx_utf8_literal = literal->is_utf8_literal;
         if (parser_cxx_mode) {
-            expression->type = literal->is_utf8_literal &&
-                    rcc_parser_cxx_standard_at_least(20)
-                ? type_char8 : type_char;
+            expression->type = literal->is_multichar_literal
+                ? type_int
+                : literal->is_utf8_literal &&
+                      rcc_parser_cxx_standard_at_least(20)
+                    ? type_char8 : type_char;
             const char* suffix = take_cxx_user_literal_suffix();
             if (suffix) {
                 return parse_cxx_user_literal_call(suffix, expression, NULL,
