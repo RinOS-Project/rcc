@@ -3362,3 +3362,18 @@ remains a separate open item.
 - [ ] Continue broader non-integer explicit-argument deduction/conversion,
   variadic and NTTP-pack overloads, dependent expressions, and remaining C++20
   overload-ranking rules.
+
+## RCC continuation (2026-10-13, floating arguments in dependent member calls)
+
+- [x] Allow floating-point by-value parameters in bounded dependent constexpr
+  member calls, including explicit `<double>` member-template specialization
+  and integer-to-double argument conversion during dependent value evaluation.
+  Compare fixed-value versus dependent-call overload selection against GCC
+  C++20; generate i686/AMD64 output and execute the AMD64 host regression.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate and full
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  aggregate (both exit 0).
+- [ ] Continue with variadic/NTTP-pack dependent calls, wider argument
+  conversions and expressions, and remaining C++20 overload-ranking rules.

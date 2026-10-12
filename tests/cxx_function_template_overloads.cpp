@@ -819,6 +819,21 @@ int choose_member_call_template_explicit_class_pack_order(
 }
 
 template<typename Head, int Argument, typename... Types>
+int choose_member_call_template_double_explicit_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::template value<double>(Argument), Head,
+        FunctionTemplateValuePackTag<Argument>, Types...>) {
+    return 277;
+}
+
+template<int Value, typename Item, typename... Remaining>
+int choose_member_call_template_double_explicit_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        1, Item, FunctionTemplateValuePackTag<Value>, Remaining...>) {
+    return 278;
+}
+
+template<typename Head, int Argument, typename... Types>
 int choose_member_call_mixed_overload_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         Head::value(Argument), Head,
@@ -1914,6 +1929,18 @@ int main(void) {
                 4, FunctionTemplateMemberCallTemplate,
                 FunctionTemplateValuePackTag<3>, short>{}) != 265) {
         return 117;
+    }
+    if (choose_member_call_template_double_explicit_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallTemplate,
+                FunctionTemplateValuePackTag<0>, int>{}) != 278) {
+        return 137;
+    }
+    if (choose_member_call_template_double_explicit_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                4, FunctionTemplateMemberCallTemplate,
+                FunctionTemplateValuePackTag<3>, short>{}) != 277) {
+        return 138;
     }
     if (choose_member_call_mixed_overload_class_pack_order(
             FunctionTemplateMemberValuePackBox<

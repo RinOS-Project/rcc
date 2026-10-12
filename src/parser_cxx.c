@@ -1859,7 +1859,7 @@ static bool cxx_dependent_integer_call_parameter_supported(Type* type) {
             !type->base->is_volatile &&
             (type->is_rvalue_reference || type->base->is_const);
     }
-    return type_is_integer(type);
+    return type_is_integer(type) || type_is_floating(type);
 }
 
 static bool cxx_dependent_integer_call_reference_viable(
