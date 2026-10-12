@@ -3096,6 +3096,25 @@ remains a separate open item.
   validation, deterministic/property/fuzz gates. The full gate then stopped at
   `test-bootstrap-core` because WSL returned `Wsl/Service/E_ACCESSDENIED`; no
   successful full `test-ci` is claimed for this revision.
-- [ ] Extend dependent constexpr calls to arguments, overload sets, other
-  receiver/member forms and return types; complete general C++20 partial
-  ordering, constraints, and conversion-sequence ties remain open.
+- [x] Extend dependent constexpr member-call ordering to unique public static
+  constexpr calls with fixed integer-constant arguments and exact arity.
+- [ ] Extend dependent/non-constant call arguments, overloaded/defaulted or
+  variadic member sets, other receiver/member forms and return types; general
+  C++20 partial ordering, constraints, and conversion-sequence ties remain open.
+
+## RCC continuation (2026-10-12, constexpr member-call integer arguments)
+
+- [x] Evaluate a dependent class-template NTTP call such as `Head::value(2)`
+  after substitution when it resolves to one public static, non-variadic,
+  constexpr integer-returning member with exact arity and integer constant
+  arguments; reuse the scalar constexpr function evaluator. Ambiguous overload
+  sets and unsupported arguments remain unevaluated rather than guessed.
+- [x] Verify GCC C++20 ordering against a fixed integral pattern: the fixed
+  pattern wins when the call evaluates to `1`, while the dependent pattern is
+  selected for value `3`, with one- and two-type trailing packs. The preceding
+  zero-argument regression retains empty-pack coverage.
+- [x] Pass `test-cxx-function-template-overloads` and the complete native
+  Windows `mingw32-make SHELL=cmd.exe test-cxx` suite (exit 0).
+- [ ] Add support for dependent call arguments, overload resolution/default
+  arguments, and additional constexpr member/receiver forms; full C++20
+  partial-ordering and conversion-ranking coverage remains open.

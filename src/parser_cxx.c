@@ -15186,7 +15186,7 @@ static bool eval_template_integer_expression(Expr* expression,
         *result = *result != 0;
         return true;
     }
-    if (expression->kind == EXPR_CALL && !expression->call_args &&
+    if (expression->kind == EXPR_CALL &&
         expression->call_func &&
         expression->call_func->kind == EXPR_MEMBER &&
         expression->call_func->member_name &&
@@ -15197,26 +15197,46 @@ static bool eval_template_integer_expression(Expr* expression,
         Type* base_type = expression->call_func->member_base->type;
         CxxClass* owner = base_type->cxx_class;
         CxxMethod* match = NULL;
+        int argument_count = 0;
+        int parameter_count = 0;
+        for (ExprList* argument = expression->call_args; argument;
+             argument = argument->next) {
+            int64_t argument_value;
+            if (!expr_eval_integer_constant(argument->expr,
+                                            &argument_value)) {
+                return false;
+            }
+            (void)argument_value;
+            ++argument_count;
+        }
         for (struct CxxMember* member = owner->members; member;
              member = member->next) {
             CxxMethod* method = member->method;
             const char* method_name = method && method->source_name
                 ? method->source_name
                 : method && method->decl ? method->decl->name : NULL;
-            if (!method || !method->is_static ||
-                member->access != ACCESS_PUBLIC || !method->is_constexpr ||
-                !method->decl || !method->decl->func_is_constexpr ||
-                method->decl->func_this_param ||
-                method->decl->func_params ||
-                strcmp(method_name ? method_name : "",
-                       expression->call_func->member_name) != 0) {
+            if (!method || strcmp(method_name ? method_name : "",
+                                  expression->call_func->member_name) != 0) {
                 continue;
             }
             if (match) return false;
             match = method;
         }
-        return match && rcc_sema_eval_constexpr_integer_call(
-                            match->decl, NULL, result);
+        if (!match || !match->is_static ||
+            match->access != ACCESS_PUBLIC || !match->is_constexpr ||
+            !match->decl || !match->decl->func_is_constexpr ||
+            match->decl->func_this_param || !match->decl->type ||
+            match->decl->type->kind != TYPE_FUNC ||
+            match->decl->type->variadic || match->member_template) {
+            return false;
+        }
+        for (DeclList* parameter = match->decl->func_params; parameter;
+             parameter = parameter->next) {
+            ++parameter_count;
+        }
+        return argument_count == parameter_count &&
+            rcc_sema_eval_constexpr_integer_call(
+                match->decl, expression->call_args, result);
     }
     switch (expression->kind) {
         case EXPR_NEG:
@@ -18084,9 +18104,18 @@ static void cxx_function_template_dependent_member_expression_info(
         *contains_dependent_member = true;
         return;
     }
-    if (expression->kind == EXPR_CALL && !expression->call_args &&
+    if (expression->kind == EXPR_CALL &&
         cxx_function_template_is_dependent_member_expression(
             expression->call_func, tmpl)) {
+        for (ExprList* argument = expression->call_args; argument;
+             argument = argument->next) {
+            int64_t argument_value;
+            if (!expr_eval_integer_constant(argument->expr,
+                                            &argument_value)) {
+                return;
+            }
+            (void)argument_value;
+        }
         *supported = true;
         *contains_dependent_member = true;
         return;
