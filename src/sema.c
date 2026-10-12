@@ -6974,6 +6974,7 @@ static bool sema_eval_constexpr_scalar_function(
         Expr* argument_expression;
         SemaConstexprBinding* argument_bindings;
         int argument_binding_count;
+        Type* parameter_value_type;
         if (!parameter->decl || !parameter->decl->name) return false;
         if (argument) {
             argument_expression = argument->expr;
@@ -6989,18 +6990,37 @@ static bool sema_eval_constexpr_scalar_function(
         if (count == (int)(sizeof(bindings) / sizeof(bindings[0]))) {
             return false;
         }
+        parameter_value_type = parameter->decl->type;
+        if (parameter_value_type &&
+            parameter_value_type->kind == TYPE_PTR &&
+            parameter_value_type->is_reference) {
+            Type* referred_type = parameter_value_type->base;
+            if (!referred_type ||
+                !sema_constexpr_integer_type(referred_type) ||
+                referred_type->is_volatile ||
+                (!parameter_value_type->is_rvalue_reference &&
+                 !referred_type->is_const) ||
+                (parameter_value_type->is_rvalue_reference &&
+                 is_lvalue(argument_expression))) {
+                return false;
+            }
+            /* The evaluator stores the referred scalar value in the binding;
+             * no reference address is needed for the supported integral
+             * constexpr body subset. */
+            parameter_value_type = referred_type;
+        }
         bindings[count].declaration = parameter->decl;
-        bindings[count].type = parameter->decl->type;
+        bindings[count].type = parameter_value_type;
         bindings[count].object_bytes = NULL;
         bindings[count].object_size = 0u;
         bindings[count].is_object = false;
-        if (sema_constexpr_scalar_type(parameter->decl->type)) {
+        if (sema_constexpr_scalar_type(parameter_value_type)) {
             if (!sema_eval_constexpr_scalar_expr(
                     argument_expression, argument_bindings,
                     argument_binding_count,
                     &argument_value) ||
                 !sema_constexpr_scalar_convert(
-                    &argument_value, parameter->decl->type,
+                    &argument_value, parameter_value_type,
                     &argument_value)) return false;
             bindings[count].value = argument_value.integer_value;
             bindings[count].floating_value = argument_value.floating_value;
@@ -7009,16 +7029,16 @@ static bool sema_eval_constexpr_scalar_function(
             bindings[count].pointer_declaration =
                 argument_value.pointer_declaration;
             bindings[count].pointer_offset = argument_value.pointer_offset;
-        } else if (sema_constexpr_aggregate_type(parameter->decl->type)) {
-            if (parameter->decl->type->size <= 0) return false;
+        } else if (sema_constexpr_aggregate_type(parameter_value_type)) {
+            if (parameter_value_type->size <= 0) return false;
             bindings[count].object_bytes = ast_arena_alloc(
-                (size_t)parameter->decl->type->size);
+                (size_t)parameter_value_type->size);
             if (!sema_constexpr_materialize_object(
-                    parameter->decl->type, argument_expression,
+                    parameter_value_type, argument_expression,
                     argument_bindings, argument_binding_count,
                     bindings[count].object_bytes,
-                    (size_t)parameter->decl->type->size)) return false;
-            bindings[count].object_size = (size_t)parameter->decl->type->size;
+                    (size_t)parameter_value_type->size)) return false;
+            bindings[count].object_size = (size_t)parameter_value_type->size;
             bindings[count].is_object = true;
         } else {
             return false;

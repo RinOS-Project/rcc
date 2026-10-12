@@ -3215,3 +3215,20 @@ remains a separate open item.
   object.
 - [x] Pass `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
   test-cxx20-unsupported-boundaries` on native Windows (exit 0).
+- [x] Extend dependent static constexpr member-call evaluation to integer
+  `const T&` arguments and integer `T&&` arguments. Preserve lvalue/rvalue
+  viability while ranking overload candidates, and bind the referred scalar
+  value in constexpr evaluation; GCC C++20 plus RCC i686/AMD64 execution cover
+  both forms and fixed-value versus dependent-call selection.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate (exit 0), including GCC oracle,
+  both target widths, and AMD64 execution.
+- [x] Pass the full native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  aggregate (exit 0); output is retained in
+  `build/tests/test-cxx-default-zero-gate.log`.
+- [ ] Extend dependent constexpr member-call ranking to member-function
+  templates, variadic overloads, NTTP packs, non-integer arguments, and other
+  receiver/member forms; full C++20 partial ordering and conversion ranking
+  remain incomplete.

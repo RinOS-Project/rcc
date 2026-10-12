@@ -1850,6 +1850,26 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
 static void parse_cxx_language_linkage(AST* ast, CxxNamespace* ns);
 static int active_template_type_index(const char* name);
 static int active_template_template_parameter_index(const char* name);
+static bool cxx_dependent_integer_call_parameter_supported(Type* type) {
+    if (!type) return false;
+    if (type->kind == TYPE_PTR && type->is_reference) {
+        return type->base && type_is_integer(type->base) &&
+            !type->base->is_volatile &&
+            (type->is_rvalue_reference || type->base->is_const);
+    }
+    return type_is_integer(type);
+}
+
+static bool cxx_dependent_integer_call_reference_viable(
+    Expr* argument, Type* parameter_type) {
+    if (!parameter_type) return false;
+    if (parameter_type->kind != TYPE_PTR || !parameter_type->is_reference) {
+        return true;
+    }
+    if (!argument || !parameter_type->is_rvalue_reference) return argument != NULL;
+    return !cxx_parser_expression_is_lvalue(argument);
+}
+
 static bool eval_template_integer_expression(Expr* expression,
                                               CxxTemplate* tmpl,
                                               const int64_t* values,
@@ -15289,8 +15309,10 @@ static bool eval_template_integer_expression(Expr* expression,
                         ? parameter->decl->type : NULL;
                     if (!argument_type || !parameter_type ||
                         !type_is_integer(argument_type) ||
-                        parameter_type->is_reference ||
-                        !type_is_integer(parameter_type)) {
+                        !cxx_dependent_integer_call_parameter_supported(
+                            parameter_type) ||
+                        !cxx_dependent_integer_call_reference_viable(
+                            call_argument->expr, parameter_type)) {
                         return false;
                     }
                     candidate_ranks[argument_index] =
@@ -15303,8 +15325,12 @@ static bool eval_template_integer_expression(Expr* expression,
                 }
                 if (viable && call_argument) return false;
                 while (viable && parameter) {
-                    if (!parameter->decl || !parameter->decl->type ||
-                        !type_is_integer(parameter->decl->type) ||
+                    if (!parameter->decl ||
+                        !cxx_dependent_integer_call_parameter_supported(
+                            parameter->decl->type) ||
+                        !cxx_dependent_integer_call_reference_viable(
+                            parameter->decl->param_default,
+                            parameter->decl->type) ||
                         !parameter->decl->param_default) {
                         return false;
                     }
@@ -15371,7 +15397,10 @@ static bool eval_template_integer_expression(Expr* expression,
             Type* parameter_type = parameter->decl->type;
             if (!argument_type || !parameter_type ||
                 !type_is_integer(argument_type) ||
-                !type_is_integer(parameter_type)) {
+                !cxx_dependent_integer_call_parameter_supported(
+                    parameter_type) ||
+                !cxx_dependent_integer_call_reference_viable(
+                    argument->expr, parameter_type)) {
                 return false;
             }
         }
