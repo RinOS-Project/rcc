@@ -19,9 +19,14 @@ typedef struct {
 } Lexer;
 
 static bool lexer_cxx_mode;
+static int lexer_cxx_standard = 20;
 
 void rcc_lexer_set_cxx_mode(bool enabled) {
     lexer_cxx_mode = enabled;
+}
+
+void rcc_lexer_set_cxx_standard(int standard) {
+    lexer_cxx_standard = standard;
 }
 
 /* Keyword table */
@@ -374,6 +379,10 @@ static Token* lex_identifier(Lexer* lex) {
     spelling[len] = '\0';
 
     TokenType type = keyword_lookup(spelling);
+    if (type == TOK_CHAR8_T &&
+        (!lexer_cxx_mode || lexer_cxx_standard < 20)) {
+        type = TOK_IDENT;
+    }
     /* C++ keywords are ordinary identifiers in C17.  Keeping this decision
      * in the lexer prevents a valid C implementation name such as
      * `protected` from being rejected before the C parser sees it. */
@@ -1014,18 +1023,19 @@ static Token* lex_token(Lexer* lex) {
         }
     }
 
-    /* Recognize C++ literal prefixes before identifier lexing.  UTF-8 is
-     * representable by the RinOS byte-string ABI; wide, UTF-16, and UTF-32
-     * literals are diagnosed explicitly instead of being split into an
-     * identifier plus a different literal. */
-    if (lexer_cxx_mode &&
-        ((c == 'u' && (peek_next(lex) == '8' ||
-                       peek_next(lex) == '"' || peek_next(lex) == '\'')) ||
-         c == 'L' || c == 'U') &&
-        ((c == 'u' && peek_next(lex) == '8' &&
-          (lex->pos[2] == '"' || lex->pos[2] == '\'')) ||
-         ((c == 'u' || c == 'L' || c == 'U') &&
-          (peek_next(lex) == '"' || peek_next(lex) == '\'')))) {
+    /* Recognize UTF-8 string prefixes in C and C++ before identifier lexing.
+     * C++ additionally accepts the other standard prefixes and UTF-8
+     * character literals; unsupported encodings are diagnosed explicitly. */
+    if ((lexer_cxx_mode &&
+         ((c == 'u' && (peek_next(lex) == '8' ||
+                        peek_next(lex) == '"' || peek_next(lex) == '\'')) ||
+          c == 'L' || c == 'U') &&
+         ((c == 'u' && peek_next(lex) == '8' &&
+           (lex->pos[2] == '"' || lex->pos[2] == '\'')) ||
+          ((c == 'u' || c == 'L' || c == 'U') &&
+           (peek_next(lex) == '"' || peek_next(lex) == '\'')))) ||
+        (!lexer_cxx_mode && c == 'u' && peek_next(lex) == '8' &&
+         lex->pos[2] == '"')) {
         bool is_utf8 = c == 'u' && peek_next(lex) == '8';
         char quote;
         advance(lex);

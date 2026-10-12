@@ -557,6 +557,7 @@ static int compile_current_input(char** argv) {
 
     /* Phase 1: Lexical analysis */
     rcc_lexer_set_cxx_mode(true);
+    rcc_lexer_set_cxx_standard(g_cxx_standard);
     if (g_opts.verbose) {
         printf("Lexing...\n");
     }

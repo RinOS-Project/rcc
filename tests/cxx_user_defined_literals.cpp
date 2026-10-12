@@ -15,11 +15,11 @@ int operator""_text(const char* value, unsigned long length) {
            length == 3 ? 1 : 0;
 }
 
-int operator""_u8character(unsigned char value) {
+int operator""_u8character(char8_t value) {
     return value == 'R' ? 1 : 0;
 }
 
-int operator""_u8text(const unsigned char* value, unsigned long length) {
+int operator""_u8text(const char8_t* value, unsigned long length) {
     return value[0] == 'R' && length == 4 ? 1 : 0;
 }
 

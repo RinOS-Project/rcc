@@ -12622,8 +12622,10 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_STRING_LIT: {
-            Type* element_type = expr->is_cxx_utf8_literal
-                ? type_uchar : type_char;
+            bool is_cxx20_utf8 = rcc_parser_is_cxx_mode() &&
+                rcc_parser_cxx_standard_at_least(20) &&
+                expr->is_cxx_utf8_literal;
+            Type* element_type = is_cxx20_utf8 ? type_char8 : type_char;
             if (rcc_parser_is_cxx_mode()) {
                 Type* qualified = ast_arena_alloc(sizeof(*qualified));
                 *qualified = *element_type;
@@ -15834,7 +15836,6 @@ static void sema_validate_restrict_type(Type* type, SourceLoc loc) {
 
 static Expr* initializer_character_string(Type* type, Expr* initializer) {
     Expr* string = NULL;
-    bool expects_utf8;
     if (!type || type->kind != TYPE_ARRAY || !type->base || !initializer ||
         type->base->kind != TYPE_CHAR) {
         return NULL;
@@ -15850,8 +15851,11 @@ static Expr* initializer_character_string(Type* type, Expr* initializer) {
         string = initializer->compound_init->expr;
     }
     if (!string) return NULL;
-    expects_utf8 = rcc_parser_is_cxx_mode() && type->base->is_unsigned;
-    if (expects_utf8 != string->is_cxx_utf8_literal) return NULL;
+    if (rcc_parser_is_cxx_mode() &&
+        rcc_parser_cxx_standard_at_least(20) &&
+        type->base->is_char8 != string->is_cxx_utf8_literal) {
+        return NULL;
+    }
     return string;
 }
 
@@ -17841,8 +17845,10 @@ static void sema_initializer(Type* type, Expr* initializer) {
     if (rcc_parser_is_cxx_mode() && type->kind == TYPE_ARRAY &&
         type->base && string_literal &&
         type->base->kind == TYPE_CHAR) {
-        bool expects_utf8 = type->base->is_unsigned;
-        if (expects_utf8 != string_literal->is_cxx_utf8_literal) {
+        bool is_cxx20 = rcc_parser_cxx_standard_at_least(20);
+        bool expects_char8 = type->base->is_char8;
+        if (is_cxx20 &&
+            expects_char8 != string_literal->is_cxx_utf8_literal) {
             rcc_error(string_literal->loc,
                       "C++ character array initializer encoding does not match the element type");
             return;

@@ -2993,3 +2993,22 @@ separately recorded WSL startup failure.
 - [ ] Extend beyond these static-member expression compositions to dependent
   calls and other member forms, non-type/template-template packs, constraints,
   and full C++20 partial ordering.
+
+## RCC continuation (2026-10-12, C/C++ UTF-8 literal character types)
+
+- [x] Recognize C17 `u8"..."` as a byte string literal and preserve ordinary
+  `char` array initialization semantics.
+- [x] In C++20, give UTF-8 string and character literals their `char8_t` type;
+  accept matching `char8_t` arrays and reject mismatched `char` and
+  `unsigned char` arrays. Keep `char8_t` an ordinary identifier in C and
+  before C++20, including user typedefs with that name.
+- [x] Add GCC C17/C++17/C++20 compatibility checks, i686 and AMD64 object
+  generation, AMD64 runtime checks, and negative diagnostics; update the
+  user-defined UTF-8 literal test to use `char8_t`.
+- [x] Run the focused C17 and C++ UTF-8 literal gates, the C17 regression
+  suite, the C++ user-defined literal gate, and the complete native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  suite successfully.
+- [ ] Add support for wide, UTF-16, and UTF-32 literal encodings and continue
+  auditing the remaining C++ character-literal and execution-character-set
+  rules against GCC and the standard.
