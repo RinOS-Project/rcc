@@ -1850,6 +1850,8 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
 static void parse_cxx_language_linkage(AST* ast, CxxNamespace* ns);
 static int active_template_type_index(const char* name);
 static int active_template_template_parameter_index(const char* name);
+static int cxx_parser_function_template_overload_conversion_rank(
+    Expr* argument, Type* target, TypeMethod** conversion_method);
 static bool cxx_dependent_integer_call_parameter_supported(Type* type) {
     if (!type) return false;
     if (type->kind == TYPE_PTR && type->is_reference) {
@@ -1870,13 +1872,52 @@ static bool cxx_dependent_integer_call_reference_viable(
     return !cxx_parser_expression_is_lvalue(argument);
 }
 
+typedef struct CxxDependentIntegerMemberCallCandidate {
+    Decl* function;
+    bool is_member_template;
+    bool is_public;
+    bool is_static;
+} CxxDependentIntegerMemberCallCandidate;
+
+static bool cxx_dependent_integer_call_same_parameter_types(
+    Decl* left, Decl* right) {
+    DeclList* left_parameter;
+    DeclList* right_parameter;
+    if (!left || !right || !left->type || !right->type ||
+        left->type->kind != TYPE_FUNC || right->type->kind != TYPE_FUNC) {
+        return false;
+    }
+    left_parameter = left->func_params;
+    right_parameter = right->func_params;
+    while (left_parameter && right_parameter) {
+        if (!left_parameter->decl || !right_parameter->decl ||
+            !left_parameter->decl->type || !right_parameter->decl->type ||
+            !type_is_compatible(left_parameter->decl->type,
+                                right_parameter->decl->type)) {
+            return false;
+        }
+        left_parameter = left_parameter->next;
+        right_parameter = right_parameter->next;
+    }
+    return !left_parameter && !right_parameter;
+}
+
 static bool cxx_eval_dependent_integer_member_template_call(
     Expr* member_expression, ExprList* arguments, int64_t* result) {
     Type* aggregate;
     CxxClass* owner;
-    TypeMethod* candidates[32] = { NULL };
+    TypeMethod* materialized[32] = { NULL };
+    CxxDependentIntegerMemberCallCandidate* candidates;
+    int* conversion_ranks;
     bool constraint_unsupported = false;
-    int candidate_count;
+    bool has_member_template = false;
+    int materialized_count;
+    int ordinary_count = 0;
+    int candidate_capacity;
+    int candidate_count = 0;
+    int argument_count = 0;
+    int viable_count = 0;
+    size_t rank_stride;
     if (!member_expression || !member_expression->member_base ||
         !member_expression->member_name || !result ||
         !member_expression->member_base->type ||
@@ -1886,7 +1927,6 @@ static bool cxx_eval_dependent_integer_member_template_call(
     aggregate = member_expression->member_base->type;
     owner = aggregate->cxx_class;
     if (!owner || aggregate->cxx_dependent) return false;
-    bool has_member_template = false;
     for (struct CxxMember* member = owner->members; member;
          member = member->next) {
         CxxMethod* method = member->method;
@@ -1897,55 +1937,197 @@ static bool cxx_eval_dependent_integer_member_template_call(
                               member_expression->member_name) != 0) {
             continue;
         }
-        if (!method->member_template) return false;
-        has_member_template = true;
+        if (method->member_template) {
+            has_member_template = true;
+        } else {
+            if (ordinary_count == INT_MAX) return false;
+            ++ordinary_count;
+        }
     }
     if (!has_member_template) return false;
-    candidate_count = rcc_parser_cxx_materialize_member_function_templates(
+    for (ExprList* argument = arguments; argument;
+         argument = argument->next) {
+        int64_t argument_value;
+        if (!argument->expr || !expr_eval_integer_constant(
+                argument->expr, &argument_value) || argument_count == INT_MAX) {
+            return false;
+        }
+        ++argument_count;
+    }
+    materialized_count = rcc_parser_cxx_materialize_member_function_templates(
         aggregate, member_expression->member_name, arguments,
         member_expression->member_template_arguments,
         member_expression->member_template_argument_count,
         member_expression->member_has_template_arguments,
-        candidates, (int)(sizeof(candidates) / sizeof(candidates[0])),
+        materialized, (int)(sizeof(materialized) / sizeof(materialized[0])),
         &constraint_unsupported);
-    if (constraint_unsupported || candidate_count != 1) return false;
-    TypeMethod* selected = candidates[0];
-    Decl* function = selected ? selected->function_decl : NULL;
-    if (!selected || selected->kind != TYPE_METHOD_FUNCTION ||
-        selected->cxx_access != ACCESS_PUBLIC || !function ||
-        !function->func_is_constexpr || function->func_this_param ||
-        !function->type || function->type->kind != TYPE_FUNC ||
-        function->type->variadic ||
-        !type_is_integer(function->type->ret_type)) {
+    if (constraint_unsupported || materialized_count < 0 ||
+        materialized_count > INT_MAX - ordinary_count) {
         return false;
     }
-    ExprList* argument = arguments;
-    DeclList* parameter = function->func_params;
-    for (; argument && parameter;
-         argument = argument->next, parameter = parameter->next) {
-        Type* argument_type = cxx_parser_expression_type(argument->expr);
-        Type* parameter_type = parameter->decl
-            ? parameter->decl->type : NULL;
-        int64_t argument_value;
-        if (!argument->expr || !expr_eval_integer_constant(
-                argument->expr, &argument_value) || !argument_type ||
-            !type_is_integer(argument_type) || !parameter_type ||
-            !cxx_dependent_integer_call_parameter_supported(parameter_type) ||
-            !cxx_dependent_integer_call_reference_viable(
-                argument->expr, parameter_type)) {
+    candidate_capacity = materialized_count + ordinary_count;
+    rank_stride = argument_count > 0 ? (size_t)argument_count : 1u;
+    if (candidate_capacity <= 0 ||
+        (size_t)candidate_capacity > SIZE_MAX / sizeof(*candidates) ||
+        (size_t)candidate_capacity >
+            SIZE_MAX / rank_stride / sizeof(*conversion_ranks)) {
+        return false;
+    }
+    candidates = ast_arena_alloc(
+        sizeof(*candidates) * (size_t)candidate_capacity);
+    conversion_ranks = ast_arena_alloc(
+        sizeof(*conversion_ranks) * (size_t)candidate_capacity * rank_stride);
+    if (!candidates || !conversion_ranks) return false;
+    for (int index = 0; index < materialized_count; ++index) {
+        TypeMethod* method = materialized[index];
+        if (!method || method->kind != TYPE_METHOD_FUNCTION ||
+            !method->function_decl) {
             return false;
+        }
+        candidates[candidate_count++] =
+            (CxxDependentIntegerMemberCallCandidate){
+                method->function_decl, true,
+                method->cxx_access == ACCESS_PUBLIC,
+                method->function_decl->func_this_param == NULL
+            };
+    }
+    for (struct CxxMember* member = owner->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        const char* name = method && method->source_name
+            ? method->source_name
+            : method && method->decl ? method->decl->name : NULL;
+        if (!method || method->member_template ||
+            strcmp(name ? name : "", member_expression->member_name) != 0) {
+            continue;
+        }
+        if (candidate_count >= candidate_capacity || !method->decl) {
+            return false;
+        }
+        candidates[candidate_count++] =
+            (CxxDependentIntegerMemberCallCandidate){
+                method->decl, false, method->access == ACCESS_PUBLIC,
+                method->is_static
+            };
+    }
+
+    for (int index = 0; index < candidate_count; ++index) {
+        CxxDependentIntegerMemberCallCandidate candidate = candidates[index];
+        Decl* function = candidate.function;
+        DeclList* parameter;
+        int parameter_count = 0;
+        int required_parameter_count = 0;
+        bool viable = true;
+        if (!function || !function->type || function->type->kind != TYPE_FUNC) {
+            return false;
+        }
+        for (parameter = function->func_params; parameter;
+             parameter = parameter->next) {
+            if (!parameter->decl) return false;
+            if (parameter_count == INT_MAX) return false;
+            ++parameter_count;
+            if (!parameter->decl->param_default) {
+                if (required_parameter_count == INT_MAX) return false;
+                ++required_parameter_count;
+            }
+        }
+        if (function->type->variadic) {
+            if (argument_count >= required_parameter_count) return false;
+            continue;
+        }
+        if (argument_count < required_parameter_count ||
+            argument_count > parameter_count) {
+            continue;
+        }
+        ExprList* argument = arguments;
+        parameter = function->func_params;
+        int* candidate_ranks = conversion_ranks +
+            (size_t)viable_count * rank_stride;
+        int argument_index = 0;
+        for (; argument && parameter;
+             argument = argument->next, parameter = parameter->next,
+                 ++argument_index) {
+            Type* argument_type = cxx_parser_expression_type(argument->expr);
+            Type* parameter_type = parameter->decl->type;
+            if (!argument_type || !type_is_integer(argument_type) ||
+                !cxx_dependent_integer_call_parameter_supported(
+                    parameter_type)) {
+                return false;
+            }
+            if (!cxx_dependent_integer_call_reference_viable(
+                    argument->expr, parameter_type)) {
+                viable = false;
+                break;
+            }
+            candidate_ranks[argument_index] =
+                cxx_parser_function_template_overload_conversion_rank(
+                    argument->expr, parameter_type, NULL);
+            if (candidate_ranks[argument_index] < 0) {
+                viable = false;
+                break;
+            }
+        }
+        if (viable && argument) return false;
+        while (viable && parameter) {
+            if (!parameter->decl || !parameter->decl->param_default ||
+                !cxx_dependent_integer_call_parameter_supported(
+                    parameter->decl->type)) {
+                return false;
+            }
+            if (!cxx_dependent_integer_call_reference_viable(
+                    parameter->decl->param_default, parameter->decl->type)) {
+                viable = false;
+                break;
+            }
+            parameter = parameter->next;
+        }
+        if (!viable) continue;
+        candidates[viable_count++] = candidate;
+    }
+    if (viable_count <= 0) return false;
+
+    int selected = -1;
+    for (int candidate = 0; candidate < viable_count; ++candidate) {
+        bool dominated = false;
+        for (int other = 0; other < viable_count; ++other) {
+            bool no_worse = true;
+            bool strictly_better = false;
+            if (candidate == other) continue;
+            for (int argument = 0; argument < argument_count; ++argument) {
+                int candidate_rank = conversion_ranks[
+                    (size_t)candidate * rank_stride + (size_t)argument];
+                int other_rank = conversion_ranks[
+                    (size_t)other * rank_stride + (size_t)argument];
+                if (other_rank > candidate_rank) no_worse = false;
+                if (other_rank < candidate_rank) strictly_better = true;
+            }
+            if (no_worse && strictly_better) {
+                dominated = true;
+                break;
+            }
+            if (!no_worse || strictly_better) continue;
+            if (!candidates[other].is_member_template &&
+                candidates[candidate].is_member_template &&
+                cxx_dependent_integer_call_same_parameter_types(
+                    candidates[other].function, candidates[candidate].function)) {
+                dominated = true;
+                break;
+            }
+        }
+        if (!dominated) {
+            if (selected >= 0) return false;
+            selected = candidate;
         }
     }
-    if (argument) return false;
-    while (parameter) {
-        if (!parameter->decl || !parameter->decl->param_default ||
-            !cxx_dependent_integer_call_parameter_supported(
-                parameter->decl->type) ||
-            !cxx_dependent_integer_call_reference_viable(
-                parameter->decl->param_default, parameter->decl->type)) {
-            return false;
-        }
-        parameter = parameter->next;
+    if (selected < 0) return false;
+    CxxDependentIntegerMemberCallCandidate best = candidates[selected];
+    Decl* function = best.function;
+    if (!best.is_public || !best.is_static || !function ||
+        !function->func_is_constexpr || !function->type ||
+        function->type->kind != TYPE_FUNC || function->type->variadic ||
+        function->func_this_param ||
+        !type_is_integer(function->type->ret_type)) {
+        return false;
     }
     return rcc_sema_eval_constexpr_integer_call(function, arguments, result);
 }

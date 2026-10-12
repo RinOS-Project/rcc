@@ -3195,9 +3195,10 @@ remains a separate open item.
   native-Windows `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
   test-cxx` aggregate (exit 0); output is retained in
   `build/tests/test-cxx-default-zero-gate.log`.
-- [ ] Extend dependent constexpr member-call ranking to variadic overloads,
-  NTTP packs, arbitrary dependent call expressions, and other member/receiver
-  forms; full C++20 partial ordering and conversion ranking remain incomplete.
+- [ ] Extend the bounded integer-only dependent member-call evaluator to
+  variadic overloads, NTTP packs, arbitrary dependent call expressions,
+  inherited/non-static receiver forms, and broader C++20 conversions and
+  partial ordering.
 
 ## RCC continuation (2026-10-12, CI coverage re-audit)
 
@@ -3240,7 +3241,23 @@ remains a separate open item.
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
   aggregate (both exit 0); full output is retained in
   `build/tests/test-cxx-default-zero-gate.log`.
-- [ ] Extend dependent constexpr member-call ranking to multiple viable
-  member-function-template specializations, variadic overloads, NTTP packs,
-  non-integer arguments, and other receiver/member forms; full C++20 partial
-  ordering and conversion ranking remain incomplete.
+- [ ] Extend the unified ordinary/member-template overload set to variadic
+  overloads, NTTP packs, non-integer arguments/conversions, inherited and
+  non-static receiver forms, and the remaining C++20 partial-ordering rules.
+
+## RCC continuation (2026-10-13, mixed dependent member-call overloads)
+
+- [x] Combine materialized member-function-template candidates with same-name
+  ordinary member overloads for bounded dependent constexpr integer calls.
+  Compare supplied arguments using conversion-rank dominance and prefer an
+  ordinary function over a member-template specialization when their parameter
+  types are identical. Cover the GCC C++20 result and fixed/dependent NTTP
+  ordering on both RCC targets, with AMD64 execution.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate and the full
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  aggregate (both exit 0).
+- [ ] Continue with variadic/NTTP-pack calls, non-integer conversions,
+  inherited and non-static receiver lookup, and broader dependent expressions
+  and C++20 overload-ranking rules.

@@ -393,6 +393,28 @@ struct FunctionTemplateMemberCallTemplate {
     }
 };
 
+struct FunctionTemplateMemberCallMixedOverload {
+    static constexpr int value(int argument) {
+        return argument + 1;
+    }
+
+    template<typename T>
+    static constexpr int value(T argument) {
+        return argument + 2;
+    }
+};
+
+struct FunctionTemplateMemberCallOrdinaryFallback {
+    static constexpr int value(int argument) {
+        return argument + 1;
+    }
+
+    template<typename T>
+    static constexpr int value(T* argument) {
+        return *argument + 2;
+    }
+};
+
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
     static int value(int argument) { return argument - 1; }
 };
@@ -724,6 +746,21 @@ int choose_member_call_template_explicit_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         1, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
     return 266;
+}
+
+template<typename Head, int Argument, typename... Types>
+int choose_member_call_mixed_overload_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(Argument), Head,
+        FunctionTemplateValuePackTag<Argument>, Types...>) {
+    return 267;
+}
+
+template<typename Item, int Argument, typename... Remaining>
+int choose_member_call_mixed_overload_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        3, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
+    return 268;
 }
 
 template<typename Head, typename... Types>
@@ -1747,6 +1784,30 @@ int main(void) {
                 4, FunctionTemplateMemberCallTemplate,
                 FunctionTemplateValuePackTag<3>, short>{}) != 265) {
         return 117;
+    }
+    if (choose_member_call_mixed_overload_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                3, FunctionTemplateMemberCallMixedOverload,
+                FunctionTemplateValuePackTag<2>, short>{}) != 268) {
+        return 118;
+    }
+    if (choose_member_call_mixed_overload_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                5, FunctionTemplateMemberCallMixedOverload,
+                FunctionTemplateValuePackTag<4>, short>{}) != 267) {
+        return 119;
+    }
+    if (choose_member_call_mixed_overload_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                3, FunctionTemplateMemberCallOrdinaryFallback,
+                FunctionTemplateValuePackTag<2>, short>{}) != 268) {
+        return 120;
+    }
+    if (choose_member_call_mixed_overload_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                5, FunctionTemplateMemberCallOrdinaryFallback,
+                FunctionTemplateValuePackTag<4>, short>{}) != 267) {
+        return 121;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<
