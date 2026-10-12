@@ -735,11 +735,6 @@ static int lex_utf8_escape(Lexer* lex, char* output, size_t capacity) {
                   "universal character name is not a valid Unicode code point");
         return 0;
     }
-    if (codepoint == 0u) {
-        rcc_error(make_loc(lex),
-                  "UTF-8 universal character name cannot encode NUL in the RinOS byte-string ABI");
-        return 0;
-    }
     if (codepoint <= 0x7fu) {
         length = 1;
     } else if (codepoint <= 0x7ffu) {

@@ -3047,6 +3047,18 @@ remains a separate open item.
   case; wide, UTF-16, and UTF-32 encodings and full execution-character-set
   rules remain open.
 
+## RCC continuation (2026-10-13, UTF-8 UCN embedded NUL)
+
+- [x] Preserve `u8"\u0000"` as one zero-valued UTF-8 code unit before the
+  distinct string terminator, and accept `u8'\u0000'` as a one-code-unit
+  character literal. The string token's explicit byte length keeps the
+  embedded zero from truncating initialization.
+- [x] Compare C++20 syntax with GCC; compile i686/AMD64 and execute the
+  generated AMD64 byte, array-size, and character-value checks through
+  `test-cxx-utf8-literals` (exit 0).
+- [ ] Continue the remaining literal encodings and execution-character-set
+  conformance; wide, UTF-16, and UTF-32 remain open.
+
 ## RCC continuation (2026-10-12, multiline macros and full production gate)
 
 - [x] Expand function-like macro invocations spanning physical source lines,
