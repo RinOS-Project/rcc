@@ -6970,9 +6970,23 @@ static bool sema_eval_constexpr_scalar_function(
     }
     parameter = declaration->func_params;
     argument = args;
-    while (parameter && argument) {
-        if (count == (int)(sizeof(bindings) / sizeof(bindings[0])) ||
-            !parameter->decl || !parameter->decl->name) {
+    while (parameter) {
+        Expr* argument_expression;
+        SemaConstexprBinding* argument_bindings;
+        int argument_binding_count;
+        if (!parameter->decl || !parameter->decl->name) return false;
+        if (argument) {
+            argument_expression = argument->expr;
+            argument_bindings = caller_bindings;
+            argument_binding_count = caller_binding_count;
+            argument = argument->next;
+        } else {
+            argument_expression = parameter->decl->param_default;
+            argument_bindings = bindings;
+            argument_binding_count = count;
+        }
+        if (!argument_expression) return false;
+        if (count == (int)(sizeof(bindings) / sizeof(bindings[0]))) {
             return false;
         }
         bindings[count].declaration = parameter->decl;
@@ -6982,7 +6996,8 @@ static bool sema_eval_constexpr_scalar_function(
         bindings[count].is_object = false;
         if (sema_constexpr_scalar_type(parameter->decl->type)) {
             if (!sema_eval_constexpr_scalar_expr(
-                    argument->expr, caller_bindings, caller_binding_count,
+                    argument_expression, argument_bindings,
+                    argument_binding_count,
                     &argument_value) ||
                 !sema_constexpr_scalar_convert(
                     &argument_value, parameter->decl->type,
@@ -6999,8 +7014,8 @@ static bool sema_eval_constexpr_scalar_function(
             bindings[count].object_bytes = ast_arena_alloc(
                 (size_t)parameter->decl->type->size);
             if (!sema_constexpr_materialize_object(
-                    parameter->decl->type, argument->expr,
-                    caller_bindings, caller_binding_count,
+                    parameter->decl->type, argument_expression,
+                    argument_bindings, argument_binding_count,
                     bindings[count].object_bytes,
                     (size_t)parameter->decl->type->size)) return false;
             bindings[count].object_size = (size_t)parameter->decl->type->size;
@@ -7010,9 +7025,8 @@ static bool sema_eval_constexpr_scalar_function(
         }
         ++count;
         parameter = parameter->next;
-        argument = argument->next;
     }
-    if (parameter || argument || constexpr_eval_depth >= 64) return false;
+    if (argument || constexpr_eval_depth >= 64) return false;
     saved_dynamic_live_count = constexpr_dynamic_live_count;
     ++constexpr_eval_depth;
     if (!sema_eval_constexpr_scalar_statement(

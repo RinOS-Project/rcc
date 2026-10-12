@@ -244,6 +244,9 @@ int choose_nontrailing_function_pack(Rest..., int) {
 template<int Value>
 struct FunctionTemplateValuePackTag {};
 
+template<short Value>
+struct FunctionTemplateShortValuePackTag {};
+
 template<int... Values>
 int choose_non_type_pack_partial_order(
     FunctionTemplateValuePackTag<Values>...) {
@@ -350,6 +353,13 @@ struct FunctionTemplateMemberCallOverloaded {
     static constexpr int value() { return 9; }
     static constexpr int value(int argument) { return argument + 1; }
     static constexpr int value(short argument) { return argument + 2; }
+};
+
+struct FunctionTemplateMemberCallDefaulted {
+    static constexpr int value(short argument, int increment = 1) {
+        return argument + increment;
+    }
+    static constexpr int value(int argument) { return argument + 100; }
 };
 
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
@@ -596,6 +606,21 @@ int choose_member_call_overloaded_nontype_argument_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         1, Item, FunctionTemplateValuePackTag<Value>, Remaining...>) {
     return 254;
+}
+
+template<typename Head, short Argument, typename... Types>
+int choose_member_call_defaulted_nontype_argument_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(Argument), Head,
+        FunctionTemplateShortValuePackTag<Argument>, Types...>) {
+    return 255;
+}
+
+template<short Value, typename Item, typename... Remaining>
+int choose_member_call_defaulted_nontype_argument_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        1, Item, FunctionTemplateShortValuePackTag<Value>, Remaining...>) {
+    return 256;
 }
 
 template<typename Head, typename... Types>
@@ -1547,6 +1572,18 @@ int main(void) {
                 4, FunctionTemplateMemberCallOverloaded,
                 FunctionTemplateValuePackTag<3>, short>{}) != 253) {
         return 105;
+    }
+    if (choose_member_call_defaulted_nontype_argument_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallDefaulted,
+                FunctionTemplateShortValuePackTag<0>, int>{}) != 256) {
+        return 106;
+    }
+    if (choose_member_call_defaulted_nontype_argument_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                4, FunctionTemplateMemberCallDefaulted,
+                FunctionTemplateShortValuePackTag<3>, short>{}) != 255) {
+        return 107;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<

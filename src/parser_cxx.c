@@ -15270,13 +15270,8 @@ static bool eval_template_integer_expression(Expr* expression,
                 if (argument_count >= required_parameter_count) return false;
                 continue;
             }
-            if (argument_count < parameter_count &&
-                argument_count >= required_parameter_count) {
-                /* A defaulted overload can participate, but evaluating its
-                 * omitted arguments is outside this bounded constant path. */
-                return false;
-            }
-            if (argument_count != parameter_count) continue;
+            if (argument_count < required_parameter_count ||
+                argument_count > parameter_count) continue;
             if (method->member_template) return false;
             if (argument_count > 0) {
                 ExprList* call_argument = expression->call_args;
@@ -15306,7 +15301,15 @@ static bool eval_template_integer_expression(Expr* expression,
                         break;
                     }
                 }
-                if (viable && (call_argument || parameter)) return false;
+                if (viable && call_argument) return false;
+                while (viable && parameter) {
+                    if (!parameter->decl || !parameter->decl->type ||
+                        !type_is_integer(parameter->decl->type) ||
+                        !parameter->decl->param_default) {
+                        return false;
+                    }
+                    parameter = parameter->next;
+                }
                 if (!viable) continue;
                 if (viable_method_count >= viable_method_capacity) {
                     return false;
@@ -15372,7 +15375,7 @@ static bool eval_template_integer_expression(Expr* expression,
                 return false;
             }
         }
-        if (argument || parameter) return false;
+        if (argument) return false;
         return rcc_sema_eval_constexpr_integer_call(
             match->decl, expression->call_args, result);
     }
