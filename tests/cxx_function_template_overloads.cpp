@@ -338,6 +338,12 @@ struct FunctionTemplateMemberCallArgumentPair {
     static constexpr int value(int first, int second) {
         return first * 10 + second;
     }
+    static constexpr int value(short first, int second) {
+        return first * 10 + second + 1000;
+    }
+    static constexpr int value(int first, short second) {
+        return first * 10 + second + 2000;
+    }
 };
 
 struct FunctionTemplateMemberCallOverloaded {

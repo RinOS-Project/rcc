@@ -15197,10 +15197,13 @@ static bool eval_template_integer_expression(Expr* expression,
         Type* base_type = expression->call_func->member_base->type;
         CxxClass* owner = base_type->cxx_class;
         CxxMethod* match = NULL;
+        CxxMethod** viable_methods = NULL;
+        int* viable_ranks = NULL;
         int argument_count = 0;
         int parameter_count = 0;
-        int selected_argument_rank = INT_MAX;
-        bool ambiguous_argument_rank = false;
+        int viable_method_capacity = 0;
+        int viable_method_count = 0;
+        size_t rank_stride;
         for (ExprList* argument = expression->call_args; argument;
              argument = argument->next) {
             int64_t argument_value;
@@ -15209,7 +15212,36 @@ static bool eval_template_integer_expression(Expr* expression,
                 return false;
             }
             (void)argument_value;
+            if (argument_count == INT_MAX) return false;
             ++argument_count;
+        }
+        rank_stride = argument_count > 0 ? (size_t)argument_count : 1u;
+        if (argument_count > 0) {
+            for (struct CxxMember* member = owner->members; member;
+                 member = member->next) {
+                CxxMethod* method = member->method;
+                const char* method_name = method && method->source_name
+                    ? method->source_name
+                    : method && method->decl ? method->decl->name : NULL;
+                if (!method || strcmp(method_name ? method_name : "",
+                                      expression->call_func->member_name) != 0) {
+                    continue;
+                }
+                if (viable_method_capacity == INT_MAX) return false;
+                ++viable_method_capacity;
+            }
+            if (viable_method_capacity > 0) {
+                size_t method_capacity = (size_t)viable_method_capacity;
+                if (method_capacity > SIZE_MAX / sizeof(*viable_methods) ||
+                    method_capacity >
+                        SIZE_MAX / rank_stride / sizeof(*viable_ranks)) {
+                    return false;
+                }
+                viable_methods = ast_arena_alloc(
+                    sizeof(*viable_methods) * method_capacity);
+                viable_ranks = ast_arena_alloc(
+                    sizeof(*viable_ranks) * method_capacity * rank_stride);
+            }
         }
         for (struct CxxMember* member = owner->members; member;
              member = member->next) {
@@ -15246,35 +15278,81 @@ static bool eval_template_integer_expression(Expr* expression,
             }
             if (argument_count != parameter_count) continue;
             if (method->member_template) return false;
-            if (argument_count == 1) {
+            if (argument_count > 0) {
                 ExprList* call_argument = expression->call_args;
                 DeclList* parameter = method->decl->func_params;
-                Type* parameter_type = parameter && parameter->decl
-                    ? parameter->decl->type : NULL;
-                int conversion_rank;
-                if (!call_argument || call_argument->next || !parameter ||
-                    parameter->next || !parameter_type ||
-                    parameter_type->is_reference ||
-                    !type_is_integer(parameter_type)) {
+                int* candidate_ranks = viable_ranks +
+                    (size_t)viable_method_count * rank_stride;
+                bool viable = true;
+                int argument_index = 0;
+                for (; call_argument && parameter;
+                     call_argument = call_argument->next,
+                         parameter = parameter->next, ++argument_index) {
+                    Type* argument_type =
+                        cxx_parser_expression_type(call_argument->expr);
+                    Type* parameter_type = parameter->decl
+                        ? parameter->decl->type : NULL;
+                    if (!argument_type || !parameter_type ||
+                        !type_is_integer(argument_type) ||
+                        parameter_type->is_reference ||
+                        !type_is_integer(parameter_type)) {
+                        return false;
+                    }
+                    candidate_ranks[argument_index] =
+                        cxx_parser_function_template_overload_conversion_rank(
+                            call_argument->expr, parameter_type, NULL);
+                    if (candidate_ranks[argument_index] < 0) {
+                        viable = false;
+                        break;
+                    }
+                }
+                if (viable && (call_argument || parameter)) return false;
+                if (!viable) continue;
+                if (viable_method_count >= viable_method_capacity) {
                     return false;
                 }
-                conversion_rank =
-                    cxx_parser_function_template_overload_conversion_rank(
-                        call_argument->expr, parameter_type, NULL);
-                if (conversion_rank < 0) continue;
-                if (!match || conversion_rank < selected_argument_rank) {
-                    match = method;
-                    selected_argument_rank = conversion_rank;
-                    ambiguous_argument_rank = false;
-                } else if (conversion_rank == selected_argument_rank) {
-                    ambiguous_argument_rank = true;
-                }
+                viable_methods[viable_method_count++] = method;
                 continue;
             }
             if (match) return false;
             match = method;
         }
-        if (ambiguous_argument_rank || !match || !match->is_static ||
+        if (argument_count > 0) {
+            int selected = -1;
+            for (int candidate = 0; candidate < viable_method_count;
+                 ++candidate) {
+                bool dominated = false;
+                for (int other = 0; other < viable_method_count; ++other) {
+                    bool no_worse = true;
+                    bool strictly_better = false;
+                    if (candidate == other) continue;
+                    for (int argument = 0; argument < argument_count;
+                         ++argument) {
+                        int candidate_rank = viable_ranks[
+                            (size_t)candidate * rank_stride +
+                            (size_t)argument];
+                        int other_rank = viable_ranks[
+                            (size_t)other * rank_stride +
+                            (size_t)argument];
+                        if (other_rank > candidate_rank) no_worse = false;
+                        if (other_rank < candidate_rank) {
+                            strictly_better = true;
+                        }
+                    }
+                    if (no_worse && strictly_better) {
+                        dominated = true;
+                        break;
+                    }
+                }
+                if (!dominated) {
+                    if (selected >= 0) return false;
+                    selected = candidate;
+                }
+            }
+            if (selected < 0) return false;
+            match = viable_methods[selected];
+        }
+        if (!match || !match->is_static ||
             match->access != ACCESS_PUBLIC || !match->is_constexpr ||
             !match->decl || !match->decl->func_is_constexpr ||
             match->decl->func_this_param || !match->decl->type ||
@@ -15290,9 +15368,7 @@ static bool eval_template_integer_expression(Expr* expression,
             Type* parameter_type = parameter->decl->type;
             if (!argument_type || !parameter_type ||
                 !type_is_integer(argument_type) ||
-                !type_is_integer(parameter_type) ||
-                (argument_count != 1 &&
-                 !type_is_compatible(argument_type, parameter_type))) {
+                !type_is_integer(parameter_type)) {
                 return false;
             }
         }
