@@ -456,6 +456,7 @@ endif
 .PHONY: test-cxx-conversion-reference-ranking-ambiguous
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
 .PHONY: test-verified-switch-nested
+.PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
 .PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates
@@ -15005,7 +15006,34 @@ else
 endif
 	@echo "Verified i686 cdecl variadic double promotion/va_arg O0/O2 tests passed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
+test-rinvalidate-dynamic-tls: $(RCC_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/rinvalidate-dynamic-tls)
+	$(RCC_TARGET) --target i686-unknown-rinos -fPIC --dynamic-tls -c \
+		-o $(TEST_OUT)/rinvalidate-dynamic-tls/x86.ro \
+		tests/verified_backend_dynamic_tls_rin.c
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		--dep rinruntime.rll \
+		--import __rcc_tls_module_slot=rinruntime.rll@data \
+		--import __tls_get_addr=rinruntime.rll@function \
+		-e rin_dynamic_tls_read \
+		-o $(TEST_OUT)/rinvalidate-dynamic-tls/x86.rin \
+		$(TEST_OUT)/rinvalidate-dynamic-tls/x86.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/rinvalidate-dynamic-tls/x86.rin
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fPIC --dynamic-tls -c \
+		-o $(TEST_OUT)/rinvalidate-dynamic-tls/x64.ro \
+		tests/verified_backend_dynamic_tls_rin.c
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		--dep rinruntime.rll \
+		--import __rcc_tls_module_slot=rinruntime.rll@data \
+		--import __tls_get_addr=rinruntime.rll@function \
+		-e rin_dynamic_tls_read \
+		-o $(TEST_OUT)/rinvalidate-dynamic-tls/x64.rin \
+		$(TEST_OUT)/rinvalidate-dynamic-tls/x64.ro
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/rinvalidate-dynamic-tls/x64.rin
+
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \
