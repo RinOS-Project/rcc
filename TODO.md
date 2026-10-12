@@ -3377,3 +3377,20 @@ remains a separate open item.
   aggregate (both exit 0).
 - [ ] Continue with variadic/NTTP-pack dependent calls, wider argument
   conversions and expressions, and remaining C++20 overload-ranking rules.
+
+## RCC continuation (2026-10-13, floating constexpr call arguments)
+
+- [x] Accept integer and floating-point constant arguments in dependent
+  constexpr member-call evaluation. Use semantic conversion ranking for
+  floating overloads and the scalar constexpr evaluator to verify argument
+  constants and the selected integer result. Cover an explicit `<double>`
+  member-template call and `float`-to-`double` promotion against an `int`
+  overload; compare with GCC C++20 and execute generated i686/AMD64 code on the
+  host.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate and full
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  aggregate (both exit 0).
+- [ ] Continue variadic/NTTP-pack dependent calls, broader arithmetic
+  conversions and expressions, and remaining C++20 overload-ranking rules.

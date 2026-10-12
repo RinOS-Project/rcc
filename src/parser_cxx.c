@@ -1852,6 +1852,14 @@ static int active_template_type_index(const char* name);
 static int active_template_template_parameter_index(const char* name);
 static int cxx_parser_function_template_overload_conversion_rank(
     Expr* argument, Type* target, TypeMethod** conversion_method);
+static bool cxx_dependent_integer_call_constant_argument_supported(
+    Expr* argument) {
+    Type* type = cxx_parser_expression_type(argument);
+    return argument && type &&
+        (type_is_integer(type) || type_is_floating(type)) &&
+        rcc_sema_eval_constexpr_arithmetic_constant(argument);
+}
+
 static bool cxx_dependent_integer_call_parameter_supported(Type* type) {
     if (!type) return false;
     if (type->kind == TYPE_PTR && type->is_reference) {
@@ -1991,9 +1999,8 @@ static bool cxx_eval_dependent_integer_member_template_call(
     }
     for (ExprList* argument = arguments; argument;
          argument = argument->next) {
-        int64_t argument_value;
-        if (!argument->expr || !expr_eval_integer_constant(
-                argument->expr, &argument_value) || argument_count == INT_MAX) {
+        if (!cxx_dependent_integer_call_constant_argument_supported(
+                argument->expr) || argument_count == INT_MAX) {
             return false;
         }
         ++argument_count;
@@ -2091,8 +2098,9 @@ static bool cxx_eval_dependent_integer_member_template_call(
                  ++argument_index) {
             Type* argument_type = cxx_parser_expression_type(argument->expr);
             Type* parameter_type = parameter->decl->type;
-            if (!argument_type || !type_is_integer(argument_type) ||
-                !parameter_type) {
+            if (!argument_type ||
+                (!type_is_integer(argument_type) &&
+                 !type_is_floating(argument_type)) || !parameter_type) {
                 return false;
             }
             if (!cxx_dependent_integer_call_reference_viable(
@@ -15569,12 +15577,10 @@ static bool eval_template_integer_expression(Expr* expression,
         }
         for (ExprList* argument = expression->call_args; argument;
              argument = argument->next) {
-            int64_t argument_value;
-            if (!expr_eval_integer_constant(argument->expr,
-                                            &argument_value)) {
+            if (!cxx_dependent_integer_call_constant_argument_supported(
+                    argument->expr)) {
                 return false;
             }
-            (void)argument_value;
             if (argument_count == INT_MAX) return false;
             ++argument_count;
         }
@@ -15647,7 +15653,8 @@ static bool eval_template_integer_expression(Expr* expression,
                     Type* parameter_type = parameter->decl
                         ? parameter->decl->type : NULL;
                     if (!argument_type || !parameter_type ||
-                        !type_is_integer(argument_type) ||
+                        (!type_is_integer(argument_type) &&
+                         !type_is_floating(argument_type)) ||
                         !cxx_dependent_integer_call_parameter_supported(
                             parameter_type) ||
                         !cxx_dependent_integer_call_reference_viable(
@@ -15734,7 +15741,8 @@ static bool eval_template_integer_expression(Expr* expression,
             Type* argument_type = cxx_parser_expression_type(argument->expr);
             Type* parameter_type = parameter->decl->type;
             if (!argument_type || !parameter_type ||
-                !type_is_integer(argument_type) ||
+                (!type_is_integer(argument_type) &&
+                 !type_is_floating(argument_type)) ||
                 !cxx_dependent_integer_call_parameter_supported(
                     parameter_type) ||
                 !cxx_dependent_integer_call_reference_viable(

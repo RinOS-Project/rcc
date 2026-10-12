@@ -395,6 +395,16 @@ struct FunctionTemplateMemberCallTemplate {
     }
 };
 
+struct FunctionTemplateMemberCallFloatingOverload {
+    static constexpr int value(int argument) {
+        return argument + 10;
+    }
+
+    static constexpr int value(double argument) {
+        return argument + 20;
+    }
+};
+
 struct FunctionTemplateMemberCallMixedOverload {
     static constexpr int value(int argument) {
         return argument + 1;
@@ -831,6 +841,34 @@ int choose_member_call_template_double_explicit_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         1, Item, FunctionTemplateValuePackTag<Value>, Remaining...>) {
     return 278;
+}
+
+template<typename Head, typename... Types>
+int choose_member_call_floating_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::template value<double>(2.5), Head, Types...>) {
+    return 279;
+}
+
+template<typename Item, typename... Remaining>
+int choose_member_call_floating_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        1, Item, Remaining...>) {
+    return 280;
+}
+
+template<typename Head, typename... Types>
+int choose_member_call_floating_overload_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(0.5f), Head, Types...>) {
+    return 281;
+}
+
+template<typename Item, typename... Remaining>
+int choose_member_call_floating_overload_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        1, Item, Remaining...>) {
+    return 282;
 }
 
 template<typename Head, int Argument, typename... Types>
@@ -1941,6 +1979,22 @@ int main(void) {
                 4, FunctionTemplateMemberCallTemplate,
                 FunctionTemplateValuePackTag<3>, short>{}) != 277) {
         return 138;
+    }
+    if (choose_member_call_floating_template_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallTemplate, int>{}) != 280) {
+        return 139;
+    }
+    if (choose_member_call_floating_template_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                3, FunctionTemplateMemberCallTemplate, short>{}) != 279) {
+        return 140;
+    }
+    if (choose_member_call_floating_overload_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                20, FunctionTemplateMemberCallFloatingOverload, int>{}) !=
+        281) {
+        return 141;
     }
     if (choose_member_call_mixed_overload_class_pack_order(
             FunctionTemplateMemberValuePackBox<

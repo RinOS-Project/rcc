@@ -7727,6 +7727,14 @@ static bool sema_eval_constexpr_scalar_expr(
     }
 }
 
+bool rcc_sema_eval_constexpr_arithmetic_constant(Expr* expression) {
+    SemaConstexprScalar value;
+    return expression &&
+        sema_eval_constexpr_scalar_expr(expression, NULL, 0, &value) &&
+        !value.is_pointer &&
+        (value.is_floating || sema_constexpr_integer_type(value.type));
+}
+
 static TypeMethod* sema_find_function_method(Type* aggregate,
                                               const char* name) {
     TypeMethod* method;

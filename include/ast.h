@@ -903,6 +903,8 @@ bool expr_eval_integer_constant(Expr* expr, int64_t* value);
 bool rcc_sema_eval_constexpr_integer_call(Decl* declaration,
                                           ExprList* arguments,
                                           int64_t* value);
+/* Check that an expression is a constant integer or floating-point value. */
+bool rcc_sema_eval_constexpr_arithmetic_constant(Expr* expression);
 
 /* ═══════════════════════════════════════
  * Statements
