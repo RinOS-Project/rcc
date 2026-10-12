@@ -2808,8 +2808,7 @@ static void sema_register_materialized_member_templates(Type* aggregate) {
         if (!declaration || !declaration->func_is_template_instance ||
             !declaration->func_is_cxx_method ||
             !declaration->func_method_owner ||
-            declaration->func_method_owner->cxx_class !=
-                aggregate->cxx_class || !method->name) {
+            !method->name) {
             continue;
         }
         for (DeclList* item = current_ast->decls; item; item = item->next) {

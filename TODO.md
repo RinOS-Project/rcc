@@ -3310,6 +3310,23 @@ remains a separate open item.
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
   aggregate (both exit 0).
 - [ ] Extend inherited template lookup to multiple-base and using-declaration
-  cases; validate non-static receiver adjustment; continue with non-integer
-  explicit arguments/selected conversions, variadic/NTTP-pack calls, broader
-  dependent expressions, and remaining C++20 overload-ranking rules.
+  cases; continue with non-integer explicit arguments/selected conversions,
+  variadic/NTTP-pack calls, broader dependent expressions, and remaining C++20
+  overload-ranking rules.
+
+## RCC continuation (2026-10-13, inherited non-static member-template receivers)
+
+- [x] Resolve ordinary deduced calls to inherited non-static member templates
+  through a public single-base chain. Register each specialization for code
+  generation and adjust its implicit object argument for nonzero base offsets
+  and virtual-base paths. Compare with GCC C++20 and execute both ordinary- and
+  virtual-base-derived receiver cases on the host after i686/AMD64 generation.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate and full
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  aggregate (both exit 0).
+- [ ] Extend inherited template lookup to multiple-base and using-declaration
+  cases; continue with non-integer explicit arguments/selected conversions,
+  variadic/NTTP-pack calls, broader dependent expressions, and remaining C++20
+  overload-ranking rules.

@@ -20552,8 +20552,41 @@ static bool prepare_cxx_function_template_match(
     return true;
 }
 
+static bool cxx_member_template_this_adjustment(
+    CxxClass* derived, CxxClass* owner, unsigned depth, int* adjustment) {
+    CxxClass* base;
+    int nested_adjustment;
+    int64_t total_adjustment;
+    if (!derived || !owner || !adjustment || depth > 64u) return false;
+    if (derived == owner) {
+        *adjustment = 0;
+        return true;
+    }
+    if (cxx_class_virtual_base_offset(derived, owner, adjustment)) {
+        return true;
+    }
+    if (derived->base_count != 1) return false;
+    base = derived->bases[0].base;
+    if (!base && derived->bases[0].base_name) {
+        base = find_class(derived->bases[0].base_name);
+    }
+    if (!base || !derived->base_offsets || derived->base_offsets[0] < 0 ||
+        !cxx_member_template_this_adjustment(
+            base, owner, depth + 1u, &nested_adjustment)) {
+        return false;
+    }
+    total_adjustment = (int64_t)derived->base_offsets[0] +
+                       nested_adjustment;
+    if (total_adjustment < INT_MIN || total_adjustment > INT_MAX) {
+        return false;
+    }
+    *adjustment = (int)total_adjustment;
+    return true;
+}
+
 static TypeMethod* cxx_materialize_member_function_template(
-    Type* aggregate, CxxMethod* method, Decl* instance) {
+    Type* aggregate, CxxMethod* method, Decl* instance,
+    int this_adjustment) {
     TypeMethod* lowered;
     TypeMethod** tail;
     Type* owner_type;
@@ -20617,7 +20650,7 @@ static TypeMethod* cxx_materialize_member_function_template(
     lowered->is_noexcept = method->is_noexcept;
     lowered->ref_qualifier = method->ref_qualifier;
     lowered->this_owner = owner_type;
-    lowered->this_adjustment = 0;
+    lowered->this_adjustment = this_adjustment;
     lowered->next = NULL;
     tail = &aggregate->methods;
     while (*tail) tail = &(*tail)->next;
@@ -20798,8 +20831,16 @@ static int cxx_materialize_member_function_templates_internal(
             }
         }
         if (!dominated) {
+            int this_adjustment = 0;
+            CxxMethod* method = matched_methods[index];
+            if (!method->is_static &&
+                !cxx_member_template_this_adjustment(
+                    cls, method->owner, 0u, &this_adjustment)) {
+                continue;
+            }
             TypeMethod* lowered = cxx_materialize_member_function_template(
-                aggregate, matched_methods[index], matches[index].instance);
+                aggregate, method, matches[index].instance,
+                this_adjustment);
             if (!lowered) continue;
             lowered->cxx_access = (unsigned char)matched_accesses[index];
             if (result_count >= candidate_capacity || !candidates) {
@@ -20821,7 +20862,7 @@ int rcc_parser_cxx_materialize_member_function_templates(
     TypeMethod** candidates, int candidate_capacity,
     bool* constraint_unsupported) {
     return cxx_materialize_member_function_templates_internal(
-        aggregate, name, arguments, false, explicit_arguments,
+        aggregate, name, arguments, true, explicit_arguments,
         explicit_argument_count, explicit_arguments_specified, candidates,
         candidate_capacity, constraint_unsupported);
 }

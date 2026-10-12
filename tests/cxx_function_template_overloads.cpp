@@ -444,10 +444,18 @@ struct FunctionTemplateMemberCallInheritedTemplateBase {
     static constexpr int value(T argument) {
         return argument + 1;
     }
+
+    template<typename T>
+    int adjust(T argument) {
+        return argument + 1;
+    }
 };
 
 struct FunctionTemplateMemberCallInheritedTemplateDerived
     : FunctionTemplateMemberCallInheritedTemplateBase {};
+
+struct FunctionTemplateMemberCallInheritedTemplateVirtualDerived
+    : virtual FunctionTemplateMemberCallInheritedTemplateBase {};
 
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
     static int value(int argument) { return argument - 1; }
@@ -1950,6 +1958,15 @@ int main(void) {
                 5, FunctionTemplateMemberCallInheritedTemplateDerived,
                 FunctionTemplateValuePackTag<4>, short>{}) != 275) {
         return 129;
+    }
+    FunctionTemplateMemberCallInheritedTemplateDerived inherited_template;
+    if (inherited_template.adjust(3) != 4) {
+        return 130;
+    }
+    FunctionTemplateMemberCallInheritedTemplateVirtualDerived
+        virtual_inherited_template;
+    if (virtual_inherited_template.adjust(4) != 5) {
+        return 131;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<
