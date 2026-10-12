@@ -3185,6 +3185,16 @@ remains a separate open item.
   TEST_OUT=build/tests -j1 test-cxx` gate for this change; it completed with
   exit status 0. The full output is retained in
   `build/tests/test-cxx-full-gate.log`.
+- [x] Cover dependent constexpr member calls that provide zero explicit
+  arguments when the unique viable public static constexpr integer-returning
+  method supplies all arguments through integer defaults. The regression checks
+  a defaulted call evaluating to `25` and the `value() == 1` ordering case,
+  where GCC C++20 selects the dependent-call pattern over the matching fixed
+  value pattern.
+- [x] Pass the focused `test-cxx-function-template-overloads` gate and the full
+  native-Windows `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx` aggregate (exit 0); output is retained in
+  `build/tests/test-cxx-default-zero-gate.log`.
 - [ ] Extend dependent constexpr member-call ranking to variadic overloads,
   NTTP packs, arbitrary dependent call expressions, and other member/receiver
   forms; full C++20 partial ordering and conversion ranking remain incomplete.

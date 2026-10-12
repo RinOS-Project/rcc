@@ -362,6 +362,18 @@ struct FunctionTemplateMemberCallDefaulted {
     static constexpr int value(int argument) { return argument + 100; }
 };
 
+struct FunctionTemplateMemberCallNoExplicitArguments {
+    static constexpr int value(int tens = 2, int units = 5) {
+        return tens * 10 + units;
+    }
+};
+
+struct FunctionTemplateMemberCallNoExplicitArgumentsOne {
+    static constexpr int value(int tens = 0, int units = 1) {
+        return tens * 10 + units;
+    }
+};
+
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
     static int value(int argument) { return argument - 1; }
 };
@@ -621,6 +633,18 @@ int choose_member_call_defaulted_nontype_argument_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         1, Item, FunctionTemplateShortValuePackTag<Value>, Remaining...>) {
     return 256;
+}
+
+template<typename Head, typename... Types>
+int choose_member_call_no_explicit_arguments_class_pack_order(
+    FunctionTemplateMemberValuePackBox<Head::value(), Head, Types...>) {
+    return 257;
+}
+
+template<int Value, typename Item, typename... Remaining>
+int choose_member_call_no_explicit_arguments_class_pack_order(
+    FunctionTemplateMemberValuePackBox<1, Item, Remaining...>) {
+    return 258;
 }
 
 template<typename Head, typename... Types>
@@ -1584,6 +1608,18 @@ int main(void) {
                 4, FunctionTemplateMemberCallDefaulted,
                 FunctionTemplateShortValuePackTag<3>, short>{}) != 255) {
         return 107;
+    }
+    if (choose_member_call_no_explicit_arguments_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                25, FunctionTemplateMemberCallNoExplicitArguments, int>{}) !=
+        257) {
+        return 108;
+    }
+    if (choose_member_call_no_explicit_arguments_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallNoExplicitArgumentsOne,
+                short>{}) != 257) {
+        return 109;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<
