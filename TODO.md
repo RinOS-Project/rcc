@@ -2970,5 +2970,22 @@ separately recorded WSL startup failure.
   `mingw32-make SHELL=cmd.exe test-cxx` suite; it completed successfully
   (exit 0).
 - [ ] Continue dependent call/member expression forms beyond static constexpr
-  members, plus NTTP/template-template packs and full partial ordering and
-  constraints.
+  values and the tested arithmetic compositions, plus NTTP/template-template
+  packs and full partial ordering and constraints.
+
+## RCC continuation (2026-10-12, arithmetic static-member value ordering)
+
+- [x] Recognize supported arithmetic/conditional expression trees containing
+  a type-dependent static-member value when ordering against a fixed integral
+  non-type argument. Require every expression-tree leaf to be supported before
+  treating the dependent expression as deducible.
+- [x] Compare `Head::value + 1` against fixed value `2` with GCC C++20: the
+  fixed overload wins when `Head::value` is `1`, and the dependent overload
+  wins when `Head::value` is `3`.
+- [x] Run
+  `mingw32-make SHELL=cmd.exe test-cxx-function-template-overloads`; i686 and
+  AMD64 generation, AMD64 host execution, GCC execution, and existing
+  ambiguity/no-output diagnostics all pass (exit 0).
+- [ ] Extend beyond these static-member expression compositions to dependent
+  calls and other member forms, non-type/template-template packs, constraints,
+  and full C++20 partial ordering.

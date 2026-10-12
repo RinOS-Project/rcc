@@ -18007,6 +18007,81 @@ static bool cxx_function_template_is_dependent_member_expression(
     return false;
 }
 
+static void cxx_function_template_dependent_member_expression_info(
+    Expr* expression, const CxxTemplate* tmpl, bool* supported,
+    bool* contains_dependent_member, unsigned depth) {
+    int64_t constant_value;
+    if (supported) *supported = false;
+    if (contains_dependent_member) *contains_dependent_member = false;
+    if (!expression || !tmpl || !supported || !contains_dependent_member ||
+        depth > 64u) {
+        return;
+    }
+    if (cxx_function_template_is_dependent_member_expression(
+            expression, tmpl)) {
+        *supported = true;
+        *contains_dependent_member = true;
+        return;
+    }
+    if (expr_eval_integer_constant(expression, &constant_value)) {
+        *supported = true;
+        return;
+    }
+    if (expression->kind == EXPR_NEG || expression->kind == EXPR_NOT ||
+        expression->kind == EXPR_BITNOT) {
+        cxx_function_template_dependent_member_expression_info(
+            expression->unary_operand, tmpl, supported,
+            contains_dependent_member, depth + 1u);
+        return;
+    }
+    if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
+        expression->kind == EXPR_MUL || expression->kind == EXPR_DIV ||
+        expression->kind == EXPR_MOD || expression->kind == EXPR_BITAND ||
+        expression->kind == EXPR_BITOR || expression->kind == EXPR_BITXOR ||
+        expression->kind == EXPR_LSHIFT || expression->kind == EXPR_RSHIFT ||
+        expression->kind == EXPR_EQ || expression->kind == EXPR_NE ||
+        expression->kind == EXPR_LT || expression->kind == EXPR_GT ||
+        expression->kind == EXPR_LE || expression->kind == EXPR_GE ||
+        expression->kind == EXPR_AND || expression->kind == EXPR_OR) {
+        bool left_supported = false;
+        bool right_supported = false;
+        bool left_contains_dependent_member = false;
+        bool right_contains_dependent_member = false;
+        cxx_function_template_dependent_member_expression_info(
+            expression->binary_lhs, tmpl, &left_supported,
+            &left_contains_dependent_member, depth + 1u);
+        cxx_function_template_dependent_member_expression_info(
+            expression->binary_rhs, tmpl, &right_supported,
+            &right_contains_dependent_member, depth + 1u);
+        if (!left_supported || !right_supported) return;
+        *supported = true;
+        *contains_dependent_member = left_contains_dependent_member ||
+            right_contains_dependent_member;
+        return;
+    }
+    if (expression->kind == EXPR_COND) {
+        bool test_supported = false;
+        bool then_supported = false;
+        bool else_supported = false;
+        bool test_contains_dependent_member = false;
+        bool then_contains_dependent_member = false;
+        bool else_contains_dependent_member = false;
+        cxx_function_template_dependent_member_expression_info(
+            expression->cond_test, tmpl, &test_supported,
+            &test_contains_dependent_member, depth + 1u);
+        cxx_function_template_dependent_member_expression_info(
+            expression->cond_then, tmpl, &then_supported,
+            &then_contains_dependent_member, depth + 1u);
+        cxx_function_template_dependent_member_expression_info(
+            expression->cond_else, tmpl, &else_supported,
+            &else_contains_dependent_member, depth + 1u);
+        if (!test_supported || !then_supported || !else_supported) return;
+        *supported = true;
+        *contains_dependent_member = test_contains_dependent_member ||
+            then_contains_dependent_member || else_contains_dependent_member;
+    }
+}
+
 static bool cxx_function_template_partial_order_deduce_value_expression(
     const CxxTemplate* parameter_template, Expr* parameter_expression,
     const CxxTemplate* argument_template, Expr* argument_expression,
@@ -18015,6 +18090,8 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
     int64_t argument_value;
     bool parameter_constant;
     bool argument_constant;
+    bool parameter_expression_supported = false;
+    bool parameter_contains_dependent_member = false;
     if (supported) *supported = false;
     if (!parameter_template || !parameter_expression || !argument_template ||
         !argument_expression || !deduced_arguments || depth > 64u) {
@@ -18026,10 +18103,15 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
         argument_expression, &argument_value);
     if (parameter_constant || argument_constant) {
         if (supported) *supported = true;
-        if (!parameter_constant && argument_constant &&
-            cxx_function_template_is_dependent_member_expression(
-                parameter_expression, parameter_template)) {
-            return true;
+        if (!parameter_constant && argument_constant) {
+            cxx_function_template_dependent_member_expression_info(
+                parameter_expression, parameter_template,
+                &parameter_expression_supported,
+                &parameter_contains_dependent_member, 0u);
+            if (parameter_expression_supported &&
+                parameter_contains_dependent_member) {
+                return true;
+            }
         }
         return parameter_constant && argument_constant &&
             parameter_value == argument_value;
