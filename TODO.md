@@ -3276,7 +3276,7 @@ remains a separate open item.
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
   aggregate (both exit 0).
 - [ ] Continue with non-integer explicit arguments and selected conversions,
-  variadic/NTTP-pack calls, inherited member-function templates, non-static
+  variadic/NTTP-pack calls, multiple-base/using inherited lookup, non-static
   receiver lookup, broader dependent expressions, and remaining C++20
   overload-ranking rules.
 
@@ -3291,7 +3291,25 @@ remains a separate open item.
   test-cxx-function-template-overloads` gate and the full
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
   aggregate (both exit 0).
-- [ ] Extend inherited lookup to member-function templates and non-static
-  receivers; continue with non-integer explicit arguments/selected
-  conversions, variadic/NTTP-pack calls, broader dependent expressions, and
-  remaining C++20 overload-ranking rules.
+- [ ] Extend inherited lookup to multiple-base and using-declaration cases;
+  validate inherited non-static receiver adjustment; continue with non-integer
+  explicit arguments/selected conversions, variadic/NTTP-pack calls, broader
+  dependent expressions, and remaining C++20 overload-ranking rules.
+
+## RCC continuation (2026-10-13, inherited member-function templates)
+
+- [x] Collect visible member-function templates through single-base
+  inheritance when no derived declaration hides the name. Preserve effective
+  access and rank their deduced or explicitly supplied specializations against
+  inherited ordinary methods for bounded dependent constexpr integer calls.
+  Check fixed-value versus dependent-call selection against GCC C++20, with
+  i686/AMD64 output and AMD64 execution.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate and the full
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  aggregate (both exit 0).
+- [ ] Extend inherited template lookup to multiple-base and using-declaration
+  cases; validate non-static receiver adjustment; continue with non-integer
+  explicit arguments/selected conversions, variadic/NTTP-pack calls, broader
+  dependent expressions, and remaining C++20 overload-ranking rules.

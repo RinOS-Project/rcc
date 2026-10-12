@@ -1932,6 +1932,13 @@ static bool cxx_class_has_visible_member_template_named(
     return false;
 }
 
+static int cxx_materialize_member_function_templates_internal(
+    Type* aggregate, const char* name, ExprList* arguments,
+    bool include_inherited, const CxxParsedTemplateArgument* explicit_arguments,
+    int explicit_argument_count, bool explicit_arguments_specified,
+    TypeMethod** candidates, int candidate_capacity,
+    bool* constraint_unsupported);
+
 static bool cxx_eval_dependent_integer_member_template_call(
     Expr* member_expression, ExprList* arguments, int64_t* result) {
     Type* aggregate;
@@ -1957,24 +1964,20 @@ static bool cxx_eval_dependent_integer_member_template_call(
     aggregate = member_expression->member_base->type;
     owner = aggregate->cxx_class;
     if (!owner || aggregate->cxx_dependent) return false;
-    for (struct CxxMember* member = owner->members; member;
-         member = member->next) {
-        CxxMethod* method = member->method;
-        const char* name = method && method->source_name
-            ? method->source_name
-            : method && method->decl ? method->decl->name : NULL;
-        if (!method || strcmp(name ? name : "",
-                              member_expression->member_name) != 0) {
+    has_member_template = cxx_class_has_visible_member_template_named(
+        owner, member_expression->member_name, 0u);
+    if (!has_member_template) return false;
+    for (TypeMethod* method = aggregate->methods;
+         method; method = method->next) {
+        Decl* function = method->function_decl;
+        if (method->kind != TYPE_METHOD_FUNCTION || !function ||
+            function->func_is_template_instance || !method->name ||
+            strcmp(method->name, member_expression->member_name) != 0) {
             continue;
         }
-        if (method->member_template) {
-            has_member_template = true;
-        } else {
-            if (ordinary_count == INT_MAX) return false;
-            ++ordinary_count;
-        }
+        if (ordinary_count == INT_MAX) return false;
+        ++ordinary_count;
     }
-    if (!has_member_template) return false;
     for (ExprList* argument = arguments; argument;
          argument = argument->next) {
         int64_t argument_value;
@@ -1984,8 +1987,8 @@ static bool cxx_eval_dependent_integer_member_template_call(
         }
         ++argument_count;
     }
-    materialized_count = rcc_parser_cxx_materialize_member_function_templates(
-        aggregate, member_expression->member_name, arguments,
+    materialized_count = cxx_materialize_member_function_templates_internal(
+        aggregate, member_expression->member_name, arguments, true,
         member_expression->member_template_arguments,
         member_expression->member_template_argument_count,
         member_expression->member_has_template_arguments,
@@ -2021,23 +2024,21 @@ static bool cxx_eval_dependent_integer_member_template_call(
                 method->function_decl->func_this_param == NULL
             };
     }
-    for (struct CxxMember* member = owner->members; member;
-         member = member->next) {
-        CxxMethod* method = member->method;
-        const char* name = method && method->source_name
-            ? method->source_name
-            : method && method->decl ? method->decl->name : NULL;
-        if (!method || method->member_template ||
-            strcmp(name ? name : "", member_expression->member_name) != 0) {
+    for (TypeMethod* method = aggregate->methods;
+         method; method = method->next) {
+        Decl* function = method->function_decl;
+        if (method->kind != TYPE_METHOD_FUNCTION || !function ||
+            function->func_is_template_instance || !method->name ||
+            strcmp(method->name, member_expression->member_name) != 0) {
             continue;
         }
-        if (candidate_count >= candidate_capacity || !method->decl) {
+        if (candidate_count >= candidate_capacity) {
             return false;
         }
         candidates[candidate_count++] =
             (CxxDependentIntegerMemberCallCandidate){
-                method->decl, false, method->access == ACCESS_PUBLIC,
-                method->is_static
+                function, false, method->cxx_access == ACCESS_PUBLIC,
+                function->func_this_param == NULL
             };
     }
 
@@ -20634,15 +20635,89 @@ static TypeMethod* cxx_materialize_member_function_template(
     return lowered;
 }
 
-int rcc_parser_cxx_materialize_member_function_templates(
+static bool cxx_collect_member_function_template_sources(
+    CxxClass* cls, const char* name, AccessSpec inherited_access,
+    unsigned depth, CxxMethod** methods, AccessSpec* accesses,
+    int capacity, int* count) {
+    bool declares_name = false;
+    CxxClass* inherited_owner = NULL;
+    int inherited_owner_count = 0;
+    if (!cls || !name || !methods || !accesses || !count || capacity < 0 ||
+        depth > 64u) {
+        return false;
+    }
+    for (struct CxxMember* member = cls->members;
+         member; member = member->next) {
+        CxxMethod* method = member->method;
+        const char* member_name = method
+            ? cxx_method_source_name(method)
+            : (member->decl ? member->decl->name : NULL);
+        if (!member_name || strcmp(member_name, name) != 0) continue;
+        declares_name = true;
+        if (!method || !method->member_template) continue;
+        if (*count >= capacity) {
+            rcc_error(method->decl ? method->decl->loc
+                                   : method->member_template->func_def->loc,
+                      "too many member function template overloads for '%s'",
+                      name);
+            return false;
+        }
+        methods[*count] = method;
+        accesses[*count] = method->access > inherited_access
+            ? method->access : inherited_access;
+        ++*count;
+    }
+    if (declares_name) return true;
+    if (class_has_using_base_member_name(cls, name)) return false;
+    if (cls->base_count > 1) {
+        for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+            CxxClass* base = cls->bases[base_index].base;
+            if (!base && cls->bases[base_index].base_name) {
+                base = find_class(cls->bases[base_index].base_name);
+            }
+            if (cxx_class_has_visible_member_template_named(base, name, 0u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        if (!base && cls->bases[base_index].base_name) {
+            base = find_class(cls->bases[base_index].base_name);
+        }
+        if (!base) return false;
+        if (!cxx_class_has_visible_member_template_named(base, name, 0u)) {
+            continue;
+        }
+        inherited_owner = base;
+        ++inherited_owner_count;
+    }
+    if (inherited_owner_count > 1) return false;
+    if (!inherited_owner) return true;
+    AccessSpec base_access = inherited_access;
+    if (cls->bases[0].access > base_access) {
+        base_access = cls->bases[0].access;
+    }
+    return cxx_collect_member_function_template_sources(
+        inherited_owner, name, base_access, depth + 1u, methods, accesses,
+        capacity, count);
+}
+
+static int cxx_materialize_member_function_templates_internal(
     Type* aggregate, const char* name, ExprList* arguments,
+    bool include_inherited,
     const CxxParsedTemplateArgument* explicit_arguments,
     int explicit_argument_count, bool explicit_arguments_specified,
     TypeMethod** candidates, int candidate_capacity,
     bool* constraint_unsupported) {
     CxxClass* cls = aggregate ? aggregate->cxx_class : NULL;
     CxxMethod* source_methods[32] = { NULL };
+    CxxMethod* matched_methods[32] = { NULL };
+    AccessSpec source_accesses[32] = { ACCESS_PUBLIC };
+    AccessSpec matched_accesses[32] = { ACCESS_PUBLIC };
     CxxFunctionTemplateMatch matches[32] = { 0 };
+    int source_count = 0;
     int match_count = 0;
     int result_count = 0;
     CxxNamespace* saved_namespace = active_namespace;
@@ -20652,9 +20727,38 @@ int rcc_parser_cxx_materialize_member_function_templates(
         (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
         return 0;
     }
-    for (struct CxxMember* member = cls->members;
-         member; member = member->next) {
-        CxxMethod* method = member->method;
+    if (include_inherited) {
+        if (!cxx_collect_member_function_template_sources(
+                cls, name, ACCESS_PUBLIC, 0u, source_methods,
+                source_accesses,
+                (int)(sizeof(source_methods) / sizeof(source_methods[0])),
+                &source_count)) {
+            return -1;
+        }
+    } else {
+        for (struct CxxMember* member = cls->members;
+             member; member = member->next) {
+            CxxMethod* method = member->method;
+            const char* method_name = cxx_method_source_name(method);
+            if (!method || !method->member_template || !method_name ||
+                strcmp(method_name, name) != 0) {
+                continue;
+            }
+            if (source_count >=
+                (int)(sizeof(source_methods) / sizeof(source_methods[0]))) {
+                rcc_error(method->decl ? method->decl->loc
+                                       : method->member_template->func_def->loc,
+                          "too many member function template overloads for '%s'",
+                          name);
+                return 0;
+            }
+            source_methods[source_count] = method;
+            source_accesses[source_count] = method->access;
+            ++source_count;
+        }
+    }
+    for (int source_index = 0; source_index < source_count; ++source_index) {
+        CxxMethod* method = source_methods[source_index];
         CxxTemplate* tmpl = method ? method->member_template : NULL;
         CxxFunctionTemplateMatch match;
         bool constraint_invalid = false;
@@ -20665,20 +20769,16 @@ int rcc_parser_cxx_materialize_member_function_templates(
             method->is_destructor || method->is_virtual) {
             continue;
         }
-        if (match_count >= (int)(sizeof(matches) / sizeof(matches[0]))) {
-            rcc_error(method->decl ? method->decl->loc : tmpl->func_def->loc,
-                      "too many member function template overloads for '%s'",
-                      name);
-            break;
-        }
-        active_namespace = tmpl->ns ? tmpl->ns : cls->ns;
+        active_namespace = tmpl->ns ? tmpl->ns
+            : method->owner ? method->owner->ns : cls->ns;
         matched = prepare_cxx_function_template_match(
                 tmpl, arguments,
                 explicit_arguments_specified ? explicit_arguments : NULL,
                 explicit_argument_count, &match,
                 &constraint_invalid, &constraint_unsupported);
         if (matched) {
-            source_methods[match_count] = method;
+            matched_methods[match_count] = method;
+            matched_accesses[match_count] = source_accesses[source_index];
             matches[match_count++] = match;
         }
         unsupported = unsupported || constraint_unsupported;
@@ -20699,8 +20799,9 @@ int rcc_parser_cxx_materialize_member_function_templates(
         }
         if (!dominated) {
             TypeMethod* lowered = cxx_materialize_member_function_template(
-                aggregate, source_methods[index], matches[index].instance);
+                aggregate, matched_methods[index], matches[index].instance);
             if (!lowered) continue;
+            lowered->cxx_access = (unsigned char)matched_accesses[index];
             if (result_count >= candidate_capacity || !candidates) {
                 rcc_error(lowered->function_decl->loc,
                           "member function template candidate limit exceeded for '%s'",
@@ -20711,6 +20812,18 @@ int rcc_parser_cxx_materialize_member_function_templates(
         }
     }
     return result_count;
+}
+
+int rcc_parser_cxx_materialize_member_function_templates(
+    Type* aggregate, const char* name, ExprList* arguments,
+    const CxxParsedTemplateArgument* explicit_arguments,
+    int explicit_argument_count, bool explicit_arguments_specified,
+    TypeMethod** candidates, int candidate_capacity,
+    bool* constraint_unsupported) {
+    return cxx_materialize_member_function_templates_internal(
+        aggregate, name, arguments, false, explicit_arguments,
+        explicit_argument_count, explicit_arguments_specified, candidates,
+        candidate_capacity, constraint_unsupported);
 }
 
 /* Function-address template deduction uses the target function type as the

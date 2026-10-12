@@ -439,6 +439,16 @@ struct FunctionTemplateMemberCallInheritedBase {
 struct FunctionTemplateMemberCallInheritedDerived
     : FunctionTemplateMemberCallInheritedBase {};
 
+struct FunctionTemplateMemberCallInheritedTemplateBase {
+    template<typename T>
+    static constexpr int value(T argument) {
+        return argument + 1;
+    }
+};
+
+struct FunctionTemplateMemberCallInheritedTemplateDerived
+    : FunctionTemplateMemberCallInheritedTemplateBase {};
+
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
     static int value(int argument) { return argument - 1; }
 };
@@ -815,6 +825,36 @@ int choose_inherited_member_call_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         3, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
     return 272;
+}
+
+template<typename Head, int Argument, typename... Types>
+int choose_inherited_member_call_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(Argument), Head,
+        FunctionTemplateValuePackTag<Argument>, Types...>) {
+    return 273;
+}
+
+template<typename Item, int Argument, typename... Remaining>
+int choose_inherited_member_call_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        4, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
+    return 274;
+}
+
+template<typename Head, int Argument, typename... Types>
+int choose_inherited_member_call_template_explicit_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::template value<int>(Argument), Head,
+        FunctionTemplateValuePackTag<Argument>, Types...>) {
+    return 275;
+}
+
+template<typename Item, int Argument, typename... Remaining>
+int choose_inherited_member_call_template_explicit_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        4, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
+    return 276;
 }
 
 template<typename Head, typename... Types>
@@ -1886,6 +1926,30 @@ int main(void) {
                 5, FunctionTemplateMemberCallInheritedDerived,
                 FunctionTemplateValuePackTag<4>, short>{}) != 271) {
         return 125;
+    }
+    if (choose_inherited_member_call_template_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                4, FunctionTemplateMemberCallInheritedTemplateDerived,
+                FunctionTemplateValuePackTag<3>, short>{}) != 274) {
+        return 126;
+    }
+    if (choose_inherited_member_call_template_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                5, FunctionTemplateMemberCallInheritedTemplateDerived,
+                FunctionTemplateValuePackTag<4>, short>{}) != 273) {
+        return 127;
+    }
+    if (choose_inherited_member_call_template_explicit_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                4, FunctionTemplateMemberCallInheritedTemplateDerived,
+                FunctionTemplateValuePackTag<3>, short>{}) != 276) {
+        return 128;
+    }
+    if (choose_inherited_member_call_template_explicit_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                5, FunctionTemplateMemberCallInheritedTemplateDerived,
+                FunctionTemplateValuePackTag<4>, short>{}) != 275) {
+        return 129;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<
