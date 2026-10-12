@@ -405,8 +405,19 @@ RCXX_SRCS = $(SRCDIR)/main_cxx.c
 RCXX_OBJS = $(RCXX_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 
 ifeq ($(OS),Windows_NT)
+ifeq ($(BINDIR),.)
 RCC_TARGET = rcc$(EXE_SUFFIX)
 RCXX_TARGET = rcc++$(EXE_SUFFIX)
+RLD_TARGET = rld$(EXE_SUFFIX)
+AQC_TARGET = aqc$(EXE_SUFFIX)
+RAR_TARGET = rar$(EXE_SUFFIX)
+else
+RCC_TARGET = $(BINDIR)/rcc$(EXE_SUFFIX)
+RCXX_TARGET = $(BINDIR)/rcc++$(EXE_SUFFIX)
+RLD_TARGET = $(BINDIR)/rld$(EXE_SUFFIX)
+AQC_TARGET = $(BINDIR)/aqc$(EXE_SUFFIX)
+RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
+endif
 else
 RCC_TARGET = $(BINDIR)/rcc$(EXE_SUFFIX)
 RCXX_TARGET = $(BINDIR)/rcc++$(EXE_SUFFIX)
@@ -417,9 +428,7 @@ RLD_COMMON_SRCS = $(SRCDIR)/utils.c $(SRCDIR)/emit_ro.c $(SRCDIR)/archive.c $(SR
 RLD_COMMON_OBJS = $(RLD_COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RLD_SRCS = $(SRCDIR)/main_rld.c $(SRCDIR)/linker.c
 RLD_OBJS = $(RLD_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
-ifeq ($(OS),Windows_NT)
-RLD_TARGET = rld$(EXE_SUFFIX)
-else
+ifneq ($(OS),Windows_NT)
 RLD_TARGET = $(BINDIR)/rld$(EXE_SUFFIX)
 endif
 
@@ -436,9 +445,7 @@ endif
 # public RinGPU checkout selected by RINGPU_ROOT.
 AQC_SRCS = $(SRCDIR)/main_aqc.c $(SRCDIR)/aqc.c
 AQC_OBJS = $(AQC_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o) $(OBJDIR)/ringpu_shader.o
-ifeq ($(OS),Windows_NT)
-AQC_TARGET = aqc$(EXE_SUFFIX)
-else
+ifneq ($(OS),Windows_NT)
 AQC_TARGET = $(BINDIR)/aqc$(EXE_SUFFIX)
 endif
 
@@ -447,9 +454,7 @@ RAR_COMMON_SRCS = $(SRCDIR)/utils.c
 RAR_COMMON_OBJS = $(RAR_COMMON_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 RAR_SRCS = $(SRCDIR)/main_rar.c $(SRCDIR)/archive.c
 RAR_OBJS = $(RAR_SRCS:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
-ifeq ($(OS),Windows_NT)
-RAR_TARGET = rar$(EXE_SUFFIX)
-else
+ifneq ($(OS),Windows_NT)
 RAR_TARGET = $(BINDIR)/rar$(EXE_SUFFIX)
 endif
 
