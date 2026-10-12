@@ -440,6 +440,8 @@ struct FunctionTemplateMemberCallInheritedDerived
     : FunctionTemplateMemberCallInheritedBase {};
 
 struct FunctionTemplateMemberCallInheritedTemplateBase {
+    int base_value;
+
     template<typename T>
     static constexpr int value(T argument) {
         return argument + 1;
@@ -447,7 +449,7 @@ struct FunctionTemplateMemberCallInheritedTemplateBase {
 
     template<typename T>
     int adjust(T argument) {
-        return argument + 1;
+        return base_value + argument;
     }
 };
 
@@ -1960,11 +1962,13 @@ int main(void) {
         return 129;
     }
     FunctionTemplateMemberCallInheritedTemplateDerived inherited_template;
+    inherited_template.base_value = 1;
     if (inherited_template.adjust(3) != 4) {
         return 130;
     }
     FunctionTemplateMemberCallInheritedTemplateVirtualDerived
         virtual_inherited_template;
+    virtual_inherited_template.base_value = 1;
     if (virtual_inherited_template.adjust(4) != 5) {
         return 131;
     }
