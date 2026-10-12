@@ -3018,6 +3018,9 @@ separately recorded WSL startup failure.
 - [x] Decode universal-character-name escapes in UTF-8 character literals via
   the UTF-8 encoding path; accept a single-code-unit value such as
   `u8'\u0041'` and diagnose a value that needs multiple UTF-8 code units.
+- [x] Verify four-byte supplementary-plane UTF-8 encoding for
+  `u8"\U0001F600"`, including all four emitted code units and the terminator
+  in the generated AMD64 runtime probe; compile both target architectures.
 - [x] Match GCC C++20 syntax acceptance/rejection, assemble i686 and AMD64
   output, and execute the generated AMD64 probe through
   `test-cxx-utf8-literals` (exit 0).
