@@ -17771,10 +17771,16 @@ static int cxx_function_template_type_parameter_index(
     return -1;
 }
 
+static bool cxx_function_template_partial_order_deduce_value_expression(
+    const CxxTemplate* parameter_template, Expr* parameter_expression,
+    const CxxTemplate* argument_template, Expr* argument_expression,
+    Type** deduced_arguments, bool* supported, unsigned depth);
+
 /* Deduce one transformed function-template parameter pattern from another.
  * This bounded structural subset handles ordinary type parameters nested in
- * pointers and matching class-template-ids. Other shapes stay with the
- * existing ordering paths. */
+ * pointers and matching class-template-ids, including same-position scalar
+ * non-type parameters in those class-template arguments. Other shapes stay
+ * with the existing ordering paths. */
 static bool cxx_function_template_partial_order_deduce_type(
     const CxxTemplate* parameter_template, Type* parameter_pattern,
     const CxxTemplate* argument_template, Type* argument_pattern,
@@ -17874,8 +17880,11 @@ static bool cxx_function_template_partial_order_deduce_type(
             }
             for (int index = 0;
                  index < parameter_class_template->param_count; ++index) {
-                if (parameter_class_template->params[index].kind !=
-                    TPARAM_TYPE) {
+                const TemplateParam* class_parameter =
+                    &parameter_class_template->params[index];
+                if (class_parameter->is_pack ||
+                    (class_parameter->kind != TPARAM_TYPE &&
+                     class_parameter->kind != TPARAM_NONTYPE)) {
                     return false;
                 }
             }
@@ -17888,6 +17897,28 @@ static bool cxx_function_template_partial_order_deduce_type(
                 if (!parameter_argument || !actual_argument) {
                     if (supported) *supported = false;
                     return false;
+                }
+                if (parameter_class_template->params[index].kind ==
+                    TPARAM_NONTYPE) {
+                    bool value_supported = false;
+                    bool value_deduced =
+                        cxx_function_template_partial_order_deduce_value_expression(
+                            parameter_template,
+                            cxx_function_template_class_nontype_argument_expression(
+                                parameter_pattern, index),
+                            argument_template,
+                            cxx_function_template_class_nontype_argument_expression(
+                                argument_pattern, index),
+                            deduced_arguments, &value_supported, depth + 1u);
+                    if (!value_supported) {
+                        if (supported) *supported = false;
+                        return false;
+                    }
+                    if (!value_deduced) {
+                        if (supported) *supported = true;
+                        return false;
+                    }
+                    continue;
                 }
                 nested_deduced = cxx_function_template_partial_order_deduce_type(
                         parameter_template, parameter_argument,
@@ -17942,11 +17973,15 @@ static bool cxx_function_template_partial_order_deduces(
            (size_t)parameter_match->tmpl->param_count);
     for (int index = 0; index < parameter_match->tmpl->param_count; ++index) {
         const TemplateParam* parameter = &parameter_match->tmpl->params[index];
-        if (parameter->kind != TPARAM_TYPE || parameter->is_pack) return false;
+        if (parameter->is_pack ||
+            (parameter->kind != TPARAM_TYPE &&
+             parameter->kind != TPARAM_NONTYPE)) return false;
     }
     for (int index = 0; index < argument_match->tmpl->param_count; ++index) {
         const TemplateParam* parameter = &argument_match->tmpl->params[index];
-        if (parameter->kind != TPARAM_TYPE || parameter->is_pack) return false;
+        if (parameter->is_pack ||
+            (parameter->kind != TPARAM_TYPE &&
+             parameter->kind != TPARAM_NONTYPE)) return false;
     }
     TypeParam* parameter = parameter_function->params;
     TypeParam* argument = argument_function->params;
@@ -18111,6 +18146,10 @@ static void cxx_function_template_dependent_member_expression_info(
              argument = argument->next) {
             bool argument_supported = false;
             bool argument_contains_dependent_member = false;
+            if (cxx_function_template_nontype_parameter_index(
+                    tmpl, argument->expr) >= 0) {
+                continue;
+            }
             cxx_function_template_dependent_member_expression_info(
                 argument->expr, tmpl, &argument_supported,
                 &argument_contains_dependent_member, depth + 1u);
@@ -18232,6 +18271,24 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
         }
         return parameter_constant && argument_constant &&
             parameter_value == argument_value;
+    }
+    if (parameter_expression->kind == EXPR_IDENT) {
+        int parameter_index = cxx_function_template_nontype_parameter_index(
+            parameter_template, parameter_expression);
+        int argument_index = cxx_function_template_nontype_parameter_index(
+            argument_template, argument_expression);
+        if (parameter_index >= 0 && argument_index >= 0) {
+            if (supported) *supported = true;
+            /* The bounded transformed-template mapping preserves parameter
+             * positions; remapped non-type parameter expressions remain
+             * unordered rather than being guessed equivalent. */
+            return parameter_index == argument_index &&
+                cxx_template_type_parameter_mapping_matches(
+                    parameter_template->params[parameter_index].type,
+                    parameter_template,
+                    argument_template->params[argument_index].type,
+                    argument_template);
+        }
     }
     if (parameter_expression->kind != argument_expression->kind) {
         return false;
@@ -18402,7 +18459,11 @@ static bool cxx_function_template_class_pack_expansion_deduce(
     for (int index = 0; index < parameter_match->tmpl->param_count; ++index) {
         const TemplateParam* parameter =
             &parameter_match->tmpl->params[index];
-        if (parameter->kind != TPARAM_TYPE) return false;
+        if (parameter->is_pack && parameter->kind != TPARAM_TYPE) {
+            return false;
+        }
+        if (parameter->kind != TPARAM_TYPE &&
+            parameter->kind != TPARAM_NONTYPE) return false;
         if (parameter->is_pack) {
             ++parameter_pack_count;
             parameter_template_pack_index = index;
@@ -18410,7 +18471,11 @@ static bool cxx_function_template_class_pack_expansion_deduce(
     }
     for (int index = 0; index < argument_match->tmpl->param_count; ++index) {
         const TemplateParam* parameter = &argument_match->tmpl->params[index];
-        if (parameter->kind != TPARAM_TYPE) return false;
+        if (parameter->is_pack && parameter->kind != TPARAM_TYPE) {
+            return false;
+        }
+        if (parameter->kind != TPARAM_TYPE &&
+            parameter->kind != TPARAM_NONTYPE) return false;
         if (parameter->is_pack) {
             ++argument_pack_count;
             argument_template_pack_index = index;

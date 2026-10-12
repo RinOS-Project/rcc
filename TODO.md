@@ -3098,9 +3098,10 @@ remains a separate open item.
   successful full `test-ci` is claimed for this revision.
 - [x] Extend dependent constexpr member-call ordering to unique public static
   constexpr calls with fixed integer-constant arguments and exact arity.
-- [ ] Extend dependent/non-constant call arguments, overloaded/defaulted or
-  variadic member sets, other receiver/member forms and return types; general
-  C++20 partial ordering, constraints, and conversion-sequence ties remain open.
+- [ ] Extend beyond fixed integer arguments and the tested single scalar
+  function-template NTTP argument; overloaded/defaulted or variadic member
+  sets, other receiver/member forms and return types, and general C++20 partial
+  ordering, constraints, and conversion-sequence ties remain open.
 
 ## RCC continuation (2026-10-12, constexpr member-call arguments)
 
@@ -3123,9 +3124,16 @@ remains a separate open item.
 - [x] Re-run `test-cxx-function-template-overloads` and the complete native
   Windows `mingw32-make SHELL=cmd.exe test-cxx` suite after this extension
   (exit 0).
-- [ ] Resolve function-template non-type arguments in dependent calls (for
-  example `Head::value(N)` with `N` deduced through `Tag<N>`); GCC accepts the
-  ordering case but RCC currently diagnoses it as ambiguous. Arbitrary
-  dependent argument expressions, overload resolution/default arguments, and
-  additional constexpr member/receiver forms also remain open; full C++20
-  partial-ordering and conversion-ranking coverage is incomplete.
+- [x] Order a dependent call pattern using one scalar function-template NTTP
+  (`Head::value(Argument)`) when that same parameter is deduced in a nested
+  class-template argument (`FunctionTemplateValuePackTag<Argument>`). The
+  fixed integral pattern wins at value `1`, while the dependent-call pattern
+  wins at value `4`; the corresponding fixed-pattern template uses different
+  parameter names to verify positional rather than spelling-based matching.
+- [x] Pass the GCC C++20 oracle, focused overload gate (i686/AMD64 plus host
+  execution and diagnostic regressions), and complete native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` suite (exit 0).
+- [ ] Extend to multiple/remapped NTTPs, NTTP packs, arbitrary dependent call
+  expressions, overload resolution/default arguments, and other constexpr
+  member/receiver forms; full C++20 partial ordering and conversion ranking
+  remain incomplete.

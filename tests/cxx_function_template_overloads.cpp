@@ -532,6 +532,21 @@ int choose_member_call_dependent_argument_class_pack_order(
     return 248;
 }
 
+template<typename Head, int Argument, typename... Types>
+int choose_member_call_nontype_argument_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(Argument), Head,
+        FunctionTemplateValuePackTag<Argument>, Types...>) {
+    return 249;
+}
+
+template<typename Item, int Value, typename... Remaining>
+int choose_member_call_nontype_argument_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        1, Item, FunctionTemplateValuePackTag<Value>, Remaining...>) {
+    return 250;
+}
+
 template<typename Head, typename... Types>
 int choose_member_arithmetic_value_class_pack_order(
     FunctionTemplateMemberValuePackBox<Head::value + 1, Head, Types...>) {
@@ -1443,6 +1458,18 @@ int main(void) {
                 FunctionTemplateMemberCallArgumentTag<3>, short, char>{}) !=
         247) {
         return 99;
+    }
+    if (choose_member_call_nontype_argument_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallArgumentTwo,
+                FunctionTemplateValuePackTag<0>, int>{}) != 250) {
+        return 100;
+    }
+    if (choose_member_call_nontype_argument_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                4, FunctionTemplateMemberCallArgumentTwo,
+                FunctionTemplateValuePackTag<3>, short, char>{}) != 249) {
+        return 101;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<
