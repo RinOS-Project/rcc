@@ -11822,7 +11822,27 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                         }
                     }
                 } else {
-                    gen64_expr(mod, stmt->return_val);
+                    Type* source_type = stmt->return_val->type;
+                    bool floating_conversion =
+                        (gen64_is_floating(source_type) &&
+                         type_is_integer(current_function_return_type64)) ||
+                        (type_is_integer(source_type) &&
+                         gen64_is_floating(current_function_return_type64)) ||
+                        (gen64_is_floating(source_type) &&
+                         gen64_is_floating(current_function_return_type64));
+                    if (floating_conversion) {
+                        Expr converted_return = {0};
+                        converted_return.kind = EXPR_CAST;
+                        converted_return.loc = stmt->return_val->loc;
+                        converted_return.type =
+                            current_function_return_type64;
+                        converted_return.cast_type =
+                            current_function_return_type64;
+                        converted_return.cast_expr = stmt->return_val;
+                        gen64_expr(mod, &converted_return);
+                    } else {
+                        gen64_expr(mod, stmt->return_val);
+                    }
                 }
                 if (type_is_integer(current_function_return_type64) ||
                     (current_function_return_type64 &&

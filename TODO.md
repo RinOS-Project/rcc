@@ -3346,3 +3346,19 @@ remains a separate open item.
 - [ ] Continue with non-integer explicit arguments/selected conversions,
   variadic/NTTP-pack calls, broader dependent expressions, and remaining C++20
   overload-ranking rules.
+
+## RCC continuation (2026-10-13, arithmetic function return conversions)
+
+- [x] Convert arithmetic return expressions to the declared function return
+  type when either side is floating-point, in both i686 and AMD64 native
+  codegen. Cover floating-to-integer returns from an explicitly instantiated
+  inherited member-function template and integer-to-double returns.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate and the complete
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  aggregate (both exit 0), including target generation, AMD64 execution, and
+  GCC C++20 comparison.
+- [ ] Continue broader non-integer explicit-argument deduction/conversion,
+  variadic and NTTP-pack overloads, dependent expressions, and remaining C++20
+  overload-ranking rules.

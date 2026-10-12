@@ -15,6 +15,8 @@ using ConversionThrowingIntPointerFunction = int (*)(int*);
 using ConversionIntFunction = int (*)(int);
 using ConversionIntPairFunction = int (*)(int, int);
 
+double cxx_integer_return_as_double(int value) { return value; }
+
 void conversion_noexcept_function() noexcept {}
 void conversion_explicit_throwing_function() noexcept(false) {}
 void conversion_explicit_noexcept_function() noexcept(true) {}
@@ -2003,6 +2005,9 @@ int main(void) {
     if (multiple_inherited_template.adjust(3) != 5) {
         return 132;
     }
+    if (multiple_inherited_template.adjust<long>(3) != 5) {
+        return 134;
+    }
     FunctionTemplateMemberCallInheritedTemplateUsingDerived
         using_inherited_template;
     using_inherited_template.padding = 0;
@@ -2011,6 +2016,10 @@ int main(void) {
     if (using_inherited_template.adjust(3) != 5) {
         return 133;
     }
+    const int explicit_double_result =
+        using_inherited_template.adjust<double>(3);
+    if (explicit_double_result != 5) return 135;
+    if (cxx_integer_return_as_double(5) != 5.0) return 136;
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<
                 2, FunctionTemplateMemberValueOne>{}) != 238) {

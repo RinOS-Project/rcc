@@ -17399,7 +17399,8 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     } else {
                         gen_lvalue(mod, stmt->return_val);
                     }
-                } else if (gen_is_floating(current_function_return_type)) {
+                } else if (gen_is_floating(current_function_return_type) ||
+                           gen_is_floating(stmt->return_val->type)) {
                     gen_expr_as_type(mod, stmt->return_val,
                                      current_function_return_type);
                 } else if (current_function_return_type &&
@@ -17435,11 +17436,13 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     gen_expr(mod, stmt->return_val);
                 }
                 if (gen_is_integer64(current_function_return_type) &&
-                    !gen_is_integer64(stmt->return_val->type)) {
+                    !gen_is_integer64(stmt->return_val->type) &&
+                    !gen_is_floating(stmt->return_val->type)) {
                     emit_extend_eax_to_integer64(
                         mod, stmt->return_val->type);
                 } else if (!gen_is_integer64(current_function_return_type) &&
                            !gen_is_floating(current_function_return_type) &&
+                           !gen_is_floating(stmt->return_val->type) &&
                            (type_is_integer(current_function_return_type) ||
                             (current_function_return_type &&
                              current_function_return_type->kind ==
