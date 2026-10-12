@@ -1902,6 +1902,36 @@ static bool cxx_dependent_integer_call_same_parameter_types(
     return !left_parameter && !right_parameter;
 }
 
+static bool cxx_class_has_visible_member_template_named(
+    CxxClass* cls, const char* name, unsigned depth) {
+    bool declares_name = false;
+    if (!cls || !name) return false;
+    if (depth > 64u) return true;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        const char* member_name = method && method->source_name
+            ? method->source_name
+            : method && method->decl ? method->decl->name
+            : member->decl ? member->decl->name : NULL;
+        if (!member_name || strcmp(member_name, name) != 0) continue;
+        declares_name = true;
+        if (method && method->member_template) return true;
+    }
+    if (declares_name) return false;
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        CxxClass* base = cls->bases[base_index].base;
+        if (!base && cls->bases[base_index].base_name) {
+            base = find_class(cls->bases[base_index].base_name);
+        }
+        if (cxx_class_has_visible_member_template_named(
+                base, name, depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static bool cxx_eval_dependent_integer_member_template_call(
     Expr* member_expression, ExprList* arguments, int64_t* result) {
     Type* aggregate;
@@ -15501,14 +15531,18 @@ static bool eval_template_integer_expression(Expr* expression,
         }
         Type* base_type = expression->call_func->member_base->type;
         CxxClass* owner = base_type->cxx_class;
-        CxxMethod* match = NULL;
-        CxxMethod** viable_methods = NULL;
+        TypeMethod* match = NULL;
+        TypeMethod** viable_methods = NULL;
         int* viable_ranks = NULL;
         int argument_count = 0;
         int parameter_count = 0;
         int viable_method_capacity = 0;
         int viable_method_count = 0;
         size_t rank_stride;
+        if (cxx_class_has_visible_member_template_named(
+                owner, expression->call_func->member_name, 0u)) {
+            return false;
+        }
         for (ExprList* argument = expression->call_args; argument;
              argument = argument->next) {
             int64_t argument_value;
@@ -15522,14 +15556,13 @@ static bool eval_template_integer_expression(Expr* expression,
         }
         rank_stride = argument_count > 0 ? (size_t)argument_count : 1u;
         if (argument_count > 0) {
-            for (struct CxxMember* member = owner->members; member;
-                 member = member->next) {
-                CxxMethod* method = member->method;
-                const char* method_name = method && method->source_name
-                    ? method->source_name
-                    : method && method->decl ? method->decl->name : NULL;
-                if (!method || strcmp(method_name ? method_name : "",
-                                      expression->call_func->member_name) != 0) {
+            for (TypeMethod* method = owner->type
+                     ? owner->type->methods : NULL;
+                 method; method = method->next) {
+                if (method->kind != TYPE_METHOD_FUNCTION ||
+                    !method->function_decl || !method->name ||
+                    strcmp(method->name,
+                           expression->call_func->member_name) != 0) {
                     continue;
                 }
                 if (viable_method_capacity == INT_MAX) return false;
@@ -15548,39 +15581,36 @@ static bool eval_template_integer_expression(Expr* expression,
                     sizeof(*viable_ranks) * method_capacity * rank_stride);
             }
         }
-        for (struct CxxMember* member = owner->members; member;
-             member = member->next) {
-            CxxMethod* method = member->method;
-            const char* method_name = method && method->source_name
-                ? method->source_name
-                : method && method->decl ? method->decl->name : NULL;
-            if (!method || strcmp(method_name ? method_name : "",
-                                  expression->call_func->member_name) != 0) {
+        for (TypeMethod* method = owner->type ? owner->type->methods : NULL;
+             method; method = method->next) {
+            Decl* function = method->function_decl;
+            if (method->kind != TYPE_METHOD_FUNCTION || !function ||
+                !method->name || strcmp(method->name,
+                    expression->call_func->member_name) != 0) {
                 continue;
             }
-            if (!method->decl || !method->decl->type ||
-                method->decl->type->kind != TYPE_FUNC) {
+            if (!function->type || function->type->kind != TYPE_FUNC) {
                 return false;
             }
             parameter_count = 0;
             int required_parameter_count = 0;
-            for (DeclList* parameter = method->decl->func_params; parameter;
+            for (DeclList* parameter = function->func_params; parameter;
                  parameter = parameter->next) {
+                if (!parameter->decl) return false;
                 ++parameter_count;
                 if (!parameter->decl->param_default) {
                     ++required_parameter_count;
                 }
             }
-            if (method->decl->type->variadic) {
+            if (function->type->variadic) {
                 if (argument_count >= required_parameter_count) return false;
                 continue;
             }
             if (argument_count < required_parameter_count ||
                 argument_count > parameter_count) continue;
-            if (method->member_template) return false;
             if (argument_count > 0) {
                 ExprList* call_argument = expression->call_args;
-                DeclList* parameter = method->decl->func_params;
+                DeclList* parameter = function->func_params;
                 int* candidate_ranks = viable_ranks +
                     (size_t)viable_method_count * rank_stride;
                 bool viable = true;
@@ -15666,16 +15696,15 @@ static bool eval_template_integer_expression(Expr* expression,
             if (selected < 0) return false;
             match = viable_methods[selected];
         }
-        if (!match || !match->is_static ||
-            match->access != ACCESS_PUBLIC || !match->is_constexpr ||
-            !match->decl || !match->decl->func_is_constexpr ||
-            match->decl->func_this_param || !match->decl->type ||
-            match->decl->type->kind != TYPE_FUNC ||
-            match->decl->type->variadic || match->member_template) {
+        Decl* function = match ? match->function_decl : NULL;
+        if (!match || match->cxx_access != ACCESS_PUBLIC || !function ||
+            !function->func_is_constexpr || function->func_this_param ||
+            !function->type || function->type->kind != TYPE_FUNC ||
+            function->type->variadic) {
             return false;
         }
         ExprList* argument = expression->call_args;
-        DeclList* parameter = match->decl->func_params;
+        DeclList* parameter = function->func_params;
         for (; argument && parameter;
              argument = argument->next, parameter = parameter->next) {
             Type* argument_type = cxx_parser_expression_type(argument->expr);
@@ -15691,7 +15720,7 @@ static bool eval_template_integer_expression(Expr* expression,
         }
         if (argument) return false;
         return rcc_sema_eval_constexpr_integer_call(
-            match->decl, expression->call_args, result);
+            function, expression->call_args, result);
     }
     switch (expression->kind) {
         case EXPR_NEG:

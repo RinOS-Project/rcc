@@ -430,6 +430,15 @@ struct FunctionTemplateMemberCallNonIntegerOverload {
     }
 };
 
+struct FunctionTemplateMemberCallInheritedBase {
+    static constexpr int value(int argument) {
+        return argument + 1;
+    }
+};
+
+struct FunctionTemplateMemberCallInheritedDerived
+    : FunctionTemplateMemberCallInheritedBase {};
+
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
     static int value(int argument) { return argument - 1; }
 };
@@ -791,6 +800,21 @@ int choose_member_call_noninteger_competitor_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         3, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
     return 270;
+}
+
+template<typename Head, int Argument, typename... Types>
+int choose_inherited_member_call_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(Argument), Head,
+        FunctionTemplateValuePackTag<Argument>, Types...>) {
+    return 271;
+}
+
+template<typename Item, int Argument, typename... Remaining>
+int choose_inherited_member_call_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        3, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
+    return 272;
 }
 
 template<typename Head, typename... Types>
@@ -1850,6 +1874,18 @@ int main(void) {
                 5, FunctionTemplateMemberCallNonIntegerOverload,
                 FunctionTemplateValuePackTag<4>, short>{}) != 269) {
         return 123;
+    }
+    if (choose_inherited_member_call_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                3, FunctionTemplateMemberCallInheritedDerived,
+                FunctionTemplateValuePackTag<2>, short>{}) != 272) {
+        return 124;
+    }
+    if (choose_inherited_member_call_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                5, FunctionTemplateMemberCallInheritedDerived,
+                FunctionTemplateValuePackTag<4>, short>{}) != 271) {
+        return 125;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<
