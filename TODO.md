@@ -1671,7 +1671,9 @@
   - [x] multiply/divide/modulo
   - [x] 前置/後置increment/decrementと全integer compound assignment
 - [x] i686/AMD64 SysV integer・pointer scalar variadic ABI
-- [x] SysV aggregate分類、floating-point/aggregate variadic ABI
+- [x] SysV aggregate分類と、boundedなfloating-point／aggregate variadic ABI
+      profileをi686/AMD64で実装・検証。未対応layoutとadjusted `va_list`
+      形態は上記の未完了項目に残す
 - [x] i686 cdeclとAMD64 SysVのfloating scalar variadic引数について、既定昇格、
       XMM register-save領域、`va_arg`のregister/overflow経路を実装
 - [x] bounded PIC/PIE、GOT/PLT、TLS relocation
@@ -1761,8 +1763,11 @@
         `DW_TAG_template_type_parameter`と、signed/unsigned LEB値を保持する
         `DW_TAG_template_value_parameter`を出力。nested class type、正負のsigned
         値、unsigned 32-bit値をi686/AMD64の`test-debug-info`で検証。
-        template-template arguments、template parameter packs、未instantiateの
-        dependent alias/template definition DIEは未完
+        trailing class-template type packsはGCC互換DWARF v4
+        `DW_TAG_GNU_template_parameter_pack`と実引数ごとのtype DIEで出力し、
+        empty packおよび複数要素packを同じ両arch gateで検証。template-template
+        arguments、non-type/function-template packs、未instantiateのdependent
+        alias/template definition DIEは未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
         type/value argumentsを保持し、subprogram DIE配下へtemplate type／
         integral value parameter DIEを出力。i686/AMD64の`test-debug-info`で

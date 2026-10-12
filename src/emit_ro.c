@@ -1090,11 +1090,28 @@ static void debug_type_collect_class_template_arguments(
         ? class_info->template_identity_arg_count
         : class_info->template_arg_count;
     if (!templ || !templ->params || argument_count <= 0) return;
-    for (int index = 0; index < templ->param_count && index < argument_count;
-         ++index) {
+    for (int index = 0; index < templ->param_count; ++index) {
         TemplateParam* parameter = &templ->params[index];
         Type* argument_type = NULL;
-        if (parameter->is_pack) continue;
+        if (parameter->is_pack) {
+            /* Class-template type arguments are stored flattened: the pack
+             * begins at its declared parameter index and extends to the
+             * specialization's argument count.  Only the supported trailing
+             * class-type pack has an unambiguous boundary here. */
+            if (parameter->kind == TPARAM_TYPE &&
+                index == templ->param_count - 1 && arguments) {
+                for (int pack_index = index; pack_index < argument_count;
+                     ++pack_index) {
+                    argument_type = arguments[pack_index];
+                    if (argument_type && !debug_type_is_dependent(
+                            argument_type, 0u)) {
+                        debug_type_collect(context, argument_type);
+                    }
+                }
+            }
+            continue;
+        }
+        if (index >= argument_count) continue;
         if (parameter->kind == TPARAM_TYPE) {
             argument_type = arguments ? arguments[index] : NULL;
         } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -1661,13 +1678,45 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                         : template_class->template_value_present;
                 if (templ && templ->params && argument_count > 0) {
                     for (int parameter_index = 0;
-                         parameter_index < templ->param_count &&
-                             parameter_index < argument_count;
+                         parameter_index < templ->param_count;
                          ++parameter_index) {
                         TemplateParam* parameter =
                             &templ->params[parameter_index];
                         DebugTypeEntry* parameter_type = NULL;
-                        if (!parameter->name || parameter->is_pack) continue;
+                        if (!parameter->name) continue;
+                        if (parameter->is_pack) {
+                            if (parameter->kind == TPARAM_TYPE &&
+                                parameter_index == templ->param_count - 1) {
+                                section_add_byte(info, 50u);
+                                debug_line_u32(
+                                    info, debug_str_add(strings,
+                                                        parameter->name));
+                                for (int pack_index = parameter_index;
+                                     pack_index < argument_count;
+                                     ++pack_index) {
+                                    Type* argument_type = arguments
+                                        ? arguments[pack_index] : NULL;
+                                    if (!argument_type ||
+                                        debug_type_is_dependent(
+                                            argument_type, 0u)) {
+                                        continue;
+                                    }
+                                    parameter_type = debug_type_find(
+                                        context, argument_type);
+                                    if (!parameter_type) {
+                                        rcc_fatal(
+                                            "DWARF class-template pack type was not collected");
+                                        return;
+                                    }
+                                    section_add_byte(info, 51u);
+                                    debug_type_ref(info, patches,
+                                                   parameter_type);
+                                }
+                                section_add_byte(info, 0u);
+                            }
+                            continue;
+                        }
+                        if (parameter_index >= argument_count) continue;
                         if (parameter->kind == TPARAM_TYPE) {
                             Type* argument_type = arguments
                                 ? arguments[parameter_index] : NULL;
@@ -4440,6 +4489,23 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x1cu);    /* DW_AT_const_value */
     debug_line_uleb(abbrev, 0x0fu);    /* DW_FORM_udata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* GCC's DWARF v4-compatible extension represents a template parameter
+     * pack as a named container DIE (0x4107) whose children are the
+     * individual, unnamed template argument DIEs. */
+    debug_line_uleb(abbrev, 50u);
+    debug_line_uleb(abbrev, 0x4107u);  /* DW_TAG_GNU_template_parameter_pack */
+    section_add_byte(abbrev, 1u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 51u);
+    debug_line_uleb(abbrev, 0x2fu);    /* DW_TAG_template_type_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

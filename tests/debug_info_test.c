@@ -773,6 +773,93 @@ static void verify_class_template_parameter_dies(const char* path,
     objfile_free(object);
 }
 
+static void verify_class_template_parameter_pack_dies(
+    const char* path, uint16_t architecture)
+{
+    static const uint8_t pack_abbreviation[] = {
+        50u, 0x87u, 0x82u, 0x01u, 1u, 0x03u, 0x0eu, 0u, 0u
+    };
+    static const uint8_t pack_element_abbreviation[] = {
+        51u, 0x2fu, 0u, 0x49u, 0x13u, 0u, 0u
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    unsigned empty_pack_count = 0u;
+    unsigned two_element_pack_count = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_sequence(abbrev->data, abbrev->size,
+                             pack_abbreviation,
+                             sizeof(pack_abbreviation)));
+    assert(contains_sequence(abbrev->data, abbrev->size,
+                             pack_element_abbreviation,
+                             sizeof(pack_element_abbreviation)));
+
+    for (uint64_t die = 11u; die + 9u <= info->size; ++die) {
+        uint32_t class_name_offset;
+        const char* class_name;
+        uint64_t cursor;
+        uint32_t pack_name_offset;
+        unsigned element_count = 0u;
+        if (info->data[die] != 12u) continue;
+        class_name_offset = read_u32(info->data, die + 1u);
+        if (class_name_offset >= strings->size) continue;
+        class_name = (const char*)strings->data + class_name_offset;
+        if (strncmp(class_name, "DebugTemplatePack.",
+                    sizeof("DebugTemplatePack.") - 1u) != 0) {
+            continue;
+        }
+
+        cursor = die + 9u;
+        assert(cursor < info->size && info->data[cursor++] == 47u);
+        assert(cursor + 8u <= info->size);
+        cursor += 8u; /* fixed Head template argument */
+        assert(cursor < info->size && info->data[cursor++] == 50u);
+        assert(cursor + 4u <= info->size);
+        pack_name_offset = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(pack_name_offset < strings->size &&
+               strcmp((const char*)strings->data + pack_name_offset,
+                      "Tail") == 0);
+        while (cursor < info->size && info->data[cursor] == 51u) {
+            uint32_t type_offset;
+            uint32_t type_name_offset;
+            assert(cursor + 5u <= info->size);
+            ++cursor;
+            type_offset = read_u32(info->data, cursor);
+            cursor += 4u;
+            assert((uint64_t)type_offset + 7u <= info->size &&
+                   info->data[type_offset] == 5u);
+            type_name_offset = read_u32(info->data, type_offset + 1u);
+            assert(type_name_offset < strings->size);
+            if (element_count == 0u) {
+                assert(strcmp((const char*)strings->data + type_name_offset,
+                              "short") == 0);
+            } else if (element_count == 1u) {
+                assert(strcmp((const char*)strings->data + type_name_offset,
+                              "long") == 0);
+            } else {
+                assert(0 && "unexpected extra class-template pack element");
+            }
+            ++element_count;
+        }
+        assert(cursor < info->size && info->data[cursor++] == 0u);
+        if (element_count == 0u) {
+            ++empty_pack_count;
+        } else {
+            assert(element_count == 2u);
+            ++two_element_pack_count;
+        }
+    }
+    assert(empty_pack_count == 1u && two_element_pack_count == 1u);
+    objfile_free(object);
+}
+
 static void verify_cxx_class_type_alias(const char* path,
                                         uint16_t architecture,
                                         const char* alias_name,
@@ -3896,6 +3983,8 @@ int main(int argc, char** argv)
     verify_inline_debug_object(argv[25], ARCH_X64);
     verify_class_template_parameter_dies(argv[26], ARCH_X86);
     verify_class_template_parameter_dies(argv[27], ARCH_X64);
+    verify_class_template_parameter_pack_dies(argv[26], ARCH_X86);
+    verify_class_template_parameter_pack_dies(argv[27], ARCH_X64);
     verify_function_template_parameter_dies(argv[26], ARCH_X86);
     verify_function_template_parameter_dies(argv[27], ARCH_X64);
     return 0;
