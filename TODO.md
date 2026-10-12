@@ -3149,7 +3149,17 @@ remains a separate open item.
   native-Windows `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
   test-cxx` suite (exit 0), including i686/AMD64 generation and AMD64 host
   execution.
-- [ ] Extend to same-arity type-based overload ranking, default-argument and
-  variadic overload evaluation, NTTP packs, arbitrary dependent call
-  expressions, and other constexpr member/receiver forms; full C++20 partial
-  ordering and conversion ranking remain incomplete.
+- [x] Rank same-arity overloads for one integer argument when every candidate
+  has a fixed, by-value integer parameter. Use the existing implicit-conversion
+  ranking and evaluate only a unique best candidate; the regression adds
+  `value(short)` beside `value(int)` and confirms the exact `int` overload wins.
+- [x] Match GCC C++20 and pass `test-cxx-function-template-overloads` plus the
+  complete native-Windows `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests
+  -j1 test-cxx` suite (exit 0), including i686/AMD64 generation and AMD64
+  execution.
+- [x] Commit the implementation and regression on local `main` as
+  `5167167b7eb0d351416004e8f0c54beb9c247fea`; keep it local and do not push.
+- [ ] Extend dependent constexpr member-call ranking to multiple arguments,
+  defaulted and variadic overloads, NTTP packs, arbitrary dependent call
+  expressions, and other member/receiver forms; full C++20 partial ordering
+  and conversion ranking remain incomplete.
