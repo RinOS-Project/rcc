@@ -309,6 +309,23 @@ struct FunctionTemplateMemberValueThree {
     static constexpr int value = 3;
 };
 
+struct FunctionTemplateMemberCallOne {
+    static constexpr int value() { return 1; }
+};
+
+struct FunctionTemplateMemberCallTwo {
+    static constexpr int value() { return 2; }
+};
+
+struct FunctionTemplateMemberCallNonConstexpr {
+    static int value() { return 1; }
+};
+
+struct FunctionTemplateMemberCallPrivate {
+private:
+    static constexpr int value() { return 1; }
+};
+
 template<typename T>
 int choose_template_pack_partial_order(
     FunctionTemplatePackPartialOrderBox<T>) {
@@ -453,6 +470,18 @@ template<typename Head, typename... Types>
 int choose_member_value_class_pack_order(
     FunctionTemplateMemberValuePackBox<1, Head, Types...>) {
     return 236;
+}
+
+template<typename Head, typename... Types>
+int choose_member_call_value_class_pack_order(
+    FunctionTemplateMemberValuePackBox<Head::value(), Head, Types...>) {
+    return 243;
+}
+
+template<typename Head, typename... Types>
+int choose_member_call_value_class_pack_order(
+    FunctionTemplateMemberValuePackBox<1, Head, Types...>) {
+    return 244;
 }
 
 template<typename Head, typename... Types>
@@ -1311,6 +1340,26 @@ int main(void) {
             FunctionTemplateMemberValuePackBox<
                 2, FunctionTemplateMemberValueTwo>{}) != 235) {
         return 82;
+    }
+    if (choose_member_call_value_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallOne, int>{}) != 244) {
+        return 90;
+    }
+    if (choose_member_call_value_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                2, FunctionTemplateMemberCallTwo, short, char>{}) != 243) {
+        return 91;
+    }
+    if (choose_member_call_value_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallNonConstexpr>{}) != 244) {
+        return 92;
+    }
+    if (choose_member_call_value_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallPrivate>{}) != 244) {
+        return 93;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<

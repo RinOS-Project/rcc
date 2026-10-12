@@ -432,6 +432,9 @@ bool cxx_method_virtual_signature_matches(const CxxMethod* derived,
                                           const CxxMethod* base);
 bool cxx_method_override_signature_matches(const CxxMethod* derived,
                                            const CxxMethod* base);
+bool rcc_parser_cxx_eval_template_integer_expression(
+    Expr* expression, CxxTemplate* tmpl, const int64_t* values,
+    const bool* value_present, int64_t* result);
 
 /* Name mangling */
 char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls);

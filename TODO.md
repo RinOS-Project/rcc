@@ -3077,3 +3077,25 @@ remains a separate open item.
 - [ ] Extend dependent non-type pack ordering beyond `sizeof...(Types)` and
   continue full C++20 function-template partial ordering, constraints, and
   conversion-sequence tie coverage.
+
+## RCC continuation (2026-10-12, dependent constexpr member-call ordering)
+
+- [x] Preserve a dependent `Head::value()` class-template non-type argument
+  until `Head` is substituted, then evaluate an unambiguous public static
+  zero-argument constexpr integer member through the existing scalar constexpr
+  evaluator during class-template argument substitution.
+- [x] Compare the dependent call pattern with a fixed integral pattern against
+  GCC C++20: the fixed pattern wins for value `1`; the dependent call wins for
+  value `2`. Cover empty and multi-type trailing packs, and verify that
+  non-constexpr and private members do not hijack the fixed-pattern fallback.
+- [x] Pass `test-cxx-function-template-overloads` and the complete `test-cxx`
+  prerequisite of `test-ci`, including GCC execution, i686/AMD64 generation,
+  AMD64 execution, and existing ambiguity/no-output diagnostics.
+- [x] Run all pre-bootstrap `test-ci` targets successfully on this revision,
+  including C17/C++20, IR/MIR, verified backend, optimizer, DWARF, RIN/RLL/DRV
+  validation, deterministic/property/fuzz gates. The full gate then stopped at
+  `test-bootstrap-core` because WSL returned `Wsl/Service/E_ACCESSDENIED`; no
+  successful full `test-ci` is claimed for this revision.
+- [ ] Extend dependent constexpr calls to arguments, overload sets, other
+  receiver/member forms and return types; complete general C++20 partial
+  ordering, constraints, and conversion-sequence ties remain open.

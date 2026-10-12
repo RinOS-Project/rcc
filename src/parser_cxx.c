@@ -13036,6 +13036,19 @@ static bool cxx_expression_is_dependent(
                        expression->cond_then, expression_template) ||
                    cxx_expression_is_dependent(
                        expression->cond_else, expression_template);
+        case EXPR_CALL:
+            if (cxx_expression_is_dependent(
+                    expression->call_func, expression_template)) {
+                return true;
+            }
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                if (cxx_expression_is_dependent(
+                        argument->expr, expression_template)) {
+                    return true;
+                }
+            }
+            return false;
         default:
             return false;
     }
@@ -15173,6 +15186,38 @@ static bool eval_template_integer_expression(Expr* expression,
         *result = *result != 0;
         return true;
     }
+    if (expression->kind == EXPR_CALL && !expression->call_args &&
+        expression->call_func &&
+        expression->call_func->kind == EXPR_MEMBER &&
+        expression->call_func->member_name &&
+        expression->call_func->member_base &&
+        expression->call_func->member_base->type &&
+        expression->call_func->member_base->type->kind == TYPE_STRUCT &&
+        expression->call_func->member_base->type->cxx_class) {
+        Type* base_type = expression->call_func->member_base->type;
+        CxxClass* owner = base_type->cxx_class;
+        CxxMethod* match = NULL;
+        for (struct CxxMember* member = owner->members; member;
+             member = member->next) {
+            CxxMethod* method = member->method;
+            const char* method_name = method && method->source_name
+                ? method->source_name
+                : method && method->decl ? method->decl->name : NULL;
+            if (!method || !method->is_static ||
+                member->access != ACCESS_PUBLIC || !method->is_constexpr ||
+                !method->decl || !method->decl->func_is_constexpr ||
+                method->decl->func_this_param ||
+                method->decl->func_params ||
+                strcmp(method_name ? method_name : "",
+                       expression->call_func->member_name) != 0) {
+                continue;
+            }
+            if (match) return false;
+            match = method;
+        }
+        return match && rcc_sema_eval_constexpr_integer_call(
+                            match->decl, NULL, result);
+    }
     switch (expression->kind) {
         case EXPR_NEG:
             if (!eval_template_integer_expression(
@@ -15266,6 +15311,13 @@ static bool eval_template_integer_expression(Expr* expression,
         default:
             return false;
     }
+}
+
+bool rcc_parser_cxx_eval_template_integer_expression(
+    Expr* expression, CxxTemplate* tmpl, const int64_t* values,
+    const bool* value_present, int64_t* result) {
+    return eval_template_integer_expression(
+        expression, tmpl, values, value_present, result);
 }
 
 static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
@@ -18028,6 +18080,13 @@ static void cxx_function_template_dependent_member_expression_info(
     }
     if (cxx_function_template_is_dependent_member_expression(
             expression, tmpl)) {
+        *supported = true;
+        *contains_dependent_member = true;
+        return;
+    }
+    if (expression->kind == EXPR_CALL && !expression->call_args &&
+        cxx_function_template_is_dependent_member_expression(
+            expression->call_func, tmpl)) {
         *supported = true;
         *contains_dependent_member = true;
         return;

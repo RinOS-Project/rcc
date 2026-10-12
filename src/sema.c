@@ -7036,6 +7036,22 @@ static bool sema_eval_constexpr_scalar_function(
         &result, declaration->type->ret_type, value);
 }
 
+bool rcc_sema_eval_constexpr_integer_call(Decl* declaration,
+                                          ExprList* arguments,
+                                          int64_t* value) {
+    SemaConstexprScalar result;
+    if (!declaration || !value || !declaration->type ||
+        declaration->type->kind != TYPE_FUNC ||
+        !sema_constexpr_integer_type(declaration->type->ret_type) ||
+        !sema_eval_constexpr_scalar_function(
+            declaration, arguments, NULL, 0, &result) ||
+        result.is_floating || result.is_pointer) {
+        return false;
+    }
+    *value = result.integer_value;
+    return true;
+}
+
 static bool sema_eval_constexpr_scalar_expr(
     Expr* expression, SemaConstexprBinding* bindings,
     int binding_count, SemaConstexprScalar* value) {
