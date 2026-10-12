@@ -2853,6 +2853,24 @@ separately recorded WSL startup failure.
   remaining transformed-template shapes, pack arities and placements,
   dependent non-type/template-template parameters, constraints, and ties.
 
+## RCC continuation (2026-10-12, fixed non-type prefix with class type packs)
+
+- [x] Preserve class-template identity arguments when a trailing type pack
+  follows fixed class-template parameters, including zero and multiple pack
+  elements.
+- [x] Deduce and order overloads using a fixed integral class-template
+  argument followed by a type pack. GCC C++20 and RCC agree that
+  `PackBox<7, Types*...>` beats `PackBox<7, Types...>` for empty, one-element,
+  and multi-element pointer packs, while the plain pack handles non-pointer
+  types.
+- [x] Verify the focused overload gate and full native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` regression suite; both pass (exit 0),
+  including GCC oracle checks, i686/AMD64 generation, AMD64 host execution, and
+  existing ambiguity/no-output diagnostics.
+- [ ] Extend class-pack ordering from matching fixed integral values to
+  dependent non-type expressions, non-type packs, and template-template packs;
+  full C++20 partial ordering, constraints, and conversion ties remain open.
+
 ## RCC continuation (2026-10-12, cv-sensitive template argument identity)
 
 - [x] Keep class-template specializations with nested cv-qualified type

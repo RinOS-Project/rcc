@@ -282,6 +282,12 @@ struct FunctionTemplatePartialOrderBox {};
 template<typename... Types>
 struct FunctionTemplatePackPartialOrderBox {};
 
+template<int Id, typename Type>
+struct FunctionTemplateMixedValueBox {};
+
+template<int Id, typename... Types>
+struct FunctionTemplateMixedValuePackBox {};
+
 template<typename T>
 int choose_template_pack_partial_order(
     FunctionTemplatePackPartialOrderBox<T>) {
@@ -352,6 +358,30 @@ template<typename... Types>
 int choose_compound_pointer_over_plain_pack(
     FunctionTemplatePackPartialOrderBox<Types...>) {
     return 226;
+}
+
+template<typename Type>
+int choose_mixed_value_class_order(
+    FunctionTemplateMixedValueBox<7, Type>) {
+    return 227;
+}
+
+template<typename Type>
+int choose_mixed_value_class_order(
+    FunctionTemplateMixedValueBox<7, Type*>) {
+    return 228;
+}
+
+template<typename... Types>
+int choose_mixed_value_class_pack_order(
+    FunctionTemplateMixedValuePackBox<7, Types...>) {
+    return 229;
+}
+
+template<typename... Types>
+int choose_mixed_value_class_pack_order(
+    FunctionTemplateMixedValuePackBox<7, Types*...>) {
+    return 230;
 }
 
 template<template<typename> class Template, typename T>
@@ -1249,6 +1279,22 @@ int main(void) {
                    count_class_pointer_pack_expansion(
                        FunctionTemplatePackPartialOrderBox<int*, short*>{}) ==
                        222 &&
+                   choose_mixed_value_class_order(
+                       FunctionTemplateMixedValueBox<7, int*>{}) == 228 &&
+                   choose_mixed_value_class_order(
+                       FunctionTemplateMixedValueBox<7, int>{}) == 227 &&
+                   choose_mixed_value_class_order(
+                       FunctionTemplateMixedValueBox<7, const char*>{}) ==
+                       228 &&
+                   choose_mixed_value_class_pack_order(
+                       FunctionTemplateMixedValuePackBox<7, int*>{}) == 230 &&
+                   choose_mixed_value_class_pack_order(
+                       FunctionTemplateMixedValuePackBox<7, int*, short*>{}) ==
+                       230 &&
+                   choose_mixed_value_class_pack_order(
+                       FunctionTemplateMixedValuePackBox<7, int>{}) == 229 &&
+                   choose_mixed_value_class_pack_order(
+                       FunctionTemplateMixedValuePackBox<7>{}) == 230 &&
                    choose_compound_pointer_pack_order(
                        FunctionTemplatePackPartialOrderBox<>{}) == 223 &&
                    choose_compound_pointer_pack_order(
