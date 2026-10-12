@@ -15219,7 +15219,31 @@ static bool eval_template_integer_expression(Expr* expression,
                                   expression->call_func->member_name) != 0) {
                 continue;
             }
-            if (match) return false;
+            if (!method->decl || !method->decl->type ||
+                method->decl->type->kind != TYPE_FUNC) {
+                return false;
+            }
+            parameter_count = 0;
+            int required_parameter_count = 0;
+            for (DeclList* parameter = method->decl->func_params; parameter;
+                 parameter = parameter->next) {
+                ++parameter_count;
+                if (!parameter->decl->param_default) {
+                    ++required_parameter_count;
+                }
+            }
+            if (method->decl->type->variadic) {
+                if (argument_count >= required_parameter_count) return false;
+                continue;
+            }
+            if (argument_count < parameter_count &&
+                argument_count >= required_parameter_count) {
+                /* A defaulted overload can participate, but evaluating its
+                 * omitted arguments is outside this bounded constant path. */
+                return false;
+            }
+            if (argument_count != parameter_count) continue;
+            if (method->member_template || match) return false;
             match = method;
         }
         if (!match || !match->is_static ||
@@ -15230,13 +15254,22 @@ static bool eval_template_integer_expression(Expr* expression,
             match->decl->type->variadic || match->member_template) {
             return false;
         }
-        for (DeclList* parameter = match->decl->func_params; parameter;
-             parameter = parameter->next) {
-            ++parameter_count;
+        ExprList* argument = expression->call_args;
+        DeclList* parameter = match->decl->func_params;
+        for (; argument && parameter;
+             argument = argument->next, parameter = parameter->next) {
+            Type* argument_type = cxx_parser_expression_type(argument->expr);
+            Type* parameter_type = parameter->decl->type;
+            if (!argument_type || !parameter_type ||
+                !type_is_integer(argument_type) ||
+                !type_is_integer(parameter_type) ||
+                !type_is_compatible(argument_type, parameter_type)) {
+                return false;
+            }
         }
-        return argument_count == parameter_count &&
-            rcc_sema_eval_constexpr_integer_call(
-                match->decl, expression->call_args, result);
+        if (argument || parameter) return false;
+        return rcc_sema_eval_constexpr_integer_call(
+            match->decl, expression->call_args, result);
     }
     switch (expression->kind) {
         case EXPR_NEG:

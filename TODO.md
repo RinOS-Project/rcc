@@ -3141,6 +3141,15 @@ remains a separate open item.
 - [x] Pass the GCC C++20 oracle, focused overload gate, and complete native
   Windows `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
   suite (exit 0), covering i686/AMD64 generation and AMD64 execution.
-- [ ] Extend to NTTP packs, arbitrary dependent call expressions, overload
-  resolution/default arguments, and other constexpr member/receiver forms;
-  full C++20 partial ordering and conversion ranking remain incomplete.
+- [x] Resolve the bounded dependent constexpr member-call overload set when
+  exactly one fixed-arity method has the call's argument count and exact
+  compatible integer parameter types. Regression covers a zero-argument and
+  one-argument overload; same-arity overload ranking is not inferred.
+- [x] Match GCC C++20, pass the focused overload gate, and rerun the complete
+  native-Windows `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx` suite (exit 0), including i686/AMD64 generation and AMD64 host
+  execution.
+- [ ] Extend to same-arity type-based overload ranking, default-argument and
+  variadic overload evaluation, NTTP packs, arbitrary dependent call
+  expressions, and other constexpr member/receiver forms; full C++20 partial
+  ordering and conversion ranking remain incomplete.

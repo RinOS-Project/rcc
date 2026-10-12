@@ -340,6 +340,11 @@ struct FunctionTemplateMemberCallArgumentPair {
     }
 };
 
+struct FunctionTemplateMemberCallOverloaded {
+    static constexpr int value() { return 9; }
+    static constexpr int value(int argument) { return argument + 1; }
+};
+
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
     static int value(int argument) { return argument - 1; }
 };
@@ -569,6 +574,21 @@ int choose_member_call_multiple_nontype_arguments_class_pack_order(
         1, Item, FunctionTemplateValuePackTag<FirstValue>,
         FunctionTemplateValuePackTag<SecondValue>, Remaining...>) {
     return 252;
+}
+
+template<typename Head, int Argument, typename... Types>
+int choose_member_call_overloaded_nontype_argument_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(Argument), Head,
+        FunctionTemplateValuePackTag<Argument>, Types...>) {
+    return 253;
+}
+
+template<int Value, typename Item, typename... Remaining>
+int choose_member_call_overloaded_nontype_argument_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        1, Item, FunctionTemplateValuePackTag<Value>, Remaining...>) {
+    return 254;
 }
 
 template<typename Head, typename... Types>
@@ -1508,6 +1528,18 @@ int main(void) {
                 FunctionTemplateValuePackTag<2>,
                 FunctionTemplateValuePackTag<3>, short, char>{}) != 251) {
         return 103;
+    }
+    if (choose_member_call_overloaded_nontype_argument_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallOverloaded,
+                FunctionTemplateValuePackTag<0>, int>{}) != 254) {
+        return 104;
+    }
+    if (choose_member_call_overloaded_nontype_argument_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                4, FunctionTemplateMemberCallOverloaded,
+                FunctionTemplateValuePackTag<3>, short>{}) != 253) {
+        return 105;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<
