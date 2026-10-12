@@ -3134,7 +3134,13 @@ remains a separate open item.
 - [x] Pass the GCC C++20 oracle, focused overload gate (i686/AMD64 plus host
   execution and diagnostic regressions), and complete native-Windows
   `mingw32-make SHELL=cmd.exe test-cxx` suite (exit 0).
-- [ ] Extend to multiple independent NTTP mappings, NTTP packs, arbitrary
-  dependent call expressions, overload resolution/default arguments, and other
-  constexpr member/receiver forms; full C++20 partial ordering and conversion
-  ranking remain incomplete.
+- [x] Verify two independent scalar function-template NTTP mappings in one
+  dependent constexpr member-call ordering case. The mappings use different
+  parameter names and positions; a two-argument `Head::value(First, Second)`
+  distinguishes the fixed-value winner from the dependent-call winner.
+- [x] Pass the GCC C++20 oracle, focused overload gate, and complete native
+  Windows `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  suite (exit 0), covering i686/AMD64 generation and AMD64 execution.
+- [ ] Extend to NTTP packs, arbitrary dependent call expressions, overload
+  resolution/default arguments, and other constexpr member/receiver forms;
+  full C++20 partial ordering and conversion ranking remain incomplete.

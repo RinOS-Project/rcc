@@ -334,6 +334,12 @@ struct FunctionTemplateMemberCallArgumentTwo {
     static constexpr int value(int argument) { return argument + 1; }
 };
 
+struct FunctionTemplateMemberCallArgumentPair {
+    static constexpr int value(int first, int second) {
+        return first * 10 + second;
+    }
+};
+
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
     static int value(int argument) { return argument - 1; }
 };
@@ -545,6 +551,24 @@ int choose_member_call_nontype_argument_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         1, Item, FunctionTemplateValuePackTag<Value>, Remaining...>) {
     return 250;
+}
+
+template<typename Head, int First, int Second, typename... Types>
+int choose_member_call_multiple_nontype_arguments_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(First, Second), Head,
+        FunctionTemplateValuePackTag<First>,
+        FunctionTemplateValuePackTag<Second>, Types...>) {
+    return 251;
+}
+
+template<int SecondValue, typename Item, int FirstValue,
+         typename... Remaining>
+int choose_member_call_multiple_nontype_arguments_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        1, Item, FunctionTemplateValuePackTag<FirstValue>,
+        FunctionTemplateValuePackTag<SecondValue>, Remaining...>) {
+    return 252;
 }
 
 template<typename Head, typename... Types>
@@ -1470,6 +1494,20 @@ int main(void) {
                 4, FunctionTemplateMemberCallArgumentTwo,
                 FunctionTemplateValuePackTag<3>, short, char>{}) != 249) {
         return 101;
+    }
+    if (choose_member_call_multiple_nontype_arguments_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallArgumentPair,
+                FunctionTemplateValuePackTag<0>,
+                FunctionTemplateValuePackTag<1>, int>{}) != 252) {
+        return 102;
+    }
+    if (choose_member_call_multiple_nontype_arguments_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                23, FunctionTemplateMemberCallArgumentPair,
+                FunctionTemplateValuePackTag<2>,
+                FunctionTemplateValuePackTag<3>, short, char>{}) != 251) {
+        return 103;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<
