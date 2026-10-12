@@ -169,10 +169,17 @@ rcc --target x86_64-unknown-rinos -S -o app.s app.c
 rar r libsample.ra sample.ro
 rld --target x86_64-unknown-rinos --shared \
   --dep rinbase.rll --import rin_log_write=rinbase.rll@function \
+  --export rin_public_api@RIN_1 \
   --sign-profile debug --rinsign ../rinsign/rinsign --sign-key debug.pem \
   --public-key debug-public.der -o sample.rll sample.ro
 aqc --dump-ir -o sample.rsh sample.aq
 ```
+
+`--export symbol@version` emits the canonical RIN v3 `RinExportV3` version
+flag and stores the exact version string in the image string table. The
+version is matched exactly by the loader; omitting `@version` emits the
+unversioned ABI name. This keeps RLD-generated `.rll` libraries aligned with
+the `make_rin.py` and `make_rll.py` emitters without changing the image layout.
 
 ## 回帰試験
 

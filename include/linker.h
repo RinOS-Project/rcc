@@ -12,12 +12,20 @@
 
 #define RLD_MAX_DEPENDENCIES 64
 #define RLD_MAX_IMPORTS 4096
+#define RLD_MAX_EXPORTS 4096
 
 typedef struct LinkImportSpec {
     const char* symbol;
     const char* dependency;
     uint16_t kind;
 } LinkImportSpec;
+
+/* An explicit shared-library export.  version is NULL for the unversioned
+ * ABI name; otherwise the exact string is stored in RinExportV3.reserved. */
+typedef struct LinkExportSpec {
+    const char* symbol;
+    const char* version;
+} LinkExportSpec;
 
 /* Linker options */
 typedef struct {
@@ -39,6 +47,8 @@ typedef struct {
     int dependency_count;
     LinkImportSpec imports[RLD_MAX_IMPORTS];
     int import_count;
+    LinkExportSpec exports[RLD_MAX_EXPORTS];
+    int export_count;
 } LinkerOpts;
 
 /* Global linker options */

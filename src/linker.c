@@ -1304,6 +1304,56 @@ static bool linker_data_owner_section_type(SectionType type) {
     return type == SECT_DATA || type == SECT_TLS;
 }
 
+static bool linker_export_symbol_eligible(const GlobalSymbol* symbol) {
+    return symbol != NULL && symbol->resolved &&
+           (symbol->type == SYM_GLOBAL || symbol->type == SYM_WEAK) &&
+           (symbol->binding == BIND_CODE || symbol->binding == BIND_DATA ||
+            symbol->binding == BIND_BSS);
+}
+
+static bool linker_append_export(RinExportV3* record,
+                                 const GlobalSymbol* symbol,
+                                 const char* version,
+                                 char* strings,
+                                 uint32_t* string_size,
+                                 uint64_t base_addr,
+                                 uint64_t image_size) {
+    size_t name_length;
+    size_t version_length = 0u;
+
+    if (!linker_export_symbol_eligible(symbol)) {
+        fprintf(stderr, "rld: export symbol is not a resolved global definition\n");
+        return false;
+    }
+    if (symbol->value < base_addr ||
+        (uint64_t)symbol->value - base_addr >= image_size) {
+        fprintf(stderr, "rld: export %s lies outside the image\n", symbol->name);
+        return false;
+    }
+    name_length = strlen(symbol->name) + 1u;
+    if (version != NULL) version_length = strlen(version) + 1u;
+    if ((uint64_t)*string_size + name_length + version_length > UINT32_MAX) {
+        fprintf(stderr, "rld: export string table is too large\n");
+        return false;
+    }
+
+    record->name_offset = *string_size;
+    memcpy(strings + *string_size, symbol->name, name_length);
+    *string_size += (uint32_t)name_length;
+    record->kind = symbol->binding == BIND_CODE
+        ? RIN_SYMBOL_FUNCTION : RIN_SYMBOL_DATA;
+    record->flags = version != NULL ? RIN_EXPORT_VERSIONED : 0u;
+    record->virtual_address = symbol->value - base_addr;
+    record->size = symbol->size;
+    record->reserved = 0u;
+    if (version != NULL) {
+        record->reserved = *string_size;
+        memcpy(strings + *string_size, version, version_length);
+        *string_size += (uint32_t)version_length;
+    }
+    return true;
+}
+
 static uint16_t linker_rin_section_type(SectionType type) {
     switch (type) {
     case SECT_CODE: return RIN_IMAGE_SECTION_CODE;
@@ -1490,13 +1540,44 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         }
     }
     if (library) {
-        for (symbol = ld->symbols; symbol; symbol = symbol->next) {
-            if (symbol->resolved &&
-                (symbol->type == SYM_GLOBAL || symbol->type == SYM_WEAK) &&
-                (symbol->binding == BIND_CODE || symbol->binding == BIND_DATA ||
-                 symbol->binding == BIND_BSS)) {
+        if (g_linker_opts.export_count != 0) {
+            for (int export_index = 0;
+                 export_index < g_linker_opts.export_count; ++export_index) {
+                const LinkExportSpec* spec =
+                    &g_linker_opts.exports[export_index];
+                GlobalSymbol* export_symbol = find_symbol(ld, spec->symbol);
+                if (!linker_export_symbol_eligible(export_symbol)) {
+                    fprintf(stderr,
+                            "rld: --export symbol is not a resolved global definition: %s\n",
+                            spec->symbol);
+                    return false;
+                }
+                for (int prior = 0; prior < export_index; ++prior) {
+                    const LinkExportSpec* previous =
+                        &g_linker_opts.exports[prior];
+                    if (strcmp(previous->symbol, spec->symbol) == 0 &&
+                        ((previous->version == NULL && spec->version == NULL) ||
+                         (previous->version != NULL && spec->version != NULL &&
+                          strcmp(previous->version, spec->version) == 0))) {
+                        fprintf(stderr,
+                                "rld: duplicate --export specification: %s%s%s\n",
+                                spec->symbol, spec->version ? "@" : "",
+                                spec->version ? spec->version : "");
+                        return false;
+                    }
+                }
                 ++export_count;
-                string_capacity += strlen(symbol->name) + 1u;
+                string_capacity += strlen(export_symbol->name) + 1u;
+                if (spec->version != NULL) {
+                    string_capacity += strlen(spec->version) + 1u;
+                }
+            }
+        } else {
+            for (symbol = ld->symbols; symbol; symbol = symbol->next) {
+                if (linker_export_symbol_eligible(symbol)) {
+                    ++export_count;
+                    string_capacity += strlen(symbol->name) + 1u;
+                }
             }
         }
     }
@@ -1729,28 +1810,32 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         memcpy(strings + string_size, ".exports", length);
         string_size += (uint32_t)length;
         exports = rcc_alloc((size_t)section->file_size);
-        for (symbol = ld->symbols; symbol; symbol = symbol->next) {
-            size_t length;
-            if (!symbol->resolved ||
-                (symbol->type != SYM_GLOBAL && symbol->type != SYM_WEAK) ||
-                (symbol->binding != BIND_CODE && symbol->binding != BIND_DATA &&
-                 symbol->binding != BIND_BSS)) continue;
-            if (symbol->value < ld->base_addr ||
-                (uint64_t)symbol->value - ld->base_addr >= image_size) {
-                fprintf(stderr, "rld: export %s lies outside the image\n", symbol->name);
-                rcc_free(exports); rcc_free(imports); rcc_free(dependencies);
-                rcc_free(relocations); rcc_free(sections); rcc_free(strings);
-                return false;
+        if (g_linker_opts.export_count != 0) {
+            for (int requested = 0;
+                 requested < g_linker_opts.export_count; ++requested) {
+                const LinkExportSpec* spec = &g_linker_opts.exports[requested];
+                symbol = find_symbol(ld, spec->symbol);
+                if (!linker_append_export(&exports[export_index], symbol,
+                                          spec->version, strings, &string_size,
+                                          ld->base_addr, image_size)) {
+                    rcc_free(exports); rcc_free(imports); rcc_free(dependencies);
+                    rcc_free(relocations); rcc_free(sections); rcc_free(strings);
+                    return false;
+                }
+                ++export_index;
             }
-            length = strlen(symbol->name) + 1u;
-            exports[export_index].name_offset = string_size;
-            memcpy(strings + string_size, symbol->name, length);
-            string_size += (uint32_t)length;
-            exports[export_index].kind = symbol->binding == BIND_CODE
-                ? RIN_SYMBOL_FUNCTION : RIN_SYMBOL_DATA;
-            exports[export_index].virtual_address = symbol->value - ld->base_addr;
-            exports[export_index].size = symbol->size;
-            ++export_index;
+        } else {
+            for (symbol = ld->symbols; symbol; symbol = symbol->next) {
+                if (!linker_export_symbol_eligible(symbol)) continue;
+                if (!linker_append_export(&exports[export_index], symbol, NULL,
+                                          strings, &string_size, ld->base_addr,
+                                          image_size)) {
+                    rcc_free(exports); rcc_free(imports); rcc_free(dependencies);
+                    rcc_free(relocations); rcc_free(sections); rcc_free(strings);
+                    return false;
+                }
+                ++export_index;
+            }
         }
     }
 

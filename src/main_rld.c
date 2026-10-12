@@ -11,6 +11,58 @@
 #include <inttypes.h>
 #include <string.h>
 
+static bool rld_valid_export_name(const char* name)
+{
+    size_t length;
+    if (!name || !name[0]) return false;
+    length = strlen(name);
+    if (length > 127u ||
+        !((name[0] >= 'A' && name[0] <= 'Z') ||
+          (name[0] >= 'a' && name[0] <= 'z') || name[0] == '_')) {
+        return false;
+    }
+    for (size_t index = 1u; index < length; ++index) {
+        char value = name[index];
+        if (!((value >= 'A' && value <= 'Z') ||
+              (value >= 'a' && value <= 'z') ||
+              (value >= '0' && value <= '9') || value == '_' ||
+              value == '.' || value == '$')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool rld_valid_export_version(const char* version)
+{
+    size_t length;
+    if (!version || !version[0]) return false;
+    length = strlen(version);
+    if (length > 63u) return false;
+    for (size_t index = 0u; index < length; ++index) {
+        unsigned char value = (unsigned char)version[index];
+        if (value < 0x21u || value > 0x7eu) return false;
+    }
+    return true;
+}
+
+static bool rld_parse_export(char* value, LinkExportSpec* spec)
+{
+    char* separator = strchr(value, '@');
+    const char* version = NULL;
+    if (separator != NULL) {
+        *separator = '\0';
+        version = separator + 1;
+    }
+    if (!rld_valid_export_name(value) ||
+        (separator != NULL && !rld_valid_export_version(version))) {
+        return false;
+    }
+    spec->symbol = value;
+    spec->version = version;
+    return true;
+}
+
 static void print_usage(void) {
     printf("RLD - RinOS Linker v%d.%d.%d\n",
            RCC_VERSION_MAJOR, RCC_VERSION_MINOR, RCC_VERSION_PATCH);
@@ -30,6 +82,7 @@ static void print_usage(void) {
     printf("  --sign-profile <p>               Build profile: debug or release\n");
     printf("  --dep <name.rll>                  Add a signed dependency\n");
     printf("  --import <symbol>=<dep>@<kind>    Add function/data import\n");
+    printf("  --export <symbol>[@<version>]     Add a shared-library export\n");
     printf("  -v            Verbose output\n");
     printf("  -h, --help    Show this help\n");
     printf("  --version     Show version\n");
@@ -60,6 +113,7 @@ static int parse_args(int argc, char** argv) {
         {"import", required_argument, 0, 9},
         {"manifest", required_argument, 0, 10},
         {"sign-profile", required_argument, 0, 11},
+        {"export", required_argument, 0, 12},
         {0, 0, 0, 0}
     };
 
@@ -192,6 +246,19 @@ static int parse_args(int argc, char** argv) {
                 }
                 break;
             }
+            case 12:
+                if (g_linker_opts.export_count >= RLD_MAX_EXPORTS) {
+                    fprintf(stderr, "rld: too many exports\n");
+                    return -1;
+                }
+                if (!rld_parse_export(optarg,
+                                      &g_linker_opts.exports[
+                                          g_linker_opts.export_count])) {
+                    fprintf(stderr, "rld: invalid --export syntax: %s\n", optarg);
+                    return -1;
+                }
+                ++g_linker_opts.export_count;
+                break;
             default:
                 return -1;
         }
@@ -258,6 +325,11 @@ static int parse_args(int argc, char** argv) {
     if (!g_linker_opts.output_explicit) {
         strcpy(g_linker_opts.output_file,
                g_linker_opts.shared ? "a.rll" : "a.rin");
+    }
+
+    if (g_linker_opts.export_count != 0 && !g_linker_opts.shared) {
+        fprintf(stderr, "rld: --export is only valid with --shared\n");
+        return -1;
     }
 
     if (!rcc_validate_signing_options("rld", true)) {
