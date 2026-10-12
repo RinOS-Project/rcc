@@ -17774,17 +17774,19 @@ static int cxx_function_template_type_parameter_index(
 static bool cxx_function_template_partial_order_deduce_value_expression(
     const CxxTemplate* parameter_template, Expr* parameter_expression,
     const CxxTemplate* argument_template, Expr* argument_expression,
-    Type** deduced_arguments, bool* supported, unsigned depth);
+    Type** deduced_arguments, int* deduced_value_parameters,
+    bool* supported, unsigned depth);
 
 /* Deduce one transformed function-template parameter pattern from another.
  * This bounded structural subset handles ordinary type parameters nested in
- * pointers and matching class-template-ids, including same-position scalar
- * non-type parameters in those class-template arguments. Other shapes stay
- * with the existing ordering paths. */
+ * pointers and matching class-template-ids, including consistently mapped
+ * scalar non-type parameters in those class-template arguments. Other shapes
+ * stay with the existing ordering paths. */
 static bool cxx_function_template_partial_order_deduce_type(
     const CxxTemplate* parameter_template, Type* parameter_pattern,
     const CxxTemplate* argument_template, Type* argument_pattern,
-    Type** deduced_arguments, bool* supported, unsigned depth) {
+    Type** deduced_arguments, int* deduced_value_parameters,
+    bool* supported, unsigned depth) {
     int parameter_index;
     int argument_index;
     if (supported) *supported = false;
@@ -17846,7 +17848,8 @@ static bool cxx_function_template_partial_order_deduce_type(
             return cxx_function_template_partial_order_deduce_type(
                 parameter_template, parameter_pattern->base,
                 argument_template, argument_pattern->base,
-                deduced_arguments, supported, depth + 1u);
+                deduced_arguments, deduced_value_parameters, supported,
+                depth + 1u);
         case TYPE_STRUCT:
         case TYPE_UNION: {
             CxxTemplate* parameter_class_template = NULL;
@@ -17909,7 +17912,8 @@ static bool cxx_function_template_partial_order_deduce_type(
                             argument_template,
                             cxx_function_template_class_nontype_argument_expression(
                                 argument_pattern, index),
-                            deduced_arguments, &value_supported, depth + 1u);
+                            deduced_arguments, deduced_value_parameters,
+                            &value_supported, depth + 1u);
                     if (!value_supported) {
                         if (supported) *supported = false;
                         return false;
@@ -17923,7 +17927,8 @@ static bool cxx_function_template_partial_order_deduce_type(
                 nested_deduced = cxx_function_template_partial_order_deduce_type(
                         parameter_template, parameter_argument,
                         argument_template, actual_argument,
-                        deduced_arguments, &nested_supported, depth + 1u);
+                        deduced_arguments, deduced_value_parameters,
+                        &nested_supported, depth + 1u);
                 if (!nested_supported) {
                     if (supported) *supported = false;
                     return false;
@@ -17949,6 +17954,7 @@ static bool cxx_function_template_partial_order_deduces(
     Type* parameter_function;
     Type* argument_function;
     Type** deduced_arguments;
+    int* deduced_value_parameters;
     if (supported) *supported = false;
     if (!parameter_match || !argument_match || !parameter_match->tmpl ||
         !argument_match->tmpl || parameter_match->has_function_parameter_pack ||
@@ -17971,6 +17977,12 @@ static bool cxx_function_template_partial_order_deduces(
     memset(deduced_arguments, 0,
            sizeof(*deduced_arguments) *
            (size_t)parameter_match->tmpl->param_count);
+    deduced_value_parameters = ast_arena_alloc(
+        sizeof(*deduced_value_parameters) *
+        (size_t)parameter_match->tmpl->param_count);
+    for (int index = 0; index < parameter_match->tmpl->param_count; ++index) {
+        deduced_value_parameters[index] = -1;
+    }
     for (int index = 0; index < parameter_match->tmpl->param_count; ++index) {
         const TemplateParam* parameter = &parameter_match->tmpl->params[index];
         if (parameter->is_pack ||
@@ -18001,7 +18013,7 @@ static bool cxx_function_template_partial_order_deduces(
         if (!cxx_function_template_partial_order_deduce_type(
                 parameter_match->tmpl, parameter->type,
                 argument_match->tmpl, argument->type, deduced_arguments,
-                &parameter_supported, 0u)) {
+                deduced_value_parameters, &parameter_supported, 0u)) {
             if (parameter_supported && supported) *supported = true;
             return false;
         }
@@ -18049,10 +18061,12 @@ static bool cxx_function_template_class_pack_expansion_deduce_element(
     const CxxTemplate* parameter_template, int parameter_pack_index,
     Type* parameter_pattern, const CxxTemplate* argument_template,
     int argument_pack_index, Type* argument_pattern,
-    Type** deduced_arguments, bool* supported) {
+    Type** deduced_arguments, int* deduced_value_parameters,
+    bool* supported) {
     TemplateParam parameter_params[32];
     TemplateParam argument_params[32];
     Type* element_deduced_arguments[32] = { NULL };
+    int element_deduced_value_parameters[32];
     CxxTemplate parameter_template_view;
     CxxTemplate argument_template_view;
     bool nested_supported = false;
@@ -18066,7 +18080,8 @@ static bool cxx_function_template_class_pack_expansion_deduce_element(
         parameter_pack_index >= parameter_template->param_count ||
         argument_pack_index < 0 ||
         argument_pack_index >= argument_template->param_count ||
-        !parameter_pattern || !argument_pattern || !deduced_arguments) {
+        !parameter_pattern || !argument_pattern || !deduced_arguments ||
+        !deduced_value_parameters) {
         return false;
     }
     memcpy(parameter_params, parameter_template->params,
@@ -18081,16 +18096,21 @@ static bool cxx_function_template_class_pack_expansion_deduce_element(
     argument_template_view.params = argument_params;
     memcpy(element_deduced_arguments, deduced_arguments,
            sizeof(Type*) * (size_t)parameter_template->param_count);
+    memcpy(element_deduced_value_parameters, deduced_value_parameters,
+           sizeof(int) * (size_t)parameter_template->param_count);
     deduced = cxx_function_template_partial_order_deduce_type(
         &parameter_template_view, parameter_pattern,
         &argument_template_view, argument_pattern,
-        element_deduced_arguments, &nested_supported, 0u);
+        element_deduced_arguments, element_deduced_value_parameters,
+        &nested_supported, 0u);
     if (!nested_supported) return false;
     if (!deduced) {
         if (supported) *supported = true;
         return false;
     }
     for (int index = 0; index < parameter_template->param_count; ++index) {
+        deduced_value_parameters[index] =
+            element_deduced_value_parameters[index];
         if (index != parameter_pack_index &&
             parameter_template->params[index].kind == TPARAM_TYPE &&
             element_deduced_arguments[index]) {
@@ -18241,7 +18261,8 @@ static void cxx_function_template_dependent_member_expression_info(
 static bool cxx_function_template_partial_order_deduce_value_expression(
     const CxxTemplate* parameter_template, Expr* parameter_expression,
     const CxxTemplate* argument_template, Expr* argument_expression,
-    Type** deduced_arguments, bool* supported, unsigned depth) {
+    Type** deduced_arguments, int* deduced_value_parameters,
+    bool* supported, unsigned depth) {
     int64_t parameter_value;
     int64_t argument_value;
     bool parameter_constant;
@@ -18250,7 +18271,8 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
     bool parameter_contains_dependent_member = false;
     if (supported) *supported = false;
     if (!parameter_template || !parameter_expression || !argument_template ||
-        !argument_expression || !deduced_arguments || depth > 64u) {
+        !argument_expression || !deduced_arguments ||
+        !deduced_value_parameters || depth > 64u) {
         return false;
     }
     parameter_constant = expr_eval_integer_constant(
@@ -18279,15 +18301,19 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
             argument_template, argument_expression);
         if (parameter_index >= 0 && argument_index >= 0) {
             if (supported) *supported = true;
-            /* The bounded transformed-template mapping preserves parameter
-             * positions; remapped non-type parameter expressions remain
-             * unordered rather than being guessed equivalent. */
-            return parameter_index == argument_index &&
-                cxx_template_type_parameter_mapping_matches(
+            if (!cxx_template_type_parameter_mapping_matches(
                     parameter_template->params[parameter_index].type,
                     parameter_template,
                     argument_template->params[argument_index].type,
-                    argument_template);
+                    argument_template)) {
+                return false;
+            }
+            if (deduced_value_parameters[parameter_index] >= 0) {
+                return deduced_value_parameters[parameter_index] ==
+                    argument_index;
+            }
+            deduced_value_parameters[parameter_index] = argument_index;
+            return true;
         }
     }
     if (parameter_expression->kind != argument_expression->kind) {
@@ -18303,7 +18329,8 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
         type_deduced = cxx_function_template_partial_order_deduce_type(
             parameter_template, parameter_expression->sizeof_type,
             argument_template, argument_expression->sizeof_type,
-            deduced_arguments, &type_supported, 0u);
+            deduced_arguments, deduced_value_parameters,
+            &type_supported, 0u);
         if (!type_supported) return false;
         if (supported) *supported = true;
         return type_deduced;
@@ -18316,7 +18343,8 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
             cxx_function_template_partial_order_deduce_value_expression(
                 parameter_template, parameter_expression->unary_operand,
                 argument_template, argument_expression->unary_operand,
-                deduced_arguments, &operand_supported, depth + 1u);
+                deduced_arguments, deduced_value_parameters,
+                &operand_supported, depth + 1u);
         if (!operand_supported) return false;
         if (supported) *supported = true;
         return operand_deduced;
@@ -18345,12 +18373,14 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
             cxx_function_template_partial_order_deduce_value_expression(
                 parameter_template, parameter_expression->binary_lhs,
                 argument_template, argument_expression->binary_lhs,
-                deduced_arguments, &left_supported, depth + 1u);
+                deduced_arguments, deduced_value_parameters,
+                &left_supported, depth + 1u);
         bool right_deduced =
             cxx_function_template_partial_order_deduce_value_expression(
                 parameter_template, parameter_expression->binary_rhs,
                 argument_template, argument_expression->binary_rhs,
-                deduced_arguments, &right_supported, depth + 1u);
+                deduced_arguments, deduced_value_parameters,
+                &right_supported, depth + 1u);
         if (!left_supported || !right_supported) return false;
         if (supported) *supported = true;
         return left_deduced && right_deduced;
@@ -18363,17 +18393,20 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
             cxx_function_template_partial_order_deduce_value_expression(
                 parameter_template, parameter_expression->cond_test,
                 argument_template, argument_expression->cond_test,
-                deduced_arguments, &test_supported, depth + 1u);
+                deduced_arguments, deduced_value_parameters,
+                &test_supported, depth + 1u);
         bool then_deduced =
             cxx_function_template_partial_order_deduce_value_expression(
                 parameter_template, parameter_expression->cond_then,
                 argument_template, argument_expression->cond_then,
-                deduced_arguments, &then_supported, depth + 1u);
+                deduced_arguments, deduced_value_parameters,
+                &then_supported, depth + 1u);
         bool else_deduced =
             cxx_function_template_partial_order_deduce_value_expression(
                 parameter_template, parameter_expression->cond_else,
                 argument_template, argument_expression->cond_else,
-                deduced_arguments, &else_supported, depth + 1u);
+                deduced_arguments, deduced_value_parameters,
+                &else_supported, depth + 1u);
         if (!test_supported || !then_supported || !else_supported) {
             return false;
         }
@@ -18387,12 +18420,14 @@ static bool cxx_function_template_class_pack_nontype_values_match(
     const CxxFunctionTemplateMatch* parameter_match,
     const CxxFunctionTemplateMatch* argument_match,
     Type* parameter_type, Type* argument_type, int argument_index,
-    Type** deduced_arguments, bool* supported) {
+    Type** deduced_arguments, int* deduced_value_parameters,
+    bool* supported) {
     int64_t parameter_value;
     int64_t argument_value;
     if (supported) *supported = false;
     if (!parameter_match || !parameter_match->tmpl || !argument_match ||
-        !argument_match->tmpl || !deduced_arguments) {
+        !argument_match->tmpl || !deduced_arguments ||
+        !deduced_value_parameters) {
         return false;
     }
     if (cxx_function_template_class_nontype_argument_value(
@@ -18415,7 +18450,7 @@ static bool cxx_function_template_class_pack_nontype_values_match(
         cxx_function_template_partial_order_deduce_value_expression(
             parameter_match->tmpl, parameter_expression,
             argument_match->tmpl, argument_expression, deduced_arguments,
-            &nested_supported, 0u);
+            deduced_value_parameters, &nested_supported, 0u);
     if (!nested_supported) return false;
     if (supported) *supported = true;
     return nested_deduced;
@@ -18445,6 +18480,7 @@ static bool cxx_function_template_class_pack_expansion_deduce(
     bool parameter_direct_pack_pattern;
     bool argument_direct_pack_pattern;
     Type* deduced_arguments[32] = { NULL };
+    int deduced_value_parameters[32];
     if (supported) *supported = false;
     if (!parameter_match || !argument_match || !parameter_match->tmpl ||
         !argument_match->tmpl || parameter_match->has_function_parameter_pack ||
@@ -18455,6 +18491,9 @@ static bool cxx_function_template_class_pack_expansion_deduce(
         parameter_match->tmpl->param_count > 32 ||
         argument_match->tmpl->param_count > 32) {
         return false;
+    }
+    for (int index = 0; index < 32; ++index) {
+        deduced_value_parameters[index] = -1;
     }
     for (int index = 0; index < parameter_match->tmpl->param_count; ++index) {
         const TemplateParam* parameter =
@@ -18588,7 +18627,7 @@ static bool cxx_function_template_class_pack_expansion_deduce(
                 cxx_function_template_class_pack_nontype_values_match(
                     parameter_match, argument_match, parameter_type,
                     argument_type, index, deduced_arguments,
-                    &element_supported);
+                    deduced_value_parameters, &element_supported);
             if (!value_deduced) {
                 if (element_supported && supported) *supported = true;
                 return false;
@@ -18599,7 +18638,8 @@ static bool cxx_function_template_class_pack_expansion_deduce(
                     parameter_match->tmpl, parameter_template_pack_index,
                     parameter_arguments[index], argument_match->tmpl,
                     argument_template_pack_index, argument_arguments[index],
-                    deduced_arguments, &element_supported);
+                    deduced_arguments, deduced_value_parameters,
+                    &element_supported);
             if (!type_deduced) {
                 if (element_supported && supported) *supported = true;
                 return false;
@@ -18619,7 +18659,7 @@ static bool cxx_function_template_class_pack_expansion_deduce(
                 parameter_arguments[parameter_pack_index],
                 argument_match->tmpl, argument_template_pack_index,
                 argument_arguments[index], deduced_arguments,
-                &element_supported);
+                deduced_value_parameters, &element_supported);
         if (!type_deduced) {
             if (element_supported && supported) *supported = true;
             return false;
@@ -18631,7 +18671,7 @@ static bool cxx_function_template_class_pack_expansion_deduce(
             parameter_arguments[parameter_pack_index], argument_match->tmpl,
             argument_template_pack_index,
             argument_arguments[argument_pack_index], deduced_arguments,
-            supported);
+            deduced_value_parameters, supported);
     if (!pack_deduced) {
         return false;
     }

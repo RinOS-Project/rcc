@@ -540,7 +540,7 @@ int choose_member_call_nontype_argument_class_pack_order(
     return 249;
 }
 
-template<typename Item, int Value, typename... Remaining>
+template<int Value, typename Item, typename... Remaining>
 int choose_member_call_nontype_argument_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         1, Item, FunctionTemplateValuePackTag<Value>, Remaining...>) {
