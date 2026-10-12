@@ -15199,6 +15199,8 @@ static bool eval_template_integer_expression(Expr* expression,
         CxxMethod* match = NULL;
         int argument_count = 0;
         int parameter_count = 0;
+        int selected_argument_rank = INT_MAX;
+        bool ambiguous_argument_rank = false;
         for (ExprList* argument = expression->call_args; argument;
              argument = argument->next) {
             int64_t argument_value;
@@ -15243,10 +15245,36 @@ static bool eval_template_integer_expression(Expr* expression,
                 return false;
             }
             if (argument_count != parameter_count) continue;
-            if (method->member_template || match) return false;
+            if (method->member_template) return false;
+            if (argument_count == 1) {
+                ExprList* call_argument = expression->call_args;
+                DeclList* parameter = method->decl->func_params;
+                Type* parameter_type = parameter && parameter->decl
+                    ? parameter->decl->type : NULL;
+                int conversion_rank;
+                if (!call_argument || call_argument->next || !parameter ||
+                    parameter->next || !parameter_type ||
+                    parameter_type->is_reference ||
+                    !type_is_integer(parameter_type)) {
+                    return false;
+                }
+                conversion_rank =
+                    cxx_parser_function_template_overload_conversion_rank(
+                        call_argument->expr, parameter_type, NULL);
+                if (conversion_rank < 0) continue;
+                if (!match || conversion_rank < selected_argument_rank) {
+                    match = method;
+                    selected_argument_rank = conversion_rank;
+                    ambiguous_argument_rank = false;
+                } else if (conversion_rank == selected_argument_rank) {
+                    ambiguous_argument_rank = true;
+                }
+                continue;
+            }
+            if (match) return false;
             match = method;
         }
-        if (!match || !match->is_static ||
+        if (ambiguous_argument_rank || !match || !match->is_static ||
             match->access != ACCESS_PUBLIC || !match->is_constexpr ||
             !match->decl || !match->decl->func_is_constexpr ||
             match->decl->func_this_param || !match->decl->type ||
@@ -15263,7 +15291,8 @@ static bool eval_template_integer_expression(Expr* expression,
             if (!argument_type || !parameter_type ||
                 !type_is_integer(argument_type) ||
                 !type_is_integer(parameter_type) ||
-                !type_is_compatible(argument_type, parameter_type)) {
+                (argument_count != 1 &&
+                 !type_is_compatible(argument_type, parameter_type))) {
                 return false;
             }
         }

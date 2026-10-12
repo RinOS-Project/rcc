@@ -343,6 +343,7 @@ struct FunctionTemplateMemberCallArgumentPair {
 struct FunctionTemplateMemberCallOverloaded {
     static constexpr int value() { return 9; }
     static constexpr int value(int argument) { return argument + 1; }
+    static constexpr int value(short argument) { return argument + 2; }
 };
 
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
