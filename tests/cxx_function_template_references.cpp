@@ -739,6 +739,27 @@ int main() {
             return 58;
     }
     if (converted_temporary_events != 7) return 59;
+    int rvalue_temporary_events = 0;
+    {
+        LifetimeExtendedTemporary&& rvalue_temporary =
+            LifetimeExtendedTemporary{&rvalue_temporary_events, 3};
+        if (rvalue_temporary.value != 3 || rvalue_temporary_events != 0)
+            return 81;
+        if (double_value(5) != 10 || rvalue_temporary_events != 0)
+            return 82;
+    }
+    if (rvalue_temporary_events != 3) return 83;
+    int const_rvalue_temporary_events = 0;
+    {
+        const LifetimeExtendedTemporary&& const_rvalue_temporary =
+            LifetimeExtendedTemporary{&const_rvalue_temporary_events, 4};
+        if (const_rvalue_temporary.value != 4 ||
+            const_rvalue_temporary_events != 0)
+            return 84;
+        if (double_value(6) != 12 || const_rvalue_temporary_events != 0)
+            return 85;
+    }
+    if (const_rvalue_temporary_events != 4) return 86;
     int converted_derived_events = 0;
     {
         const LifetimeExtendedBase& converted_derived =

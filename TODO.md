@@ -554,6 +554,11 @@
         binding, conditional/comma arguments, statement/condition/return
         boundaries, and destructor order are covered by
         `test-cxx-function-template-references`.
+  - [x] Verify automatic lifetime extension when a direct class prvalue binds
+        to mutable `T&&` and `const T&&` locals. Both objects remain alive
+        across a subsequent call and are destroyed exactly once at scope exit;
+        GCC C++20, i686/AMD64 generation, and x64 execution pass in
+        `test-cxx-function-template-references`.
   - [x] Verify nontrivial class-prvalue member-receiver lifetime and destructor
         order for both function-return and compound receivers. The regression
         checks method-before-destructor ordering and exactly-once destruction,
