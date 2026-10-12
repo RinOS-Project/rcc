@@ -291,6 +291,9 @@ struct FunctionTemplateMixedValuePackBox {};
 template<int Size, typename Head, typename... Types>
 struct FunctionTemplateDependentValuePackBox {};
 
+template<int Size, typename Head, typename... Types>
+struct FunctionTemplateArithmeticValuePackBox {};
+
 template<typename T>
 int choose_template_pack_partial_order(
     FunctionTemplatePackPartialOrderBox<T>) {
@@ -397,6 +400,20 @@ template<typename Head, typename... Types>
 int choose_dependent_value_class_pack_order(
     FunctionTemplateDependentValuePackBox<sizeof(Head), Head, Types*...>) {
     return 232;
+}
+
+template<typename Head, typename... Types>
+int choose_arithmetic_value_class_pack_order(
+    FunctionTemplateArithmeticValuePackBox<sizeof(Head) + 1, Head,
+                                           Types...>) {
+    return 233;
+}
+
+template<typename Head, typename... Types>
+int choose_arithmetic_value_class_pack_order(
+    FunctionTemplateArithmeticValuePackBox<sizeof(Head) + 1, Head,
+                                           Types*...>) {
+    return 234;
 }
 
 template<template<typename> class Template, typename T>
@@ -1319,6 +1336,15 @@ int main(void) {
                    choose_dependent_value_class_pack_order(
                        FunctionTemplateDependentValuePackBox<
                            sizeof(long), long>{}) == 232 &&
+                   choose_arithmetic_value_class_pack_order(
+                       FunctionTemplateArithmeticValuePackBox<
+                           sizeof(int) + 1, int, int*>{}) == 234 &&
+                   choose_arithmetic_value_class_pack_order(
+                       FunctionTemplateArithmeticValuePackBox<
+                           sizeof(short) + 1, short, int, short*>{}) == 233 &&
+                   choose_arithmetic_value_class_pack_order(
+                       FunctionTemplateArithmeticValuePackBox<
+                           sizeof(long) + 1, long>{}) == 234 &&
                    choose_compound_pointer_pack_order(
                        FunctionTemplatePackPartialOrderBox<>{}) == 223 &&
                    choose_compound_pointer_pack_order(

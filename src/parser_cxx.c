@@ -17964,6 +17964,121 @@ static bool cxx_function_template_class_pack_expansion_deduce_element(
     return true;
 }
 
+static bool cxx_function_template_partial_order_deduce_value_expression(
+    const CxxTemplate* parameter_template, Expr* parameter_expression,
+    const CxxTemplate* argument_template, Expr* argument_expression,
+    Type** deduced_arguments, bool* supported, unsigned depth) {
+    int64_t parameter_value;
+    int64_t argument_value;
+    bool parameter_constant;
+    bool argument_constant;
+    if (supported) *supported = false;
+    if (!parameter_template || !parameter_expression || !argument_template ||
+        !argument_expression || !deduced_arguments || depth > 64u) {
+        return false;
+    }
+    parameter_constant = expr_eval_integer_constant(
+        parameter_expression, &parameter_value);
+    argument_constant = expr_eval_integer_constant(
+        argument_expression, &argument_value);
+    if (parameter_constant || argument_constant) {
+        if (supported) *supported = true;
+        return parameter_constant && argument_constant &&
+            parameter_value == argument_value;
+    }
+    if (parameter_expression->kind != argument_expression->kind) {
+        return false;
+    }
+    if (parameter_expression->kind == EXPR_SIZEOF) {
+        bool type_supported = false;
+        bool type_deduced;
+        if (!parameter_expression->sizeof_type ||
+            !argument_expression->sizeof_type) {
+            return false;
+        }
+        type_deduced = cxx_function_template_partial_order_deduce_type(
+            parameter_template, parameter_expression->sizeof_type,
+            argument_template, argument_expression->sizeof_type,
+            deduced_arguments, &type_supported, 0u);
+        if (!type_supported) return false;
+        if (supported) *supported = true;
+        return type_deduced;
+    }
+    if (parameter_expression->kind == EXPR_NEG ||
+        parameter_expression->kind == EXPR_NOT ||
+        parameter_expression->kind == EXPR_BITNOT) {
+        bool operand_supported = false;
+        bool operand_deduced =
+            cxx_function_template_partial_order_deduce_value_expression(
+                parameter_template, parameter_expression->unary_operand,
+                argument_template, argument_expression->unary_operand,
+                deduced_arguments, &operand_supported, depth + 1u);
+        if (!operand_supported) return false;
+        if (supported) *supported = true;
+        return operand_deduced;
+    }
+    if (parameter_expression->kind == EXPR_ADD ||
+        parameter_expression->kind == EXPR_SUB ||
+        parameter_expression->kind == EXPR_MUL ||
+        parameter_expression->kind == EXPR_DIV ||
+        parameter_expression->kind == EXPR_MOD ||
+        parameter_expression->kind == EXPR_BITAND ||
+        parameter_expression->kind == EXPR_BITOR ||
+        parameter_expression->kind == EXPR_BITXOR ||
+        parameter_expression->kind == EXPR_LSHIFT ||
+        parameter_expression->kind == EXPR_RSHIFT ||
+        parameter_expression->kind == EXPR_EQ ||
+        parameter_expression->kind == EXPR_NE ||
+        parameter_expression->kind == EXPR_LT ||
+        parameter_expression->kind == EXPR_GT ||
+        parameter_expression->kind == EXPR_LE ||
+        parameter_expression->kind == EXPR_GE ||
+        parameter_expression->kind == EXPR_AND ||
+        parameter_expression->kind == EXPR_OR) {
+        bool left_supported = false;
+        bool right_supported = false;
+        bool left_deduced =
+            cxx_function_template_partial_order_deduce_value_expression(
+                parameter_template, parameter_expression->binary_lhs,
+                argument_template, argument_expression->binary_lhs,
+                deduced_arguments, &left_supported, depth + 1u);
+        bool right_deduced =
+            cxx_function_template_partial_order_deduce_value_expression(
+                parameter_template, parameter_expression->binary_rhs,
+                argument_template, argument_expression->binary_rhs,
+                deduced_arguments, &right_supported, depth + 1u);
+        if (!left_supported || !right_supported) return false;
+        if (supported) *supported = true;
+        return left_deduced && right_deduced;
+    }
+    if (parameter_expression->kind == EXPR_COND) {
+        bool test_supported = false;
+        bool then_supported = false;
+        bool else_supported = false;
+        bool test_deduced =
+            cxx_function_template_partial_order_deduce_value_expression(
+                parameter_template, parameter_expression->cond_test,
+                argument_template, argument_expression->cond_test,
+                deduced_arguments, &test_supported, depth + 1u);
+        bool then_deduced =
+            cxx_function_template_partial_order_deduce_value_expression(
+                parameter_template, parameter_expression->cond_then,
+                argument_template, argument_expression->cond_then,
+                deduced_arguments, &then_supported, depth + 1u);
+        bool else_deduced =
+            cxx_function_template_partial_order_deduce_value_expression(
+                parameter_template, parameter_expression->cond_else,
+                argument_template, argument_expression->cond_else,
+                deduced_arguments, &else_supported, depth + 1u);
+        if (!test_supported || !then_supported || !else_supported) {
+            return false;
+        }
+        if (supported) *supported = true;
+        return test_deduced && then_deduced && else_deduced;
+    }
+    return false;
+}
+
 static bool cxx_function_template_class_pack_nontype_values_match(
     const CxxFunctionTemplateMatch* parameter_match,
     const CxxFunctionTemplateMatch* argument_match,
@@ -17989,21 +18104,14 @@ static bool cxx_function_template_class_pack_nontype_values_match(
     Expr* argument_expression =
         cxx_function_template_class_nontype_argument_expression(
             argument_type, argument_index);
-    /* For dependent sizeof operands, transformed deduction compares the
-     * measured type patterns.  Other dependent value-expression forms remain
-     * with the existing ordering rules. */
-    if (!parameter_expression || !argument_expression ||
-        parameter_expression->kind != EXPR_SIZEOF ||
-        argument_expression->kind != EXPR_SIZEOF ||
-        !parameter_expression->sizeof_type ||
-        !argument_expression->sizeof_type) {
-        return false;
-    }
+    /* Match supported arithmetic trees structurally while deducing their
+     * sizeof type operands, as required for transformed function templates. */
     bool nested_supported = false;
-    bool nested_deduced = cxx_function_template_partial_order_deduce_type(
-        parameter_match->tmpl, parameter_expression->sizeof_type,
-        argument_match->tmpl, argument_expression->sizeof_type,
-        deduced_arguments, &nested_supported, 0u);
+    bool nested_deduced =
+        cxx_function_template_partial_order_deduce_value_expression(
+            parameter_match->tmpl, parameter_expression,
+            argument_match->tmpl, argument_expression, deduced_arguments,
+            &nested_supported, 0u);
     if (!nested_supported) return false;
     if (supported) *supported = true;
     return nested_deduced;

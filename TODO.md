@@ -2934,6 +2934,20 @@ separately recorded WSL startup failure.
   `mingw32-make SHELL=cmd.exe test-cxx-function-template-overloads` gate and
   the complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx` suite;
   both completed successfully (exit 0).
-- [ ] Extend fixed dependent non-type ordering beyond `sizeof(Type)` to other
-  expression shapes, non-type packs, and template-template packs; full C++20
-  partial ordering, constraints, and conversion ties remain open.
+- [ ] Extend fixed dependent non-type ordering beyond `sizeof(Type)` and
+  structurally matched arithmetic expressions to other expression shapes,
+  non-type packs, and template-template packs; full C++20 partial ordering,
+  constraints, and conversion ties remain open.
+
+## RCC continuation (2026-10-12, arithmetic dependent-value class-pack ordering)
+
+- [x] Structurally compare arithmetic dependent non-type expression trees
+  during transformed function-template ordering, recursively deducing
+  `sizeof(Head)` operands and matching constant leaves. This fixes GCC-confirmed
+  pointer-pack preference for a fixed `sizeof(Head) + 1` class-template prefix.
+- [x] Verify empty, pointer-tail, and mixed-tail calls against GCC C++20;
+  focused and full `test-cxx` pass with i686/AMD64 generation, AMD64 execution,
+  and existing invalid/ambiguous overload diagnostics.
+- [ ] Extend expression-tree ordering beyond the exercised arithmetic form to
+  dependent calls/member expressions and other NTTP structural equivalence
+  cases; non-type/template-template packs and full ordering remain open.
