@@ -1661,6 +1661,14 @@ static Expr* parse_primary(void) {
         parser_builtin_name("__builtin_va_arg")) {
         return parse_builtin_vararg(loc);
     }
+    /* A dependent type parameter's qualified member spelling must be claimed
+     * before the general qualified-name/template probes; those probes cannot
+     * consume the disambiguating `template` keyword transactionally. */
+    if (parser_cxx_mode && rcc_parse_cxx_dependent_member &&
+        check(TOK_IDENT)) {
+        Expr* dependent_member = rcc_parse_cxx_dependent_member();
+        if (dependent_member) return dependent_member;
+    }
     /* A small, structurally validated set of C++ function templates can be
      * expanded directly to the common expression AST.  The hook restores the
      * token cursor when the current spelling is not one of those templates. */
@@ -1673,11 +1681,6 @@ static Expr* parse_primary(void) {
         (check(TOK_IDENT) || check(TOK_SCOPE))) {
         Expr* template_call = rcc_parse_cxx_template_call();
         if (template_call) return template_call;
-    }
-    if (parser_cxx_mode && rcc_parse_cxx_dependent_member &&
-        check(TOK_IDENT)) {
-        Expr* dependent_member = rcc_parse_cxx_dependent_member();
-        if (dependent_member) return dependent_member;
     }
     if (parser_cxx_mode && rcc_parse_cxx_qualified_template_member &&
         (check(TOK_IDENT) || check(TOK_SCOPE))) {

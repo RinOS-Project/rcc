@@ -386,6 +386,13 @@ struct FunctionTemplateMemberCallRvalueReference {
     }
 };
 
+struct FunctionTemplateMemberCallTemplate {
+    template<typename T>
+    static constexpr int value(T argument) {
+        return argument + 1;
+    }
+};
+
 struct FunctionTemplateMemberCallArgumentNonConstexpr {
     static int value(int argument) { return argument - 1; }
 };
@@ -687,6 +694,36 @@ int choose_member_call_rvalue_reference_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         1, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
     return 262;
+}
+
+template<typename Head, int Argument, typename... Types>
+int choose_member_call_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(Argument), Head,
+        FunctionTemplateValuePackTag<Argument>, Types...>) {
+    return 263;
+}
+
+template<typename Item, int Argument, typename... Remaining>
+int choose_member_call_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        1, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
+    return 264;
+}
+
+template<typename Head, int Argument, typename... Types>
+int choose_member_call_template_explicit_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::template value<int>(Argument), Head,
+        FunctionTemplateValuePackTag<Argument>, Types...>) {
+    return 265;
+}
+
+template<typename Item, int Argument, typename... Remaining>
+int choose_member_call_template_explicit_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        1, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
+    return 266;
 }
 
 template<typename Head, typename... Types>
@@ -1686,6 +1723,30 @@ int main(void) {
                 4, FunctionTemplateMemberCallRvalueReference,
                 FunctionTemplateValuePackTag<3>, short>{}) != 261) {
         return 113;
+    }
+    if (choose_member_call_template_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallTemplate,
+                FunctionTemplateValuePackTag<0>, int>{}) != 264) {
+        return 114;
+    }
+    if (choose_member_call_template_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                4, FunctionTemplateMemberCallTemplate,
+                FunctionTemplateValuePackTag<3>, short>{}) != 263) {
+        return 115;
+    }
+    if (choose_member_call_template_explicit_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallTemplate,
+                FunctionTemplateValuePackTag<0>, int>{}) != 266) {
+        return 116;
+    }
+    if (choose_member_call_template_explicit_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                4, FunctionTemplateMemberCallTemplate,
+                FunctionTemplateValuePackTag<3>, short>{}) != 265) {
+        return 117;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<

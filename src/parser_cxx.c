@@ -1870,6 +1870,86 @@ static bool cxx_dependent_integer_call_reference_viable(
     return !cxx_parser_expression_is_lvalue(argument);
 }
 
+static bool cxx_eval_dependent_integer_member_template_call(
+    Expr* member_expression, ExprList* arguments, int64_t* result) {
+    Type* aggregate;
+    CxxClass* owner;
+    TypeMethod* candidates[32] = { NULL };
+    bool constraint_unsupported = false;
+    int candidate_count;
+    if (!member_expression || !member_expression->member_base ||
+        !member_expression->member_name || !result ||
+        !member_expression->member_base->type ||
+        member_expression->member_base->type->kind != TYPE_STRUCT) {
+        return false;
+    }
+    aggregate = member_expression->member_base->type;
+    owner = aggregate->cxx_class;
+    if (!owner || aggregate->cxx_dependent) return false;
+    bool has_member_template = false;
+    for (struct CxxMember* member = owner->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        const char* name = method && method->source_name
+            ? method->source_name
+            : method && method->decl ? method->decl->name : NULL;
+        if (!method || strcmp(name ? name : "",
+                              member_expression->member_name) != 0) {
+            continue;
+        }
+        if (!method->member_template) return false;
+        has_member_template = true;
+    }
+    if (!has_member_template) return false;
+    candidate_count = rcc_parser_cxx_materialize_member_function_templates(
+        aggregate, member_expression->member_name, arguments,
+        member_expression->member_template_arguments,
+        member_expression->member_template_argument_count,
+        member_expression->member_has_template_arguments,
+        candidates, (int)(sizeof(candidates) / sizeof(candidates[0])),
+        &constraint_unsupported);
+    if (constraint_unsupported || candidate_count != 1) return false;
+    TypeMethod* selected = candidates[0];
+    Decl* function = selected ? selected->function_decl : NULL;
+    if (!selected || selected->kind != TYPE_METHOD_FUNCTION ||
+        selected->cxx_access != ACCESS_PUBLIC || !function ||
+        !function->func_is_constexpr || function->func_this_param ||
+        !function->type || function->type->kind != TYPE_FUNC ||
+        function->type->variadic ||
+        !type_is_integer(function->type->ret_type)) {
+        return false;
+    }
+    ExprList* argument = arguments;
+    DeclList* parameter = function->func_params;
+    for (; argument && parameter;
+         argument = argument->next, parameter = parameter->next) {
+        Type* argument_type = cxx_parser_expression_type(argument->expr);
+        Type* parameter_type = parameter->decl
+            ? parameter->decl->type : NULL;
+        int64_t argument_value;
+        if (!argument->expr || !expr_eval_integer_constant(
+                argument->expr, &argument_value) || !argument_type ||
+            !type_is_integer(argument_type) || !parameter_type ||
+            !cxx_dependent_integer_call_parameter_supported(parameter_type) ||
+            !cxx_dependent_integer_call_reference_viable(
+                argument->expr, parameter_type)) {
+            return false;
+        }
+    }
+    if (argument) return false;
+    while (parameter) {
+        if (!parameter->decl || !parameter->decl->param_default ||
+            !cxx_dependent_integer_call_parameter_supported(
+                parameter->decl->type) ||
+            !cxx_dependent_integer_call_reference_viable(
+                parameter->decl->param_default, parameter->decl->type)) {
+            return false;
+        }
+        parameter = parameter->next;
+    }
+    return rcc_sema_eval_constexpr_integer_call(function, arguments, result);
+}
+
 static bool eval_template_integer_expression(Expr* expression,
                                               CxxTemplate* tmpl,
                                               const int64_t* values,
@@ -15214,6 +15294,10 @@ static bool eval_template_integer_expression(Expr* expression,
         expression->call_func->member_base->type &&
         expression->call_func->member_base->type->kind == TYPE_STRUCT &&
         expression->call_func->member_base->type->cxx_class) {
+        if (cxx_eval_dependent_integer_member_template_call(
+                expression->call_func, expression->call_args, result)) {
+            return true;
+        }
         Type* base_type = expression->call_func->member_base->type;
         CxxClass* owner = base_type->cxx_class;
         CxxMethod* match = NULL;
@@ -22382,6 +22466,7 @@ Expr* rcc_parse_cxx_dependent_member(void) {
     const char* owner_name;
     const char* member_name;
     int parameter_index;
+    bool has_template_keyword;
     Type* dependent;
     Expr* base;
     Expr* result;
@@ -22393,7 +22478,13 @@ Expr* rcc_parse_cxx_dependent_member(void) {
         return NULL;
     }
     advance();
-    if (!match(TOK_SCOPE) || !check(TOK_IDENT)) {
+    if (!match(TOK_SCOPE)) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    has_template_keyword = match(TOK_TEMPLATE);
+    if (!check(TOK_IDENT)) {
         parser.cur = saved_cur;
         parser.prev = saved_prev;
         return NULL;
@@ -22405,6 +22496,9 @@ Expr* rcc_parse_cxx_dependent_member(void) {
     base = expr_ident(owner_name, loc);
     base->type = dependent;
     result = expr_member(base, member_name, loc);
+    if (has_template_keyword) {
+        (void)rcc_parse_cxx_member_template_arguments(result);
+    }
     return result;
 }
 

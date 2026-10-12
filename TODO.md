@@ -3228,7 +3228,19 @@ remains a separate open item.
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
   aggregate (exit 0); output is retained in
   `build/tests/test-cxx-default-zero-gate.log`.
-- [ ] Extend dependent constexpr member-call ranking to member-function
-  templates, variadic overloads, NTTP packs, non-integer arguments, and other
-  receiver/member forms; full C++20 partial ordering and conversion ranking
-  remain incomplete.
+- [x] Evaluate dependent integer calls to a member-function template when
+  template arguments are deduced or explicitly supplied and materialization
+  yields exactly one public static constexpr integer-returning specialization
+  with supported integer constant arguments. Cover fixed-value versus
+  dependent-call ordering for both forms against GCC C++20, with i686/AMD64
+  output and AMD64 execution.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate and rerun the full
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
+  aggregate (both exit 0); full output is retained in
+  `build/tests/test-cxx-default-zero-gate.log`.
+- [ ] Extend dependent constexpr member-call ranking to multiple viable
+  member-function-template specializations, variadic overloads, NTTP packs,
+  non-integer arguments, and other receiver/member forms; full C++20 partial
+  ordering and conversion ranking remain incomplete.
