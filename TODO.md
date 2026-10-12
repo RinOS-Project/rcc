@@ -3198,3 +3198,20 @@ remains a separate open item.
 - [ ] Extend dependent constexpr member-call ranking to variadic overloads,
   NTTP packs, arbitrary dependent call expressions, and other member/receiver
   forms; full C++20 partial ordering and conversion ranking remain incomplete.
+
+## RCC continuation (2026-10-12, CI coverage re-audit)
+
+- [x] Cross-check `.github/workflows/ci.yml` against `TEST_CI_TARGETS`,
+  `C17_REGRESSION_TARGETS`, and `CXX_REGRESSION_TARGETS`. The production gate
+  includes C17/C++20, `test-debug-info`, IR/MIR, verified backend, optimizer,
+  ABI, format/golden/determinism/property/fuzz, and bootstrap targets; the
+  independent workflow jobs cover GCC/Clang sanitizer suites and host smoke
+  checks. `test-cxx20-unsupported-boundaries` is part of `test-cxx` and thus
+  the production gate. This inventory does not upgrade the separately
+  recorded incomplete Clang full-`test-ci` run to a pass.
+- [x] Strengthen the unsupported C++20 modules/coroutines target: clear stale
+  `.ro` outputs, require all four explicit module/coroutine diagnostics on both
+  architectures, and assert that neither invalid translation produces an
+  object.
+- [x] Pass `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx20-unsupported-boundaries` on native Windows (exit 0).
