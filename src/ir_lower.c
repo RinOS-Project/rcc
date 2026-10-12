@@ -3419,13 +3419,19 @@ static bool lower_i686_va_argument_address(
     RccIrLowerValue list_slot;
     RccIrLowerValue cursor;
     RccIrLowerValue next_cursor;
+    bool supported_integer_or_pointer;
+    bool supported_promoted_double;
     uint64_t step;
     if (address_out) *address_out = lower_invalid_value();
+    supported_integer_or_pointer = argument_type &&
+        (type_is_integer((Type*)argument_type) ||
+         (argument_type->kind == TYPE_PTR && argument_type->size == 4));
+    supported_promoted_double = argument_type &&
+        argument_type->kind == TYPE_DOUBLE && argument_type->size == 8;
     if (!context || !address_out || g_opts.target_arch != ARCH_X86 ||
         !lower_i686_va_list_type(list_expression) || !argument_type ||
         argument_type->size <= 0 ||
-        (!type_is_integer((Type*)argument_type) &&
-         argument_type->kind != TYPE_PTR) ||
+        (!supported_integer_or_pointer && !supported_promoted_double) ||
         argument_type->size > 8 ||
         (argument_type->kind == TYPE_PTR && argument_type->size != 4)) {
         if (context) context->unsupported = true;
@@ -6972,23 +6978,6 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         !type_is_compatible(function_type->ret_type, expression->type)) {
         context->unsupported = true;
         return lower_invalid_value();
-    }
-    if (function_type->variadic) {
-        TypeParam* variadic_parameter = function_type->params;
-        for (const ExprList* variadic_argument = expression->call_args;
-             variadic_argument; variadic_argument = variadic_argument->next) {
-            if (!variadic_parameter && variadic_argument->expr &&
-                variadic_argument->expr->type &&
-                variadic_argument->expr->type->kind == TYPE_FLOAT &&
-                g_opts.target_arch != ARCH_X64) {
-                /* i686 variadic FP promotion remains on its complete ABI
-                 * lowering path; this FPEXT currently targets SysV AMD64. */
-                context->unsupported = true;
-                return lower_invalid_value();
-            }
-            if (variadic_parameter) variadic_parameter =
-                variadic_parameter->next;
-        }
     }
     if (lower_call_temporary_cleanups_supported(expression)) {
         for (argument = expression->call_args; argument;

@@ -507,6 +507,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-raw-strings test-cxx-alternative-tokens \
 	test-cxx20-unsupported-boundaries
 .PHONY: test-debug-info
+.PHONY: test-verified-i686-variadic-fp
 .PHONY: test-cxx-static-reference-temporaries \
 	test-cxx-static-reference-temporaries-posix
 .PHONY: test-cxx-static-reference-retry \
@@ -14941,7 +14942,70 @@ test-verified-i686-floating-operations: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2-run,$(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86-o2.s $(TEST_OUT)/verified-backend/float-ops-i686-harness.s)
 	@echo "Verified i686 x87 floating unary/update/select C/C++ O0/O2 execution passed"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
+test-verified-i686-variadic-fp: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc -Ibootstrap/include \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/i686-variadic-fp-x86.ro \
+		tests/verified_backend_i686_variadic_fp.c \
+		>$(TEST_OUT)/verified-backend/i686-variadic-fp-x86.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/i686-variadic-fp-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/i686-variadic-fp-x86.log,0)
+	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc -Ibootstrap/include \
+		-O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/i686-variadic-fp-x86-o2.ro \
+		tests/verified_backend_i686_variadic_fp.c \
+		>$(TEST_OUT)/verified-backend/i686-variadic-fp-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/i686-variadic-fp-x86-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/i686-variadic-fp-x86-o2.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/i686-variadic-fp-x64.ro \
+		tests/verified_backend_i686_variadic_fp.c \
+		>$(TEST_OUT)/verified-backend/i686-variadic-fp-x64.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/i686-variadic-fp-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/i686-variadic-fp-x64.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -nostdinc -Ibootstrap/include \
+		-O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/i686-variadic-fp-x64-o2.ro \
+		tests/verified_backend_i686_variadic_fp.c \
+		>$(TEST_OUT)/verified-backend/i686-variadic-fp-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/i686-variadic-fp-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/i686-variadic-fp-x64-o2.log,0)
+ifeq ($(OS),Windows_NT)
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/verified-backend/run-variadic-fp-x64 \
+		tests/verified_backend_variadic_fp_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-backend/run-variadic-fp-x64 \
+		$(TEST_OUT)/verified-backend/i686-variadic-fp-x64.ro
+	$(TEST_OUT)/verified-backend/run-variadic-fp-x64 \
+		$(TEST_OUT)/verified-backend/i686-variadic-fp-x64-o2.ro
+	$(RCC_TARGET) --target i686-unknown-rinos -nostdinc -Ibootstrap/include \
+		-S -o $(TEST_OUT)/verified-backend/i686-variadic-fp-legacy-x86.s \
+		tests/verified_backend_i686_variadic_fp.c
+	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/run-variadic-fp-legacy-x86,$(TEST_OUT)/verified-backend/i686-variadic-fp-legacy-x86.s)
+else
+	$(CC) -m32 $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/run-variadic-fp-x86 \
+		tests/verified_backend_variadic_fp_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-backend/run-variadic-fp-x86 \
+		$(TEST_OUT)/verified-backend/i686-variadic-fp-x86.ro
+	$(TEST_OUT)/verified-backend/run-variadic-fp-x86 \
+		$(TEST_OUT)/verified-backend/i686-variadic-fp-x86-o2.ro
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/run-variadic-fp-x64 \
+		tests/verified_backend_variadic_fp_run_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(TEST_OUT)/verified-backend/run-variadic-fp-x64 \
+		$(TEST_OUT)/verified-backend/i686-variadic-fp-x64.ro
+	$(TEST_OUT)/verified-backend/run-variadic-fp-x64 \
+		$(TEST_OUT)/verified-backend/i686-variadic-fp-x64-o2.ro
+endif
+	@echo "Verified i686 cdecl variadic double promotion/va_arg O0/O2 tests passed"
+
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \
