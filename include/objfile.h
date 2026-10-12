@@ -42,6 +42,8 @@ typedef enum {
     RELOC_ABS32U = 6,   /* Unsigned 32-bit absolute address */
     RELOC_ABS32S = 7,   /* Signed 32-bit absolute address */
     RELOC_TLSOFF32S = 8,/* Signed local-exec offset from thread pointer */
+    RELOC_TLSINDEX_MODULE64 = 9, /* Dynamic TLS public DTV slot */
+    RELOC_TLSINDEX_OFFSET64 = 10,/* Dynamic TLS template offset */
 } RelocType;
 
 /* Section types */

@@ -60,6 +60,7 @@ static void print_usage(void) {
     printf("  -ffreestanding  Freestanding environment\n");
     printf("  -fPIC/-fpic     Position-independent code and data references\n");
     printf("  -fPIE/-fpie     Position-independent executable code and data references\n");
+    printf("  --dynamic-tls/-fdynamic-tls  Use RinOS DTV/__tls_get_addr TLS model\n");
     printf("  -fverified-backend  Use typed-SSA x86 backend when supported\n");
     printf("\n");
     printf("Other:\n");
@@ -185,6 +186,9 @@ static int parse_args(int argc, char** argv) {
         } else if (strcmp(arg, "-fPIE") == 0 ||
                    strcmp(arg, "-fpie") == 0) {
             g_opts.pie = true;
+        } else if (strcmp(arg, "--dynamic-tls") == 0 ||
+                   strcmp(arg, "-fdynamic-tls") == 0) {
+            g_opts.dynamic_tls = true;
         } else if (strcmp(arg, "-fno-PIC") == 0 ||
                    strcmp(arg, "-fno-pic") == 0) {
             g_opts.pic = false;

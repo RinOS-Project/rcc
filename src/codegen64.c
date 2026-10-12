@@ -4196,6 +4196,22 @@ static void gen64_local_vtable_init(Module* mod, Type* type,
 }
 
 static void gen64_tls_address(Module* mod, const char* symbol) {
+    if (g_opts.dynamic_tls) {
+        const char* index_symbol = module_get_tls_index_entry(mod, symbol);
+        uint32_t call_offset;
+        emit64_mov_reg_imm64(mod, RAX, 0u);
+        module_add_relocation(mod, MODULE_SYMBOL_CODE,
+                              code_offset(mod) - 8u, 0u, false, true,
+                              index_symbol);
+        add_reloc(mod, MODULE_SYMBOL_CODE, code_offset(mod) - 8u,
+                  RIN_RELOC_ABS64);
+        emit64_mov_reg_reg(mod, RDI, RAX);
+        emit_byte(mod, 0xE8);
+        call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref64("__tls_get_addr", call_offset);
+        return;
+    }
     /* Variant II x86_64 TLS: FS:0 contains the thread pointer. */
     static const uint8_t load_thread_pointer[] = {
         0x64, 0x48, 0x8b, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00

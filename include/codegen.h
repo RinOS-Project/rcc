@@ -32,6 +32,8 @@ typedef struct {
 #define RIN_RELOC_ABS32 1
 #define RIN_RELOC_ABS64 2
 #define RIN_RELOC_TLSOFF32S 5
+#define RIN_RELOC_TLSINDEX_MODULE64 6
+#define RIN_RELOC_TLSINDEX_OFFSET64 7
 
 typedef enum ModuleSymbolSection {
     MODULE_SYMBOL_CODE,
@@ -103,6 +105,8 @@ typedef struct ModuleReloc {
     bool is_64bit;
     bool is_tls;
     bool is_got;
+    bool is_tls_index_module;
+    bool is_tls_index_offset;
     const char* symbol_name;
 } ModuleReloc;
 
@@ -116,6 +120,13 @@ typedef struct ModuleGotEntry {
     uint32_t offset;
     struct ModuleGotEntry* next;
 } ModuleGotEntry;
+
+typedef struct ModuleTlsIndexEntry {
+    const char* target_symbol;
+    const char* slot_symbol;
+    uint32_t offset;
+    struct ModuleTlsIndexEntry* next;
+} ModuleTlsIndexEntry;
 
 /* A scalar global initializer which cannot be represented in the image's
  * static data payload.  The frontend has already type-checked the expression;
@@ -185,6 +196,8 @@ typedef struct Module {
     int reloc_capacity;
     ModuleGotEntry* got_entries;
     uint32_t got_entry_count;
+    ModuleTlsIndexEntry* tls_index_entries;
+    uint32_t tls_index_entry_count;
 
     GlobalInitializer* global_initializers;
     int global_initializer_count;
@@ -268,6 +281,7 @@ void module_add_tls_relocation(Module* mod,
                                ModuleSymbolSection source_section,
                                uint32_t offset, const char* symbol_name);
 const char* module_get_got_entry(Module* mod, const char* target_symbol);
+const char* module_get_tls_index_entry(Module* mod, const char* target_symbol);
 const ModuleSymbol* module_lookup_symbol(const Module* mod,
                                          const char* symbol_name);
 bool module_resolve_image_relocation(const Module* mod,
@@ -279,6 +293,9 @@ bool module_resolve_image_relocation(const Module* mod,
 bool module_resolve_tls_relocation(const Module* mod,
                                    ModuleSymbolSection source_section,
                                    uint32_t offset, uint32_t* value);
+bool module_resolve_tls_relocation64(const Module* mod,
+                                     ModuleSymbolSection source_section,
+                                     uint32_t offset, uint64_t* value);
 void module_ensure_rodata_base_symbol(Module* mod);
 void codegen_add_init_array_entry(Module* mod, const char* symbol);
 void codegen_add_fini_array_entry(Module* mod, const char* symbol);

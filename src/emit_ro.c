@@ -36,7 +36,9 @@ static bool ro_range(uint64_t offset, uint64_t size, uint64_t limit) {
 
 static bool ro_relocation_type_valid(uint16_t type) {
     return type <= RELOC_PLT32 || type == RELOC_ABS32U ||
-           type == RELOC_ABS32S || type == RELOC_TLSOFF32S;
+           type == RELOC_ABS32S || type == RELOC_TLSOFF32S ||
+           type == RELOC_TLSINDEX_MODULE64 ||
+           type == RELOC_TLSINDEX_OFFSET64;
 }
 
 static bool ro_section_policy(uint16_t arch, const RoSection* section) {
@@ -695,7 +697,9 @@ ObjectFile* objfile_read_memory(const void* data, uint64_t size,
             if (rr.symbol >= hdr.symbol_count ||
                 !ro_relocation_type_valid(rr.type) || rr.flags != 0u ||
                 rr.reserved != 0u) goto read_failed;
-            width = rr.type == RELOC_ABS64 ? 8u :
+            width = (rr.type == RELOC_ABS64 ||
+                     rr.type == RELOC_TLSINDEX_MODULE64 ||
+                     rr.type == RELOC_TLSINDEX_OFFSET64) ? 8u :
                     rr.type == RELOC_REL8 ? 1u : 4u;
             if (rr.offset > sh->memory_size ||
                 width > sh->memory_size - rr.offset) goto read_failed;
@@ -5492,9 +5496,14 @@ ObjectFile* module_to_objfile(Module* mod, const char* filename) {
                         ? mod->tls.size : 0u;
         const ModuleSymbol* referenced_symbol = mr->symbol_name
             ? module_find_symbol(mod, mr->symbol_name) : NULL;
-        uint64_t relocation_width = mr->is_relative || !mr->is_64bit
-            ? 4u : 8u;
-        RelocType type = mr->is_tls ? RELOC_TLSOFF32S : mr->is_got
+        uint64_t relocation_width = (mr->is_tls_index_module ||
+                                     mr->is_tls_index_offset ||
+                                     (!mr->is_relative && mr->is_64bit))
+            ? 8u : 4u;
+        RelocType type = mr->is_tls_index_module
+            ? RELOC_TLSINDEX_MODULE64
+            : mr->is_tls_index_offset ? RELOC_TLSINDEX_OFFSET64
+            : mr->is_tls ? RELOC_TLSOFF32S : mr->is_got
             ? RELOC_GOT32 :
             mr->is_relative && (g_opts.pic || g_opts.pie) &&
                     (!referenced_symbol || !referenced_symbol->is_defined)

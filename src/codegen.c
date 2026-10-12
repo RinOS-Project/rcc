@@ -126,6 +126,8 @@ Module* codegen_new(void) {
     mod->reloc_capacity = 0;
     mod->got_entries = NULL;
     mod->got_entry_count = 0u;
+    mod->tls_index_entries = NULL;
+    mod->tls_index_entry_count = 0u;
     mod->global_initializers = NULL;
     mod->global_initializer_count = 0;
     mod->global_finalizers = NULL;
@@ -216,6 +218,13 @@ void codegen_free(Module* mod) {
         rcc_free((void*)mod->got_entries->slot_symbol);
         rcc_free(mod->got_entries);
         mod->got_entries = next;
+    }
+    while (mod->tls_index_entries) {
+        ModuleTlsIndexEntry* next = mod->tls_index_entries->next;
+        rcc_free((void*)mod->tls_index_entries->target_symbol);
+        rcc_free((void*)mod->tls_index_entries->slot_symbol);
+        rcc_free(mod->tls_index_entries);
+        mod->tls_index_entries = next;
     }
     relocation = mod->relocs;
     while (relocation) {
@@ -462,6 +471,8 @@ void module_add_relocation(Module* mod, ModuleSymbolSection source_section,
     rel->is_64bit = is_64bit;
     rel->is_tls = false;
     rel->is_got = false;
+    rel->is_tls_index_module = false;
+    rel->is_tls_index_offset = false;
     rel->symbol_name = symbol_name ? rcc_strdup(symbol_name) : NULL;
 }
 
@@ -511,6 +522,39 @@ const char* module_get_got_entry(Module* mod, const char* target_symbol) {
                       MODULE_SYMBOL_DATA, false);
     module_add_relocation(mod, MODULE_SYMBOL_DATA, offset, 0u, false,
                           pointer_size == 8u, target_symbol);
+    return entry->slot_symbol;
+}
+
+const char* module_get_tls_index_entry(Module* mod, const char* target_symbol) {
+    ModuleTlsIndexEntry* entry;
+    uint8_t zero[16] = {0};
+    char slot_name[64];
+    uint32_t offset;
+    if (!mod || !target_symbol || target_symbol[0] == '\0') return NULL;
+    for (entry = mod->tls_index_entries; entry; entry = entry->next) {
+        if (strcmp(entry->target_symbol, target_symbol) == 0) {
+            return entry->slot_symbol;
+        }
+    }
+    while ((mod->data.size & 7u) != 0u) emit_data(mod, zero, 1u);
+    offset = emit_data(mod, zero, sizeof(zero));
+    snprintf(slot_name, sizeof(slot_name), "__rcc_tls_index_%u",
+             (unsigned int)mod->tls_index_entry_count++);
+    entry = rcc_alloc(sizeof(*entry));
+    entry->target_symbol = rcc_strdup(target_symbol);
+    entry->slot_symbol = rcc_strdup(slot_name);
+    entry->offset = offset;
+    entry->next = mod->tls_index_entries;
+    mod->tls_index_entries = entry;
+    module_add_symbol(mod, entry->slot_symbol, offset, true,
+                      MODULE_SYMBOL_DATA, false);
+    module_add_relocation(mod, MODULE_SYMBOL_DATA, offset, 0u, false, true,
+                          "__rcc_tls_module_slot");
+    mod->relocs_arr[mod->reloc_count - 1].is_tls_index_module = true;
+    module_add_relocation(mod, MODULE_SYMBOL_DATA, offset + 8u, 0u,
+                          false, true, target_symbol);
+    mod->relocs_arr[mod->reloc_count - 1].is_tls_index_offset = true;
+    mod->relocs_arr[mod->reloc_count - 1].is_tls = true;
     return entry->slot_symbol;
 }
 
@@ -598,6 +642,37 @@ bool module_resolve_tls_relocation(const Module* mod,
     result = (uint64_t)symbol->offset + relocation->target;
     if (result >= mod->tls.size || result > UINT32_MAX) return false;
     *value = (uint32_t)result;
+    return true;
+}
+
+bool module_resolve_tls_relocation64(const Module* mod,
+                                     ModuleSymbolSection source_section,
+                                     uint32_t offset, uint64_t* value) {
+    const ModuleReloc* relocation = NULL;
+    const ModuleSymbol* symbol = NULL;
+    uint64_t result;
+    if (!mod || !value) return false;
+    for (int index = 0; index < mod->reloc_count; ++index) {
+        const ModuleReloc* candidate = &mod->relocs_arr[index];
+        if (candidate->source_section == source_section &&
+            candidate->offset == offset && candidate->is_tls_index_offset) {
+            if (relocation) return false;
+            relocation = candidate;
+        }
+    }
+    if (!relocation || !relocation->symbol_name) return false;
+    for (int index = 0; index < mod->symbol_count; ++index) {
+        if (strcmp(mod->symbols[index].name, relocation->symbol_name) == 0) {
+            symbol = &mod->symbols[index];
+            break;
+        }
+    }
+    if (!symbol || !symbol->is_defined || symbol->section != MODULE_SYMBOL_TLS) {
+        return false;
+    }
+    result = (uint64_t)symbol->offset + relocation->target;
+    if (result >= mod->tls.size) return false;
+    *value = result;
     return true;
 }
 
@@ -6752,6 +6827,26 @@ static bool gen_bitfield_initializer32(Module* mod, const TypeField* field,
 }
 
 static void gen_tls_address(Module* mod, const char* symbol) {
+    if (g_opts.dynamic_tls) {
+        const char* index_symbol = module_get_tls_index_entry(mod, symbol);
+        uint32_t call_offset;
+        /* The argument is the address of the 16-byte RinTlsIndexV2 record,
+         * not the record contents.  Keep this raw address materialization
+         * independent of the ordinary PIC/GOT value helper. */
+        emit_mov_reg_imm(mod, EAX, 0u);
+        module_add_relocation(mod, MODULE_SYMBOL_CODE,
+                              code_offset(mod) - 4u, 0u, false, false,
+                              index_symbol);
+        add_reloc(mod, MODULE_SYMBOL_CODE, code_offset(mod) - 4u,
+                  RIN_RELOC_ABS32);
+        emit_push_reg(mod, EAX);
+        emit_byte(mod, 0xE8);
+        call_offset = code_offset(mod);
+        emit_dword(mod, 0u);
+        add_func_call_ref("__tls_get_addr", call_offset);
+        emit_add_reg_imm(mod, ESP, 4);
+        return;
+    }
     /* Variant II x86 TLS: GS:0 contains the thread pointer. */
     emit_byte(mod, 0x65);
     emit_byte(mod, 0xA1);

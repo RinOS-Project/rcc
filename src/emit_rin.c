@@ -93,6 +93,35 @@ static bool rin_add_got_slot_relocations(Module* mod, const char* outfile) {
     return true;
 }
 
+static bool rin_add_dynamic_tls_relocations(Module* mod, const char* outfile) {
+    if (!mod) return false;
+    for (int index = 0; index < mod->reloc_count; ++index) {
+        const ModuleReloc* relocation = &mod->relocs_arr[index];
+        uint32_t type;
+        bool present = false;
+        if (relocation->is_tls_index_module) {
+            type = RIN_RELOC_TLSINDEX_MODULE64;
+        } else if (relocation->is_tls_index_offset) {
+            type = RIN_RELOC_TLSINDEX_OFFSET64;
+        } else {
+            continue;
+        }
+        for (Reloc* existing = mod->relocs; existing;
+             existing = existing->next) {
+            if (existing->source_section == relocation->source_section &&
+                existing->offset == relocation->offset &&
+                existing->type == type) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) add_reloc(mod, relocation->source_section,
+                                relocation->offset, type);
+    }
+    (void)outfile;
+    return true;
+}
+
 static bool rin_patch_relative_relocations(Module* mod, uint8_t* output,
                                             const char* outfile,
                                             uint64_t rodata_rva,
@@ -248,7 +277,8 @@ bool rcc_emit(Module* mod, const char* outfile) {
         rcc_error((SourceLoc){outfile, 0, 0}, "invalid module for RIN v3 output");
         return false;
     }
-    if (!rin_add_got_slot_relocations(mod, outfile)) return false;
+    if (!rin_add_got_slot_relocations(mod, outfile) ||
+        !rin_add_dynamic_tls_relocations(mod, outfile)) return false;
     for (relocation = mod->relocs; relocation; relocation = relocation->next) {
         ++relocation_count;
     }
@@ -354,7 +384,8 @@ bool rcc_emit(Module* mod, const char* outfile) {
     header.abi_minor = RIN_IMAGE_ABI_MINOR;
     header.flags = RIN_IMAGE_EXECUTABLE | RIN_IMAGE_GUI |
                    RIN_IMAGE_RELOCATABLE | RIN_IMAGE_ASLR |
-                   (mod->tls.size > 0u ? RIN_IMAGE_USES_TLS : 0u);
+                   (mod->tls.size > 0u ? RIN_IMAGE_USES_TLS : 0u) |
+                   (mod->tls_index_entry_count > 0u ? RIN_IMAGE_DYNAMIC_TLS : 0u);
     header.section_count = section_count;
     header.entry_rva = mod->entry_point;
     header.image_size = image_size;
@@ -446,7 +477,10 @@ bool rcc_emit(Module* mod, const char* outfile) {
         relocation_section->name_offset = reloc_name;
         relocations = rcc_alloc((size_t)relocation_section->file_size);
         for (relocation = mod->relocs; relocation; relocation = relocation->next) {
-            uint64_t width = relocation->type == RIN_RELOC_ABS64 ? 8u : 4u;
+            uint64_t width = (relocation->type == RIN_RELOC_ABS64 ||
+                              relocation->type == RIN_RELOC_TLSINDEX_MODULE64 ||
+                              relocation->type == RIN_RELOC_TLSINDEX_OFFSET64)
+                ? 8u : 4u;
             uint64_t source_rva;
             uint64_t source_file_offset;
             uint64_t source_size;
@@ -469,7 +503,11 @@ bool rcc_emit(Module* mod, const char* outfile) {
             relocations[relocation_index].virtual_address =
                 source_rva + relocation->offset;
             relocations[relocation_index].type =
-                relocation->type == RIN_RELOC_TLSOFF32S
+                relocation->type == RIN_RELOC_TLSINDEX_MODULE64
+                ? RIN_IMAGE_RELOCATION_TLSINDEX_MODULE64
+                : relocation->type == RIN_RELOC_TLSINDEX_OFFSET64
+                ? RIN_IMAGE_RELOCATION_TLSINDEX_OFFSET64
+                : relocation->type == RIN_RELOC_TLSOFF32S
                 ? RIN_IMAGE_RELOCATION_TLSOFF32S
                 : width == 8u ? RIN_IMAGE_RELOCATION_ABS64
                               : RIN_IMAGE_RELOCATION_ABS32U;
@@ -479,7 +517,12 @@ bool rcc_emit(Module* mod, const char* outfile) {
         for (relocation_index = 1u; relocation_index < relocation_count; ++relocation_index) {
             if (relocations[relocation_index - 1u].virtual_address +
                     (relocations[relocation_index - 1u].type ==
-                     RIN_IMAGE_RELOCATION_ABS64 ? 8u : 4u) >
+                     (relocations[relocation_index - 1u].type ==
+                          RIN_IMAGE_RELOCATION_ABS64 ||
+                      relocations[relocation_index - 1u].type ==
+                          RIN_IMAGE_RELOCATION_TLSINDEX_MODULE64 ||
+                      relocations[relocation_index - 1u].type ==
+                          RIN_IMAGE_RELOCATION_TLSINDEX_OFFSET64) ? 8u : 4u) >
                 relocations[relocation_index].virtual_address) {
                 rcc_error((SourceLoc){outfile, 0, 0}, "overlapping RIN v3 relocations");
                 rcc_free(relocations);
@@ -547,7 +590,24 @@ bool rcc_emit(Module* mod, const char* outfile) {
         }
         (void)source_rva;
         (void)source_size;
-        if (relocation->type == RIN_RELOC_TLSOFF32S) {
+        if (relocation->type == RIN_RELOC_TLSINDEX_MODULE64) {
+            /* Loader publication supplies the process-local DTV slot. */
+            continue;
+        } else if (relocation->type == RIN_RELOC_TLSINDEX_OFFSET64) {
+            uint64_t value;
+            if (!module_resolve_tls_relocation64(
+                    mod, relocation->source_section, relocation->offset,
+                    &value)) {
+                rcc_error((SourceLoc){outfile, 0, 0},
+                          "unresolved dynamic TLS offset relocation at section offset %u",
+                          relocation->offset);
+                rcc_free(relocations);
+                rcc_free(output);
+                return false;
+            }
+            memcpy(output + source_file_offset + relocation->offset,
+                   &value, sizeof(value));
+        } else if (relocation->type == RIN_RELOC_TLSOFF32S) {
             uint32_t value;
             if (!module_resolve_tls_relocation(
                     mod, relocation->source_section, relocation->offset,

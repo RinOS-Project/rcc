@@ -86,6 +86,7 @@ typedef struct {
     bool pedantic;              /* -pedantic */
     bool pic;                   /* -fPIC/-fpic */
     bool pie;                   /* -fPIE/-fpie */
+    bool dynamic_tls;           /* --dynamic-tls: DTV/__tls_get_addr */
     bool verified_backend;      /* -fverified-backend (.ro v2 only) */
     bool sse_enabled;           /* -msse/-mno-sse */
     bool sse2_enabled;          /* -msse2/-mno-sse2 */

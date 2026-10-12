@@ -1068,6 +1068,26 @@ bool linker_apply_relocations(Linker* ld) {
     }
 
     for (PendingReloc* r = ld->relocs; r; r = r->next) {
+        /* The module half of a dynamic TLS index is intentionally unresolved
+         * until the loader has assigned this process's public DTV slot. */
+        if (r->type == RELOC_TLSINDEX_MODULE64) {
+            int module_index = 0;
+            LinkedSection* module_section = NULL;
+            for (LinkedSection* candidate = ld->sections; candidate;
+                 candidate = candidate->next, ++module_index) {
+                if (module_index == r->section) {
+                    module_section = candidate;
+                    break;
+                }
+            }
+            if (!module_section || r->offset > module_section->size ||
+                8u > module_section->size - r->offset) {
+                fprintf(stderr, "rld: invalid dynamic TLS module relocation\n");
+                return false;
+            }
+            memset(module_section->data + r->offset, 0, 8u);
+            continue;
+        }
         /* Find target symbol */
         GlobalSymbol* sym = find_symbol(ld, r->symbol);
         if (!sym) {
@@ -1085,7 +1105,9 @@ bool linker_apply_relocations(Linker* ld) {
             }
         }
 
-        uint32_t relocation_width = r->type == RELOC_ABS64 ? 8u :
+        uint32_t relocation_width = (r->type == RELOC_ABS64 ||
+                                     r->type == RELOC_TLSINDEX_OFFSET64)
+            ? 8u :
                                     r->type == RELOC_REL8 ? 1u : 4u;
         if (!sect || r->offset > sect->size ||
             relocation_width > sect->size - r->offset) {
@@ -1139,6 +1161,49 @@ bool linker_apply_relocations(Linker* ld) {
                 uint32_t value = (uint32_t)local_offset;
                 memcpy(patch, &value, sizeof(value));
             }
+            continue;
+        }
+        if (r->type == RELOC_TLSINDEX_OFFSET64) {
+            LinkedSection* tls = NULL;
+            uint64_t local_offset;
+            idx = 0;
+            for (LinkedSection* candidate = ld->sections; candidate;
+                 candidate = candidate->next, ++idx) {
+                if (idx == sym->section) {
+                    tls = candidate;
+                    break;
+                }
+            }
+            if (sym->binding != BIND_TLS || !tls || tls->type != SECT_TLS ||
+                sym->value < tls->vaddr) {
+                fprintf(stderr,
+                        "rld: dynamic TLS offset requires a TLS symbol: '%s'\n",
+                        r->symbol);
+                return false;
+            }
+            local_offset = sym->value - tls->vaddr;
+            if (r->addend >= 0) {
+                if ((uint64_t)r->addend > UINT64_MAX - local_offset) {
+                    fprintf(stderr, "rld: dynamic TLS offset overflow for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                local_offset += (uint64_t)r->addend;
+            } else {
+                uint64_t magnitude = UINT64_C(0) - (uint64_t)r->addend;
+                if (magnitude > local_offset) {
+                    fprintf(stderr, "rld: dynamic TLS offset underflow for '%s'\n",
+                            r->symbol);
+                    return false;
+                }
+                local_offset -= magnitude;
+            }
+            if (local_offset >= tls->memory_size) {
+                fprintf(stderr, "rld: dynamic TLS offset outside template for '%s'\n",
+                        r->symbol);
+                return false;
+            }
+            memcpy(patch, &local_offset, sizeof(local_offset));
             continue;
         }
         if (r->addend >= 0) {
@@ -1391,6 +1456,7 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     uint32_t import_index = 0u;
     uint32_t code_count = 0u;
     bool uses_tls = false;
+    bool uses_dynamic_tls = false;
     bool has_code_owner = false;
     bool has_rodata_owner = false;
     bool has_data_owner = false;
@@ -1535,8 +1601,14 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
             pending->type == RELOC_ABS32U ||
             pending->type == RELOC_ABS32S ||
             pending->type == RELOC_ABS64 ||
-            pending->type == RELOC_TLSOFF32S) {
+            pending->type == RELOC_TLSOFF32S ||
+            pending->type == RELOC_TLSINDEX_MODULE64 ||
+            pending->type == RELOC_TLSINDEX_OFFSET64) {
             ++absolute_relocation_count;
+        }
+        if (pending->type == RELOC_TLSINDEX_MODULE64 ||
+            pending->type == RELOC_TLSINDEX_OFFSET64) {
+            uses_dynamic_tls = true;
         }
     }
     if (library) {
@@ -1716,14 +1788,20 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
                 pending->type != RELOC_ABS32U &&
                 pending->type != RELOC_ABS32S &&
                 pending->type != RELOC_ABS64 &&
-                pending->type != RELOC_TLSOFF32S) continue;
+                pending->type != RELOC_TLSOFF32S &&
+                pending->type != RELOC_TLSINDEX_MODULE64 &&
+                pending->type != RELOC_TLSINDEX_OFFSET64) continue;
             target_section = ld->sections;
             while (target_section && index++ < pending->section) target_section = target_section->next;
-            width = pending->type == RELOC_ABS64 ? 8u : 4u;
+            width = (pending->type == RELOC_ABS64 ||
+                     pending->type == RELOC_TLSINDEX_MODULE64 ||
+                     pending->type == RELOC_TLSINDEX_OFFSET64) ? 8u : 4u;
             if (!target_section || target_section->vaddr < ld->base_addr ||
                 pending->offset > target_section->size ||
                 width > target_section->size - pending->offset ||
-                (g_linker_opts.arch == ARCH_X86 && width != 4u)) {
+                (g_linker_opts.arch == ARCH_X86 && width != 4u &&
+                 pending->type != RELOC_TLSINDEX_MODULE64 &&
+                 pending->type != RELOC_TLSINDEX_OFFSET64)) {
                 fprintf(stderr, "rld: invalid absolute relocation in canonical output\n");
                 rcc_free(dependencies);
                 rcc_free(relocations);
@@ -1734,7 +1812,11 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
             relocations[relocation_index].virtual_address =
                 target_section->vaddr - ld->base_addr + pending->offset;
             relocations[relocation_index].type =
-                pending->type == RELOC_TLSOFF32S
+                pending->type == RELOC_TLSINDEX_MODULE64
+                ? RIN_IMAGE_RELOCATION_TLSINDEX_MODULE64
+                : pending->type == RELOC_TLSINDEX_OFFSET64
+                ? RIN_IMAGE_RELOCATION_TLSINDEX_OFFSET64
+                : pending->type == RELOC_TLSOFF32S
                 ? RIN_IMAGE_RELOCATION_TLSOFF32S
                 : width == 8u ? RIN_IMAGE_RELOCATION_ABS64
                 : pending->type == RELOC_ABS32U
@@ -1746,8 +1828,13 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
               linker_relocation_compare);
         for (relocation_index = 1u; relocation_index < absolute_relocation_count;
              ++relocation_index) {
-            uint64_t prior_width = relocations[relocation_index - 1u].type ==
-                RIN_IMAGE_RELOCATION_ABS64 ? 8u : 4u;
+            uint64_t prior_width =
+                (relocations[relocation_index - 1u].type ==
+                     RIN_IMAGE_RELOCATION_ABS64 ||
+                 relocations[relocation_index - 1u].type ==
+                     RIN_IMAGE_RELOCATION_TLSINDEX_MODULE64 ||
+                 relocations[relocation_index - 1u].type ==
+                     RIN_IMAGE_RELOCATION_TLSINDEX_OFFSET64) ? 8u : 4u;
             if (relocations[relocation_index - 1u].virtual_address + prior_width >
                 relocations[relocation_index].virtual_address) {
                 fprintf(stderr, "rld: overlapping absolute relocations\n");
@@ -1924,7 +2011,8 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
     header.abi_minor = RIN_IMAGE_ABI_MINOR;
     header.flags = (library ? RIN_IMAGE_LIBRARY : RIN_IMAGE_EXECUTABLE | RIN_IMAGE_GUI) |
                    RIN_IMAGE_RELOCATABLE | RIN_IMAGE_ASLR |
-                   (uses_tls ? RIN_IMAGE_USES_TLS : 0u);
+                   (uses_tls ? RIN_IMAGE_USES_TLS : 0u) |
+                   (uses_dynamic_tls ? RIN_IMAGE_DYNAMIC_TLS : 0u);
     header.section_count = section_count;
     header.dependency_count = dependency_count;
     header.entry_rva = library ? 0u : ld->entry_addr - ld->base_addr;
