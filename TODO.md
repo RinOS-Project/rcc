@@ -2166,11 +2166,10 @@
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j2 test-ci`;
   C17/C++20, IR/MIR, verified backend, optimizer, ABI, inline-asm, RIN/RLL/DRV
   format/golden, deterministic fuzz/property, and linker/image checks pass.
-- [ ] Complete that run's stage0/stage1/stage2 bootstrap through the configured
-  Ubuntu-24.04 WSL host. The production gate reached `test-bootstrap-core`, but
-  WSL returned `Wsl/Service/E_ACCESSDENIED`; this is an environment startup
-  failure, not a passing bootstrap. Retry the complete gate on an available
-  WSL/Linux host.
+- [x] Complete the full stage0/stage1/stage2 bootstrap through Ubuntu-24.04 WSL.
+  The current `make SHELL=cmd.exe test-ci` run completed successfully on
+  2026-10-12, including both target architectures; the earlier WSL startup
+  failures are superseded by this verified run.
 - [x] Reproduce the `scripts/bootstrap_gate.sh` core phase with the native
   `rcc-ci.exe`: compile all 38 `CORE_SOURCES` twice for i686 and x86_64 and
   verify all 76 source/target object pairs are byte-identical.
@@ -2181,9 +2180,9 @@
   `SHELL=cmd.exe` recipe: freestanding i686 execution, PE-i386 object check,
   and AMD64 host-adapter execution all pass.
 
-These focused checks do not complete current-revision `test-ci`, stage1
-execution, or stage2 bootstrap; the full host gate remains subject to the
-separately recorded WSL startup failure.
+The full current-working-tree `test-ci` run now covers those focused checks,
+stage1 execution, and stage2 bootstrap; RinOS-native i686/x86_64 self-hosting
+remains a separate open item.
 
 ## C++ regression follow-up (2026-10-10, dependent using and lookup diagnostics)
 
@@ -2779,10 +2778,11 @@ separately recorded WSL startup failure.
   and `RLD` environment variables. With the current native Windows build,
   bootstrap `core` (38 sources, i686 and x86_64, duplicate object comparison)
   and `link` (stage1-a/b images, 33 objects per target) both pass.
-- [ ] Run the bootstrap stage1 execution and stage2 reproduction gates on a
-  supported POSIX host. The configured Ubuntu-24.04 WSL instance returns
-  `Wsl/Service/E_ACCESSDENIED`; the available Strawberry MinGW GCC rejects the
-  runner's POSIX `-rdynamic` option, so execution and stage2 are not verified.
+- [x] Run the bootstrap stage1 execution and stage2 reproduction gates on the
+  Ubuntu-24.04 WSL host. The full `make SHELL=cmd.exe test-ci` run on
+  2026-10-12 passed stage1 execution and byte-identical stage2 object/image
+  reproduction for i686 and x86_64; the earlier WSL/MinGW limitations are
+  superseded.
 
 ## RLD scalability follow-up (2026-10-11, indexed linker state)
 
@@ -3046,3 +3046,20 @@ separately recorded WSL startup failure.
 - [ ] Extend character literal and escape support beyond this bounded UTF-8
   case; wide, UTF-16, and UTF-32 encodings and full execution-character-set
   rules remain open.
+
+## RCC continuation (2026-10-12, multiline macros and full production gate)
+
+- [x] Expand function-like macro invocations spanning physical source lines,
+  treating embedded newlines as preprocessing whitespace while preserving
+  diagnostic line numbers; add nested C17/C++20 tests for i686 and x86_64.
+- [x] Define UINT64_C by token-pasting the ULL suffix before integer-literal
+  parsing, and verify both its unsigned type and full-width decimal value.
+- [x] Make Windows CI select Python and invoke WSL through Sysnative when
+  running under 32-bit make/WOW64; retain normal System32 and POSIX paths.
+- [x] Refresh the format goldens for the current ABI/optimizer output and pass
+  make SHELL=cmd.exe test-ci (exit 0), including C17/C++20, IR/MIR, verified
+  backend, optimizer, RIN/RLL/DRV validation, deterministic checks, stage1
+  execution, and i686/x86_64 stage2 reproduction.
+- [ ] Continue the remaining C++20 conformance, typed-SSA/backend coverage,
+  optimizer, debug-info, and RinOS-native self-host items tracked above; this
+  production-gate pass does not imply general C++20 completeness.

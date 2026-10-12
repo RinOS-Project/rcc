@@ -1541,6 +1541,76 @@ static const char* macro_item_end(const char* p) {
     return p + (*p ? 1 : 0);
 }
 
+static const char* pp_quoted_token_end(const char* p) {
+    char quote = *p++;
+    while (*p) {
+        if (*p == '\\' && p[1]) {
+            p += 2;
+            continue;
+        }
+        if (*p++ == quote) break;
+    }
+    return p;
+}
+
+static const char* pp_macro_invocation_end(const char* open) {
+    const char* p = open;
+    int depth = 0;
+    while (*p) {
+        if (*p == '"' || *p == '\'') {
+            p = pp_quoted_token_end(p);
+            continue;
+        }
+        if (*p == '(') {
+            depth++;
+        } else if (*p == ')' && --depth == 0) {
+            return p + 1;
+        }
+        p++;
+    }
+    return NULL;
+}
+
+/* Extend a normal source-line chunk when a function-like macro call opened
+ * on this line closes on a later line. Newlines inside the call are whitespace
+ * in a preprocessing argument; the caller restores them after expansion so
+ * subsequent diagnostics retain their source line numbers. */
+static const char* pp_multiline_macro_extent(Preprocessor* pp,
+                                             const char* start,
+                                             const char* line_end) {
+    const char* extent = line_end;
+    const char* p = start;
+    while (p < extent) {
+        if (*p == '"' || *p == '\'') {
+            p = pp_quoted_token_end(p);
+            continue;
+        }
+        if (isalpha((unsigned char)*p) || *p == '_') {
+            char identifier[256];
+            const char* identifier_end = read_ident(
+                p, identifier, sizeof(identifier));
+            Macro* macro = pp_get_macro(pp, identifier);
+            if (macro && macro->param_count >= 0 &&
+                !macro_is_expanding(pp, macro)) {
+                const char* open = skip_macro_space(identifier_end);
+                if (*open == '(') {
+                    const char* invocation_end =
+                        pp_macro_invocation_end(open);
+                    if (invocation_end && invocation_end > line_end) {
+                        if (invocation_end > extent) extent = invocation_end;
+                        p = invocation_end;
+                        continue;
+                    }
+                }
+            }
+            p = identifier_end;
+            continue;
+        }
+        p++;
+    }
+    return extent;
+}
+
 /* Expand a single macro invocation */
 static char* expand_macro(Preprocessor* pp, Macro* macro, const char** args, int arg_count) {
     if (macro->param_count < 0) {
@@ -1748,7 +1818,7 @@ static char* expand_macros(Preprocessor* pp, const char* input) {
             if (macro && !macro_is_expanding(pp, macro)) {
                 if (macro->param_count >= 0) {
                     /* Function-like macro - need arguments */
-                    const char* args_start = skip_ws(end);
+                    const char* args_start = skip_macro_space(end);
                     if (*args_start == '(') {
                         args_start++;
                         const char* args[PP_MAX_PARAMS];
@@ -2298,9 +2368,18 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
 
         /* Process normal line - expand macros */
         const char* eol = skip_to_eol(p);
-        size_t line_len = eol - line_start;
+        const char* chunk_end = pp_multiline_macro_extent(pp, line_start, eol);
+        size_t line_len = chunk_end - line_start;
         char* line_buf = rcc_alloc(line_len + 1);
-        memcpy(line_buf, line_start, line_len);
+        int consumed_newlines = 0;
+        for (size_t index = 0; index < line_len; ++index) {
+            if (line_start[index] == '\n') {
+                line_buf[index] = ' ';
+                consumed_newlines++;
+            } else {
+                line_buf[index] = line_start[index];
+            }
+        }
         line_buf[line_len] = '\0';
 
         /* Expand macros */
@@ -2309,8 +2388,13 @@ char* pp_process_string(Preprocessor* pp, const char* source, const char* filena
         rcc_free(line_buf);
         rcc_free(expanded);
 
-        p = eol;
-        if (*p == '\n') {
+        p = chunk_end;
+        if (chunk_end > eol) {
+            for (int index = 0; index < consumed_newlines; ++index) {
+                buf_append_char(&output, '\n');
+            }
+            line += consumed_newlines;
+        } else if (*p == '\n') {
             buf_append_char(&output, '\n');
             p++;
             line++;

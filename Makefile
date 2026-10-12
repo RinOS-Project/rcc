@@ -17,8 +17,16 @@ ifeq ($(OS),Windows_NT)
 # Use the ISO printf implementation so the C11 `%z` length modifier remains
 # valid when RCC itself is built with MinGW's Windows CRT headers.
 CFLAGS += -D__USE_MINGW_ANSI_STDIO=1
+PYTHON ?= python
 EXE_SUFFIX = .exe
+ifeq ($(PROCESSOR_ARCHITEW6432),AMD64)
+# The bundled native make is 32-bit; Sysnative bypasses WOW64 redirection.
+WSL ?= C:/Windows/Sysnative/wsl.exe
 else
+WSL ?= C:/Windows/System32/wsl.exe
+endif
+else
+PYTHON ?= python3
 EXE_SUFFIX =
 endif
 
@@ -890,6 +898,7 @@ TEST_CI_TARGETS = \
 	test-special-sections \
 	test-tls \
 	test-direct-relocation \
+	test-preprocessor-multiline \
 	test-bootstrap-core \
 	test-bootstrap-link \
 	test-bootstrap-execute \
@@ -1398,7 +1407,7 @@ test-preprocessor-cxx-features: $(RCXX_TARGET)
 	@echo "C++ standard-version gates and feature-test macros completed"
 
 test-golden-artifacts: $(RCC_TARGET) $(RCXX_TARGET)
-	python3 scripts/check_golden.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)
+	$(PYTHON) scripts/check_golden.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)
 
 test-determinism: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/determinism)
@@ -1507,7 +1516,7 @@ test-property-gate: $(RCC_TARGET) $(RCXX_TARGET)
 	@echo "C/C++ dual-architecture property corpus gate completed"
 
 test-fuzz: $(RCC_TARGET) $(RCXX_TARGET)
-	python3 scripts/fuzz_compile.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)
+	$(PYTHON) scripts/fuzz_compile.py --rcc $(RCC_TARGET) --rccxx $(RCXX_TARGET)
 
 test-cxx-enum-class: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-enum-class)
@@ -11655,6 +11664,23 @@ test-preprocessor-continuation: $(RCC_TARGET)
 		tests/preprocessor_literal.c
 	@echo "C17 backslash-newline splicing tests completed"
 
+.PHONY: test-preprocessor-multiline
+test-preprocessor-multiline: $(RCC_TARGET) $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/preprocessor-multiline)
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-multiline/c-x86.ro \
+		tests/preprocessor_multiline.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/preprocessor-multiline/c-x64.ro \
+		tests/preprocessor_multiline.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-multiline/cxx-x86.ro \
+		tests/preprocessor_multiline.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/preprocessor-multiline/cxx-x64.ro \
+		tests/preprocessor_multiline.cpp
+	@echo "C17/C++20 multiline function-like macro argument tests completed"
+
 test-preprocessor-if: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT))
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
@@ -13149,7 +13175,7 @@ test-bootstrap-core: $(RCC_TARGET)
 	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/stage1-a)
 	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/stage1-b)
 ifeq ($(OS),Windows_NT)
-	wsl.exe -d Ubuntu-24.04 bash $(WSL_RINCOMPILER_ROOT)/scripts/bootstrap_gate.sh core
+	$(WSL) -d Ubuntu-24.04 bash $(WSL_RINCOMPILER_ROOT)/scripts/bootstrap_gate.sh core
 else
 	@set -e; \
 	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
@@ -13170,7 +13196,7 @@ endif
 test-bootstrap-link: test-bootstrap-core $(RLD_TARGET)
 	$(call MKDIR_P,$(BOOTSTRAP_ROOT)/images)
 ifeq ($(OS),Windows_NT)
-	wsl.exe -d Ubuntu-24.04 bash $(WSL_RINCOMPILER_ROOT)/scripts/bootstrap_gate.sh link
+	$(WSL) -d Ubuntu-24.04 bash $(WSL_RINCOMPILER_ROOT)/scripts/bootstrap_gate.sh link
 else
 	@set -e; \
 	for target in i686-unknown-rinos x86_64-unknown-rinos; do \
@@ -13198,7 +13224,7 @@ test-bootstrap-execute: test-bootstrap-link
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(BOOTSTRAP_ROOT)/execute/reference-x86_64.ro tests/hello.c
 ifeq ($(OS),Windows_NT)
-	wsl.exe -d Ubuntu-24.04 bash $(WSL_RINCOMPILER_ROOT)/scripts/bootstrap_gate.sh execute
+	$(WSL) -d Ubuntu-24.04 bash $(WSL_RINCOMPILER_ROOT)/scripts/bootstrap_gate.sh execute
 	@echo "Dual-architecture linked stage1 execution bootstrap completed"
 else
 	$(CC) -m32 $(CFLAGS) -I$(INCDIR) -rdynamic \
@@ -13234,7 +13260,7 @@ ifeq ($(OS),Windows_NT)
 # i686 code generation in the stage2 target while running both rebuilds on the
 # x86_64 stage1 host; test-bootstrap-execute still validates native i686 image
 # execution separately.
-	wsl.exe -d Ubuntu-24.04 bash $(WSL_RINCOMPILER_ROOT)/scripts/bootstrap_gate.sh stage2
+	$(WSL) -d Ubuntu-24.04 bash $(WSL_RINCOMPILER_ROOT)/scripts/bootstrap_gate.sh stage2
 else
 	@set -e; \
 	for target in i686-unknown-rinos x86_64-unknown-rinos; do \

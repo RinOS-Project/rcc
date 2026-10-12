@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 _Static_assert(_Generic(1, int: 1, default: 0),
                "unsuffixed small decimal must be int");
 _Static_assert(_Generic(1U, unsigned int: 1, default: 0),
@@ -14,6 +16,12 @@ _Static_assert(_Generic(0x80000000, unsigned int: 1, default: 0),
                "hex candidate list must include unsigned int");
 _Static_assert(0xffffffffffffffffULL > 0,
                "unsigned constant comparison must not become signed");
+_Static_assert(_Generic(UINT64_C(14695981039346656037),
+                        unsigned long long: 1, default: 0),
+               "UINT64_C must suffix large decimal constants before parsing");
+_Static_assert(UINT64_C(14695981039346656037) ==
+               14695981039346656037ULL,
+               "UINT64_C must preserve full-width decimal values");
 _Static_assert(0xffffffffU + 1U == 0,
                "unsigned constant arithmetic must wrap at its type width");
 _Static_assert(-1U == 0xffffffffU,
