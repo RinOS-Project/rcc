@@ -7,6 +7,7 @@
 ifeq ($(origin CC),default)
 CC = gcc
 endif
+CLANG ?= clang
 CFLAGS = -Wall -Wextra -std=c11 -g -O2 -MMD -MP \
 	-I$(RINOS_SDK_ROOT)/include
 LDFLAGS =
@@ -15054,31 +15055,12 @@ endif
 	@echo "Verified i686 cdecl variadic double promotion/va_arg O0/O2 tests passed"
 
 test-rinvalidate-dynamic-tls: $(RCC_TARGET) $(RLD_TARGET) $(RINVALIDATE)
-	$(call MKDIR_P,$(TEST_OUT)/rinvalidate-dynamic-tls)
-	$(RCC_TARGET) --target i686-unknown-rinos -fPIC --dynamic-tls -c \
-		-o $(TEST_OUT)/rinvalidate-dynamic-tls/x86.ro \
-		tests/verified_backend_dynamic_tls_rin.c
-	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
-		--dep rinruntime.rll \
-		--import __rcc_tls_module_slot=rinruntime.rll@data \
-		--import __tls_get_addr=rinruntime.rll@function \
-		-e rin_dynamic_tls_read \
-		-o $(TEST_OUT)/rinvalidate-dynamic-tls/x86.rin \
-		$(TEST_OUT)/rinvalidate-dynamic-tls/x86.ro
-	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
-		$(TEST_OUT)/rinvalidate-dynamic-tls/x86.rin
-	$(RCC_TARGET) --target x86_64-unknown-rinos -fPIC --dynamic-tls -c \
-		-o $(TEST_OUT)/rinvalidate-dynamic-tls/x64.ro \
-		tests/verified_backend_dynamic_tls_rin.c
-	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
-		--dep rinruntime.rll \
-		--import __rcc_tls_module_slot=rinruntime.rll@data \
-		--import __tls_get_addr=rinruntime.rll@function \
-		-e rin_dynamic_tls_read \
-		-o $(TEST_OUT)/rinvalidate-dynamic-tls/x64.rin \
-		$(TEST_OUT)/rinvalidate-dynamic-tls/x64.ro
-	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
-		$(TEST_OUT)/rinvalidate-dynamic-tls/x64.rin
+	$(PYTHON) "$(RINOS_ROOT)/scripts/test_rinruntime_dynamic_tls_rll.py" \
+		--clang "$(CLANG)" \
+		--rcc "$(abspath $(RCC_TARGET))" \
+		--rld "$(abspath $(RLD_TARGET))" \
+		--rinvalidate "$(abspath $(RINVALIDATE))" \
+		--output-dir "$(abspath $(TEST_OUT)/rinvalidate-dynamic-tls/runtime)"
 
 test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
