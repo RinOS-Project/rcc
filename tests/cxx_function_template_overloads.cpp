@@ -288,6 +288,9 @@ struct FunctionTemplateMixedValueBox {};
 template<int Id, typename... Types>
 struct FunctionTemplateMixedValuePackBox {};
 
+template<int Size, typename Head, typename... Types>
+struct FunctionTemplateDependentValuePackBox {};
+
 template<typename T>
 int choose_template_pack_partial_order(
     FunctionTemplatePackPartialOrderBox<T>) {
@@ -382,6 +385,18 @@ template<typename... Types>
 int choose_mixed_value_class_pack_order(
     FunctionTemplateMixedValuePackBox<7, Types*...>) {
     return 230;
+}
+
+template<typename Head, typename... Types>
+int choose_dependent_value_class_pack_order(
+    FunctionTemplateDependentValuePackBox<sizeof(Head), Head, Types...>) {
+    return 231;
+}
+
+template<typename Head, typename... Types>
+int choose_dependent_value_class_pack_order(
+    FunctionTemplateDependentValuePackBox<sizeof(Head), Head, Types*...>) {
+    return 232;
 }
 
 template<template<typename> class Template, typename T>
@@ -1295,6 +1310,15 @@ int main(void) {
                        FunctionTemplateMixedValuePackBox<7, int>{}) == 229 &&
                    choose_mixed_value_class_pack_order(
                        FunctionTemplateMixedValuePackBox<7>{}) == 230 &&
+                   choose_dependent_value_class_pack_order(
+                       FunctionTemplateDependentValuePackBox<
+                           sizeof(int), int, int*>{}) == 232 &&
+                   choose_dependent_value_class_pack_order(
+                       FunctionTemplateDependentValuePackBox<
+                           sizeof(short), short, int, short*>{}) == 231 &&
+                   choose_dependent_value_class_pack_order(
+                       FunctionTemplateDependentValuePackBox<
+                           sizeof(long), long>{}) == 232 &&
                    choose_compound_pointer_pack_order(
                        FunctionTemplatePackPartialOrderBox<>{}) == 223 &&
                    choose_compound_pointer_pack_order(

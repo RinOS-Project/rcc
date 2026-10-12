@@ -2917,5 +2917,23 @@ separately recorded WSL startup failure.
   the complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx` suite; both
   pass (exit 0), including i686/AMD64 generation and AMD64 execution.
 - [ ] Extend ordering beyond direct trailing type packs to compound/repeated or
-  mixed pack sources, non-type/template-template packs, and interactions with
-  constraints and conversion-sequence ties.
+  mixed pack sources, dependent non-type expressions beyond the fixed
+  `sizeof(Type)` prefix implemented below, non-type/template-template packs,
+  and interactions with constraints and conversion-sequence ties.
+
+## RCC continuation (2026-10-12, dependent sizeof prefix with class type packs)
+
+- [x] Deduce and order a fixed dependent non-type class-template argument
+  `sizeof(Head)` before the fixed class type `Head` and trailing type pack;
+  preserve the function-template parameter identity when class-template
+  parameter indices overlap.
+- [x] Compare empty, pointer-tail, and mixed-tail overload selection against
+  GCC C++20; verify i686 and AMD64 generation, AMD64 host execution, and
+  existing invalid/ambiguous overload diagnostics.
+- [x] Run the focused
+  `mingw32-make SHELL=cmd.exe test-cxx-function-template-overloads` gate and
+  the complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx` suite;
+  both completed successfully (exit 0).
+- [ ] Extend fixed dependent non-type ordering beyond `sizeof(Type)` to other
+  expression shapes, non-type packs, and template-template packs; full C++20
+  partial ordering, constraints, and conversion ties remain open.
