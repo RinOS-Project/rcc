@@ -3527,6 +3527,238 @@ static void verify_function_template_parameter_dies(
     objfile_free(object);
 }
 
+static uint64_t function_template_children_start(
+    const ObjSection* info, uint64_t function_die, uint64_t address_size)
+{
+    uint64_t cursor = function_die + 1u + 4u + address_size + 4u + 1u + 4u +
+                      4u + 1u + 4u + 4u;
+    uint64_t expression_size = read_uleb(info->data, info->size, &cursor);
+    assert(expression_size <= info->size - cursor);
+    cursor += expression_size + 2u; /* inline and prototype attributes */
+    return cursor;
+}
+
+static void verify_function_template_type_pack_dies(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    unsigned empty_count = 0u;
+    unsigned populated_count = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+
+    for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
+        uint32_t function_name_offset;
+        uint64_t cursor;
+        uint32_t name_offset;
+        uint32_t type_offset;
+        unsigned element_count = 0u;
+        if (info->data[die] != 2u) continue;
+        function_name_offset = read_u32(info->data, die + 1u);
+        if (function_name_offset >= strings->size ||
+            strcmp((const char*)strings->data + function_name_offset,
+                   "debug_template_function_type_pack") != 0) {
+            continue;
+        }
+        cursor = function_template_children_start(info, die, address_size);
+        assert(cursor < info->size && info->data[cursor++] == 47u);
+        assert(cursor + 8u <= info->size);
+        name_offset = read_u32(info->data, cursor);
+        type_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset, "Head") == 0);
+        assert((uint64_t)type_offset + 7u <= info->size &&
+               info->data[type_offset] == 5u);
+        name_offset = read_u32(info->data, type_offset + 1u);
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset, "int") == 0);
+
+        assert(cursor < info->size && info->data[cursor++] == 50u);
+        assert(cursor + 4u <= info->size);
+        name_offset = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset, "Tail") == 0);
+        while (cursor < info->size && info->data[cursor] == 51u) {
+            assert(cursor + 5u <= info->size);
+            ++cursor;
+            type_offset = read_u32(info->data, cursor);
+            cursor += 4u;
+            assert((uint64_t)type_offset + 7u <= info->size &&
+                   info->data[type_offset] == 5u);
+            name_offset = read_u32(info->data, type_offset + 1u);
+            assert(name_offset < strings->size);
+            if (element_count == 0u) {
+                assert(strcmp((const char*)strings->data + name_offset,
+                              "short") == 0);
+            } else if (element_count == 1u) {
+                assert(strcmp((const char*)strings->data + name_offset,
+                              "long") == 0);
+            } else {
+                assert(0 && "unexpected function type-pack element");
+            }
+            ++element_count;
+        }
+        assert(cursor < info->size && info->data[cursor++] == 0u);
+        if (element_count == 0u) {
+            ++empty_count;
+        } else {
+            assert(element_count == 2u);
+            ++populated_count;
+        }
+    }
+    assert(empty_count == 1u && populated_count == 1u);
+    objfile_free(object);
+}
+
+static void verify_function_template_signed_pack_dies(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    unsigned empty_count = 0u;
+    unsigned populated_count = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+
+    for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
+        uint32_t function_name_offset;
+        uint64_t cursor;
+        uint32_t name_offset;
+        uint32_t type_offset;
+        unsigned element_count = 0u;
+        if (info->data[die] != 2u) continue;
+        function_name_offset = read_u32(info->data, die + 1u);
+        if (function_name_offset >= strings->size ||
+            strcmp((const char*)strings->data + function_name_offset,
+                   "debug_template_function_signed_pack") != 0) {
+            continue;
+        }
+        cursor = function_template_children_start(info, die, address_size);
+        assert(cursor < info->size && info->data[cursor++] == 48u);
+        assert(cursor + 8u <= info->size);
+        name_offset = read_u32(info->data, cursor);
+        type_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset, "Seed") == 0);
+        assert((uint64_t)type_offset + 7u <= info->size &&
+               info->data[type_offset] == 5u);
+        name_offset = read_u32(info->data, type_offset + 1u);
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset, "int") == 0);
+        assert(read_sleb(info->data, info->size, &cursor) == 3);
+
+        assert(cursor < info->size && info->data[cursor++] == 50u);
+        assert(cursor + 4u <= info->size);
+        name_offset = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset,
+                      "Values") == 0);
+        while (cursor < info->size && info->data[cursor] == 52u) {
+            int64_t value;
+            assert(cursor + 5u <= info->size);
+            ++cursor;
+            type_offset = read_u32(info->data, cursor);
+            cursor += 4u;
+            assert((uint64_t)type_offset + 7u <= info->size &&
+                   info->data[type_offset] == 5u);
+            name_offset = read_u32(info->data, type_offset + 1u);
+            assert(name_offset < strings->size &&
+                   strcmp((const char*)strings->data + name_offset,
+                          "int") == 0);
+            value = read_sleb(info->data, info->size, &cursor);
+            assert((element_count == 0u && value == -2) ||
+                   (element_count == 1u && value == 7));
+            ++element_count;
+        }
+        assert(cursor < info->size && info->data[cursor++] == 0u);
+        if (element_count == 0u) {
+            ++empty_count;
+        } else {
+            assert(element_count == 2u);
+            ++populated_count;
+        }
+    }
+    assert(empty_count == 1u && populated_count == 1u);
+    objfile_free(object);
+}
+
+static void verify_function_template_unsigned_pack_die(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    unsigned empty_count = 0u;
+    unsigned populated_count = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+
+    for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
+        uint32_t function_name_offset;
+        uint64_t cursor;
+        uint32_t name_offset;
+        uint32_t type_offset;
+        unsigned element_count = 0u;
+        if (info->data[die] != 2u) continue;
+        function_name_offset = read_u32(info->data, die + 1u);
+        if (function_name_offset >= strings->size ||
+            strcmp((const char*)strings->data + function_name_offset,
+                   "debug_template_function_unsigned_pack") != 0) {
+            continue;
+        }
+        cursor = function_template_children_start(info, die, address_size);
+        assert(cursor < info->size && info->data[cursor++] == 50u);
+        assert(cursor + 4u <= info->size);
+        name_offset = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset,
+                      "Values") == 0);
+        while (cursor < info->size && info->data[cursor] == 53u) {
+            uint64_t value;
+            assert(cursor + 5u <= info->size);
+            ++cursor;
+            type_offset = read_u32(info->data, cursor);
+            cursor += 4u;
+            assert((uint64_t)type_offset + 7u <= info->size &&
+                   info->data[type_offset] == 5u);
+            name_offset = read_u32(info->data, type_offset + 1u);
+            assert(name_offset < strings->size &&
+                   strcmp((const char*)strings->data + name_offset,
+                          "unsigned int") == 0);
+            value = read_uleb(info->data, info->size, &cursor);
+            assert(element_count == 0u &&
+                   value == UINT32_C(0xf0000000));
+            ++element_count;
+        }
+        assert(cursor < info->size && info->data[cursor++] == 0u);
+        if (element_count == 0u) {
+            ++empty_count;
+        } else {
+            assert(element_count == 1u);
+            ++populated_count;
+        }
+    }
+    assert(empty_count == 1u && populated_count == 1u);
+    objfile_free(object);
+}
+
 static uint8_t read_inline_attribute(const ObjSection* info,
                                      uint64_t function_offset,
                                      uint64_t address_size,
@@ -4143,5 +4375,11 @@ int main(int argc, char** argv)
         argv[27], ARCH_X64, "DebugTemplateEmptyNonTypePack.");
     verify_function_template_parameter_dies(argv[26], ARCH_X86);
     verify_function_template_parameter_dies(argv[27], ARCH_X64);
+    verify_function_template_type_pack_dies(argv[26], ARCH_X86);
+    verify_function_template_type_pack_dies(argv[27], ARCH_X64);
+    verify_function_template_signed_pack_dies(argv[26], ARCH_X86);
+    verify_function_template_signed_pack_dies(argv[27], ARCH_X64);
+    verify_function_template_unsigned_pack_die(argv[26], ARCH_X86);
+    verify_function_template_unsigned_pack_die(argv[27], ARCH_X64);
     return 0;
 }

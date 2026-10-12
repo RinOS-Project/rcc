@@ -1768,14 +1768,15 @@
         `DW_TAG_GNU_template_parameter_pack`配下へ実引数ごとのtype/value DIEを
         出力し、empty／複数要素とsigned／unsigned値を同じ両arch gateで検証。
         template-template arguments、dependent-typed non-type packs、
-        function-template packs、未instantiateのdependent alias/template definition
-        DIEは未完
+        未instantiateのdependent alias/template definition DIEは未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
         type/value argumentsを保持し、subprogram DIE配下へtemplate type／
         integral value parameter DIEを出力。i686/AMD64の`test-debug-info`で
-        `Value = unsigned short`と`Bias = -7`を検証。parameter pack、
-        template-template parameter、未対応のnon-integral value、未instantiateの
-        dependent function-template definitionは未完
+        `Value = unsigned short`と`Bias = -7`を検証。trailing type packおよび
+        non-dependent integral型のsigned/unsigned non-type packもpack DIEと
+        実引数ごとのchild DIEへ出力し、empty／複数要素、負値、高bit unsigned値を
+        i686/AMD64で検証。template-template parameter、dependent-typed/non-integral
+        value pack、未instantiateのdependent function-template definitionは未完
   - [x] enum型と列挙子へ`DW_TAG_enumeration_type`／`DW_TAG_enumerator`と
         signed／unsigned constant valueを出力し、unsigned full-width値を含む
         i686/AMD64のobject・link回帰で検証

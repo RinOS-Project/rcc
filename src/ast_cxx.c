@@ -6923,6 +6923,43 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->func_is_cxx_method = definition->func_is_cxx_method;
         instance->func_method_owner = definition->func_method_owner;
         instance->func_template_arg_count = arg_count;
+        instance->func_template_pack_count = -1;
+        if (tmpl->pending_pack_count >= 0) {
+            bool has_type_pack = false;
+            for (int parameter_index = 0;
+                 parameter_index < tmpl->param_count; ++parameter_index) {
+                if (tmpl->params[parameter_index].is_pack &&
+                    tmpl->params[parameter_index].kind == TPARAM_TYPE) {
+                    has_type_pack = true;
+                    break;
+                }
+            }
+            instance->func_template_pack_count = tmpl->pending_pack_count;
+            if (tmpl->pending_pack_count > 0 && has_type_pack) {
+                instance->func_template_pack_args = ast_arena_alloc(
+                    sizeof(instance->func_template_pack_args[0]) *
+                    (size_t)tmpl->pending_pack_count);
+                memcpy(instance->func_template_pack_args,
+                       tmpl->pending_pack_args,
+                       sizeof(instance->func_template_pack_args[0]) *
+                           (size_t)tmpl->pending_pack_count);
+            } else if (tmpl->pending_pack_count > 0) {
+                instance->func_template_pack_values = ast_arena_alloc(
+                    sizeof(instance->func_template_pack_values[0]) *
+                    (size_t)tmpl->pending_pack_count);
+                instance->func_template_pack_value_present = ast_arena_alloc(
+                    sizeof(instance->func_template_pack_value_present[0]) *
+                    (size_t)tmpl->pending_pack_count);
+                memcpy(instance->func_template_pack_values,
+                       tmpl->pending_pack_values,
+                       sizeof(instance->func_template_pack_values[0]) *
+                           (size_t)tmpl->pending_pack_count);
+                memcpy(instance->func_template_pack_value_present,
+                       tmpl->pending_pack_value_present,
+                       sizeof(instance->func_template_pack_value_present[0]) *
+                           (size_t)tmpl->pending_pack_count);
+            }
+        }
         if (arg_count > 0) {
             instance->func_template_args = ast_arena_alloc(
                 sizeof(instance->func_template_args[0]) *

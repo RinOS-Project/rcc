@@ -1465,6 +1465,10 @@ Decl* decl_func(const char* name, Type* type, DeclList* params, Stmt* body, Sour
     d->func_template_arg_count = 0;
     d->func_template_value_args = NULL;
     d->func_template_value_present = NULL;
+    d->func_template_pack_args = NULL;
+    d->func_template_pack_values = NULL;
+    d->func_template_pack_value_present = NULL;
+    d->func_template_pack_count = -1;
     d->func_has_cxx_linkage = false;
     d->func_has_local_linkage = false;
     d->func_is_cxx_method = false;

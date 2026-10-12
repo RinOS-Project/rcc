@@ -1342,15 +1342,37 @@ static void debug_collect_function_types(DebugTypeContext* context,
          parameter = parameter->next) {
         debug_collect_decl_type(context, parameter->decl);
     }
-    if (function->func_template_owner &&
-        function->func_template_arg_count > 0) {
+    if (function->func_template_owner) {
         CxxTemplate* templ = function->func_template_owner;
-        for (int index = 0; index < templ->param_count &&
-                             index < function->func_template_arg_count;
-             ++index) {
+        for (int index = 0; index < templ->param_count; ++index) {
             TemplateParam* parameter = &templ->params[index];
             Type* argument_type = NULL;
-            if (parameter->is_pack) continue;
+            if (parameter->is_pack) {
+                if (index == templ->param_count - 1 &&
+                    parameter->kind == TPARAM_TYPE &&
+                    function->func_template_pack_count >= 0 &&
+                    function->func_template_pack_args) {
+                    for (int pack_index = 0;
+                         pack_index < function->func_template_pack_count;
+                         ++pack_index) {
+                        argument_type = function->func_template_pack_args[
+                            pack_index];
+                        if (argument_type && !debug_type_is_dependent(
+                                argument_type, 0u)) {
+                            debug_type_collect(context, argument_type);
+                        }
+                    }
+                } else if (index == templ->param_count - 1 &&
+                           parameter->kind == TPARAM_NONTYPE &&
+                           parameter->type &&
+                           debug_type_has_integral_constant_encoding(
+                               parameter->type) &&
+                           !debug_type_is_dependent(parameter->type, 0u)) {
+                    debug_type_collect(context, parameter->type);
+                }
+                continue;
+            }
+            if (index >= function->func_template_arg_count) continue;
             if (parameter->kind == TPARAM_TYPE) {
                 argument_type = function->func_template_args
                     ? function->func_template_args[index] : NULL;
@@ -4795,17 +4817,86 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                           function_decl->type->kind == TYPE_FUNC &&
                           function_decl->type->has_prototype ? 1u : 0u);
         }
-        if (function_decl && function_decl->func_template_owner &&
-            function_decl->func_template_arg_count > 0) {
+        if (function_decl && function_decl->func_template_owner) {
             CxxTemplate* templ = function_decl->func_template_owner;
             for (int parameter_index = 0;
-                 parameter_index < templ->param_count &&
-                     parameter_index <
-                         function_decl->func_template_arg_count;
+                 parameter_index < templ->param_count;
                  ++parameter_index) {
                 TemplateParam* parameter = &templ->params[parameter_index];
                 DebugTypeEntry* parameter_type = NULL;
-                if (!parameter->name || parameter->is_pack) continue;
+                if (!parameter->name) continue;
+                if (parameter->is_pack) {
+                    if (parameter_index == templ->param_count - 1 &&
+                        parameter->kind == TPARAM_TYPE &&
+                        function_decl->func_template_pack_count >= 0) {
+                        section_add_byte(info, 50u);
+                        debug_line_u32(
+                            info, debug_str_add(strings, parameter->name));
+                        for (int pack_index = 0;
+                             pack_index <
+                                 function_decl->func_template_pack_count;
+                             ++pack_index) {
+                            Type* argument_type =
+                                function_decl->func_template_pack_args[
+                                    pack_index];
+                            if (!argument_type || debug_type_is_dependent(
+                                    argument_type, 0u)) {
+                                continue;
+                            }
+                            parameter_type = debug_type_find(
+                                &types, argument_type);
+                            if (!parameter_type) continue;
+                            section_add_byte(info, 51u);
+                            debug_type_ref(info, NULL, parameter_type);
+                        }
+                        section_add_byte(info, 0u);
+                    } else if (
+                        parameter_index == templ->param_count - 1 &&
+                        parameter->kind == TPARAM_NONTYPE &&
+                        function_decl->func_template_pack_count >= 0 &&
+                        parameter->type &&
+                        debug_type_has_integral_constant_encoding(
+                            parameter->type) &&
+                        !debug_type_is_dependent(parameter->type, 0u)) {
+                        parameter_type = debug_type_find(
+                            &types, parameter->type);
+                        section_add_byte(info, 50u);
+                        debug_line_u32(
+                            info, debug_str_add(strings, parameter->name));
+                        for (int value_index = 0;
+                             value_index <
+                                 function_decl->func_template_pack_count;
+                             ++value_index) {
+                            if (!function_decl->func_template_pack_values ||
+                                !function_decl->func_template_pack_value_present ||
+                                !function_decl->func_template_pack_value_present[
+                                    value_index]) {
+                                continue;
+                            }
+                            section_add_byte(
+                                info, parameter->type->is_unsigned
+                                    ? 53u : 52u);
+                            debug_type_ref(info, NULL, parameter_type);
+                            if (parameter->type->is_unsigned) {
+                                debug_line_uleb(
+                                    info, (uint64_t)
+                                        function_decl->func_template_pack_values[
+                                            value_index]);
+                            } else {
+                                debug_line_sleb(
+                                    info,
+                                    function_decl->func_template_pack_values[
+                                        value_index]);
+                            }
+                        }
+                        section_add_byte(info, 0u);
+                    }
+                    continue;
+                }
+                if (parameter_index >=
+                    function_decl->func_template_arg_count) {
+                    continue;
+                }
                 if (parameter->kind == TPARAM_TYPE) {
                     Type* argument_type = function_decl->func_template_args
                         ? function_decl->func_template_args[parameter_index]

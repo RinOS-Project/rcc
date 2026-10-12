@@ -1225,6 +1225,10 @@ struct Decl {
             int func_template_arg_count;
             int64_t* func_template_value_args;
             bool* func_template_value_present;
+            Type** func_template_pack_args;
+            int64_t* func_template_pack_values;
+            bool* func_template_pack_value_present;
+            int func_template_pack_count;
             bool func_has_cxx_linkage;
             bool func_has_local_linkage;
             bool func_is_cxx_method;
