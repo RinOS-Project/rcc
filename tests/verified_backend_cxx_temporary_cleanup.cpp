@@ -18,6 +18,15 @@ struct VerifiedTemporary {
     }
 };
 
+struct VerifiedTemporaryFactory {
+    int* cleanup_order;
+
+    VerifiedTemporary make(int cleanup_id, int value) const noexcept {
+        return {cleanup_order, cleanup_id, value,
+                {cleanup_order, cleanup_id + 1}};
+    }
+};
+
 struct VerifiedPairTemporary {
     int* cleanup_order;
     int cleanup_id;
@@ -119,6 +128,15 @@ int main() {
     if (cleanup_order != 12 || comma_order != 1) {
         return 2;
     }
+
+    cleanup_order = 0;
+    VerifiedTemporaryFactory factory{&cleanup_order};
+    if (consume_verified_temporary(
+            true ? factory.make(13, 85) : factory.make(15, 95)) != 85) {
+        return 25;
+    }
+    if (cleanup_order != 144) return 26;
+
     cleanup_order = 0;
     comma_order = 0;
     if (consume_verified_pair(

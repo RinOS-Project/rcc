@@ -1303,7 +1303,9 @@
         aggregate return directly into that storage; run the validated
         fixed-member destructor plan once after the outer call. Verify both
         branch choices, cleanup order, fallback-free i686/AMD64 objects, and x64
-        execution in `test-verified-cxx-temporary-cleanup`. Member-inline calls,
+        execution in `test-verified-cxx-temporary-cleanup`. A non-virtual,
+        `noexcept` ordinary member-function call returning the same class is
+        also covered as a branch arm. Field-backed inline member calls,
         conversions, nested conditional arms, potentially throwing expressions,
         and array-loop cleanup remain outside this verified subset.
   - [x] Validate noexcept fixed-member cleanup plans recursively for class
