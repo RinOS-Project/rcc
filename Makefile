@@ -6548,6 +6548,13 @@ test-cxx-designated-initializer: $(RCXX_TARGET)
 test-cxx-utf8-literals: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-utf8-literals)
 	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_utf8_literals.cpp
+	g++ -std=c++20 -fexec-charset=UTF-8 -c \
+		-o $(TEST_OUT)/cxx-utf8-literals/gcc-oracle.o \
+		tests/cxx_utf8_literals.cpp
+	gcc -o $(TEST_OUT)/cxx-utf8-literals/gcc-oracle \
+		tests/cxx_utf8_literals_run_test.c \
+		$(TEST_OUT)/cxx-utf8-literals/gcc-oracle.o
+	$(TEST_OUT)/cxx-utf8-literals/gcc-oracle
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_utf8_char_multicodeunit_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-char-oracle.log)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-utf8-literals/x86.s tests/cxx_utf8_literals.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-utf8-literals/x86.o $(TEST_OUT)/cxx-utf8-literals/x86.s
@@ -7625,6 +7632,13 @@ test-cxx-utf8-literals-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-utf8-literals)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
 		tests/cxx_utf8_literals.cpp
+	$(CXX) -std=c++20 -fexec-charset=UTF-8 -c \
+		-o $(TEST_OUT)/cxx-utf8-literals/gcc-oracle.o \
+		tests/cxx_utf8_literals.cpp
+	gcc -o $(TEST_OUT)/cxx-utf8-literals/gcc-oracle \
+		tests/cxx_utf8_literals_run_test.c \
+		$(TEST_OUT)/cxx-utf8-literals/gcc-oracle.o
+	$(TEST_OUT)/cxx-utf8-literals/gcc-oracle
 	@if $(CXX) -std=c++20 -fsyntax-only \
 		tests/cxx_utf8_char_multicodeunit_invalid.cpp \
 		>$(TEST_OUT)/cxx-utf8-literals/invalid-char-oracle.log 2>&1; then \
@@ -12019,6 +12033,21 @@ endif
 
 test-language-boundaries: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/language-boundaries)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/language-boundaries/c-ucn-x86.s \
+		tests/c_string_ucn_utf8.c
+	$(CC) -m32 -c -o $(TEST_OUT)/language-boundaries/c-ucn-x86.o \
+		$(TEST_OUT)/language-boundaries/c-ucn-x86.s
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/language-boundaries/c-ucn-x64.s \
+		tests/c_string_ucn_utf8.c
+	$(CC) -o $(TEST_OUT)/language-boundaries/c-ucn-x64 \
+		$(TEST_OUT)/language-boundaries/c-ucn-x64.s
+	$(TEST_OUT)/language-boundaries/c-ucn-x64
+	gcc -std=c17 -fexec-charset=UTF-8 \
+		-o $(TEST_OUT)/language-boundaries/c-ucn-gcc \
+		tests/c_string_ucn_utf8.c
+	$(TEST_OUT)/language-boundaries/c-ucn-gcc
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/language-boundaries/c-x86.ro tests/unsupported_long_double.c,$(TEST_OUT)/language-boundaries/c-x86.log)
 	$(GREP) -q "long double is not supported by the RinOS floating-point ABI" \
 		$(TEST_OUT)/language-boundaries/c-x86.log

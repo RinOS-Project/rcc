@@ -711,9 +711,10 @@ static int lex_identifier_ucn(Lexer* lex, char* output, size_t capacity) {
     return length;
 }
 
-/* Decode a universal character escape into UTF-8 bytes for a u8 string.
- * The caller owns the bounded destination and has already accounted for
- * the leading backslash. */
+/* Decode a universal character escape into RinOS's UTF-8 string encoding.
+ * This is used for both ordinary narrow strings (the target execution
+ * character set) and u8 strings. The caller owns the bounded destination
+ * and has already accounted for the leading backslash. */
 static int lex_utf8_escape(Lexer* lex, char* output, size_t capacity) {
     char kind = advance(lex);
     int digits = kind == 'u' ? 4 : 8;
@@ -880,7 +881,7 @@ static Token* lex_string(Lexer* lex, SourceLoc loc, bool is_utf8) {
         }
         if (peek(lex) == '\\') {
             advance(lex);
-            if (is_utf8 && (peek(lex) == 'u' || peek(lex) == 'U')) {
+            if (peek(lex) == 'u' || peek(lex) == 'U') {
                 len += lex_utf8_escape(lex, buf + len,
                                        (size_t)(RCC_MAX_STRING - 1 - len));
             } else {

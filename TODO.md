@@ -3059,6 +3059,19 @@ remains a separate open item.
 - [ ] Continue the remaining literal encodings and execution-character-set
   conformance; wide, UTF-16, and UTF-32 remain open.
 
+## RCC continuation (2026-10-13, narrow-string UCN execution encoding)
+
+- [x] Encode universal character names in ordinary narrow strings with the
+  RinOS UTF-8 execution character set, sharing the length-aware encoder used
+  by `u8` literals. Preserve embedded NUL bytes and distinguish them from the
+  final string terminator.
+- [x] Compare C17/C++20 bytes and array bounds against GCC with an explicit
+  UTF-8 execution charset; compile i686/AMD64 and execute both C17 and C++20
+  AMD64 regressions (`test-language-boundaries` and
+  `test-cxx-utf8-literals`, exit 0).
+- [ ] Complete the remaining narrow character-literal UCN rules and wide,
+  UTF-16, and UTF-32 literal encodings.
+
 ## RCC continuation (2026-10-12, multiline macros and full production gate)
 
 - [x] Expand function-like macro invocations spanning physical source lines,
