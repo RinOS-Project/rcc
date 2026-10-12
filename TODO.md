@@ -3102,7 +3102,7 @@ remains a separate open item.
   variadic member sets, other receiver/member forms and return types; general
   C++20 partial ordering, constraints, and conversion-sequence ties remain open.
 
-## RCC continuation (2026-10-12, constexpr member-call integer arguments)
+## RCC continuation (2026-10-12, constexpr member-call arguments)
 
 - [x] Evaluate a dependent class-template NTTP call such as `Head::value(2)`
   after substitution when it resolves to one public static, non-variadic,
@@ -3115,6 +3115,17 @@ remains a separate open item.
   zero-argument regression retains empty-pack coverage.
 - [x] Pass `test-cxx-function-template-overloads` and the complete native
   Windows `mingw32-make SHELL=cmd.exe test-cxx` suite (exit 0).
-- [ ] Add support for dependent call arguments, overload resolution/default
-  arguments, and additional constexpr member/receiver forms; full C++20
-  partial-ordering and conversion-ranking coverage remains open.
+- [x] Order a dependent call pattern with one dependent type-member constant
+  argument (`Head::value(ArgumentTag::value)`) against a fixed integral pattern
+  after substitution. The regression verifies that the fixed pattern wins for
+  value `1` and the dependent pattern wins for value `4`, with one- and two-type
+  trailing packs; GCC C++20 accepts the same cases.
+- [x] Re-run `test-cxx-function-template-overloads` and the complete native
+  Windows `mingw32-make SHELL=cmd.exe test-cxx` suite after this extension
+  (exit 0).
+- [ ] Resolve function-template non-type arguments in dependent calls (for
+  example `Head::value(N)` with `N` deduced through `Tag<N>`); GCC accepts the
+  ordering case but RCC currently diagnoses it as ambiguous. Arbitrary
+  dependent argument expressions, overload resolution/default arguments, and
+  additional constexpr member/receiver forms also remain open; full C++20
+  partial-ordering and conversion-ranking coverage is incomplete.

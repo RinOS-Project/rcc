@@ -343,6 +343,11 @@ private:
     static constexpr int value(int argument) { return argument - 1; }
 };
 
+template<int Value>
+struct FunctionTemplateMemberCallArgumentTag {
+    static constexpr int value = Value;
+};
+
 template<typename T>
 int choose_template_pack_partial_order(
     FunctionTemplatePackPartialOrderBox<T>) {
@@ -511,6 +516,20 @@ template<typename Head, typename... Types>
 int choose_member_call_argument_class_pack_order(
     FunctionTemplateMemberValuePackBox<1, Head, Types...>) {
     return 246;
+}
+
+template<typename Head, typename ArgumentTag, typename... Types>
+int choose_member_call_dependent_argument_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(ArgumentTag::value), Head, ArgumentTag, Types...>) {
+    return 247;
+}
+
+template<typename Head, typename ArgumentTag, typename... Types>
+int choose_member_call_dependent_argument_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        1, Head, ArgumentTag, Types...>) {
+    return 248;
 }
 
 template<typename Head, typename... Types>
@@ -1411,6 +1430,19 @@ int main(void) {
             FunctionTemplateMemberValuePackBox<
                 1, FunctionTemplateMemberCallArgumentPrivate, int>{}) != 246) {
         return 97;
+    }
+    if (choose_member_call_dependent_argument_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallArgumentTwo,
+                FunctionTemplateMemberCallArgumentTag<0>, int>{}) != 248) {
+        return 98;
+    }
+    if (choose_member_call_dependent_argument_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                4, FunctionTemplateMemberCallArgumentTwo,
+                FunctionTemplateMemberCallArgumentTag<3>, short, char>{}) !=
+        247) {
+        return 99;
     }
     if (choose_member_arithmetic_value_class_pack_order(
             FunctionTemplateMemberValuePackBox<

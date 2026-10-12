@@ -18109,12 +18109,15 @@ static void cxx_function_template_dependent_member_expression_info(
             expression->call_func, tmpl)) {
         for (ExprList* argument = expression->call_args; argument;
              argument = argument->next) {
-            int64_t argument_value;
-            if (!expr_eval_integer_constant(argument->expr,
-                                            &argument_value)) {
+            bool argument_supported = false;
+            bool argument_contains_dependent_member = false;
+            cxx_function_template_dependent_member_expression_info(
+                argument->expr, tmpl, &argument_supported,
+                &argument_contains_dependent_member, depth + 1u);
+            if (!argument_supported) {
                 return;
             }
-            (void)argument_value;
+            (void)argument_contains_dependent_member;
         }
         *supported = true;
         *contains_dependent_member = true;
