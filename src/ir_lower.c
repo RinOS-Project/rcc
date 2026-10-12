@@ -1915,7 +1915,9 @@ static RccIrLowerValue lower_lvalue_address_impl(
     if (!expression) return lower_invalid_value();
     if (expression->kind == EXPR_CALL && expression->call_method &&
         expression->call_method->return_type &&
-        expression->call_method->return_type->is_reference) {
+        expression->call_method->return_type->is_reference &&
+        (expression->call_method->kind == TYPE_METHOD_FIELD ||
+         expression->call_method->kind == TYPE_METHOD_FIELD_RELEASE)) {
         return lower_inline_method_address(context, expression);
     }
     if (expression->kind == EXPR_CALL && expression->type &&
@@ -6919,7 +6921,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         expression->call_member_pointer_application != NULL;
     bool use_aggregate_result_destination = false;
     RccIrInstruction* call;
-    if (expression && expression->call_method) {
+    if (expression && expression->call_method &&
+        expression->call_method->kind != TYPE_METHOD_FUNCTION) {
         return lower_inline_method_call(context, expression);
     }
     if (expression->cxx_close_call || !expression->call_func) {
