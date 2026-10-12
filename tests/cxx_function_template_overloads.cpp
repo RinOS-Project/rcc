@@ -294,6 +294,17 @@ struct FunctionTemplateDependentValuePackBox {};
 template<int Size, typename Head, typename... Types>
 struct FunctionTemplateArithmeticValuePackBox {};
 
+template<int Value, typename Head, typename... Types>
+struct FunctionTemplateMemberValuePackBox {};
+
+struct FunctionTemplateMemberValueOne {
+    static constexpr int value = 1;
+};
+
+struct FunctionTemplateMemberValueTwo {
+    static constexpr int value = 2;
+};
+
 template<typename T>
 int choose_template_pack_partial_order(
     FunctionTemplatePackPartialOrderBox<T>) {
@@ -414,6 +425,18 @@ int choose_arithmetic_value_class_pack_order(
     FunctionTemplateArithmeticValuePackBox<sizeof(Head) + 1, Head,
                                            Types*...>) {
     return 234;
+}
+
+template<typename Head, typename... Types>
+int choose_member_value_class_pack_order(
+    FunctionTemplateMemberValuePackBox<Head::value, Head, Types...>) {
+    return 235;
+}
+
+template<typename Head, typename... Types>
+int choose_member_value_class_pack_order(
+    FunctionTemplateMemberValuePackBox<1, Head, Types...>) {
+    return 236;
 }
 
 template<template<typename> class Template, typename T>
@@ -1237,6 +1260,16 @@ int main(void) {
     if (conversion_value_cleanup_count !=
         virtual_cleanup_count_before + 2) {
         return 23;
+    }
+    if (choose_member_value_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberValueOne>{}) != 236) {
+        return 81;
+    }
+    if (choose_member_value_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                2, FunctionTemplateMemberValueTwo>{}) != 235) {
+        return 82;
     }
     short priority = 0;
     return choose_template(&value) == 25 &&

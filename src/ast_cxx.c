@@ -5999,12 +5999,82 @@ static GenericAssociation* template_clone_associations(
     return result;
 }
 
+static bool template_eval_dependent_static_member(
+    CxxTemplate* tmpl, Expr* expression, Type** args, int arg_count,
+    int64_t* value, Type** value_type) {
+    if (!tmpl || !expression || expression->kind != EXPR_MEMBER ||
+        !expression->member_base ||
+        expression->member_base->kind != EXPR_IDENT ||
+        !expression->member_base->ident_name || !expression->member_name ||
+        !args || !value) {
+        return false;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        TemplateParam* parameter = &tmpl->params[index];
+        Type* owner_type;
+        CxxClass* owner_class;
+        if (parameter->kind != TPARAM_TYPE || !parameter->name ||
+            strcmp(parameter->name,
+                   expression->member_base->ident_name) != 0 ||
+            index >= arg_count || !(owner_type = args[index]) ||
+            !(owner_class = owner_type->cxx_class)) {
+            continue;
+        }
+        for (TypeParam* field = owner_class->fields; field;
+             field = field->next) {
+            bool is_constexpr = false;
+            if (!field->is_static || !field->name ||
+                strcmp(field->name, expression->member_name) != 0 ||
+                !field->initializer) {
+                continue;
+            }
+            for (struct CxxMember* member = owner_class->members;
+                 member; member = member->next) {
+                Decl* declaration = member->decl;
+                const char* declared_name;
+                if (!member->is_static || !declaration ||
+                    declaration->kind != DECL_VAR ||
+                    !declaration->var_is_constexpr || !declaration->name) {
+                    continue;
+                }
+                declared_name = strrchr(declaration->name, ':');
+                declared_name = declared_name &&
+                        declared_name > declaration->name &&
+                        declared_name[-1] == ':'
+                    ? declared_name + 1 : declaration->name;
+                if (strcmp(declared_name, expression->member_name) == 0) {
+                    is_constexpr = true;
+                    break;
+                }
+            }
+            if (is_constexpr &&
+                expr_eval_integer_constant(field->initializer, value)) {
+                if (value_type) *value_type = field->type;
+                return true;
+            }
+            return false;
+        }
+        return false;
+    }
+    return false;
+}
+
 static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                  Type** args, int arg_count,
                                  const int64_t* value_args,
                                  const bool* value_present) {
     Expr* copy;
     if (!expression) return NULL;
+    if (expression->kind == EXPR_MEMBER) {
+        int64_t value;
+        Type* value_type = NULL;
+        if (template_eval_dependent_static_member(
+                tmpl, expression, args, arg_count, &value, &value_type)) {
+            copy = expr_int(value, expression->loc);
+            copy->type = value_type ? value_type : type_int;
+            return copy;
+        }
+    }
     if (expression->kind == EXPR_CXX_FOLD) {
         if (template_pack_is_deferred_member_pack(
                 tmpl, expression->cxx_fold_pack_name)) {

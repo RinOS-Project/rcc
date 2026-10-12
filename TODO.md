@@ -2956,3 +2956,19 @@ separately recorded WSL startup failure.
 - [ ] Extend expression-tree ordering beyond the exercised arithmetic form to
   dependent calls/member expressions and other NTTP structural equivalence
   cases; non-type/template-template packs and full ordering remain open.
+
+## RCC continuation (2026-10-12, dependent static-member value ordering)
+
+- [x] Keep a dependent `Head::value` non-type argument dependent until `Head`
+  is deduced, then resolve and fold an actual initialized `static constexpr`
+  member; compare its overload ordering with a fixed literal pattern. GCC
+  C++20 confirms the fixed `1` overload wins for value `1`, while the dependent
+  member pattern is selected for value `2`.
+- [x] Verify focused overload diagnostics and execution against GCC, with i686
+  and AMD64 output generation.
+- [x] Run the complete native-Windows
+  `mingw32-make SHELL=cmd.exe test-cxx` suite; it completed successfully
+  (exit 0).
+- [ ] Continue dependent call/member expression forms beyond static constexpr
+  members, plus NTTP/template-template packs and full partial ordering and
+  constraints.

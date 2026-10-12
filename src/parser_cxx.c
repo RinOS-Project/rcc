@@ -1855,7 +1855,7 @@ static bool eval_template_integer_expression(Expr* expression,
                                               const int64_t* values,
                                               const bool* value_present,
                                               int64_t* result);
-static bool cxx_expression_references_template_non_type_parameter(
+static bool cxx_expression_is_dependent(
     const Expr* expression, const CxxTemplate* tmpl);
 static bool cxx_friend_function_name_matches(CxxNamespace* ns,
                                              const char* candidate_name,
@@ -11249,7 +11249,7 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                         value_present,
                         &nested_values[nested_count])) {
                     nested_value_present[nested_count] = true;
-                } else if (cxx_expression_references_template_non_type_parameter(
+                } else if (cxx_expression_is_dependent(
                                value_expression, tmpl)) {
                     still_dependent = true;
                 } else {
@@ -12922,7 +12922,7 @@ CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
     return type ? type->cxx_class : NULL;
 }
 
-static bool cxx_expression_references_template_non_type_parameter(
+static bool cxx_expression_is_dependent(
     const Expr* expression, const CxxTemplate* tmpl) {
     const CxxTemplate* expression_template;
     if (!expression) return false;
@@ -12930,17 +12930,42 @@ static bool cxx_expression_references_template_non_type_parameter(
         ? expression->cxx_template_context : tmpl;
     if (!expression_template) return false;
     if (expression->kind == EXPR_IDENT && expression->ident_name) {
+        const char* scope_separator = strstr(expression->ident_name, "::");
+        size_t owner_length = scope_separator
+            ? (size_t)(scope_separator - expression->ident_name) : 0u;
         for (const CxxTemplate* scope = expression_template; scope;
              scope = scope->enclosing_template) {
             for (int index = 0; index < scope->param_count; ++index) {
                 const TemplateParam* parameter = &scope->params[index];
-                if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                if (!parameter->name) continue;
+                if (parameter->kind == TPARAM_NONTYPE &&
                     strcmp(parameter->name, expression->ident_name) == 0) {
+                    return true;
+                }
+                if (parameter->kind == TPARAM_TYPE && scope_separator &&
+                    strlen(parameter->name) == owner_length &&
+                    memcmp(parameter->name, expression->ident_name,
+                           owner_length) == 0) {
                     return true;
                 }
             }
         }
         return false;
+    }
+    if (expression->kind == EXPR_MEMBER && expression->member_base &&
+        expression->member_base->kind == EXPR_IDENT &&
+        expression->member_base->ident_name) {
+        for (const CxxTemplate* scope = expression_template; scope;
+             scope = scope->enclosing_template) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                const TemplateParam* parameter = &scope->params[index];
+                if (parameter->kind == TPARAM_TYPE && parameter->name &&
+                    strcmp(parameter->name,
+                           expression->member_base->ident_name) == 0) {
+                    return true;
+                }
+            }
+        }
     }
     if (expression->kind == EXPR_SIZEOF &&
         expression->sizeof_pack_name) {
@@ -12977,10 +13002,10 @@ static bool cxx_expression_references_template_non_type_parameter(
         case EXPR_NEG:
         case EXPR_NOT:
         case EXPR_BITNOT:
-            return cxx_expression_references_template_non_type_parameter(
+            return cxx_expression_is_dependent(
                 expression->unary_operand, expression_template);
         case EXPR_CAST:
-            return cxx_expression_references_template_non_type_parameter(
+            return cxx_expression_is_dependent(
                 expression->cast_expr, expression_template);
         case EXPR_ADD:
         case EXPR_SUB:
@@ -13000,16 +13025,16 @@ static bool cxx_expression_references_template_non_type_parameter(
         case EXPR_GE:
         case EXPR_AND:
         case EXPR_OR:
-            return cxx_expression_references_template_non_type_parameter(
+            return cxx_expression_is_dependent(
                        expression->binary_lhs, expression_template) ||
-                   cxx_expression_references_template_non_type_parameter(
+                   cxx_expression_is_dependent(
                        expression->binary_rhs, expression_template);
         case EXPR_COND:
-            return cxx_expression_references_template_non_type_parameter(
+            return cxx_expression_is_dependent(
                        expression->cond_test, expression_template) ||
-                   cxx_expression_references_template_non_type_parameter(
+                   cxx_expression_is_dependent(
                        expression->cond_then, expression_template) ||
-                   cxx_expression_references_template_non_type_parameter(
+                   cxx_expression_is_dependent(
                        expression->cond_else, expression_template);
         default:
             return false;
@@ -13119,7 +13144,7 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 if (expr_eval_integer_constant(value_expression, &value)) {
                     values[argument_count] = value;
                     value_present[argument_count] = true;
-                } else if (!cxx_expression_references_template_non_type_parameter(
+                } else if (!cxx_expression_is_dependent(
                                value_expression, active_template)) {
                     SourceLoc value_loc;
                     cxx_parser_expr_loc(&value_loc, value_expression, &loc);
@@ -13184,7 +13209,7 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                         ? parameter->default_context : tmpl,
                     values, value_present,
                     &value)) {
-                if (!cxx_expression_references_template_non_type_parameter(
+                if (!cxx_expression_is_dependent(
                         parameter->default_value,
                         parameter->default_context
                             ? parameter->default_context : tmpl)) {
@@ -13614,10 +13639,6 @@ static Expr* cxx_function_template_class_nontype_argument_expression(
     return type->cxx_template_value_args[argument_index];
 }
 
-/* Match a fixed non-type argument after type parameters in its expression
- * have been deduced.  The initial implementation is intentionally driven by
- * the ordinary constant-expression evaluator, so expressions outside its
- * supported subset remain non-matches rather than being guessed. */
 static bool cxx_function_template_class_nontype_argument_matches(
     CxxTemplate* function_template, Type* pattern_type, Type* actual_type,
     int argument_index, Type** arguments, const int64_t* values,
@@ -13642,10 +13663,10 @@ static bool cxx_function_template_class_nontype_argument_matches(
     substituted_expression = cxx_template_clone_expr_with_values(
         function_template, pattern_expression, arguments,
         function_template->param_count, values, value_present);
-    return substituted_expression &&
-        eval_template_integer_expression(
-            substituted_expression, function_template, values,
-            value_present, &pattern_value) &&
+    if (!substituted_expression) return false;
+    return eval_template_integer_expression(
+               substituted_expression, function_template, values,
+               value_present, &pattern_value) &&
         pattern_value == actual_value;
 }
 
@@ -15649,7 +15670,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                 if (expr_eval_integer_constant(value_expression, &value)) {
                     values[argument_count] = value;
                     value_present[argument_count] = true;
-                } else if (!cxx_expression_references_template_non_type_parameter(
+                } else if (!cxx_expression_is_dependent(
                                value_expression, active_template)) {
                     rcc_error(loc,
                               "alias template non-type argument must be an "
@@ -15699,7 +15720,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                     parameter->default_value, default_context,
                     values, value_present,
                     &value)) {
-                if (cxx_expression_references_template_non_type_parameter(
+                if (cxx_expression_is_dependent(
                         parameter->default_value, default_context)) {
                     value_expressions[argument_count] =
                         cxx_substitute_class_owner_value_expression(
@@ -17964,6 +17985,28 @@ static bool cxx_function_template_class_pack_expansion_deduce_element(
     return true;
 }
 
+static bool cxx_function_template_is_dependent_member_expression(
+    const Expr* expression, const CxxTemplate* tmpl) {
+    if (!expression || expression->kind != EXPR_MEMBER ||
+        !expression->member_base ||
+        expression->member_base->kind != EXPR_IDENT ||
+        !expression->member_base->ident_name || !tmpl) {
+        return false;
+    }
+    for (const CxxTemplate* scope = tmpl; scope;
+         scope = scope->enclosing_template) {
+        for (int index = 0; index < scope->param_count; ++index) {
+            const TemplateParam* parameter = &scope->params[index];
+            if (parameter->kind == TPARAM_TYPE && parameter->name &&
+                strcmp(parameter->name,
+                       expression->member_base->ident_name) == 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static bool cxx_function_template_partial_order_deduce_value_expression(
     const CxxTemplate* parameter_template, Expr* parameter_expression,
     const CxxTemplate* argument_template, Expr* argument_expression,
@@ -17983,6 +18026,11 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
         argument_expression, &argument_value);
     if (parameter_constant || argument_constant) {
         if (supported) *supported = true;
+        if (!parameter_constant && argument_constant &&
+            cxx_function_template_is_dependent_member_expression(
+                parameter_expression, parameter_template)) {
+            return true;
+        }
         return parameter_constant && argument_constant &&
             parameter_value == argument_value;
     }
