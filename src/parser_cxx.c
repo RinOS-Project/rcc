@@ -13801,6 +13801,11 @@ static bool deduce_function_template_type_with_pack(
                             }
                         }
                     }
+                    int saved_pending_pack_count =
+                        tmpl->pending_pack_count;
+                    bool fixed_values_match = true;
+                    tmpl->pending_pack_count =
+                        actual_argument_count - expansion_index;
                     for (int index = 0; index < expansion_index; ++index) {
                         TemplateParam* class_parameter =
                             &pattern_template->params[index];
@@ -13808,12 +13813,16 @@ static bool deduce_function_template_type_with_pack(
                             if (!cxx_function_template_class_nontype_argument_matches(
                                     tmpl, pattern, actual, index, arguments,
                                     values, value_present)) {
-                                return false;
+                                fixed_values_match = false;
+                                break;
                             }
                         } else if (class_parameter->kind != TPARAM_TYPE) {
-                            return false;
+                            fixed_values_match = false;
+                            break;
                         }
                     }
+                    tmpl->pending_pack_count = saved_pending_pack_count;
+                    if (!fixed_values_match) return false;
                     for (int actual_index = expansion_index;
                          actual_index < actual_argument_count;
                          ++actual_index) {
@@ -18021,6 +18030,23 @@ static void cxx_function_template_dependent_member_expression_info(
             expression, tmpl)) {
         *supported = true;
         *contains_dependent_member = true;
+        return;
+    }
+    if (expression->kind == EXPR_SIZEOF && expression->sizeof_pack_name) {
+        for (const CxxTemplate* scope = tmpl; scope;
+             scope = scope->enclosing_template) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                const TemplateParam* parameter = &scope->params[index];
+                if (parameter->kind == TPARAM_TYPE && parameter->is_pack &&
+                    parameter->name &&
+                    strcmp(parameter->name,
+                           expression->sizeof_pack_name) == 0) {
+                    *supported = true;
+                    *contains_dependent_member = true;
+                    return;
+                }
+            }
+        }
         return;
     }
     if (expr_eval_integer_constant(expression, &constant_value)) {

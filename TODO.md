@@ -3063,3 +3063,17 @@ remains a separate open item.
 - [ ] Continue the remaining C++20 conformance, typed-SSA/backend coverage,
   optimizer, debug-info, and RinOS-native self-host items tracked above; this
   production-gate pass does not imply general C++20 completeness.
+
+## RCC continuation (2026-10-12, sizeof-pack class-template ordering)
+
+- [x] Recognize `sizeof...(Types)` as a dependent value in a class-template
+  argument pattern with a trailing function-template type pack, and substitute
+  the deduced pack arity when checking the pattern's fixed non-type arguments.
+- [x] Verify GCC C++20-compatible overload selection for zero-, one-, and
+  two-element packs; the focused overload gate passes for i686/AMD64 code
+  generation and AMD64 execution.
+- [x] Run the complete native-Windows `mingw32-make SHELL=cmd.exe test-cxx`
+  suite successfully (exit 0).
+- [ ] Extend dependent non-type pack ordering beyond `sizeof...(Types)` and
+  continue full C++20 function-template partial ordering, constraints, and
+  conversion-sequence tie coverage.

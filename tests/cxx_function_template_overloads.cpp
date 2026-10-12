@@ -418,6 +418,18 @@ int choose_dependent_value_class_pack_order(
 }
 
 template<typename Head, typename... Types>
+int choose_pack_size_class_pack_order(
+    FunctionTemplateDependentValuePackBox<sizeof...(Types), Head, Types...>) {
+    return 241;
+}
+
+template<typename Head, typename... Types>
+int choose_pack_size_class_pack_order(
+    FunctionTemplateDependentValuePackBox<2, Head, Types...>) {
+    return 242;
+}
+
+template<typename Head, typename... Types>
 int choose_arithmetic_value_class_pack_order(
     FunctionTemplateArithmeticValuePackBox<sizeof(Head) + 1, Head,
                                            Types...>) {
@@ -1319,6 +1331,18 @@ int main(void) {
             FunctionTemplateMemberValuePackBox<
                 5, FunctionTemplateMemberValueThree>{}) != 239) {
         return 86;
+    }
+    if (choose_pack_size_class_pack_order(
+            FunctionTemplateDependentValuePackBox<2, int, short>{}) != 242) {
+        return 87;
+    }
+    if (choose_pack_size_class_pack_order(
+            FunctionTemplateDependentValuePackBox<1, int, char>{}) != 241) {
+        return 88;
+    }
+    if (choose_pack_size_class_pack_order(
+            FunctionTemplateDependentValuePackBox<0, int>{}) != 241) {
+        return 89;
     }
     short priority = 0;
     return choose_template(&value) == 25 &&
