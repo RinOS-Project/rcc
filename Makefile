@@ -6515,6 +6515,7 @@ test-cxx-designated-initializer: $(RCXX_TARGET)
 test-cxx-utf8-literals: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-utf8-literals)
 	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_utf8_literals.cpp
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_utf8_char_multicodeunit_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-char-oracle.log)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-utf8-literals/x86.s tests/cxx_utf8_literals.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-utf8-literals/x86.o $(TEST_OUT)/cxx-utf8-literals/x86.s
 	objdump -f $(TEST_OUT)/cxx-utf8-literals/x86.o > $(TEST_OUT)/cxx-utf8-literals/x86-arch.log
@@ -6552,6 +6553,8 @@ test-cxx-utf8-literals: $(RCXX_TARGET)
 	$(GREP) -F -q "expected ;, got 'identifier'" $(TEST_OUT)/cxx-utf8-literals/invalid-char8-cxx17.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-unsigned-array.ro tests/cxx_utf8_unsigned_char_array_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-unsigned-array.log)
 	$(GREP) -F -q "character array initializer encoding does not match the element type" $(TEST_OUT)/cxx-utf8-literals/invalid-unsigned-array.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-char.ro tests/cxx_utf8_char_multicodeunit_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-char.log)
+	$(GREP) -F -q "UTF-8 character literal must encode exactly one code unit" $(TEST_OUT)/cxx-utf8-literals/invalid-char.log
 else
 test-cxx-designated-initializer: test-cxx-designated-initializer-posix
 test-cxx-utf8-literals: test-cxx-utf8-literals-posix
@@ -7589,6 +7592,11 @@ test-cxx-utf8-literals-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-utf8-literals)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
 		tests/cxx_utf8_literals.cpp
+	@if $(CXX) -std=c++20 -fsyntax-only \
+		tests/cxx_utf8_char_multicodeunit_invalid.cpp \
+		>$(TEST_OUT)/cxx-utf8-literals/invalid-char-oracle.log 2>&1; then \
+		echo "multi-code-unit UTF-8 character literal unexpectedly accepted by host compiler"; exit 1; \
+	fi
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-utf8-literals/x86.s \
 		tests/cxx_utf8_literals.cpp
@@ -7677,6 +7685,14 @@ test-cxx-utf8-literals-posix: $(RCXX_TARGET)
 	fi
 	$(GREP) -q "character array initializer encoding does not match the element type" \
 		$(TEST_OUT)/cxx-utf8-literals/invalid-unsigned-array.log
+	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-utf8-literals/invalid-char.ro \
+		tests/cxx_utf8_char_multicodeunit_invalid.cpp \
+		>$(TEST_OUT)/cxx-utf8-literals/invalid-char.log 2>&1; then \
+		echo "multi-code-unit UTF-8 character literal unexpectedly accepted by RCC++"; exit 1; \
+	fi
+	$(GREP) -q "UTF-8 character literal must encode exactly one code unit" \
+		$(TEST_OUT)/cxx-utf8-literals/invalid-char.log
 	@echo "C++ UTF-8 literal tests completed"
 
 ifeq ($(OS),Windows_NT)

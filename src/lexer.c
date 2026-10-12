@@ -845,7 +845,18 @@ static Token* lex_char(Lexer* lex, SourceLoc loc, bool is_utf8) {
     char c;
     if (peek(lex) == '\\') {
         advance(lex);
-        c = lex_escape(lex);
+        if (is_utf8 && (peek(lex) == 'u' || peek(lex) == 'U')) {
+            char encoded[4];
+            int encoded_length = lex_utf8_escape(lex, encoded,
+                                                  sizeof(encoded));
+            if (encoded_length > 1) {
+                rcc_error(loc,
+                          "UTF-8 character literal must encode exactly one code unit");
+            }
+            c = encoded_length == 1 ? encoded[0] : '\0';
+        } else {
+            c = lex_escape(lex);
+        }
     } else {
         c = advance(lex);
     }

@@ -3012,3 +3012,15 @@ separately recorded WSL startup failure.
 - [ ] Add support for wide, UTF-16, and UTF-32 literal encodings and continue
   auditing the remaining C++ character-literal and execution-character-set
   rules against GCC and the standard.
+
+## RCC continuation (2026-10-12, UTF-8 character-literal escapes)
+
+- [x] Decode universal-character-name escapes in UTF-8 character literals via
+  the UTF-8 encoding path; accept a single-code-unit value such as
+  `u8'\u0041'` and diagnose a value that needs multiple UTF-8 code units.
+- [x] Match GCC C++20 syntax acceptance/rejection, assemble i686 and AMD64
+  output, and execute the generated AMD64 probe through
+  `test-cxx-utf8-literals` (exit 0).
+- [ ] Extend character literal and escape support beyond this bounded UTF-8
+  case; wide, UTF-16, and UTF-32 encodings and full execution-character-set
+  rules remain open.
