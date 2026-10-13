@@ -2925,6 +2925,37 @@ test-cxx-variadic-aggregate: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-variadic-aggregate/gcc-callee.o \
 		$(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-x64.s
 	$(TEST_OUT)/cxx-variadic-aggregate/rcc-caller$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-callee-x86-o2.s \
+		tests/cxx_variadic_aggregate.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-callee-x86-o2.o \
+		$(TEST_OUT)/cxx-variadic-aggregate/rcc-callee-x86-o2.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-callee-x64-o2.s \
+		tests/cxx_variadic_aggregate.cpp
+	$(CXX) $(RCC_SYSV_CXX_FLAGS) -O2 -std=c++20 \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/gcc-caller-o2$(EXE_SUFFIX) \
+		tests/cxx_variadic_aggregate_caller.cpp \
+		$(TEST_OUT)/cxx-variadic-aggregate/rcc-callee-x64-o2.s
+	$(TEST_OUT)/cxx-variadic-aggregate/gcc-caller-o2$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-x86-o2.s \
+		tests/cxx_variadic_aggregate_caller.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-x86-o2.o \
+		$(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-x86-o2.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-x64-o2.s \
+		tests/cxx_variadic_aggregate_caller.cpp
+	$(CXX) $(RCC_SYSV_CXX_FLAGS) -O2 -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/gcc-callee-o2.o \
+		tests/cxx_variadic_aggregate.cpp
+	$(CXX) $(RCC_SYSV_CXX_FLAGS) -O2 \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-o2$(EXE_SUFFIX) \
+		$(TEST_OUT)/cxx-variadic-aggregate/gcc-callee-o2.o \
+		$(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-x64-o2.s
+	$(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-o2$(EXE_SUFFIX)
 	@echo "C++ aggregate ellipsis ABI interoperability tests completed"
 
 test-cxx-template-local-classes: $(RCXX_TARGET)

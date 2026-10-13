@@ -3621,3 +3621,20 @@ remains a separate open item.
   The initial unprivileged attempt could not start WSL (`Wsl/Service/E_ACCESSDENIED`);
   the approved elevated rerun completed the same gate successfully. Clang's
   full `test-ci` pass is recorded in the preceding 2026-10-13 section.
+
+## SysV 64-byte variadic aggregate arguments (2026-10-13)
+
+- [x] Align the actual AMD64 caller stack pointer to the maximum alignment of
+  outgoing MEMORY-class arguments, rather than aligning only offsets relative to
+  a merely 16-byte-aligned frame. Preserve and restore the pre-call stack pointer
+  across the callee while keeping outgoing aggregate payloads and following
+  stack arguments at their ABI offsets.
+- [x] Extend `test-cxx-variadic-aggregate` with an `alignas(64)` 64-byte
+  aggregate after a spilled integer and before a trailing 24-byte aggregate.
+  Assert the aggregate's size/alignment, generate i686 and AMD64 caller/callee
+  objects, and execute GCC-caller/RCC-callee plus RCC-caller/GCC-callee in both
+  directions at `-O0` and `-O2`. The focused gate and full native-Windows GCC
+  `test-cxx` aggregate both pass (exit 0).
+- [ ] Re-run full GCC `test-ci` on the committed revision containing this
+  code-generation change, including format validation and stage1-to-stage2
+  bootstrap.

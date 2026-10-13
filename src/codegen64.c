@@ -8312,6 +8312,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             int temp_bytes = 0;
             int stack_bytes = 0;
             int stack_padding;
+            int stack_alignment = 16;
             bool aggregate_result = gen64_is_aggregate(expr->type);
             Gen64AggregateClass result_class;
             if (aggregate_result) {
@@ -8424,6 +8425,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 if (argument->memory) {
                     int alignment = type && type->align > 8
                         ? type->align : 8;
+                    if (alignment > stack_alignment) {
+                        stack_alignment = alignment;
+                    }
                     int remainder = stack_bytes % alignment;
                     if (remainder) {
                         stack_bytes += alignment - remainder;
@@ -8451,11 +8455,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     temp_bytes += argument->storage;
                 }
             }
-            /* A generated function keeps RSP 16-byte aligned after its
-             * prologue.  The SysV ABI requires the same alignment immediately
-             * before CALL (the hardware push then gives the callee an RSP
-             * value congruent to 8 modulo 16). */
-            stack_padding = (16 - ((temp_bytes + stack_bytes) & 15)) & 15;
+            /* Keep ordinary outgoing areas aligned to the ABI baseline.
+             * MEMORY arguments with stronger alignment use a dynamically
+             * aligned outgoing area below. */
+            stack_padding = stack_alignment > 16
+                ? 0 : (16 - ((temp_bytes + stack_bytes) & 15)) & 15;
 
             /* Evaluate arguments into a private, contiguous temporary area.
              * This keeps source evaluation independent of register assignment
@@ -8599,14 +8603,45 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 active_cxx_constructor_this_stack_bias64 -= temp_bytes;
             }
             if (stack_bytes + stack_padding) {
-                emit64_sub_reg_imm(mod, RSP, stack_bytes + stack_padding);
+                if (stack_alignment > 16) {
+                    int reserve_bytes;
+                    if (stack_alignment > 4096 || stack_alignment <= 0 ||
+                        (stack_alignment & (stack_alignment - 1)) != 0 ||
+                        stack_bytes > INT_MAX - stack_alignment - 8) {
+                        rcc_error(expr->loc,
+                                  "SysV outgoing argument alignment overflows");
+                    }
+                    reserve_bytes = stack_bytes + stack_alignment + 8;
+                    /* Preserve the temporary-area base above the outgoing
+                     * arguments, then align the actual call stack pointer.
+                     * The saved pointer lets the normal cleanup restore RSP
+                     * exactly even when the incoming frame was only 16-byte
+                     * aligned. */
+                    emit64_mov_reg_reg(mod, R11, RSP);
+                    emit64_sub_reg_imm(mod, RSP, reserve_bytes);
+                    emit64_mov_reg_reg(mod, RAX, RSP);
+                    emit64_add_reg_imm(mod, RAX, stack_alignment - 1);
+                    emit64_mov_reg_imm64(
+                        mod, RDX, ~(uint64_t)(stack_alignment - 1));
+                    emit64_and_reg_reg(mod, RAX, RDX);
+                    emit64_mov_reg_reg(mod, RSP, RAX);
+                    emit64_mov_mem_reg(mod, RSP, stack_bytes, R11);
+                } else {
+                    emit64_sub_reg_imm(
+                        mod, RSP, stack_bytes + stack_padding);
+                }
                 emit64_mov_reg_reg(mod, RAX, RSP);
                 emit64_mov_reg_imm32(mod, RDX, 0u);
                 for (i = 0; i < stack_bytes; i += 8) {
                     emit64_mov_mem_reg(mod, RSP, i, RDX);
                 }
-                emit64_mov_reg_reg(mod, R10, RSP);
-                emit64_add_reg_imm(mod, R10, stack_bytes + stack_padding);
+                if (stack_alignment > 16) {
+                    emit64_mov_reg_mem(mod, R10, RSP, stack_bytes);
+                } else {
+                    emit64_mov_reg_reg(mod, R10, RSP);
+                    emit64_add_reg_imm(mod, R10,
+                                       stack_bytes + stack_padding);
+                }
                 for (i = 0; i < argc; ++i) {
                     Gen64CallArg* layout = &call_arguments[i];
                     if (layout->memory) {
@@ -8766,7 +8801,11 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             }
 
             /* Clean up stack arguments */
-            if (temp_bytes + stack_bytes + stack_padding) {
+            if (stack_alignment > 16 && stack_bytes) {
+                emit64_mov_reg_mem(mod, R11, RSP, stack_bytes);
+                emit64_mov_reg_reg(mod, RSP, R11);
+                if (temp_bytes) emit64_add_reg_imm(mod, RSP, temp_bytes);
+            } else if (temp_bytes + stack_bytes + stack_padding) {
                 emit64_add_reg_imm(mod, RSP,
                                    temp_bytes + stack_bytes + stack_padding);
             }

@@ -55,6 +55,25 @@ int read_variadic_aligned_aggregate(
            (int)aligned.third + (int)aligned.fourth;
 }
 
+int read_variadic_aligned64_aggregate(
+    int marker0, int marker1, int marker2, int marker3, int marker4,
+    int marker5, ...) {
+    __builtin_va_list arguments;
+    __builtin_va_start(arguments, marker5);
+    int spilled_integer = __builtin_va_arg(arguments, int);
+    VariadicAligned64MemoryAggregate aligned =
+        __builtin_va_arg(arguments, VariadicAligned64MemoryAggregate);
+    VariadicMemoryAggregate trailing =
+        __builtin_va_arg(arguments, VariadicMemoryAggregate);
+    __builtin_va_end(arguments);
+
+    return marker0 + marker1 + marker2 + marker3 + marker4 + marker5 +
+           spilled_integer + (int)aligned.first + (int)aligned.second +
+           (int)aligned.third + (int)aligned.fourth + (int)aligned.fifth +
+           (int)aligned.sixth + (int)aligned.seventh + (int)aligned.eighth +
+           (int)trailing.first + (int)trailing.second + (int)trailing.third;
+}
+
 int read_variadic_sse_aggregate(
     double fp0, double fp1, double fp2, double fp3, double fp4, ...) {
     __builtin_va_list arguments;

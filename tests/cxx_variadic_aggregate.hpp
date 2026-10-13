@@ -16,6 +16,22 @@ struct VariadicAlignedMemoryAggregate {
     long long fourth;
 };
 
+struct VariadicAligned64MemoryAggregate {
+    alignas(64) long long first;
+    long long second;
+    long long third;
+    long long fourth;
+    long long fifth;
+    long long sixth;
+    long long seventh;
+    long long eighth;
+};
+
+static_assert(alignof(VariadicAligned64MemoryAggregate) == 64,
+              "SysV over-aligned variadic aggregate alignment");
+static_assert(sizeof(VariadicAligned64MemoryAggregate) == 64,
+              "SysV over-aligned variadic aggregate size");
+
 struct VariadicDoublePair {
     double first;
     double second;
@@ -31,6 +47,10 @@ int read_variadic_aggregate_gp_exhausted(
     int marker5, ...);
 
 int read_variadic_aligned_aggregate(
+    int marker0, int marker1, int marker2, int marker3, int marker4,
+    int marker5, ...);
+
+int read_variadic_aligned64_aggregate(
     int marker0, int marker1, int marker2, int marker3, int marker4,
     int marker5, ...);
 
