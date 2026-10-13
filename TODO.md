@@ -2433,8 +2433,18 @@ remains a separate open item.
   architectures, generated AMD64 execution, and positive/negative GCC checks.
   `test-cxx-member-pointer-data` and `test-cxx-member-pointer-functions` also
   pass for both architectures, including verified-SSA checks.
+- [x] Rank member-function-pointer conversions across related owners when the
+  target exception specifications also differ. GCC selects the nearer
+  destination owner both when that target preserves `noexcept` and when the
+  farther owner does; update ordinary and function-template candidate ranking
+  to retain this owner ordering. The focused target passes i686/AMD64
+  generation and AMD64 execution, with GCC C++20 `-Werror` syntax checks.
+- [x] Re-run full native-Windows MinGW GCC `test-cxx` after the
+  member-function-pointer owner/exception-spec ranking fix; the full target
+  completed successfully, including both target architectures and generated
+  AMD64 execution.
 - [ ] Extend ranking to deeper/differing member-type shapes, member-function
-  signature variations, and virtual/inaccessible owner-path interactions;
+  parameter/signature variations, and virtual/inaccessible owner-path interactions;
   proper subsequences and full template partial ordering also remain open.
 
 ## C++ regression follow-up (2026-10-10, ordinary derived-pointer ranking)

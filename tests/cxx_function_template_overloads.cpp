@@ -1974,6 +1974,50 @@ int choose_member_function_pointer_noexcept_non_template(
 }
 
 template<typename T>
+int choose_member_function_pointer_owner_noexcept(
+    T, void (ConversionMemberPointerMiddle::*)() noexcept) {
+    return 219;
+}
+
+template<typename T>
+int choose_member_function_pointer_owner_noexcept(
+    T, void (ConversionMemberPointerLeaf::*)()) {
+    return 220;
+}
+
+int choose_member_function_pointer_owner_noexcept_non_template(
+    void (ConversionMemberPointerMiddle::*)() noexcept) {
+    return 221;
+}
+
+int choose_member_function_pointer_owner_noexcept_non_template(
+    void (ConversionMemberPointerLeaf::*)()) {
+    return 222;
+}
+
+template<typename T>
+int choose_member_function_pointer_owner_noexcept_tradeoff(
+    T, void (ConversionMemberPointerMiddle::*)()) {
+    return 223;
+}
+
+template<typename T>
+int choose_member_function_pointer_owner_noexcept_tradeoff(
+    T, void (ConversionMemberPointerLeaf::*)() noexcept) {
+    return 224;
+}
+
+int choose_member_function_pointer_owner_noexcept_tradeoff_non_template(
+    void (ConversionMemberPointerMiddle::*)()) {
+    return 225;
+}
+
+int choose_member_function_pointer_owner_noexcept_tradeoff_non_template(
+    void (ConversionMemberPointerLeaf::*)() noexcept) {
+    return 226;
+}
+
+template<typename T>
 int choose_base_over_void(T*, ConversionBaseRoot*) {
     return 83;
 }
@@ -2851,6 +2895,14 @@ int main(void) {
                        root_noexcept_member_function) == 207 &&
                    choose_member_function_pointer_noexcept_non_template(
                        root_throwing_member_function) == 208 &&
+                   choose_member_function_pointer_owner_noexcept(
+                       0, root_noexcept_member_function) == 219 &&
+                   choose_member_function_pointer_owner_noexcept_non_template(
+                       root_noexcept_member_function) == 221 &&
+                   choose_member_function_pointer_owner_noexcept_tradeoff(
+                       0, root_noexcept_member_function) == 223 &&
+                   choose_member_function_pointer_owner_noexcept_tradeoff_non_template(
+                       root_noexcept_member_function) == 225 &&
                    choose_base_over_void(leaf_pointer, leaf_pointer) == 83 &&
                    choose_nearer_base_value(
                        value_leaf_pointer, value_leaf) == 92 &&

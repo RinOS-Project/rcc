@@ -8929,13 +8929,25 @@ static int cxx_conversion_vector_relation(
                 left_targets[index]->cxx_member_pointer_owner->cxx_class;
             CxxClass* right_owner =
                 right_targets[index]->cxx_member_pointer_owner->cxx_class;
+            bool same_member_type = cxx_same_parameter_type(
+                left_targets[index]->base, right_targets[index]->base, false);
+            int member_function_noexcept_relation = 0;
+            if (left_targets[index]->base->kind == TYPE_FUNC &&
+                right_targets[index]->base->kind == TYPE_FUNC &&
+                index >= argument_offset && argument && argument->expr) {
+                member_function_noexcept_relation =
+                    rcc_sema_cxx_member_function_noexcept_target_relation(
+                        argument->expr->type, left_targets[index],
+                        right_targets[index]);
+            }
             if (left_owner && right_owner && left_owner != right_owner) {
-                if (cxx_same_parameter_type(left_targets[index]->base,
-                                            right_targets[index]->base,
-                                            false)) {
+                if (same_member_type ||
+                    member_function_noexcept_relation != 0) {
                     /* For Base::* to Derived::* conversions with the same
-                     * member type, prefer the destination owner nearer the
-                     * source base class. */
+                     * member-function signature, prefer the destination
+                     * owner nearer the source base class. Exception
+                     * specification adjustment does not change this owner
+                     * ordering. */
                     if (sema_cxx_class_derives_from(
                             right_owner, left_owner, 0)) {
                         left_better = true;
@@ -8947,13 +8959,9 @@ static int cxx_conversion_vector_relation(
             } else if (left_owner && right_owner) {
                 int member_type_relation;
                 if (left_targets[index]->base->kind == TYPE_FUNC &&
-                    right_targets[index]->base->kind == TYPE_FUNC &&
-                    index >= argument_offset && argument &&
-                    argument->expr) {
+                    right_targets[index]->base->kind == TYPE_FUNC) {
                     member_type_relation =
-                        rcc_sema_cxx_member_function_noexcept_target_relation(
-                            argument->expr->type, left_targets[index],
-                            right_targets[index]);
+                        member_function_noexcept_relation;
                 } else {
                     member_type_relation =
                         sema_cxx_member_type_qualification_relation(

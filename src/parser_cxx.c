@@ -20211,6 +20211,7 @@ static int cxx_template_conversion_vector_relation(
     for (int index = 0; index < left->conversion_rank_count; ++index) {
         int left_rank = left->conversion_ranks[index];
         int right_rank = right->conversion_ranks[index];
+        int member_function_noexcept_relation = 0;
         bool left_user_conversion = left_rank >= 12 && left_rank < 32;
         bool right_user_conversion = right_rank >= 12 && right_rank < 32;
         if (left_user_conversion && right_user_conversion) {
@@ -20293,11 +20294,8 @@ static int cxx_template_conversion_vector_relation(
                 right_target->base->kind == TYPE_FUNC &&
                 left_target->cxx_member_pointer_owner &&
                 right_target->cxx_member_pointer_owner &&
-                type_is_compatible(
-                    left_target->cxx_member_pointer_owner,
-                    right_target->cxx_member_pointer_owner) &&
                 left->conversion_sources[index]) {
-                qualification_relation =
+                member_function_noexcept_relation =
                     rcc_sema_cxx_member_function_noexcept_target_relation(
                         left->conversion_sources[index], left_target,
                         right_target);
@@ -20314,10 +20312,18 @@ static int cxx_template_conversion_vector_relation(
                 right_target->cxx_member_pointer_owner) {
                 bool left_member_type_subset = true;
                 bool right_member_type_subset = true;
-                if (cxx_parser_template_qualification_targets_related(
+                bool member_type_related =
+                    cxx_parser_template_qualification_targets_related(
                         left_target->base, right_target->base, false,
                         &left_member_type_subset,
-                        &right_member_type_subset, 0u)) {
+                        &right_member_type_subset, 0u);
+                if (!member_type_related &&
+                    member_function_noexcept_relation != 0) {
+                    member_type_related = true;
+                    left_member_type_subset = true;
+                    right_member_type_subset = true;
+                }
+                if (member_type_related) {
                     CxxClass* left_owner =
                         left_target->cxx_member_pointer_owner->cxx_class;
                     CxxClass* right_owner =
@@ -20325,7 +20331,11 @@ static int cxx_template_conversion_vector_relation(
                     bool same_owner = type_is_compatible(
                         left_target->cxx_member_pointer_owner,
                         right_target->cxx_member_pointer_owner);
-                    if (left_owner && right_owner && same_owner) {
+                    if (same_owner &&
+                        member_function_noexcept_relation != 0) {
+                        qualification_relation =
+                            member_function_noexcept_relation;
+                    } else if (same_owner) {
                         if (left_member_type_subset &&
                             !right_member_type_subset) {
                             qualification_relation = 1;
@@ -20334,8 +20344,24 @@ static int cxx_template_conversion_vector_relation(
                             qualification_relation = -1;
                         }
                     } else if (left_owner && right_owner &&
-                               left_member_type_subset &&
-                               right_member_type_subset) {
+                               member_function_noexcept_relation != 0) {
+                        /* A noexcept adjustment does not erase the
+                         * pointer-to-member owner ordering. Compare the
+                         * destination owner for matching member-function
+                         * signatures, even when their exception
+                         * specifications differ. */
+                        if (cxx_template_class_derives_from(
+                                right_owner, left_owner, 0u)) {
+                            qualification_relation = 1;
+                        } else if (cxx_template_class_derives_from(
+                                       left_owner, right_owner, 0u)) {
+                            qualification_relation = -1;
+                        }
+                    }
+                    if (qualification_relation == 0 && left_owner &&
+                        right_owner && !same_owner &&
+                        left_member_type_subset &&
+                        right_member_type_subset) {
                         /* Converting Base::* to Derived::* is ranked by how
                          * near the destination owner is to the source base.
                          * If right derives from left, left requires the
