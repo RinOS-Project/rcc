@@ -827,6 +827,26 @@ static int gen64_type_width(const Type* type) {
     return 8;
 }
 
+static Type* gen64_default_argument_type(Type* type) {
+    if (!type) return type_int;
+    if (type->kind == TYPE_ENUM) {
+        if (rcc_parser_is_cxx_mode()) {
+            if (type->enum_is_scoped) return type;
+            if (type->enum_underlying_type) {
+                Type* underlying = type->enum_underlying_type;
+                return underlying->size < type_int->size
+                    ? type_int : underlying;
+            }
+        }
+        return type_int;
+    }
+    if (type->kind < TYPE_INT) return type_int;
+    if (type->kind == TYPE_FLOAT) return type_double;
+    if (type->kind == TYPE_ARRAY) return type_ptr(type->base);
+    if (type->kind == TYPE_FUNC) return type_ptr(type);
+    return type;
+}
+
 static void emit64_load_typed(Module* mod, int reg, int base, int32_t disp,
                               const Type* type) {
     int width = gen64_type_width(type);
@@ -8352,13 +8372,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 argument_types[i - 1] = parameter ? parameter->type
                     : variadic_nontrivial_class
                         ? type_ptr(argument_type)
-                    : (a->expr->type &&
-                       (a->expr->type->kind == TYPE_ENUM ||
-                        a->expr->type->kind < TYPE_INT)
-                        ? type_int
-                        : (a->expr->type &&
-                           a->expr->type->kind == TYPE_FLOAT
-                            ? type_double : a->expr->type));
+                        : gen64_default_argument_type(argument_type);
                 if (parameter) parameter = parameter->next;
                 call_arguments[i - 1].is_aggregate = gen64_is_aggregate(
                     argument_types[i - 1]);

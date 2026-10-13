@@ -8196,7 +8196,18 @@ static void gen_spaceship_integer64(Module* mod, Expr* expr) {
 
 static Type* codegen_default_argument_type(Type* type) {
     if (!type) return type_int;
-    if (type->kind == TYPE_ENUM || type->kind < TYPE_INT) return type_int;
+    if (type->kind == TYPE_ENUM) {
+        if (rcc_parser_is_cxx_mode()) {
+            if (type->enum_is_scoped) return type;
+            if (type->enum_underlying_type) {
+                Type* underlying = type->enum_underlying_type;
+                return underlying->size < type_int->size
+                    ? type_int : underlying;
+            }
+        }
+        return type_int;
+    }
+    if (type->kind < TYPE_INT) return type_int;
     if (type->kind == TYPE_FLOAT) return type_double;
     if (type->kind == TYPE_ARRAY) return type_ptr(type->base);
     if (type->kind == TYPE_FUNC) return type_ptr(type);

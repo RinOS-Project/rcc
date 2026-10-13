@@ -3723,3 +3723,23 @@ remains a separate open item.
   checks, then hit the unprivileged WSL access boundary. The separately
   approved `test-bootstrap-stage2` run (exit 0) completed core, link, stage1
   execution, and reproducible i686/AMD64 stage2 gates.
+
+## RCC continuation (2026-10-14, C++ variadic enum promotions)
+
+- [x] Apply C++ default argument promotions to unscoped enum arguments in both
+  i686 and AMD64 call lowering: narrower underlying types promote to `int`,
+  while wider/fixed underlying types retain their ABI width. Preserve scoped
+  enum types and leave C variadic behavior unchanged.
+- [x] Cover signed/unsigned narrow fixed enums, fixed `int`/`unsigned int`,
+  fixed signed/unsigned `long long`, scoped 32/64-bit enums, and an inferred
+  unscoped enum whose value requires `unsigned int`.
+- [x] Verify GCC/RCC variadic interoperability in both directions on AMD64,
+  plus i686/AMD64 assembly and object generation. The focused
+  `test-cxx-variadic-scalar-promotions` gate passes (exit 0).
+- [x] Re-run the complete native-Windows MinGW GCC `test-cxx` aggregate after
+  adding the inferred `unsigned int` enum case; the full aggregate exits 0.
+- [ ] Execute the interoperability fixture as a native i686 process, if a
+  compatible 32-bit host runtime becomes available. This host has only
+  `x86_64-w64-mingw32`; no i686 MinGW runtime or QEMU is installed. Current
+  coverage generates and assembles both i686 caller/callee objects and
+  executes GCC/RCC interop in both AMD64 directions.
