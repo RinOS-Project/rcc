@@ -21,6 +21,9 @@ int cxx_free_variadic(int value, ...) { return value; }
 template<typename T>
 int cxx_free_variadic_template(T value, ...) { return value + 1; }
 
+template<typename T>
+int cxx_free_ellipsis_only_template(...) { return sizeof(T); }
+
 int cxx_free_variadic_overload(int value, ...) { return value + 100; }
 
 template<typename T>
@@ -2039,6 +2042,14 @@ int main(void) {
     }
     if (cxx_free_variadic_template(7, 8, 9) != 8) {
         return 153;
+    }
+    if (cxx_free_ellipsis_only_template<unsigned char>() !=
+        (int)sizeof(unsigned char)) {
+        return 171;
+    }
+    if (cxx_free_ellipsis_only_template<unsigned long>(7, 8, 9) !=
+        (int)sizeof(unsigned long)) {
+        return 172;
     }
     if (cxx_free_variadic_overload(7, 8, 2.5f) != 107) {
         return 154;
