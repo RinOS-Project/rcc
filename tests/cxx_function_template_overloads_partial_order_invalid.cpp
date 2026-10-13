@@ -179,6 +179,16 @@ int select_distinct_nontype_constraint_mappings(
     return 12;
 }
 
+template<int Value> requires ConstraintMappedPositive<Value>
+int select_distinct_constraint_origins(ConstraintMappedValueTag<Value>) {
+    return 13;
+}
+
+template<int Value> requires (Value > 0)
+int select_distinct_constraint_origins(ConstraintMappedValueTag<Value>) {
+    return 14;
+}
+
 template<typename Element, int Extent>
 int select_crossed_array_pointer_extent(Element (*)[Extent],
                                         Element (*)[1]) {
@@ -304,6 +314,8 @@ int main() {
                equivalent_constraint_argument) +
            select_distinct_requires_mappings(pointer) +
            select_distinct_nontype_constraint_mappings(
+               ConstraintMappedValueTag<3>{}) +
+           select_distinct_constraint_origins(
                ConstraintMappedValueTag<3>{}) +
            select_crossed_array_pointer_extent(&array, &array) +
            select_incomparable_repeated_nontype_order(

@@ -3824,4 +3824,10 @@ remains a separate open item.
   focused overload gate passes.
 - [x] Re-run full native-Windows MinGW GCC `test-cxx` after the non-type
   concept-mapping case; it completed successfully (exit 0).
+- [x] Compare a concept-defined `Value > 0` atom with the same expression
+  written directly in a function-template requires-clause. Their source
+  expressions differ, so the satisfied overloads remain ambiguous under GCC
+  and RCC on both targets; the focused overload gate passes.
+- [x] Re-run full native-Windows MinGW GCC `test-cxx` after the distinct
+  atomic-source regression; it completed successfully (exit 0).
 - [ ] Continue constraint subsumption and remaining C++20 overload ordering.
