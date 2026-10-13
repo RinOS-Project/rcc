@@ -3547,7 +3547,7 @@ remains a separate open item.
   aggregate (exit 0) after the evaluator change; rerun the focused
   `test-cxx-function-template-overloads` gate after adding the floating
   ellipsis-argument regression (exit 0).
-- [ ] Extend constexpr-call coverage to non-scalar ellipsis arguments and
+- [x] Extend constexpr-call coverage to non-scalar ellipsis arguments and
   generalize beyond the currently evaluated integer/floating subset.
 
 ## RCC continuation (2026-10-13, mixed free-function template overloads)
@@ -3670,3 +3670,17 @@ remains a separate open item.
 - [x] Pass `test-optimize` and `test-debug-info` on the native Windows GCC host.
   The full WSL bootstrap/self-host gate remains separately pending as noted
   above; no substitute stub was used.
+
+## RCC continuation (2026-10-14, constexpr aggregate ellipsis arguments)
+
+- [x] Extend dependent constexpr member-template calls to validate and
+  materialize trivial struct/union arguments passed through `...`, while
+  preserving default promotions for fixed arithmetic arguments. Non-trivial
+  class ellipsis evaluation remains outside this constexpr subset.
+- [x] Compare the fixture with GCC C++20; compile i686 and AMD64, and execute
+  the AMD64 image. The regression uses a trivial mixed INTEGER/SSE aggregate
+  in the ellipsis slot.
+- [x] Pass native-Windows GCC
+  `mingw32-make SHELL=cmd.exe CC=gcc CXX=g++ TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` and the complete `test-cxx` aggregate
+  (both exit 0).

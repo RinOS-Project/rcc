@@ -1158,6 +1158,20 @@ int choose_member_call_floating_variadic_member_template_class_pack_order(
 }
 
 template<typename Head, typename... Types>
+int choose_member_call_aggregate_variadic_member_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<
+        Head::value(2, CxxVariadicAggregatePayload{3, 4.5}),
+        Head, Types...>) {
+    return 299;
+}
+
+template<typename Item, typename... Types>
+int choose_member_call_aggregate_variadic_member_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<1, Item, Types...>) {
+    return 300;
+}
+
+template<typename Head, typename... Types>
 int choose_member_call_variadic_member_template_competitor_class_pack_order(
     FunctionTemplateMemberValuePackBox<Head::value(2, 3), Head, Types...>) {
     return 295;
@@ -2444,6 +2458,12 @@ int main(void) {
                 3, FunctionTemplateMemberCallVariadicMemberTemplate,
                 short>{}) != 297) {
         return 157;
+    }
+    if (choose_member_call_aggregate_variadic_member_template_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                3, FunctionTemplateMemberCallVariadicMemberTemplate,
+                short>{}) != 299) {
+        return 170;
     }
     if (choose_member_call_mixed_overload_class_pack_order(
             FunctionTemplateMemberValuePackBox<

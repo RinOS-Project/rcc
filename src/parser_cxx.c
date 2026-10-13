@@ -1872,9 +1872,12 @@ static int cxx_parser_function_template_overload_conversion_rank(
 static bool cxx_dependent_integer_call_constant_argument_supported(
     Expr* argument) {
     Type* type = cxx_parser_expression_type(argument);
-    return argument && type &&
-        (type_is_integer(type) || type_is_floating(type)) &&
-        rcc_sema_eval_constexpr_arithmetic_constant(argument);
+    if (!argument || !type) return false;
+    if (type_is_integer(type) || type_is_floating(type)) {
+        return rcc_sema_eval_constexpr_arithmetic_constant(argument);
+    }
+    return (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) &&
+        rcc_sema_eval_constexpr_aggregate_constant(argument, type);
 }
 
 static bool cxx_dependent_integer_call_parameter_supported(Type* type) {

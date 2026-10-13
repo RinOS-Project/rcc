@@ -928,6 +928,10 @@ bool rcc_sema_eval_constexpr_integer_call(Decl* declaration,
                                           int64_t* value);
 /* Check that an expression is a constant integer or floating-point value. */
 bool rcc_sema_eval_constexpr_arithmetic_constant(Expr* expression);
+/* Check that a trivial aggregate expression can be materialized as a
+ * constant-expression argument. */
+bool rcc_sema_eval_constexpr_aggregate_constant(Expr* expression,
+                                                Type* type);
 
 /* ═══════════════════════════════════════
  * Statements

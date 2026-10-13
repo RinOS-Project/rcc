@@ -7076,21 +7076,40 @@ static bool sema_eval_constexpr_scalar_function(
         if (!declaration->type->variadic) return false;
         while (argument) {
             Type* argument_type = argument->expr
-                ? argument->expr->type : NULL;
-            Type* promoted_type;
-            if (!argument_type ||
-                (!sema_constexpr_integer_type(argument_type) &&
-                 argument_type->kind != TYPE_FLOAT &&
-                 argument_type->kind != TYPE_DOUBLE) ||
-                !sema_eval_constexpr_scalar_expr(
-                    argument->expr, caller_bindings, caller_binding_count,
-                    &argument_value)) {
-                return false;
-            }
-            promoted_type = argument_type->kind == TYPE_FLOAT
-                ? type_double : sema_integer_promotion(argument_type);
-            if (!sema_constexpr_scalar_convert(
-                    &argument_value, promoted_type, &argument_value)) {
+                ? (argument->expr->type ? argument->expr->type
+                   : argument->expr->kind == EXPR_COMPOUND
+                       ? argument->expr->compound_type : NULL)
+                : NULL;
+            if (!argument_type) return false;
+            if (sema_constexpr_integer_type(argument_type) ||
+                argument_type->kind == TYPE_FLOAT ||
+                argument_type->kind == TYPE_DOUBLE) {
+                Type* promoted_type;
+                if (!sema_eval_constexpr_scalar_expr(
+                        argument->expr, caller_bindings,
+                        caller_binding_count, &argument_value)) {
+                    return false;
+                }
+                promoted_type = argument_type->kind == TYPE_FLOAT
+                    ? type_double : sema_integer_promotion(argument_type);
+                if (!sema_constexpr_scalar_convert(
+                        &argument_value, promoted_type, &argument_value)) {
+                    return false;
+                }
+            } else if ((argument_type->kind == TYPE_STRUCT ||
+                        argument_type->kind == TYPE_UNION) &&
+                       sema_constexpr_aggregate_type(argument_type) &&
+                       !argument_type->cxx_nontrivial &&
+                       argument_type->cxx_vtable_size == 0) {
+                unsigned char* object_bytes = ast_arena_alloc(
+                    (size_t)argument_type->size);
+                if (!object_bytes || !sema_constexpr_materialize_object(
+                        argument_type, argument->expr, caller_bindings,
+                        caller_binding_count, object_bytes,
+                        (size_t)argument_type->size)) {
+                    return false;
+                }
+            } else {
                 return false;
             }
             argument = argument->next;
@@ -7784,6 +7803,20 @@ bool rcc_sema_eval_constexpr_arithmetic_constant(Expr* expression) {
         sema_eval_constexpr_scalar_expr(expression, NULL, 0, &value) &&
         !value.is_pointer &&
         (value.is_floating || sema_constexpr_integer_type(value.type));
+}
+
+bool rcc_sema_eval_constexpr_aggregate_constant(Expr* expression,
+                                                Type* type) {
+    unsigned char* object_bytes;
+    if (!expression || !type ||
+        (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
+        !sema_constexpr_aggregate_type(type) || type->cxx_nontrivial ||
+        type->cxx_vtable_size != 0) {
+        return false;
+    }
+    object_bytes = ast_arena_alloc((size_t)type->size);
+    return object_bytes && sema_constexpr_materialize_object(
+        type, expression, NULL, 0, object_bytes, (size_t)type->size);
 }
 
 static TypeMethod* sema_find_function_method(Type* aggregate,
