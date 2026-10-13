@@ -180,6 +180,21 @@ struct VerifiedSysvVaAligned32Aggregate {
     long long fourth;
 };
 
+struct VerifiedSysvVaAligned64Aggregate {
+#ifdef __cplusplus
+    alignas(64) long long first;
+#else
+    _Alignas(64) long long first;
+#endif
+    long long second;
+    long long third;
+    long long fourth;
+    long long fifth;
+    long long sixth;
+    long long seventh;
+    long long eighth;
+};
+
 #ifdef __cplusplus
 static_assert(alignof(VerifiedSysvVaAligned32Aggregate) == 32,
               "C++ variadic MEMORY aggregate alignment");
@@ -190,6 +205,18 @@ _Static_assert(_Alignof(struct VerifiedSysvVaAligned32Aggregate) == 32,
                "C variadic MEMORY aggregate alignment");
 _Static_assert(sizeof(struct VerifiedSysvVaAligned32Aggregate) == 32,
                "C variadic MEMORY aggregate size");
+#endif
+
+#ifdef __cplusplus
+static_assert(alignof(VerifiedSysvVaAligned64Aggregate) == 64,
+              "C++ over-aligned variadic MEMORY aggregate alignment");
+static_assert(sizeof(VerifiedSysvVaAligned64Aggregate) == 64,
+              "C++ over-aligned variadic MEMORY aggregate size");
+#else
+_Static_assert(_Alignof(struct VerifiedSysvVaAligned64Aggregate) == 64,
+               "C over-aligned variadic MEMORY aggregate alignment");
+_Static_assert(sizeof(struct VerifiedSysvVaAligned64Aggregate) == 64,
+               "C over-aligned variadic MEMORY aggregate size");
 #endif
 
 struct VerifiedSysvVaTwoIntegerAggregate {
@@ -432,6 +459,50 @@ long long verified_sysv_va_aligned32_aggregate_call(
     trailing.second = trailing_second;
     trailing.third = trailing_third;
     return verified_sysv_va_read_aligned32_aggregate_after_nine_doubles(
+        7, first, second, third, fourth, fifth, sixth, seventh, eighth,
+        ninth, value, trailing);
+}
+
+long long verified_sysv_va_read_aligned64_aggregate_after_nine_doubles(
+    int marker, ...)
+{
+    va_list arguments;
+    struct VerifiedSysvVaAligned64Aggregate value;
+    struct VerifiedSysvVaLargeAggregate trailing;
+    va_start(arguments, marker);
+    for (int index = 0; index < 9; ++index) {
+        (void)va_arg(arguments, double);
+    }
+    value = va_arg(arguments, struct VerifiedSysvVaAligned64Aggregate);
+    trailing = va_arg(arguments, struct VerifiedSysvVaLargeAggregate);
+    va_end(arguments);
+    return value.eighth + trailing.third;
+}
+
+long long verified_sysv_va_aligned64_aggregate_call(
+    double first, double second, double third, double fourth, double fifth,
+    double sixth, double seventh, double eighth, double ninth,
+    long long value_first, long long value_second,
+    long long value_third, long long value_fourth,
+    long long value_fifth, long long value_sixth,
+    long long value_seventh, long long value_eighth,
+    long long trailing_first, long long trailing_second,
+    long long trailing_third)
+{
+    struct VerifiedSysvVaAligned64Aggregate value;
+    struct VerifiedSysvVaLargeAggregate trailing;
+    value.first = value_first;
+    value.second = value_second;
+    value.third = value_third;
+    value.fourth = value_fourth;
+    value.fifth = value_fifth;
+    value.sixth = value_sixth;
+    value.seventh = value_seventh;
+    value.eighth = value_eighth;
+    trailing.first = trailing_first;
+    trailing.second = trailing_second;
+    trailing.third = trailing_third;
+    return verified_sysv_va_read_aligned64_aggregate_after_nine_doubles(
         7, first, second, third, fourth, fifth, sixth, seventh, eighth,
         ninth, value, trailing);
 }

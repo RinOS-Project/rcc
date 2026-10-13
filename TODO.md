@@ -1647,13 +1647,18 @@
       - [x] variadic call-siteから24-byte MEMORY-class aggregateをtyped SSAで
         by-value stack marshalし、C/C++の`-O0`/`-O2`でcalleeの`va_arg`結果を
         fallbackなしでruntime検証する。
-      - [x] 16-byte aligned 32-byte C++ aggregateを9個目のstack double後に
+      - [x] 32-byte aligned 32-byte C/C++ aggregateを9個目のstack double後に
         `va_arg`し、さらに24-byte MEMORY aggregateを続けて読む経路をtyped SSAで
         lowerし、call loweringによる複数のMEMORY descriptor stack配置とcalleeの
         overflow cursor/alignment更新をfallbackなしで接続する。9個のdoubleを消費した後の
-        aggregate fieldと後続aggregate fieldの値をC++ `-O0`/`-O2` runtimeで検証する。
+        aggregate fieldと後続aggregate fieldの値をC/C++ `-O0`/`-O2` runtimeで検証する。
         unsupported floating-point binary arithmeticをfixtureから分離し、対象関数自身が
-        typed SSAで出力されることをfallback reason検査でも固定する。
+        typed SSAで出力されることをfallback reason検査でも固定する。C/C++の`-O0`/`-O2`
+        全4 objectでfallbackなし、host SysV executionで結果100を確認。
+      - [x] 64-byte aligned 64-byte C/C++ MEMORY aggregateを9個目のstack double後に
+        variadic callerから渡し、calleeの`va_arg`で読み取った後に24-byte MEMORY
+        aggregateを読む経路をtyped SSAで接続する。`test-verified-backend`のC/C++
+        `-O0`/`-O2`全4 objectでfallbackなし、host SysV executionで結果100を確認。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
         16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER
@@ -1662,9 +1667,11 @@
         bounded INTEGER/SSE分類でregister／whole-stack loweringと実行検証を完了し、variadic
         functionのbounded named aggregateもregister／whole-stack配置と`va_start` cursorを
         C/C++ O0/O2で実行検証した。片bankだけのregister straddleもwhole-stack assignmentで
-        typed verified backendから実行する。alignmentが16-byteを超えるcaller、
-        bounded profile外のnamed aggregate layouts、残るadjusted-`va_list`形態は未実装であり、
-        このparent checkboxは未完了のままにする。
+        typed verified backendから実行する。32-byte/64-byte alignmentのvariadic callerは
+        C/C++ `-O0`/`-O2`で実装・実行検証済み。64 byteを超え4096 byte以下のcaller
+        alignmentは現行loweringの上限内だが、このfixture群で個別の実行境界を確認していない。
+        bounded profile外のnamed aggregate layouts、4096 byteを超えるalignment、および
+        残るadjusted-`va_list`形態は未実装であり、このparent checkboxは未完了のままにする。
   - [x] x86_64 SysVで`va_list*`を受け取るhelperの`va_arg(*p, T)`／
         `va_copy(local, *p)`をtyped SSAへlowerし、copy側の消費がsource cursorを
         動かさず、pointer側の消費がcaller cursorを共有することを、i686/AMD64
