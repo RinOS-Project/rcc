@@ -3118,6 +3118,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "ambiguous function template overload for 'select_distinct_constraint_mappings'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(GREP) -q "ambiguous function template overload for 'select_distinct_requires_mappings'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "ambiguous function template overload for 'select_crossed_array_pointer_extent'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.ro)
@@ -3159,6 +3161,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "ambiguous function template overload for 'select_distinct_constraint_mappings'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(GREP) -q "ambiguous function template overload for 'select_distinct_requires_mappings'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "ambiguous function template overload for 'select_crossed_array_pointer_extent'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log)
@@ -3191,6 +3195,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 	$(GREP) -q "select_distributive_equivalent_constraints" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -q "select_distinct_constraint_mappings" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
+	$(GREP) -q "select_distinct_requires_mappings" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -q "select_crossed_array_pointer_extent" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log

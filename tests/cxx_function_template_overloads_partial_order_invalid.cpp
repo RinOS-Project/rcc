@@ -102,6 +102,11 @@ concept EquivalentConstraintAtMostEight = sizeof(T) <= 8;
 template<typename T>
 concept ConstraintMappedSize = sizeof(T) >= 1;
 
+template<typename T>
+concept ConstraintMappedDereference = requires(T candidate) {
+    *candidate;
+};
+
 struct EquivalentConstraintArgument {
     int value;
 };
@@ -144,6 +149,16 @@ int select_distinct_constraint_mappings(T) {
 template<typename T> requires ConstraintMappedSize<T>
 int select_distinct_constraint_mappings(T) {
     return 8;
+}
+
+template<typename T> requires ConstraintMappedDereference<T*>
+int select_distinct_requires_mappings(T) {
+    return 9;
+}
+
+template<typename T> requires ConstraintMappedDereference<T>
+int select_distinct_requires_mappings(T) {
+    return 10;
 }
 
 template<typename Element, int Extent>
@@ -269,6 +284,7 @@ int main() {
                equivalent_constraint_argument) +
            select_distinct_constraint_mappings(
                equivalent_constraint_argument) +
+           select_distinct_requires_mappings(pointer) +
            select_crossed_array_pointer_extent(&array, &array) +
            select_incomparable_repeated_nontype_order(
                IncomparableRepeatedNontypeTag<1, 1>{},
