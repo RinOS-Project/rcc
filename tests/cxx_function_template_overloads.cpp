@@ -26,6 +26,30 @@ int cxx_free_variadic_overload(int value, ...) { return value + 100; }
 template<typename T>
 int cxx_free_variadic_overload(T value, ...) { return value + 200; }
 
+struct CxxEllipsisImplicitInt {
+    int value;
+
+    operator int() const { return value; }
+};
+
+struct CxxEllipsisExplicitInt {
+    int value;
+
+    explicit operator int() const { return value; }
+};
+
+int cxx_free_ellipsis_conversion_overload(int value) {
+    return value + 3000;
+}
+
+int cxx_free_ellipsis_conversion_overload(...) { return -3000; }
+
+int cxx_free_ellipsis_explicit_conversion_overload(int value) {
+    return value + 4000;
+}
+
+int cxx_free_ellipsis_explicit_conversion_overload(...) { return 5000; }
+
 int cxx_free_fixed_overload(int value) { return value + 300; }
 
 template<typename T>
@@ -2018,6 +2042,14 @@ int main(void) {
     if (cxx_free_variadic_overload(
             variadic_template_exact_match, 2.5f) != 205) {
         return 155;
+    }
+    if (cxx_free_ellipsis_conversion_overload(
+            CxxEllipsisImplicitInt{7}) != 3007) {
+        return 167;
+    }
+    if (cxx_free_ellipsis_explicit_conversion_overload(
+            CxxEllipsisExplicitInt{7}) != 5000) {
+        return 168;
     }
     if (cxx_free_fixed_overload(7) != 307) {
         return 156;

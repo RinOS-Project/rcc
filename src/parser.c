@@ -3677,7 +3677,7 @@ static DeclList* parse_parameter_list(bool* variadic) {
         Expr* parameter_default = NULL;
         Decl* parameter;
         if (match(TOK_ELLIPSIS)) {
-            if (parameter_index == 0) {
+            if (parameter_index == 0 && !parser_cxx_mode) {
                 rcc_error(previous()->loc,
                           "ellipsis requires at least one named parameter");
             }
