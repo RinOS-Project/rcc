@@ -3647,9 +3647,9 @@ remains a separate open item.
   objects, and execute GCC-caller/RCC-callee plus RCC-caller/GCC-callee in both
   directions at `-O0` and `-O2`. The focused gate and full native-Windows GCC
   `test-cxx` aggregate both pass (exit 0).
-- [ ] Re-run full GCC `test-ci` on the committed revision containing this
-  code-generation change, including format validation and stage1-to-stage2
-  bootstrap.
+- [x] Re-run full GCC `test-ci` with this code-generation change present,
+  including format validation and stage1-to-stage2 bootstrap. The complete gate
+  passed on 2026-10-14; the tested content is now committed as `001924c`.
 
 ## RCC continuation (2026-10-14, verified fallback DWARF ranges)
 
