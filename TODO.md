@@ -3753,10 +3753,14 @@ remains a separate open item.
 - [x] Cover a reversed SSE/INTEGER aggregate when the GP bank is exhausted;
   verify whole-aggregate overflow does not consume the available SSE slot and
   that the following `double` is still retrieved from the register-save area.
+- [x] Verify the complementary rollback cases: a two-INTEGER aggregate with
+  only one GP slot left must leave that slot for the following scalar, and a
+  reversed SSE/INTEGER aggregate with the SSE bank exhausted must leave its
+  remaining GP slot for the following integer.
 - [x] Pass the focused `test-cxx-variadic-aggregate` gate at `-O0` and `-O2`,
   including GCC/RCC caller-callee interop in both directions and i686/AMD64
   code generation.
 - [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after these
-  fixture additions; the aggregate exits 0.
+  additional rollback cases; the aggregate exits 0.
 - [ ] Continue additional ABI classes/register-overflow combinations and
   remaining C++20 overload-ordering rules.

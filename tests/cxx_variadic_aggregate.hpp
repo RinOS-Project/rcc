@@ -59,10 +59,18 @@ int read_variadic_aggregate_gp_exhausted(
 int read_variadic_integer_pair(
     int marker0, int marker1, int marker2, int marker3, ...);
 
+int read_variadic_integer_pair_gp_exhausted(
+    int marker0, int marker1, int marker2, int marker3, int marker4, ...);
+
 int read_variadic_reverse_mixed_gp_exhausted(
     int marker0, int marker1, int marker2, int marker3, int marker4,
     int marker5, double fp0, double fp1, double fp2, double fp3, double fp4,
     ...);
+
+int read_variadic_reverse_mixed_sse_exhausted(
+    int marker0, int marker1, int marker2, int marker3, int marker4,
+    double fp0, double fp1, double fp2, double fp3, double fp4, double fp5,
+    double fp6, double fp7, ...);
 
 int read_variadic_aligned_aggregate(
     int marker0, int marker1, int marker2, int marker3, int marker4,
