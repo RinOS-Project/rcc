@@ -3,9 +3,12 @@
 # Makefile
 
 # Respect CI/user-selected host compilers while keeping GCC as the native
-# default when GNU make only supplies its built-in `cc` value.
+# default when GNU make supplies platform-specific built-in compiler paths.
 ifeq ($(origin CC),default)
 CC = gcc
+endif
+ifeq ($(origin CXX),default)
+CXX = g++
 endif
 CLANG ?= clang
 CFLAGS = -Wall -Wextra -std=c11 -g -O2 -MMD -MP \
@@ -564,6 +567,7 @@ CXX_REGRESSION_TARGETS = \
 	test-preprocessor-line-macro \
 	test-multiple-inputs \
 	test-cxx-language-core \
+	test-cxx-parser-recovery \
 	test-cxx-multi-declarator \
 	test-cxx-numeric-separators \
 	test-cxx-user-defined-literals \
@@ -11369,26 +11373,48 @@ endif
 test-cxx-parser-recovery: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-parser-recovery)
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "$$out='$(TEST_OUT)/cxx-parser-recovery/invalid.log'; $$err='$(TEST_OUT)/cxx-parser-recovery/invalid.err'; $$p=Start-Process -FilePath './rcc++.exe' -ArgumentList '--target','x86_64-unknown-rinos','-std=c++20','-c','-o','$(TEST_OUT)/cxx-parser-recovery/invalid.ro','tests/cxx_parser_recovery.cpp' -RedirectStandardOutput $$out -RedirectStandardError $$err -PassThru; Wait-Process -Id $$p.Id -Timeout 10 -ErrorAction SilentlyContinue | Out-Null; $$p.Refresh(); if (-not $$p.HasExited) { Stop-Process -Id $$p.Id -Force -ErrorAction SilentlyContinue; Write-Error 'C++ parser recovery timed out'; exit 1 }; Get-Content $$err | Add-Content $$out; if ($$p.ExitCode -eq 0) { Write-Error 'invalid C++ fixture unexpectedly compiled'; exit 1 }"
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-parser-recovery/invalid-x86.ro)
+	powershell -NoProfile -File scripts/rcc_expect_cxx_parser_recovery.ps1 \
+		-CompilerPath "$(RCXX_TARGET)" -Target i686-unknown-rinos \
+		-OutputPath "$(TEST_OUT)/cxx-parser-recovery/invalid-x86.ro"
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-parser-recovery/invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-parser-recovery/invalid-x64.ro)
+	powershell -NoProfile -File scripts/rcc_expect_cxx_parser_recovery.ps1 \
+		-CompilerPath "$(RCXX_TARGET)" -Target x86_64-unknown-rinos \
+		-OutputPath "$(TEST_OUT)/cxx-parser-recovery/invalid-x64.ro"
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-parser-recovery/invalid-x64.ro)
 else
-	@set +e; timeout 10s $(RCXX_TARGET) --target x86_64-unknown-rinos \
-		-std=c++20 -c -o $(TEST_OUT)/cxx-parser-recovery/invalid.ro \
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-parser-recovery/invalid-x86.ro)
+	@set +e; timeout 10s $(RCXX_TARGET) --target i686-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/cxx-parser-recovery/invalid-x86.ro \
 		tests/cxx_parser_recovery.cpp \
-		>$(TEST_OUT)/cxx-parser-recovery/invalid.log 2>&1; status=$$?; \
+		>$(TEST_OUT)/cxx-parser-recovery/invalid-x86.log 2>&1; status=$$?; \
 		set -e; \
-		if [ $$status -eq 0 ]; then \
-			echo "invalid C++ fixture unexpectedly compiled"; exit 1; \
-		fi; \
-		if [ $$status -eq 124 ] || [ $$status -eq 139 ]; then \
-			echo "C++ parser recovery timed out or crashed"; exit 1; \
+		if [ $$status -ne 1 ]; then \
+			echo "expected i686 parser diagnostic exit 1, got $$status"; exit 1; \
 		fi
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-parser-recovery/invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-parser-recovery/invalid-x64.ro)
+	@set +e; timeout 10s $(RCXX_TARGET) --target x86_64-unknown-rinos \
+		-std=c++20 -c -o $(TEST_OUT)/cxx-parser-recovery/invalid-x64.ro \
+		tests/cxx_parser_recovery.cpp \
+		>$(TEST_OUT)/cxx-parser-recovery/invalid-x64.log 2>&1; status=$$?; \
+		set -e; \
+		if [ $$status -ne 1 ]; then \
+			echo "expected AMD64 parser diagnostic exit 1, got $$status"; exit 1; \
+		fi
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-parser-recovery/invalid-x64.ro)
 endif
 ifeq ($(OS),Windows_NT)
-	powershell -NoProfile -Command "if (-not (Select-String -Quiet -SimpleMatch 'expected ;' '$(TEST_OUT)/cxx-parser-recovery/invalid.log')) { exit 1 }"
-	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch 'too many errors' '$(TEST_OUT)/cxx-parser-recovery/invalid.log') { exit 1 }"
+	powershell -NoProfile -Command "if (-not (Select-String -Quiet -SimpleMatch 'expected ;' '$(TEST_OUT)/cxx-parser-recovery/invalid-x86.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch 'too many errors' '$(TEST_OUT)/cxx-parser-recovery/invalid-x86.log') { exit 1 }"
+	powershell -NoProfile -Command "if (-not (Select-String -Quiet -SimpleMatch 'expected ;' '$(TEST_OUT)/cxx-parser-recovery/invalid-x64.log')) { exit 1 }"
+	powershell -NoProfile -Command "if (Select-String -Quiet -SimpleMatch 'too many errors' '$(TEST_OUT)/cxx-parser-recovery/invalid-x64.log') { exit 1 }"
 else
-	$(GREP) -q "expected ;" $(TEST_OUT)/cxx-parser-recovery/invalid.log
-	! $(GREP) -q "too many errors" $(TEST_OUT)/cxx-parser-recovery/invalid.log
+	$(GREP) -q "expected ;" $(TEST_OUT)/cxx-parser-recovery/invalid-x86.log
+	! $(GREP) -q "too many errors" $(TEST_OUT)/cxx-parser-recovery/invalid-x86.log
+	$(GREP) -q "expected ;" $(TEST_OUT)/cxx-parser-recovery/invalid-x64.log
+	! $(GREP) -q "too many errors" $(TEST_OUT)/cxx-parser-recovery/invalid-x64.log
 endif
 	@echo "RCC++ namespace parser recovery test completed"
 

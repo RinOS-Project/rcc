@@ -263,6 +263,9 @@
         `requires`等の後続宣言開始点に残った場合、そのtokenを先に消費せず
         次のparse iterationへ渡し、連続無進捗時だけ確実に同期消費する回復を
         C17/C++20の診断fixtureで検証
+  - [x] malformed C++20 fixtureを`test-cxx`／`test-ci`の回帰gateへ含め、
+        i686/AMD64の双方で10秒timeout、終了コード1、期待診断、診断上限未到達、
+        object未生成を検証
 - [x] C17 conformance compile-and-run suite
 
 ## 3. C++20 frontend / ABI
