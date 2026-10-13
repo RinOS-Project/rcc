@@ -1760,12 +1760,39 @@ static void gen64_va_arg_aggregate(Module* mod, Expr* expression) {
     int fp_count = 0;
     int rounded_size = gen64_aggregate_storage(type);
 
-    if (!type || expression->va_arg_result_offset >= 0) {
+    if (!type || (!type->cxx_nontrivial &&
+                  expression->va_arg_result_offset >= 0)) {
         SourceLoc location;
         codegen64_expr_loc(&location, expression);
         rcc_error(location, "aggregate va_arg has no automatic result slot");
         return;
     }
+
+    if (type->cxx_nontrivial) {
+        /* Itanium C++ ABI variadic class arguments are passed as pointers to
+         * caller-owned temporaries. Retrieve that pointer from the GP save
+         * area, or from the overflow area once GP registers are exhausted. */
+        gen64_lvalue(mod, expression->va_list_operand);
+        emit64_mov_reg_reg(mod, RCX, RAX);
+        emit64_load_typed(mod, R8, RCX, 0, type_uint);
+        emit64_cmp_reg_imm(mod, R8, 40);
+        emit64_jcc_label(mod, CC64_A, overflow_label);
+        emit64_mov_reg_mem(mod, R10, RCX, 16);
+        emit64_mov_reg_reg(mod, RAX, R10);
+        emit64_add_reg_reg(mod, RAX, R8);
+        emit64_mov_reg_mem(mod, RAX, RAX, 0);
+        emit64_add_reg_imm(mod, R8, 8);
+        emit64_mov_mem_reg(mod, RCX, 0, R8);
+        emit64_jmp_label(mod, done_label);
+        emit64_label(mod, overflow_label);
+        emit64_mov_reg_mem(mod, RDX, RCX, 8);
+        emit64_mov_reg_mem(mod, RAX, RDX, 0);
+        emit64_add_reg_imm(mod, RDX, 8);
+        emit64_mov_mem_reg(mod, RCX, 8, RDX);
+        emit64_label(mod, done_label);
+        return;
+    }
+
     if (!classification.memory) {
         for (int index = 0; index < classification.count; ++index) {
             if (classification.classes[index] == GEN64_CLASS_INTEGER) {
@@ -8302,8 +8329,18 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 ? function_type->params : NULL;
             int i = 0;
             for (ExprList* a = expr->call_args; a; a = a->next) {
+                bool variadic_nontrivial_class;
+                Type* argument_type;
                 args[i++] = a;
+                argument_type = a->expr ? a->expr->type : NULL;
+                variadic_nontrivial_class = !parameter && function_type &&
+                    function_type->variadic && argument_type &&
+                    argument_type->cxx_nontrivial &&
+                    (argument_type->kind == TYPE_STRUCT ||
+                     argument_type->kind == TYPE_UNION);
                 argument_types[i - 1] = parameter ? parameter->type
+                    : variadic_nontrivial_class
+                        ? type_ptr(argument_type)
                     : (a->expr->type &&
                        (a->expr->type->kind == TYPE_ENUM ||
                         a->expr->type->kind < TYPE_INT)
@@ -8528,6 +8565,16 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                                                        passed_type);
                     }
                     emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
+                    if (args[i]->cxx_temporary_owner && passed_type &&
+                        passed_type->kind == TYPE_PTR &&
+                        passed_type->base == argument->type) {
+                        emit64_mov_mem_reg(
+                            mod, RBP,
+                            args[i]->cxx_temporary_owner->var_offset, RAX);
+                        gen64_push_call_temporary_cleanup(
+                            mod, args[i]->cxx_temporary_owner,
+                            args[i]->cxx_temporary_cleanups);
+                    }
                 }
             }
             gen64_push_call_temporary_cleanup(

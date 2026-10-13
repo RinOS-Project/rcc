@@ -551,6 +551,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-multi-declarator
 .PHONY: test-cxx-return-semantics
 .PHONY: test-c-return-semantics
+.PHONY: test-cxx-variadic-nontrivial-ellipsis
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -573,6 +574,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-user-defined-literals \
 	test-cxx-enum-class \
 	test-cxx-language-linkage \
+	test-cxx-variadic-nontrivial-ellipsis \
 	test-cxx-member-specifiers \
 	test-cxx-member-methods \
 	test-cxx-qualified-namespaces \
@@ -2805,6 +2807,50 @@ test-cxx-function-templates: $(RCXX_TARGET)
 	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateIiEEiv,$(TEST_OUT)/cxx-function-templates/x86.ro)
 	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateIlEEiv,$(TEST_OUT)/cxx-function-templates/x86.ro)
 	@echo "RCC++ function template syntax tests completed"
+
+ifeq ($(OS),Windows_NT)
+RCC_SYSV_CXX_FLAGS = -mabi=sysv
+else
+RCC_SYSV_CXX_FLAGS =
+endif
+
+test-cxx-variadic-nontrivial-ellipsis: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-variadic-nontrivial-ellipsis)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-callee-x86.s \
+		tests/cxx_variadic_nontrivial_ellipsis.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-callee-x86.o \
+		$(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-callee-x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-callee-x64.s \
+		tests/cxx_variadic_nontrivial_ellipsis.cpp
+	$(GREP) -F -q '_Z32read_nontrivial_variadic_payloadiiiiiiz:' \
+		$(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-callee-x64.s
+	$(CXX) $(RCC_SYSV_CXX_FLAGS) -std=c++20 \
+		-o $(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-callee-host-caller$(EXE_SUFFIX) \
+		tests/cxx_variadic_nontrivial_ellipsis_host.cpp \
+		$(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-callee-x64.s
+	$(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-callee-host-caller$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-caller-x86.s \
+		tests/cxx_variadic_nontrivial_ellipsis_caller.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-caller-x86.o \
+		$(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-caller-x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-caller-x64.s \
+		tests/cxx_variadic_nontrivial_ellipsis_caller.cpp
+	$(CXX) $(RCC_SYSV_CXX_FLAGS) -std=c++20 \
+		-DRCC_VARIADIC_HOST_CALLEE -c \
+		-o $(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/host-callee.o \
+		tests/cxx_variadic_nontrivial_ellipsis_host.cpp
+	$(CXX) $(RCC_SYSV_CXX_FLAGS) \
+		-o $(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-caller-host-callee$(EXE_SUFFIX) \
+		$(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/host-callee.o \
+		$(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-caller-x64.s
+	$(TEST_OUT)/cxx-variadic-nontrivial-ellipsis/rcc-caller-host-callee$(EXE_SUFFIX)
+	@echo "C++ non-trivial ellipsis ABI interoperability tests completed"
 
 test-cxx-template-local-classes: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-local-classes)

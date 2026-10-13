@@ -729,6 +729,14 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
         buf[pos++] = 'v';
     }
 
+    if (func && func->type && func->type->kind == TYPE_FUNC &&
+        func->type->variadic) {
+        if (pos + 1u >= sizeof(buf)) {
+            rcc_fatal("C++ variadic function name is too long");
+        }
+        buf[pos++] = 'z';
+    }
+
     buf[pos] = '\0';
     return buf;
 }

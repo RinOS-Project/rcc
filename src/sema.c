@@ -9778,6 +9778,35 @@ static bool sema_prepare_class_prvalue_cleanup(
     return true;
 }
 
+/* The Itanium C++ ABI passes a non-trivial class supplied to `...` by
+ * reference to a caller-owned temporary. Materialize that temporary through
+ * the class copy-initialization path and keep its destructor in the current
+ * full-expression cleanup list. */
+static void sema_prepare_variadic_class_argument(ExprList* argument) {
+    Expr* source;
+    Expr* temporary;
+    ExprList* initializer;
+    Type* object_type;
+    if (!rcc_parser_is_cxx_mode() || !argument ||
+        !(source = argument->expr) || !(object_type = source->type) ||
+        !object_type->cxx_nontrivial ||
+        (object_type->kind != TYPE_STRUCT &&
+         object_type->kind != TYPE_UNION)) {
+        return;
+    }
+
+    initializer = exprlist_new(source);
+    temporary = expr_initializer_list(initializer, source->loc);
+    temporary->compound_type = object_type;
+    temporary->compound_copy_init = true;
+    sema_initializer(object_type, temporary);
+    argument->expr = temporary;
+    sema_prepare_class_prvalue_cleanup(
+        temporary, &argument->cxx_temporary_owner,
+        &argument->cxx_temporary_cleanups, false,
+        "non-trivial variadic class temporary cleanup is unsupported");
+}
+
 static void sema_prepare_reference_argument_cleanup(ExprList* argument,
                                                     Type* parameter_type) {
     if (!argument || !argument->expr || !parameter_type ||
@@ -15109,7 +15138,9 @@ static Type* sema_expr(Expr* expr) {
                             argument, parameter->type);
                     }
                     parameter = parameter->next;
-                } else if (ft->has_prototype && !ft->variadic &&
+                } else if (ft->variadic) {
+                    sema_prepare_variadic_class_argument(argument);
+                } else if (ft->has_prototype &&
                            !reported_too_many) {
                     rcc_error(argument->expr->loc,
                               "too many arguments to function call");

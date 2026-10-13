@@ -8002,6 +8002,18 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
             if (expr->va_arg_type &&
                 (expr->va_arg_type->kind == TYPE_STRUCT ||
                  expr->va_arg_type->kind == TYPE_UNION)) {
+                if (expr->va_arg_type->cxx_nontrivial) {
+                    /* Non-trivial C++ ellipsis arguments are pointers to
+                     * temporaries under the Itanium ABI. */
+                    gen_lvalue(mod, expr->va_list_operand);
+                    emit_mov_reg_reg(mod, ECX, EAX);
+                    emit_mov_reg_mem(mod, EAX, ECX, 0);
+                    emit_mov_reg_reg(mod, EDX, EAX);
+                    emit_add_reg_imm(mod, EAX, 4);
+                    emit_mov_mem_reg(mod, ECX, 0, EAX);
+                    emit_mov_reg_mem(mod, EAX, EDX, 0);
+                    break;
+                }
                 int size = expr->va_arg_type->size;
                 int step = (size + 3) & ~3;
                 gen_lvalue(mod, expr->va_list_operand);
@@ -11552,8 +11564,15 @@ static void gen_call(Module* mod, Expr* expr) {
     i = 0;
     for (ExprList* argument = expr->call_args; argument;
          argument = argument->next) {
+        Type* argument_type = argument->expr ? argument->expr->type : NULL;
+        bool variadic_nontrivial_class = !parameter && function_type &&
+            function_type->variadic && argument_type &&
+            argument_type->cxx_nontrivial &&
+            (argument_type->kind == TYPE_STRUCT ||
+             argument_type->kind == TYPE_UNION);
         args[i] = argument;
         argument_types[i] = parameter ? parameter->type
+            : variadic_nontrivial_class ? type_ptr(argument_type)
             : codegen_default_argument_type(argument->expr->type);
         if (parameter) parameter = parameter->next;
         ++i;
@@ -11740,6 +11759,16 @@ static void gen_call(Module* mod, Expr* expr) {
                 expr->call_member_pointer_this_offset);
         } else {
             gen_expr(mod, argument);
+        }
+        if (args[i]->cxx_temporary_owner && passed_type &&
+            passed_type->kind == TYPE_PTR &&
+            passed_type->base == argument->type) {
+            emit_mov_mem_reg(
+                mod, EBP,
+                args[i]->cxx_temporary_owner->var_offset, EAX);
+            codegen_push_call_temporary_cleanup32(
+                mod, args[i]->cxx_temporary_owner,
+                args[i]->cxx_temporary_cleanups);
         }
         if (gen_is_integer64(passed_type)) {
             if (!gen_is_integer64(argument->type)) {
@@ -13156,6 +13185,18 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             if (expr->va_arg_type &&
                 (expr->va_arg_type->kind == TYPE_STRUCT ||
                  expr->va_arg_type->kind == TYPE_UNION)) {
+                if (expr->va_arg_type->cxx_nontrivial) {
+                    /* Non-trivial C++ ellipsis arguments are pointers to
+                     * temporaries under the Itanium ABI. */
+                    gen_lvalue(mod, expr->va_list_operand);
+                    emit_mov_reg_reg(mod, ECX, EAX);
+                    emit_mov_reg_mem(mod, EAX, ECX, 0);
+                    emit_mov_reg_reg(mod, EDX, EAX);
+                    emit_add_reg_imm(mod, EAX, 4);
+                    emit_mov_mem_reg(mod, ECX, 0, EAX);
+                    emit_mov_reg_mem(mod, EAX, EDX, 0);
+                    break;
+                }
                 int size = expr->va_arg_type->size;
                 int step = (size + 3) & ~3;
                 gen_lvalue(mod, expr->va_list_operand);
