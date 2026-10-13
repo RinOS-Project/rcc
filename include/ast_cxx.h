@@ -415,6 +415,9 @@ struct CxxMethod {
     CxxRefQualifier ref_qualifier;
     bool is_constexpr;
     bool is_explicit;
+    /* A C++20 `explicit(bool)` that depends on enclosing template arguments
+     * is retained until class-template specialization substitutes them. */
+    Expr* explicit_condition;
     bool is_noexcept;
     bool is_deleted;
     bool is_defaulted;

@@ -6108,6 +6108,8 @@ test-cxx-override-posix: $(RCXX_TARGET)
 
 test-cxx-conditional-explicit-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conditional-explicit)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-conditional-explicit/gcc-host tests/cxx_conditional_explicit.cpp
+	$(TEST_OUT)/cxx-conditional-explicit/gcc-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-conditional-explicit/x86.s \
 		tests/cxx_conditional_explicit.cpp
@@ -6164,6 +6166,16 @@ test-cxx-conditional-explicit-posix: $(RCXX_TARGET)
 	fi
 	$(GREP) -q "conditional explicit specifier requires an integral constant expression" \
 		$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/gcc-constructor-invalid.o tests/cxx_conditional_explicit_constructor_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/gcc-constructor-invalid.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/gcc-conversion-invalid.o tests/cxx_conditional_explicit_conversion_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/gcc-conversion-invalid.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x86.ro tests/cxx_conditional_explicit_constructor_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x86.log)
+	$(GREP) -F -q "no safely lowerable constructor accepts the C++ initializer" $(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x64.ro tests/cxx_conditional_explicit_constructor_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x64.log)
+	$(GREP) -F -q "no safely lowerable constructor accepts the C++ initializer" $(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x86.ro tests/cxx_conditional_explicit_conversion_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x86.log)
+	$(GREP) -F -q "incompatible types in initialization" $(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x64.ro tests/cxx_conditional_explicit_conversion_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x64.log)
+	$(GREP) -F -q "incompatible types in initialization" $(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x64.log
 	@echo "C++20 conditional explicit tests completed"
 
 test-cxx-class-template-deduction-posix: $(RCXX_TARGET)
@@ -6599,6 +6611,8 @@ test-cxx-override: $(RCXX_TARGET)
 
 test-cxx-conditional-explicit: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conditional-explicit)
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-conditional-explicit/gcc-host tests/cxx_conditional_explicit.cpp
+	$(TEST_OUT)/cxx-conditional-explicit/gcc-host
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-conditional-explicit,cxx_conditional_explicit.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++17 -c -o $(TEST_OUT)/cxx-conditional-explicit/old-x86.ro tests/cxx_conditional_explicit_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/old-x86.log)
 	$(GREP) -F -q "conditional explicit specifiers require C++20 or newer" $(TEST_OUT)/cxx-conditional-explicit/old-x86.log
@@ -6608,6 +6622,16 @@ test-cxx-conditional-explicit: $(RCXX_TARGET)
 	$(GREP) -F -q "conditional explicit specifier requires an integral constant expression" $(TEST_OUT)/cxx-conditional-explicit/nonconstant-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.ro tests/cxx_conditional_explicit_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.log)
 	$(GREP) -F -q "conditional explicit specifier requires an integral constant expression" $(TEST_OUT)/cxx-conditional-explicit/nonconstant-x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/gcc-constructor-invalid.o tests/cxx_conditional_explicit_constructor_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/gcc-constructor-invalid.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/gcc-conversion-invalid.o tests/cxx_conditional_explicit_conversion_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/gcc-conversion-invalid.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x86.ro tests/cxx_conditional_explicit_constructor_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x86.log)
+	$(GREP) -F -q "no safely lowerable constructor accepts the C++ initializer" $(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x64.ro tests/cxx_conditional_explicit_constructor_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x64.log)
+	$(GREP) -F -q "no safely lowerable constructor accepts the C++ initializer" $(TEST_OUT)/cxx-conditional-explicit/constructor-invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x86.ro tests/cxx_conditional_explicit_conversion_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x86.log)
+	$(GREP) -F -q "incompatible types in initialization" $(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x64.ro tests/cxx_conditional_explicit_conversion_invalid.cpp,$(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x64.log)
+	$(GREP) -F -q "incompatible types in initialization" $(TEST_OUT)/cxx-conditional-explicit/conversion-invalid-x64.log
 
 test-cxx-class-template-deduction: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-deduction)

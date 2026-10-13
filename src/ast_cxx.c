@@ -8298,6 +8298,7 @@ CxxMethod* cxx_method_new(const char* name, Type* return_type, DeclList* params,
     method->ref_qualifier = CXX_REF_QUAL_NONE;
     method->is_constexpr = false;
     method->is_explicit = false;
+    method->explicit_condition = NULL;
     method->is_noexcept = false;
     method->is_deleted = false;
     method->is_defaulted = false;

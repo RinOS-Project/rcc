@@ -18389,6 +18389,9 @@ static void sema_initializer(Type* type, Expr* initializer) {
                          type->cxx_is_member_pointer))) {
                 rcc_error(initializer->loc,
                           "invalid pointer-to-member conversion in initialization");
+            } else if (rcc_parser_is_cxx_mode()) {
+                rcc_error(initializer->loc,
+                          "incompatible types in initialization");
             } else {
                 rcc_warning(initializer->loc,
                             "incompatible types in initialization");

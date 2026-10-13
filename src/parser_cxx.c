@@ -3050,14 +3050,15 @@ void rcc_parser_cxx_skip_statement_attributes(void) {
     pending_cxx_deprecated_message = saved_deprecated_message;
 }
 
-/* C++20 permits an explicit-specifier to be a constant expression.  Keep the
- * bounded frontend honest: evaluate the condition before recording the
- * constructor/conversion metadata, and reject dependent or runtime forms
- * instead of treating them as an unconditional explicit declaration. */
-static bool parse_cxx_explicit_specifier(SourceLoc loc) {
+/* C++20 permits an explicit-specifier to be dependent in a template.  Keep
+ * the expression until the enclosing template is specialized; ordinary
+ * non-constant conditions still receive the same source diagnostic. */
+static bool parse_cxx_explicit_specifier(SourceLoc loc,
+                                         Expr** dependent_condition) {
     Expr* condition;
     int64_t value = 0;
 
+    if (dependent_condition) *dependent_condition = NULL;
     expect(TOK_EXPLICIT, "explicit");
     if (!match(TOK_LPAREN)) return true;
     condition = parse_expression();
@@ -3066,12 +3067,20 @@ static bool parse_cxx_explicit_specifier(SourceLoc loc) {
         rcc_error(loc, "conditional explicit specifiers require C++20 or newer");
         return false;
     }
-    if (!condition || !expr_eval_integer_constant(condition, &value)) {
+    if (condition && expr_eval_integer_constant(condition, &value)) {
+        return value != 0;
+    }
+    if (condition && active_template &&
+        cxx_expression_is_dependent(condition, active_template)) {
+        condition->cxx_template_context = active_template;
+        if (dependent_condition) *dependent_condition = condition;
+        return false;
+    }
+    {
         rcc_error(loc,
                   "conditional explicit specifier requires an integral constant expression");
         return false;
     }
-    return value != 0;
 }
 
 static void skip_balanced(TokenType open, TokenType close) {
@@ -4220,6 +4229,7 @@ static CxxConstructorInfo* cxx_make_inherited_constructor(
     method->access = source->access;
     method->is_constructor = true;
     method->is_explicit = source->method->is_explicit;
+    method->explicit_condition = source->method->explicit_condition;
     method->is_noexcept = source->method->is_noexcept;
     method->is_constexpr = source->method->is_constexpr;
     method->decl->func_is_cxx_method = true;
@@ -7130,6 +7140,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
     bool is_consteval = false;
     bool is_constinit = false;
     bool is_explicit = false;
+    Expr* explicit_condition = NULL;
     bool is_thread_local = false;
     bool is_friend = false;
 
@@ -7145,7 +7156,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         }
         else if (match(TOK_CONSTINIT)) is_constinit = true;
         else if (check(TOK_EXPLICIT)) {
-            is_explicit = parse_cxx_explicit_specifier(peek()->loc);
+            is_explicit = parse_cxx_explicit_specifier(
+                peek()->loc, &explicit_condition);
         }
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else if (match(TOK_FRIEND)) is_friend = true;
@@ -7398,6 +7410,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         method->decl->func_is_deprecated = is_deprecated;
         method->decl->func_deprecated_message = deprecated_message;
         method->is_explicit = is_explicit;
+        method->explicit_condition = explicit_condition;
         method->is_const = is_const;
         method->is_volatile = is_volatile;
         method->ref_qualifier = ref_qualifier;
@@ -12254,6 +12267,23 @@ static CxxMethod* substitute_template_method(CxxTemplate* tmpl,
     copy->decl->type->function_ref_qualifier = method->ref_qualifier;
     copy->is_constexpr = method->is_constexpr;
     copy->is_explicit = method->is_explicit;
+    copy->explicit_condition = cxx_template_clone_expr_with_values(
+        tmpl, method->explicit_condition, arguments, argument_count,
+        value_args, value_present);
+    if (copy->explicit_condition) {
+        int64_t explicit_value;
+        if (expr_eval_integer_constant(copy->explicit_condition,
+                                       &explicit_value)) {
+            copy->is_explicit = explicit_value != 0;
+            copy->explicit_condition = NULL;
+        } else if (!cxx_expression_is_dependent(copy->explicit_condition,
+                                                tmpl)) {
+            rcc_error(method->decl->loc,
+                      "conditional explicit specifier requires an integral constant expression after template substitution");
+            copy->is_explicit = false;
+            copy->explicit_condition = NULL;
+        }
+    }
     copy->is_noexcept = method->is_noexcept;
     copy->decl->func_is_noexcept = copy->is_noexcept;
     copy->is_deleted = method->is_deleted;
@@ -14730,6 +14760,7 @@ static TypeMethod* cxx_materialize_conversion_template(
     bool unsupported_constraint = false;
     int specificity = 0;
     Decl* instance;
+    bool is_explicit = method ? method->is_explicit : false;
     Type* object_type;
     Type* qualified_owner;
     TypeParam* this_type_parameter;
@@ -14781,6 +14812,19 @@ static TypeMethod* cxx_materialize_conversion_template(
                       "conversion-function template constraint cannot be evaluated");
         }
         return NULL;
+    }
+    if (method->explicit_condition) {
+        Expr* condition = cxx_template_clone_expr_with_values(
+            tmpl, method->explicit_condition, arguments, tmpl->param_count,
+            values, value_present);
+        int64_t explicit_value;
+        if (!condition ||
+            !expr_eval_integer_constant(condition, &explicit_value)) {
+            rcc_error(method->decl->loc,
+                      "conditional explicit specifier requires an integral constant expression after template substitution");
+            return NULL;
+        }
+        is_explicit = explicit_value != 0;
     }
 
     instance = (Decl*)cxx_template_instantiate_with_values(
@@ -14837,7 +14881,7 @@ static TypeMethod* cxx_materialize_conversion_template(
     lowered->function_decl = instance;
     lowered->kind = TYPE_METHOD_FUNCTION;
     lowered->cxx_access = (unsigned char)method->access;
-    lowered->is_explicit = method->is_explicit;
+    lowered->is_explicit = is_explicit;
     lowered->is_noexcept = method->is_noexcept;
     lowered->ref_qualifier = method->ref_qualifier;
     lowered->this_owner = method->owner->type;

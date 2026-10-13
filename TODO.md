@@ -3704,3 +3704,22 @@ remains a separate open item.
   debug info, ABI, RIN/RLL/DRV validation, golden/determinism/property/fuzz,
   and Ubuntu-24.04 WSL stage1 execution plus byte-identical i686/x86_64 stage2
   rebuilds.
+
+## RCC continuation (2026-10-14, dependent C++20 conditional explicit)
+
+- [x] Retain dependent `explicit(bool)` conditions on C++ methods until class
+  template arguments are substituted, then evaluate the condition for
+  constructors and conversion operators. Evaluate dependent conversion
+  function-template conditions after deduction.
+- [x] Make invalid C++ copy-initialization from an explicit conversion a
+  diagnostic error while preserving the existing C warning behavior.
+- [x] Add GCC C++20 positive/negative oracle coverage for dependent class
+  template constructors/conversion operators and conversion-function-template
+  conditions. Compile i686 and AMD64, execute the AMD64 positive image, and
+  reject invalid implicit constructor/conversion cases on both targets.
+- [x] Pass `test-cxx-conditional-explicit` (exit 0). The complete native
+  Windows `test-ci` run with Clang explicitly selected passed its Windows
+  test targets through format validation, fuzz/property, link, and relocation
+  checks, then hit the unprivileged WSL access boundary. The separately
+  approved `test-bootstrap-stage2` run (exit 0) completed core, link, stage1
+  execution, and reproducible i686/AMD64 stage2 gates.
