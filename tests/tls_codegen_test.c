@@ -32,6 +32,12 @@ static uint32_t read_u32(const uint8_t* bytes)
            ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
 }
 
+static uint64_t read_u64(const uint8_t* bytes)
+{
+    return (uint64_t)read_u32(bytes) |
+           ((uint64_t)read_u32(bytes + 4u) << 32);
+}
+
 static int section_index(ObjectFile* object, ObjSection* target)
 {
     int index = 0;
@@ -117,11 +123,14 @@ static void verify_image(const char* path, uint16_t architecture, int library)
     RinSectionV3* code = NULL;
     RinSectionV3* data = NULL;
     RinSectionV3* tls = NULL;
+    RinSectionV3* unwind = NULL;
     RinSectionV3* relocation_section = NULL;
     unsigned data_count = 0u;
     unsigned rodata_count = 0u;
     RinRelocationV3* relocations;
     uint64_t relocation_count;
+    uint64_t tls_relocation_count = 0u;
+    uint64_t unwind_relocation_count = 0u;
     assert(size >= sizeof(*header));
     assert(header->magic == RIN_IMAGE_MAGIC &&
            header->version == RIN_IMAGE_VERSION_3 &&
@@ -144,6 +153,9 @@ static void verify_image(const char* path, uint16_t architecture, int library)
             ++rodata_count;
         }
         if (sections[index].type == RIN_IMAGE_SECTION_TLS) tls = &sections[index];
+        if (sections[index].type == RIN_IMAGE_SECTION_UNWIND) {
+            unwind = &sections[index];
+        }
         if (sections[index].type == RIN_IMAGE_SECTION_RELOCATIONS) {
             relocation_section = &sections[index];
         }
@@ -167,6 +179,11 @@ static void verify_image(const char* path, uint16_t architecture, int library)
            tls->file_offset + tls->file_size <=
                data->file_offset + data->file_size &&
            tls->file_offset + tls->file_size <= size);
+    if (unwind) {
+        assert(unwind->flags == RIN_IMAGE_SECTION_READ &&
+               unwind->file_offset <= size &&
+               unwind->file_size <= size - unwind->file_offset);
+    }
     assert(read_u32(bytes + tls->file_offset) == 7u);
     assert(read_u32(bytes + tls->file_offset + 4u) == 0u);
     assert(read_u32(bytes + data->file_offset) == 3u);
@@ -176,14 +193,44 @@ static void verify_image(const char* path, uint16_t architecture, int library)
     relocation_count = relocation_section->file_size / sizeof(*relocations);
     assert(relocation_count >= 4u);
     for (uint64_t index = 0u; index < relocation_count; ++index) {
-        uint64_t relative;
-        assert(relocations[index].type == RIN_IMAGE_RELOCATION_TLSOFF32S);
-        assert(relocations[index].virtual_address >= code->virtual_address &&
-               relocations[index].virtual_address + 4u <=
-                   code->virtual_address + code->file_size);
-        relative = relocations[index].virtual_address - code->virtual_address;
-        assert(read_u32(bytes + code->file_offset + relative) < tls->memory_size);
+        uint64_t address = relocations[index].virtual_address;
+        if (relocations[index].type == RIN_IMAGE_RELOCATION_TLSOFF32S) {
+            uint64_t relative;
+            assert(address >= code->virtual_address &&
+                   address - code->virtual_address <= code->file_size &&
+                   4u <= code->file_size -
+                             (address - code->virtual_address));
+            relative = address - code->virtual_address;
+            assert(read_u32(bytes + code->file_offset + relative) <
+                   tls->memory_size);
+            ++tls_relocation_count;
+        } else {
+            uint64_t width = architecture == RIN_ARCH_X86 ? 4u : 8u;
+            uint64_t relative;
+            uint16_t expected_type = architecture == RIN_ARCH_X86
+                ? RIN_IMAGE_RELOCATION_ABS32U
+                : RIN_IMAGE_RELOCATION_ABS64;
+            assert(unwind != NULL &&
+                   relocations[index].type == expected_type &&
+                   address >= unwind->virtual_address &&
+                   address - unwind->virtual_address <= unwind->file_size &&
+                   width <= unwind->file_size -
+                                (address - unwind->virtual_address));
+            relative = address - unwind->virtual_address;
+            if (width == 4u) {
+                assert(read_u32(bytes + unwind->file_offset + relative) ==
+                       (uint32_t)(header->preferred_base +
+                                  code->virtual_address));
+            } else {
+                assert(read_u64(bytes + unwind->file_offset + relative) ==
+                       header->preferred_base + code->virtual_address);
+            }
+            ++unwind_relocation_count;
+        }
     }
+    assert(tls_relocation_count >= 4u);
+    assert(unwind_relocation_count == (unwind ? 1u : 0u));
+    assert(tls_relocation_count + unwind_relocation_count == relocation_count);
     free(bytes);
 }
 

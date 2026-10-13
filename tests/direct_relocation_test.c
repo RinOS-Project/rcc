@@ -120,10 +120,12 @@ static void verify_artifact(const char* object_path, const char* image_path,
     RinSectionV3* rodata = NULL;
     RinSectionV3* data = NULL;
     RinSectionV3* bss = NULL;
+    RinSectionV3* unwind = NULL;
     RinSectionV3* relocation_section = NULL;
     RinRelocationV3* relocations;
     FILE* image;
     size_t relocation_count;
+    size_t unwind_relocation_count = 0u;
     uint32_t section_count;
     uint64_t section_table_offset;
     uint64_t preferred_base = 0u;
@@ -477,6 +479,9 @@ static void verify_artifact(const char* object_path, const char* image_path,
         if (sections[index].type == RIN_IMAGE_SECTION_RODATA) rodata = &sections[index];
         if (sections[index].type == RIN_IMAGE_SECTION_DATA) data = &sections[index];
         if (sections[index].type == RIN_IMAGE_SECTION_BSS) bss = &sections[index];
+        if (sections[index].type == RIN_IMAGE_SECTION_UNWIND) {
+            unwind = &sections[index];
+        }
         if (sections[index].type == RIN_IMAGE_SECTION_RELOCATIONS) {
             relocation_section = &sections[index];
         }
@@ -498,13 +503,22 @@ static void verify_artifact(const char* object_path, const char* image_path,
         assert(image_rodata_rva + object_rodata->size <= code->file_size);
     }
     if (expected_magic == RIN_IMAGE_MAGIC) {
+        uint64_t unwind_size = unwind ? unwind->file_size : 0u;
         assert(rodata != NULL);
+        if (unwind) {
+            assert(unwind->flags == RIN_IMAGE_SECTION_READ &&
+                   unwind->file_size == unwind->memory_size &&
+                   unwind->file_offset ==
+                       code->file_offset + object_code->size &&
+                   unwind->virtual_address ==
+                       code->virtual_address + object_code->size);
+        }
         assert(code->virtual_address == 0u &&
-               code->file_size == object_code->size &&
+               code->file_size == object_code->size + unwind_size &&
                code->memory_size <= rodata->virtual_address &&
                (preferred_base == 0u
                     ? code->memory_size == rodata->virtual_address
-                    : code->memory_size == object_code->size) &&
+                    : code->memory_size == object_code->size + unwind_size) &&
                rodata->virtual_address >= code->memory_size &&
                (rodata->virtual_address & (rodata->alignment - 1u)) == 0u &&
                rodata->file_offset >= code->file_offset + code->file_size &&
@@ -540,7 +554,12 @@ static void verify_artifact(const char* object_path, const char* image_path,
         uint16_t expected_type = expected_architecture == RIN_ARCH_X86_64
             ? RIN_IMAGE_RELOCATION_ABS64 : RIN_IMAGE_RELOCATION_ABS32U;
         assert(relocations[index].type == expected_type);
-        if (relocations[index].virtual_address >= code->virtual_address &&
+        if (unwind != NULL &&
+            relocations[index].virtual_address >= unwind->virtual_address &&
+            relocations[index].virtual_address + width <=
+                unwind->virtual_address + unwind->file_size) {
+            source = unwind;
+        } else if (relocations[index].virtual_address >= code->virtual_address &&
             relocations[index].virtual_address + width <=
                 code->virtual_address + code->file_size) {
             source = code;
@@ -562,6 +581,12 @@ static void verify_artifact(const char* object_path, const char* image_path,
         assert(fseek(image, (long)(source->file_offset + source_offset),
                      SEEK_SET) == 0);
         assert(fread(&value, width, 1u, image) == 1u);
+        if (source == unwind) {
+            assert(value >= preferred_base + code->virtual_address &&
+                   value < preferred_base + code->virtual_address +
+                               object_code->size);
+            ++unwind_relocation_count;
+        }
         if (value == preferred_base + data->virtual_address + second->value) {
             saw_data_symbol = 1;
         }
@@ -644,6 +669,7 @@ static void verify_artifact(const char* object_path, const char* image_path,
     assert(saw_aggregate_record_pointer);
     assert(saw_aggregate_nested_pointer);
     assert(saw_aggregate_path_pointer);
+    if (unwind) assert(unwind_relocation_count > 0u);
     {
         uint8_t initialized[12];
         uint64_t null_value = 0u;

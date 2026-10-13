@@ -3488,6 +3488,7 @@ static void verify_first_frame_fde(const ObjSection* frame,
     uint32_t fde_length;
     uint64_t instruction_offset;
     uint64_t instruction_end;
+    uint64_t address_range_offset;
     uint32_t pointer_size = architecture == ARCH_X64 ? 8u : 4u;
     uint8_t frame_register = architecture == ARCH_X64 ? 6u : 5u;
 
@@ -3500,6 +3501,13 @@ static void verify_first_frame_fde(const ObjSection* frame,
     assert(fde_length >= 4u + pointer_size * 2u + 8u);
     assert(fde_offset + 4u + fde_length <= frame->size);
     assert(read_u32(frame->data, fde_offset + 4u) == 0u);
+    address_range_offset = fde_offset + 4u + 4u + pointer_size;
+    assert(address_range_offset + pointer_size <= frame->size);
+    assert(read_u32(frame->data, address_range_offset) != 0u);
+    if (pointer_size == 8u) {
+        /* The FDE range is a zero-extended 32-bit code size. */
+        assert(read_u32(frame->data, address_range_offset + 4u) == 0u);
+    }
     instruction_offset = fde_offset + 4u + 4u + pointer_size * 2u;
     instruction_end = fde_offset + 4u + fde_length;
     assert(instruction_offset + 8u <= instruction_end);

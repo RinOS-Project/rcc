@@ -3684,3 +3684,23 @@ remains a separate open item.
   `mingw32-make SHELL=cmd.exe CC=gcc CXX=g++ TEST_OUT=build/tests -j1
   test-cxx-function-template-overloads` and the complete `test-cxx` aggregate
   (both exit 0).
+
+## RCC continuation (2026-10-14, unwind relocation and FDE width)
+
+- [x] Teach TLS and direct-relocation image checks to account for the loadable
+  `.unwind` section and its base relocations when the section overlaps the
+  broad `.code` virtual range. Verify section bounds, relocation targets, and
+  TLS relocation counts without weakening relocation type checks.
+- [x] Zero-extend the 32-bit function code size before serializing an x86_64
+  DWARF FDE address range. This removes a host-width shift undefined behavior
+  that made GCC duplicate the low half while Clang emitted zero in the upper
+  half. Add an explicit regression asserting the nonzero low word and zero
+  upper word.
+- [x] Regenerate all 10 x86_64 `.ro` golden hashes via deterministic
+  double-generation; leave `.rin`, `.rll`, and `.drv` hashes unchanged. The
+  complete golden corpus passes in check mode.
+- [x] Pass the complete native-Windows MinGW GCC `test-ci` gate on this working
+  revision (exit 0), including C17/C++20, IR/MIR, verified backend, optimizer,
+  debug info, ABI, RIN/RLL/DRV validation, golden/determinism/property/fuzz,
+  and Ubuntu-24.04 WSL stage1 execution plus byte-identical i686/x86_64 stage2
+  rebuilds.

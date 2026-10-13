@@ -5335,7 +5335,8 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
                               ? RELOC_ABS64 : RELOC_ABS32U, 0);
         rcc_free(scoped_name);
         for (uint32_t byte = 0u; byte < pointer_size; ++byte) {
-            section_add_byte(frame, (uint8_t)(function_size >> (byte * 8u)));
+            section_add_byte(
+                frame, (uint8_t)((uint64_t)function_size >> (byte * 8u)));
         }
 
         /* push fp: the saved frame pointer is two words below the new CFA. */
