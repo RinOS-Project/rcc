@@ -167,6 +167,19 @@ int select_better_template(Payload* payload, T value) {
 }
 }
 
+struct AdlTiePayload {
+    int value;
+};
+
+int adl_tie(AdlTiePayload* payload, int value) {
+    return payload->value + value + 700;
+}
+
+template<typename T>
+long adl_tie(AdlTiePayload* payload, T value) {
+    return payload->value + value + 800;
+}
+
 template<typename... T>
 int conversion_function_template_pack(T...) {
     return 6;
@@ -1984,6 +1997,13 @@ int main(void) {
     CxxFunctionTemplateAdl::Payload adl_payload{2};
     if (select_better_template(&adl_payload, 5) != 607) {
         return 164;
+    }
+    AdlTiePayload adl_tie_payload{2};
+    if (adl_tie(&adl_tie_payload, 5) != 707) {
+        return 165;
+    }
+    if (adl_tie<int>(&adl_tie_payload, 5) != 807) {
+        return 166;
     }
     if (cxx_free_variadic(7, 8, 9) != 7) {
         return 152;

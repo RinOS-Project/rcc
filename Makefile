@@ -2798,12 +2798,12 @@ test-cxx-function-templates: $(RCXX_TARGET)
 		tests/cxx_function_templates.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-function-templates/x64.o \
 		$(TEST_OUT)/cxx-function-templates/x64.s
-	$(call CHECK_BINARY_STRING,_ZN8identityEi,$(TEST_OUT)/cxx-function-templates/x86.ro)
-	$(call CHECK_BINARY_STRING,_ZN8identityEl,$(TEST_OUT)/cxx-function-templates/x86.ro)
-	$(call CHECK_BINARY_STRING,_ZN6detail16pointer_identityEPi,$(TEST_OUT)/cxx-function-templates/x86.ro)
-	$(call CHECK_BINARY_STRING,_ZN6detail15default_deducedEIlEi,$(TEST_OUT)/cxx-function-templates/x86.ro)
-	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateEIiEv,$(TEST_OUT)/cxx-function-templates/x86.ro)
-	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateEIlEv,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_Z8identityIiET_S0_,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_Z8identityIlET_S0_,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN6detail16pointer_identityIiEEPT_S2_,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN6detail15default_deducedIilEET0_T_,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateIiEEiv,$(TEST_OUT)/cxx-function-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_ZN6detail18type_only_templateIlEEiv,$(TEST_OUT)/cxx-function-templates/x86.ro)
 	@echo "RCC++ function template syntax tests completed"
 
 test-cxx-template-local-classes: $(RCXX_TARGET)
@@ -3913,6 +3913,10 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-overloads,cxx_function_template_overloads.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-function-template-overloads/gcc-symbols.s tests/cxx_function_template_overloads.cpp
+	$(GREP) -F -q "_Z7adl_tieIiElP13AdlTiePayloadT_" $(TEST_OUT)/cxx-function-template-overloads/gcc-symbols.s
+	$(GREP) -F -q "_Z7adl_tieIiElP13AdlTiePayloadT_" $(TEST_OUT)/cxx-function-template-overloads/x86.s
+	$(GREP) -F -q "_Z7adl_tieIiElP13AdlTiePayloadT_" $(TEST_OUT)/cxx-function-template-overloads/x64.s
 	g++ -std=c++20 -fno-elide-constructors -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe tests/cxx_function_template_overloads.cpp
 	$(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x86.ro)
@@ -6896,10 +6900,10 @@ test-cxx-non-type-templates: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-non-type-templates/x64.ro \
 		tests/cxx_non_type_templates.cpp
-	$(call CHECK_BINARY_STRING,_ZN12add_constantEILi3EEi,$(TEST_OUT)/cxx-non-type-templates/x86.ro)
-	$(call CHECK_BINARY_STRING,_ZN12add_constantEILin2EEi,$(TEST_OUT)/cxx-non-type-templates/x86.ro)
-	$(call CHECK_BINARY_STRING,_ZN20add_default_constantEILi4EEi,$(TEST_OUT)/cxx-non-type-templates/x64.ro)
-	$(call CHECK_BINARY_STRING,_ZN22add_default_from_valueEILi3ELi4EEi,$(TEST_OUT)/cxx-non-type-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_Z12add_constantILi3EEii,$(TEST_OUT)/cxx-non-type-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_Z12add_constantILin2EEii,$(TEST_OUT)/cxx-non-type-templates/x86.ro)
+	$(call CHECK_BINARY_STRING,_Z20add_default_constantILi4EEii,$(TEST_OUT)/cxx-non-type-templates/x64.ro)
+	$(call CHECK_BINARY_STRING,_Z22add_default_from_valueILi3ELi4EEii,$(TEST_OUT)/cxx-non-type-templates/x86.ro)
 	@echo "RCC++ non-type integer template tests completed"
 
 ifeq ($(OS),Windows_NT)

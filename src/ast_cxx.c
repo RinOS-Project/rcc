@@ -733,57 +733,6 @@ char* cxx_mangle_function(Decl* func, CxxNamespace* ns, CxxClass* cls) {
     return buf;
 }
 
-static bool cxx_type_uses_template_parameter(CxxTemplate* tmpl, Type* type,
-                                             int parameter_index) {
-    if (!tmpl || !type || parameter_index < 0 ||
-        parameter_index >= tmpl->param_count) {
-        return false;
-    }
-    if (type->kind == TYPE_STRUCT && type->tag &&
-        tmpl->params[parameter_index].kind == TPARAM_TYPE &&
-        tmpl->params[parameter_index].name &&
-        strcmp(type->tag, tmpl->params[parameter_index].name) == 0) {
-        return true;
-    }
-    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
-        return cxx_type_uses_template_parameter(tmpl, type->base,
-                                                 parameter_index);
-    }
-    if (type->kind == TYPE_FUNC) {
-        for (TypeParam* parameter = type->params; parameter;
-             parameter = parameter->next) {
-            if (cxx_type_uses_template_parameter(tmpl, parameter->type,
-                                                 parameter_index)) {
-                return true;
-            }
-        }
-        return cxx_type_uses_template_parameter(tmpl, type->ret_type,
-                                                 parameter_index);
-    }
-    return false;
-}
-
-static bool cxx_function_template_parameter_is_in_signature(
-    CxxTemplate* tmpl, Decl* func, int parameter_index) {
-    Decl* signature;
-    if (!tmpl || !func || !func->type || func->type->kind != TYPE_FUNC) {
-        return false;
-    }
-    /* `func` is the substituted instance by the time it is mangled.  Its
-     * concrete parameter types no longer identify which template parameters
-     * were present, so inspect the original definition when available. */
-    signature = tmpl->func_def ? tmpl->func_def : func;
-    if (!signature->type || signature->type->kind != TYPE_FUNC) return false;
-    for (TypeParam* parameter = signature->type->params; parameter;
-         parameter = parameter->next) {
-        if (cxx_type_uses_template_parameter(tmpl, parameter->type,
-                                              parameter_index)) {
-            return true;
-        }
-    }
-    return false;
-}
-
 static int cxx_function_template_type_parameter_index(
     CxxTemplate* tmpl, Type* type) {
     if (!tmpl || !type || type->kind != TYPE_STRUCT || !type->tag) {
@@ -802,9 +751,15 @@ static int cxx_function_template_type_parameter_index(
 typedef struct CxxMemberTemplateMangleContext {
     int* parameter_substitutions;
     size_t next_substitution;
+    Type** type_substitutions;
+    size_t* type_substitution_indices;
+    size_t type_substitution_count;
 } CxxMemberTemplateMangleContext;
 
 static void cxx_mangle_template_type_append(
+    char* buf, size_t* pos, Type* type, CxxTemplate* tmpl,
+    CxxMemberTemplateMangleContext* context);
+static void cxx_mangle_template_type_append_impl(
     char* buf, size_t* pos, Type* type, CxxTemplate* tmpl,
     CxxMemberTemplateMangleContext* context);
 
@@ -1092,7 +1047,14 @@ static size_t cxx_mangle_member_template_substitution_base(
     return count;
 }
 
-static void cxx_mangle_template_type_append(
+static size_t cxx_mangle_free_template_substitution_base(CxxNamespace* ns) {
+    if (!ns) return 1u;
+    /* A nested namespace and the template function name precede the function
+     * type in the Itanium substitution table. */
+    return cxx_mangle_member_template_substitution_base(ns, NULL) + 1u;
+}
+
+static void cxx_mangle_template_type_append_impl(
     char* buf, size_t* pos, Type* type, CxxTemplate* tmpl,
     CxxMemberTemplateMangleContext* context) {
 #define CXX_MANGLE_TEMPLATE_APPEND(value) do { \
@@ -1341,6 +1303,43 @@ static void cxx_mangle_template_type_append(
 #undef CXX_MANGLE_TEMPLATE_APPEND
 }
 
+static void cxx_mangle_template_type_append(
+    char* buf, size_t* pos, Type* type, CxxTemplate* tmpl,
+    CxxMemberTemplateMangleContext* context) {
+    bool is_substitutable_type = type &&
+        (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+         type->kind == TYPE_STRUCT || type->kind == TYPE_UNION ||
+         type->kind == TYPE_FUNC) &&
+        cxx_function_template_type_parameter_index(tmpl, type) < 0;
+
+    if (context && is_substitutable_type) {
+        for (size_t index = 0; index < context->type_substitution_count;
+             ++index) {
+            if (type_is_compatible(context->type_substitutions[index], type)) {
+                cxx_mangle_member_template_substitution(
+                    buf, pos, context->type_substitution_indices[index]);
+                return;
+            }
+        }
+    }
+    cxx_mangle_template_type_append_impl(buf, pos, type, tmpl, context);
+    if (context && is_substitutable_type) {
+        size_t count = context->type_substitution_count;
+        context->type_substitutions = ast_arena_grow(
+            context->type_substitutions,
+            sizeof(context->type_substitutions[0]) * count,
+            sizeof(context->type_substitutions[0]) * (count + 1u));
+        context->type_substitution_indices = ast_arena_grow(
+            context->type_substitution_indices,
+            sizeof(context->type_substitution_indices[0]) * count,
+            sizeof(context->type_substitution_indices[0]) * (count + 1u));
+        context->type_substitutions[count] = type;
+        context->type_substitution_indices[count] =
+            context->next_substitution++;
+        ++context->type_substitution_count;
+    }
+}
+
 static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                                            CxxClass* cls, CxxTemplate* tmpl,
                                            Type** type_args,
@@ -1349,23 +1348,29 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     static char buf[CXX_MANGLE_BUFFER_SIZE];
     char* base;
     size_t pos;
+    CxxNamespace* mangling_namespace;
     bool has_value_argument = false;
     bool has_type_argument = false;
     bool encode_member_signature;
-    CxxMemberTemplateMangleContext member_mangle_context = { NULL, 0u };
+    CxxMemberTemplateMangleContext member_mangle_context = { 0 };
 
     if (!func || !tmpl) return cxx_mangle_function(func, ns, cls);
+    mangling_namespace = ns == g_global_namespace ? NULL : ns;
     encode_member_signature = tmpl->member_method &&
         (!func->name || strcmp(func->name, "operator conversion") != 0);
-    if (encode_member_signature && tmpl->param_count > 0) {
+    if ((encode_member_signature || !tmpl->member_method) &&
+        tmpl->param_count > 0) {
         member_mangle_context.parameter_substitutions = ast_arena_alloc(
             sizeof(*member_mangle_context.parameter_substitutions) *
             (size_t)tmpl->param_count);
         for (int index = 0; index < tmpl->param_count; ++index) {
             member_mangle_context.parameter_substitutions[index] = -1;
         }
-        member_mangle_context.next_substitution =
-            cxx_mangle_member_template_substitution_base(ns, cls);
+        member_mangle_context.next_substitution = encode_member_signature
+            ? cxx_mangle_member_template_substitution_base(
+                  mangling_namespace, cls)
+            : cxx_mangle_free_template_substitution_base(
+                  mangling_namespace);
     }
     for (int index = 0; index < tmpl->param_count; ++index) {
         if (tmpl->params[index].kind == TPARAM_NONTYPE && value_present &&
@@ -1380,10 +1385,7 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                    tmpl->pending_pack_count >= 0) {
             has_value_argument = true;
         } else if (tmpl->params[index].kind == TPARAM_TYPE && type_args &&
-                   type_args[index] &&
-                   (tmpl->member_method ||
-                    !cxx_function_template_parameter_is_in_signature(
-                        tmpl, func, index))) {
+                   type_args[index]) {
             has_type_argument = true;
         }
     }
@@ -1394,7 +1396,7 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     if (tmpl->member_method && func->name &&
         strcmp(func->name, "operator conversion") == 0) {
         size_t base_length;
-        base = cxx_mangle_function(func, ns, cls);
+        base = cxx_mangle_function(func, mangling_namespace, cls);
         base_length = strlen(base);
         if (!func->func_params && base_length > 0u &&
             base[base_length - 1u] == 'v') {
@@ -1407,13 +1409,18 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         pos = base_length;
     } else if (tmpl->member_method) {
         base = cxx_mangle_member_template_function_name(
-            func, ns, cls);
+            func, mangling_namespace, cls);
         strcpy(buf, base);
         pos = strlen(buf);
     } else {
-        base = cxx_mangle_name(func->name, ns, cls);
+        base = cxx_mangle_name(func->name, mangling_namespace, cls);
         strcpy(buf, base);
         pos = strlen(buf);
+        if (mangling_namespace && pos > 0u && buf[pos - 1u] == 'E') {
+            /* Template arguments belong to the final unqualified name inside
+             * a nested-name-specifier, before that name's closing `E`. */
+            --pos;
+        }
     }
     buf[pos++] = 'I';
     for (int index = 0; index < tmpl->param_count; ++index) {
@@ -1441,10 +1448,7 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
             }
             const char* type_mangled;
             size_t type_length;
-            if (!type_args || !type_args[index] ||
-                (!tmpl->member_method &&
-                 cxx_function_template_parameter_is_in_signature(
-                     tmpl, func, index))) {
+            if (!type_args || !type_args[index]) {
                 continue;
             }
             type_mangled = cxx_mangle_type(type_args[index]);
@@ -1512,27 +1516,29 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         }
     }
     buf[pos++] = 'E';
-    if (encode_member_signature) {
+    if (encode_member_signature ||
+        (!tmpl->member_method && mangling_namespace)) {
         if (pos + 1u >= sizeof(buf)) {
             rcc_fatal("C++ member template name is too long");
         }
         buf[pos++] = 'E';
     }
-    if (encode_member_signature && tmpl->func_def &&
-        tmpl->func_def->type) {
+    if ((encode_member_signature || !tmpl->member_method) &&
+        tmpl->func_def && tmpl->func_def->type) {
         cxx_mangle_template_type_append(
             buf, &pos, tmpl->func_def->type->ret_type, tmpl,
             &member_mangle_context);
     }
     {
-        Decl* signature = encode_member_signature && tmpl->func_def
+        Decl* signature = (encode_member_signature || !tmpl->member_method) &&
+                tmpl->func_def
             ? tmpl->func_def : func;
         DeclList* parameters = signature->func_params
             ? signature->func_params : func->func_params;
         if (parameters) {
             for (DeclList* parameter = parameters; parameter;
              parameter = parameter->next) {
-                if (encode_member_signature) {
+                if (encode_member_signature || !tmpl->member_method) {
                     if (parameter->decl &&
                         parameter->decl->param_is_pack) {
                         if (pos + 2u >= sizeof(buf)) {
@@ -1558,6 +1564,9 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
             }
         } else {
             buf[pos++] = 'v';
+        }
+        if (signature->type && signature->type->variadic) {
+            buf[pos++] = 'z';
         }
     }
     buf[pos] = '\0';
