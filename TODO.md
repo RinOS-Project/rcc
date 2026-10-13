@@ -3086,9 +3086,11 @@ remains a separate open item.
   suite, the C++ user-defined literal gate, and the complete native-Windows
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1 test-cxx`
   suite successfully.
-- [ ] Add support for wide, UTF-16, and UTF-32 literal encodings and continue
-  auditing the remaining C++ character-literal and execution-character-set
-  rules against GCC and the standard.
+- [x] Add support for wide, UTF-16, and UTF-32 literal encodings; the
+  implementation and regression coverage are reconciled in the 2026-10-14
+  follow-up below.
+- [ ] Continue auditing the remaining C++ character-literal and
+  execution-character-set rules against GCC and the standard.
 
 ## RCC continuation (2026-10-12, UTF-8 character-literal escapes)
 
@@ -3101,9 +3103,10 @@ remains a separate open item.
 - [x] Match GCC C++20 syntax acceptance/rejection, assemble i686 and AMD64
   output, and execute the generated AMD64 probe through
   `test-cxx-utf8-literals` (exit 0).
-- [ ] Extend character literal and escape support beyond this bounded UTF-8
-  case; wide, UTF-16, and UTF-32 encodings and full execution-character-set
-  rules remain open.
+- [x] Extend character literal and escape coverage beyond the bounded UTF-8
+  case with wide, UTF-16, and UTF-32 forms (see the 2026-10-14 reconciliation
+  below).
+- [ ] Complete the remaining execution-character-set rules.
 
 ## RCC continuation (2026-10-13, UTF-8 UCN embedded NUL)
 
@@ -3114,8 +3117,10 @@ remains a separate open item.
 - [x] Compare C++20 syntax with GCC; compile i686/AMD64 and execute the
   generated AMD64 byte, array-size, and character-value checks through
   `test-cxx-utf8-literals` (exit 0).
-- [ ] Continue the remaining literal encodings and execution-character-set
-  conformance; wide, UTF-16, and UTF-32 remain open.
+- [x] Implement the wide, UTF-16, and UTF-32 literal forms; their dual-target
+  runtime and format gates are recorded in the 2026-10-14 reconciliation
+  below.
+- [ ] Continue the remaining execution-character-set conformance.
 
 ## RCC continuation (2026-10-13, narrow-string UCN execution encoding)
 
@@ -3133,9 +3138,10 @@ remains a separate open item.
   encodes to multiple bytes uses the implementation-defined `int` character
   constant representation. The C++20 `u8` one-code-unit constraint remains
   enforced. Source status: `docs/implementation-status-rcc-narrow-character-literals-v1.md`.
-- [ ] Add support for wide, UTF-16, and UTF-32 literal encodings and continue
-  auditing the remaining C++ character-literal and execution-character-set
-  rules against GCC and the standard.
+- [x] Add wide, UTF-16, and UTF-32 literal encodings; see the 2026-10-14
+  reconciliation below for the implementation and gate evidence.
+- [ ] Continue auditing the remaining C++ character-literal and
+  execution-character-set rules against GCC and the standard.
 
 ## RCC continuation (2026-10-13, ordinary multibyte character constants)
 
@@ -3149,8 +3155,29 @@ remains a separate open item.
 - [x] Compile i686/AMD64, execute generated C17 and C++20 AMD64 probes, and
   execute GCC UTF-8 runtime oracles in `test-language-boundaries` and
   `test-cxx-utf8-literals` (both exit 0).
-- [ ] Continue auditing other execution character sets and implement the
-  remaining wide, UTF-16, and UTF-32 literal forms.
+- [x] Implement wide, UTF-16, and UTF-32 literal forms; see the 2026-10-14
+  reconciliation below for verification.
+- [ ] Continue auditing other execution character sets and their remaining
+  literal-conversion rules.
+
+## RCC continuation (2026-10-14, wide/UTF-16/UTF-32 literal audit)
+
+- [x] Reconcile the existing literal implementation with the older unchecked
+  items: C17 wide (`L`) and UTF-16/UTF-32 (`u`/`U`) strings; C++11/C++20 wide,
+  UTF-16, and UTF-32 strings and character literals; UTF-8/UCN and supplementary
+  code points; raw/adjacent strings; mixed-prefix concatenation; embedded NUL;
+  and the RinOS 32-bit `wchar_t` representation all have source fixtures.
+- [x] Run the native-Windows MinGW GCC gates
+  `test-c-wide-literals`, `test-c-utf16-utf32-string-literals`,
+  `test-cxx-wide-literals`, and `test-cxx-utf8-literals` (exit 0). These cover
+  i686/AMD64 generation, C and C++ runtime probes, verified-backend UTF-16/32
+  object generation, GCC compatibility checks, and `.rin` linking/validation.
+- [x] Confirm the C tests are in `C17_REGRESSION_TARGETS`, the C++ tests are in
+  `CXX_REGRESSION_TARGETS`, and both aggregate gates are dependencies of
+  production `test-ci`.
+- [ ] Continue the broader execution-character-set and literal conformance
+  audit; these bounded encoding tests do not establish full standard
+  conformance.
 
 ## RCC continuation (2026-10-12, multiline macros and full production gate)
 
