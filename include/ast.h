@@ -1207,6 +1207,9 @@ struct Decl {
              * immutable scalar object's storage and initializer. */
             int64_t var_debug_const_value;
             uint64_t var_debug_const_unsigned_value;
+            uint64_t var_debug_const_float_bits;
+            uint8_t var_debug_const_float_size;
+            bool var_debug_const_value_float;
             bool var_debug_const_value_unsigned;
             bool var_debug_const_value_valid;
             int var_offset;         /* Stack offset (set during codegen) */

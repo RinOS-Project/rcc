@@ -2345,6 +2345,8 @@ static void debug_emit_variable_die(
     uint32_t location_list_offset = 0u;
     int64_t constant_value = 0;
     uint64_t unsigned_constant_value = 0u;
+    uint64_t floating_constant_bits = 0u;
+    uint8_t floating_constant_size = 0u;
     bool has_constant_value = false;
     if (!obj || !info || !strings || !declaration || !declaration->name ||
         declaration->name[0] == '\0') return;
@@ -2389,11 +2391,19 @@ static void debug_emit_variable_die(
                 !declaration->type->is_reference &&
                 ((declaration->type->kind >= TYPE_BOOL &&
                   declaration->type->kind <= TYPE_LLONG) ||
-                 declaration->type->kind == TYPE_ENUM) &&
+                 declaration->type->kind == TYPE_ENUM ||
+                 declaration->type->kind == TYPE_FLOAT ||
+                 declaration->type->kind == TYPE_DOUBLE) &&
                 declaration->var_debug_const_value_valid) {
                 /* Keep the known source value available to debuggers after
                  * optimization removes the object's stack storage. */
-                if (declaration->var_debug_const_value_unsigned) {
+                if (declaration->var_debug_const_value_float) {
+                    floating_constant_bits =
+                        declaration->var_debug_const_float_bits;
+                    floating_constant_size =
+                        declaration->var_debug_const_float_size;
+                    abbreviation = 56u;
+                } else if (declaration->var_debug_const_value_unsigned) {
                     unsigned_constant_value =
                         declaration->var_debug_const_unsigned_value;
                     abbreviation = 55u;
@@ -2427,7 +2437,15 @@ static void debug_emit_variable_die(
         debug_expr_breg(info, architecture, frame_offset, frame_alignment,
                         declaration->var_is_vla);
     } else if (has_constant_value) {
-        if (declaration->var_debug_const_value_unsigned) {
+        if (declaration->var_debug_const_value_float) {
+            section_add_byte(info, floating_constant_size);
+            for (uint8_t byte_index = 0u;
+                 byte_index < floating_constant_size; ++byte_index) {
+                section_add_byte(
+                    info, (uint8_t)(floating_constant_bits >>
+                                    (byte_index * 8u)));
+            }
+        } else if (declaration->var_debug_const_value_unsigned) {
             debug_line_uleb(info, unsigned_constant_value);
         } else {
             debug_line_sleb(info, constant_value);
@@ -4494,6 +4512,23 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x1cu);    /* DW_AT_const_value */
     debug_line_uleb(abbrev, 0x0fu);    /* DW_FORM_udata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 56u);
+    debug_line_uleb(abbrev, 0x34u);    /* DW_TAG_variable */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x1cu);    /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0au);    /* DW_FORM_block1 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     /* Abstract inline origins retain declaration identity and function type;

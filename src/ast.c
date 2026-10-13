@@ -1489,6 +1489,9 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->var_init = init;
     d->var_debug_const_value = 0;
     d->var_debug_const_unsigned_value = 0u;
+    d->var_debug_const_float_bits = 0u;
+    d->var_debug_const_float_size = 0u;
+    d->var_debug_const_value_float = false;
     d->var_debug_const_value_unsigned = false;
     d->var_debug_const_value_valid = false;
     d->var_offset = 0;

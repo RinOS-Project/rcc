@@ -1861,6 +1861,10 @@
         `DW_AT_const_value`の`DW_FORM_udata`で保持し、符号付き負値からunsigned型への
         modulo変換と`UINT64_MAX`をi686/AMD64で検証。signed localには`sdata`を使い、
         unsigned値をsigned 64-bitへ切り詰めない。
+  - [x] 最適化でstorageが除去されたimmutable `float`／`double` literal localの
+        IEEE-754値を`DW_AT_const_value`の`DW_FORM_block1`で保持し、4/8-byteの
+        exact bit patternと偽のframe locationがないことをi686/AMD64で検証。
+        `test-debug-info`、`test-optimize`、`test-verified-backend`が成功。
   - [ ] `.debug_info`の全inline attribution／全scopeの宣言開始・終了に一致する
         location lists、register・piece location追跡、非標準prologueを含む
         完全なCFI/unwind

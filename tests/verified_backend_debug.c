@@ -84,5 +84,7 @@ int verified_debug_optimized_const_local(int value)
     const unsigned int optimized_unsigned_narrow = -1;
     const unsigned long long optimized_unsigned_high =
         0xffffffffffffffffULL;
+    const float optimized_float = 1.25f;
+    const double optimized_double = -3.5;
     return value + 1;
 }

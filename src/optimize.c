@@ -6,6 +6,7 @@
 #include "ir_lower.h"
 
 #include <limits.h>
+#include <string.h>
 
 static void optimize_expr(Expr** expression);
 static void optimize_stmt(Stmt* statement);
@@ -4903,13 +4904,22 @@ static DeadStoreLocal* find_dead_store_local(DeadStoreLocal* locals,
 }
 
 static bool dead_store_candidate(const Decl* declaration) {
-    return declaration && declaration->kind == DECL_VAR &&
-        !declaration->var_is_global &&
-        !declaration->var_is_thread_local &&
-        declaration->storage != STORAGE_EXTERN &&
-        declaration->storage != STORAGE_STATIC && declaration->type &&
-        type_is_integer(declaration->type) &&
-        !declaration->type->is_volatile && !declaration->var_cleanup;
+    bool integer_candidate;
+    bool floating_const_literal;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        declaration->var_is_global || declaration->var_is_thread_local ||
+        declaration->storage == STORAGE_EXTERN ||
+        declaration->storage == STORAGE_STATIC || !declaration->type ||
+        declaration->type->is_volatile || declaration->var_cleanup) {
+        return false;
+    }
+    integer_candidate = type_is_integer(declaration->type);
+    floating_const_literal = declaration->type->is_const &&
+        (declaration->type->kind == TYPE_FLOAT ||
+         declaration->type->kind == TYPE_DOUBLE) &&
+        declaration->var_init &&
+        declaration->var_init->kind == EXPR_FLOAT_LIT;
+    return integer_candidate || floating_const_literal;
 }
 
 static DeadStoreLocal* collect_dead_store_locals(const Stmt* block) {
@@ -5499,6 +5509,29 @@ static void preserve_debug_const_value(Decl* declaration) {
     if (value_type->kind == TYPE_ENUM && value_type->enum_underlying_type) {
         value_type = value_type->enum_underlying_type;
     }
+    if ((value_type->kind == TYPE_FLOAT ||
+         value_type->kind == TYPE_DOUBLE) &&
+        declaration->var_init->kind == EXPR_FLOAT_LIT) {
+        if (value_type->kind == TYPE_FLOAT && sizeof(float) == 4u) {
+            float floating_value = (float)declaration->var_init->float_val;
+            uint32_t float_bits;
+            memcpy(&float_bits, &floating_value, sizeof(float_bits));
+            declaration->var_debug_const_float_bits = float_bits;
+            declaration->var_debug_const_float_size = 4u;
+        } else if (value_type->kind == TYPE_DOUBLE &&
+                   sizeof(double) == 8u) {
+            double floating_value = declaration->var_init->float_val;
+            uint64_t double_bits;
+            memcpy(&double_bits, &floating_value, sizeof(double_bits));
+            declaration->var_debug_const_float_bits = double_bits;
+            declaration->var_debug_const_float_size = 8u;
+        } else {
+            return;
+        }
+        declaration->var_debug_const_value_float = true;
+        declaration->var_debug_const_value_valid = true;
+        return;
+    }
     if (!type_is_integer(value_type) || value_type->size <= 0 ||
         value_type->size > 8) return;
     if (value_type->kind == TYPE_BOOL) {
@@ -5568,8 +5601,13 @@ static void eliminate_block_dead_stores(Stmt* statement) {
                     local->live = false;
                     if (!initializer_needed && !local->escaped &&
                         current->decl->var_init &&
-                        current->decl->var_init->type &&
-                        type_is_integer(current->decl->var_init->type) &&
+                        ((current->decl->var_init->type &&
+                          type_is_integer(
+                              current->decl->var_init->type)) ||
+                         ((current->decl->type->kind == TYPE_FLOAT ||
+                           current->decl->type->kind == TYPE_DOUBLE) &&
+                          current->decl->type->is_const &&
+                          current->decl->var_init->kind == EXPR_FLOAT_LIT)) &&
                         !expression_has_side_effect(
                             current->decl->var_init)) {
                         current->decl->var_init = NULL;

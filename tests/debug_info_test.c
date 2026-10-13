@@ -1786,7 +1786,7 @@ static bool find_variable_location(const ObjSection* info,
             abbreviation != 27u && abbreviation != 31u &&
             abbreviation != 32u && abbreviation != 33u &&
             abbreviation != 39u && abbreviation != 54u &&
-            abbreviation != 55u) continue;
+            abbreviation != 55u && abbreviation != 56u) continue;
         name_offset = read_u32(info->data, die + 1u);
         if (name_offset >= strings->size ||
             strcmp((const char*)strings->data + name_offset,
@@ -1796,7 +1796,8 @@ static bool find_variable_location(const ObjSection* info,
         *is_location_list = abbreviation == 39u;
         *has_location = has_expression || *is_location_list;
         *frame_offset = 0;
-        if (abbreviation == 54u || abbreviation == 55u) return true;
+        if (abbreviation == 54u || abbreviation == 55u ||
+            abbreviation == 56u) return true;
         if (*is_location_list) {
             uint32_t list_offset;
             uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
@@ -1932,6 +1933,39 @@ static bool find_variable_unsigned_const_value(
                    variable_name) != 0) continue;
         value_offset = die + 21u;
         *value = read_uleb(info->data, info->size, &value_offset);
+        return true;
+    }
+    return false;
+}
+
+static bool find_variable_float_const_bits(
+    const ObjSection* info, const ObjSection* strings,
+    const char* variable_name, uint8_t* byte_size, uint64_t* bits)
+{
+    if (!info || !strings || !variable_name || !byte_size || !bits) {
+        return false;
+    }
+    for (uint64_t die = 11u; die + 22u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint64_t cursor;
+        uint8_t size;
+        uint64_t value = 0u;
+        if (info->data[die] != 56u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) != 0) continue;
+        cursor = die + 21u;
+        size = info->data[cursor++];
+        if ((size != 4u && size != 8u) || cursor + size > info->size) {
+            return false;
+        }
+        for (uint8_t byte_index = 0u; byte_index < size; ++byte_index) {
+            value |= (uint64_t)info->data[cursor + byte_index] <<
+                     (byte_index * 8u);
+        }
+        *byte_size = size;
+        *bits = value;
         return true;
     }
     return false;
@@ -2105,11 +2139,23 @@ static void verify_optimized_verified_debug_object(
         info, strings, locations, "optimized_unsigned_narrow", architecture,
         &has_location, &is_location_list, &branch_offset));
     assert(!has_location && !is_location_list);
+    assert(find_variable_location(
+        info, strings, locations, "optimized_float", architecture,
+        &has_location, &is_location_list, &branch_offset));
+    assert(!has_location && !is_location_list);
+    assert(find_variable_location(
+        info, strings, locations, "optimized_double", architecture,
+        &has_location, &is_location_list, &branch_offset));
+    assert(!has_location && !is_location_list);
     {
         int64_t constant_value;
         int64_t negative_value;
         uint64_t unsigned_high_value;
         uint64_t unsigned_narrow_value;
+        uint8_t float_size;
+        uint8_t double_size;
+        uint64_t float_bits;
+        uint64_t double_bits;
         assert(find_variable_const_value(
             info, strings, "optimized_constant", &constant_value));
         assert(find_variable_const_value(
@@ -2122,6 +2168,13 @@ static void verify_optimized_verified_debug_object(
             info, strings, "optimized_unsigned_narrow",
             &unsigned_narrow_value));
         assert(unsigned_narrow_value == UINT32_MAX);
+        assert(find_variable_float_const_bits(
+            info, strings, "optimized_float", &float_size, &float_bits));
+        assert(float_size == 4u && float_bits == UINT32_C(0x3fa00000));
+        assert(find_variable_float_const_bits(
+            info, strings, "optimized_double", &double_size, &double_bits));
+        assert(double_size == 8u &&
+               double_bits == UINT64_C(0xc00c000000000000));
     }
     {
         int64_t branch_start;
