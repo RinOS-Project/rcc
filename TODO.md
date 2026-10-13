@@ -3806,4 +3806,10 @@ remains a separate open item.
   ambiguity regression; it completed successfully (exit 0).
 - [x] Re-run full native-Windows MinGW GCC `test-cxx` after adding the
   distributive-normal-form case; it completed successfully (exit 0).
+- [x] Check atomic-constraint identity through one shared concept expression
+  mapped as `T*` versus `T`. Both constraints are satisfied, but their
+  parameter mappings differ, so GCC and RCC must retain ambiguity on i686 and
+  AMD64; the focused overload gate passes.
+- [x] Re-run the full native-Windows MinGW GCC `test-cxx` after this distinct
+  concept-mapping regression; it completed successfully (exit 0).
 - [ ] Continue constraint subsumption and remaining C++20 overload ordering.
