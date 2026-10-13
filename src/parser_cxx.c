@@ -15508,7 +15508,10 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
         parameter = parameter->next;
         argument = argument->next;
     }
-    if (argument) {
+    if (argument &&
+        (!tmpl->func_def->type ||
+         tmpl->func_def->type->kind != TYPE_FUNC ||
+         !tmpl->func_def->type->variadic)) {
         SourceLoc location;
         cxx_parser_expr_loc(&location, argument->expr,
                             &tmpl->func_def->loc);

@@ -2895,6 +2895,16 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-function-template-overloads/gcc-host \
 		tests/cxx_function_template_overloads.cpp
 	$(TEST_OUT)/cxx-function-template-overloads/gcc-host
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x86.ro tests/cxx_function_template_variadic_nonvariadic_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x86.log)
+	$(GREP) -F -q "too many arguments for function template deduction" $(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x64.ro tests/cxx_function_template_variadic_nonvariadic_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x64.log)
+	$(GREP) -F -q "too many arguments for function template deduction" $(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_variadic_nonvariadic_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-gcc.log)
+	$(GREP) -F -q "no matching function" $(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-gcc.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro)
 	@set +e; $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro \
@@ -3901,6 +3911,16 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-overloads,cxx_function_template_overloads.cpp)
 	g++ -std=c++20 -fno-elide-constructors -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe tests/cxx_function_template_overloads.cpp
 	$(TEST_OUT)/cxx-function-template-overloads/gcc-host.exe
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x86.ro tests/cxx_function_template_variadic_nonvariadic_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x86.log)
+	$(GREP) -F -q "too many arguments for function template deduction" $(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x64.ro tests/cxx_function_template_variadic_nonvariadic_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x64.log)
+	$(GREP) -F -q "too many arguments for function template deduction" $(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_function_template_variadic_nonvariadic_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-gcc.log)
+	$(GREP) -F -q "no matching function" $(TEST_OUT)/cxx-function-template-overloads/nonvariadic-extra-gcc.log
 	$(call REMOVE_FILE,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro tests/cxx_function_template_overloads_partial_order_invalid.cpp,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.ro)

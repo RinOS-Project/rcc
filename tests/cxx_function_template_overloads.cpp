@@ -18,6 +18,9 @@ using ConversionIntPairFunction = int (*)(int, int);
 double cxx_integer_return_as_double(int value) { return value; }
 int cxx_free_variadic(int value, ...) { return value; }
 
+template<typename T>
+int cxx_free_variadic_template(T value, ...) { return value + 1; }
+
 void conversion_noexcept_function() noexcept {}
 void conversion_explicit_throwing_function() noexcept(false) {}
 void conversion_explicit_noexcept_function() noexcept(true) {}
@@ -1858,6 +1861,9 @@ static int consume_conversion_value_virtual_cleanup_root(
 int main(void) {
     if (cxx_free_variadic(7, 8, 9) != 7) {
         return 152;
+    }
+    if (cxx_free_variadic_template(7, 8, 9) != 8) {
+        return 153;
     }
     int value = 5;
     int* pointer = &value;

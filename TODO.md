@@ -3491,3 +3491,20 @@ remains a separate open item.
 - [ ] Continue with NTTP packs, broader dependent expressions and conversions,
   inherited/non-static receiver cases, and remaining C++20 overload-ranking
   rules.
+
+## RCC continuation (2026-10-13, C-style variadic function templates)
+
+- [x] Allow function-template deduction to finish from fixed parameters when
+  additional call arguments bind to a trailing C-style ellipsis. Accept the
+  remaining arguments only when the source function type is variadic, retaining
+  the too-many-arguments diagnostic for ordinary function templates. Cover a
+  deduced `T` followed by multiple ellipsis arguments, compare with GCC C++20,
+  and verify i686/AMD64 generation plus AMD64 execution.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate and the full
+  `mingw32-make SHELL=cmd.exe CC=gcc CXX=g++ TEST_OUT=build/tests -j1
+  test-cxx` aggregate (both exit 0 after the function-template regression).
+- [ ] Extend coverage to mixed ordinary/function-template overload sets,
+  class-member variadic templates, non-integer ellipsis ABI promotions, and
+  remaining C++20 overload-ordering rules.
