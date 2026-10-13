@@ -3544,6 +3544,10 @@ remains a separate open item.
 - [x] Pass the focused native-Windows
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
   test-cxx-function-template-overloads` gate (exit 0, including its GCC oracle).
+- [x] Pass a mixed INTEGER/SSE trivial aggregate through ordinary and
+  function-template C-style ellipsis overloads, retrieve it with
+  `__builtin_va_arg`, compare GCC C++20 behavior, and execute the AMD64 host
+  image after generating both target assemblies.
 - [ ] Continue with non-scalar ellipsis ABI promotions, broader mixed
   ordinary/template overload sets, and remaining C++20 overload-ordering
   rules.

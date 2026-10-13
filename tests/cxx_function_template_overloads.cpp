@@ -31,6 +31,30 @@ int cxx_free_fixed_overload(int value) { return value + 300; }
 template<typename T>
 int cxx_free_fixed_overload(T value) { return value + 400; }
 
+struct CxxVariadicAggregatePayload {
+    int integer;
+    double floating;
+};
+
+int cxx_free_variadic_payload_overload(int marker, ...) {
+    __builtin_va_list arguments;
+    __builtin_va_start(arguments, marker);
+    CxxVariadicAggregatePayload payload =
+        __builtin_va_arg(arguments, CxxVariadicAggregatePayload);
+    __builtin_va_end(arguments);
+    return marker + payload.integer + (int)payload.floating + 1000;
+}
+
+template<typename T>
+int cxx_free_variadic_payload_overload(T marker, ...) {
+    __builtin_va_list arguments;
+    __builtin_va_start(arguments, marker);
+    CxxVariadicAggregatePayload payload =
+        __builtin_va_arg(arguments, CxxVariadicAggregatePayload);
+    __builtin_va_end(arguments);
+    return marker + payload.integer + (int)payload.floating + 2000;
+}
+
 void conversion_noexcept_function() noexcept {}
 void conversion_explicit_throwing_function() noexcept(false) {}
 void conversion_explicit_noexcept_function() noexcept(true) {}
@@ -1943,6 +1967,15 @@ int main(void) {
     char fixed_template_exact_match = 5;
     if (cxx_free_fixed_overload(fixed_template_exact_match) != 405) {
         return 157;
+    }
+    CxxVariadicAggregatePayload variadic_payload = { 11, 3.5 };
+    if (cxx_free_variadic_payload_overload(2, variadic_payload) != 1016) {
+        return 158;
+    }
+    char aggregate_template_exact_match = 5;
+    if (cxx_free_variadic_payload_overload(
+            aggregate_template_exact_match, variadic_payload) != 2019) {
+        return 159;
     }
     int value = 5;
     int* pointer = &value;
