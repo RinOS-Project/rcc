@@ -5484,6 +5484,42 @@ static void eliminate_dead_store_expression(Stmt* statement,
     }
 }
 
+static void preserve_debug_const_value(Decl* declaration) {
+    Type* value_type;
+    int64_t value;
+    uint64_t bits;
+    uint64_t mask;
+    unsigned width;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        declaration->var_is_global || declaration->var_is_static_local ||
+        !declaration->type || !declaration->type->is_const ||
+        declaration->type->is_volatile || declaration->type->is_reference ||
+        !declaration->var_init) return;
+    value_type = declaration->type;
+    if (value_type->kind == TYPE_ENUM && value_type->enum_underlying_type) {
+        value_type = value_type->enum_underlying_type;
+    }
+    if (!type_is_integer(value_type) || value_type->size <= 0 ||
+        value_type->size > 8 ||
+        !expr_eval_integer_constant(declaration->var_init, &value)) return;
+    if (value_type->kind == TYPE_BOOL) {
+        declaration->var_debug_const_value = value != 0;
+        declaration->var_debug_const_value_valid = true;
+        return;
+    }
+    width = (unsigned)value_type->size * 8u;
+    bits = (uint64_t)value;
+    mask = width == 64u ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
+    bits &= mask;
+    if (!value_type->is_unsigned && width < 64u &&
+        (bits & (UINT64_C(1) << (width - 1u))) != 0u) {
+        bits |= ~mask;
+    }
+    if (value_type->is_unsigned && bits > INT64_MAX) return;
+    declaration->var_debug_const_value = (int64_t)bits;
+    declaration->var_debug_const_value_valid = true;
+}
+
 static void eliminate_block_dead_stores(Stmt* statement) {
     DeadStoreLocal* locals;
     StmtList** items;
@@ -5514,6 +5550,7 @@ static void eliminate_block_dead_stores(Stmt* statement) {
                 }
                 break;
             case STMT_DECL:
+                preserve_debug_const_value(current->decl);
                 local = current->decl
                     ? find_dead_store_local(locals, current->decl) : NULL;
                 if (local) {

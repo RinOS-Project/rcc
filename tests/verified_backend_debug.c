@@ -76,3 +76,10 @@ int verified_debug_overaligned_local(void)
     aligned.value = 37;
     return aligned.value;
 }
+
+int verified_debug_optimized_const_local(int value)
+{
+    const int optimized_constant = 42;
+    const int optimized_negative = -23;
+    return value + 1;
+}

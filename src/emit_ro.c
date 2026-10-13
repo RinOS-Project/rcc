@@ -2343,6 +2343,8 @@ static void debug_emit_variable_die(
     bool has_frame_location = true;
     bool use_location_list = false;
     uint32_t location_list_offset = 0u;
+    int64_t constant_value = 0;
+    bool has_constant_value = false;
     if (!obj || !info || !strings || !declaration || !declaration->name ||
         declaration->name[0] == '\0') return;
     type_entry = debug_type_find(types, declaration->type);
@@ -2380,6 +2382,20 @@ static void debug_emit_variable_die(
             else if (abbreviation == 4u) abbreviation = 32u;
             else if (abbreviation == 27u) abbreviation = 33u;
             else return;
+            if (abbreviation == 32u && declaration->kind == DECL_VAR &&
+                declaration->type && declaration->type->is_const &&
+                !declaration->type->is_volatile &&
+                !declaration->type->is_reference &&
+                ((declaration->type->kind >= TYPE_BOOL &&
+                  declaration->type->kind <= TYPE_LLONG) ||
+                 declaration->type->kind == TYPE_ENUM) &&
+                declaration->var_debug_const_value_valid) {
+                /* Keep the known source value available to debuggers after
+                 * optimization removes the object's stack storage. */
+                constant_value = declaration->var_debug_const_value;
+                abbreviation = 54u;
+                has_constant_value = true;
+            }
         }
     }
     if (abbreviation == 4u && location_scope &&
@@ -2403,6 +2419,8 @@ static void debug_emit_variable_die(
     } else if (has_frame_location) {
         debug_expr_breg(info, architecture, frame_offset, frame_alignment,
                         declaration->var_is_vla);
+    } else if (has_constant_value) {
+        debug_line_sleb(info, constant_value);
     }
 }
 
@@ -4427,6 +4445,25 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x34u);    /* DW_AT_artificial */
     debug_line_uleb(abbrev, 0x0cu);    /* DW_FORM_flag */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* Optimized-away const scalar locals retain a source value without
+     * claiming that a machine location still exists. */
+    debug_line_uleb(abbrev, 54u);
+    debug_line_uleb(abbrev, 0x34u);    /* DW_TAG_variable */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x1cu);    /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0du);    /* DW_FORM_sdata */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     /* Abstract inline origins retain declaration identity and function type;

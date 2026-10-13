@@ -1487,6 +1487,8 @@ Decl* decl_var(const char* name, Type* type, Expr* init, SourceLoc loc) {
     d->is_weak = false;
     d->param_default = NULL;
     d->var_init = init;
+    d->var_debug_const_value = 0;
+    d->var_debug_const_value_valid = false;
     d->var_offset = 0;
     d->var_reference_temporary_offset = 0;
     d->var_reference_temporary_owner = NULL;

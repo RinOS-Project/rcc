@@ -1202,6 +1202,10 @@ struct Decl {
         /* DECL_VAR */
         struct {
             Expr* var_init;
+            /* Source constant retained for DWARF if optimization removes an
+             * immutable scalar object's storage and initializer. */
+            int64_t var_debug_const_value;
+            bool var_debug_const_value_valid;
             int var_offset;         /* Stack offset (set during codegen) */
             int var_reference_temporary_offset; /* Lifetime-extended object */
             Decl* var_reference_temporary_owner; /* Complete-object cleanup */
