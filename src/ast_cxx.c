@@ -1054,6 +1054,70 @@ static size_t cxx_mangle_free_template_substitution_base(CxxNamespace* ns) {
     return cxx_mangle_member_template_substitution_base(ns, NULL) + 1u;
 }
 
+static bool cxx_mangle_dependent_nested_type_append(
+    char* buf, size_t* pos, Type* type) {
+    const char* component;
+    int parameter_index;
+    if (!type || type->kind != TYPE_STRUCT || !type->cxx_dependent ||
+        !type->cxx_dependent_member_name ||
+        !*type->cxx_dependent_member_name ||
+        type->cxx_template_param_index < 0) {
+        return false;
+    }
+    parameter_index = type->cxx_template_param_index;
+    component = type->cxx_dependent_member_name;
+    while (*component) {
+        const char* separator = strstr(component, "::");
+        size_t component_length = separator
+            ? (size_t)(separator - component) : strlen(component);
+        if (component_length == 0u || (separator && !separator[2])) {
+            return false;
+        }
+        component = separator ? separator + 2 : component + component_length;
+    }
+#define CXX_MANGLE_DEPENDENT_APPEND(value) do { \
+    if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) { \
+        rcc_fatal("C++ dependent nested type name is too long"); \
+    } \
+    buf[(*pos)++] = (value); \
+} while (0)
+    CXX_MANGLE_DEPENDENT_APPEND('N');
+    CXX_MANGLE_DEPENDENT_APPEND('T');
+    if (parameter_index > 0) {
+        int written = snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                               "%d", parameter_index - 1);
+        if (written < 0 ||
+            (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
+            rcc_fatal("C++ dependent nested type parameter is too long");
+        }
+        *pos += (size_t)written;
+    }
+    CXX_MANGLE_DEPENDENT_APPEND('_');
+    component = type->cxx_dependent_member_name;
+    while (*component) {
+        const char* separator = strstr(component, "::");
+        size_t component_length = separator
+            ? (size_t)(separator - component) : strlen(component);
+        int written;
+        written = snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                           "%zu", component_length);
+        if (written < 0 ||
+            (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos ||
+            component_length >= CXX_MANGLE_BUFFER_SIZE - *pos -
+                                   (size_t)written) {
+            rcc_fatal("C++ dependent nested type name is too long");
+        }
+        *pos += (size_t)written;
+        memcpy(buf + *pos, component, component_length);
+        *pos += component_length;
+        if (!separator) break;
+        component = separator + 2;
+    }
+    CXX_MANGLE_DEPENDENT_APPEND('E');
+#undef CXX_MANGLE_DEPENDENT_APPEND
+    return true;
+}
+
 static void cxx_mangle_template_type_append_impl(
     char* buf, size_t* pos, Type* type, CxxTemplate* tmpl,
     CxxMemberTemplateMangleContext* context) {
@@ -1145,6 +1209,9 @@ static void cxx_mangle_template_type_append_impl(
         }
         if (type->variadic) CXX_MANGLE_TEMPLATE_APPEND('z');
         CXX_MANGLE_TEMPLATE_APPEND('E');
+        return;
+    }
+    if (cxx_mangle_dependent_nested_type_append(buf, pos, type)) {
         return;
     }
     int64_t nested_value_arguments[32] = { 0 };

@@ -8478,11 +8478,16 @@ static bool sema_cxx_member_function_signature_convertible(
 static bool sema_cxx_is_function_overload_set(Expr* expression) {
     Symbol* symbol;
     bool has_templates = false;
+    if (!rcc_parser_is_cxx_mode() || !expression) {
+        return false;
+    }
     if (expression && expression->kind == EXPR_ADDR) {
+        if (expression->cxx_member_pointer_form_overload_set) {
+            return true;
+        }
         expression = expression->unary_operand;
     }
-    if (!rcc_parser_is_cxx_mode() || !expression ||
-        expression->kind != EXPR_IDENT) {
+    if (expression->kind != EXPR_IDENT) {
         return false;
     }
     symbol = sema_cxx_lookup_name(expression->ident_name, expression->loc);
