@@ -3570,10 +3570,14 @@ remains a separate open item.
   C++ language-core gate, the multiple-namespace ADL gate, the two-phase ADL
   gate, and the GCC C++20 oracle. Both target generations and AMD64 host
   execution pass.
-- [ ] Correct function-template ABI mangling when deduced template arguments
-  also occur in the parameter signature. Current names can collide with a
-  same-signature ordinary function in a namespace; compare emitted symbols
-  against GCC and test a mixed ADL tie before changing the encoder.
+- [x] Correct free-function template ABI mangling when deduced arguments also
+  occur in the parameter signature. Encode type/value arguments, dependent
+  return and parameter types, nested namespaces, and Itanium substitutions;
+  compare emitted symbols against GCC for ordinary, defaulted, nested-alias,
+  and mixed ADL-tie overloads on i686/AMD64. The mixed tie retains distinct
+  ordinary/template symbols. `test-cxx-function-templates`,
+  `test-cxx-function-template-overloads`, `test-cxx-non-type-templates`, and
+  the complete `test-cxx` aggregate pass. RCC commit `f2c0f09`.
 - [ ] Continue with non-scalar ellipsis ABI promotions and remaining C++20
   overload-ordering rules.
 
