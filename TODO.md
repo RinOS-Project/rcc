@@ -3818,4 +3818,10 @@ remains a separate open item.
   agree on i686 and AMD64, and the focused overload gate passes.
 - [x] Re-run the full native-Windows MinGW GCC `test-cxx` after the
   requires-expression mapping case; it completed successfully (exit 0).
+- [x] Check a non-type concept atom mapped from `N` versus `N + 1`. Both
+  constraints are true for the selected argument, but distinct mappings keep
+  the overload set ambiguous; GCC and RCC agree on i686 and AMD64, and the
+  focused overload gate passes.
+- [x] Re-run full native-Windows MinGW GCC `test-cxx` after the non-type
+  concept-mapping case; it completed successfully (exit 0).
 - [ ] Continue constraint subsumption and remaining C++20 overload ordering.

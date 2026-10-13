@@ -107,6 +107,12 @@ concept ConstraintMappedDereference = requires(T candidate) {
     *candidate;
 };
 
+template<int Value>
+concept ConstraintMappedPositive = Value > 0;
+
+template<int Value>
+struct ConstraintMappedValueTag {};
+
 struct EquivalentConstraintArgument {
     int value;
 };
@@ -159,6 +165,18 @@ int select_distinct_requires_mappings(T) {
 template<typename T> requires ConstraintMappedDereference<T>
 int select_distinct_requires_mappings(T) {
     return 10;
+}
+
+template<int Value> requires ConstraintMappedPositive<Value>
+int select_distinct_nontype_constraint_mappings(
+    ConstraintMappedValueTag<Value>) {
+    return 11;
+}
+
+template<int Value> requires ConstraintMappedPositive<Value + 1>
+int select_distinct_nontype_constraint_mappings(
+    ConstraintMappedValueTag<Value>) {
+    return 12;
 }
 
 template<typename Element, int Extent>
@@ -285,6 +303,8 @@ int main() {
            select_distinct_constraint_mappings(
                equivalent_constraint_argument) +
            select_distinct_requires_mappings(pointer) +
+           select_distinct_nontype_constraint_mappings(
+               ConstraintMappedValueTag<3>{}) +
            select_crossed_array_pointer_extent(&array, &array) +
            select_incomparable_repeated_nontype_order(
                IncomparableRepeatedNontypeTag<1, 1>{},
