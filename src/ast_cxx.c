@@ -3522,7 +3522,8 @@ static bool cxx_template_redeclaration_expr_matches(
                     left->type, left_template, right->type, right_template,
                     depth + 1);
         case EXPR_CHAR_LIT:
-            return left->char_val == right->char_val && left->type &&
+            return expr_char_code_unit(left) ==
+                    expr_char_code_unit(right) && left->type &&
                 right->type && cxx_template_redeclaration_type_matches(
                     left->type, left_template, right->type, right_template,
                     depth + 1);

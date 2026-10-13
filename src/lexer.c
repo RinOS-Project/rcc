@@ -227,8 +227,10 @@ Token* token_new(TokenType type, SourceLoc loc) {
     tok->int_overflow = false;
     tok->user_literal_suffix = NULL;
     tok->is_utf8_literal = false;
+    tok->char_element_width = 1u;
     tok->is_multichar_literal = false;
     tok->string_length = 0u;
+    tok->string_element_width = 1u;
     tok->owns_string = false;
     return tok;
 }
@@ -718,21 +720,17 @@ static int lex_identifier_ucn(Lexer* lex, char* output, size_t capacity) {
     return length;
 }
 
-/* Decode a universal character escape into RinOS's UTF-8 string encoding.
- * This is used for both ordinary narrow strings (the target execution
- * character set) and u8 strings. The caller owns the bounded destination
- * and has already accounted for the leading backslash. */
-static int lex_utf8_escape(Lexer* lex, char* output, size_t capacity) {
+/* Decode the current \u/\U escape into a Unicode scalar value. */
+static bool lex_read_ucn_codepoint(Lexer* lex, uint32_t* result) {
     char kind = advance(lex);
     int digits = kind == 'u' ? 4 : 8;
     uint32_t codepoint = 0u;
-    int length;
 
     for (int index = 0; index < digits; ++index) {
         if (!isxdigit((unsigned char)peek(lex))) {
             rcc_error(make_loc(lex),
                       "universal character name requires hexadecimal digits");
-            return 0;
+            return false;
         }
         codepoint = (codepoint << 4) |
                     (uint32_t)hex_digit(advance(lex));
@@ -741,7 +739,7 @@ static int lex_utf8_escape(Lexer* lex, char* output, size_t capacity) {
         (codepoint >= 0xd800u && codepoint <= 0xdfffu)) {
         rcc_error(make_loc(lex),
                   "universal character name is not a valid Unicode code point");
-        return 0;
+        return false;
     }
     /* C17 excludes UCNs for basic source characters below U+00A0 except
      * dollar, at-sign, and grave accent. */
@@ -749,42 +747,139 @@ static int lex_utf8_escape(Lexer* lex, char* output, size_t capacity) {
         codepoint != 0x40u && codepoint != 0x60u) {
         rcc_error(make_loc(lex),
                   "C17 universal character name cannot designate a basic source character");
-        return 0;
+        return false;
     }
-    if (codepoint <= 0x7fu) {
-        length = 1;
-    } else if (codepoint <= 0x7ffu) {
-        length = 2;
-    } else if (codepoint <= 0xffffu) {
-        length = 3;
-    } else {
-        length = 4;
-    }
-    if (!output || capacity < (size_t)length) {
-        rcc_error(make_loc(lex), "UTF-8 escape exceeds string literal capacity");
-        return 0;
-    }
-    if (length == 1) {
-        output[0] = (char)codepoint;
-    } else if (length == 2) {
-        output[0] = (char)(0xc0u | (codepoint >> 6));
-        output[1] = (char)(0x80u | (codepoint & 0x3fu));
-    } else if (length == 3) {
-        output[0] = (char)(0xe0u | (codepoint >> 12));
-        output[1] = (char)(0x80u | ((codepoint >> 6) & 0x3fu));
-        output[2] = (char)(0x80u | (codepoint & 0x3fu));
-    } else {
-        output[0] = (char)(0xf0u | (codepoint >> 18));
-        output[1] = (char)(0x80u | ((codepoint >> 12) & 0x3fu));
-        output[2] = (char)(0x80u | ((codepoint >> 6) & 0x3fu));
-        output[3] = (char)(0x80u | (codepoint & 0x3fu));
-    }
-    return length;
+    *result = codepoint;
+    return true;
 }
 
-static char lex_escape(Lexer* lex) {
-    int value;
-    int digits;
+/* Append a Unicode scalar value in a literal's target code-unit encoding.
+ * RinOS images are little-endian on both supported x86 targets. */
+static bool lex_append_codepoint(Lexer* lex, char* output,
+                                 size_t capacity, size_t* length,
+                                 uint32_t codepoint, uint8_t width) {
+    uint32_t units[2];
+    size_t unit_count = 1u;
+    size_t bytes_needed;
+    if (width == 1u) {
+        int utf8_length;
+        if (codepoint <= 0x7fu) utf8_length = 1;
+        else if (codepoint <= 0x7ffu) utf8_length = 2;
+        else if (codepoint <= 0xffffu) utf8_length = 3;
+        else utf8_length = 4;
+        bytes_needed = (size_t)utf8_length;
+        if (!output || *length > capacity ||
+            bytes_needed > capacity - *length) {
+            rcc_error(make_loc(lex), "encoded string literal exceeds capacity");
+            return false;
+        }
+        char* bytes = output + *length;
+        if (utf8_length == 1) {
+            bytes[0] = (char)codepoint;
+        } else if (utf8_length == 2) {
+            bytes[0] = (char)(0xc0u | (codepoint >> 6));
+            bytes[1] = (char)(0x80u | (codepoint & 0x3fu));
+        } else if (utf8_length == 3) {
+            bytes[0] = (char)(0xe0u | (codepoint >> 12));
+            bytes[1] = (char)(0x80u | ((codepoint >> 6) & 0x3fu));
+            bytes[2] = (char)(0x80u | (codepoint & 0x3fu));
+        } else {
+            bytes[0] = (char)(0xf0u | (codepoint >> 18));
+            bytes[1] = (char)(0x80u | ((codepoint >> 12) & 0x3fu));
+            bytes[2] = (char)(0x80u | ((codepoint >> 6) & 0x3fu));
+            bytes[3] = (char)(0x80u | (codepoint & 0x3fu));
+        }
+        *length += bytes_needed;
+        return true;
+    }
+    if (width == 2u) {
+        if (codepoint <= 0xffffu) {
+            units[0] = codepoint;
+        } else {
+            uint32_t supplementary = codepoint - 0x10000u;
+            units[0] = 0xd800u + (supplementary >> 10);
+            units[1] = 0xdc00u + (supplementary & 0x3ffu);
+            unit_count = 2u;
+        }
+    } else if (width == 4u) {
+        units[0] = codepoint;
+    } else {
+        rcc_fatal("invalid string literal code-unit width %u",
+                  (unsigned)width);
+    }
+    bytes_needed = unit_count * width;
+    if (!output || *length > capacity ||
+        bytes_needed > capacity - *length) {
+        rcc_error(make_loc(lex), "encoded string literal exceeds capacity");
+        return false;
+    }
+    for (size_t unit = 0u; unit < unit_count; ++unit) {
+        for (uint8_t byte = 0u; byte < width; ++byte) {
+            output[*length + unit * width + byte] =
+                (char)(units[unit] >> (byte * 8u));
+        }
+    }
+    *length += bytes_needed;
+    return true;
+}
+
+/* Read and validate one UTF-8 code point from source text. */
+static bool lex_read_source_codepoint(Lexer* lex, uint32_t* result) {
+    uint8_t first = (uint8_t)advance(lex);
+    uint32_t codepoint;
+    unsigned continuation_count;
+    if (first <= 0x7fu) {
+        *result = first;
+        return true;
+    }
+    if (first >= 0xc2u && first <= 0xdfu) {
+        codepoint = first & 0x1fu;
+        continuation_count = 1u;
+    } else if (first >= 0xe0u && first <= 0xefu) {
+        codepoint = first & 0x0fu;
+        continuation_count = 2u;
+    } else if (first >= 0xf0u && first <= 0xf4u) {
+        codepoint = first & 0x07u;
+        continuation_count = 3u;
+    } else {
+        rcc_error(make_loc(lex), "invalid UTF-8 source character in string literal");
+        return false;
+    }
+    for (unsigned index = 0u; index < continuation_count; ++index) {
+        uint8_t next = (uint8_t)peek(lex);
+        if (next < 0x80u || next > 0xbfu) {
+            rcc_error(make_loc(lex), "invalid UTF-8 source character in string literal");
+            return false;
+        }
+        advance(lex);
+        codepoint = (codepoint << 6) | (uint32_t)(next & 0x3fu);
+    }
+    if ((continuation_count == 2u && codepoint < 0x800u) ||
+        (continuation_count == 3u && codepoint < 0x10000u) ||
+        codepoint > 0x10ffffu ||
+        (codepoint >= 0xd800u && codepoint <= 0xdfffu)) {
+        rcc_error(make_loc(lex), "invalid UTF-8 source character in string literal");
+        return false;
+    }
+    *result = codepoint;
+    return true;
+}
+
+/* Decode a UCN into the existing narrow/u8 UTF-8 representation. */
+static int lex_utf8_escape(Lexer* lex, char* output, size_t capacity) {
+    uint32_t codepoint = 0u;
+    size_t length = 0u;
+    if (!lex_read_ucn_codepoint(lex, &codepoint) ||
+        !lex_append_codepoint(lex, output, capacity, &length,
+                              codepoint, 1u)) {
+        return 0;
+    }
+    return (int)length;
+}
+
+static uint32_t lex_escape_value(Lexer* lex) {
+    uint64_t value;
+    unsigned digits;
     char c = advance(lex);
     switch (c) {
         case 'a': return '\a';
@@ -798,59 +893,122 @@ static char lex_escape(Lexer* lex) {
         case '\'': return '\'';
         case '"': return '"';
         case '?': return '?';
-        case '0':
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-            /* C octal escape sequences consume at most three octal digits,
-             * including the first digit after the backslash. */
-            value = c - '0';
-            digits = 1;
-            while (digits < 3 && peek(lex) >= '0' && peek(lex) <= '7') {
-                value = value * 8 + (advance(lex) - '0');
+        case '0': case '1': case '2': case '3':
+        case '4': case '5': case '6': case '7':
+            value = (uint64_t)(c - '0');
+            digits = 1u;
+            while (digits < 3u && peek(lex) >= '0' && peek(lex) <= '7') {
+                value = value * 8u + (uint64_t)(advance(lex) - '0');
                 ++digits;
             }
-            return (char)value;
-        case 'x': {
-            int val = 0;
-            if (!isxdigit(peek(lex))) {
+            return (uint32_t)value;
+        case 'x':
+            if (!isxdigit((unsigned char)peek(lex))) {
                 rcc_error(make_loc(lex), "hex escape requires at least one digit");
-                return '\0';
+                return 0u;
             }
-            while (isxdigit(peek(lex))) {
-                val = val * 16 + hex_digit(advance(lex));
-            }
-            return (char)val;
-        }
-        case 'u':
-        case 'U':
-            /* The current RinOS narrow-character representation is a byte
-             * string.  Do not reinterpret a universal character name as the
-             * literal spelling (which would silently change program data).
-             * Consume its required hex digits before reporting the bounded
-             * ABI diagnostic so parsing remains synchronized. */
-            digits = c == 'u' ? 4 : 8;
-            for (int i = 0; i < digits; ++i) {
-                if (!isxdigit(peek(lex))) {
+            value = 0u;
+            while (isxdigit((unsigned char)peek(lex))) {
+                unsigned digit = (unsigned)hex_digit(advance(lex));
+                if (value > (UINT32_MAX - digit) / 16u) {
                     rcc_error(make_loc(lex),
-                              "universal character name requires hexadecimal digits");
-                    return '\0';
+                              "hex escape value exceeds 32-bit literal range");
+                    value = UINT32_MAX;
+                } else if (value != UINT32_MAX) {
+                    value = value * 16u + digit;
                 }
-                advance(lex);
             }
-            rcc_error(make_loc(lex),
-                      "universal character names are not supported by the RinOS byte-string ABI");
-            return '\0';
+            return (uint32_t)value;
         default:
-            return c;
+            return (uint8_t)c;
     }
 }
 
-static Token* lex_char(Lexer* lex, SourceLoc loc, bool is_utf8) {
+static char lex_escape(Lexer* lex) {
+    return (char)(uint8_t)lex_escape_value(lex);
+}
+
+static Token* lex_char_encoded(Lexer* lex, SourceLoc loc,
+                               uint8_t element_width) {
+    uint32_t encoded_value = 0u;
+    unsigned code_unit_count = 0u;
+    bool saw_content = false;
+
+    advance(lex); /* skip ' */
+    while (peek(lex) && peek(lex) != '\'' && peek(lex) != '\n') {
+        uint32_t value = 0u;
+        size_t encoded_length = 0u;
+        char encoded[8];
+        bool numeric_escape = false;
+        saw_content = true;
+        if (peek(lex) == '\\') {
+            advance(lex);
+            if (peek(lex) == 'u' || peek(lex) == 'U') {
+                if (!lex_read_ucn_codepoint(lex, &value)) continue;
+            } else {
+                value = lex_escape_value(lex);
+                numeric_escape = true;
+            }
+        } else if (!lex_read_source_codepoint(lex, &value)) {
+            continue;
+        }
+
+        if (numeric_escape) {
+            uint32_t maximum = element_width == 2u ? UINT16_MAX
+                                                   : UINT32_MAX;
+            if (value > maximum) {
+                rcc_error(loc,
+                          "numeric escape value does not fit character code unit");
+                value &= maximum;
+            }
+            for (uint8_t byte = 0u; byte < element_width; ++byte) {
+                encoded[byte] = (char)(value >> (byte * 8u));
+            }
+            encoded_length = element_width;
+        } else if (!lex_append_codepoint(
+                       lex, encoded, sizeof(encoded), &encoded_length,
+                       value, element_width)) {
+            continue;
+        }
+
+        for (size_t offset = 0u; offset < encoded_length;
+             offset += element_width) {
+            uint32_t code_unit = 0u;
+            for (uint8_t byte = 0u; byte < element_width; ++byte) {
+                code_unit |= (uint32_t)(uint8_t)encoded[offset + byte]
+                             << (byte * 8u);
+            }
+            if (code_unit_count == 0u) encoded_value = code_unit;
+            if (code_unit_count < UINT_MAX) ++code_unit_count;
+        }
+    }
+
+    if (peek(lex) != '\'') {
+        rcc_error(loc, "unterminated character literal");
+    } else {
+        advance(lex);
+    }
+    if (!saw_content) {
+        rcc_error(loc, "empty character literal");
+    }
+    if (code_unit_count > 1u) {
+        rcc_error(loc,
+                  element_width == 2u
+                      ? "UTF-16 character literal must encode exactly one code unit"
+                      : "UTF-32 character literal must encode exactly one code unit");
+    }
+
+    Token* tok = token_new(TOK_CHAR_LIT, loc);
+    tok->value.int_val = (int64_t)encoded_value;
+    tok->char_element_width = element_width;
+    return tok;
+}
+
+static Token* lex_char(Lexer* lex, SourceLoc loc, bool is_utf8,
+                       uint8_t element_width) {
+    if (element_width > 1u) {
+        return lex_char_encoded(lex, loc, element_width);
+    }
     advance(lex); /* skip ' */
 
     uint32_t encoded_value = 0u;
@@ -901,31 +1059,57 @@ static Token* lex_char(Lexer* lex, SourceLoc loc, bool is_utf8) {
     }
     tok->is_utf8_literal = is_utf8;
     tok->is_multichar_literal = !is_utf8 && code_unit_count > 1u;
+    tok->char_element_width = 1u;
     return tok;
 }
 
-static Token* lex_string(Lexer* lex, SourceLoc loc, bool is_utf8) {
+static Token* lex_string(Lexer* lex, SourceLoc loc, bool is_utf8,
+                         uint8_t element_width) {
     advance(lex); /* skip " */
 
     char buf[RCC_MAX_STRING];
-    int len = 0;
+    size_t len = 0u;
+    size_t capacity = sizeof(buf) - element_width;
 
     while (peek(lex) && peek(lex) != '"') {
-        if (len >= RCC_MAX_STRING - 1) {
+        if (len >= capacity) {
             rcc_error(loc, "string too long");
             break;
         }
         if (peek(lex) == '\\') {
             advance(lex);
             if (peek(lex) == 'u' || peek(lex) == 'U') {
-                len += lex_utf8_escape(lex, buf + len,
-                                       (size_t)(RCC_MAX_STRING - 1 - len));
+                uint32_t codepoint = 0u;
+                if (lex_read_ucn_codepoint(lex, &codepoint)) {
+                    (void)lex_append_codepoint(lex, buf, capacity, &len,
+                                               codepoint, element_width);
+                }
             } else {
-                buf[len++] = lex_escape(lex);
+                uint32_t value = lex_escape_value(lex);
+                uint32_t maximum = element_width == 1u ? UINT8_MAX
+                    : element_width == 2u ? UINT16_MAX : UINT32_MAX;
+                if (element_width > 1u && value > maximum) {
+                    rcc_error(loc,
+                              "numeric escape value does not fit string code unit");
+                    value &= maximum;
+                }
+                if (element_width == 1u) {
+                    buf[len++] = (char)value;
+                } else {
+                    for (uint8_t byte = 0u; byte < element_width; ++byte) {
+                        buf[len++] = (char)(value >> (byte * 8u));
+                    }
+                }
             }
         } else if (peek(lex) == '\n') {
             rcc_error(loc, "newline in string literal");
             break;
+        } else if (element_width > 1u) {
+            uint32_t codepoint = 0u;
+            if (lex_read_source_codepoint(lex, &codepoint)) {
+                (void)lex_append_codepoint(lex, buf, capacity, &len,
+                                           codepoint, element_width);
+            }
         } else {
             buf[len++] = advance(lex);
         }
@@ -937,10 +1121,11 @@ static Token* lex_string(Lexer* lex, SourceLoc loc, bool is_utf8) {
     advance(lex);
 
     Token* tok = token_new(TOK_STRING_LIT, loc);
-    tok->value.str_val = rcc_alloc((size_t)len + 1u);
-    memcpy((void*)tok->value.str_val, buf, (size_t)len);
-    ((char*)tok->value.str_val)[len] = '\0';
-    tok->string_length = (size_t)len;
+    tok->value.str_val = rcc_alloc(len + element_width);
+    memcpy((void*)tok->value.str_val, buf, len);
+    memset((char*)tok->value.str_val + len, 0, element_width);
+    tok->string_length = len;
+    tok->string_element_width = element_width;
     tok->owns_string = true;
     tok->is_utf8_literal = is_utf8;
     return tok;
@@ -950,16 +1135,17 @@ static Token* lex_string(Lexer* lex, SourceLoc loc, bool is_utf8) {
  * RinOS representation identical to an ordinary byte string while retaining
  * delimiter matching and source locations for embedded newlines. */
 static Token* lex_raw_string(Lexer* lex, SourceLoc loc, unsigned prefix_length,
-                             bool is_utf8, bool unsupported_encoding) {
+                             bool is_utf8, uint8_t element_width,
+                             bool unsupported_encoding) {
     char delimiter[17];
     char buf[RCC_MAX_STRING];
     size_t delimiter_length = 0;
-    int len = 0;
+    size_t len = 0u;
 
     for (unsigned index = 0; index < prefix_length; ++index) advance(lex);
     if (peek(lex) != '"') {
         rcc_error(loc, "raw string literal requires an opening quote");
-        return lex_string(lex, loc, is_utf8);
+        return lex_string(lex, loc, is_utf8, element_width);
     }
     advance(lex);
     while (peek(lex) && peek(lex) != '(') {
@@ -982,7 +1168,7 @@ static Token* lex_raw_string(Lexer* lex, SourceLoc loc, unsigned prefix_length,
     delimiter[delimiter_length] = '\0';
     if (unsupported_encoding) {
         rcc_error(loc,
-                  "wide, UTF-16, and UTF-32 literals are not supported by the RinOS byte-string ABI");
+                  "wide L-prefixed literals are not supported by the RinOS ABI");
     }
 
     while (peek(lex)) {
@@ -995,29 +1181,41 @@ static Token* lex_raw_string(Lexer* lex, SourceLoc loc, unsigned prefix_length,
             }
             {
                 Token* tok = token_new(TOK_STRING_LIT, loc);
-                tok->value.str_val = rcc_alloc((size_t)len + 1u);
-                memcpy((void*)tok->value.str_val, buf, (size_t)len);
-                ((char*)tok->value.str_val)[len] = '\0';
-                tok->string_length = (size_t)len;
+                tok->value.str_val = rcc_alloc(len + element_width);
+                memcpy((void*)tok->value.str_val, buf, len);
+                memset((char*)tok->value.str_val + len, 0,
+                       element_width);
+                tok->string_length = len;
+                tok->string_element_width = element_width;
                 tok->owns_string = true;
                 tok->is_utf8_literal = is_utf8;
                 return tok;
             }
         }
-        if (len >= RCC_MAX_STRING - 1) {
+        if (len >= (size_t)RCC_MAX_STRING - element_width) {
             rcc_error(loc, "raw string literal is too long");
             while (peek(lex)) advance(lex);
             break;
         }
-        buf[len++] = advance(lex);
+        if (element_width == 1u) {
+            buf[len++] = advance(lex);
+        } else {
+            uint32_t codepoint = 0u;
+            if (lex_read_source_codepoint(lex, &codepoint)) {
+                (void)lex_append_codepoint(
+                    lex, buf, sizeof(buf) - element_width, &len,
+                    codepoint, element_width);
+            }
+        }
     }
     rcc_error(loc, "unterminated raw string literal");
     {
         Token* tok = token_new(TOK_STRING_LIT, loc);
-        tok->value.str_val = rcc_alloc((size_t)len + 1u);
-        memcpy((void*)tok->value.str_val, buf, (size_t)len);
-        ((char*)tok->value.str_val)[len] = '\0';
-        tok->string_length = (size_t)len;
+        tok->value.str_val = rcc_alloc(len + element_width);
+        memcpy((void*)tok->value.str_val, buf, len);
+        memset((char*)tok->value.str_val + len, 0, element_width);
+        tok->string_length = len;
+        tok->string_element_width = element_width;
         tok->owns_string = true;
         tok->is_utf8_literal = is_utf8;
         return tok;
@@ -1040,10 +1238,12 @@ static Token* lex_token(Lexer* lex) {
     if (lexer_cxx_mode) {
         unsigned prefix_length = 0;
         bool is_utf8 = false;
+        uint8_t element_width = 1u;
         bool unsupported_encoding = false;
+        bool cxx11_literals = lexer_cxx_standard >= 11;
         if (c == 'R' && peek_next(lex) == '"') {
             prefix_length = 1;
-        } else if (c == 'u' && peek_next(lex) == '8' &&
+        } else if (cxx11_literals && c == 'u' && peek_next(lex) == '8' &&
                    lex->pos[2] == 'R' && lex->pos[3] == '"') {
             prefix_length = 3;
             is_utf8 = true;
@@ -1051,46 +1251,69 @@ static Token* lex_token(Lexer* lex) {
                    lex->pos[2] == '"') {
             prefix_length = 2;
             unsupported_encoding = true;
-        } else if (c == 'u' && peek_next(lex) == 'R' &&
+        } else if (cxx11_literals && c == 'u' && peek_next(lex) == 'R' &&
                    lex->pos[2] == '"') {
             prefix_length = 2;
-            unsupported_encoding = true;
-        } else if (c == 'U' && peek_next(lex) == 'R' &&
+            element_width = 2u;
+        } else if (cxx11_literals && c == 'U' && peek_next(lex) == 'R' &&
                    lex->pos[2] == '"') {
             prefix_length = 2;
-            unsupported_encoding = true;
+            element_width = 4u;
         }
         if (prefix_length != 0) {
             return lex_raw_string(lex, loc, prefix_length, is_utf8,
+                                  element_width,
                                   unsupported_encoding);
         }
     }
 
-    /* Recognize UTF-8 string prefixes in C and C++ before identifier lexing.
-     * C++ additionally accepts the other standard prefixes and UTF-8
-     * character literals; unsupported encodings are diagnosed explicitly. */
-    if ((lexer_cxx_mode &&
-         ((c == 'u' && (peek_next(lex) == '8' ||
-                        peek_next(lex) == '"' || peek_next(lex) == '\'')) ||
-          c == 'L' || c == 'U') &&
-         ((c == 'u' && peek_next(lex) == '8' &&
-           (lex->pos[2] == '"' || lex->pos[2] == '\'')) ||
-          ((c == 'u' || c == 'L' || c == 'U') &&
-           (peek_next(lex) == '"' || peek_next(lex) == '\'')))) ||
-        (!lexer_cxx_mode && c == 'u' && peek_next(lex) == '8' &&
-         lex->pos[2] == '"')) {
-        bool is_utf8 = c == 'u' && peek_next(lex) == '8';
+    /* Recognize the standard u/u8/U string prefixes in C and C++ before
+     * identifier lexing. L/wchar_t remains a separate ABI TODO. */
+    {
+        bool prefixed_literal = false;
+        bool is_utf8 = false;
+        bool unsupported_encoding = false;
+        uint8_t element_width = 1u;
         char quote;
-        advance(lex);
-        if (is_utf8) advance(lex);
-        quote = peek(lex);
-        if (!is_utf8) {
-            rcc_error(loc,
-                      "wide, UTF-16, and UTF-32 literals are not supported by the RinOS byte-string ABI");
+        unsigned prefix_length = 0u;
+        if (c == 'u' && peek_next(lex) == '8' &&
+            (!lexer_cxx_mode || lexer_cxx_standard >= 11) &&
+            (lex->pos[2] == '"' ||
+             (lexer_cxx_mode && lex->pos[2] == '\''))) {
+            prefixed_literal = true;
+            is_utf8 = true;
+            prefix_length = 2u;
+        } else if ((c == 'u' || c == 'U') &&
+                   (!lexer_cxx_mode || lexer_cxx_standard >= 11) &&
+                   (peek_next(lex) == '"' ||
+                    (lexer_cxx_mode && peek_next(lex) == '\''))) {
+            prefixed_literal = true;
+            prefix_length = 1u;
+            element_width = c == 'u' ? 2u : 4u;
+        } else if (lexer_cxx_mode && c == 'L' &&
+                   (peek_next(lex) == '"' || peek_next(lex) == '\'')) {
+            prefixed_literal = true;
+            prefix_length = 1u;
+            unsupported_encoding = true;
         }
-        if (quote == '\'') return lex_char(lex, loc, is_utf8);
-        return lex_string(lex, loc, is_utf8);
+        if (!prefixed_literal) goto no_prefixed_literal;
+        for (unsigned index = 0u; index < prefix_length; ++index) {
+            advance(lex);
+        }
+        quote = peek(lex);
+        if (unsupported_encoding) {
+            rcc_error(loc,
+                      "wide L-prefixed literals are not supported by the RinOS ABI");
+        }
+        if (quote == '\'') {
+            return lex_char(lex, loc, is_utf8,
+                            unsupported_encoding ? 1u : element_width);
+        }
+        return lex_string(lex, loc, is_utf8,
+                          unsupported_encoding ? 1u : element_width);
     }
+
+no_prefixed_literal:
 
     /* Identifier or keyword */
     if (isalpha((unsigned char)c) || c == '_' ||
@@ -1109,12 +1332,12 @@ static Token* lex_token(Lexer* lex) {
 
     /* Character literal */
     if (c == '\'') {
-        return lex_char(lex, loc, false);
+        return lex_char(lex, loc, false, 1u);
     }
 
     /* String literal */
     if (c == '"') {
-        return lex_string(lex, loc, false);
+        return lex_string(lex, loc, false, 1u);
     }
 
     /* Operators and punctuation */
@@ -1352,14 +1575,17 @@ TokenList* rcc_lex_string(const char* src, const char* filename) {
         Token* tok = lex_token(&lex);
         if (tok->type == TOK_STRING_LIT && list->tail &&
             list->tail->type == TOK_STRING_LIT &&
-            tok->is_utf8_literal == list->tail->is_utf8_literal) {
+            tok->is_utf8_literal == list->tail->is_utf8_literal &&
+            tok->string_element_width ==
+                list->tail->string_element_width) {
             size_t left_length = list->tail->string_length;
             size_t right_length = tok->string_length;
-            char* joined = rcc_alloc(left_length + right_length + 1u);
+            uint8_t width = list->tail->string_element_width;
+            char* joined = rcc_alloc(left_length + right_length + width);
             memcpy(joined, list->tail->value.str_val, left_length);
             memcpy(joined + left_length, tok->value.str_val,
                    right_length);
-            joined[left_length + right_length] = '\0';
+            memset(joined + left_length + right_length, 0, width);
             if (list->tail->owns_string) {
                 rcc_free((void*)list->tail->value.str_val);
             }
@@ -1374,7 +1600,7 @@ TokenList* rcc_lex_string(const char* src, const char* filename) {
         if (tok->type == TOK_STRING_LIT && list->tail &&
             list->tail->type == TOK_STRING_LIT) {
             rcc_error(tok->loc,
-                      "adjacent ordinary and UTF-8 string literals cannot be concatenated");
+                      "adjacent string literals with different encodings are unsupported");
         }
         tokenlist_append(list, tok);
         if (tok->type == TOK_EOF) break;

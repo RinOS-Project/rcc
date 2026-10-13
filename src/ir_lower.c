@@ -8156,8 +8156,10 @@ static bool lower_builtin_object_size_known(
     }
     if (!expression || !size) return false;
     if (expression->kind == EXPR_STRING_LIT) {
-        if (expression->str_length == SIZE_MAX) return false;
-        *size = (uint64_t)expression->str_length + 1u;
+        uint8_t width = expression->str_element_width
+            ? expression->str_element_width : 1u;
+        if (expression->str_byte_length > UINT64_MAX - width) return false;
+        *size = (uint64_t)expression->str_byte_length + width;
         return true;
     }
     if (expression->kind == EXPR_ADDR && expression->unary_operand) {
@@ -9113,7 +9115,7 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             }
             return lower_integer_constant(
                 context, type, expression->type->is_unsigned,
-                (unsigned char)expression->char_val);
+                expr_char_code_unit(expression));
         case EXPR_IDENT:
             if (expression->ident_decl &&
                 expression->ident_decl->kind == DECL_FUNC) {
@@ -9582,14 +9584,16 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
                 context->unsupported = true;
                 return lower_invalid_value();
             }
-            size = expression->str_length;
-            if (size == SIZE_MAX) {
+            size = expression->str_byte_length;
+            uint8_t width = expression->str_element_width
+                ? expression->str_element_width : 1u;
+            if (size > SIZE_MAX - width) {
                 context->unsupported = true;
                 return lower_invalid_value();
             }
-            ++size;
+            size += width;
             literal = rcc_ir_module_intern_constant(
-                context->module, expression->str_val, size, 1u);
+                context->module, expression->str_val, size, width);
             address = lower_append(
                 context, RCC_IR_SYMBOL_ADDRESS,
                 rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
@@ -11479,9 +11483,9 @@ static bool lower_initialize_scalar_storage(
 static const Expr* lower_character_array_string(
     const Type* array_type, const Expr* initializer) {
     if (!array_type || array_type->kind != TYPE_ARRAY ||
-        !array_type->base || array_type->base->kind != TYPE_CHAR ||
-        !initializer) return NULL;
-    if (initializer->kind == EXPR_STRING_LIT) return initializer;
+        !array_type->base || !initializer) return NULL;
+    const Expr* string = initializer->kind == EXPR_STRING_LIT
+        ? initializer : NULL;
     if (initializer->kind == EXPR_COMPOUND &&
         initializer->compound_init &&
         !initializer->compound_init->next &&
@@ -11489,9 +11493,15 @@ static const Expr* lower_character_array_string(
             INIT_DESIGNATOR_NONE &&
         initializer->compound_init->expr &&
         initializer->compound_init->expr->kind == EXPR_STRING_LIT) {
-        return initializer->compound_init->expr;
+        string = initializer->compound_init->expr;
     }
-    return NULL;
+    if (!string) return NULL;
+    uint8_t width = string->str_element_width
+        ? string->str_element_width : 1u;
+    TypeKind expected_kind = width == 1u ? TYPE_CHAR
+        : width == 2u ? TYPE_SHORT : width == 4u ? TYPE_INT : TYPE_VOID;
+    return array_type->base->kind == expected_kind &&
+           array_type->base->size == width ? string : NULL;
 }
 
 static bool lower_storage_type_supported_internal(
@@ -12077,27 +12087,38 @@ static bool lower_array_initializer(
     }
     if (!lower_zero_array_storage(context, base, array_type)) return false;
     if (string) {
-        size_t text_size = string->str_length;
-        size_t copy_size;
-        if (text_size == SIZE_MAX) {
+        uint8_t width = string->str_element_width
+            ? string->str_element_width : 1u;
+        size_t text_size = string->str_byte_length;
+        size_t code_unit_count = string->str_length;
+        size_t copy_count;
+        if (text_size > SIZE_MAX - width) {
             context->unsupported = true;
             return false;
         }
-        ++text_size;
-        copy_size = text_size < (size_t)array_type->array_len
-            ? text_size : (size_t)array_type->array_len;
-        for (size_t index = 0u; index < copy_size; ++index) {
+        ++code_unit_count;
+        copy_count = code_unit_count < (size_t)array_type->array_len
+            ? code_unit_count : (size_t)array_type->array_len;
+        for (size_t index = 0u; index < copy_count; ++index) {
             RccIrLowerValue address = lower_array_element_address(
                 context, base, array_type->base, index);
             RccIrType element_type;
             RccIrLowerValue value;
+            uint32_t code_unit = 0u;
             if (!lower_type(array_type->base, &element_type)) {
                 context->unsupported = true;
                 return false;
             }
+            for (uint8_t byte = 0u; byte < width; ++byte) {
+                size_t byte_offset = index * width + byte;
+                if (byte_offset < text_size) {
+                    code_unit |= (uint32_t)(uint8_t)
+                        string->str_val[byte_offset] << (byte * 8u);
+                }
+            }
             value = lower_integer_constant(
                 context, element_type, array_type->base->is_unsigned,
-                (uint8_t)string->str_val[index]);
+                code_unit);
             if (!address.valid || !value.valid ||
                 !lower_store_address(context, address, value)) return false;
         }

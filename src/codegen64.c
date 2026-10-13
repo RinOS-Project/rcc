@@ -2680,7 +2680,9 @@ static bool codegen64_builtin_object_size(Expr* expression, uint64_t* size) {
     }
     if (!expression || !size) return false;
     if (expression->kind == EXPR_STRING_LIT) {
-        *size = (uint64_t)expression->str_length + 1u;
+        *size = (uint64_t)expression->str_byte_length +
+                (expression->str_element_width
+                     ? expression->str_element_width : 1u);
         return true;
     }
     if (expression->kind == EXPR_ADDR && expression->unary_operand) {
@@ -3390,19 +3392,24 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
 }
 
 static Expr* gen64_character_array_string(Type* type, Expr* initializer) {
-    if (!type || type->kind != TYPE_ARRAY || !type->base ||
-        type->base->kind != TYPE_CHAR || !initializer) {
+    if (!type || type->kind != TYPE_ARRAY || !type->base || !initializer) {
         return NULL;
     }
-    if (initializer->kind == EXPR_STRING_LIT) return initializer;
+    Expr* string = initializer->kind == EXPR_STRING_LIT ? initializer : NULL;
     if (initializer->kind == EXPR_COMPOUND && initializer->compound_init &&
         !initializer->compound_init->next &&
         initializer->compound_init->designator_kind == INIT_DESIGNATOR_NONE &&
         initializer->compound_init->expr &&
         initializer->compound_init->expr->kind == EXPR_STRING_LIT) {
-        return initializer->compound_init->expr;
+        string = initializer->compound_init->expr;
     }
-    return NULL;
+    if (!string) return NULL;
+    uint8_t width = string->str_element_width
+        ? string->str_element_width : 1u;
+    TypeKind expected_kind = width == 1u ? TYPE_CHAR
+        : width == 2u ? TYPE_SHORT : width == 4u ? TYPE_INT : TYPE_VOID;
+    return type->base->kind == expected_kind &&
+           type->base->size == width ? string : NULL;
 }
 
 static TypeField* gen64_initializer_field(Type* type, const char* name) {
@@ -3554,7 +3561,8 @@ static bool gen64_local_initializer(Module* mod, Type* type,
     }
     if (string) {
         size_t storage = (size_t)type->size;
-        size_t text_size = string->str_length + 1u;
+        size_t text_size = string->str_byte_length +
+            (string->str_element_width ? string->str_element_width : 1u);
         size_t offset = 0u;
         while (offset + 4u <= storage) {
             uint32_t packed = 0u;
@@ -7076,7 +7084,7 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CHAR_LIT:
-            emit64_mov_reg_imm32(mod, RAX, (uint32_t)(uint8_t)expr->char_val);
+            emit64_mov_reg_imm32(mod, RAX, expr_char_code_unit(expr));
             break;
 
         case EXPR_FLOAT_LIT:
@@ -7104,8 +7112,9 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_STRING_LIT: {
-            uint32_t offset = emit_string(mod, expr->str_val,
-                                           expr->str_length);
+            uint32_t offset = emit_string_encoded(
+                mod, expr->str_val, expr->str_byte_length,
+                expr->str_element_width);
             module_ensure_rodata_base_symbol(mod);
             gen64_symbol_address(mod, "__rcc_rodata_base", offset);
             break;

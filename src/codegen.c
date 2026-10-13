@@ -733,7 +733,7 @@ static bool codegen_static_integer(Expr* expression, int64_t* value) {
         return true;
     }
     if (expression->kind == EXPR_CHAR_LIT) {
-        *value = (uint8_t)expression->char_val;
+        *value = (int64_t)expr_char_code_unit(expression);
         return true;
     }
     if (expression->kind == EXPR_SPACESHIP) {
@@ -1073,8 +1073,9 @@ static bool codegen_static_address(Module* mod, Expr* expression,
     }
 
     if (expression->kind == EXPR_STRING_LIT) {
-        *addend = emit_string(mod, expression->str_val,
-                               expression->str_length);
+        *addend = emit_string_encoded(
+            mod, expression->str_val, expression->str_byte_length,
+            expression->str_element_width);
         module_ensure_rodata_base_symbol(mod);
         *symbol_name = "__rcc_rodata_base";
         return true;
@@ -1268,19 +1269,24 @@ static bool codegen_emit_static_pointer(Module* mod, Type* type,
 }
 
 static Expr* codegen_character_array_string(Type* type, Expr* initializer) {
-    if (!type || type->kind != TYPE_ARRAY || !type->base ||
-        type->base->kind != TYPE_CHAR || !initializer) {
+    if (!type || type->kind != TYPE_ARRAY || !type->base || !initializer) {
         return NULL;
     }
-    if (initializer->kind == EXPR_STRING_LIT) return initializer;
+    Expr* string = initializer->kind == EXPR_STRING_LIT ? initializer : NULL;
     if (initializer->kind == EXPR_COMPOUND && initializer->compound_init &&
         !initializer->compound_init->next &&
         initializer->compound_init->designator_kind == INIT_DESIGNATOR_NONE &&
         initializer->compound_init->expr &&
         initializer->compound_init->expr->kind == EXPR_STRING_LIT) {
-        return initializer->compound_init->expr;
+        string = initializer->compound_init->expr;
     }
-    return NULL;
+    if (!string) return NULL;
+    uint8_t width = string->str_element_width
+        ? string->str_element_width : 1u;
+    TypeKind expected_kind = width == 1u ? TYPE_CHAR
+        : width == 2u ? TYPE_SHORT : width == 4u ? TYPE_INT : TYPE_VOID;
+    return type->base->kind == expected_kind &&
+           type->base->size == width ? string : NULL;
 }
 
 static TypeField* codegen_initializer_field(Type* type, const char* name) {
@@ -1362,7 +1368,8 @@ static bool codegen_emit_static_initializer(Module* mod, Type* type,
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
     string = codegen_character_array_string(type, initializer);
     if (string) {
-        size_t text_size = string->str_length + 1u;
+        size_t text_size = string->str_byte_length +
+            (string->str_element_width ? string->str_element_width : 1u);
         size_t copy_size = (size_t)type->size < text_size
             ? (size_t)type->size : text_size;
         memcpy(mod->data.data + offset, string->str_val, copy_size);
@@ -1535,7 +1542,8 @@ static bool codegen_emit_tls_initializer(Module* mod, Type* type,
     if (codegen_aggregate_zero_initializer(type, initializer)) return true;
     string = codegen_character_array_string(type, initializer);
     if (string) {
-        size_t text_size = string->str_length + 1u;
+        size_t text_size = string->str_byte_length +
+            (string->str_element_width ? string->str_element_width : 1u);
         size_t copy_size = (size_t)type->size < text_size
             ? (size_t)type->size : text_size;
         memcpy(mod->tls.data + offset, string->str_val, copy_size);
@@ -2394,26 +2402,50 @@ static void ensure_rodata_capacity(Module* mod, size_t needed) {
 }
 
 uint32_t emit_string(Module* mod, const char* str, size_t length) {
+    return emit_string_encoded(mod, str, length, 1u);
+}
+
+uint32_t emit_string_encoded(Module* mod, const char* str,
+                             size_t byte_length, uint8_t element_width) {
+    size_t padding;
+    size_t stored_size;
+    if (!mod || !str || (element_width != 1u && element_width != 2u &&
+                         element_width != 4u) ||
+        byte_length % element_width != 0u ||
+        byte_length > SIZE_MAX - element_width) {
+        rcc_fatal("invalid encoded string passed to code generator");
+    }
     /* Check if already exists */
     for (StringLit* s = mod->strings; s; s = s->next) {
-        if (s->length == length && memcmp(s->value, str, length) == 0) {
+        if (s->length == byte_length &&
+            s->terminator_width == element_width &&
+            memcmp(s->value, str, byte_length) == 0) {
             return s->offset;
         }
     }
 
+    padding = (element_width - mod->rodata.size % element_width) %
+              element_width;
+    stored_size = byte_length + element_width;
+    if (stored_size > SIZE_MAX - padding) {
+        rcc_fatal("encoded string size overflows read-only data");
+    }
     /* Add new string */
-    size_t len = length + 1u;
+    ensure_rodata_capacity(mod, padding + stored_size);
+    memset(mod->rodata.data + mod->rodata.size, 0, padding);
+    mod->rodata.size += padding;
     uint32_t offset = (uint32_t)mod->rodata.size;
 
-    ensure_rodata_capacity(mod, len);
-    memcpy(mod->rodata.data + mod->rodata.size, str, length);
-    mod->rodata.data[mod->rodata.size + length] = '\0';
-    mod->rodata.size += len;
+    memcpy(mod->rodata.data + mod->rodata.size, str, byte_length);
+    memset(mod->rodata.data + mod->rodata.size + byte_length, 0,
+           element_width);
+    mod->rodata.size += stored_size;
 
     /* Record in string list */
     StringLit* lit = rcc_alloc(sizeof(StringLit));
     lit->value = str;
-    lit->length = length;
+    lit->length = byte_length;
+    lit->terminator_width = element_width;
     lit->offset = offset;
     lit->next = mod->strings;
     mod->strings = lit;
@@ -10731,7 +10763,9 @@ static bool codegen_builtin_object_size(Expr* expression, uint64_t* size) {
     }
     if (!expression || !size) return false;
     if (expression->kind == EXPR_STRING_LIT) {
-        *size = (uint64_t)expression->str_length + 1u;
+        *size = (uint64_t)expression->str_byte_length +
+                (expression->str_element_width
+                     ? expression->str_element_width : 1u);
         return true;
     }
     if (expression->kind == EXPR_ADDR && expression->unary_operand) {
@@ -11871,7 +11905,7 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
             break;
 
         case EXPR_CHAR_LIT:
-            emit_mov_reg_imm(mod, EAX, (uint32_t)(uint8_t)expr->char_val);
+            emit_mov_reg_imm(mod, EAX, expr_char_code_unit(expr));
             break;
 
         case EXPR_FLOAT_LIT: {
@@ -11891,8 +11925,9 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
         }
 
         case EXPR_STRING_LIT: {
-            uint32_t offset = emit_string(mod, expr->str_val,
-                                           expr->str_length);
+            uint32_t offset = emit_string_encoded(
+                mod, expr->str_val, expr->str_byte_length,
+                expr->str_element_width);
             module_ensure_rodata_base_symbol(mod);
             gen_symbol_address(mod, "__rcc_rodata_base", offset);
             break;
@@ -15110,7 +15145,8 @@ static bool gen_local_initializer(Module* mod, Type* type, Expr* initializer,
     }
     if (string) {
         size_t storage = (size_t)type->size;
-        size_t text_size = string->str_length + 1u;
+        size_t text_size = string->str_byte_length +
+            (string->str_element_width ? string->str_element_width : 1u);
         size_t offset = 0u;
         while (offset + 4u <= storage) {
             uint32_t packed = 0u;

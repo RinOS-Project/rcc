@@ -3587,7 +3587,7 @@ static bool integer_literal(const Expr* expression, int64_t* value) {
         return true;
     }
     if (expression->kind == EXPR_CHAR_LIT) {
-        *value = (unsigned char)expression->char_val;
+        *value = (int64_t)expr_char_code_unit(expression);
         return true;
     }
     return false;

@@ -711,8 +711,8 @@ static bool eval_integer_constant_typed(Expr* expr,
             value->type = expr->type ? expr->type : type_int;
             return true;
         case EXPR_CHAR_LIT:
-            value->bits = (unsigned char)expr->char_val;
-            value->type = type_int;
+            value->bits = expr_char_code_unit(expr);
+            value->type = expr->type ? expr->type : type_int;
             return true;
         case EXPR_NEG:
         case EXPR_BITNOT:
@@ -1593,16 +1593,25 @@ static Expr* parse_primary(void) {
     }
     if (match(TOK_CHAR_LIT)) {
         Token* literal = previous();
-        Expr* expression = literal->is_multichar_literal
-            ? expr_int(literal->value.int_val, loc)
-            : expr_char(literal->value.char_val, loc);
+        Expr* expression = literal->char_element_width > 1u
+            ? expr_char_encoded((uint32_t)literal->value.int_val,
+                                literal->char_element_width, loc)
+            : literal->is_multichar_literal
+                ? expr_int(literal->value.int_val, loc)
+                : expr_char(literal->value.char_val, loc);
         expression->is_cxx_utf8_literal = literal->is_utf8_literal;
         if (parser_cxx_mode) {
-            expression->type = literal->is_multichar_literal
-                ? type_int
-                : literal->is_utf8_literal &&
-                      rcc_parser_cxx_standard_at_least(20)
-                    ? type_char8 : type_char;
+            if (literal->char_element_width == 2u) {
+                expression->type = type_char16;
+            } else if (literal->char_element_width == 4u) {
+                expression->type = type_char32;
+            } else {
+                expression->type = literal->is_multichar_literal
+                    ? type_int
+                    : literal->is_utf8_literal &&
+                          rcc_parser_cxx_standard_at_least(20)
+                        ? type_char8 : type_char;
+            }
             const char* suffix = take_cxx_user_literal_suffix();
             if (suffix) {
                 return parse_cxx_user_literal_call(suffix, expression, NULL,
@@ -1613,8 +1622,9 @@ static Expr* parse_primary(void) {
     }
     if (match(TOK_STRING_LIT)) {
         Token* literal = previous();
-        Expr* expression = expr_string_n(literal->value.str_val,
-                                          literal->string_length, loc);
+        Expr* expression = expr_string_encoded_n(
+            literal->value.str_val, literal->string_length,
+            literal->string_element_width, loc);
         expression->is_cxx_utf8_literal = literal->is_utf8_literal;
         if (parser_cxx_mode) {
             const char* suffix = take_cxx_user_literal_suffix();

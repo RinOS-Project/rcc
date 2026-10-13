@@ -587,8 +587,14 @@ struct Expr {
     bool cxx_member_xvalue;
     /* C++20 u8 character/string literal mapped to the RinOS byte ABI. */
     bool is_cxx_utf8_literal;
-    /* EXPR_STRING_LIT payload length, excluding its required terminator. */
+    /* EXPR_CHAR_LIT width: 1 for ordinary/u8, 2 for char16_t, 4 for char32_t.
+     * Wider code-unit values are stored in the int_val union member. */
+    uint8_t char_element_width;
+    /* EXPR_STRING_LIT code units, excluding its required terminator. */
     size_t str_length;
+    /* Encoded bytes exclude the terminator; element width is 1, 2, or 4. */
+    size_t str_byte_length;
+    uint8_t str_element_width;
     /* C++ public non-virtual derived-to-base pointer conversion.  The
      * semantic pass records the fixed subobject displacement on the source
      * expression so both initializer and call lowering use the adjusted
@@ -874,8 +880,12 @@ Expr* expr_integer_literal(uint64_t val, unsigned base,
                            SourceLoc loc);
 Expr* expr_float(double val, SourceLoc loc);
 Expr* expr_char(char val, SourceLoc loc);
+Expr* expr_char_encoded(uint32_t val, uint8_t element_width, SourceLoc loc);
+uint32_t expr_char_code_unit(const Expr* expr);
 Expr* expr_string(const char* val, SourceLoc loc);
 Expr* expr_string_n(const char* val, size_t length, SourceLoc loc);
+Expr* expr_string_encoded_n(const char* val, size_t byte_length,
+                            uint8_t element_width, SourceLoc loc);
 Expr* expr_ident(const char* name, SourceLoc loc);
 Expr* expr_cxx_this(SourceLoc loc);
 Expr* expr_unary(ExprKind kind, Expr* operand, SourceLoc loc);

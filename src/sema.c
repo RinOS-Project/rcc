@@ -3940,7 +3940,7 @@ static bool sema_eval_constexpr_expr(
             *value = expression->int_val;
             return true;
         case EXPR_CHAR_LIT:
-            *value = (unsigned char)expression->char_val;
+            *value = (int64_t)expr_char_code_unit(expression);
             return true;
         case EXPR_IDENT:
             for (int index = 0; index < binding_count; ++index) {
@@ -7114,8 +7114,8 @@ static bool sema_eval_constexpr_scalar_expr(
             value->is_floating = false;
             return true;
         case EXPR_CHAR_LIT:
-            value->type = type_int;
-            value->integer_value = (unsigned char)expression->char_val;
+            value->type = expression->type ? expression->type : type_int;
+            value->integer_value = (int64_t)expr_char_code_unit(expression);
             value->is_floating = false;
             return true;
         case EXPR_FLOAT_LIT:
@@ -12709,18 +12709,34 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_CHAR_LIT:
-            expr->type = rcc_parser_is_cxx_mode()
-                ? (expr->is_cxx_utf8_literal &&
-                   rcc_parser_cxx_standard_at_least(20)
-                       ? type_char8 : type_char)
-                : type_int;
+            if (rcc_parser_is_cxx_mode() &&
+                expr->char_element_width == 2u) {
+                expr->type = type_char16;
+            } else if (rcc_parser_is_cxx_mode() &&
+                       expr->char_element_width == 4u) {
+                expr->type = type_char32;
+            } else {
+                expr->type = rcc_parser_is_cxx_mode()
+                    ? (expr->is_cxx_utf8_literal &&
+                       rcc_parser_cxx_standard_at_least(20)
+                           ? type_char8 : type_char)
+                    : type_int;
+            }
             break;
 
         case EXPR_STRING_LIT: {
+            uint8_t element_width = expr->str_element_width
+                ? expr->str_element_width : 1u;
             bool is_cxx20_utf8 = rcc_parser_is_cxx_mode() &&
                 rcc_parser_cxx_standard_at_least(20) &&
-                expr->is_cxx_utf8_literal;
-            Type* element_type = is_cxx20_utf8 ? type_char8 : type_char;
+                element_width == 1u && expr->is_cxx_utf8_literal;
+            Type* element_type = element_width == 1u
+                ? (is_cxx20_utf8 ? type_char8 : type_char)
+                : element_width == 2u
+                    ? (rcc_parser_is_cxx_mode()
+                        ? type_char16 : type_ushort)
+                    : (rcc_parser_is_cxx_mode()
+                        ? type_char32 : type_uint);
             if (rcc_parser_is_cxx_mode()) {
                 Type* qualified = ast_arena_alloc(sizeof(*qualified));
                 *qualified = *element_type;
@@ -15941,8 +15957,7 @@ static void sema_validate_restrict_type(Type* type, SourceLoc loc) {
 
 static Expr* initializer_character_string(Type* type, Expr* initializer) {
     Expr* string = NULL;
-    if (!type || type->kind != TYPE_ARRAY || !type->base || !initializer ||
-        type->base->kind != TYPE_CHAR) {
+    if (!type || type->kind != TYPE_ARRAY || !type->base || !initializer) {
         return NULL;
     }
     if (initializer->kind == EXPR_STRING_LIT) {
@@ -15956,10 +15971,35 @@ static Expr* initializer_character_string(Type* type, Expr* initializer) {
         string = initializer->compound_init->expr;
     }
     if (!string) return NULL;
-    if (rcc_parser_is_cxx_mode() &&
-        rcc_parser_cxx_standard_at_least(20) &&
-        type->base->is_char8 != string->is_cxx_utf8_literal) {
-        return NULL;
+    {
+        uint8_t width = string->str_element_width
+            ? string->str_element_width : 1u;
+        Type* element = type->base;
+        bool cxx = rcc_parser_is_cxx_mode();
+        if (width == 1u) {
+            if (element->kind != TYPE_CHAR) return NULL;
+            if (cxx && rcc_parser_cxx_standard_at_least(20)) {
+                if (element->is_char8 != string->is_cxx_utf8_literal) {
+                    return NULL;
+                }
+            } else if (element->is_char8) {
+                return NULL;
+            }
+        } else if (width == 2u) {
+            if (element->kind != TYPE_SHORT ||
+                !element->is_unsigned ||
+                (cxx ? !element->is_char16 : element->is_char16)) {
+                return NULL;
+            }
+        } else if (width == 4u) {
+            if (element->kind != TYPE_INT ||
+                !element->is_unsigned ||
+                (cxx ? !element->is_char32 : element->is_char32)) {
+                return NULL;
+            }
+        } else {
+            return NULL;
+        }
     }
     return string;
 }
@@ -17949,11 +17989,12 @@ static void sema_initializer(Type* type, Expr* initializer) {
     string_literal = initializer_string_literal(initializer);
     if (rcc_parser_is_cxx_mode() && type->kind == TYPE_ARRAY &&
         type->base && string_literal &&
-        type->base->kind == TYPE_CHAR) {
-        bool is_cxx20 = rcc_parser_cxx_standard_at_least(20);
-        bool expects_char8 = type->base->is_char8;
-        if (is_cxx20 &&
-            expects_char8 != string_literal->is_cxx_utf8_literal) {
+        (type->base->kind == TYPE_CHAR ||
+         type->base->kind == TYPE_SHORT ||
+         type->base->kind == TYPE_INT)) {
+        Expr* matching_string = initializer_character_string(
+            type, initializer);
+        if (!matching_string) {
             rcc_error(string_literal->loc,
                       "C++ character array initializer encoding does not match the element type");
             return;

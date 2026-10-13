@@ -1163,16 +1163,28 @@ static Type* cxx_lambda_capture_expression_type(Expr* expression) {
     if (!expression) return NULL;
     switch (expression->kind) {
         case EXPR_INT_LIT:
-        case EXPR_CHAR_LIT:
             return type_int;
+        case EXPR_CHAR_LIT:
+            if (expression->type) return expression->type;
+            if (expression->char_element_width == 2u) return type_char16;
+            if (expression->char_element_width == 4u) return type_char32;
+            return type_char;
         case EXPR_FLOAT_LIT:
             return expression->type && expression->type->kind == TYPE_FLOAT
                 ? expression->type : type_double;
         case EXPR_IDENT:
             return cxx_parser_value_type(expression->ident_name);
-        case EXPR_STRING_LIT:
-            return type_array(type_char,
+        case EXPR_STRING_LIT: {
+            uint8_t width = expression->str_element_width
+                ? expression->str_element_width : 1u;
+            Type* element_type = width == 2u ? type_char16
+                : width == 4u ? type_char32
+                : expression->is_cxx_utf8_literal &&
+                      rcc_parser_cxx_standard_at_least(20)
+                    ? type_char8 : type_char;
+            return type_array(element_type,
                               (int)expression->str_length + 1);
+        }
         case EXPR_CAST:
             return expression->cast_type;
         case EXPR_ADDR:

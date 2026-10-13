@@ -935,8 +935,34 @@ Expr* expr_char(char val, SourceLoc loc) {
     e->kind = EXPR_CHAR_LIT;
     e->loc = loc;
     e->char_val = val;
+    e->char_element_width = 1u;
     e->type = type_int;  /* char literals have type int in C */
     return e;
+}
+
+Expr* expr_char_encoded(uint32_t val, uint8_t element_width, SourceLoc loc) {
+    Expr* e;
+    if ((element_width != 2u && element_width != 4u) ||
+        (element_width == 2u && val > UINT16_MAX) ||
+        (element_width == 4u && val > UINT32_MAX)) {
+        rcc_fatal("invalid encoded character literal value");
+    }
+    e = rcc_alloc(sizeof(Expr));
+    e->kind = EXPR_CHAR_LIT;
+    e->loc = loc;
+    e->int_val = (int64_t)val;
+    e->char_element_width = element_width;
+    e->type = element_width == 2u ? type_char16 : type_char32;
+    return e;
+}
+
+uint32_t expr_char_code_unit(const Expr* expr) {
+    if (!expr || expr->kind != EXPR_CHAR_LIT) return 0u;
+    if (expr->char_element_width == 2u ||
+        expr->char_element_width == 4u) {
+        return (uint32_t)expr->int_val;
+    }
+    return (uint8_t)expr->char_val;
 }
 
 Expr* expr_string(const char* val, SourceLoc loc) {
@@ -944,14 +970,38 @@ Expr* expr_string(const char* val, SourceLoc loc) {
 }
 
 Expr* expr_string_n(const char* val, size_t length, SourceLoc loc) {
+    return expr_string_encoded_n(val, length, 1u, loc);
+}
+
+Expr* expr_string_encoded_n(const char* val, size_t byte_length,
+                            uint8_t element_width, SourceLoc loc) {
+    Type* element_type;
+    size_t code_unit_count;
     Expr* e = rcc_alloc(sizeof(Expr));
+    if (element_width != 1u && element_width != 2u &&
+        element_width != 4u) {
+        rcc_fatal("invalid string literal code-unit width %u",
+                  (unsigned)element_width);
+    }
+    if (byte_length % element_width != 0u ||
+        byte_length > SIZE_MAX - element_width) {
+        rcc_fatal("invalid encoded string literal size");
+    }
+    code_unit_count = byte_length / element_width;
+    if (code_unit_count >= INT_MAX) {
+        rcc_fatal("string literal exceeds array length limit");
+    }
     e->kind = EXPR_STRING_LIT;
     e->loc = loc;
-    e->str_val = rcc_alloc(length + 1u);
-    memcpy((void*)e->str_val, val, length);
-    ((char*)e->str_val)[length] = '\0';
-    e->str_length = length;
-    e->type = type_array(type_char, (int)length + 1);
+    e->str_val = rcc_alloc(byte_length + element_width);
+    memcpy((void*)e->str_val, val, byte_length);
+    memset((char*)e->str_val + byte_length, 0, element_width);
+    e->str_length = code_unit_count;
+    e->str_byte_length = byte_length;
+    e->str_element_width = element_width;
+    element_type = element_width == 1u ? type_char
+                 : element_width == 2u ? type_ushort : type_uint;
+    e->type = type_array(element_type, (int)code_unit_count + 1);
     return e;
 }
 
