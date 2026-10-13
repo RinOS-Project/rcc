@@ -16,6 +16,7 @@ using ConversionIntFunction = int (*)(int);
 using ConversionIntPairFunction = int (*)(int, int);
 
 double cxx_integer_return_as_double(int value) { return value; }
+int cxx_free_variadic(int value, ...) { return value; }
 
 void conversion_noexcept_function() noexcept {}
 void conversion_explicit_throwing_function() noexcept(false) {}
@@ -426,6 +427,39 @@ struct FunctionTemplateMemberCallMixedOverload {
     template<typename T>
     static constexpr int value(T argument) {
         return argument + 2;
+    }
+};
+
+struct FunctionTemplateMemberCallVariadicCompetitor {
+    static constexpr int value(int first, int second) {
+        return first + second;
+    }
+
+    static int value(int first, ...) {
+        return first + 99;
+    }
+
+    static int value(...) {
+        return 99;
+    }
+
+    template<typename First, typename Second>
+    static constexpr int value(First first, Second second) {
+        return first + second + 100;
+    }
+};
+
+struct FunctionTemplateMemberCallVariadicOrdinary {
+    static constexpr int value(int first, int second) {
+        return first + second;
+    }
+
+    static int value(int first, ...) {
+        return first + 99;
+    }
+
+    static int value(...) {
+        return 99;
     }
 };
 
@@ -939,6 +973,30 @@ int choose_member_call_mixed_overload_class_pack_order(
     FunctionTemplateMemberValuePackBox<
         3, Item, FunctionTemplateValuePackTag<Argument>, Remaining...>) {
     return 268;
+}
+
+template<typename Head, typename... Types>
+int choose_member_call_variadic_competitor_class_pack_order(
+    FunctionTemplateMemberValuePackBox<Head::value(2, 3), Head, Types...>) {
+    return 289;
+}
+
+template<typename Item, typename... Types>
+int choose_member_call_variadic_competitor_class_pack_order(
+    FunctionTemplateMemberValuePackBox<1, Item, Types...>) {
+    return 290;
+}
+
+template<typename Head, typename... Types>
+int choose_member_call_variadic_ordinary_class_pack_order(
+    FunctionTemplateMemberValuePackBox<Head::value(2, 3), Head, Types...>) {
+    return 291;
+}
+
+template<typename Item, typename... Types>
+int choose_member_call_variadic_ordinary_class_pack_order(
+    FunctionTemplateMemberValuePackBox<1, Item, Types...>) {
+    return 292;
 }
 
 template<typename Head, int Argument, typename... Types>
@@ -1798,6 +1856,9 @@ static int consume_conversion_value_virtual_cleanup_root(
 }
 
 int main(void) {
+    if (cxx_free_variadic(7, 8, 9) != 7) {
+        return 152;
+    }
     int value = 5;
     int* pointer = &value;
     PackOrderConstrainedValue constrained_value = { value };
@@ -2092,6 +2153,30 @@ int main(void) {
                 5, FunctionTemplateMemberCallMixedOverload,
                 FunctionTemplateValuePackTag<4>, short>{}) != 267) {
         return 119;
+    }
+    if (choose_member_call_variadic_competitor_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                5, FunctionTemplateMemberCallVariadicCompetitor, short>{}) !=
+        289) {
+        return 148;
+    }
+    if (choose_member_call_variadic_competitor_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallVariadicCompetitor, short>{}) !=
+        290) {
+        return 149;
+    }
+    if (choose_member_call_variadic_ordinary_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                5, FunctionTemplateMemberCallVariadicOrdinary, short>{}) !=
+        291) {
+        return 150;
+    }
+    if (choose_member_call_variadic_ordinary_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallVariadicOrdinary, short>{}) !=
+        292) {
+        return 151;
     }
     if (choose_member_call_mixed_overload_class_pack_order(
             FunctionTemplateMemberValuePackBox<

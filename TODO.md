@@ -3474,3 +3474,20 @@ remains a separate open item.
   aggregate after this parser change (exit 0).
 - [ ] Continue broader expression-pack patterns, interactions between
   multiple expansions, and remaining C++20 overload-ranking rules.
+
+## RCC continuation (2026-10-13, C-style variadic member overload ranking)
+
+- [x] Parse raw C-style ellipses in C++ class-member and free-function
+  parameter lists. Extend both bounded dependent constexpr member-call
+  candidate evaluators to rank arguments beyond fixed parameters as ellipsis
+  conversions. Cover variadic competitors alongside fixed ordinary methods and
+  materialized member-function templates, plus free-function invocation;
+  compare with GCC C++20 and run i686/AMD64 generation and AMD64 execution.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate and the full
+  `mingw32-make SHELL=cmd.exe CC=gcc CXX=g++ TEST_OUT=build/tests -j1
+  test-cxx` aggregate (both exit 0).
+- [ ] Continue with NTTP packs, broader dependent expressions and conversions,
+  inherited/non-static receiver cases, and remaining C++20 overload-ranking
+  rules.

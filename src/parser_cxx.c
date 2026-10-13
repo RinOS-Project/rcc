@@ -1829,7 +1829,7 @@ extern Type* rcc_parser_parse_cxx_declarator(Type* base_type,
                                               DeclList** parameters);
 extern bool rcc_parser_last_cxx_declarator_was_pack(void);
 static Stmt* parse_cxx_statement(void);
-static DeclList* parse_cxx_parameter_declarations(void);
+static DeclList* parse_cxx_parameter_declarations(bool* is_variadic);
 static Type* parse_cxx_type_spec(void);
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc);
@@ -2097,12 +2097,9 @@ static bool cxx_eval_dependent_integer_member_template_call(
                 ++required_parameter_count;
             }
         }
-        if (function->type->variadic) {
-            if (argument_count >= required_parameter_count) return false;
-            continue;
-        }
         if (argument_count < required_parameter_count ||
-            argument_count > parameter_count) {
+            (!function->type->variadic &&
+             argument_count > parameter_count)) {
             continue;
         }
         ExprList* argument = arguments;
@@ -2133,7 +2130,14 @@ static bool cxx_eval_dependent_integer_member_template_call(
                 break;
             }
         }
-        if (viable && argument) return false;
+        while (viable && argument) {
+            if (!function->type->variadic) {
+                viable = false;
+                break;
+            }
+            candidate_ranks[argument_index++] = INT_MAX;
+            argument = argument->next;
+        }
         while (viable && parameter) {
             if (!parameter->decl || !parameter->decl->param_default) {
                 return false;
@@ -3595,6 +3599,7 @@ static Type* cxx_function_type_from_parameters(Type* return_type,
 Stmt* rcc_parse_cxx_operator_declaration(Type* return_type, SourceLoc loc) {
     const char* name;
     DeclList* params;
+    bool is_variadic = false;
     StmtList* statements = NULL;
     Stmt* body = NULL;
     Decl* declaration;
@@ -3602,7 +3607,7 @@ Stmt* rcc_parse_cxx_operator_declaration(Type* return_type, SourceLoc loc) {
     if (!return_type || !match(TOK_OPERATOR)) return NULL;
     name = parse_operator_name();
     expect(TOK_LPAREN, "(");
-    params = parse_cxx_parameter_declarations();
+    params = parse_cxx_parameter_declarations(&is_variadic);
     expect(TOK_RPAREN, ")");
     if (name && strncmp(name, "operator\"\"", 10u) == 0) {
         Type* first = params && params->decl ? params->decl->type : NULL;
@@ -3646,6 +3651,7 @@ Stmt* rcc_parse_cxx_operator_declaration(Type* return_type, SourceLoc loc) {
     }
     declaration = decl_func(name, cxx_function_type_from_parameters(
         return_type, params), params, body, loc);
+    declaration->type->variadic = is_variadic;
     declaration->func_has_cxx_linkage = true;
     return stmt_decl(declaration, loc);
 }
@@ -7217,6 +7223,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         }
         DeclList* params = NULL;
         int param_idx = 0;
+        bool is_variadic = false;
         bool saw_default = false;
         ParsedConstructorInitializer constructor_initializer = {0};
         Expr* noexcept_expr = NULL;
@@ -7226,6 +7233,10 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                 advance();
             } else {
                 do {
+                    if (match(TOK_ELLIPSIS)) {
+                        is_variadic = true;
+                        break;
+                    }
                     const char* pname = NULL;
                     bool parameter_pack = false;
                     Type* ptype = parse_cxx_type_spec();
@@ -7363,6 +7374,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
 
         /* Create method */
         CxxMethod* method = cxx_method_new(name, type, params, body, loc);
+        method->decl->type->variadic = is_variadic;
         for (DeclList* parameter = params; parameter; parameter = parameter->next) {
             if (parameter->decl && parameter->decl->param_is_pack) {
                 method->decl->type->variadic = true;
@@ -8762,15 +8774,21 @@ static bool cxx_constrained_type_parameter_starts(void) {
                            token->next->type == TOK_ELLIPSIS);
 }
 
-static DeclList* parse_cxx_parameter_declarations(void) {
+static DeclList* parse_cxx_parameter_declarations(bool* is_variadic) {
     DeclList* params = NULL;
     int param_idx = 0;
+
+    if (is_variadic) *is_variadic = false;
 
     if (check(TOK_VOID) && check_next(TOK_RPAREN)) {
         advance();
         return NULL;
     }
     while (!check(TOK_RPAREN) && !at_end()) {
+        if (match(TOK_ELLIPSIS)) {
+            if (is_variadic) *is_variadic = true;
+            break;
+        }
         const char* name = NULL;
         Type* type;
         bool parameter_pack = false;
@@ -9415,6 +9433,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     Type* return_type;
     const char* function_name;
     DeclList* params;
+    bool is_variadic = false;
     Stmt* body = NULL;
     bool is_inline = false;
     bool is_auto_return = false;
@@ -9485,7 +9504,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
         function_name = name->value.str_val;
     }
     expect(TOK_LPAREN, "(");
-    params = parse_cxx_parameter_declarations();
+    params = parse_cxx_parameter_declarations(&is_variadic);
     expect(TOK_RPAREN, ")");
     if (is_auto_return && match(TOK_ARROW)) {
         return_type = parse_cxx_type_spec();
@@ -9556,6 +9575,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
 
     CxxMethod* function = cxx_method_new(function_name, return_type,
                                          params, body, loc);
+    function->decl->type->variadic = is_variadic;
     for (DeclList* parameter = params; parameter; parameter = parameter->next) {
         if (parameter->decl && parameter->decl->param_is_pack) {
             function->decl->type->variadic = true;
@@ -15694,12 +15714,9 @@ static bool eval_template_integer_expression(Expr* expression,
                     ++required_parameter_count;
                 }
             }
-            if (function->type->variadic) {
-                if (argument_count >= required_parameter_count) return false;
-                continue;
-            }
             if (argument_count < required_parameter_count ||
-                argument_count > parameter_count) continue;
+                (!function->type->variadic &&
+                 argument_count > parameter_count)) continue;
             if (argument_count > 0) {
                 ExprList* call_argument = expression->call_args;
                 DeclList* parameter = function->func_params;
@@ -15731,7 +15748,14 @@ static bool eval_template_integer_expression(Expr* expression,
                         break;
                     }
                 }
-                if (viable && call_argument) return false;
+                while (viable && call_argument) {
+                    if (!function->type->variadic) {
+                        viable = false;
+                        break;
+                    }
+                    candidate_ranks[argument_index++] = INT_MAX;
+                    call_argument = call_argument->next;
+                }
                 while (viable && parameter) {
                     if (!parameter->decl ||
                         !cxx_dependent_integer_call_parameter_supported(
