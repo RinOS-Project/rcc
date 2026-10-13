@@ -39,3 +39,18 @@ int read_variadic_aggregate_gp_exhausted(
            (int)on_stack.integer + (int)on_stack.floating +
            (int)in_sse_register;
 }
+
+int read_variadic_aligned_aggregate(
+    int marker0, int marker1, int marker2, int marker3, int marker4,
+    int marker5, ...) {
+    __builtin_va_list arguments;
+    __builtin_va_start(arguments, marker5);
+    int spilled_integer = __builtin_va_arg(arguments, int);
+    VariadicAlignedMemoryAggregate aligned =
+        __builtin_va_arg(arguments, VariadicAlignedMemoryAggregate);
+    __builtin_va_end(arguments);
+
+    return marker0 + marker1 + marker2 + marker3 + marker4 + marker5 +
+           spilled_integer + (int)aligned.first + (int)aligned.second +
+           (int)aligned.third + (int)aligned.fourth;
+}

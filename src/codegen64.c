@@ -1490,6 +1490,15 @@ static int gen64_aggregate_storage(const Type* type) {
     return (size + 7) & ~7;
 }
 
+static void gen64_align_overflow_argument(
+    Module* mod, int address_reg, const Type* type) {
+    int alignment = type ? type->align : 0;
+    if (alignment <= 8) return;
+    emit64_add_reg_imm(mod, address_reg, alignment - 1);
+    emit64_mov_reg_imm64(mod, RAX, ~(uint64_t)(alignment - 1));
+    emit64_and_reg_reg(mod, address_reg, RAX);
+}
+
 static void gen64_copy_memory(Module* mod, int destination_base,
                               int32_t destination_offset, int source_base,
                               int32_t source_offset, int size) {
@@ -1841,6 +1850,7 @@ static void gen64_va_arg_aggregate(Module* mod, Expr* expression) {
     }
     emit64_label(mod, overflow_label);
     emit64_mov_reg_mem(mod, RDX, RCX, 8);
+    gen64_align_overflow_argument(mod, RDX, type);
     emit64_lea(mod, RAX, RDX, rounded_size);
     emit64_mov_mem_reg(mod, RCX, 8, RAX);
     gen64_copy_memory(mod, R11, 0, RDX, 0, type->size);
@@ -8412,6 +8422,12 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     argument->memory = true;
                 }
                 if (argument->memory) {
+                    int alignment = type && type->align > 8
+                        ? type->align : 8;
+                    int remainder = stack_bytes % alignment;
+                    if (remainder) {
+                        stack_bytes += alignment - remainder;
+                    }
                     argument->stack_offset = stack_bytes;
                     stack_bytes += argument->storage;
                 }
