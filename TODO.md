@@ -3776,3 +3776,17 @@ remains a separate open item.
   regression; it completed successfully (exit 0).
 - [ ] Continue additional ABI classes/register-overflow combinations and
   remaining C++20 overload-ordering rules.
+
+## RCC continuation (2026-10-14, disjunctive C++20 constraint subsumption)
+
+- [x] Compare otherwise identical constrained function templates using `A`
+  and `A || B`. When both constraints are satisfied, the `A` overload must
+  win because its normalized constraint subsumes the disjunction. Compare with
+  GCC C++20 and execute generated AMD64 code after i686/AMD64 generation.
+- [x] Pass focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` (exit 0).
+- [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after this
+  regression; it completed successfully (exit 0).
+- [ ] Continue constraint subsumption, dependent expressions, and the other
+  open C++20 overload-ordering cases.
