@@ -943,7 +943,7 @@ static void verified_emit_debug_sections(
     size_t variable_location_count) {
     ObjSection* text;
     Module* debug_module;
-    if (!g_opts.debug_info || !object || !data_module || !ast ||
+    if (!object || !data_module || !ast ||
         !translation_unit || !translation_unit[0]) return;
     text = objfile_get_section(object, ".text");
     if (!text || text->type != SECT_CODE ||

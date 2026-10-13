@@ -5199,6 +5199,31 @@ static DebugFramePrologueKind debug_frame_prologue_kind(
     return DEBUG_FRAME_PROLOGUE_NONE;
 }
 
+/* RIN v3 keeps runtime unwind bytes in a loadable section.  The compiler's
+ * existing producer is the DWARF .debug_frame encoder below, so retain one
+ * canonical byte stream and copy it to the non-loadable debug section only
+ * when debug information was requested.  Relocations must be copied too:
+ * FDE initial locations are absolute pointers after the RIN loader applies
+ * the object relocation. */
+static ObjSection* module_copy_debug_frame_section(
+    ObjectFile* obj, const ObjSection* source) {
+    ObjSection* copy;
+    int copy_index;
+    if (!obj || !source) return NULL;
+    copy = objfile_add_section(obj, ".debug_frame", SECT_DEBUG_FRAME, 0u);
+    copy->align = source->align;
+    section_add_data(copy, source->data, source->size);
+    copy_index = objfile_section_index(obj, copy);
+    if (copy_index < 0) return NULL;
+    for (const ObjReloc* relocation = source->relocs;
+         relocation; relocation = relocation->next) {
+        objfile_add_reloc(obj, copy_index, relocation->offset,
+                          relocation->symbol_name, relocation->type,
+                          relocation->addend);
+    }
+    return copy;
+}
+
 static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
                                     const char* filename) {
     const ModuleSymbol** functions;
@@ -5211,13 +5236,14 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
     const uint32_t return_register = g_opts.target_arch == ARCH_X64 ? 16u : 8u;
     uint64_t cie_offset;
 
-    if (!g_opts.debug_info || !obj || !mod || mod->symbol_count <= 0) return;
+    if (!obj || !mod || mod->symbol_count <= 0) return;
     functions = rcc_alloc((size_t)mod->symbol_count * sizeof(*functions));
     for (int index = 0; index < mod->symbol_count; ++index) {
         ModuleSymbol* symbol = &mod->symbols[index];
         if (!symbol->is_defined || symbol->section != MODULE_SYMBOL_CODE ||
-            !symbol->source_file || symbol->source_file[0] == '\0' ||
-            symbol->source_line == 0u ||
+            (g_opts.debug_info &&
+             (!symbol->source_file || symbol->source_file[0] == '\0' ||
+              symbol->source_line == 0u)) ||
             debug_frame_prologue_kind(mod, symbol) ==
                 DEBUG_FRAME_PROLOGUE_NONE) continue;
         functions[function_count++] = symbol;
@@ -5227,7 +5253,8 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
         return;
     }
 
-    frame = objfile_add_section(obj, ".debug_frame", SECT_DEBUG_FRAME, 0u);
+    frame = objfile_add_section(obj, ".unwind", SECT_UNWIND,
+                                SECT_FLAG_ALLOC);
     frame->align = 1u;
     frame_section = objfile_section_index(obj, frame);
     if (frame_section < 0) rcc_fatal("DWARF frame section is detached");
@@ -5449,6 +5476,9 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
         }
         debug_line_patch_u32(frame, fde_offset,
                              (uint32_t)(frame->size - fde_offset - 4u));
+    }
+    if (g_opts.debug_info && !module_copy_debug_frame_section(obj, frame)) {
+        rcc_fatal("failed to copy RIN unwind data to DWARF debug_frame");
     }
     rcc_free(functions);
 }
