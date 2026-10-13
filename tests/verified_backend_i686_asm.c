@@ -263,8 +263,10 @@ static bool emit_object(FILE* output, ObjectFile* object)
 {
     ObjSection* text = objfile_get_section(object, ".text");
     ObjSection* rodata = objfile_get_section(object, ".rodata");
+    ObjSection* unwind = objfile_get_section(object, ".unwind");
     int text_index = section_index(object, text);
     int rodata_index = rodata ? section_index(object, rodata) : -1;
+    size_t unwind_count = 0u;
 
     if (!text || text->size == 0u ||
         (text->flags & (SECT_FLAG_ALLOC | SECT_FLAG_EXEC)) !=
@@ -275,11 +277,22 @@ static bool emit_object(FILE* output, ObjectFile* object)
           (rodata->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) != 0u))) {
         return false;
     }
+    if (unwind &&
+        (unwind->type != SECT_UNWIND || unwind->size == 0u ||
+         (unwind->flags & SECT_FLAG_ALLOC) == 0u ||
+         (unwind->flags & (SECT_FLAG_WRITE | SECT_FLAG_EXEC)) != 0u)) {
+        return false;
+    }
     for (ObjSection* section = object->sections; section;
          section = section->next) {
+        if (section == unwind) {
+            ++unwind_count;
+            continue;
+        }
         if (section != text && section != rodata &&
             (section->size != 0u || section->relocs != NULL)) return false;
     }
+    if (unwind_count > 1u) return false;
     return emit_section(output, object, text, text_index) &&
         (!rodata || emit_section(
             output, object, rodata, rodata_index)) &&

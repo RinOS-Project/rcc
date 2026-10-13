@@ -4382,9 +4382,65 @@ static void verify_verified_global_debug_object(const char* path,
     objfile_free(object);
 }
 
+static void verify_verified_fallback_debug_object(const char* path,
+                                                  uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* line;
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* frame;
+    ObjSection* locations;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t prefix_die;
+    uint64_t fallback_die;
+    assert(object != NULL && object->arch == architecture);
+    line = objfile_get_section(object, ".debug_line");
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    frame = objfile_get_section(object, ".debug_frame");
+    locations = objfile_get_section(object, ".debug_loc");
+    assert(line != NULL && info != NULL && strings != NULL &&
+           frame != NULL);
+    assert(contains_bytes(line->data, line->size,
+                          "tests/verified_backend_debug_fallback.cpp"));
+    prefix_die = find_function_die(info, strings,
+                                   "verified_debug_fallback_prefix",
+                                   address_size);
+    fallback_die = find_function_die(info, strings,
+                                     "verified_debug_fallback_conversion",
+                                     address_size);
+    assert(prefix_die != UINT64_MAX && fallback_die != UINT64_MAX);
+    assert(prefix_die < fallback_die);
+    {
+        const char* variable_names[] = {"local", "nested"};
+        for (size_t index = 0u;
+             index < sizeof(variable_names) / sizeof(variable_names[0]);
+             ++index) {
+            bool has_location;
+            bool is_location_list;
+            int64_t frame_offset;
+            assert(find_variable_location(
+                info, strings, locations, variable_names[index],
+                architecture, &has_location, &is_location_list,
+                &frame_offset));
+            if (is_location_list) {
+                int64_t range_start;
+                int64_t range_end;
+                assert(find_location_list_bounds(
+                    info, strings, locations, variable_names[index],
+                    "verified_debug_fallback_prefix", architecture,
+                    &range_start, &range_end));
+                assert(range_start >= 0 && range_start < range_end);
+            }
+        }
+    }
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
-    assert(argc == 28);
+    assert(argc == 30);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -4534,5 +4590,7 @@ int main(int argc, char** argv)
     verify_function_template_signed_pack_dies(argv[27], ARCH_X64);
     verify_function_template_unsigned_pack_die(argv[26], ARCH_X86);
     verify_function_template_unsigned_pack_die(argv[27], ARCH_X64);
+    verify_verified_fallback_debug_object(argv[28], ARCH_X86);
+    verify_verified_fallback_debug_object(argv[29], ARCH_X64);
     return 0;
 }

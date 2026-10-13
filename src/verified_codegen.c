@@ -793,6 +793,17 @@ static void verified_clear_statement_debug_ranges(Stmt* statement) {
     }
 }
 
+static void verified_clear_ast_debug_ranges(const AST* ast) {
+    if (!ast) return;
+    for (const DeclList* item = ast->decls; item; item = item->next) {
+        Decl* declaration = item->decl;
+        if (declaration && declaration->kind == DECL_FUNC &&
+            declaration->func_body) {
+            verified_clear_statement_debug_ranges(declaration->func_body);
+        }
+    }
+}
+
 static void verified_apply_statement_debug_ranges(
     ObjectFile* object, const char* object_name,
     const RccX86EncodedFunction* encoded) {
@@ -1088,6 +1099,9 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             rcc_free(debug_variable_locations);
             objfile_free(object);
             if (lower_status == RCC_IR_LOWER_UNSUPPORTED) {
+                if (g_opts.debug_info) {
+                    verified_clear_ast_debug_ranges(ast);
+                }
                 return verified_reason(
                     RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
                     "function '%s' is outside the typed SSA subset",
@@ -1107,6 +1121,9 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
             rcc_ir_module_destroy(module);
             objfile_free(object);
             rcc_x86_encoded_function_release(&encoded);
+            if (g_opts.debug_info) {
+                verified_clear_ast_debug_ranges(ast);
+            }
             return verified_reason(
                 RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
                 "function '%s' is not encoded yet: %s",
@@ -1200,6 +1217,9 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
         rcc_free(debug_variable_locations);
         codegen_free(data_module);
         objfile_free(object);
+        if (g_opts.debug_info) {
+            verified_clear_ast_debug_ranges(ast);
+        }
         return verified_reason(
             RCC_VERIFIED_OBJECT_FALLBACK, reason, reason_size,
             "translation unit has no supported function definitions");

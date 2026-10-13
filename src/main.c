@@ -756,7 +756,22 @@ static int compile_current_input(char** argv) {
                     if (g_opts.verbose) {
                         printf("Verified backend fallback: %s\n", reason);
                     }
-                    emit_ok = rcc_emit_obj(mod, g_opts.output_file);
+                    if (g_opts.debug_info) {
+                        /* A partially attempted verified compile can clear and
+                         * repopulate AST source ranges before discovering an
+                         * unsupported function. Rebuild the legacy module
+                         * after those partial ranges are cleared so fallback
+                         * DWARF uses one backend's offsets consistently. */
+                        codegen_free(mod);
+                        mod = g_opts.target_arch == ARCH_X64
+                            ? rcc_codegen64(ast) : rcc_codegen(ast);
+                    }
+                    if (!mod || g_error_count > 0) {
+                        fprintf(stderr,
+                                "rcc: classic code generation failed after verified backend fallback\n");
+                    } else {
+                        emit_ok = rcc_emit_obj(mod, g_opts.output_file);
+                    }
                 } else {
                     fprintf(stderr, "rcc: verified backend failed: %s\n",
                             reason);

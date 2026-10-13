@@ -257,10 +257,24 @@ void codegen_free(Module* mod) {
  * ═══════════════════════════════════════ */
 
 static void ensure_code_capacity(Module* mod, size_t needed) {
-    if (mod->code.size + needed > mod->code.capacity) {
-        mod->code.capacity *= 2;
-        mod->code.data = rcc_realloc(mod->code.data, mod->code.capacity);
+    size_t required;
+    size_t capacity;
+    if (needed > SIZE_MAX - mod->code.size) {
+        rcc_fatal("code section exceeds host size limits");
     }
+    required = mod->code.size + needed;
+    if (required <= mod->code.capacity) return;
+    capacity = mod->code.capacity;
+    if (capacity == 0u) capacity = INIT_CAPACITY;
+    while (capacity < required) {
+        if (capacity > SIZE_MAX / 2u) {
+            capacity = required;
+            break;
+        }
+        capacity *= 2u;
+    }
+    mod->code.data = rcc_realloc(mod->code.data, capacity);
+    mod->code.capacity = capacity;
 }
 
 void emit_byte(Module* mod, uint8_t b) {

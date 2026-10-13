@@ -3650,3 +3650,23 @@ remains a separate open item.
 - [ ] Re-run full GCC `test-ci` on the committed revision containing this
   code-generation change, including format validation and stage1-to-stage2
   bootstrap.
+
+## RCC continuation (2026-10-14, verified fallback DWARF ranges)
+
+- [x] Clear partially generated verified-backend AST statement ranges before
+  returning to the classic backend, then rebuild its classic module from the
+  clean ranges. This prevents mixed backend offsets from producing cross-
+  function DWARF location ranges when a later C++ function requires fallback.
+- [x] Add an i686/AMD64 C++ regression with an accepted prefix function and a
+  later nontrivial conversion operator that deliberately leaves the typed SSA
+  subset. Verify exactly one fallback per target, both function DIEs, and
+  prefix-local location-list ownership; `test-debug-info` passes.
+- [x] Grow the code-section buffer until it covers the full requested size.
+  Large verified text copied into the DWARF/unwind metadata module previously
+  exceeded a single doubling and corrupted the host heap. Permit the verified
+  i686 assembly test adapter to validate and omit its non-code `.unwind`
+  section. `test-verified-builtins` and the full `test-verified-backend`
+  aggregate pass.
+- [x] Pass `test-optimize` and `test-debug-info` on the native Windows GCC host.
+  The full WSL bootstrap/self-host gate remains separately pending as noted
+  above; no substitute stub was used.

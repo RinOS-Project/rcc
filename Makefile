@@ -1284,6 +1284,22 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		-fverified-backend -c \
 		-o $(TEST_OUT)/debug-info/verified-cxx-opt-x64-g.ro \
 		tests/verified_backend_debug.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/debug-info/verified-fallback-x86-g.ro \
+		tests/verified_backend_debug_fallback.cpp \
+		>$(TEST_OUT)/debug-info/verified-fallback-x86.log
+	$(GREP) -F -q 'Verified backend fallback:' \
+		$(TEST_OUT)/debug-info/verified-fallback-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info/verified-fallback-x86.log,1)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/debug-info/verified-fallback-x64-g.ro \
+		tests/verified_backend_debug_fallback.cpp \
+		>$(TEST_OUT)/debug-info/verified-fallback-x64.log
+	$(GREP) -F -q 'Verified backend fallback:' \
+		$(TEST_OUT)/debug-info/verified-fallback-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/debug-info/verified-fallback-x64.log,1)
 	$(RCC_TARGET) --target i686-unknown-rinos -g -fverified-backend -c \
 		-o $(TEST_OUT)/debug-info/verified-globals-x86-g.ro \
 		tests/verified_backend_globals.c
@@ -1326,7 +1342,9 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/x86-inline-g.ro \
 		$(TEST_OUT)/debug-info/x64-inline-g.ro \
 		$(TEST_OUT)/debug-info/cxx-template-x86-g.ro \
-		$(TEST_OUT)/debug-info/cxx-template-x64-g.ro
+		$(TEST_OUT)/debug-info/cxx-template-x64-g.ro \
+		$(TEST_OUT)/debug-info/verified-fallback-x86-g.ro \
+		$(TEST_OUT)/debug-info/verified-fallback-x64-g.ro
 	@echo "Relocatable DWARF line/info/location-list/frame tests completed"
 
 test-aqc: $(AQC_TARGET)
