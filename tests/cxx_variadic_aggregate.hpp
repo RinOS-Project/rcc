@@ -13,6 +13,13 @@ struct VariadicIntegerPair {
     long long second;
 };
 
+#pragma pack(push, 1)
+struct VariadicPackedMemoryAggregate {
+    unsigned char tag;
+    double unaligned_floating;
+};
+#pragma pack(pop)
+
 struct VariadicMemoryAggregate {
     long long first;
     long long second;
@@ -41,6 +48,10 @@ static_assert(alignof(VariadicAligned64MemoryAggregate) == 64,
               "SysV over-aligned variadic aggregate alignment");
 static_assert(sizeof(VariadicAligned64MemoryAggregate) == 64,
               "SysV over-aligned variadic aggregate size");
+static_assert(alignof(VariadicPackedMemoryAggregate) == 1,
+              "SysV packed variadic aggregate alignment");
+static_assert(sizeof(VariadicPackedMemoryAggregate) == 9,
+              "SysV packed variadic aggregate size");
 
 struct VariadicDoublePair {
     double first;
@@ -71,6 +82,10 @@ int read_variadic_reverse_mixed_sse_exhausted(
     int marker0, int marker1, int marker2, int marker3, int marker4,
     double fp0, double fp1, double fp2, double fp3, double fp4, double fp5,
     double fp6, double fp7, ...);
+
+int read_variadic_packed_memory_aggregate(
+    int marker0, int marker1, int marker2, int marker3, int marker4,
+    int marker5, ...);
 
 int read_variadic_aligned_aggregate(
     int marker0, int marker1, int marker2, int marker3, int marker4,

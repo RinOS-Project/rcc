@@ -3757,10 +3757,13 @@ remains a separate open item.
   only one GP slot left must leave that slot for the following scalar, and a
   reversed SSE/INTEGER aggregate with the SSE bank exhausted must leave its
   remaining GP slot for the following integer.
+- [x] Cover a 9-byte `#pragma pack(1)` aggregate containing an unaligned
+  `double`. Verify it is passed/retrieved through the MEMORY path and that the
+  following scalar `double` still uses the available SSE register.
 - [x] Pass the focused `test-cxx-variadic-aggregate` gate at `-O0` and `-O2`,
   including GCC/RCC caller-callee interop in both directions and i686/AMD64
   code generation.
-- [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after these
-  additional rollback cases; the aggregate exits 0.
+- [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after the
+  packed MEMORY-class case; it completed successfully (exit 0).
 - [ ] Continue additional ABI classes/register-overflow combinations and
   remaining C++20 overload-ordering rules.

@@ -8,6 +8,7 @@ int main() {
     VariadicIntegerPair integer_pair = {19, 23};
     VariadicIntegerPair integer_pair_gp_exhausted = {31, 37};
     VariadicReverseMixedAggregate reverse_mixed = {23.0, 29};
+    VariadicPackedMemoryAggregate packed = {5, 7.0};
     VariadicAlignedMemoryAggregate aligned = {11, 13, 17, 19};
     VariadicAligned64MemoryAggregate aligned64 =
         {2, 3, 5, 7, 11, 13, 17, 19};
@@ -31,6 +32,8 @@ int main() {
         read_variadic_reverse_mixed_sse_exhausted(
             1, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
             reverse_mixed, 31);
+    int packed_result = read_variadic_packed_memory_aggregate(
+        1, 0, 0, 0, 0, 0, packed, 11.0);
     int aligned_result = read_variadic_aligned_aggregate(
         1, 0, 0, 0, 0, 0, 7, aligned);
     int aligned64_result = read_variadic_aligned64_aggregate(
@@ -44,6 +47,7 @@ int main() {
     if (integer_pair_gp_exhausted_result != 110) return 8;
     if (reverse_mixed_result != 85) return 7;
     if (reverse_mixed_sse_exhausted_result != 85) return 9;
+    if (packed_result != 24) return 10;
     if (aligned_result != 68) return 3;
     if (sse_aggregate_result != 68) return 4;
     if (aligned64_result != 168) return 5;

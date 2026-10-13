@@ -107,6 +107,22 @@ int read_variadic_reverse_mixed_sse_exhausted(
            gp_register_after_fallback;
 }
 
+int read_variadic_packed_memory_aggregate(
+    int marker0, int marker1, int marker2, int marker3, int marker4,
+    int marker5, ...) {
+    __builtin_va_list arguments;
+    __builtin_va_start(arguments, marker5);
+    VariadicPackedMemoryAggregate aggregate =
+        __builtin_va_arg(arguments, VariadicPackedMemoryAggregate);
+    double sse_register_after_memory_argument =
+        __builtin_va_arg(arguments, double);
+    __builtin_va_end(arguments);
+
+    return marker0 + marker1 + marker2 + marker3 + marker4 + marker5 +
+           (int)aggregate.tag + (int)aggregate.unaligned_floating +
+           (int)sse_register_after_memory_argument;
+}
+
 int read_variadic_aligned_aggregate(
     int marker0, int marker1, int marker2, int marker3, int marker4,
     int marker5, ...) {
