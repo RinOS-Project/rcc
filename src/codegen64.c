@@ -1782,7 +1782,7 @@ static void gen64_va_arg_aggregate(Module* mod, Expr* expression) {
         emit64_add_reg_reg(mod, RAX, R8);
         emit64_mov_reg_mem(mod, RAX, RAX, 0);
         emit64_add_reg_imm(mod, R8, 8);
-        emit64_mov_mem_reg(mod, RCX, 0, R8);
+        emit64_store_typed(mod, RCX, 0, R8, type_uint);
         emit64_jmp_label(mod, done_label);
         emit64_label(mod, overflow_label);
         emit64_mov_reg_mem(mod, RDX, RCX, 8);
@@ -1835,8 +1835,8 @@ static void gen64_va_arg_aggregate(Module* mod, Expr* expression) {
                 }
             }
         }
-        emit64_mov_mem_reg(mod, RCX, 0, R8);
-        emit64_mov_mem_reg(mod, RCX, 4, R9);
+        emit64_store_typed(mod, RCX, 0, R8, type_uint);
+        emit64_store_typed(mod, RCX, 4, R9, type_uint);
         emit64_jmp_label(mod, done_label);
     }
     emit64_label(mod, overflow_label);

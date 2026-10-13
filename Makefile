@@ -553,6 +553,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-c-return-semantics
 .PHONY: test-cxx-variadic-nontrivial-ellipsis
 .PHONY: test-cxx-variadic-scalar-promotions
+.PHONY: test-cxx-variadic-aggregate
 
 CXX_REGRESSION_TARGETS = \
 	test-cxx-cli \
@@ -577,6 +578,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-language-linkage \
 	test-cxx-variadic-nontrivial-ellipsis \
 	test-cxx-variadic-scalar-promotions \
+	test-cxx-variadic-aggregate \
 	test-cxx-member-specifiers \
 	test-cxx-member-methods \
 	test-cxx-qualified-namespaces \
@@ -2889,6 +2891,41 @@ test-cxx-variadic-scalar-promotions: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-variadic-scalar-promotions/rcc-caller-x64.s
 	$(TEST_OUT)/cxx-variadic-scalar-promotions/rcc-caller-host-callee$(EXE_SUFFIX)
 	@echo "C++ scalar ellipsis default-promotion interoperability tests completed"
+
+test-cxx-variadic-aggregate: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-variadic-aggregate)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-callee-x86.s \
+		tests/cxx_variadic_aggregate.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-callee-x86.o \
+		$(TEST_OUT)/cxx-variadic-aggregate/rcc-callee-x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-callee-x64.s \
+		tests/cxx_variadic_aggregate.cpp
+	$(CXX) $(RCC_SYSV_CXX_FLAGS) -std=c++20 \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/gcc-caller$(EXE_SUFFIX) \
+		tests/cxx_variadic_aggregate_caller.cpp \
+		$(TEST_OUT)/cxx-variadic-aggregate/rcc-callee-x64.s
+	$(TEST_OUT)/cxx-variadic-aggregate/gcc-caller$(EXE_SUFFIX)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-x86.s \
+		tests/cxx_variadic_aggregate_caller.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-x86.o \
+		$(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-x64.s \
+		tests/cxx_variadic_aggregate_caller.cpp
+	$(CXX) $(RCC_SYSV_CXX_FLAGS) -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/gcc-callee.o \
+		tests/cxx_variadic_aggregate.cpp
+	$(CXX) $(RCC_SYSV_CXX_FLAGS) \
+		-o $(TEST_OUT)/cxx-variadic-aggregate/rcc-caller$(EXE_SUFFIX) \
+		$(TEST_OUT)/cxx-variadic-aggregate/gcc-callee.o \
+		$(TEST_OUT)/cxx-variadic-aggregate/rcc-caller-x64.s
+	$(TEST_OUT)/cxx-variadic-aggregate/rcc-caller$(EXE_SUFFIX)
+	@echo "C++ aggregate ellipsis ABI interoperability tests completed"
 
 test-cxx-template-local-classes: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-local-classes)
