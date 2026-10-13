@@ -1,5 +1,6 @@
 extern "C" int probe_cxx_utf8_literals(void) {
     const char8_t* text = u8"Ri" u8"nOS";
+    const char8_t* ordinary_adjacent = "Ri" u8"nOS";
     const char8_t* unicode = u8"\u0041\u03a9";
     const char8_t* supplementary = u8"\U0001F600";
     const char8_t* embedded_nul = u8"\u0000R";
@@ -18,6 +19,9 @@ extern "C" int probe_cxx_utf8_literals(void) {
            (supplementary[3] == 0x80) + (supplementary[4] == 0) +
            (sizeof(u8"\u0000") == 2) + (embedded_nul[0] == 0) +
            (embedded_nul[1] == 'R') + (embedded_nul[2] == 0) +
+           (ordinary_adjacent[0] == 'R') +
+           (ordinary_adjacent[2] == 'n') + (ordinary_adjacent[5] == 0) +
+           (sizeof("Ri" u8"nOS") == 6) +
            (nul_character == 0) + (ordinary_unicode[0] == 'A') +
            ((unsigned char)ordinary_unicode[1] == 0xce) +
            ((unsigned char)ordinary_unicode[2] == 0xa9) +

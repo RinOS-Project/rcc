@@ -1555,6 +1555,7 @@ static const char* debug_type_name(const Type* type) {
             if (type->is_char16) return "char16_t";
             return type->is_unsigned ? "unsigned short" : "short";
         case TYPE_INT:
+            if (type->is_wchar) return "wchar_t";
             if (type->is_char32) return "char32_t";
             return type->is_unsigned ? "unsigned int" : "int";
         case TYPE_LONG: return type->is_unsigned ? "unsigned long" : "long";

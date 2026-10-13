@@ -170,10 +170,11 @@ struct Type {
     int align;          /* Alignment */
     bool has_explicit_alignment;
     bool is_unsigned;
-    /* TYPE_CHAR has three distinct language types with identical storage:
-     * plain char, signed char, unsigned char, plus C++20 char8_t. */
+    /* Integer character types retain distinct C/C++ identities despite
+     * sharing their underlying integer representation. */
     bool is_plain_char;
     bool is_char8;
+    bool is_wchar;
     bool is_char16;
     bool is_char32;
     bool is_const;
@@ -279,6 +280,7 @@ extern Type* type_bool;
 extern Type* type_char;
 extern Type* type_schar;
 extern Type* type_char8;
+extern Type* type_wchar;
 extern Type* type_char16;
 extern Type* type_char32;
 extern Type* type_short;
@@ -587,6 +589,8 @@ struct Expr {
     bool cxx_member_xvalue;
     /* C++20 u8 character/string literal mapped to the RinOS byte ABI. */
     bool is_cxx_utf8_literal;
+    /* L-prefixed literal. RinOS wide literals use 32-bit UTF-32 code units. */
+    bool is_wide_literal;
     /* EXPR_CHAR_LIT width: 1 for ordinary/u8, 2 for char16_t, 4 for char32_t.
      * Wider code-unit values are stored in the int_val union member. */
     uint8_t char_element_width;

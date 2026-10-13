@@ -1067,6 +1067,7 @@ static bool cxx_paren_looks_like_function_parameters(void) {
     switch (token->type) {
         case TOK_VOID:
         case TOK_BOOL:
+        case TOK_WCHAR_T:
         case TOK_CHAR16_T:
         case TOK_CHAR32_T:
         case TOK_CHAR8_T:
@@ -1166,6 +1167,7 @@ static Type* cxx_lambda_capture_expression_type(Expr* expression) {
             return type_int;
         case EXPR_CHAR_LIT:
             if (expression->type) return expression->type;
+            if (expression->is_wide_literal) return type_wchar;
             if (expression->char_element_width == 2u) return type_char16;
             if (expression->char_element_width == 4u) return type_char32;
             return type_char;
@@ -1178,6 +1180,7 @@ static Type* cxx_lambda_capture_expression_type(Expr* expression) {
             uint8_t width = expression->str_element_width
                 ? expression->str_element_width : 1u;
             Type* element_type = width == 2u ? type_char16
+                : width == 4u && expression->is_wide_literal ? type_wchar
                 : width == 4u ? type_char32
                 : expression->is_cxx_utf8_literal &&
                       rcc_parser_cxx_standard_at_least(20)
@@ -2742,6 +2745,7 @@ static bool cxx_inline_starts_function(void) {
                     parameter->type == TOK_LONG ||
                     parameter->type == TOK_VOID ||
                     parameter->type == TOK_BOOL ||
+                    parameter->type == TOK_WCHAR_T ||
                     parameter->type == TOK_CHAR ||
                     parameter->type == TOK_CHAR16_T ||
                     parameter->type == TOK_CHAR32_T ||
@@ -11124,7 +11128,7 @@ bool rcc_parse_cxx_type_start(void) {
         result = next && next->type == TOK_IDENT;
         return result;
     }
-    if (check(TOK_BOOL) || check(TOK_CHAR16_T) ||
+    if (check(TOK_BOOL) || check(TOK_WCHAR_T) || check(TOK_CHAR16_T) ||
         check(TOK_CHAR32_T) || check(TOK_CHAR8_T)) return true;
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return false;
     if (cxx_qualified_class_alias_template_starts()) return true;
@@ -16982,6 +16986,7 @@ static bool cxx_explicit_template_argument_starts_type(void) {
     switch (peek()->type) {
         case TOK_VOID:
         case TOK_BOOL:
+        case TOK_WCHAR_T:
         case TOK_CHAR:
         case TOK_CHAR16_T:
         case TOK_CHAR32_T:
@@ -21289,6 +21294,7 @@ Expr* rcc_parse_cxx_functional_cast(void) {
     switch (peek()->type) {
         case TOK_VOID:
         case TOK_BOOL:
+        case TOK_WCHAR_T:
         case TOK_CHAR16_T:
         case TOK_CHAR32_T:
         case TOK_CHAR8_T:
@@ -22503,6 +22509,12 @@ static Type* parse_cxx_type_spec(void) {
         t = type_void;
     } else if (match(TOK_BOOL)) {
         t = type_bool;
+    } else if (match(TOK_WCHAR_T)) {
+        if (is_unsigned || saw_sign || long_count != 0 || is_short) {
+            rcc_error(previous()->loc,
+                      "integer sign/width specifier is invalid on wchar_t");
+        }
+        t = type_wchar;
     } else if (match(TOK_CHAR16_T)) {
         if (is_unsigned || saw_sign || long_count != 0 || is_short) {
             rcc_error(previous()->loc,

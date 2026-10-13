@@ -92,6 +92,7 @@ typedef enum {
     TOK_TRUE,           /* true */
     TOK_FALSE,          /* false */
     TOK_BOOL,           /* bool */
+    TOK_WCHAR_T,        /* wchar_t (C++ distinct 32-bit integer type) */
     TOK_CHAR16_T,       /* char16_t (C++11 distinct integer type) */
     TOK_CHAR32_T,       /* char32_t (C++11 distinct integer type) */
     TOK_CHAR8_T,        /* char8_t (RinOS byte ABI) */
@@ -211,7 +212,9 @@ typedef struct Token {
     /* C++ UTF-8 character/string literal spelling.  RinOS represents
      * char8_t and UTF-8 strings with its bounded byte ABI. */
     bool is_utf8_literal;
-    /* TOK_CHAR_LIT code-unit width: 1 for ordinary/u8, 2 for u, 4 for U. */
+    /* L-prefixed wide string/character literal (RinOS wide encoding: UTF-32). */
+    bool is_wide_literal;
+    /* TOK_CHAR_LIT code-unit width: 1 ordinary/u8, 2 UTF-16, 4 UTF-32/wide. */
     uint8_t char_element_width;
     /* An ordinary character literal encoded to multiple execution bytes has
      * the implementation-defined int type/value, rather than char. */
@@ -219,6 +222,11 @@ typedef struct Token {
     /* TOK_STRING_LIT payload length, excluding the required terminator.  The
      * payload is owned by the token so embedded NUL bytes remain lossless. */
     size_t string_length;
+    /* Numeric escapes retain their value and code-unit identity until phase-6
+     * concatenation selects the common encoding prefix. */
+    size_t string_unit_count;
+    uint8_t* string_numeric_units;
+    uint32_t* string_numeric_values;
     /* Byte width of each encoded string-literal code unit: 1, 2, or 4. */
     uint8_t string_element_width;
     bool owns_string;

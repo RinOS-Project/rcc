@@ -551,6 +551,7 @@ static bool parser_is_recovery_declaration_start(const Token* token) {
         case TOK_REQUIRES:
             return parser_cxx_mode;
         case TOK_BOOL:
+        case TOK_WCHAR_T:
         case TOK_CHAR16_T:
         case TOK_CHAR32_T:
         case TOK_CHAR8_T:
@@ -1600,11 +1601,17 @@ static Expr* parse_primary(void) {
                 ? expr_int(literal->value.int_val, loc)
                 : expr_char(literal->value.char_val, loc);
         expression->is_cxx_utf8_literal = literal->is_utf8_literal;
+        expression->is_wide_literal = literal->is_wide_literal;
+        if (literal->is_wide_literal &&
+            (uint32_t)literal->value.int_val > (uint32_t)INT32_MAX) {
+            expression->int_val = (int32_t)(uint32_t)literal->value.int_val;
+        }
         if (parser_cxx_mode) {
             if (literal->char_element_width == 2u) {
                 expression->type = type_char16;
             } else if (literal->char_element_width == 4u) {
-                expression->type = type_char32;
+                expression->type = literal->is_wide_literal
+                    ? type_wchar : type_char32;
             } else {
                 expression->type = literal->is_multichar_literal
                     ? type_int
@@ -1626,6 +1633,7 @@ static Expr* parse_primary(void) {
             literal->value.str_val, literal->string_length,
             literal->string_element_width, loc);
         expression->is_cxx_utf8_literal = literal->is_utf8_literal;
+        expression->is_wide_literal = literal->is_wide_literal;
         if (parser_cxx_mode) {
             const char* suffix = take_cxx_user_literal_suffix();
             if (suffix) {
@@ -3437,6 +3445,12 @@ static Type* parse_type_spec(void) {
         t = type_void;
     } else if (parser_cxx_mode && match(TOK_BOOL)) {
         t = type_bool;
+    } else if (parser_cxx_mode && match(TOK_WCHAR_T)) {
+        if (is_unsigned || saw_sign || long_count != 0 || is_short) {
+            rcc_error(previous()->loc,
+                      "integer sign/width specifier is invalid on wchar_t");
+        }
+        t = type_wchar;
     } else if (parser_cxx_mode && match(TOK_CHAR16_T)) {
         if (is_unsigned || saw_sign || long_count != 0 || is_short) {
             rcc_error(previous()->loc,

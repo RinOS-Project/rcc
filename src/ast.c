@@ -95,7 +95,8 @@ char* ast_arena_strdup(const char* text) {
     { .kind = (type_kind), .size = (type_size), .align = (type_align), \
       .has_explicit_alignment = false, \
       .is_unsigned = (unsigned_type), .is_plain_char = false, \
-      .is_char8 = false, .is_char16 = false, .is_char32 = false, \
+      .is_char8 = false, .is_wchar = false, \
+      .is_char16 = false, .is_char32 = false, \
       .is_const = false, \
       .is_volatile = false, .is_atomic = false, .cxx_is_class = false, \
       .cxx_nontrivial = false, .cxx_class = NULL, \
@@ -112,6 +113,9 @@ static Type builtin_schar  = BUILTIN_TYPE(TYPE_CHAR,   1, 1, false);
 static Type builtin_char8  = {
     .kind = TYPE_CHAR, .size = 1, .align = 1, .is_unsigned = true,
     .is_char8 = true
+};
+static Type builtin_wchar = {
+    .kind = TYPE_INT, .size = 4, .align = 4, .is_wchar = true
 };
 static Type builtin_char16 = {
     .kind = TYPE_SHORT, .size = 2, .align = 2, .is_unsigned = true,
@@ -141,6 +145,7 @@ Type* type_bool   = &builtin_bool;
 Type* type_char   = &builtin_char;
 Type* type_schar  = &builtin_schar;
 Type* type_char8  = &builtin_char8;
+Type* type_wchar = &builtin_wchar;
 Type* type_char16 = &builtin_char16;
 Type* type_char32 = &builtin_char32;
 Type* type_short  = &builtin_short;
@@ -519,6 +524,7 @@ bool type_is_compatible(Type* a, Type* b) {
     if (a->kind != b->kind) return false;
     if (a->is_plain_char != b->is_plain_char ||
         a->is_char8 != b->is_char8 ||
+        a->is_wchar != b->is_wchar ||
         a->is_char16 != b->is_char16 ||
         a->is_char32 != b->is_char32) return false;
     if (a->is_reference != b->is_reference ||
@@ -627,6 +633,7 @@ bool type_is_same_template_argument(Type* a, Type* b) {
         a->is_rvalue_reference != b->is_rvalue_reference ||
         a->is_unsigned != b->is_unsigned ||
         a->is_plain_char != b->is_plain_char || a->is_char8 != b->is_char8 ||
+        a->is_wchar != b->is_wchar ||
         a->is_char16 != b->is_char16 || a->is_char32 != b->is_char32 ||
         a->cxx_is_member_pointer != b->cxx_is_member_pointer) {
         return false;

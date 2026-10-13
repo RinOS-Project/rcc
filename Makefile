@@ -479,7 +479,9 @@ endif
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
 .PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
 .PHONY: test-cxx-designated-initializer
-.PHONY: test-cxx-utf8-literals test-utf16-utf32-rin-format
+.PHONY: test-cxx-utf8-literals test-cxx-wide-literals
+.PHONY: test-c-wide-literals test-wide-literal-rin-format
+.PHONY: test-utf16-utf32-rin-format
 .PHONY: test-compiler-builtins
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
 .PHONY: test-cxx-cross-translation-unit-virtual
@@ -693,6 +695,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-aggregate-paren-init \
 	test-cxx-designated-initializer \
 	test-cxx-utf8-literals \
+	test-cxx-wide-literals \
 	test-cxx-if-constexpr \
 	test-cxx-if-constexpr-template \
 	test-cxx-adl-multiple-namespaces \
@@ -796,6 +799,7 @@ C17_REGRESSION_TARGETS = \
 
 C17_REGRESSION_TARGETS += test-c-utf8-string-literals
 C17_REGRESSION_TARGETS += test-c-utf16-utf32-string-literals
+C17_REGRESSION_TARGETS += test-c-wide-literals
 
 C17_REGRESSION_TARGETS += test-c-old-style test-c-multi-declarator
 
@@ -1003,6 +1007,93 @@ test-utf16-utf32-rin-format: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVAL
 		$(TEST_OUT)/utf16-utf32-rin-format/cxx-x86.rin
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
 		$(TEST_OUT)/utf16-utf32-rin-format/cxx-x64.rin
+
+test-wide-literal-rin-format: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
+	$(call MKDIR_P,$(TEST_OUT)/wide-literal-rin-format)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/wide-literal-rin-format/c-x86.ro tests/c_wide_literals.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c \
+		-o $(TEST_OUT)/wide-literal-rin-format/c-x64.ro tests/c_wide_literals.c
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/wide-literal-rin-format/cxx-x86.ro tests/cxx_wide_literals.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/wide-literal-rin-format/cxx-x64.ro tests/cxx_wide_literals.cpp
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 -e main \
+		-o $(TEST_OUT)/wide-literal-rin-format/c-x86.rin \
+		$(TEST_OUT)/wide-literal-rin-format/c-x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 -e main \
+		-o $(TEST_OUT)/wide-literal-rin-format/c-x64.rin \
+		$(TEST_OUT)/wide-literal-rin-format/c-x64.ro
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 -e main \
+		-o $(TEST_OUT)/wide-literal-rin-format/cxx-x86.rin \
+		$(TEST_OUT)/wide-literal-rin-format/cxx-x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 -e main \
+		-o $(TEST_OUT)/wide-literal-rin-format/cxx-x64.rin \
+		$(TEST_OUT)/wide-literal-rin-format/cxx-x64.ro
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/wide-literal-rin-format/c-x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/wide-literal-rin-format/c-x64.rin
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/wide-literal-rin-format/cxx-x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/wide-literal-rin-format/cxx-x64.rin
+
+test-c-wide-literals: $(RCC_TARGET) test-wide-literal-rin-format
+	$(call MKDIR_P,$(TEST_OUT)/c-wide-literals)
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/c-wide-literals/x86.s tests/c_wide_literals.c
+	$(CC) -m32 -c -o $(TEST_OUT)/c-wide-literals/x86.o \
+		$(TEST_OUT)/c-wide-literals/x86.s
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/c-wide-literals/x64.s tests/c_wide_literals.c
+	$(CC) -c -o $(TEST_OUT)/c-wide-literals/x64.o \
+		$(TEST_OUT)/c-wide-literals/x64.s
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/c-wide-literals/x64-host \
+		$(TEST_OUT)/c-wide-literals/x64.s
+	$(TEST_OUT)/c-wide-literals/x64-host
+	@echo "C17 wide literal tests completed"
+
+test-cxx-wide-literals: $(RCXX_TARGET) test-wide-literal-rin-format
+	$(call MKDIR_P,$(TEST_OUT)/cxx-wide-literals)
+	$(CXX) -std=c++11 -Wall -Wextra -Werror -Wno-type-limits \
+		-fsyntax-only tests/cxx_wide_literals.cpp
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -Wno-type-limits \
+		-fsyntax-only tests/cxx_wide_literals.cpp
+	$(CXX) -std=c++20 -S -Wno-type-limits -o \
+		$(TEST_OUT)/cxx-wide-literals/gcc-x64.s tests/cxx_wide_literals.cpp
+	$(GREP) -F -q "_Z11select_widew" \
+		$(TEST_OUT)/cxx-wide-literals/gcc-x64.s
+	$(GREP) -F -q "_Z11select_widei" \
+		$(TEST_OUT)/cxx-wide-literals/gcc-x64.s
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S \
+		-o $(TEST_OUT)/cxx-wide-literals/x86.s tests/cxx_wide_literals.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-wide-literals/x86.o \
+		$(TEST_OUT)/cxx-wide-literals/x86.s
+	$(GREP) -F -q "_Z11select_widew" $(TEST_OUT)/cxx-wide-literals/x86.s
+	$(GREP) -F -q "_Z11select_widei" $(TEST_OUT)/cxx-wide-literals/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -S \
+		-o $(TEST_OUT)/cxx-wide-literals/cxx11-x64.s tests/cxx_wide_literals.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-wide-literals/cxx11-x64.o \
+		$(TEST_OUT)/cxx-wide-literals/cxx11-x64.s
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 \
+		-fverified-backend -c -o $(TEST_OUT)/cxx-wide-literals/x86-verified.ro \
+		tests/cxx_wide_literals.cpp >$(TEST_OUT)/cxx-wide-literals/x86-verified.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-literals/x86-verified.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -c -o $(TEST_OUT)/cxx-wide-literals/x64-verified.ro \
+		tests/cxx_wide_literals.cpp >$(TEST_OUT)/cxx-wide-literals/x64-verified.log 2>&1
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-wide-literals/x64-verified.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-wide-literals/x64.s tests/cxx_wide_literals.cpp
+	$(CC) -c -o $(TEST_OUT)/cxx-wide-literals/x64.o \
+		$(TEST_OUT)/cxx-wide-literals/x64.s
+	$(GREP) -F -q "_Z11select_widew" $(TEST_OUT)/cxx-wide-literals/x64.s
+	$(GREP) -F -q "_Z11select_widei" $(TEST_OUT)/cxx-wide-literals/x64.s
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-wide-literals/x64-host \
+		$(TEST_OUT)/cxx-wide-literals/x64.s
+	$(TEST_OUT)/cxx-wide-literals/x64-host
+	@echo "C++11/C++20 wide literal tests completed"
 
 test-c-old-style: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c-old-style)
@@ -6616,6 +6707,8 @@ test-cxx-designated-initializer: $(RCXX_TARGET)
 test-cxx-utf8-literals: $(RCXX_TARGET) test-utf16-utf32-rin-format
 	$(call MKDIR_P,$(TEST_OUT)/cxx-utf8-literals)
 	g++ -std=c++20 -Wall -Wextra -Werror -Wno-multichar -fsyntax-only tests/cxx_utf8_literals.cpp
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -fsyntax-only tests/cxx_prefixed_literal_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-wide-gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -fsyntax-only tests/cxx_mixed_literal_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-mixed-gcc.log)
 	g++ -std=c++20 -fexec-charset=UTF-8 -c \
 		-Wno-multichar \
 		-o $(TEST_OUT)/cxx-utf8-literals/gcc-oracle.o \
@@ -6694,11 +6787,11 @@ test-cxx-utf8-literals: $(RCXX_TARGET) test-utf16-utf32-rin-format
 		$(TEST_OUT)/cxx-utf8-literals/cxx17-x64.o
 	$(TEST_OUT)/cxx-utf8-literals/cxx17-x64-host
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-x86.ro tests/cxx_prefixed_literal_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-x86.log)
-	$(GREP) -F -q "wide L-prefixed literals are not supported by the RinOS ABI" $(TEST_OUT)/cxx-utf8-literals/invalid-x86.log
+	$(GREP) -F -q "string literal encoding is incompatible with pointer initializer" $(TEST_OUT)/cxx-utf8-literals/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-x64.ro tests/cxx_prefixed_literal_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-x64.log)
-	$(GREP) -F -q "wide L-prefixed literals are not supported by the RinOS ABI" $(TEST_OUT)/cxx-utf8-literals/invalid-x64.log
+	$(GREP) -F -q "string literal encoding is incompatible with pointer initializer" $(TEST_OUT)/cxx-utf8-literals/invalid-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-mixed.ro tests/cxx_mixed_literal_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log)
-	$(GREP) -F -q "adjacent string literals with different encodings are unsupported" $(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log
+	$(GREP) -F -q "adjacent string literals have different encoding prefixes" $(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.ro tests/cxx_mismatched_literal_array_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.log)
 	$(GREP) -F -q "character array initializer encoding does not match the element type" $(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.ro tests/cxx_mismatched_literal_array_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-array-x64.log)
@@ -7748,6 +7841,8 @@ test-cxx-utf8-literals-posix: $(RCXX_TARGET) test-utf16-utf32-rin-format
 	$(call MKDIR_P,$(TEST_OUT)/cxx-utf8-literals)
 	$(CXX) -std=c++20 -Wall -Wextra -Werror -Wno-multichar -fsyntax-only \
 		tests/cxx_utf8_literals.cpp
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -fsyntax-only tests/cxx_prefixed_literal_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-wide-gcc.log)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -fsyntax-only tests/cxx_mixed_literal_invalid.cpp,$(TEST_OUT)/cxx-utf8-literals/invalid-mixed-gcc.log)
 	$(CXX) -std=c++20 -fexec-charset=UTF-8 -c \
 		-Wno-multichar \
 		-o $(TEST_OUT)/cxx-utf8-literals/gcc-oracle.o \
@@ -7844,23 +7939,25 @@ test-cxx-utf8-literals-posix: $(RCXX_TARGET) test-utf16-utf32-rin-format
 		-o $(TEST_OUT)/cxx-utf8-literals/invalid-x86.ro \
 		tests/cxx_prefixed_literal_invalid.cpp \
 		>$(TEST_OUT)/cxx-utf8-literals/invalid-x86.log 2>&1; then \
-		echo "unsupported prefixed literal case unexpectedly compiled"; exit 1; \
+		 echo "wide string pointer mismatch unexpectedly compiled"; exit 1; \
 	fi
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-utf8-literals/invalid-x64.ro \
 		tests/cxx_prefixed_literal_invalid.cpp \
 		>$(TEST_OUT)/cxx-utf8-literals/invalid-x64.log 2>&1; then \
-		echo "unsupported prefixed literal case unexpectedly compiled"; exit 1; \
+		echo "wide string pointer mismatch unexpectedly compiled"; exit 1; \
 	fi
-	$(GREP) -q "wide L-prefixed literals are not supported by the RinOS ABI" \
+	$(GREP) -q "string literal encoding is incompatible with pointer initializer" \
 		$(TEST_OUT)/cxx-utf8-literals/invalid-x86.log
+	$(GREP) -q "string literal encoding is incompatible with pointer initializer" \
+		$(TEST_OUT)/cxx-utf8-literals/invalid-x64.log
 	@if $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-utf8-literals/invalid-mixed.ro \
 		tests/cxx_mixed_literal_invalid.cpp \
 		>$(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log 2>&1; then \
 		echo "mixed-encoding string literal case unexpectedly compiled"; exit 1; \
 	fi
-	$(GREP) -q "adjacent string literals with different encodings are unsupported" \
+	$(GREP) -q "adjacent string literals have different encoding prefixes" \
 		$(TEST_OUT)/cxx-utf8-literals/invalid-mixed.log
 	@if $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-utf8-literals/invalid-array-x86.ro \
@@ -9642,8 +9739,6 @@ test-cxx-raw-strings-posix: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-raw-strings/invalid-x64.log 2>&1; then \
 		echo "invalid raw string source unexpectedly compiled on AMD64"; exit 1; \
 	fi
-	$(GREP) -q "wide L-prefixed literals are not supported by the RinOS ABI" \
-		$(TEST_OUT)/cxx-raw-strings/invalid-x86.log
 	$(GREP) -q "unterminated raw string literal" \
 		$(TEST_OUT)/cxx-raw-strings/invalid-x86.log
 	@echo "C++11 raw string literal tests completed"
@@ -9654,7 +9749,6 @@ test-cxx-raw-strings: $(RCXX_TARGET)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-raw-strings,cxx_raw_strings.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-raw-strings/invalid-x86.ro tests/cxx_raw_strings_invalid.cpp,$(TEST_OUT)/cxx-raw-strings/invalid-x86.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-raw-strings/invalid-x64.ro tests/cxx_raw_strings_invalid.cpp,$(TEST_OUT)/cxx-raw-strings/invalid-x64.log)
-	$(GREP) -F -q "wide L-prefixed literals are not supported by the RinOS ABI" $(TEST_OUT)/cxx-raw-strings/invalid-x86.log
 	$(GREP) -F -q "unterminated raw string literal" $(TEST_OUT)/cxx-raw-strings/invalid-x86.log
 else
 test-cxx-raw-strings: test-cxx-raw-strings-posix

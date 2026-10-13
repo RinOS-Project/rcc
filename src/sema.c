@@ -678,6 +678,8 @@ static void sema_cxx_typeinfo_name_append_type(
         sema_cxx_typeinfo_name_append_char(builder, '6');
     } else if (type->is_char32) {
         sema_cxx_typeinfo_name_append_char(builder, '3');
+    } else if (type->is_wchar) {
+        sema_cxx_typeinfo_name_append_char(builder, 'w');
     }
     switch (type->kind) {
         case TYPE_PTR:
@@ -7848,6 +7850,7 @@ static bool cxx_same_parameter_type(Type* source, Type* target,
     }
     if (source->is_plain_char != target->is_plain_char ||
         source->is_char8 != target->is_char8 ||
+        source->is_wchar != target->is_wchar ||
         source->is_char16 != target->is_char16 ||
         source->is_char32 != target->is_char32) {
         return false;
@@ -12709,7 +12712,10 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_CHAR_LIT:
-            if (rcc_parser_is_cxx_mode() &&
+            if (expr->is_wide_literal) {
+                expr->type = rcc_parser_is_cxx_mode()
+                    ? type_wchar : type_int;
+            } else if (rcc_parser_is_cxx_mode() &&
                 expr->char_element_width == 2u) {
                 expr->type = type_char16;
             } else if (rcc_parser_is_cxx_mode() &&
@@ -12735,8 +12741,11 @@ static Type* sema_expr(Expr* expr) {
                 : element_width == 2u
                     ? (rcc_parser_is_cxx_mode()
                         ? type_char16 : type_ushort)
-                    : (rcc_parser_is_cxx_mode()
-                        ? type_char32 : type_uint);
+                    : expr->is_wide_literal
+                        ? (rcc_parser_is_cxx_mode()
+                            ? type_wchar : type_int)
+                        : (rcc_parser_is_cxx_mode()
+                            ? type_char32 : type_uint);
             if (rcc_parser_is_cxx_mode()) {
                 Type* qualified = ast_arena_alloc(sizeof(*qualified));
                 *qualified = *element_type;
@@ -15992,9 +16001,17 @@ static Expr* initializer_character_string(Type* type, Expr* initializer) {
                 return NULL;
             }
         } else if (width == 4u) {
-            if (element->kind != TYPE_INT ||
-                !element->is_unsigned ||
-                (cxx ? !element->is_char32 : element->is_char32)) {
+            if (string->is_wide_literal) {
+                if (cxx) {
+                    if (!element->is_wchar) return NULL;
+                } else if (element->kind != TYPE_INT ||
+                           element->is_unsigned || element->is_char32 ||
+                           element->is_wchar) {
+                    return NULL;
+                }
+            } else if (element->kind != TYPE_INT ||
+                       !element->is_unsigned ||
+                       (cxx ? !element->is_char32 : element->is_char32)) {
                 return NULL;
             }
         } else {
@@ -18086,6 +18103,11 @@ static void sema_initializer(Type* type, Expr* initializer) {
                 sema_is_scoped_enum(type)) {
                 rcc_error(initializer->loc,
                           "cannot implicitly convert scoped enum in initialization");
+            } else if (rcc_parser_is_cxx_mode() &&
+                       initializer->kind == EXPR_STRING_LIT &&
+                       type->kind == TYPE_PTR) {
+                rcc_error(initializer->loc,
+                          "string literal encoding is incompatible with pointer initializer");
             } else if (rcc_parser_is_cxx_mode() &&
                        ((initializer->type &&
                          initializer->type->kind == TYPE_PTR &&

@@ -478,7 +478,9 @@ static void cxx_mangle_type_append_context(
             }
             break;
         case TYPE_INT:
-            if (type->is_char32) {
+            if (type->is_wchar) {
+                cxx_mangle_type_char(buf, pos, 'w');
+            } else if (type->is_char32) {
                 cxx_mangle_type_char(buf, pos, 'D');
                 cxx_mangle_type_char(buf, pos, 'i');
             } else {
@@ -2498,6 +2500,8 @@ static void cxx_typeinfo_identity_append_type(
         cxx_typeinfo_identity_append_char(builder, '6');
     } else if (type->is_char32) {
         cxx_typeinfo_identity_append_char(builder, '3');
+    } else if (type->is_wchar) {
+        cxx_typeinfo_identity_append_char(builder, 'w');
     }
     switch (type->kind) {
         case TYPE_PTR:
