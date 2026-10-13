@@ -3609,3 +3609,15 @@ remains a separate open item.
   golden/fuzz/property, and WSL Ubuntu-24.04 stage1-to-stage2 bootstrap.
 - [ ] Continue the broader incomplete DWARF/unwind, optimization, and C++20
   conformance work; this gate pass does not imply full language conformance.
+
+## GCC production gate rerun (2026-10-13)
+
+- [x] Re-run the complete native-Windows MinGW GCC 13.2.0 `test-ci` gate on
+  frozen RCC revision `df4068f277363f3ac3a3af14fe939a5d0bbdc4ba`, using the
+  existing `obj/windows-gcc` and `build/gcc-current` outputs. Exit 0: C17/C++20,
+  AQC, IR/MIR, verified backend, optimizer, ABI, RIN/RLL/DRV validation,
+  golden/determinism/property/fuzz, linking/relocations, and WSL Ubuntu-24.04
+  stage1 execution plus byte-identical stage2 rebuilds for i686 and x86_64.
+  The initial unprivileged attempt could not start WSL (`Wsl/Service/E_ACCESSDENIED`);
+  the approved elevated rerun completed the same gate successfully. Clang's
+  full `test-ci` pass is recorded in the preceding 2026-10-13 section.
