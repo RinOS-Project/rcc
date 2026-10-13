@@ -92,6 +92,8 @@ typedef enum {
     TOK_TRUE,           /* true */
     TOK_FALSE,          /* false */
     TOK_BOOL,           /* bool */
+    TOK_CHAR16_T,       /* char16_t (C++11 distinct integer type) */
+    TOK_CHAR32_T,       /* char32_t (C++11 distinct integer type) */
     TOK_CHAR8_T,        /* char8_t (RinOS byte ABI) */
     TOK_THROW,          /* throw */
     TOK_TRY,            /* try */

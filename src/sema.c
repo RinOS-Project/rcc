@@ -674,6 +674,10 @@ static void sema_cxx_typeinfo_name_append_type(
         sema_cxx_typeinfo_name_append_char(
             builder, type->is_plain_char ? 'p' :
                      type->is_char8 ? '8' : 'c');
+    } else if (type->is_char16) {
+        sema_cxx_typeinfo_name_append_char(builder, '6');
+    } else if (type->is_char32) {
+        sema_cxx_typeinfo_name_append_char(builder, '3');
     }
     switch (type->kind) {
         case TYPE_PTR:
@@ -7842,9 +7846,10 @@ static bool cxx_same_parameter_type(Type* source, Type* target,
         source->is_unsigned != target->is_unsigned) {
         return false;
     }
-    if (source->kind == TYPE_CHAR &&
-        (source->is_plain_char != target->is_plain_char ||
-         source->is_char8 != target->is_char8)) {
+    if (source->is_plain_char != target->is_plain_char ||
+        source->is_char8 != target->is_char8 ||
+        source->is_char16 != target->is_char16 ||
+        source->is_char32 != target->is_char32) {
         return false;
     }
     if (source->kind == TYPE_PTR) {

@@ -468,10 +468,24 @@ static void cxx_mangle_type_append_context(
                                      type->is_unsigned ? 'h' : 'a');
             }
             break;
-        case TYPE_SHORT:  cxx_mangle_type_char(buf, pos,
-                              type->is_unsigned ? 't' : 's'); break;
-        case TYPE_INT:    cxx_mangle_type_char(buf, pos,
-                              type->is_unsigned ? 'j' : 'i'); break;
+        case TYPE_SHORT:
+            if (type->is_char16) {
+                cxx_mangle_type_char(buf, pos, 'D');
+                cxx_mangle_type_char(buf, pos, 's');
+            } else {
+                cxx_mangle_type_char(buf, pos,
+                                     type->is_unsigned ? 't' : 's');
+            }
+            break;
+        case TYPE_INT:
+            if (type->is_char32) {
+                cxx_mangle_type_char(buf, pos, 'D');
+                cxx_mangle_type_char(buf, pos, 'i');
+            } else {
+                cxx_mangle_type_char(buf, pos,
+                                     type->is_unsigned ? 'j' : 'i');
+            }
+            break;
         case TYPE_LONG:   cxx_mangle_type_char(buf, pos,
                               type->is_unsigned ? 'm' : 'l'); break;
         case TYPE_LLONG:  cxx_mangle_type_char(buf, pos,
@@ -2480,6 +2494,10 @@ static void cxx_typeinfo_identity_append_type(
         cxx_typeinfo_identity_append_char(
             builder, type->is_plain_char ? 'p' :
                      type->is_char8 ? '8' : 'c');
+    } else if (type->is_char16) {
+        cxx_typeinfo_identity_append_char(builder, '6');
+    } else if (type->is_char32) {
+        cxx_typeinfo_identity_append_char(builder, '3');
     }
     switch (type->kind) {
         case TYPE_PTR:

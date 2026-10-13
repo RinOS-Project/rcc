@@ -551,6 +551,8 @@ static bool parser_is_recovery_declaration_start(const Token* token) {
         case TOK_REQUIRES:
             return parser_cxx_mode;
         case TOK_BOOL:
+        case TOK_CHAR16_T:
+        case TOK_CHAR32_T:
         case TOK_CHAR8_T:
             return parser_cxx_mode;
         case TOK_IDENT:
@@ -3425,6 +3427,18 @@ static Type* parse_type_spec(void) {
         t = type_void;
     } else if (parser_cxx_mode && match(TOK_BOOL)) {
         t = type_bool;
+    } else if (parser_cxx_mode && match(TOK_CHAR16_T)) {
+        if (is_unsigned || saw_sign || long_count != 0 || is_short) {
+            rcc_error(previous()->loc,
+                      "integer sign/width specifier is invalid on char16_t");
+        }
+        t = type_char16;
+    } else if (parser_cxx_mode && match(TOK_CHAR32_T)) {
+        if (is_unsigned || saw_sign || long_count != 0 || is_short) {
+            rcc_error(previous()->loc,
+                      "integer sign/width specifier is invalid on char32_t");
+        }
+        t = type_char32;
     } else if (parser_cxx_mode && match(TOK_CHAR8_T)) {
         if (is_unsigned || saw_sign || long_count != 0 || is_short) {
             rcc_error(previous()->loc,

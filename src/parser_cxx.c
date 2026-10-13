@@ -1067,6 +1067,8 @@ static bool cxx_paren_looks_like_function_parameters(void) {
     switch (token->type) {
         case TOK_VOID:
         case TOK_BOOL:
+        case TOK_CHAR16_T:
+        case TOK_CHAR32_T:
         case TOK_CHAR8_T:
         case TOK_CHAR:
         case TOK_SHORT:
@@ -2729,6 +2731,8 @@ static bool cxx_inline_starts_function(void) {
                     parameter->type == TOK_VOID ||
                     parameter->type == TOK_BOOL ||
                     parameter->type == TOK_CHAR ||
+                    parameter->type == TOK_CHAR16_T ||
+                    parameter->type == TOK_CHAR32_T ||
                     parameter->type == TOK_CHAR8_T ||
                     parameter->type == TOK_INT ||
                     parameter->type == TOK_FLOAT ||
@@ -11108,7 +11112,8 @@ bool rcc_parse_cxx_type_start(void) {
         result = next && next->type == TOK_IDENT;
         return result;
     }
-    if (check(TOK_BOOL) || check(TOK_CHAR8_T)) return true;
+    if (check(TOK_BOOL) || check(TOK_CHAR16_T) ||
+        check(TOK_CHAR32_T) || check(TOK_CHAR8_T)) return true;
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return false;
     if (cxx_qualified_class_alias_template_starts()) return true;
 
@@ -16966,6 +16971,8 @@ static bool cxx_explicit_template_argument_starts_type(void) {
         case TOK_VOID:
         case TOK_BOOL:
         case TOK_CHAR:
+        case TOK_CHAR16_T:
+        case TOK_CHAR32_T:
         case TOK_CHAR8_T:
         case TOK_SHORT:
         case TOK_INT:
@@ -21270,6 +21277,8 @@ Expr* rcc_parse_cxx_functional_cast(void) {
     switch (peek()->type) {
         case TOK_VOID:
         case TOK_BOOL:
+        case TOK_CHAR16_T:
+        case TOK_CHAR32_T:
         case TOK_CHAR8_T:
         case TOK_CHAR:
         case TOK_SHORT:
@@ -22482,6 +22491,18 @@ static Type* parse_cxx_type_spec(void) {
         t = type_void;
     } else if (match(TOK_BOOL)) {
         t = type_bool;
+    } else if (match(TOK_CHAR16_T)) {
+        if (is_unsigned || saw_sign || long_count != 0 || is_short) {
+            rcc_error(previous()->loc,
+                      "integer sign/width specifier is invalid on char16_t");
+        }
+        t = type_char16;
+    } else if (match(TOK_CHAR32_T)) {
+        if (is_unsigned || saw_sign || long_count != 0 || is_short) {
+            rcc_error(previous()->loc,
+                      "integer sign/width specifier is invalid on char32_t");
+        }
+        t = type_char32;
     } else if (match(TOK_CHAR8_T)) {
         if (is_unsigned || saw_sign || long_count != 0 || is_short) {
             rcc_error(previous()->loc,

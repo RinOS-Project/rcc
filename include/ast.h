@@ -174,6 +174,8 @@ struct Type {
      * plain char, signed char, unsigned char, plus C++20 char8_t. */
     bool is_plain_char;
     bool is_char8;
+    bool is_char16;
+    bool is_char32;
     bool is_const;
     bool is_volatile;
     bool is_atomic;          /* C17 _Atomic-qualified scalar object type. */
@@ -277,6 +279,8 @@ extern Type* type_bool;
 extern Type* type_char;
 extern Type* type_schar;
 extern Type* type_char8;
+extern Type* type_char16;
+extern Type* type_char32;
 extern Type* type_short;
 extern Type* type_int;
 extern Type* type_long;

@@ -107,6 +107,8 @@ static struct {
     {"true", TOK_TRUE},
     {"false", TOK_FALSE},
     {"bool", TOK_BOOL},
+    {"char16_t", TOK_CHAR16_T},
+    {"char32_t", TOK_CHAR32_T},
     {"char8_t", TOK_CHAR8_T},
     {"throw", TOK_THROW},
     {"try", TOK_TRY},
@@ -380,6 +382,10 @@ static Token* lex_identifier(Lexer* lex) {
     spelling[len] = '\0';
 
     TokenType type = keyword_lookup(spelling);
+    if ((type == TOK_CHAR16_T || type == TOK_CHAR32_T) &&
+        (!lexer_cxx_mode || lexer_cxx_standard < 11)) {
+        type = TOK_IDENT;
+    }
     if (type == TOK_CHAR8_T &&
         (!lexer_cxx_mode || lexer_cxx_standard < 20)) {
         type = TOK_IDENT;

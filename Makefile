@@ -8546,6 +8546,7 @@ ifeq ($(OS),Windows_NT)
 test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-char-type-identity)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-char16-char32)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-deep)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-named-types)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-composite)
@@ -8553,6 +8554,22 @@ test-cxx-typeid: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeinfo-api)
 	$(call CXX_WINDOWS_ENTRY_TWO_TU_TEST,cxx-typeid,cxx_typeid.cpp,cxx_typeid_peer.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-char-type-identity,cxx_char_type_identity.cpp)
+	g++ -std=c++11 -Wall -Wextra -Werror -fsyntax-only tests/cxx_char16_char32.cpp
+	g++ -std=c++11 -S -o $(TEST_OUT)/cxx-char16-char32/gcc.s tests/cxx_char16_char32.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-char16-char32/x86.s tests/cxx_char16_char32.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-char16-char32/x64.s tests/cxx_char16_char32.cpp
+	$(GREP) -F -q "_Z8select16Ds" $(TEST_OUT)/cxx-char16-char32/gcc.s
+	$(GREP) -F -q "_Z8select16t" $(TEST_OUT)/cxx-char16-char32/gcc.s
+	$(GREP) -F -q "_Z8select32Di" $(TEST_OUT)/cxx-char16-char32/gcc.s
+	$(GREP) -F -q "_Z8select32j" $(TEST_OUT)/cxx-char16-char32/gcc.s
+	$(GREP) -F -q "_Z8select16Ds" $(TEST_OUT)/cxx-char16-char32/x86.s
+	$(GREP) -F -q "_Z8select16t" $(TEST_OUT)/cxx-char16-char32/x86.s
+	$(GREP) -F -q "_Z8select32Di" $(TEST_OUT)/cxx-char16-char32/x86.s
+	$(GREP) -F -q "_Z8select32j" $(TEST_OUT)/cxx-char16-char32/x86.s
+	$(GREP) -F -q "_Z8select16Ds" $(TEST_OUT)/cxx-char16-char32/x64.s
+	$(GREP) -F -q "_Z8select16t" $(TEST_OUT)/cxx-char16-char32/x64.s
+	$(GREP) -F -q "_Z8select32Di" $(TEST_OUT)/cxx-char16-char32/x64.s
+	$(GREP) -F -q "_Z8select32j" $(TEST_OUT)/cxx-char16-char32/x64.s
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid-deep,cxx_typeid_deep.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid-named-types,cxx_typeid_named_types.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-typeid-composite,cxx_typeid_composite.cpp)
@@ -8612,12 +8629,29 @@ endif
 test-cxx-typeid-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-char-type-identity)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-char16-char32)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-deep)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-named-types)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-composite)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeid-local-scope)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-typeinfo-api)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-char-type-identity,cxx_char_type_identity.cpp)
+	g++ -std=c++11 -Wall -Wextra -Werror -fsyntax-only tests/cxx_char16_char32.cpp
+	g++ -std=c++11 -S -o $(TEST_OUT)/cxx-char16-char32/gcc.s tests/cxx_char16_char32.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-char16-char32/x86.s tests/cxx_char16_char32.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-char16-char32/x64.s tests/cxx_char16_char32.cpp
+	$(GREP) -F -q "_Z8select16Ds" $(TEST_OUT)/cxx-char16-char32/gcc.s
+	$(GREP) -F -q "_Z8select16t" $(TEST_OUT)/cxx-char16-char32/gcc.s
+	$(GREP) -F -q "_Z8select32Di" $(TEST_OUT)/cxx-char16-char32/gcc.s
+	$(GREP) -F -q "_Z8select32j" $(TEST_OUT)/cxx-char16-char32/gcc.s
+	$(GREP) -F -q "_Z8select16Ds" $(TEST_OUT)/cxx-char16-char32/x86.s
+	$(GREP) -F -q "_Z8select16t" $(TEST_OUT)/cxx-char16-char32/x86.s
+	$(GREP) -F -q "_Z8select32Di" $(TEST_OUT)/cxx-char16-char32/x86.s
+	$(GREP) -F -q "_Z8select32j" $(TEST_OUT)/cxx-char16-char32/x86.s
+	$(GREP) -F -q "_Z8select16Ds" $(TEST_OUT)/cxx-char16-char32/x64.s
+	$(GREP) -F -q "_Z8select16t" $(TEST_OUT)/cxx-char16-char32/x64.s
+	$(GREP) -F -q "_Z8select32Di" $(TEST_OUT)/cxx-char16-char32/x64.s
+	$(GREP) -F -q "_Z8select32j" $(TEST_OUT)/cxx-char16-char32/x64.s
 	$(call CXX_POSIX_ENTRY_TEST,cxx-typeid-deep,cxx_typeid_deep.cpp)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-typeid-named-types,cxx_typeid_named_types.cpp)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-typeid-composite,cxx_typeid_composite.cpp)

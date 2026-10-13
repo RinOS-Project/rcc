@@ -1551,8 +1551,12 @@ static const char* debug_type_name(const Type* type) {
         case TYPE_VOID: return "void";
         case TYPE_BOOL: return "bool";
         case TYPE_CHAR: return type->is_unsigned ? "unsigned char" : "char";
-        case TYPE_SHORT: return type->is_unsigned ? "unsigned short" : "short";
-        case TYPE_INT: return type->is_unsigned ? "unsigned int" : "int";
+        case TYPE_SHORT:
+            if (type->is_char16) return "char16_t";
+            return type->is_unsigned ? "unsigned short" : "short";
+        case TYPE_INT:
+            if (type->is_char32) return "char32_t";
+            return type->is_unsigned ? "unsigned int" : "int";
         case TYPE_LONG: return type->is_unsigned ? "unsigned long" : "long";
         case TYPE_LLONG:
             return type->is_unsigned ? "unsigned long long" : "long long";
