@@ -18569,6 +18569,9 @@ static int cxx_function_template_type_parameter_index(
     return -1;
 }
 
+static int cxx_function_template_type_pack_parameter_index(
+    const CxxTemplate* tmpl, const Type* type);
+
 static bool cxx_function_template_partial_order_deduce_value_expression(
     const CxxTemplate* parameter_template, Expr* parameter_expression,
     const CxxTemplate* argument_template, Expr* argument_expression,
@@ -18615,12 +18618,18 @@ static bool cxx_function_template_partial_order_deduce_type(
     }
     argument_index = cxx_function_template_type_parameter_index(
         argument_template, argument_pattern);
+    if (argument_index >= 0 ||
+        cxx_function_template_type_pack_parameter_index(
+            argument_template, argument_pattern) >= 0) {
+        /* During transformed-template deduction, a direct argument type
+         * parameter cannot satisfy a structural pattern. This is a supported
+         * deduction failure, not an unsupported comparison; preserving that
+         * distinction lets a compound pack expansion outrank an unconstrained
+         * type pack even when the actual expansion is empty. */
+        if (supported) *supported = true;
+        return false;
+    }
     if (parameter_pattern->kind != argument_pattern->kind) {
-        /* A transformed template parameter cannot satisfy a structural
-         * pointer or class-template pattern, but this is a valid deduction
-         * failure and therefore participates in ordering as an unordered
-         * direction. */
-        if (supported && argument_index >= 0) *supported = true;
         return false;
     }
     if (parameter_pattern->is_const != argument_pattern->is_const ||

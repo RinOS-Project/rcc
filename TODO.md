@@ -3892,3 +3892,14 @@ remains a separate open item.
 - [x] Re-run full native-Windows MinGW GCC `test-cxx` after the distinct
   atomic-source regression; it completed successfully (exit 0).
 - [ ] Continue constraint subsumption and remaining C++20 overload ordering.
+
+## RCC continuation (2026-10-14, compound type-pack partial ordering)
+
+- [x] Compare `Box<Wrap<Types>...>` with the unconstrained `Box<Types...>`
+  overload. Verify that the compound expansion wins for empty, single-element,
+  and multi-element expansions, while a mixed wrapped/unwrapped pack selects
+  the general overload. GCC C++20 agrees; the focused RCC overload gate passes
+  i686/AMD64 code generation and AMD64 execution.
+- [ ] Extend ordering to other compound/repeated or mixed pack sources,
+  dependent non-type expressions, non-type/template-template packs, and their
+  interactions with constraints and conversion-sequence ties.

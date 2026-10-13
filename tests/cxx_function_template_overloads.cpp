@@ -433,6 +433,9 @@ struct FunctionTemplatePartialOrderBox {};
 template<typename... Types>
 struct FunctionTemplatePackPartialOrderBox {};
 
+template<typename Type>
+struct FunctionTemplatePackCompoundElement {};
+
 template<int Id, typename Type>
 struct FunctionTemplateMixedValueBox {};
 
@@ -789,6 +792,19 @@ template<typename... Types>
 int choose_compound_pointer_over_plain_pack(
     FunctionTemplatePackPartialOrderBox<Types...>) {
     return 226;
+}
+
+template<typename... Types>
+int choose_compound_class_pack_order(
+    FunctionTemplatePackPartialOrderBox<
+        FunctionTemplatePackCompoundElement<Types>...>) {
+    return 260;
+}
+
+template<typename... Types>
+int choose_compound_class_pack_order(
+    FunctionTemplatePackPartialOrderBox<Types...>) {
+    return 261;
 }
 
 template<typename Type>
@@ -2885,6 +2901,21 @@ int main(void) {
                    choose_compound_pointer_over_plain_pack(
                        FunctionTemplatePackPartialOrderBox<int, short*>{}) ==
                        226 &&
+                   choose_compound_class_pack_order(
+                       FunctionTemplatePackPartialOrderBox<>{}) == 260 &&
+                   choose_compound_class_pack_order(
+                       FunctionTemplatePackPartialOrderBox<
+                           FunctionTemplatePackCompoundElement<int>>{}) ==
+                       260 &&
+                   choose_compound_class_pack_order(
+                       FunctionTemplatePackPartialOrderBox<
+                           FunctionTemplatePackCompoundElement<int>,
+                           FunctionTemplatePackCompoundElement<short>>{}) ==
+                       260 &&
+                   choose_compound_class_pack_order(
+                       FunctionTemplatePackPartialOrderBox<
+                           FunctionTemplatePackCompoundElement<int>, short>{}) ==
+                       261 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_constraint_disjunction_partial_order(
