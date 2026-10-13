@@ -3799,6 +3799,11 @@ remains a separate open item.
 - [x] Pass focused native-Windows
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
   test-cxx-function-template-overloads` (exit 0).
+- [x] Also compare `A && (B || C)` with `(A && B) || (A && C)`; they mutually
+  subsume despite different syntax, so GCC and RCC keep the call ambiguous on
+  both targets. The focused overload gate passes with the new diagnostic.
 - [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after this
   ambiguity regression; it completed successfully (exit 0).
+- [x] Re-run full native-Windows MinGW GCC `test-cxx` after adding the
+  distributive-normal-form case; it completed successfully (exit 0).
 - [ ] Continue constraint subsumption and remaining C++20 overload ordering.

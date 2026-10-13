@@ -96,6 +96,9 @@ concept EquivalentConstraintHasValue = requires(T candidate) {
 template<typename T>
 concept EquivalentConstraintPositiveSize = sizeof(T) >= 1;
 
+template<typename T>
+concept EquivalentConstraintAtMostEight = sizeof(T) <= 8;
+
 struct EquivalentConstraintArgument {
     int value;
 };
@@ -111,6 +114,23 @@ template<typename T>
                EquivalentConstraintPositiveSize<T>))
 int select_equivalent_constraints(T) {
     return 4;
+}
+
+template<typename T>
+    requires (EquivalentConstraintHasValue<T> &&
+              (EquivalentConstraintPositiveSize<T> ||
+               EquivalentConstraintAtMostEight<T>))
+int select_distributive_equivalent_constraints(T) {
+    return 5;
+}
+
+template<typename T>
+    requires ((EquivalentConstraintHasValue<T> &&
+               EquivalentConstraintPositiveSize<T>) ||
+              (EquivalentConstraintHasValue<T> &&
+               EquivalentConstraintAtMostEight<T>))
+int select_distributive_equivalent_constraints(T) {
+    return 6;
 }
 
 template<typename Element, int Extent>
@@ -232,6 +252,8 @@ int main() {
            select_by_value_or_volatile_pointer_reference(pointer) +
            select_incomparable_constraints(value) +
            select_equivalent_constraints(equivalent_constraint_argument) +
+           select_distributive_equivalent_constraints(
+               equivalent_constraint_argument) +
            select_crossed_array_pointer_extent(&array, &array) +
            select_incomparable_repeated_nontype_order(
                IncomparableRepeatedNontypeTag<1, 1>{},
