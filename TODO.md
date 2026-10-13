@@ -3532,9 +3532,10 @@ remains a separate open item.
 - [x] Cover static class-member variadic function templates in dependent
   constexpr calls, including a fixed ordinary overload competitor and scalar
   ellipsis arguments subject to default argument promotions.
-- [ ] Extend coverage to mixed free-function ordinary/template overload sets,
-  non-scalar ellipsis ABI promotions, and remaining C++20 overload-ordering
-  rules.
+- [x] Complete mixed free-function ordinary/template overload coverage and
+  non-scalar ellipsis ABI promotion coverage in the later continuation entries
+  below, including GCC comparison and AMD64 execution.
+- [ ] Continue remaining C++20 overload-ordering rules.
 
 ## RCC continuation (2026-10-13, variadic constexpr member templates)
 
@@ -3571,9 +3572,9 @@ remains a separate open item.
   function-template C-style ellipsis overloads, retrieve it with
   `__builtin_va_arg`, compare GCC C++20 behavior, and execute the AMD64 host
   image after generating both target assemblies.
-- [ ] Continue with non-scalar ellipsis ABI promotions, broader mixed
-  ordinary/template overload sets, and remaining C++20 overload-ordering
-  rules.
+- [x] Cover non-scalar ellipsis ABI promotions and broader mixed
+  ordinary/template overload sets in the continuation entries below.
+- [ ] Continue remaining C++20 overload-ordering rules.
 
 ## RCC continuation (2026-10-13, free-function template ADL)
 
@@ -3597,8 +3598,9 @@ remains a separate open item.
   ordinary/template symbols. `test-cxx-function-templates`,
   `test-cxx-function-template-overloads`, `test-cxx-non-type-templates`, and
   the complete `test-cxx` aggregate pass. RCC commit `f2c0f09`.
-- [ ] Continue with non-scalar ellipsis ABI promotions and remaining C++20
-  overload-ordering rules.
+- [x] Cover non-scalar ellipsis ABI promotions in the subsequent variadic ABI
+  continuation entries.
+- [ ] Continue remaining C++20 overload-ordering rules.
 
 ## RCC continuation (2026-10-13, optimized inline debug identity and Clang bootstrap)
 
@@ -3743,3 +3745,18 @@ remains a separate open item.
   `x86_64-w64-mingw32`; no i686 MinGW runtime or QEMU is installed. Current
   coverage generates and assembles both i686 caller/callee objects and
   executes GCC/RCC interop in both AMD64 directions.
+
+## RCC continuation (2026-10-14, variadic aggregate register rollback)
+
+- [x] Cover a two-INTEGER-eightbyte aggregate passed in the remaining AMD64
+  SysV GP registers followed by a stack-spilled scalar.
+- [x] Cover a reversed SSE/INTEGER aggregate when the GP bank is exhausted;
+  verify whole-aggregate overflow does not consume the available SSE slot and
+  that the following `double` is still retrieved from the register-save area.
+- [x] Pass the focused `test-cxx-variadic-aggregate` gate at `-O0` and `-O2`,
+  including GCC/RCC caller-callee interop in both directions and i686/AMD64
+  code generation.
+- [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after these
+  fixture additions; the aggregate exits 0.
+- [ ] Continue additional ABI classes/register-overflow combinations and
+  remaining C++20 overload-ordering rules.

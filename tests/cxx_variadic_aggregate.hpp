@@ -3,6 +3,16 @@ struct VariadicMixedAggregate {
     double floating;
 };
 
+struct VariadicReverseMixedAggregate {
+    double floating;
+    long long integer;
+};
+
+struct VariadicIntegerPair {
+    long long first;
+    long long second;
+};
+
 struct VariadicMemoryAggregate {
     long long first;
     long long second;
@@ -45,6 +55,14 @@ int read_variadic_aggregate_registers(
 int read_variadic_aggregate_gp_exhausted(
     int marker0, int marker1, int marker2, int marker3, int marker4,
     int marker5, ...);
+
+int read_variadic_integer_pair(
+    int marker0, int marker1, int marker2, int marker3, ...);
+
+int read_variadic_reverse_mixed_gp_exhausted(
+    int marker0, int marker1, int marker2, int marker3, int marker4,
+    int marker5, double fp0, double fp1, double fp2, double fp3, double fp4,
+    ...);
 
 int read_variadic_aligned_aggregate(
     int marker0, int marker1, int marker2, int marker3, int marker4,

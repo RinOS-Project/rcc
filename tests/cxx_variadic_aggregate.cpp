@@ -40,6 +40,40 @@ int read_variadic_aggregate_gp_exhausted(
            (int)in_sse_register;
 }
 
+int read_variadic_integer_pair(
+    int marker0, int marker1, int marker2, int marker3, ...) {
+    __builtin_va_list arguments;
+    __builtin_va_start(arguments, marker3);
+    VariadicIntegerPair pair =
+        __builtin_va_arg(arguments, VariadicIntegerPair);
+    int stack_integer = __builtin_va_arg(arguments, int);
+    __builtin_va_end(arguments);
+
+    return marker0 + marker1 + marker2 + marker3 + (int)pair.first +
+           (int)pair.second + stack_integer;
+}
+
+int read_variadic_reverse_mixed_gp_exhausted(
+    int marker0, int marker1, int marker2, int marker3, int marker4,
+    int marker5, double fp0, double fp1, double fp2, double fp3, double fp4,
+    ...) {
+    __builtin_va_list arguments;
+    __builtin_va_start(arguments, fp4);
+    VariadicReverseMixedAggregate aggregate =
+        __builtin_va_arg(arguments, VariadicReverseMixedAggregate);
+    double sse_register_after_fallback =
+        __builtin_va_arg(arguments, double);
+    __builtin_va_end(arguments);
+
+    return marker0 + marker1 + marker2 + marker3 + marker4 + marker5 +
+           (fp0 == 0.0 && fp1 == 0.0 && fp2 == 0.0 && fp3 == 0.0 &&
+                    fp4 == 0.0
+                ? 1
+                : 0) +
+           (int)aggregate.floating + (int)aggregate.integer +
+           (int)sse_register_after_fallback;
+}
+
 int read_variadic_aligned_aggregate(
     int marker0, int marker1, int marker2, int marker3, int marker4,
     int marker5, ...) {
