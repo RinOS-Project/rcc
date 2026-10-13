@@ -129,6 +129,24 @@ static void inline_debug_origin_add(const Expr* expression,
     origin->call_location = call_location;
 }
 
+static bool inline_debug_same_function(const Decl* left,
+                                       const Decl* right) {
+    const char* left_link_name;
+    const char* right_link_name;
+    if (left == right) return true;
+    if (!left || !right || left->kind != DECL_FUNC ||
+        right->kind != DECL_FUNC || !left->func_body ||
+        left->func_body != right->func_body ||
+        left->func_has_cxx_linkage != right->func_has_cxx_linkage ||
+        !type_is_compatible(left->type, right->type)) {
+        return false;
+    }
+    left_link_name = decl_link_name(left);
+    right_link_name = decl_link_name(right);
+    return left_link_name && right_link_name &&
+        strcmp(left_link_name, right_link_name) == 0;
+}
+
 static void inline_debug_origin_copy_to_clone(const Expr* source,
                                               Expr* clone) {
     if (!source || !clone || !inline_debug_clone_owner ||
@@ -140,7 +158,8 @@ static void inline_debug_origin_copy_to_clone(const Expr* source,
         const Decl* callee;
         SourceLoc call_location;
         if (origin->expression != source ||
-            origin->caller != inline_debug_clone_owner) {
+            !inline_debug_same_function(
+                origin->caller, inline_debug_clone_owner)) {
             continue;
         }
         callee = origin->callee;

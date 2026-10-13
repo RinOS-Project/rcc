@@ -7,6 +7,7 @@
 #include "token.h"
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 
 /* Lexer state */
 typedef struct {

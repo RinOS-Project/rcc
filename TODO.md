@@ -1931,7 +1931,7 @@
   - [x] GCC: `make -j1 OBJDIR=build/wsl-gcc/obj
         BINDIR=build/wsl-gcc/bin TEST_OUT=build/wsl-gcc/tests CC=gcc test-ci`
         passed on the Linux/WSL host, including both target architectures.
-- [ ] Clang full `test-ci` production gateを実行し、同じ全経路の成功を記録する
+- [x] Clang full `test-ci` production gateを実行し、同じ全経路の成功を記録する
   - [x] Native WindowsでMSYS2 Clang 18.1.4を使い、分離した
         `OBJDIR=obj/clang`でRCC++をビルドして
         `test-cxx-function-template-overloads`を実行。i686/AMD64出力、AMD64
@@ -1959,9 +1959,11 @@
         Windows実行可能なtargetが通過した。最初のWSL-only bootstrap target
         `test-bootstrap-core`で`Wsl/Service/E_ACCESSDENIED`となり、この結果は
         full `test-ci`の成功ではない。stage1実行とstage2再現は未実施。
-  - Clang full `test-ci` production gateは未完了。WSL startupは
-    `Wsl/Service/CreateInstance/E_ACCESSDENIED`であり、Linux CI/WSL上で
-    全経路を実行する必要がある。
+  - [x] 2026-10-13にMSYS2 Clang 18.1.4で同一source revisionの
+        `test-ci`全体を再実行し、C17/C++20、AQC、IR/MIR、verified backend、
+        optimizer、ABI、RIN/RLL/DRV format、golden、determinism/property/fuzz、
+        linker、stage0 core、stage1 link/execution、stage2再現までexit 0。
+        WSL Ubuntu-24.04を含む全bootstrap段も完了した。
 - [x] ASan/UBSan regression gateもGCC/Clang双方の独立matrix jobで実行し、
       各jobが要求したhost compilerを実際に選択していることを検証
 - [x] CI regression gateでC/C++ global initializer/finalizerのhost実行、
@@ -3574,3 +3576,25 @@ remains a separate open item.
   against GCC and test a mixed ADL tie before changing the encoder.
 - [ ] Continue with non-scalar ellipsis ABI promotions and remaining C++20
   overload-ordering rules.
+
+## RCC continuation (2026-10-13, optimized inline debug identity and Clang bootstrap)
+
+- [x] Match verified-backend inline debug-origin callers to cloned function
+  owners by semantic identity when duplicate `Decl` nodes share one body:
+  require function kind, shared body, matching linkage, compatible function
+  types, and the same ABI link name. This retains nested optimized C++ inline
+  child PC ranges without conflating distinct overloads.
+- [x] Pass `test-debug-info` with GCC- and Clang-host RCC builds. Refresh only
+  the C++20 core `.ro` golden hashes after deterministic double generation;
+  all `.rin`, `.rll`, `.drv`, and other corpus hashes remain unchanged. The
+  complete golden corpus passes with both host builds.
+- [x] Include `<limits.h>` explicitly in `lexer.c`, which compares the
+  character-literal code-unit count with `UINT_MAX`; this is required by the
+  `-nostdinc` bootstrap include set. Complete `test-bootstrap-core`,
+  `test-bootstrap-link`, `test-bootstrap-execute`, and `test-bootstrap-stage2`
+  with Clang-built RCC on i686 and x86_64.
+- [x] Complete the full native-Windows MSYS2 Clang 18.1.4 `test-ci` production
+  gate on 2026-10-13 (exit 0), including C17/C++20, image-format validation,
+  golden/fuzz/property, and WSL Ubuntu-24.04 stage1-to-stage2 bootstrap.
+- [ ] Continue the broader incomplete DWARF/unwind, optimization, and C++20
+  conformance work; this gate pass does not imply full language conformance.

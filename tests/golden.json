@@ -28,13 +28,13 @@
       "flags": ["-std=c++20", "-O0"],
       "sha256": {
         "i686-unknown-rinos": {
-          "ro": "973540e281ba9f1bba15083137f0c1ec8b2f64190d176ca78a40d3476e4ebe18",
+          "ro": "05073cf97b112beea5e2e2561b4fcb637ef66cd248967e731ed3e37eba9bad0f",
           "rin": "d1630a56c7686e9e6c27935d4c8fdc481ea42d8cc21f6185f1545f0560c02ba6",
           "rll": "8edd56305d7b0d35231208b85d5f9871c847ce2b1f0c400ffb06b5de662bf49d",
           "drv": "224687d598b9c6e07b2d4404597ef102b90c858f42692940a0b3850dc0fb5b3a"
         },
         "x86_64-unknown-rinos": {
-          "ro": "dfe8ddde4d07f109b8682b5b1d26664e6c47ef1fc9a5378551f21be2b9cf8b52",
+          "ro": "f13c7a629d07c8ef47186a6871c7597a7d5296b897cee27e68038068921e65a7",
           "rin": "d3235fda132d0f5a5759675c1db9f2b4b6644b1541663549c101b43bac24f890",
           "rll": "df1b32fa1b379cabbce5a1639304a6d73e4e7613114da0b2dce4c92588eda324",
           "drv": "ae86d76550827a8f7e9d29130c5e305e8992f083fe68fa4e4ee40b90bcb75d74"
