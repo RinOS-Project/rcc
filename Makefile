@@ -480,7 +480,8 @@ endif
 .PHONY: test-cxx-friend-requires-forms test-cxx-friend-requires-forms-posix
 .PHONY: test-cxx-designated-initializer
 .PHONY: test-cxx-utf8-literals test-cxx-wide-literals
-.PHONY: test-c-wide-literals test-wide-literal-rin-format
+.PHONY: test-c-wide-literals test-wide-literal-rin-format \
+	test-c-numeric-escape-ranges test-cxx-numeric-escape-ranges
 .PHONY: test-utf16-utf32-rin-format
 .PHONY: test-compiler-builtins
 .PHONY: test-cxx-nontrivial-object-exceptions test-cxx-cross-library-exceptions
@@ -696,6 +697,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-designated-initializer \
 	test-cxx-utf8-literals \
 	test-cxx-wide-literals \
+	test-cxx-numeric-escape-ranges \
 	test-cxx-if-constexpr \
 	test-cxx-if-constexpr-template \
 	test-cxx-adl-multiple-namespaces \
@@ -800,6 +802,7 @@ C17_REGRESSION_TARGETS = \
 C17_REGRESSION_TARGETS += test-c-utf8-string-literals
 C17_REGRESSION_TARGETS += test-c-utf16-utf32-string-literals
 C17_REGRESSION_TARGETS += test-c-wide-literals
+C17_REGRESSION_TARGETS += test-c-numeric-escape-ranges
 
 C17_REGRESSION_TARGETS += test-c-old-style test-c-multi-declarator
 
@@ -1054,6 +1057,32 @@ test-c-wide-literals: $(RCC_TARGET) test-wide-literal-rin-format
 	$(TEST_OUT)/c-wide-literals/x64-host
 	@echo "C17 wide literal tests completed"
 
+test-c-numeric-escape-ranges: $(RCC_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/c-numeric-escape-ranges)
+	$(CC) -std=c17 -fsigned-char -pedantic-errors -fsyntax-only \
+		tests/c_numeric_escape_ranges.c
+	$(CC) -std=c17 -fsigned-char -o \
+		$(TEST_OUT)/c-numeric-escape-ranges/gcc-oracle \
+		tests/c_numeric_escape_ranges.c
+	$(TEST_OUT)/c-numeric-escape-ranges/gcc-oracle
+	$(call EXPECT_FAILURE,$(CC) -std=c17 -pedantic-errors -fsyntax-only tests/c_numeric_escape_ranges_invalid.c,$(TEST_OUT)/c-numeric-escape-ranges/gcc-invalid.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c-numeric-escape-ranges/invalid-x86.ro tests/c_numeric_escape_ranges_invalid.c,$(TEST_OUT)/c-numeric-escape-ranges/rcc-invalid-x86.log)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -c -o $(TEST_OUT)/c-numeric-escape-ranges/invalid-x64.ro tests/c_numeric_escape_ranges_invalid.c,$(TEST_OUT)/c-numeric-escape-ranges/rcc-invalid-x64.log)
+	$(GREP) -F -q "numeric escape value does not fit character code unit" $(TEST_OUT)/c-numeric-escape-ranges/rcc-invalid-x86.log
+	$(GREP) -F -q "numeric escape value does not fit string code unit" $(TEST_OUT)/c-numeric-escape-ranges/rcc-invalid-x64.log
+	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/c-numeric-escape-ranges/x86.s \
+		tests/c_numeric_escape_ranges.c
+	$(CC) -m32 -c -o $(TEST_OUT)/c-numeric-escape-ranges/x86.o \
+		$(TEST_OUT)/c-numeric-escape-ranges/x86.s
+	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
+		-o $(TEST_OUT)/c-numeric-escape-ranges/x64.s \
+		tests/c_numeric_escape_ranges.c
+	$(CC) -o $(TEST_OUT)/c-numeric-escape-ranges/x64-host \
+		$(TEST_OUT)/c-numeric-escape-ranges/x64.s
+	$(TEST_OUT)/c-numeric-escape-ranges/x64-host
+	@echo "C17 numeric escape range tests completed"
+
 test-cxx-wide-literals: $(RCXX_TARGET) test-wide-literal-rin-format
 	$(call MKDIR_P,$(TEST_OUT)/cxx-wide-literals)
 	$(CXX) -std=c++11 -Wall -Wextra -Werror -Wno-type-limits \
@@ -1094,6 +1123,32 @@ test-cxx-wide-literals: $(RCXX_TARGET) test-wide-literal-rin-format
 		$(TEST_OUT)/cxx-wide-literals/x64.s
 	$(TEST_OUT)/cxx-wide-literals/x64-host
 	@echo "C++11/C++20 wide literal tests completed"
+
+test-cxx-numeric-escape-ranges: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-numeric-escape-ranges)
+	$(CXX) -std=c++20 -fsigned-char -pedantic-errors -fsyntax-only \
+		tests/cxx_numeric_escape_ranges.cpp
+	$(CXX) -std=c++20 -fsigned-char -pedantic-errors -o \
+		$(TEST_OUT)/cxx-numeric-escape-ranges/gcc-oracle \
+		tests/cxx_numeric_escape_ranges.cpp
+	$(TEST_OUT)/cxx-numeric-escape-ranges/gcc-oracle
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_numeric_escape_ranges_invalid.cpp,$(TEST_OUT)/cxx-numeric-escape-ranges/gcc-invalid.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-numeric-escape-ranges/invalid-x86.ro tests/cxx_numeric_escape_ranges_invalid.cpp,$(TEST_OUT)/cxx-numeric-escape-ranges/rcc-invalid-x86.log)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-numeric-escape-ranges/invalid-x64.ro tests/cxx_numeric_escape_ranges_invalid.cpp,$(TEST_OUT)/cxx-numeric-escape-ranges/rcc-invalid-x64.log)
+	$(GREP) -F -q "numeric escape value does not fit character code unit" $(TEST_OUT)/cxx-numeric-escape-ranges/rcc-invalid-x86.log
+	$(GREP) -F -q "numeric escape value does not fit string code unit" $(TEST_OUT)/cxx-numeric-escape-ranges/rcc-invalid-x64.log
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-numeric-escape-ranges/x86.s \
+		tests/cxx_numeric_escape_ranges.cpp
+	$(CC) -m32 -c -o $(TEST_OUT)/cxx-numeric-escape-ranges/x86.o \
+		$(TEST_OUT)/cxx-numeric-escape-ranges/x86.s
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-numeric-escape-ranges/x64.s \
+		tests/cxx_numeric_escape_ranges.cpp
+	$(CC) -o $(TEST_OUT)/cxx-numeric-escape-ranges/x64-host \
+		$(TEST_OUT)/cxx-numeric-escape-ranges/x64.s
+	$(TEST_OUT)/cxx-numeric-escape-ranges/x64-host
+	@echo "C++20 numeric escape range tests completed"
 
 test-c-old-style: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c-old-style)

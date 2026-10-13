@@ -969,6 +969,11 @@ uint32_t expr_char_code_unit(const Expr* expr) {
         expr->char_element_width == 4u) {
         return (uint32_t)expr->int_val;
     }
+    if (expr->type == type_int && !expr->is_cxx_utf8_literal) {
+        /* In C, an ordinary character constant has type int after the
+         * execution byte is converted through RinOS's signed plain char. */
+        return (uint32_t)(int32_t)(int8_t)(uint8_t)expr->char_val;
+    }
     return (uint8_t)expr->char_val;
 }
 

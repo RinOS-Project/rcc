@@ -686,7 +686,7 @@ static int hex_digit(char c) {
 /* Decode a universal character name occurring in an identifier.  Identifier
  * UCNs are source spelling, not byte-string data: retain them as UTF-8 in the
  * interned name while keeping the narrow string/character literal ABI
- * diagnostics in lex_escape(). */
+ * diagnostics in their literal decoders. */
 static int lex_identifier_ucn(Lexer* lex, char* output, size_t capacity) {
     SourceLoc loc;
     char kind;
@@ -958,10 +958,6 @@ static uint32_t lex_escape_value(Lexer* lex, bool* numeric_escape) {
     }
 }
 
-static char lex_escape(Lexer* lex) {
-    return (char)(uint8_t)lex_escape_value(lex, NULL);
-}
-
 static Token* lex_char_encoded(Lexer* lex, SourceLoc loc,
                                uint8_t element_width, bool is_wide) {
     uint32_t encoded_value = 0u;
@@ -1066,7 +1062,13 @@ static Token* lex_char(Lexer* lex, SourceLoc loc, bool is_utf8,
                 encoded_length = lex_utf8_escape(
                     lex, encoded, sizeof(encoded));
             } else {
-                encoded[0] = lex_escape(lex);
+                bool numeric_escape = false;
+                uint32_t value = lex_escape_value(lex, &numeric_escape);
+                if (numeric_escape && value > UINT8_MAX) {
+                    rcc_error(loc,
+                              "numeric escape value does not fit character code unit");
+                }
+                encoded[0] = (char)(uint8_t)value;
             }
         } else {
             encoded[0] = advance(lex);
@@ -1135,13 +1137,6 @@ static Token* lex_string(Lexer* lex, SourceLoc loc, bool is_utf8,
             } else {
                 uint32_t value = lex_escape_value(lex, &numeric_escape);
                 numeric_value = value;
-                uint32_t maximum = element_width == 1u ? UINT8_MAX
-                    : element_width == 2u ? UINT16_MAX : UINT32_MAX;
-                if (element_width > 1u && value > maximum) {
-                    rcc_error(loc,
-                              "numeric escape value does not fit string code unit");
-                    value &= maximum;
-                }
                 if (element_width == 1u) {
                     buf[len++] = (char)value;
                 } else {
@@ -1610,6 +1605,14 @@ static unsigned lex_string_prefix(const Token* token) {
     return LEX_STRING_ORDINARY;
 }
 
+static uint32_t lex_string_prefix_maximum(unsigned prefix) {
+    if (prefix == LEX_STRING_UTF16) return UINT16_MAX;
+    if (prefix == LEX_STRING_UTF32 || prefix == LEX_STRING_WIDE) {
+        return UINT32_MAX;
+    }
+    return UINT8_MAX;
+}
+
 static uint32_t lex_string_code_unit(const Token* token, size_t index) {
     size_t offset = index * token->string_element_width;
     uint32_t value = 0u;
@@ -1740,15 +1743,6 @@ static bool lex_append_concat_value(Lexer* lex, const Token* source,
         : target_prefix == LEX_STRING_UTF32 ||
           target_prefix == LEX_STRING_WIDE ? 4u : 1u;
     if (is_numeric) {
-        uint32_t maximum = width == 1u ? UINT8_MAX
-            : width == 2u ? UINT16_MAX : UINT32_MAX;
-        if (value > maximum &&
-            target_prefix != LEX_STRING_WIDE &&
-            target_prefix != LEX_STRING_ORDINARY) {
-            rcc_error(source->loc,
-                      "numeric escape value does not fit concatenated string code unit");
-            value &= maximum;
-        }
         if (*length > capacity || width > capacity - *length) {
             rcc_error(source->loc,
                       "concatenated string literal exceeds capacity");
@@ -1827,6 +1821,19 @@ static void lex_normalize_adjacent_strings(TokenList* list, Lexer* lex) {
                 }
             }
             after = after->next;
+        }
+        for (item = first; item != after; item = item->next) {
+            unsigned range_prefix = lexer_cxx_mode
+                ? target_prefix : lex_string_prefix(item);
+            uint32_t maximum = lex_string_prefix_maximum(range_prefix);
+            for (size_t unit = 0u; unit < item->string_unit_count; ++unit) {
+                if (item->string_numeric_units &&
+                    item->string_numeric_units[unit] != 0u &&
+                    item->string_numeric_values[unit] > maximum) {
+                    rcc_error(item->loc,
+                              "numeric escape value does not fit string code unit");
+                }
+            }
         }
         if (token_count < 2u) {
             link = &first->next;

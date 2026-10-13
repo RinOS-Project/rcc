@@ -1,0 +1,9 @@
+char invalid_ordinary_character = '\x100';
+char8_t invalid_utf8_character = u8'\x100';
+char16_t invalid_utf16_character = u'\x10000';
+const char invalid_ordinary_string[] = "\x100";
+const char invalid_concatenated_string[] = "\x100" "";
+const char8_t invalid_utf8_string[] = u8"\x100";
+const char16_t invalid_utf16_string[] = u"\x10000";
+const char32_t invalid_utf32_string[] = U"\x100000000";
+const wchar_t invalid_wide_string[] = L"\x100000000";
