@@ -79,6 +79,9 @@ int verified_debug_overaligned_local(void)
 
 int verified_debug_optimized_const_local(int value)
 {
+    enum VerifiedDebugOptimizedEnum { VERIFIED_DEBUG_OPTIMIZED_ENUM = -19 };
+    const enum VerifiedDebugOptimizedEnum optimized_enum =
+        VERIFIED_DEBUG_OPTIMIZED_ENUM;
     const int optimized_constant = 42;
     const int optimized_negative = -23;
     const unsigned int optimized_unsigned_narrow = -1;

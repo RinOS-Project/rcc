@@ -2147,9 +2147,14 @@ static void verify_optimized_verified_debug_object(
         info, strings, locations, "optimized_double", architecture,
         &has_location, &is_location_list, &branch_offset));
     assert(!has_location && !is_location_list);
+    assert(find_variable_location(
+        info, strings, locations, "optimized_enum", architecture,
+        &has_location, &is_location_list, &branch_offset));
+    assert(!has_location && !is_location_list);
     {
         int64_t constant_value;
         int64_t negative_value;
+        int64_t enum_value;
         uint64_t unsigned_high_value;
         uint64_t unsigned_narrow_value;
         uint8_t float_size;
@@ -2160,6 +2165,9 @@ static void verify_optimized_verified_debug_object(
             info, strings, "optimized_constant", &constant_value));
         assert(find_variable_const_value(
             info, strings, "optimized_negative", &negative_value));
+        assert(find_variable_const_value(
+            info, strings, "optimized_enum", &enum_value));
+        assert(enum_value == -19);
         assert(constant_value == 42 && negative_value == -23);
         assert(find_variable_unsigned_const_value(
             info, strings, "optimized_unsigned_high", &unsigned_high_value));

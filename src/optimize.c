@@ -4903,6 +4903,34 @@ static DeadStoreLocal* find_dead_store_local(DeadStoreLocal* locals,
     return locals;
 }
 
+static bool dead_store_const_enum(const Decl* declaration) {
+    int64_t signed_value;
+    uint64_t unsigned_value;
+    Type* underlying;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        !declaration->type || declaration->type->kind != TYPE_ENUM ||
+        !declaration->type->is_const || !declaration->var_init) {
+        return false;
+    }
+    underlying = declaration->type->enum_underlying_type;
+    /* C enums use the compiler's int-compatible representation; the parser
+     * records an explicit underlying type for C++ enums only. */
+    if (!underlying) {
+        if (declaration->type->size != type_int->size ||
+            declaration->type->is_unsigned != type_int->is_unsigned) {
+            return false;
+        }
+        underlying = type_int;
+    }
+    if (!underlying || underlying->size <= 0 || underlying->size > 8) {
+        return false;
+    }
+    return underlying->is_unsigned
+        ? expr_eval_integer_constant_u64(declaration->var_init,
+                                         &unsigned_value)
+        : expr_eval_integer_constant(declaration->var_init, &signed_value);
+}
+
 static bool dead_store_candidate(const Decl* declaration) {
     bool integer_candidate;
     bool floating_const_literal;
@@ -4919,7 +4947,8 @@ static bool dead_store_candidate(const Decl* declaration) {
          declaration->type->kind == TYPE_DOUBLE) &&
         declaration->var_init &&
         declaration->var_init->kind == EXPR_FLOAT_LIT;
-    return integer_candidate || floating_const_literal;
+    return integer_candidate || floating_const_literal ||
+           dead_store_const_enum(declaration);
 }
 
 static DeadStoreLocal* collect_dead_store_locals(const Stmt* block) {
@@ -5506,8 +5535,14 @@ static void preserve_debug_const_value(Decl* declaration) {
         declaration->type->is_volatile || declaration->type->is_reference ||
         !declaration->var_init) return;
     value_type = declaration->type;
-    if (value_type->kind == TYPE_ENUM && value_type->enum_underlying_type) {
-        value_type = value_type->enum_underlying_type;
+    if (value_type->kind == TYPE_ENUM) {
+        if (!value_type->enum_underlying_type &&
+            (value_type->size != type_int->size ||
+             value_type->is_unsigned != type_int->is_unsigned)) {
+            return;
+        }
+        value_type = value_type->enum_underlying_type
+            ? value_type->enum_underlying_type : type_int;
     }
     if ((value_type->kind == TYPE_FLOAT ||
          value_type->kind == TYPE_DOUBLE) &&
@@ -5604,6 +5639,7 @@ static void eliminate_block_dead_stores(Stmt* statement) {
                         ((current->decl->var_init->type &&
                           type_is_integer(
                               current->decl->var_init->type)) ||
+                         dead_store_const_enum(current->decl) ||
                          ((current->decl->type->kind == TYPE_FLOAT ||
                            current->decl->type->kind == TYPE_DOUBLE) &&
                           current->decl->type->is_const &&

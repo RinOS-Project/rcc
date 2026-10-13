@@ -1865,6 +1865,10 @@
         IEEE-754値を`DW_AT_const_value`の`DW_FORM_block1`で保持し、4/8-byteの
         exact bit patternと偽のframe locationがないことをi686/AMD64で検証。
         `test-debug-info`、`test-optimize`、`test-verified-backend`が成功。
+  - [x] 最適化でstorageが除去されたimmutable C enum localのsigned値を
+        `DW_AT_const_value`で保持し、暗黙の`int`互換underlying representationを
+        確認したうえで、DWARF constant値とframe locationなしをi686/AMD64で検証。
+        `test-debug-info`、`test-optimize`、`test-verified-backend`が成功。
   - [ ] `.debug_info`の全inline attribution／全scopeの宣言開始・終了に一致する
         location lists、register・piece location追跡、非標準prologueを含む
         完全なCFI/unwind
