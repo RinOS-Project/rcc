@@ -88,6 +88,31 @@ int select_incomparable_constraints(T) {
     return 2;
 }
 
+template<typename T>
+concept EquivalentConstraintHasValue = requires(T candidate) {
+    candidate.value;
+};
+
+template<typename T>
+concept EquivalentConstraintPositiveSize = sizeof(T) >= 1;
+
+struct EquivalentConstraintArgument {
+    int value;
+};
+
+template<typename T> requires EquivalentConstraintHasValue<T>
+int select_equivalent_constraints(T) {
+    return 3;
+}
+
+template<typename T>
+    requires (EquivalentConstraintHasValue<T> ||
+              (EquivalentConstraintHasValue<T> &&
+               EquivalentConstraintPositiveSize<T>))
+int select_equivalent_constraints(T) {
+    return 4;
+}
+
 template<typename Element, int Extent>
 int select_crossed_array_pointer_extent(Element (*)[Extent],
                                         Element (*)[1]) {
@@ -196,6 +221,7 @@ int main() {
     int* pointer = &value;
     char character = 0;
     int array[1] = { value };
+    EquivalentConstraintArgument equivalent_constraint_argument = { value };
     return (int)select_template((short)1, (short)2) +
            select_incomparable_reference_template(1, value) +
            select_by_value_or_const_reference(value) +
@@ -205,6 +231,7 @@ int main() {
            select_by_value_or_const_pointer_reference(pointer) +
            select_by_value_or_volatile_pointer_reference(pointer) +
            select_incomparable_constraints(value) +
+           select_equivalent_constraints(equivalent_constraint_argument) +
            select_crossed_array_pointer_extent(&array, &array) +
            select_incomparable_repeated_nontype_order(
                IncomparableRepeatedNontypeTag<1, 1>{},

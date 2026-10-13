@@ -3790,3 +3790,15 @@ remains a separate open item.
   regression; it completed successfully (exit 0).
 - [ ] Continue constraint subsumption, dependent expressions, and the other
   open C++20 overload-ordering cases.
+
+## RCC continuation (2026-10-14, equivalent C++20 constraint ambiguity)
+
+- [x] Verify that `A` and `A || (A && B)` mutually subsume after DNF/CNF
+  normalization and therefore do not order otherwise identical overloads.
+  The call remains ambiguous, matching GCC C++20, on i686 and AMD64.
+- [x] Pass focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` (exit 0).
+- [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after this
+  ambiguity regression; it completed successfully (exit 0).
+- [ ] Continue constraint subsumption and remaining C++20 overload ordering.
