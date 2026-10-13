@@ -26,6 +26,11 @@ int cxx_free_variadic_overload(int value, ...) { return value + 100; }
 template<typename T>
 int cxx_free_variadic_overload(T value, ...) { return value + 200; }
 
+int cxx_free_fixed_overload(int value) { return value + 300; }
+
+template<typename T>
+int cxx_free_fixed_overload(T value) { return value + 400; }
+
 void conversion_noexcept_function() noexcept {}
 void conversion_explicit_throwing_function() noexcept(false) {}
 void conversion_explicit_noexcept_function() noexcept(true) {}
@@ -1931,6 +1936,13 @@ int main(void) {
     if (cxx_free_variadic_overload(
             variadic_template_exact_match, 2.5f) != 205) {
         return 155;
+    }
+    if (cxx_free_fixed_overload(7) != 307) {
+        return 156;
+    }
+    char fixed_template_exact_match = 5;
+    if (cxx_free_fixed_overload(fixed_template_exact_match) != 405) {
+        return 157;
     }
     int value = 5;
     int* pointer = &value;
