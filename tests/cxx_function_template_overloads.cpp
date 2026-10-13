@@ -31,6 +31,25 @@ int cxx_free_fixed_overload(int value) { return value + 300; }
 template<typename T>
 int cxx_free_fixed_overload(T value) { return value + 400; }
 
+int cxx_free_fixed_multi_overload(short value) { return value + 500; }
+
+int cxx_free_fixed_multi_overload(int value) { return value + 600; }
+
+template<typename T>
+int cxx_free_fixed_multi_overload(T value) { return value + 700; }
+
+struct CxxMixedOverloadBaseOne {};
+struct CxxMixedOverloadBaseTwo {};
+struct CxxMixedOverloadDerived : CxxMixedOverloadBaseOne,
+                                 CxxMixedOverloadBaseTwo {};
+
+int cxx_free_incomparable_overload(CxxMixedOverloadBaseOne*) { return 1; }
+
+int cxx_free_incomparable_overload(CxxMixedOverloadBaseTwo*) { return 2; }
+
+template<typename T>
+int cxx_free_incomparable_overload(T*) { return 3; }
+
 struct CxxVariadicAggregatePayload {
     int integer;
     double floating;
@@ -1967,6 +1986,17 @@ int main(void) {
     char fixed_template_exact_match = 5;
     if (cxx_free_fixed_overload(fixed_template_exact_match) != 405) {
         return 157;
+    }
+    if (cxx_free_fixed_multi_overload(7) != 607) {
+        return 160;
+    }
+    char multi_template_exact_match = 5;
+    if (cxx_free_fixed_multi_overload(multi_template_exact_match) != 705) {
+        return 161;
+    }
+    CxxMixedOverloadDerived incomparable_overload_object;
+    if (cxx_free_incomparable_overload(&incomparable_overload_object) != 3) {
+        return 162;
     }
     CxxVariadicAggregatePayload variadic_payload = { 11, 3.5 };
     if (cxx_free_variadic_payload_overload(2, variadic_payload) != 1016) {

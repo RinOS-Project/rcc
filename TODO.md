@@ -3537,10 +3537,12 @@ remains a separate open item.
   indistinguishable; preserve a template when its conversion sequence is
   better.
 - [x] Cover both fixed-arity and C-style variadic ordinary functions against
-  function templates. In both sets, the ordinary overload wins an identical
-  `int` match, while the template wins for `char` against the ordinary
-  function's integral promotion. Compare results with GCC C++20 and verify both
-  target assembly paths plus AMD64 execution.
+  function templates, including multiple ordinary overloads. In both single-
+  and multi-candidate sets, the ordinary overload wins an identical `int`
+  match, while the template wins for `char` against integral promotions and
+  for a derived pointer where two unrelated base conversions are incomparable.
+  Compare results with GCC C++20 and verify both target assembly paths plus
+  AMD64 execution.
 - [x] Pass the focused native-Windows
   `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
   test-cxx-function-template-overloads` gate (exit 0, including its GCC oracle).
