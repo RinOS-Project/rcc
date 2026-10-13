@@ -1363,6 +1363,7 @@ static void sema_cxx_adl_collect_symbol(
     for (Decl* declaration = symbol->decl; declaration;
          declaration = declaration->func_overload_next) {
         if (declaration->kind != DECL_FUNC ||
+            declaration->func_is_template_instance ||
             !sema_cxx_adl_hidden_friend_matches(declaration,
                                                 associated_types) ||
             sema_cxx_adl_contains(candidates, declaration)) {
@@ -1388,6 +1389,19 @@ static bool sema_cxx_adl_declaration_has_name(const Decl* declaration,
     return strcmp(declared_name, name) == 0;
 }
 
+static bool sema_cxx_adl_is_function_template_declaration(
+    const CxxNamespace* namespace_node, const Decl* declaration) {
+    for (int index = 0; namespace_node &&
+         index < namespace_node->template_count; ++index) {
+        CxxTemplate* candidate = namespace_node->templates[index];
+        if (candidate && candidate->kind == TMPL_FUNCTION &&
+            candidate->func_def == declaration) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void sema_cxx_adl_collect_namespace_direct(
     CxxNamespace* namespace_node, const char* name,
     SemaCxxAdlCandidates* candidates,
@@ -1395,7 +1409,11 @@ static void sema_cxx_adl_collect_namespace_direct(
     for (DeclList* item = namespace_node ? namespace_node->decls : NULL;
          item; item = item->next) {
         Decl* declaration = item->decl;
-        if (!sema_cxx_adl_declaration_has_name(declaration, name)) continue;
+        if (!sema_cxx_adl_declaration_has_name(declaration, name) ||
+            sema_cxx_adl_is_function_template_declaration(
+                namespace_node, declaration)) {
+            continue;
+        }
         sema_cxx_adl_collect_symbol(
             symtab_lookup(g_symtab, declaration->name), candidates,
             associated_types);
@@ -1472,7 +1490,8 @@ static Symbol* sema_cxx_make_function_symbol(
     return result;
 }
 
-static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
+static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments,
+                                   Symbol* ordinary_functions) {
     SemaCxxAdlCandidates candidates = {0};
     SemaCxxAdlTypes associated_types = {0};
 
@@ -1481,6 +1500,8 @@ static Symbol* sema_cxx_adl_lookup(const char* name, ExprList* arguments) {
         Type* type = item->expr ? item->expr->type : NULL;
         sema_cxx_adl_append_type(&associated_types, type);
     }
+    sema_cxx_adl_collect_symbol(ordinary_functions, &candidates,
+                                &associated_types);
     for (size_t index = 0; index < associated_types.count; ++index) {
         Type* type = associated_types.types[index];
         CxxClass* class_info = type->cxx_class;
@@ -7786,7 +7807,9 @@ static Symbol* sema_cxx_operator_function(const char* name,
     Symbol* function;
     if (!name) return NULL;
     function = sema_cxx_lookup_name(name, (SourceLoc){"<sema>", 0, 0});
-    if (!function && arguments) function = sema_cxx_adl_lookup(name, arguments);
+    if (!function && arguments) {
+        function = sema_cxx_adl_lookup(name, arguments, NULL);
+    }
     return function && function->kind == SYM_FUNC && function->decl
         ? function : NULL;
 }
@@ -10845,6 +10868,10 @@ static Decl* sema_select_cxx_overload_candidates(
         : NULL;
     for (candidate = candidate_root; candidate;
          candidate = candidate->func_overload_next) {
+        if (extra_candidate && candidate->func_is_template_instance &&
+            candidate != extra_candidate) {
+            continue;
+        }
         if (candidate_count == INT_MAX) {
             rcc_error(call->loc, "too many overload candidates for '%s'",
                       call->call_func->ident_name);
@@ -10876,6 +10903,10 @@ static Decl* sema_select_cxx_overload_candidates(
         : NULL;
     for (candidate = candidate_root; candidate;
          candidate = candidate->func_overload_next) {
+        if (extra_candidate && candidate->func_is_template_instance &&
+            candidate != extra_candidate) {
+            continue;
+        }
         candidates[candidate_index++] = candidate;
     }
     if (extra_candidate) {
@@ -10969,7 +11000,7 @@ static Decl* sema_select_cxx_overload_candidates(
                     best_targets, candidate_methods, best_methods,
                     call->call_args, 0, argument_count)
                 : 1;
-            if (!best || (relation > 0 && !ambiguous)) {
+            if (!best || relation > 0) {
                 best = candidate;
                 if (argument_count > 0) {
                     memcpy(best_ranks, candidate_ranks,
@@ -14890,34 +14921,41 @@ static Type* sema_expr(Expr* expr) {
                 }
             }
             if (expr->call_func && expr->call_func->kind == EXPR_IDENT &&
-                !sema_cxx_lookup_name(expr->call_func->ident_name,
-                                      expr->call_func->loc)) {
-                Symbol* adl_symbol;
-                for (argument = expr->call_args; argument;
-                     argument = argument->next) {
-                    if (!sema_cxx_is_function_overload_set(
-                            argument->expr)) {
-                        sema_expr(argument->expr);
+                !(expr->call_func->ident_decl &&
+                  expr->call_func->ident_decl->func_is_template_instance &&
+                  !expr->cxx_template_overload_candidate)) {
+                Symbol* ordinary_lookup = sema_cxx_lookup_name(
+                    expr->call_func->ident_name, expr->call_func->loc);
+                if (!ordinary_lookup || ordinary_lookup->kind == SYM_FUNC) {
+                    Symbol* adl_symbol;
+                    for (argument = expr->call_args; argument;
+                         argument = argument->next) {
+                        if (!sema_cxx_is_function_overload_set(
+                                argument->expr)) {
+                            sema_expr(argument->expr);
+                        }
+                    }
+                    adl_symbol = sema_cxx_adl_lookup(
+                        expr->call_func->ident_name, expr->call_args,
+                        ordinary_lookup);
+                    if (adl_symbol) {
+                        expr->call_func->ident_name = adl_symbol->name;
+                        expr->call_func->ident_decl = adl_symbol->decl;
+                        expr->call_func->type = adl_symbol->type;
+                        arguments_analyzed = true;
+                        if (!expr->cxx_template_overload_candidate &&
+                            adl_symbol->decl &&
+                            adl_symbol->decl->func_overload_next) {
+                            selected_overload = sema_select_cxx_overload(expr);
+                            if (!selected_overload) {
+                                expr->type = type_int;
+                                break;
+                            }
+                            expr->call_func->ident_decl = selected_overload;
+                            expr->call_func->type = selected_overload->type;
+                        }
                     }
                 }
-                adl_symbol = sema_cxx_adl_lookup(
-                    expr->call_func->ident_name, expr->call_args);
-            if (adl_symbol) {
-                expr->call_func->ident_name = adl_symbol->name;
-                expr->call_func->ident_decl = adl_symbol->decl;
-                expr->call_func->type = adl_symbol->type;
-                arguments_analyzed = true;
-                if (adl_symbol->decl &&
-                    adl_symbol->decl->func_overload_next) {
-                    selected_overload = sema_select_cxx_overload(expr);
-                    if (!selected_overload) {
-                        expr->type = type_int;
-                        break;
-                    }
-                    expr->call_func->ident_decl = selected_overload;
-                    expr->call_func->type = selected_overload->type;
-                }
-            }
             }
             if (sema_compiler_builtin_call(expr)) break;
             if (sema_atomic_builtin_call(expr)) break;
@@ -14927,8 +14965,11 @@ static Type* sema_expr(Expr* expr) {
                 Symbol* overload = sema_cxx_lookup_name(
                     expr->call_func->ident_name, expr->call_func->loc);
                 Decl* ordinary_candidates =
-                    overload && overload->kind == SYM_FUNC
-                        ? overload->decl : NULL;
+                    expr->call_func->ident_decl &&
+                    !expr->call_func->ident_decl->func_is_template_instance
+                        ? expr->call_func->ident_decl
+                        : (overload && overload->kind == SYM_FUNC
+                               ? overload->decl : NULL);
                 if (!ordinary_candidates &&
                     expr->call_func->ident_decl &&
                     !expr->call_func->ident_decl->func_is_template_instance) {

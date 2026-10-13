@@ -10513,6 +10513,131 @@ static int namespace_function_templates(CxxNamespace* ns, const char* name,
     return lookup.count;
 }
 
+typedef struct {
+    CxxFunctionTemplateLookup templates;
+    Type** visited_types;
+    int visited_type_count;
+} CxxAdlFunctionTemplateLookup;
+
+static void cxx_function_template_lookup_adl_namespace(
+    CxxFunctionTemplateLookup* lookup, CxxNamespace* ns, const char* name) {
+    if (!lookup || !ns || !name ||
+        !cxx_function_template_lookup_visit_namespace(lookup, ns)) {
+        return;
+    }
+    for (int index = 0; index < ns->template_count; ++index) {
+        CxxTemplate* candidate = ns->templates[index];
+        if (candidate && candidate->kind == TMPL_FUNCTION &&
+            !candidate->is_concept && candidate->name &&
+            strcmp(candidate->name, name) == 0) {
+            cxx_function_template_lookup_add(lookup, candidate);
+        }
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (child->is_inline_namespace) {
+            cxx_function_template_lookup_adl_namespace(lookup, child, name);
+        }
+    }
+}
+
+static CxxNamespace* cxx_type_associated_namespace(Type* type) {
+    if (!type) return NULL;
+    if (type->cxx_class && type->cxx_class->ns) return type->cxx_class->ns;
+    if (type->cxx_namespace && *type->cxx_namespace) {
+        return cxx_namespace_find(g_global_namespace, type->cxx_namespace);
+    }
+    return g_global_namespace;
+}
+
+static void cxx_function_template_lookup_adl_type(
+    CxxAdlFunctionTemplateLookup* lookup, Type* type, const char* name) {
+    CxxClass* cls;
+    Type** template_arguments;
+    int template_argument_count;
+
+    if (!lookup || !type || !name) return;
+    if (type->cxx_is_member_pointer && type->cxx_member_pointer_owner) {
+        cxx_function_template_lookup_adl_type(
+            lookup, type->cxx_member_pointer_owner, name);
+    }
+    if ((type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
+        !type->cxx_is_member_pointer) {
+        cxx_function_template_lookup_adl_type(lookup, type->base, name);
+        return;
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION &&
+        type->kind != TYPE_ENUM) {
+        return;
+    }
+    for (int index = 0; index < lookup->visited_type_count; ++index) {
+        if (lookup->visited_types[index] == type) return;
+    }
+    lookup->visited_types = ast_arena_grow(
+        lookup->visited_types,
+        sizeof(*lookup->visited_types) *
+            (size_t)lookup->visited_type_count,
+        sizeof(*lookup->visited_types) *
+            (size_t)(lookup->visited_type_count + 1));
+    lookup->visited_types[lookup->visited_type_count++] = type;
+
+    cxx_function_template_lookup_adl_namespace(
+        &lookup->templates, cxx_type_associated_namespace(type), name);
+    for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+        cxx_function_template_lookup_adl_type(
+            lookup, type->cxx_template_args[index], name);
+    }
+    cls = type->cxx_class;
+    if (!cls) return;
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (base) {
+            cxx_function_template_lookup_adl_type(
+                lookup, base->type, name);
+        }
+    }
+    template_arguments = cls->template_identity_tmpl
+        ? cls->template_identity_args : cls->template_args;
+    template_argument_count = cls->template_identity_tmpl
+        ? cls->template_identity_arg_count : cls->template_arg_count;
+    for (int index = 0; template_arguments &&
+         index < template_argument_count; ++index) {
+        cxx_function_template_lookup_adl_type(
+            lookup, template_arguments[index], name);
+    }
+}
+
+static bool cxx_namespace_has_function_template_name(
+    CxxNamespace* ns, const char* name) {
+    if (!ns || !name) return false;
+    for (int index = 0; index < ns->template_count; ++index) {
+        CxxTemplate* candidate = ns->templates[index];
+        if (candidate && candidate->kind == TMPL_FUNCTION &&
+            !candidate->is_concept && candidate->name &&
+            strcmp(candidate->name, name) == 0) {
+            return true;
+        }
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (cxx_namespace_has_function_template_name(child, name)) return true;
+    }
+    return false;
+}
+
+static int cxx_function_template_candidates_for_adl(
+    const char* name, ExprList* arguments, CxxTemplate** results,
+    int capacity, int initial_count) {
+    CxxAdlFunctionTemplateLookup lookup = { 0 };
+    if (!name || !arguments || !results || capacity <= 0) return initial_count;
+    lookup.templates.results = results;
+    lookup.templates.capacity = capacity;
+    lookup.templates.count = initial_count;
+    for (ExprList* argument = arguments; argument; argument = argument->next) {
+        cxx_function_template_lookup_adl_type(
+            &lookup, cxx_parser_expression_type(argument->expr), name);
+    }
+    return lookup.templates.count;
+}
+
 /* Unlike ordinary name lookup, a function-template name denotes a candidate
  * set.  Stop at the first namespace in the lexical search that contributes a
  * match, then let the call-site deduction/partial-ordering pass select one. */
@@ -21488,11 +21613,13 @@ Expr* rcc_parse_cxx_template_call(void) {
     CxxTemplate* candidate_templates[32];
     int candidate_count;
     bool qualified_call;
+    bool adl_arguments_parsed = false;
     Type* argument;
     TypeField* size_field;
     TypeField* version_field;
     ExprList* items = NULL;
     Expr* initializer;
+    ExprList* adl_call_arguments = NULL;
     bool unsafe_versioned_shape;
 
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
@@ -21599,9 +21726,30 @@ Expr* rcc_parse_cxx_template_call(void) {
                 return expression;
             }
         }
-        parser.cur = saved_cur;
-        parser.prev = saved_prev;
-        return NULL;
+        if (!qualified_call && !check(TOK_LT) && check(TOK_LPAREN) &&
+            cxx_namespace_has_function_template_name(g_global_namespace,
+                                                     name)) {
+            match(TOK_LPAREN);
+            if (!check(TOK_RPAREN)) {
+                do {
+                    exprlist_append(&adl_call_arguments,
+                                    parse_assignment_expression());
+                } while (match(TOK_COMMA));
+            }
+            expect(TOK_RPAREN, ")");
+            candidate_count = cxx_function_template_candidates_for_adl(
+                name, adl_call_arguments, candidate_templates,
+                (int)(sizeof(candidate_templates) /
+                      sizeof(candidate_templates[0])), 0);
+            if (candidate_count > 0) {
+                adl_arguments_parsed = true;
+            }
+        }
+        if (candidate_count <= 0) {
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+            return NULL;
+        }
     }
     if (candidate_count > (int)(sizeof(candidate_templates) /
                                 sizeof(candidate_templates[0]))) {
@@ -21616,7 +21764,7 @@ Expr* rcc_parse_cxx_template_call(void) {
         tmpl->is_hidden_friend) {
         CxxParsedTemplateArgument explicit_arguments[32];
         int explicit_argument_count = 0;
-        ExprList* call_arguments = NULL;
+        ExprList* call_arguments = adl_call_arguments;
         Expr* function;
         bool explicit_template_arguments = check(TOK_LT);
         int pack_parameter_index =
@@ -21672,22 +21820,39 @@ Expr* rcc_parse_cxx_template_call(void) {
                     }
                 } while (match(TOK_COMMA));
             }
-        } else if (!check(TOK_LPAREN)) {
+        } else if (!adl_arguments_parsed && !check(TOK_LPAREN)) {
             parser.cur = saved_cur;
             parser.prev = saved_prev;
             return NULL;
         }
         if (explicit_template_arguments) expect(TOK_GT, ">");
-        if (!match(TOK_LPAREN)) {
+        if (!adl_arguments_parsed && !match(TOK_LPAREN)) {
             rcc_error(loc, "function template specialization must be called");
             return expr_int(0, loc);
         }
-        if (!check(TOK_RPAREN)) {
-            do {
-                exprlist_append(&call_arguments, parse_assignment_expression());
-            } while (match(TOK_COMMA));
+        if (!adl_arguments_parsed) {
+            if (!check(TOK_RPAREN)) {
+                do {
+                    exprlist_append(&call_arguments,
+                                    parse_assignment_expression());
+                } while (match(TOK_COMMA));
+            }
+            expect(TOK_RPAREN, ")");
+            if (!qualified_call) {
+                candidate_count = cxx_function_template_candidates_for_adl(
+                    name, call_arguments, candidate_templates,
+                    (int)(sizeof(candidate_templates) /
+                          sizeof(candidate_templates[0])), candidate_count);
+                if (candidate_count > (int)(sizeof(candidate_templates) /
+                                            sizeof(candidate_templates[0]))) {
+                    rcc_error(loc,
+                              "too many function template overloads for '%s'",
+                              name);
+                    candidate_count = (int)(sizeof(candidate_templates) /
+                                            sizeof(candidate_templates[0]));
+                }
+            }
         }
-        expect(TOK_RPAREN, ")");
 
         if (unsafe_versioned_shape && candidate_count == 1) {
             rcc_error(loc, "function template '%s' is not safely lowerable",

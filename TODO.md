@@ -3553,3 +3553,24 @@ remains a separate open item.
 - [ ] Continue with non-scalar ellipsis ABI promotions, broader mixed
   ordinary/template overload sets, and remaining C++20 overload-ordering
   rules.
+
+## RCC continuation (2026-10-13, free-function template ADL)
+
+- [x] Include function templates from argument-associated namespaces in
+  unqualified calls, traversing pointer/reference, base-class, and class-
+  template argument associations while respecting inline-namespace lookup.
+  Combine ADL ordinary functions with template candidates so conversion
+  ranking can select an exact template over a worse ordinary conversion.
+- [x] Clear ambiguity among inferior candidates when a later candidate has a
+  strictly better conversion sequence. Cover a mixed namespace overload set
+  with incomparable ordinary base conversions and an exact template match.
+- [x] Pass the native-Windows focused function-template overload gate, the
+  C++ language-core gate, the multiple-namespace ADL gate, the two-phase ADL
+  gate, and the GCC C++20 oracle. Both target generations and AMD64 host
+  execution pass.
+- [ ] Correct function-template ABI mangling when deduced template arguments
+  also occur in the parameter signature. Current names can collide with a
+  same-signature ordinary function in a namespace; compare emitted symbols
+  against GCC and test a mixed ADL tie before changing the encoder.
+- [ ] Continue with non-scalar ellipsis ABI promotions and remaining C++20
+  overload-ordering rules.

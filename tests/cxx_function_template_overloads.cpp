@@ -152,6 +152,21 @@ namespace ConversionFunctionTemplateUsingDeclarationNamespace {
 using ConversionFunctionTemplateImportedNamespace::select_via_declaration;
 }
 
+namespace CxxFunctionTemplateAdl {
+struct Payload {
+    int value;
+};
+
+long select_better_template(Payload* payload, long value) {
+    return payload->value + (int)value + 500;
+}
+
+template<typename T>
+int select_better_template(Payload* payload, T value) {
+    return payload->value + value + 600;
+}
+}
+
 template<typename... T>
 int conversion_function_template_pack(T...) {
     return 6;
@@ -1966,6 +1981,10 @@ static int consume_conversion_value_virtual_cleanup_root(
 }
 
 int main(void) {
+    CxxFunctionTemplateAdl::Payload adl_payload{2};
+    if (select_better_template(&adl_payload, 5) != 607) {
+        return 164;
+    }
     if (cxx_free_variadic(7, 8, 9) != 7) {
         return 152;
     }
