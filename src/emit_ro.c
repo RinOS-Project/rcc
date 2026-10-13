@@ -1796,6 +1796,29 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                             }
                             continue;
                         }
+                        if (parameter->kind == TPARAM_TEMPLATE) {
+                            Type* template_argument = arguments
+                                ? arguments[parameter_index] : NULL;
+                            const char* template_name = template_argument
+                                ? template_argument->tag : NULL;
+                            if (!template_name && template_argument &&
+                                template_argument->cxx_template) {
+                                template_name =
+                                    template_argument->cxx_template->name;
+                            }
+                            if (template_argument &&
+                                template_argument->cxx_template &&
+                                template_name && template_name[0] != '\0') {
+                                section_add_byte(info, 54u);
+                                debug_line_u32(
+                                    info, debug_str_add(strings,
+                                                        parameter->name));
+                                debug_line_u32(
+                                    info, debug_str_add(strings,
+                                                        template_name));
+                            }
+                            continue;
+                        }
                         if (parameter_index >= argument_count) continue;
                         if (parameter->kind == TPARAM_TYPE) {
                             Type* argument_type = arguments
@@ -4706,6 +4729,15 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x1cu);    /* DW_AT_const_value */
     debug_line_uleb(abbrev, 0x0fu);    /* DW_FORM_udata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 54u);
+    debug_line_uleb(abbrev, 0x4106u);  /* DW_TAG_GNU_template_template_param */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x2110u); /* DW_AT_GNU_template_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

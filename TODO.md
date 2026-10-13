@@ -1788,7 +1788,11 @@
         signed/unsigned non-type packsはGCC互換DWARF v4
         `DW_TAG_GNU_template_parameter_pack`配下へ実引数ごとのtype/value DIEを
         出力し、empty／複数要素とsigned／unsigned値を同じ両arch gateで検証。
-        template-template arguments、dependent-typed non-type packs、
+  - [x] Concrete class-template instantiationsのtemplate-template argumentを
+        `DW_TAG_GNU_template_template_param`／`DW_AT_GNU_template_name`で出力し、
+        globalおよびnamespace-qualified actual template名をGCC DWARF oracleと
+        i686/AMD64の`test-debug-info`で検証
+  - [ ] template-template parameter packs、dependent-typed non-type packs、
         未instantiateのdependent alias/template definition DIEは未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
         type/value argumentsを保持し、subprogram DIE配下へtemplate type／

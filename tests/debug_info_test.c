@@ -773,6 +773,68 @@ static void verify_class_template_parameter_dies(const char* path,
     objfile_free(object);
 }
 
+static void verify_class_template_template_parameter_die(
+    const char* path, uint16_t architecture)
+{
+    static const uint8_t template_template_abbreviation[] = {
+        54u, 0x86u, 0x82u, 0x01u, 0u, 0x03u, 0x0eu,
+        0x90u, 0x42u, 0x0eu, 0u, 0u
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    bool found_holder = false;
+    unsigned global_parameter_count = 0u;
+    unsigned qualified_parameter_count = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_sequence(abbrev->data, abbrev->size,
+                             template_template_abbreviation,
+                             sizeof(template_template_abbreviation)));
+
+    for (uint64_t die = 11u; die + 10u <= info->size; ++die) {
+        uint32_t class_name_offset;
+        const char* class_name;
+        if (info->data[die] != 12u) continue;
+        class_name_offset = read_u32(info->data, die + 1u);
+        if (class_name_offset >= strings->size) continue;
+        class_name = (const char*)strings->data + class_name_offset;
+        if (strncmp(class_name, "DebugTemplateTemplateHolder.",
+                    sizeof("DebugTemplateTemplateHolder.") - 1u) != 0) {
+            continue;
+        }
+        found_holder = true;
+        if (info->data[die + 9u] != 54u) continue;
+        {
+            uint32_t parameter_name_offset = read_u32(info->data, die + 10u);
+            uint32_t template_name_offset = read_u32(info->data, die + 14u);
+            if (parameter_name_offset >= strings->size ||
+                template_name_offset >= strings->size) {
+                continue;
+            }
+            if (strcmp((const char*)strings->data + parameter_name_offset,
+                       "Template") != 0) {
+                continue;
+            }
+            if (strcmp((const char*)strings->data + template_name_offset,
+                       "DebugTemplateTemplateLeaf") == 0) {
+                ++global_parameter_count;
+            } else if (strcmp(
+                           (const char*)strings->data + template_name_offset,
+                           "debug_template_namespace::Leaf") == 0) {
+                ++qualified_parameter_count;
+            }
+        }
+    }
+    assert(found_holder && global_parameter_count == 1u &&
+           qualified_parameter_count == 1u);
+    objfile_free(object);
+}
+
 static void verify_class_template_parameter_pack_dies(
     const char* path, uint16_t architecture)
 {
@@ -4574,6 +4636,8 @@ int main(int argc, char** argv)
     verify_inline_debug_object(argv[25], ARCH_X64);
     verify_class_template_parameter_dies(argv[26], ARCH_X86);
     verify_class_template_parameter_dies(argv[27], ARCH_X64);
+    verify_class_template_template_parameter_die(argv[26], ARCH_X86);
+    verify_class_template_template_parameter_die(argv[27], ARCH_X64);
     verify_class_template_parameter_pack_dies(argv[26], ARCH_X86);
     verify_class_template_parameter_pack_dies(argv[27], ARCH_X64);
     verify_class_non_type_template_parameter_pack_dies(

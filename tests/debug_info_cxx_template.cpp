@@ -38,6 +38,32 @@ struct DebugTemplateEmptyNonTypePack {};
 
 DebugTemplateEmptyNonTypePack<> debug_template_zero_parameter_pack;
 
+template <typename Type>
+struct DebugTemplateTemplateLeaf {
+    Type value;
+};
+
+namespace debug_template_namespace {
+template <typename Type>
+struct Leaf {
+    Type value;
+};
+}
+
+template <template <typename> class Template>
+struct DebugTemplateTemplateHolder {
+    Template<int> member;
+};
+
+DebugTemplateTemplateHolder<DebugTemplateTemplateLeaf>
+    debug_template_template_holder;
+DebugTemplateTemplateHolder<debug_template_namespace::Leaf>
+    debug_template_namespace_holder;
+
+int debug_template_template_entry() {
+    return debug_template_template_holder.member.value;
+}
+
 template <typename Value, int Bias>
 int debug_template_function(Value value) {
     return (int)value + Bias;

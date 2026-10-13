@@ -1262,6 +1262,18 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -c \
 		-o $(TEST_OUT)/debug-info/cxx-template-x64-g.ro \
 		tests/debug_info_cxx_template.cpp
+	$(CXX) -std=c++20 -g -Wall -Wextra -Werror \
+		-Wno-unused-parameter -c \
+		-o $(TEST_OUT)/debug-info/cxx-template-gcc.o \
+		tests/debug_info_cxx_template.cpp
+	objdump --dwarf=info $(TEST_OUT)/debug-info/cxx-template-gcc.o \
+		>$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
+	$(GREP) -F -q 'DW_TAG_GNU_template_template_param' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
+	$(GREP) -F -q 'DW_AT_GNU_template_name: DebugTemplateTemplateLeaf' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
+	$(GREP) -F -q 'DW_AT_GNU_template_name: debug_template_namespace::Leaf' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/debug-info/x86-no-g.ro tests/debug_info.c
 	$(RCC_TARGET) --target i686-unknown-rinos -g -O0 -fverified-backend -c \
