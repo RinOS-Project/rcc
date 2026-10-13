@@ -666,6 +666,10 @@ struct Expr {
     /* Set after direct call resolution; false also covers function pointers
      * and unresolved/external calls whose exception specification is unknown. */
     bool cxx_call_is_noexcept;
+    /* The parser resolves function-template argument deduction before
+     * sema, but ordinary overloads must remain candidates until argument
+     * conversions and non-template tie breakers have been compared. */
+    Decl* cxx_template_overload_candidate;
     /* A class prvalue used as a member-call receiver is destroyed at the end
      * of the containing full-expression.  The source keeps the caller-frame
      * slot used by the cleanup plan. */

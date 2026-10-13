@@ -21807,10 +21807,16 @@ Expr* rcc_parse_cxx_template_call(void) {
             }
             if (!present) ast_add_decl(active_ast, instance);
         }
-        function = expr_ident(instance->name, loc);
+        function = expr_ident(name, loc);
         function->ident_decl = instance;
         function->type = instance->type;
-        return expr_call(function, call_arguments, loc);
+        {
+            Expr* call = expr_call(function, call_arguments, loc);
+            if (!explicit_template_arguments) {
+                call->cxx_template_overload_candidate = instance;
+            }
+            return call;
+        }
     }
 
     expect(TOK_LT, "<");

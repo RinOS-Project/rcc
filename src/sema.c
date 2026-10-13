@@ -10746,6 +10746,28 @@ static void sema_validate_cxx_default_suffix(Decl* function) {
     }
 }
 
+static bool sema_cxx_conversion_vectors_same_sequence(
+    const int* left_ranks, Type* const* left_targets,
+    TypeMethod* const* left_methods, const int* right_ranks,
+    Type* const* right_targets, TypeMethod* const* right_methods,
+    int count) {
+    if (!left_ranks || !right_ranks || count < 0) return false;
+    for (int index = 0; index < count; ++index) {
+        Type* left_target = left_targets ? left_targets[index] : NULL;
+        Type* right_target = right_targets ? right_targets[index] : NULL;
+        TypeMethod* left_method = left_methods ? left_methods[index] : NULL;
+        TypeMethod* right_method = right_methods ? right_methods[index] : NULL;
+        if (left_ranks[index] != right_ranks[index] ||
+            left_method != right_method ||
+            ((left_target == NULL) != (right_target == NULL)) ||
+            (left_target && right_target &&
+             !type_is_compatible(left_target, right_target))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool cxx_remaining_parameters_have_defaults(
     TypeParam* parameter, DeclList* declaration) {
     while (parameter && declaration) {
@@ -10788,10 +10810,14 @@ static bool sema_append_cxx_default_arguments(
     return true;
 }
 
-static Decl* sema_select_cxx_overload(Expr* call) {
+static Decl* sema_select_cxx_overload_candidates(
+    Expr* call, Decl* candidate_root, Decl* extra_candidate) {
     Decl* candidate;
     Decl* best = NULL;
     int argument_count;
+    int candidate_count = 0;
+    int candidate_index = 0;
+    Decl** candidates;
     int* best_ranks;
     Type** best_targets;
     TypeMethod** best_methods;
@@ -10817,8 +10843,54 @@ static Decl* sema_select_cxx_overload(Expr* call) {
     best_methods = argument_count > 0
         ? ast_arena_alloc(sizeof(*best_methods) * (size_t)argument_count)
         : NULL;
-    candidate = call->call_func->ident_decl;
-    for (; candidate; candidate = candidate->func_overload_next) {
+    for (candidate = candidate_root; candidate;
+         candidate = candidate->func_overload_next) {
+        if (candidate_count == INT_MAX) {
+            rcc_error(call->loc, "too many overload candidates for '%s'",
+                      call->call_func->ident_name);
+            return NULL;
+        }
+        ++candidate_count;
+    }
+    if (extra_candidate) {
+        bool already_present = false;
+        for (candidate = candidate_root; candidate;
+             candidate = candidate->func_overload_next) {
+            if (candidate == extra_candidate) {
+                already_present = true;
+                break;
+            }
+        }
+        if (!already_present) {
+            if (candidate_count == INT_MAX) {
+                rcc_error(call->loc,
+                          "too many overload candidates for '%s'",
+                          call->call_func->ident_name);
+                return NULL;
+            }
+            ++candidate_count;
+        }
+    }
+    candidates = candidate_count > 0
+        ? ast_arena_alloc(sizeof(*candidates) * (size_t)candidate_count)
+        : NULL;
+    for (candidate = candidate_root; candidate;
+         candidate = candidate->func_overload_next) {
+        candidates[candidate_index++] = candidate;
+    }
+    if (extra_candidate) {
+        bool already_present = false;
+        for (int index = 0; index < candidate_index; ++index) {
+            if (candidates[index] == extra_candidate) {
+                already_present = true;
+                break;
+            }
+        }
+        if (!already_present) candidates[candidate_index++] = extra_candidate;
+    }
+    for (candidate_index = 0; candidate_index < candidate_count;
+         ++candidate_index) {
+        candidate = candidates[candidate_index];
         TypeParam* parameter;
         DeclList* declared_parameter;
         ExprList* argument;
@@ -10910,6 +10982,34 @@ static Decl* sema_select_cxx_overload(Expr* call) {
                                (size_t)argument_count);
                 }
                 ambiguous = false;
+            } else if (relation == 0 &&
+                       sema_cxx_conversion_vectors_same_sequence(
+                           candidate_ranks, candidate_targets,
+                           candidate_methods, best_ranks, best_targets,
+                           best_methods, argument_count)) {
+                bool candidate_is_template =
+                    candidate->func_is_template_instance;
+                bool best_is_template = best->func_is_template_instance;
+                if (best_is_template && !candidate_is_template) {
+                    best = candidate;
+                    if (argument_count > 0) {
+                        memcpy(best_ranks, candidate_ranks,
+                               sizeof(*best_ranks) *
+                                   (size_t)argument_count);
+                        memcpy(best_targets, candidate_targets,
+                               sizeof(*best_targets) *
+                                   (size_t)argument_count);
+                        memcpy(best_methods, candidate_methods,
+                               sizeof(*best_methods) *
+                                   (size_t)argument_count);
+                    }
+                    ambiguous = false;
+                } else if (candidate_is_template && !best_is_template) {
+                    /* Prefer the non-template when conversion sequences
+                     * are indistinguishable. */
+                } else {
+                    ambiguous = true;
+                }
             } else if (relation == 0) {
                 ambiguous = true;
             }
@@ -10926,6 +11026,13 @@ static Decl* sema_select_cxx_overload(Expr* call) {
         return NULL;
     }
     return best;
+}
+
+static Decl* sema_select_cxx_overload(Expr* call) {
+    return sema_select_cxx_overload_candidates(
+        call, call && call->call_func
+            ? call->call_func->ident_decl : NULL,
+        NULL);
 }
 
 /* The cv-qualification of a non-static member function belongs to its
@@ -14814,10 +14921,42 @@ static Type* sema_expr(Expr* expr) {
             }
             if (sema_compiler_builtin_call(expr)) break;
             if (sema_atomic_builtin_call(expr)) break;
+            if (expr->cxx_template_overload_candidate &&
+                expr->call_func &&
+                expr->call_func->kind == EXPR_IDENT) {
+                Symbol* overload = sema_cxx_lookup_name(
+                    expr->call_func->ident_name, expr->call_func->loc);
+                Decl* ordinary_candidates =
+                    overload && overload->kind == SYM_FUNC
+                        ? overload->decl : NULL;
+                if (!ordinary_candidates &&
+                    expr->call_func->ident_decl &&
+                    !expr->call_func->ident_decl->func_is_template_instance) {
+                    ordinary_candidates = expr->call_func->ident_decl;
+                }
+                for (argument = expr->call_args; argument;
+                     argument = argument->next) {
+                    if (!sema_cxx_is_function_overload_set(
+                            argument->expr)) {
+                        sema_expr(argument->expr);
+                    }
+                }
+                arguments_analyzed = true;
+                selected_overload = sema_select_cxx_overload_candidates(
+                    expr, ordinary_candidates,
+                    expr->cxx_template_overload_candidate);
+                if (!selected_overload) {
+                    expr->type = type_int;
+                    break;
+                }
+                expr->call_func->ident_decl = selected_overload;
+                expr->call_func->type = selected_overload->type;
+            }
             if (expr->call_func->kind == EXPR_IDENT) {
                 Symbol* overload = sema_cxx_lookup_name(
                     expr->call_func->ident_name, expr->call_func->loc);
-                if (overload && overload->kind == SYM_FUNC &&
+                if (!selected_overload && overload &&
+                    overload->kind == SYM_FUNC &&
                     overload->decl && overload->decl->func_has_cxx_linkage &&
                     overload->decl->func_overload_next &&
                     (!expr->call_func->ident_decl ||

@@ -3528,3 +3528,22 @@ remains a separate open item.
   ellipsis-argument regression (exit 0).
 - [ ] Extend constexpr-call coverage to non-scalar ellipsis arguments and
   generalize beyond the currently evaluated integer/floating subset.
+
+## RCC continuation (2026-10-13, mixed free-function template overloads)
+
+- [x] Keep the deduced function-template specialization in the call's
+  overload set until sema compares it with ordinary same-name functions. Apply
+  the non-template preference only when conversion sequences are
+  indistinguishable; preserve a template when its conversion sequence is
+  better.
+- [x] Cover a C-style variadic ordinary function against a variadic function
+  template: the ordinary overload wins an identical `int` match, while the
+  template wins for `char` against the ordinary function's integral promotion.
+  Compare results with GCC C++20 and verify both target assembly paths plus
+  AMD64 execution.
+- [x] Pass the focused native-Windows
+  `mingw32-make SHELL=cmd.exe CC=gcc TEST_OUT=build/tests -j1
+  test-cxx-function-template-overloads` gate (exit 0, including its GCC oracle).
+- [ ] Continue with non-scalar ellipsis ABI promotions, broader mixed
+  ordinary/template overload sets, and remaining C++20 overload-ordering
+  rules.
