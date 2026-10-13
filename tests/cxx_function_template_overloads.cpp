@@ -232,6 +232,35 @@ struct ConversionMemberPointerRoot {
 struct ConversionMemberPointerMiddle : ConversionMemberPointerRoot {};
 struct ConversionMemberPointerLeaf : ConversionMemberPointerMiddle {};
 
+struct ConversionMemberPointerPrivateOwner
+    : private ConversionMemberPointerRoot {
+    friend int invoke_private_member_pointer_owner(
+        int ConversionMemberPointerRoot::*);
+    friend int invoke_private_member_pointer_owner_template(
+        int ConversionMemberPointerRoot::*);
+};
+
+int choose_private_member_pointer_owner(
+    int ConversionMemberPointerPrivateOwner::*) {
+    return 243;
+}
+
+template<typename T>
+int choose_private_member_pointer_owner_template(
+    T, int ConversionMemberPointerPrivateOwner::*) {
+    return 244;
+}
+
+int invoke_private_member_pointer_owner(
+    int ConversionMemberPointerRoot::*member) {
+    return choose_private_member_pointer_owner(member);
+}
+
+int invoke_private_member_pointer_owner_template(
+    int ConversionMemberPointerRoot::*member) {
+    return choose_private_member_pointer_owner_template(0, member);
+}
+
 struct ConversionValueRoot {
     int root_value;
 };
@@ -3007,6 +3036,10 @@ int main(void) {
                        0, &ConversionMemberPointerRoot::value) == 239 &&
                    choose_member_pointer_owner_qualification_reverse_tradeoff_non_template(
                        &ConversionMemberPointerRoot::value) == 241 &&
+                   invoke_private_member_pointer_owner(
+                       &ConversionMemberPointerRoot::value) == 243 &&
+                   invoke_private_member_pointer_owner_template(
+                       &ConversionMemberPointerRoot::value) == 244 &&
                    choose_base_over_void(leaf_pointer, leaf_pointer) == 83 &&
                    choose_nearer_base_value(
                        value_leaf_pointer, value_leaf) == 92 &&

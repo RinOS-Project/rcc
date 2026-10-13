@@ -242,21 +242,17 @@ static void sema_cxx_merge_friend_access(Decl* declaration,
     }
 }
 
-static bool sema_cxx_member_accessible(CxxClass* target,
-                                       unsigned char access) {
-    CxxClass* context;
+static bool sema_cxx_member_accessible_at_context(
+    CxxClass* target, unsigned char access, CxxClass* context,
+    CxxFriendAccess* function_friend_access) {
     if (access == ACCESS_PUBLIC) return true;
-    context = current_cxx_method_owner
-        ? current_cxx_method_owner->cxx_class : NULL;
     if (context == target) return true;
     if (access == ACCESS_PROTECTED &&
         sema_cxx_class_derives_from(context, target, 0u)) {
         return true;
     }
     if (target && sema_cxx_class_is_friend(target, context)) return true;
-    if (!current_cxx_function_decl) return false;
-    for (CxxFriendAccess* friend_access =
-             current_cxx_function_decl->func_friend_access;
+    for (CxxFriendAccess* friend_access = function_friend_access;
          friend_access; friend_access = friend_access->next) {
         CxxClass* friend_class = friend_access->owner;
         if (friend_class == target ||
@@ -266,6 +262,16 @@ static bool sema_cxx_member_accessible(CxxClass* target,
         }
     }
     return false;
+}
+
+static bool sema_cxx_member_accessible(CxxClass* target,
+                                       unsigned char access) {
+    CxxClass* context = current_cxx_method_owner
+        ? current_cxx_method_owner->cxx_class : NULL;
+    CxxFriendAccess* function_friend_access = current_cxx_function_decl
+        ? current_cxx_function_decl->func_friend_access : NULL;
+    return sema_cxx_member_accessible_at_context(
+        target, access, context, function_friend_access);
 }
 
 static CxxClass* sema_cxx_protected_member_pointer_friend_class(
@@ -989,23 +995,69 @@ static int sema_cxx_all_virtual_member_base_paths(Type* derived,
         derived, target, NULL, NULL, false);
 }
 
-/* Pointer-to-member owner conversion requires one accessible non-virtual
- * base subobject.  Count every route first so a private duplicate or a
- * virtual duplicate cannot be hidden by selecting the sole public fixed path. */
-static bool sema_cxx_unique_public_nonvirtual_base_path(
-    Type* derived, Type* target, int* adjustment) {
-    int public_paths = sema_cxx_nonvirtual_public_base_paths(
-        derived, target, adjustment, 0u);
-    int all_paths = sema_cxx_nonvirtual_all_base_paths(
-        derived, target, 0u) +
-        sema_cxx_all_virtual_member_base_paths(derived, target);
-    return public_paths == 1 && all_paths == 1;
+static int sema_cxx_nonvirtual_accessible_base_paths_impl(
+    Type* derived, Type* target, int* adjustment, unsigned depth,
+    CxxClass* access_context, CxxFriendAccess* function_friend_access) {
+    CxxClass* cls;
+    int count = 0;
+    if (!derived || !target || depth > 32u) return 0;
+    if (derived == target ||
+        (derived->cxx_class && target->cxx_class &&
+         derived->cxx_class == target->cxx_class)) {
+        if (adjustment) *adjustment = 0;
+        return 1;
+    }
+    cls = derived->cxx_class;
+    if (!cls || !cls->base_offsets) return 0;
+    for (int index = 0; index < cls->base_count; ++index) {
+        Type* base_type = cls->bases[index].base
+            ? cls->bases[index].base->type : NULL;
+        int nested_adjustment = 0;
+        int nested_count;
+        if (!base_type || cls->bases[index].is_virtual ||
+            cls->base_offsets[index] < 0 ||
+            !sema_cxx_member_accessible_at_context(
+                cls, cls->bases[index].access, access_context,
+                function_friend_access)) {
+            continue;
+        }
+        nested_count = sema_cxx_nonvirtual_accessible_base_paths_impl(
+            base_type, target, &nested_adjustment, depth + 1u,
+            access_context, function_friend_access);
+        if (nested_count <= 0) continue;
+        if (count == 0 && adjustment) {
+            *adjustment = cls->base_offsets[index] + nested_adjustment;
+        }
+        count += nested_count;
+        if (count > 1) return 2;
+    }
+    return count;
 }
 
-static bool sema_cxx_unique_public_nonvirtual_member_owner_path(
+/* Pointer-to-member owner conversion requires one accessible non-virtual
+ * base subobject at the conversion site. Count every route as well so an
+ * inaccessible duplicate or a virtual route cannot be hidden by selecting a
+ * single accessible fixed path. */
+static bool sema_cxx_unique_accessible_nonvirtual_member_owner_path(
+    Type* derived, Type* target, int* adjustment,
+    CxxClass* access_context, CxxFriendAccess* function_friend_access) {
+    int accessible_paths = sema_cxx_nonvirtual_accessible_base_paths_impl(
+        derived, target, adjustment, 0u, access_context,
+        function_friend_access);
+    int all_paths = sema_cxx_nonvirtual_all_base_paths(derived, target, 0u) +
+        sema_cxx_all_virtual_member_base_paths(derived, target);
+    return accessible_paths == 1 && all_paths == 1;
+}
+
+static bool sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
     Type* derived, Type* target, int* adjustment) {
-    return sema_cxx_unique_public_nonvirtual_base_path(
-        derived, target, adjustment);
+    CxxClass* access_context = current_cxx_method_owner
+        ? current_cxx_method_owner->cxx_class : NULL;
+    CxxFriendAccess* function_friend_access = current_cxx_function_decl
+        ? current_cxx_function_decl->func_friend_access : NULL;
+    return sema_cxx_unique_accessible_nonvirtual_member_owner_path(
+        derived, target, adjustment, access_context,
+        function_friend_access);
 }
 
 static bool sema_cxx_unique_public_base(Type* derived, Type* target,
@@ -2707,7 +2759,7 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
         }
         return source->cxx_member_pointer_owner &&
                        target->cxx_member_pointer_owner &&
-                       sema_cxx_unique_public_nonvirtual_member_owner_path(
+                       sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
                            target->cxx_member_pointer_owner,
                            source->cxx_member_pointer_owner, NULL)
                    ? 2 : -1;
@@ -3219,7 +3271,7 @@ reference_binding_validated:
                     e->type->base, target->base) &&
                 source_owner && target_owner &&
                 !type_is_compatible(source_owner, target_owner)) {
-                paths = sema_cxx_unique_public_nonvirtual_member_owner_path(
+                paths = sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
                     target_owner, source_owner, &owner_adjustment) ? 1 : 0;
             }
             if (paths == 1) {
@@ -8154,8 +8206,9 @@ static int sema_cxx_function_type_conversion_rank(Type* source,
         ? 0 : 1;
 }
 
-static int cxx_conversion_rank_detail(Expr* argument, Type* target,
-                                     TypeMethod** conversion_method) {
+static int cxx_conversion_rank_detail_at_context(
+    Expr* argument, Type* target, TypeMethod** conversion_method,
+    CxxClass* access_context, CxxFriendAccess* function_friend_access) {
     Type* source;
     Type* source_base;
     Type* target_base;
@@ -8310,9 +8363,10 @@ static int cxx_conversion_rank_detail(Expr* argument, Type* target,
         }
         if (source->cxx_member_pointer_owner &&
             target->cxx_member_pointer_owner &&
-            sema_cxx_unique_public_nonvirtual_member_owner_path(
+            sema_cxx_unique_accessible_nonvirtual_member_owner_path(
                 target->cxx_member_pointer_owner,
-                source->cxx_member_pointer_owner, NULL)) {
+                source->cxx_member_pointer_owner, NULL, access_context,
+                function_friend_access)) {
             return 2;
         }
         return -1;
@@ -8373,6 +8427,17 @@ static int cxx_conversion_rank_detail(Expr* argument, Type* target,
     return -1;
 }
 
+static int cxx_conversion_rank_detail(Expr* argument, Type* target,
+                                     TypeMethod** conversion_method) {
+    CxxClass* access_context = current_cxx_method_owner
+        ? current_cxx_method_owner->cxx_class : NULL;
+    CxxFriendAccess* function_friend_access = current_cxx_function_decl
+        ? current_cxx_function_decl->func_friend_access : NULL;
+    return cxx_conversion_rank_detail_at_context(
+        argument, target, conversion_method, access_context,
+        function_friend_access);
+}
+
 static int cxx_conversion_rank(Expr* argument, Type* target) {
     return cxx_conversion_rank_detail(argument, target, NULL);
 }
@@ -8380,26 +8445,49 @@ static int cxx_conversion_rank(Expr* argument, Type* target) {
 int rcc_sema_cxx_conversion_rank_with_method(
     Expr* argument, Type* source, Type* target,
     TypeMethod** conversion_method) {
+    CxxClass* access_context = current_cxx_method_owner
+        ? current_cxx_method_owner->cxx_class : NULL;
+    CxxFriendAccess* function_friend_access = current_cxx_function_decl
+        ? current_cxx_function_decl->func_friend_access : NULL;
+    return rcc_sema_cxx_conversion_rank_with_method_at_context(
+        argument, source, target, conversion_method, access_context,
+        function_friend_access);
+}
+
+int rcc_sema_cxx_conversion_rank_with_method_at_context(
+    Expr* argument, Type* source, Type* target,
+    TypeMethod** conversion_method, CxxClass* access_context,
+    CxxFriendAccess* function_friend_access) {
     Expr typed_argument;
     if (conversion_method) *conversion_method = NULL;
     if (!argument || !target) return -1;
     if (argument->type || !source) {
-        return cxx_conversion_rank_detail(
-            argument, target, conversion_method);
+        return cxx_conversion_rank_detail_at_context(
+            argument, target, conversion_method, access_context,
+            function_friend_access);
     }
     /* Function-template candidates are ranked before the full semantic pass
      * assigns Expr::type.  Give the shared conversion logic a private typed
      * view, without mutating the parser's expression tree. */
     typed_argument = *argument;
     typed_argument.type = source;
-    return cxx_conversion_rank_detail(
-        &typed_argument, target, conversion_method);
+    return cxx_conversion_rank_detail_at_context(
+        &typed_argument, target, conversion_method, access_context,
+        function_friend_access);
 }
 
 int rcc_sema_cxx_conversion_rank(Expr* argument, Type* source,
                                  Type* target) {
     return rcc_sema_cxx_conversion_rank_with_method(
         argument, source, target, NULL);
+}
+
+int rcc_sema_cxx_conversion_rank_at_context(
+    Expr* argument, Type* source, Type* target, CxxClass* access_context,
+    CxxFriendAccess* function_friend_access) {
+    return rcc_sema_cxx_conversion_rank_with_method_at_context(
+        argument, source, target, NULL, access_context,
+        function_friend_access);
 }
 
 int rcc_sema_cxx_enum_promotion_target_relation(Type* source,
@@ -8681,7 +8769,7 @@ static bool sema_cxx_select_function_pointer_overload(
                 owner_type, target->cxx_member_pointer_owner);
             if (!sema_cxx_exact_function_signature(signature, target->base) ||
                 (owner_conversion &&
-                 !sema_cxx_unique_public_nonvirtual_member_owner_path(
+                 !sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
                      target->cxx_member_pointer_owner, owner_type,
                      NULL))) {
                 continue;
@@ -13506,7 +13594,7 @@ static Type* sema_expr(Expr* expr) {
                         !target->cxx_member_pointer_owner) {
                         paths = 0;
                     } else {
-                        paths = sema_cxx_unique_public_nonvirtual_member_owner_path(
+                        paths = sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
                             target->cxx_member_pointer_owner,
                             source->cxx_member_pointer_owner,
                             &base_adjustment) ? 1 : 0;
@@ -13514,7 +13602,7 @@ static Type* sema_expr(Expr* expr) {
                             expr->cxx_member_pointer_adjustment =
                                 base_adjustment;
                         } else {
-                            paths = sema_cxx_unique_public_nonvirtual_member_owner_path(
+                            paths = sema_cxx_unique_current_accessible_nonvirtual_member_owner_path(
                                 source->cxx_member_pointer_owner,
                                 target->cxx_member_pointer_owner,
                                 &base_adjustment) ? 1 : 0;

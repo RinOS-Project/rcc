@@ -3615,6 +3615,16 @@ test-cxx-member-pointer-data-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "assignment requires modifiable lvalue" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x86.ro tests/cxx_member_pointer_private_owner_global_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x86.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x64.ro tests/cxx_member_pointer_private_owner_global_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x64.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x86.ro tests/cxx_member_pointer_private_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x86.log)
+	$(GREP) -F -q "no matching function template overload for 'choose_private_member_pointer_owner'" $(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x64.ro tests/cxx_member_pointer_private_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x64.log)
+	$(GREP) -F -q "no matching function template overload for 'choose_private_member_pointer_owner'" $(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x64.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_member_pointer_private_owner_global_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-global-gcc.log)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_member_pointer_private_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-template-gcc.log)
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-member-pointer-data/using-invalid-x86.ro \
 		tests/cxx_member_pointer_data_using_invalid.cpp \
@@ -4466,6 +4476,16 @@ test-cxx-member-pointer-data: $(RCXX_TARGET)
 	$(GREP) -F -q "member-pointer application requires one public base subobject path" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
 	$(GREP) -F -q "assignment requires modifiable lvalue" $(TEST_OUT)/cxx-member-pointer-data/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x86.ro tests/cxx_member_pointer_private_owner_global_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x86.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x64.ro tests/cxx_member_pointer_private_owner_global_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x64.log)
+	$(GREP) -F -q "invalid pointer-to-member conversion in initialization" $(TEST_OUT)/cxx-member-pointer-data/private-owner-global-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x86.ro tests/cxx_member_pointer_private_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x86.log)
+	$(GREP) -F -q "no matching function template overload for 'choose_private_member_pointer_owner'" $(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x64.ro tests/cxx_member_pointer_private_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x64.log)
+	$(GREP) -F -q "no matching function template overload for 'choose_private_member_pointer_owner'" $(TEST_OUT)/cxx-member-pointer-data/private-owner-template-x64.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_member_pointer_private_owner_global_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-global-gcc.log)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_member_pointer_private_owner_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/private-owner-template-gcc.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/protected-designator-x86.ro tests/cxx_member_pointer_data_protected_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/protected-designator-x86.log)
 	$(call CHECK_COUNT,data-member pointer formation is not accessible in this context,$(TEST_OUT)/cxx-member-pointer-data/protected-designator-x86.log,2)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-member-pointer-data/protected-designator-x64.ro tests/cxx_member_pointer_data_protected_invalid.cpp,$(TEST_OUT)/cxx-member-pointer-data/protected-designator-x64.log)

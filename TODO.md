@@ -2459,6 +2459,18 @@ remains a separate open item.
   member-pointer owner/cv ordering change; it completed successfully,
   including both target architectures and generated AMD64 execution.
 
+## C++ regression follow-up (2026-10-14, member-pointer access context)
+
+- [x] Carry the active class/friend access context into function-template
+  conversion ranking for `Base::*` to derived-owner conversions. A private
+  base conversion is viable inside its friend function but rejected outside;
+  ambiguous and virtual owner paths remain invalid. GCC C++20 agrees; the
+  focused overload, data-member-pointer, and member-function-pointer gates
+  pass, including both target architectures and generated AMD64 execution.
+- [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after the
+  member-pointer access-context change; it completed successfully, including
+  both target architectures and generated AMD64 execution.
+
 ## C++ regression follow-up (2026-10-10, ordinary derived-pointer ranking)
 
 - [x] For equal Conversion-rank ordinary pointer arguments to related class

@@ -19779,6 +19779,21 @@ static bool cxx_parser_template_qualification_relation(
         requires_qualification);
 }
 
+static int cxx_parser_sema_conversion_rank(
+    Expr* argument, Type* source, Type* target) {
+    return rcc_sema_cxx_conversion_rank_at_context(
+        argument, source, target, active_class,
+        active_friend_access_context);
+}
+
+static int cxx_parser_sema_conversion_rank_with_method(
+    Expr* argument, Type* source, Type* target,
+    TypeMethod** conversion_method) {
+    return rcc_sema_cxx_conversion_rank_with_method_at_context(
+        argument, source, target, conversion_method, active_class,
+        active_friend_access_context);
+}
+
 static int cxx_parser_template_conversion_rank(Expr* argument,
                                                 Type* target) {
     Type* source;
@@ -19806,7 +19821,7 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
         source->enum_has_fixed_underlying && !source->enum_is_scoped) {
         /* Keep fixed-enum promotions distinct from other arithmetic
          * conversions while reusing the semantic ranker's viability rules. */
-        return rcc_sema_cxx_conversion_rank(argument, source, target);
+        return cxx_parser_sema_conversion_rank(argument, source, target);
     }
     if (type_is_compatible(source, target)) {
         return cxx_parser_template_qualification_relation(
@@ -19840,7 +19855,7 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
     }
     if (source->kind == TYPE_FUNC && target->kind == TYPE_PTR &&
         target->base && target->base->kind == TYPE_FUNC) {
-        return rcc_sema_cxx_conversion_rank(argument, source, target);
+        return cxx_parser_sema_conversion_rank(argument, source, target);
     }
     if (source->kind == TYPE_PTR && target->kind == TYPE_PTR &&
         (source->cxx_is_member_pointer ||
@@ -19849,7 +19864,7 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
          * conversions. Delegate viability to sema so Base::* to Derived::*
          * receives Conversion rank instead of being mistaken for an exact
          * match merely because the pointed-to member types are compatible. */
-        return rcc_sema_cxx_conversion_rank(argument, source, target) == 2
+        return cxx_parser_sema_conversion_rank(argument, source, target) == 2
             ? 2 : -1;
     }
     if (source->kind == TYPE_PTR && target->kind == TYPE_PTR) {
@@ -19858,7 +19873,7 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
         if (source_base && target_base) {
             if (source_base->kind == TYPE_FUNC &&
                 target_base->kind == TYPE_FUNC) {
-                return rcc_sema_cxx_conversion_rank(
+                return cxx_parser_sema_conversion_rank(
                     argument, source, target);
             }
             if (type_is_compatible(source_base, target_base)) return 1;
@@ -19921,7 +19936,7 @@ static int cxx_parser_function_pointer_overload_rank(
         }
         typed_argument = *name;
         typed_argument.type = candidate->type;
-        rank = rcc_sema_cxx_conversion_rank(
+        rank = cxx_parser_sema_conversion_rank(
             &typed_argument, candidate->type, target);
         if (rank < 0) continue;
         if (selected &&
@@ -19958,13 +19973,13 @@ static int cxx_parser_function_template_overload_conversion_rank(
         (source->kind == TYPE_FUNC ||
          (source->kind == TYPE_PTR && !source->cxx_is_member_pointer &&
           source->base && source->base->kind == TYPE_FUNC))) {
-        return rcc_sema_cxx_conversion_rank(argument, source, target);
+        return cxx_parser_sema_conversion_rank(argument, source, target);
     }
     rank = cxx_parser_template_conversion_rank(argument, target);
     if (rank < 0) {
         source = cxx_parser_expression_type(argument);
         TypeMethod* selected_conversion = NULL;
-        int semantic_rank = rcc_sema_cxx_conversion_rank_with_method(
+        int semantic_rank = cxx_parser_sema_conversion_rank_with_method(
             argument, source, target, &selected_conversion);
         if (semantic_rank == 2) {
             /* The parser-local template ranker does not model every
@@ -21438,7 +21453,7 @@ Decl* rcc_parser_cxx_resolve_function_pointer_template(
         match.conversion_rank_count = 1;
         match.conversion_sources[0] = match.instance->type;
         match.conversion_targets[0] = target;
-        match.conversion_ranks[0] = rcc_sema_cxx_conversion_rank(
+        match.conversion_ranks[0] = cxx_parser_sema_conversion_rank(
             &typed_function, match.instance->type, target);
         if (match.conversion_ranks[0] < 0) continue;
         if (match.conversion_ranks[0] < best_rank) {

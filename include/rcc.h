@@ -157,6 +157,8 @@ struct Preprocessor;
 struct Decl;
 struct Expr;
 struct Type;
+struct CxxClass;
+struct CxxFriendAccess;
 
 /* Preprocessor */
 struct Preprocessor* rcc_preproc_new(void);
@@ -182,6 +184,15 @@ int rcc_sema_cxx_conversion_rank(struct Expr* expression,
 int rcc_sema_cxx_conversion_rank_with_method(
     struct Expr* expression, struct Type* source, struct Type* target,
     struct TypeMethod** conversion_method);
+int rcc_sema_cxx_conversion_rank_at_context(
+    struct Expr* expression, struct Type* source, struct Type* target,
+    struct CxxClass* access_context,
+    struct CxxFriendAccess* function_friend_access);
+int rcc_sema_cxx_conversion_rank_with_method_at_context(
+    struct Expr* expression, struct Type* source, struct Type* target,
+    struct TypeMethod** conversion_method,
+    struct CxxClass* access_context,
+    struct CxxFriendAccess* function_friend_access);
 int rcc_sema_cxx_user_conversion_target_relation(
     struct TypeMethod* conversion_method, struct Type* left_target,
     struct Type* right_target);
