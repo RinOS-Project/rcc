@@ -50,6 +50,11 @@ int cxx_free_ellipsis_explicit_conversion_overload(int value) {
 
 int cxx_free_ellipsis_explicit_conversion_overload(...) { return 5000; }
 
+struct CxxMemberEllipsisProbe {
+    int select(int value) const { return value + 6000; }
+    int select(...) const { return 7000; }
+};
+
 int cxx_free_fixed_overload(int value) { return value + 300; }
 
 template<typename T>
@@ -2050,6 +2055,13 @@ int main(void) {
     if (cxx_free_ellipsis_explicit_conversion_overload(
             CxxEllipsisExplicitInt{7}) != 5000) {
         return 168;
+    }
+    CxxMemberEllipsisProbe member_ellipsis_probe;
+    if (member_ellipsis_probe.select(CxxEllipsisImplicitInt{7}) != 6007) {
+        return 169;
+    }
+    if (member_ellipsis_probe.select(CxxEllipsisExplicitInt{7}) != 7000) {
+        return 170;
     }
     if (cxx_free_fixed_overload(7) != 307) {
         return 156;
