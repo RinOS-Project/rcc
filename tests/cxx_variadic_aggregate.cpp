@@ -54,3 +54,23 @@ int read_variadic_aligned_aggregate(
            spilled_integer + (int)aligned.first + (int)aligned.second +
            (int)aligned.third + (int)aligned.fourth;
 }
+
+int read_variadic_sse_aggregate(
+    double fp0, double fp1, double fp2, double fp3, double fp4, ...) {
+    __builtin_va_list arguments;
+    __builtin_va_start(arguments, fp4);
+    VariadicDoublePair in_registers =
+        __builtin_va_arg(arguments, VariadicDoublePair);
+    VariadicDoublePair on_stack =
+        __builtin_va_arg(arguments, VariadicDoublePair);
+    double in_last_sse_register = __builtin_va_arg(arguments, double);
+    __builtin_va_end(arguments);
+
+    return (fp0 == 0.0 && fp1 == 0.0 && fp2 == 0.0 && fp3 == 0.0 &&
+                    fp4 == 0.0
+                ? 1
+                : 0) +
+           (int)in_registers.first + (int)in_registers.second +
+           (int)on_stack.first + (int)on_stack.second +
+           (int)in_last_sse_register;
+}

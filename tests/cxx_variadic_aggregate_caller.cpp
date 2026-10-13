@@ -6,6 +6,8 @@ int main() {
     VariadicMemoryAggregate memory = {19, 23, 29};
     VariadicMixedAggregate gp_exhausted = {31, 4.0};
     VariadicAlignedMemoryAggregate aligned = {11, 13, 17, 19};
+    VariadicDoublePair sse_first = {7.0, 11.0};
+    VariadicDoublePair sse_second = {13.0, 17.0};
 
     int registers_result = read_variadic_aggregate_registers(
         1, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, first, second,
@@ -14,9 +16,12 @@ int main() {
         1, 0, 0, 0, 0, 0, gp_exhausted, 5.0);
     int aligned_result = read_variadic_aligned_aggregate(
         1, 0, 0, 0, 0, 0, 7, aligned);
+    int sse_aggregate_result = read_variadic_sse_aggregate(
+        0.0, 0.0, 0.0, 0.0, 0.0, sse_first, sse_second, 19.0);
 
     if (registers_result != 107) return 1;
     if (gp_exhausted_result != 41) return 2;
     if (aligned_result != 68) return 3;
+    if (sse_aggregate_result != 68) return 4;
     return 0;
 }
