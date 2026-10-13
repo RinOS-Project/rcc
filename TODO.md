@@ -3505,6 +3505,23 @@ remains a separate open item.
   test-cxx-function-template-overloads` gate and the full
   `mingw32-make SHELL=cmd.exe CC=gcc CXX=g++ TEST_OUT=build/tests -j1
   test-cxx` aggregate (both exit 0 after the function-template regression).
-- [ ] Extend coverage to mixed ordinary/function-template overload sets,
-  class-member variadic templates, non-integer ellipsis ABI promotions, and
-  remaining C++20 overload-ordering rules.
+- [x] Cover static class-member variadic function templates in dependent
+  constexpr calls, including a fixed ordinary overload competitor and scalar
+  ellipsis arguments subject to default argument promotions.
+- [ ] Extend coverage to mixed free-function ordinary/template overload sets,
+  non-scalar ellipsis ABI promotions, and remaining C++20 overload-ordering
+  rules.
+
+## RCC continuation (2026-10-13, variadic constexpr member templates)
+
+- [x] Allow the dependent static-member-call evaluator to materialize and rank
+  constexpr variadic member-function templates, compare them with ordinary
+  fixed-parameter members, and evaluate constant integer/floating ellipsis
+  arguments after default argument promotions.
+- [x] Compare with GCC C++20 and run i686/AMD64 generation plus AMD64
+  execution. Pass the focused native-Windows gate and the full `test-cxx`
+  aggregate (exit 0) after the evaluator change; rerun the focused
+  `test-cxx-function-template-overloads` gate after adding the floating
+  ellipsis-argument regression (exit 0).
+- [ ] Extend constexpr-call coverage to non-scalar ellipsis arguments and
+  generalize beyond the currently evaluated integer/floating subset.

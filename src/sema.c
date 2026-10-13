@@ -6968,7 +6968,7 @@ static bool sema_eval_constexpr_scalar_function(
 
     if (!declaration || !value || !declaration->func_is_constexpr ||
         declaration->func_this_param || !declaration->type ||
-        declaration->type->kind != TYPE_FUNC || declaration->type->variadic ||
+        declaration->type->kind != TYPE_FUNC ||
         !sema_constexpr_scalar_type(declaration->type->ret_type) ||
         !declaration->func_body || declaration->func_body->kind != STMT_BLOCK) {
         return false;
@@ -7051,7 +7051,31 @@ static bool sema_eval_constexpr_scalar_function(
         ++count;
         parameter = parameter->next;
     }
-    if (argument || constexpr_eval_depth >= 64) return false;
+    if (argument) {
+        if (!declaration->type->variadic) return false;
+        while (argument) {
+            Type* argument_type = argument->expr
+                ? argument->expr->type : NULL;
+            Type* promoted_type;
+            if (!argument_type ||
+                (!sema_constexpr_integer_type(argument_type) &&
+                 argument_type->kind != TYPE_FLOAT &&
+                 argument_type->kind != TYPE_DOUBLE) ||
+                !sema_eval_constexpr_scalar_expr(
+                    argument->expr, caller_bindings, caller_binding_count,
+                    &argument_value)) {
+                return false;
+            }
+            promoted_type = argument_type->kind == TYPE_FLOAT
+                ? type_double : sema_integer_promotion(argument_type);
+            if (!sema_constexpr_scalar_convert(
+                    &argument_value, promoted_type, &argument_value)) {
+                return false;
+            }
+            argument = argument->next;
+        }
+    }
+    if (constexpr_eval_depth >= 64) return false;
     saved_dynamic_live_count = constexpr_dynamic_live_count;
     ++constexpr_eval_depth;
     if (!sema_eval_constexpr_scalar_statement(

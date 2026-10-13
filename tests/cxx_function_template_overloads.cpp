@@ -466,6 +466,24 @@ struct FunctionTemplateMemberCallVariadicOrdinary {
     }
 };
 
+struct FunctionTemplateMemberCallVariadicMemberTemplate {
+    template<typename T>
+    static constexpr int value(T first, ...) {
+        return first + 1;
+    }
+};
+
+struct FunctionTemplateMemberCallVariadicMemberTemplateCompetitor {
+    static constexpr int value(int first, int second) {
+        return first + second;
+    }
+
+    template<typename T>
+    static constexpr int value(T first, ...) {
+        return first + 100;
+    }
+};
+
 struct FunctionTemplateMemberCallOrdinaryFallback {
     static constexpr int value(int argument) {
         return argument + 1;
@@ -1000,6 +1018,42 @@ template<typename Item, typename... Types>
 int choose_member_call_variadic_ordinary_class_pack_order(
     FunctionTemplateMemberValuePackBox<1, Item, Types...>) {
     return 292;
+}
+
+template<typename Head, typename... Types>
+int choose_member_call_variadic_member_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<Head::value(2, 3), Head, Types...>) {
+    return 293;
+}
+
+template<typename Item, typename... Types>
+int choose_member_call_variadic_member_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<1, Item, Types...>) {
+    return 294;
+}
+
+template<typename Head, typename... Types>
+int choose_member_call_floating_variadic_member_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<Head::value(2, 3.5f), Head, Types...>) {
+    return 297;
+}
+
+template<typename Item, typename... Types>
+int choose_member_call_floating_variadic_member_template_class_pack_order(
+    FunctionTemplateMemberValuePackBox<1, Item, Types...>) {
+    return 298;
+}
+
+template<typename Head, typename... Types>
+int choose_member_call_variadic_member_template_competitor_class_pack_order(
+    FunctionTemplateMemberValuePackBox<Head::value(2, 3), Head, Types...>) {
+    return 295;
+}
+
+template<typename Item, typename... Types>
+int choose_member_call_variadic_member_template_competitor_class_pack_order(
+    FunctionTemplateMemberValuePackBox<1, Item, Types...>) {
+    return 296;
 }
 
 template<typename Head, int Argument, typename... Types>
@@ -2183,6 +2237,31 @@ int main(void) {
                 1, FunctionTemplateMemberCallVariadicOrdinary, short>{}) !=
         292) {
         return 151;
+    }
+    if (choose_member_call_variadic_member_template_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                3, FunctionTemplateMemberCallVariadicMemberTemplate,
+                short>{}) != 293) {
+        return 154;
+    }
+    if (choose_member_call_variadic_member_template_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                1, FunctionTemplateMemberCallVariadicMemberTemplate,
+                short>{}) != 294) {
+        return 155;
+    }
+    if (choose_member_call_variadic_member_template_competitor_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                5,
+                FunctionTemplateMemberCallVariadicMemberTemplateCompetitor,
+                short>{}) != 295) {
+        return 156;
+    }
+    if (choose_member_call_floating_variadic_member_template_class_pack_order(
+            FunctionTemplateMemberValuePackBox<
+                3, FunctionTemplateMemberCallVariadicMemberTemplate,
+                short>{}) != 297) {
+        return 157;
     }
     if (choose_member_call_mixed_overload_class_pack_order(
             FunctionTemplateMemberValuePackBox<

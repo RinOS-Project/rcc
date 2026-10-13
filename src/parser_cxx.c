@@ -1914,6 +1914,7 @@ static bool cxx_dependent_integer_call_same_parameter_types(
     }
     left_parameter = left->func_params;
     right_parameter = right->func_params;
+    if (left->type->variadic != right->type->variadic) return false;
     while (left_parameter && right_parameter) {
         if (!left_parameter->decl || !right_parameter->decl ||
             !left_parameter->decl->type || !right_parameter->decl->type ||
@@ -2192,8 +2193,7 @@ static bool cxx_eval_dependent_integer_member_template_call(
     Decl* function = best.function;
     if (!best.is_public || !best.is_static || !function ||
         !function->func_is_constexpr || !function->type ||
-        function->type->kind != TYPE_FUNC || function->type->variadic ||
-        function->func_this_param ||
+        function->type->kind != TYPE_FUNC || function->func_this_param ||
         !type_is_integer(function->type->ret_type)) {
         return false;
     }
