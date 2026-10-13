@@ -2447,6 +2447,18 @@ remains a separate open item.
   parameter/signature variations, and virtual/inaccessible owner-path interactions;
   proper subsequences and full template partial ordering also remain open.
 
+## C++ regression follow-up (2026-10-14, member-pointer owner/cv ordering)
+
+- [x] Compare related destination owners for viable data-member-pointer
+  conversions even when member cv qualification differs. The nearer owner
+  wins for both `const`/`volatile` tradeoff directions in ordinary and
+  function-template overloads; same-owner qualification ordering remains
+  distinct. GCC C++20 agrees; the focused target passes i686/AMD64 generation,
+  generated AMD64 execution, and GCC host execution.
+- [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after the
+  member-pointer owner/cv ordering change; it completed successfully,
+  including both target architectures and generated AMD64 execution.
+
 ## C++ regression follow-up (2026-10-10, ordinary derived-pointer ranking)
 
 - [x] For equal Conversion-rank ordinary pointer arguments to related class

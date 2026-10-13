@@ -2018,6 +2018,94 @@ int choose_member_function_pointer_owner_noexcept_tradeoff_non_template(
 }
 
 template<typename T>
+int choose_member_pointer_owner_cv_tradeoff(
+    T, const int ConversionMemberPointerMiddle::*) {
+    return 227;
+}
+
+template<typename T>
+int choose_member_pointer_owner_cv_tradeoff(
+    T, volatile int ConversionMemberPointerLeaf::*) {
+    return 228;
+}
+
+int choose_member_pointer_owner_cv_tradeoff_non_template(
+    const int ConversionMemberPointerMiddle::*) {
+    return 229;
+}
+
+int choose_member_pointer_owner_cv_tradeoff_non_template(
+    volatile int ConversionMemberPointerLeaf::*) {
+    return 230;
+}
+
+template<typename T>
+int choose_member_pointer_owner_cv_reverse_tradeoff(
+    T, volatile int ConversionMemberPointerMiddle::*) {
+    return 231;
+}
+
+template<typename T>
+int choose_member_pointer_owner_cv_reverse_tradeoff(
+    T, const int ConversionMemberPointerLeaf::*) {
+    return 232;
+}
+
+int choose_member_pointer_owner_cv_reverse_tradeoff_non_template(
+    volatile int ConversionMemberPointerMiddle::*) {
+    return 233;
+}
+
+int choose_member_pointer_owner_cv_reverse_tradeoff_non_template(
+    const int ConversionMemberPointerLeaf::*) {
+    return 234;
+}
+
+template<typename T>
+int choose_member_pointer_owner_qualification_tradeoff(
+    T, int ConversionMemberPointerMiddle::*) {
+    return 235;
+}
+
+template<typename T>
+int choose_member_pointer_owner_qualification_tradeoff(
+    T, const int ConversionMemberPointerLeaf::*) {
+    return 236;
+}
+
+int choose_member_pointer_owner_qualification_tradeoff_non_template(
+    int ConversionMemberPointerMiddle::*) {
+    return 237;
+}
+
+int choose_member_pointer_owner_qualification_tradeoff_non_template(
+    const int ConversionMemberPointerLeaf::*) {
+    return 238;
+}
+
+template<typename T>
+int choose_member_pointer_owner_qualification_reverse_tradeoff(
+    T, const int ConversionMemberPointerMiddle::*) {
+    return 239;
+}
+
+template<typename T>
+int choose_member_pointer_owner_qualification_reverse_tradeoff(
+    T, int ConversionMemberPointerLeaf::*) {
+    return 240;
+}
+
+int choose_member_pointer_owner_qualification_reverse_tradeoff_non_template(
+    const int ConversionMemberPointerMiddle::*) {
+    return 241;
+}
+
+int choose_member_pointer_owner_qualification_reverse_tradeoff_non_template(
+    int ConversionMemberPointerLeaf::*) {
+    return 242;
+}
+
+template<typename T>
 int choose_base_over_void(T*, ConversionBaseRoot*) {
     return 83;
 }
@@ -2903,6 +2991,22 @@ int main(void) {
                        0, root_noexcept_member_function) == 223 &&
                    choose_member_function_pointer_owner_noexcept_tradeoff_non_template(
                        root_noexcept_member_function) == 225 &&
+                   choose_member_pointer_owner_cv_tradeoff(
+                       0, &ConversionMemberPointerRoot::value) == 227 &&
+                   choose_member_pointer_owner_cv_tradeoff_non_template(
+                       &ConversionMemberPointerRoot::value) == 229 &&
+                   choose_member_pointer_owner_cv_reverse_tradeoff(
+                       0, &ConversionMemberPointerRoot::value) == 231 &&
+                   choose_member_pointer_owner_cv_reverse_tradeoff_non_template(
+                       &ConversionMemberPointerRoot::value) == 233 &&
+                   choose_member_pointer_owner_qualification_tradeoff(
+                       0, &ConversionMemberPointerRoot::value) == 235 &&
+                   choose_member_pointer_owner_qualification_tradeoff_non_template(
+                       &ConversionMemberPointerRoot::value) == 237 &&
+                   choose_member_pointer_owner_qualification_reverse_tradeoff(
+                       0, &ConversionMemberPointerRoot::value) == 239 &&
+                   choose_member_pointer_owner_qualification_reverse_tradeoff_non_template(
+                       &ConversionMemberPointerRoot::value) == 241 &&
                    choose_base_over_void(leaf_pointer, leaf_pointer) == 83 &&
                    choose_nearer_base_value(
                        value_leaf_pointer, value_leaf) == 92 &&

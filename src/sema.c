@@ -8931,6 +8931,13 @@ static int cxx_conversion_vector_relation(
                 right_targets[index]->cxx_member_pointer_owner->cxx_class;
             bool same_member_type = cxx_same_parameter_type(
                 left_targets[index]->base, right_targets[index]->base, false);
+            bool left_member_type_subset = true;
+            bool right_member_type_subset = true;
+            bool member_type_qualification_related =
+                sema_cxx_qualification_targets_related(
+                    left_targets[index]->base, right_targets[index]->base,
+                    false, &left_member_type_subset,
+                    &right_member_type_subset, 0u);
             int member_function_noexcept_relation = 0;
             if (left_targets[index]->base->kind == TYPE_FUNC &&
                 right_targets[index]->base->kind == TYPE_FUNC &&
@@ -8942,12 +8949,12 @@ static int cxx_conversion_vector_relation(
             }
             if (left_owner && right_owner && left_owner != right_owner) {
                 if (same_member_type ||
-                    member_function_noexcept_relation != 0) {
-                    /* For Base::* to Derived::* conversions with the same
-                     * member-function signature, prefer the destination
-                     * owner nearer the source base class. Exception
-                     * specification adjustment does not change this owner
-                     * ordering. */
+                    member_function_noexcept_relation != 0 ||
+                    member_type_qualification_related) {
+                    /* For viable conversions with compatible member-type
+                     * shapes, compare the destination owner before member
+                     * cv qualification. Exception-specification adjustment
+                     * does not change this owner ordering. */
                     if (sema_cxx_class_derives_from(
                             right_owner, left_owner, 0)) {
                         left_better = true;

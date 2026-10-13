@@ -20360,12 +20360,11 @@ static int cxx_template_conversion_vector_relation(
                     }
                     if (qualification_relation == 0 && left_owner &&
                         right_owner && !same_owner &&
-                        left_member_type_subset &&
-                        right_member_type_subset) {
+                        member_type_related) {
                         /* Converting Base::* to Derived::* is ranked by how
-                         * near the destination owner is to the source base.
-                         * If right derives from left, left requires the
-                         * shorter owner conversion and is the better target. */
+                         * near the destination owner is to the source base;
+                         * that ordering is independent of differences between
+                         * viable member-type qualification conversions. */
                         if (cxx_template_class_derives_from(
                                 right_owner, left_owner, 0u)) {
                             qualification_relation = 1;
