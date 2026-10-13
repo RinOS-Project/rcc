@@ -3765,5 +3765,14 @@ remains a separate open item.
   code generation.
 - [x] Re-run the full native-Windows MinGW GCC `test-cxx` aggregate after the
   packed MEMORY-class case; it completed successfully (exit 0).
+- [x] Cover a union whose overlapping `double` and integer members merge to
+  the SysV INTEGER class. With one GP slot remaining, retrieve the union from
+  that slot, the following integer from overflow, and the following `double`
+  from the untouched SSE register bank; verify GCC/RCC interoperability.
+- [x] Pass focused `test-cxx-variadic-aggregate` after the union-class
+  regression at `-O0` and `-O2`, with GCC/RCC interop in both directions and
+  i686/AMD64 code generation.
+- [x] Run the full native-Windows MinGW GCC `test-cxx` after the union-class
+  regression; it completed successfully (exit 0).
 - [ ] Continue additional ABI classes/register-overflow combinations and
   remaining C++20 overload-ordering rules.

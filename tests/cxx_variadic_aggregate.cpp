@@ -66,6 +66,20 @@ int read_variadic_integer_pair_gp_exhausted(
            (int)pair.first + (int)pair.second + remaining_gp_integer;
 }
 
+int read_variadic_integer_dominated_union(
+    int marker0, int marker1, int marker2, int marker3, int marker4, ...) {
+    __builtin_va_list arguments;
+    __builtin_va_start(arguments, marker4);
+    VariadicIntegerDominatedUnion value =
+        __builtin_va_arg(arguments, VariadicIntegerDominatedUnion);
+    int overflow_integer = __builtin_va_arg(arguments, int);
+    double sse_register_value = __builtin_va_arg(arguments, double);
+    __builtin_va_end(arguments);
+
+    return marker0 + marker1 + marker2 + marker3 + marker4 +
+           (int)value.integer + overflow_integer + (int)sse_register_value;
+}
+
 int read_variadic_reverse_mixed_gp_exhausted(
     int marker0, int marker1, int marker2, int marker3, int marker4,
     int marker5, double fp0, double fp1, double fp2, double fp3, double fp4,

@@ -13,6 +13,11 @@ struct VariadicIntegerPair {
     long long second;
 };
 
+union VariadicIntegerDominatedUnion {
+    double floating;
+    unsigned long long integer;
+};
+
 #pragma pack(push, 1)
 struct VariadicPackedMemoryAggregate {
     unsigned char tag;
@@ -48,6 +53,10 @@ static_assert(alignof(VariadicAligned64MemoryAggregate) == 64,
               "SysV over-aligned variadic aggregate alignment");
 static_assert(sizeof(VariadicAligned64MemoryAggregate) == 64,
               "SysV over-aligned variadic aggregate size");
+static_assert(alignof(VariadicIntegerDominatedUnion) == 8,
+              "SysV integer-dominated union alignment");
+static_assert(sizeof(VariadicIntegerDominatedUnion) == 8,
+              "SysV integer-dominated union size");
 static_assert(alignof(VariadicPackedMemoryAggregate) == 1,
               "SysV packed variadic aggregate alignment");
 static_assert(sizeof(VariadicPackedMemoryAggregate) == 9,
@@ -71,6 +80,9 @@ int read_variadic_integer_pair(
     int marker0, int marker1, int marker2, int marker3, ...);
 
 int read_variadic_integer_pair_gp_exhausted(
+    int marker0, int marker1, int marker2, int marker3, int marker4, ...);
+
+int read_variadic_integer_dominated_union(
     int marker0, int marker1, int marker2, int marker3, int marker4, ...);
 
 int read_variadic_reverse_mixed_gp_exhausted(

@@ -7,6 +7,8 @@ int main() {
     VariadicMixedAggregate gp_exhausted = {31, 4.0};
     VariadicIntegerPair integer_pair = {19, 23};
     VariadicIntegerPair integer_pair_gp_exhausted = {31, 37};
+    VariadicIntegerDominatedUnion integer_dominated_union;
+    integer_dominated_union.integer = 19;
     VariadicReverseMixedAggregate reverse_mixed = {23.0, 29};
     VariadicPackedMemoryAggregate packed = {5, 7.0};
     VariadicAlignedMemoryAggregate aligned = {11, 13, 17, 19};
@@ -26,6 +28,9 @@ int main() {
     int integer_pair_gp_exhausted_result =
         read_variadic_integer_pair_gp_exhausted(
             1, 0, 0, 0, 0, integer_pair_gp_exhausted, 41);
+    int integer_dominated_union_result =
+        read_variadic_integer_dominated_union(
+            1, 0, 0, 0, 0, integer_dominated_union, 23, 29.0);
     int reverse_mixed_result = read_variadic_reverse_mixed_gp_exhausted(
         1, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0, reverse_mixed, 31.0);
     int reverse_mixed_sse_exhausted_result =
@@ -45,6 +50,7 @@ int main() {
     if (gp_exhausted_result != 41) return 2;
     if (integer_pair_result != 74) return 6;
     if (integer_pair_gp_exhausted_result != 110) return 8;
+    if (integer_dominated_union_result != 72) return 11;
     if (reverse_mixed_result != 85) return 7;
     if (reverse_mixed_sse_exhausted_result != 85) return 9;
     if (packed_result != 24) return 10;
