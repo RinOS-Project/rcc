@@ -5500,22 +5500,32 @@ static void preserve_debug_const_value(Decl* declaration) {
         value_type = value_type->enum_underlying_type;
     }
     if (!type_is_integer(value_type) || value_type->size <= 0 ||
-        value_type->size > 8 ||
-        !expr_eval_integer_constant(declaration->var_init, &value)) return;
+        value_type->size > 8) return;
     if (value_type->kind == TYPE_BOOL) {
+        if (!expr_eval_integer_constant(declaration->var_init, &value)) {
+            return;
+        }
         declaration->var_debug_const_value = value != 0;
         declaration->var_debug_const_value_valid = true;
         return;
     }
     width = (unsigned)value_type->size * 8u;
-    bits = (uint64_t)value;
     mask = width == 64u ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
-    bits &= mask;
-    if (!value_type->is_unsigned && width < 64u &&
+    if (value_type->is_unsigned) {
+        if (!expr_eval_integer_constant_u64(declaration->var_init, &bits)) {
+            return;
+        }
+        declaration->var_debug_const_unsigned_value = bits & mask;
+        declaration->var_debug_const_value_unsigned = true;
+        declaration->var_debug_const_value_valid = true;
+        return;
+    }
+    if (!expr_eval_integer_constant(declaration->var_init, &value)) return;
+    bits = (uint64_t)value & mask;
+    if (width < 64u &&
         (bits & (UINT64_C(1) << (width - 1u))) != 0u) {
         bits |= ~mask;
     }
-    if (value_type->is_unsigned && bits > INT64_MAX) return;
     declaration->var_debug_const_value = (int64_t)bits;
     declaration->var_debug_const_value_valid = true;
 }

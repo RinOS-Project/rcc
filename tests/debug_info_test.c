@@ -1785,7 +1785,8 @@ static bool find_variable_location(const ObjSection* info,
         if (abbreviation != 3u && abbreviation != 4u &&
             abbreviation != 27u && abbreviation != 31u &&
             abbreviation != 32u && abbreviation != 33u &&
-            abbreviation != 39u && abbreviation != 54u) continue;
+            abbreviation != 39u && abbreviation != 54u &&
+            abbreviation != 55u) continue;
         name_offset = read_u32(info->data, die + 1u);
         if (name_offset >= strings->size ||
             strcmp((const char*)strings->data + name_offset,
@@ -1795,7 +1796,7 @@ static bool find_variable_location(const ObjSection* info,
         *is_location_list = abbreviation == 39u;
         *has_location = has_expression || *is_location_list;
         *frame_offset = 0;
-        if (abbreviation == 54u) return true;
+        if (abbreviation == 54u || abbreviation == 55u) return true;
         if (*is_location_list) {
             uint32_t list_offset;
             uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
@@ -1911,6 +1912,26 @@ static bool find_variable_const_value(const ObjSection* info,
                    variable_name) != 0) continue;
         value_offset = die + 21u;
         *value = read_sleb(info->data, info->size, &value_offset);
+        return true;
+    }
+    return false;
+}
+
+static bool find_variable_unsigned_const_value(
+    const ObjSection* info, const ObjSection* strings,
+    const char* variable_name, uint64_t* value)
+{
+    if (!info || !strings || !variable_name || !value) return false;
+    for (uint64_t die = 11u; die + 21u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint64_t value_offset;
+        if (info->data[die] != 55u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) != 0) continue;
+        value_offset = die + 21u;
+        *value = read_uleb(info->data, info->size, &value_offset);
         return true;
     }
     return false;
@@ -2076,14 +2097,31 @@ static void verify_optimized_verified_debug_object(
         info, strings, locations, "optimized_negative", architecture,
         &has_location, &is_location_list, &branch_offset));
     assert(!has_location && !is_location_list);
+    assert(find_variable_location(
+        info, strings, locations, "optimized_unsigned_high", architecture,
+        &has_location, &is_location_list, &branch_offset));
+    assert(!has_location && !is_location_list);
+    assert(find_variable_location(
+        info, strings, locations, "optimized_unsigned_narrow", architecture,
+        &has_location, &is_location_list, &branch_offset));
+    assert(!has_location && !is_location_list);
     {
         int64_t constant_value;
         int64_t negative_value;
+        uint64_t unsigned_high_value;
+        uint64_t unsigned_narrow_value;
         assert(find_variable_const_value(
             info, strings, "optimized_constant", &constant_value));
         assert(find_variable_const_value(
             info, strings, "optimized_negative", &negative_value));
         assert(constant_value == 42 && negative_value == -23);
+        assert(find_variable_unsigned_const_value(
+            info, strings, "optimized_unsigned_high", &unsigned_high_value));
+        assert(unsigned_high_value == UINT64_MAX);
+        assert(find_variable_unsigned_const_value(
+            info, strings, "optimized_unsigned_narrow",
+            &unsigned_narrow_value));
+        assert(unsigned_narrow_value == UINT32_MAX);
     }
     {
         int64_t branch_start;

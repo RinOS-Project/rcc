@@ -81,5 +81,8 @@ int verified_debug_optimized_const_local(int value)
 {
     const int optimized_constant = 42;
     const int optimized_negative = -23;
+    const unsigned int optimized_unsigned_narrow = -1;
+    const unsigned long long optimized_unsigned_high =
+        0xffffffffffffffffULL;
     return value + 1;
 }

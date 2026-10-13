@@ -2344,6 +2344,7 @@ static void debug_emit_variable_die(
     bool use_location_list = false;
     uint32_t location_list_offset = 0u;
     int64_t constant_value = 0;
+    uint64_t unsigned_constant_value = 0u;
     bool has_constant_value = false;
     if (!obj || !info || !strings || !declaration || !declaration->name ||
         declaration->name[0] == '\0') return;
@@ -2392,8 +2393,14 @@ static void debug_emit_variable_die(
                 declaration->var_debug_const_value_valid) {
                 /* Keep the known source value available to debuggers after
                  * optimization removes the object's stack storage. */
-                constant_value = declaration->var_debug_const_value;
-                abbreviation = 54u;
+                if (declaration->var_debug_const_value_unsigned) {
+                    unsigned_constant_value =
+                        declaration->var_debug_const_unsigned_value;
+                    abbreviation = 55u;
+                } else {
+                    constant_value = declaration->var_debug_const_value;
+                    abbreviation = 54u;
+                }
                 has_constant_value = true;
             }
         }
@@ -2420,7 +2427,11 @@ static void debug_emit_variable_die(
         debug_expr_breg(info, architecture, frame_offset, frame_alignment,
                         declaration->var_is_vla);
     } else if (has_constant_value) {
-        debug_line_sleb(info, constant_value);
+        if (declaration->var_debug_const_value_unsigned) {
+            debug_line_uleb(info, unsigned_constant_value);
+        } else {
+            debug_line_sleb(info, constant_value);
+        }
     }
 }
 
@@ -4464,6 +4475,25 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x1cu);    /* DW_AT_const_value */
     debug_line_uleb(abbrev, 0x0du);    /* DW_FORM_sdata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* Optimized-away unsigned scalar locals use the unsigned DWARF form so
+     * values through UINT64_MAX remain exactly representable. */
+    debug_line_uleb(abbrev, 55u);
+    debug_line_uleb(abbrev, 0x34u);    /* DW_TAG_variable */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x03u);    /* DW_AT_name */
+    debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0x49u);    /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);    /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
+    debug_line_uleb(abbrev, 0x1cu);    /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0fu);    /* DW_FORM_udata */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     /* Abstract inline origins retain declaration identity and function type;

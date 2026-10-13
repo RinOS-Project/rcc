@@ -964,6 +964,19 @@ bool expr_eval_integer_constant(Expr* expr, int64_t* value) {
     return eval_integer_constant(expr, value);
 }
 
+bool expr_eval_integer_constant_u64(Expr* expr, uint64_t* value) {
+    IntegerConstantValue evaluated;
+    if (!value || !eval_integer_constant_typed(expr, &evaluated)) {
+        return false;
+    }
+    if (evaluated.type && evaluated.type->is_unsigned) {
+        *value = evaluated.bits & integer_type_mask(evaluated.type);
+    } else {
+        *value = (uint64_t)integer_constant_signed(evaluated);
+    }
+    return true;
+}
+
 static bool pending_weak_attribute;
 
 static bool take_weak_attribute(void) {

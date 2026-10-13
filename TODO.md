@@ -1857,6 +1857,10 @@
   - [x] verified C++ inlineを`host -> middle -> leaf`の2段へ拡張し、host内の
         `DW_TAG_inlined_subroutine`親子構造、両call-siteのsource line、relocation先、
         child PC rangeのparent containmentをi686/AMD64 `test-debug-info`で検証
+  - [x] 最適化でstorageが除去されたimmutable unsigned scalar localの値を
+        `DW_AT_const_value`の`DW_FORM_udata`で保持し、符号付き負値からunsigned型への
+        modulo変換と`UINT64_MAX`をi686/AMD64で検証。signed localには`sdata`を使い、
+        unsigned値をsigned 64-bitへ切り詰めない。
   - [ ] `.debug_info`の全inline attribution／全scopeの宣言開始・終了に一致する
         location lists、register・piece location追跡、非標準prologueを含む
         完全なCFI/unwind

@@ -920,6 +920,7 @@ Expr* expr_vararg(ExprKind kind, Expr* list, Expr* second, Type* type,
 void generic_association_append(GenericAssociation** list, Type* type,
                                 Expr* expr, SourceLoc loc);
 bool expr_eval_integer_constant(Expr* expr, int64_t* value);
+bool expr_eval_integer_constant_u64(Expr* expr, uint64_t* value);
 /* Evaluate a resolved constexpr integer function call without running the
  * full translation-unit semantic pass. */
 bool rcc_sema_eval_constexpr_integer_call(Decl* declaration,
@@ -1205,6 +1206,8 @@ struct Decl {
             /* Source constant retained for DWARF if optimization removes an
              * immutable scalar object's storage and initializer. */
             int64_t var_debug_const_value;
+            uint64_t var_debug_const_unsigned_value;
+            bool var_debug_const_value_unsigned;
             bool var_debug_const_value_valid;
             int var_offset;         /* Stack offset (set during codegen) */
             int var_reference_temporary_offset; /* Lifetime-extended object */
