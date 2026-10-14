@@ -16,16 +16,46 @@ template<int N> using IntArray = int[N];
 template<typename... Types>
 struct AliasPackHolder {
     int marker;
+    unsigned char elements[sizeof...(Types) + 1];
 };
 
 template<typename... Types>
 using AliasPack = AliasPackHolder<Types...>;
 
+template<typename... Types>
+using AliasPackForward = AliasPack<Types...>;
+
+template<typename... Types>
+using AliasPackForwardAgain = AliasPackForward<Types...>;
+
+template<typename... Types>
+using AliasPackForwardAround = AliasPack<char, Types..., long>;
+
 AliasPack<> empty_alias_pack_value = {67};
 AliasPack<int, short> multi_alias_pack_value = {71};
+AliasPackForward<> forwarded_empty_alias_pack_value = {73};
+AliasPackForward<int, short> forwarded_multi_alias_pack_value = {79};
+AliasPackForwardAgain<int, short, char, long, unsigned char>
+    forwarded_chain_alias_pack_value = {83};
+AliasPackForwardAround<short, int> forwarded_around_alias_pack_value = {89};
 
 int alias_pack_value(AliasPack<int, short>* value) {
     return value ? value->marker : 0;
+}
+
+int alias_pack_around_value(
+    AliasPackForwardAround<short, int>* value) {
+    return value ? value->marker : 0;
+}
+
+int alias_pack_forward_size(
+    AliasPackForwardAgain<int, short, char, long, unsigned char>* value) {
+    return value ? sizeof(*value) : 0;
+}
+
+int alias_pack_around_size(
+    AliasPackForwardAround<short, int>* value) {
+    return value ? sizeof(*value) : 0;
 }
 
 struct ClassAliasTemplateOwner {
@@ -83,6 +113,15 @@ int main() {
                    alias_class(&box) == 40 &&
                    empty_alias_pack_value.marker == 67 &&
                    alias_pack_value(&multi_alias_pack_value) == 71 &&
+                   forwarded_empty_alias_pack_value.marker == 73 &&
+                   forwarded_multi_alias_pack_value.marker == 79 &&
+                   forwarded_chain_alias_pack_value.marker == 83 &&
+                   alias_pack_around_value(
+                       &forwarded_around_alias_pack_value) == 89 &&
+                   alias_pack_forward_size(
+                       &forwarded_chain_alias_pack_value) == 12 &&
+                   alias_pack_around_size(
+                       &forwarded_around_alias_pack_value) == 12 &&
                    values[2] == 3 &&
                    class_alias_value == 47 &&
                    nested_class_alias_value.value == 61 &&

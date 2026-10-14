@@ -386,6 +386,10 @@ struct CxxTemplate {
      * changing the public legacy instantiate API; it is consumed
      * synchronously and copied into the instance cache. */
     Type** pending_pack_args;
+    /* Parallel to pending_pack_args for dependent forwarding.  A true entry
+     * is an unexpanded pack pattern that must remain an expansion in the
+     * substituted type. */
+    bool* pending_pack_expansions;
     int64_t* pending_pack_values;
     bool* pending_pack_value_present;
     int pending_pack_count;

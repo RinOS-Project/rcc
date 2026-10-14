@@ -11885,7 +11885,11 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                         expanded_value_present);
                     if (!nested_arguments[nested_count]) return NULL;
                     nested_value_expressions[nested_count] = NULL;
+                    nested_pack_expansions[nested_count] =
+                        tmpl->pending_pack_expansions &&
+                        tmpl->pending_pack_expansions[pack_value];
                     still_dependent = still_dependent ||
+                        nested_pack_expansions[nested_count] ||
                         nested_arguments[nested_count]->cxx_dependent;
                     ++nested_count;
                 }
@@ -12270,6 +12274,7 @@ static CxxTemplate* substitute_class_member_function_template(
     copy->instances = NULL;
     copy->instance_count = 0;
     copy->pending_pack_args = NULL;
+    copy->pending_pack_expansions = NULL;
     copy->pending_pack_values = NULL;
     copy->pending_pack_value_present = NULL;
     copy->pending_pack_count = -1;
@@ -16432,17 +16437,22 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
     Type** saved_pending_pack_args;
     int64_t* saved_pending_pack_values;
     bool* saved_pending_pack_value_present;
+    bool* saved_pending_pack_expansions;
     int saved_pending_pack_count;
     if (unsupported) *unsupported = false;
     if (!tmpl || !tmpl->constraint) return true;
     constraint_context = tmpl->constraint_context
         ? tmpl->constraint_context : tmpl;
     saved_pending_pack_args = constraint_context->pending_pack_args;
+    saved_pending_pack_expansions =
+        constraint_context->pending_pack_expansions;
     saved_pending_pack_values = constraint_context->pending_pack_values;
     saved_pending_pack_value_present =
         constraint_context->pending_pack_value_present;
     saved_pending_pack_count = constraint_context->pending_pack_count;
     constraint_context->pending_pack_args = tmpl->pending_pack_args;
+    constraint_context->pending_pack_expansions =
+        tmpl->pending_pack_expansions;
     constraint_context->pending_pack_values = tmpl->pending_pack_values;
     constraint_context->pending_pack_value_present =
         tmpl->pending_pack_value_present;
@@ -16451,6 +16461,8 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
         constraint_context, tmpl->constraint, arguments, tmpl->param_count, values,
         value_present);
     constraint_context->pending_pack_args = saved_pending_pack_args;
+    constraint_context->pending_pack_expansions =
+        saved_pending_pack_expansions;
     constraint_context->pending_pack_values = saved_pending_pack_values;
     constraint_context->pending_pack_value_present =
         saved_pending_pack_value_present;
@@ -16741,9 +16753,14 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
     int argument_count = 0;
     int alias_pack_index = -1;
     Type** alias_pack_arguments = NULL;
+    bool* alias_pack_argument_expansions = NULL;
     int alias_pack_count = 0;
+    bool alias_pack_expansion = false;
+    bool invalid_alias_pack_argument = false;
+    int alias_pack_source_index = -1;
     int saved_pending_pack_count = -1;
     Type** saved_pending_pack_args = NULL;
+    bool* saved_pending_pack_expansions = NULL;
     int64_t* saved_pending_pack_values = NULL;
     bool* saved_pending_pack_value_present = NULL;
     int owner_argument_count = 0;
@@ -16845,6 +16862,8 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
             parameter = &tmpl->params[argument_count];
             if (parameter->is_pack) {
                 Type* pack_argument;
+                bool pack_argument_expansion = false;
+                int source_pack_index;
                 if (parameter->kind != TPARAM_TYPE) {
                     rcc_error(peek()->loc,
                               "RCC++ alias template packs currently require "
@@ -16855,13 +16874,54 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                     break;
                 }
                 pack_argument = parse_cxx_type_spec();
+                if (match(TOK_ELLIPSIS)) {
+                    pack_argument_expansion = true;
+                    bool valid_source_pack;
+                    source_pack_index = active_template
+                        ? cxx_parser_template_parameter_pack_index(
+                              active_template, pack_argument)
+                        : -1;
+                    valid_source_pack = active_template &&
+                        source_pack_index >= 0 &&
+                        source_pack_index < active_template->param_count &&
+                        active_template->params[source_pack_index].kind ==
+                            TPARAM_TYPE &&
+                        active_template->params[source_pack_index].is_pack;
+                    if (!valid_source_pack) {
+                        rcc_error(loc,
+                                  "alias template pack expansion must name a "
+                                  "type parameter pack");
+                        invalid_alias_pack_argument = true;
+                    } else if (alias_pack_expansion &&
+                               alias_pack_source_index != source_pack_index) {
+                        rcc_error(loc,
+                                  "alias template pack expansions must use "
+                                  "the same source type parameter pack");
+                        invalid_alias_pack_argument = true;
+                    } else {
+                        alias_pack_expansion = true;
+                        alias_pack_source_index = source_pack_index;
+                    }
+                    if (invalid_alias_pack_argument) {
+                        while (!check(TOK_GT) && !at_end()) advance();
+                        break;
+                    }
+                }
                 alias_pack_arguments = ast_arena_grow(
                     alias_pack_arguments,
                     sizeof(*alias_pack_arguments) *
                         (size_t)alias_pack_count,
                     sizeof(*alias_pack_arguments) *
                         (size_t)(alias_pack_count + 1));
+                alias_pack_argument_expansions = ast_arena_grow(
+                    alias_pack_argument_expansions,
+                    sizeof(*alias_pack_argument_expansions) *
+                        (size_t)alias_pack_count,
+                    sizeof(*alias_pack_argument_expansions) *
+                        (size_t)(alias_pack_count + 1));
                 alias_pack_arguments[alias_pack_count++] = pack_argument;
+                alias_pack_argument_expansions[alias_pack_count - 1] =
+                    pack_argument_expansion;
                 if (!arguments[argument_count]) {
                     arguments[argument_count] = pack_argument;
                 }
@@ -17007,6 +17067,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
         argument_count = tmpl->param_count;
     }
     expect(TOK_GT, ">");
+    if (invalid_alias_pack_argument) return type_int;
     if (argument_count != tmpl->param_count) {
         rcc_error(loc, "alias template '%s' expects %d argument(s), got %d",
                   tmpl->name ? tmpl->name : "<alias>", tmpl->param_count,
@@ -17015,11 +17076,14 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
     }
     if (alias_pack_index >= 0) {
         saved_pending_pack_args = tmpl->pending_pack_args;
+        saved_pending_pack_expansions = tmpl->pending_pack_expansions;
         saved_pending_pack_values = tmpl->pending_pack_values;
         saved_pending_pack_value_present =
             tmpl->pending_pack_value_present;
         saved_pending_pack_count = tmpl->pending_pack_count;
         tmpl->pending_pack_args = alias_pack_arguments;
+        tmpl->pending_pack_expansions = alias_pack_expansion
+            ? alias_pack_argument_expansions : NULL;
         tmpl->pending_pack_values = NULL;
         tmpl->pending_pack_value_present = NULL;
         tmpl->pending_pack_count = alias_pack_count;
@@ -17028,6 +17092,8 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
             tmpl, arguments, values, value_present, loc, true, NULL)) {
         if (alias_pack_index >= 0) {
             tmpl->pending_pack_args = saved_pending_pack_args;
+            tmpl->pending_pack_expansions =
+                saved_pending_pack_expansions;
             tmpl->pending_pack_values = saved_pending_pack_values;
             tmpl->pending_pack_value_present =
                 saved_pending_pack_value_present;
@@ -17041,6 +17107,8 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
             values, value_present);
         if (alias_pack_index >= 0) {
             tmpl->pending_pack_args = saved_pending_pack_args;
+            tmpl->pending_pack_expansions =
+                saved_pending_pack_expansions;
             tmpl->pending_pack_values = saved_pending_pack_values;
             tmpl->pending_pack_value_present =
                 saved_pending_pack_value_present;

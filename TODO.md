@@ -3976,8 +3976,8 @@ remains a separate open item.
   `test-cxx-function-template-overloads` gates (exit 0).
 - [x] Re-run and record the full native-Windows MinGW GCC `test-cxx` aggregate
   after the constrained-alias, template-template argument, and outer-parameter
-  substitution, dependent-owner expression, and alias type-pack changes; it
-  completed successfully (exit 0).
+  substitution, dependent-owner expression, alias type-pack, and dependent
+  pack-forwarding changes; it completed successfully (exit 0).
 - [x] Parse requires-clauses on nested alias templates and evaluate their
   constraints after dependent owner substitution. A satisfied `sizeof(Type)`
   constraint compiles; an unsatisfied `char` case matches GCC's rejection on
@@ -4000,9 +4000,15 @@ remains a separate open item.
   empty and multi-type packs expanded into a class-template-id; run both target
   objects and AMD64 execution in `test-cxx-alias-templates`. Keep non-type and
   template-template alias packs explicitly diagnosed.
+- [x] Forward a dependent trailing type pack through one and two alias layers,
+  including empty and multi-type packs plus fixed arguments around the forwarded
+  expansion; verify both target objects and AMD64 execution.
 - [x] Pass the focused native-Windows MinGW GCC `test-cxx-alias-templates`
   gate (exit 0).
-- [ ] Continue dependent pack forwarding through alias templates, non-type and
-  template-template alias packs, deeper owner/alias chains,
+- [x] Pass the full native-Windows MinGW GCC `test-cxx` aggregate after alias
+  pack forwarding (exit 0).
+- [ ] Extend dependent alias-pack forwarding to constrained alias templates
+  and multiple distinct source packs; implement non-type and template-template
+  alias packs, deeper owner/alias chains,
   pointer/reference/member-pointer declared types with non-integral NTTP
   values, and broader type-directed grammar.

@@ -4551,6 +4551,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->instances = NULL;
     tmpl->instance_count = 0;
     tmpl->pending_pack_args = NULL;
+    tmpl->pending_pack_expansions = NULL;
     tmpl->pending_pack_values = NULL;
     tmpl->pending_pack_value_present = NULL;
     tmpl->pending_pack_count = -1;
@@ -4969,6 +4970,7 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             CxxLocalClassTemplate* local = &tmpl->local_classes[local_index];
             CxxClass* instance;
             Type** saved_pack_args;
+            bool* saved_pack_expansions;
             int64_t* saved_pack_values;
             bool* saved_pack_value_present;
             int saved_pack_count;
@@ -4977,11 +4979,15 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 continue;
             }
             saved_pack_args = local->templ->pending_pack_args;
+            saved_pack_expansions =
+                local->templ->pending_pack_expansions;
             saved_pack_values = local->templ->pending_pack_values;
             saved_pack_value_present =
                 local->templ->pending_pack_value_present;
             saved_pack_count = local->templ->pending_pack_count;
             local->templ->pending_pack_args = tmpl->pending_pack_args;
+            local->templ->pending_pack_expansions =
+                tmpl->pending_pack_expansions;
             local->templ->pending_pack_values = tmpl->pending_pack_values;
             local->templ->pending_pack_value_present =
                 tmpl->pending_pack_value_present;
@@ -4990,6 +4996,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 local->templ, args, value_args, value_present, arg_count,
                 (SourceLoc){"<local-class-template>", 0, 0});
             local->templ->pending_pack_args = saved_pack_args;
+            local->templ->pending_pack_expansions =
+                saved_pack_expansions;
             local->templ->pending_pack_values = saved_pack_values;
             local->templ->pending_pack_value_present =
                 saved_pack_value_present;
