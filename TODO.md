@@ -1792,8 +1792,12 @@
         `DW_TAG_GNU_template_template_param`／`DW_AT_GNU_template_name`で出力し、
         globalおよびnamespace-qualified actual template名をGCC DWARF oracleと
         i686/AMD64の`test-debug-info`で検証
-  - [ ] template-template parameter packs、dependent-typed non-type packs、
-        未instantiateのdependent alias/template definition DIEは未完
+  - [x] Concrete class-template template-template parameter packsをparse・保持し、
+        `sizeof...(Template)`の0/1/2要素、重複specializationのcache、namespaceを含む
+        Itanium manglingをGCCと比較。DWARF v4のGNU parameter-pack DIEと各実template名
+        をi686/AMD64 `test-debug-info`で検証
+  - [ ] dependent pack expansion、dependent-typed non-type packs、未instantiateの
+        dependent alias/template definition DIEは未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
         type/value argumentsを保持し、subprogram DIE配下へtemplate type／
         integral value parameter DIEを出力。i686/AMD64の`test-debug-info`で

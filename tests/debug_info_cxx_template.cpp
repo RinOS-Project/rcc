@@ -60,8 +60,48 @@ DebugTemplateTemplateHolder<DebugTemplateTemplateLeaf>
 DebugTemplateTemplateHolder<debug_template_namespace::Leaf>
     debug_template_namespace_holder;
 
+template <template <typename> class... Template>
+struct DebugTemplateTemplatePackHolder {
+    static constexpr int count = sizeof...(Template);
+};
+
+DebugTemplateTemplatePackHolder<DebugTemplateTemplateLeaf,
+                               debug_template_namespace::Leaf>
+    debug_template_template_pack_holder;
+DebugTemplateTemplatePackHolder<DebugTemplateTemplateLeaf>
+    debug_template_template_single_pack_holder;
+DebugTemplateTemplatePackHolder<>
+    debug_template_template_empty_pack_holder;
+DebugTemplateTemplatePackHolder<DebugTemplateTemplateLeaf,
+                               debug_template_namespace::Leaf>
+    debug_template_template_pack_holder_again;
+static_assert(DebugTemplateTemplatePackHolder<
+                  DebugTemplateTemplateLeaf,
+                  debug_template_namespace::Leaf>::count == 2);
+static_assert(DebugTemplateTemplatePackHolder<
+                  DebugTemplateTemplateLeaf>::count == 1);
+static_assert(DebugTemplateTemplatePackHolder<>::count == 0);
+
 int debug_template_template_entry() {
     return debug_template_template_holder.member.value;
+}
+
+int debug_template_template_pack_entry(
+    DebugTemplateTemplatePackHolder<DebugTemplateTemplateLeaf,
+                                    debug_template_namespace::Leaf>* value) {
+    return value != nullptr;
+}
+
+int debug_template_template_fixed_entry(
+    DebugTemplateTemplateHolder<debug_template_namespace::Leaf>* value) {
+    return value != nullptr;
+}
+
+int debug_template_template_pack_count_entry() {
+    return DebugTemplateTemplatePackHolder<DebugTemplateTemplateLeaf,
+                                           debug_template_namespace::Leaf>::count == 2 &&
+           DebugTemplateTemplatePackHolder<DebugTemplateTemplateLeaf>::count == 1 &&
+           DebugTemplateTemplatePackHolder<>::count == 0;
 }
 
 template <typename Value, int Bias>

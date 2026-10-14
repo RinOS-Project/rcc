@@ -9898,6 +9898,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                               "template-template parameter requires class "
                               "or typename");
                 }
+                parameter_pack = match(TOK_ELLIPSIS);
                 if (check(TOK_IDENT)) param_name = advance()->value.str_val;
                 tmpl->params = ast_arena_grow(
                     tmpl->params, sizeof(TemplateParam) * (size_t)tmpl->param_count,
@@ -9909,6 +9910,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                     parameter->kind = TPARAM_TEMPLATE;
                     parameter->name = param_name ? rcc_strdup(param_name) : NULL;
                     parameter->template_signature = signature;
+                    parameter->is_pack = parameter_pack;
                 }
                 template_parameter = true;
             } else if (match(TOK_AUTO)) {
@@ -12447,7 +12449,8 @@ static bool class_template_instance_matches(
     if (tmpl->instances[instance_index].pack_count != expected_pack_count) {
         return false;
     }
-    if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
+    if (tmpl->params[pack_index].kind == TPARAM_TYPE ||
+        tmpl->params[pack_index].kind == TPARAM_TEMPLATE) {
         for (int index = 0; index < expected_pack_count; ++index) {
             Type* expected = tmpl->is_local_class_template &&
                     tmpl->pending_pack_count >= 0
@@ -12581,7 +12584,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         TemplateParam* parameter = &tmpl->params[parameter_index];
         if (tmpl->is_local_class_template && parameter->is_pack) {
             if (tmpl->pending_pack_count < 0 ||
-                (parameter->kind == TPARAM_TYPE &&
+                ((parameter->kind == TPARAM_TYPE ||
+                  parameter->kind == TPARAM_TEMPLATE) &&
                  tmpl->pending_pack_count > 0 && !tmpl->pending_pack_args) ||
                 (parameter->kind == TPARAM_NONTYPE &&
                  tmpl->pending_pack_count > 0 &&
@@ -12726,7 +12730,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                 tmpl->pending_pack_count >= 0
             ? tmpl->pending_pack_count : argument_count - pack_index;
         instance->template_pack_count = actual_pack_count;
-        if (tmpl->params[pack_index].kind == TPARAM_TYPE) {
+        if (tmpl->params[pack_index].kind == TPARAM_TYPE ||
+            tmpl->params[pack_index].kind == TPARAM_TEMPLATE) {
             if (!tmpl->is_local_class_template && argument_count > 0) {
                 instance->template_args = ast_arena_alloc(
                     sizeof(Type*) * (size_t)argument_count);
@@ -12889,7 +12894,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     if (pack_index >= 0 &&
         !(tmpl->is_local_class_template &&
           tmpl->pending_pack_count >= 0)) {
-        tmpl->pending_pack_args = tmpl->params[pack_index].kind == TPARAM_TYPE
+        tmpl->pending_pack_args =
+            (tmpl->params[pack_index].kind == TPARAM_TYPE ||
+             tmpl->params[pack_index].kind == TPARAM_TEMPLATE)
             ? arguments + pack_index : NULL;
         tmpl->pending_pack_values = tmpl->params[pack_index].kind == TPARAM_NONTYPE
             ? (int64_t*)value_args + pack_index : NULL;
@@ -13304,7 +13311,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             ? tmpl->pending_pack_count : argument_count - pack_index;
         tmpl->instances[tmpl->instance_count].pack_count = actual_pack_count;
         if (actual_pack_count > 0 &&
-            tmpl->params[pack_index].kind == TPARAM_TYPE) {
+            (tmpl->params[pack_index].kind == TPARAM_TYPE ||
+             tmpl->params[pack_index].kind == TPARAM_TEMPLATE)) {
             Type** pack_args = tmpl->is_local_class_template &&
                     tmpl->pending_pack_count >= 0
                 ? tmpl->pending_pack_args : arguments + pack_index;

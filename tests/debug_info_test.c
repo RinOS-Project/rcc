@@ -835,6 +835,97 @@ static void verify_class_template_template_parameter_die(
     objfile_free(object);
 }
 
+static void verify_class_template_template_parameter_pack_dies(
+    const char* path, uint16_t architecture)
+{
+    static const uint8_t template_template_pack_abbreviation[] = {
+        50u, 0x87u, 0x82u, 0x01u, 1u, 0x03u, 0x0eu, 0u, 0u
+    };
+    static const uint8_t template_template_pack_element_abbreviation[] = {
+        55u, 0x86u, 0x82u, 0x01u, 0u, 0x90u, 0x42u, 0x0eu, 0u, 0u
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    unsigned holder_count = 0u;
+    unsigned empty_pack_count = 0u;
+    unsigned single_pack_count = 0u;
+    unsigned two_element_pack_count = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_sequence(abbrev->data, abbrev->size,
+                             template_template_pack_abbreviation,
+                             sizeof(template_template_pack_abbreviation)));
+    assert(contains_sequence(abbrev->data, abbrev->size,
+                             template_template_pack_element_abbreviation,
+                             sizeof(template_template_pack_element_abbreviation)));
+
+    for (uint64_t die = 11u; die + 14u <= info->size; ++die) {
+        uint32_t class_name_offset;
+        const char* class_name;
+        uint32_t pack_name_offset;
+        uint64_t cursor;
+        unsigned element_count = 0u;
+        bool found_global_template = false;
+        bool found_qualified_template = false;
+        if (info->data[die] != 12u) continue;
+        class_name_offset = read_u32(info->data, die + 1u);
+        if (class_name_offset >= strings->size) continue;
+        class_name = (const char*)strings->data + class_name_offset;
+        if (strncmp(class_name, "DebugTemplateTemplatePackHolder.",
+                    sizeof("DebugTemplateTemplatePackHolder.") - 1u) != 0) {
+            continue;
+        }
+        ++holder_count;
+        cursor = die + 9u;
+        assert(info->data[cursor++] == 50u);
+        pack_name_offset = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(pack_name_offset < strings->size &&
+               strcmp((const char*)strings->data + pack_name_offset,
+                      "Template") == 0);
+        while (cursor < info->size && info->data[cursor] != 0u) {
+            uint32_t template_name_offset;
+            const char* template_name;
+            assert(cursor + 5u <= info->size &&
+                   info->data[cursor] == 55u);
+            template_name_offset = read_u32(info->data, cursor + 1u);
+            assert(template_name_offset < strings->size);
+            template_name = (const char*)strings->data +
+                template_name_offset;
+            if (strcmp(template_name, "DebugTemplateTemplateLeaf") == 0) {
+                found_global_template = true;
+            } else if (strcmp(template_name,
+                              "debug_template_namespace::Leaf") == 0) {
+                found_qualified_template = true;
+            } else {
+                assert(false);
+            }
+            ++element_count;
+            cursor += 5u;
+        }
+        assert(cursor < info->size && info->data[cursor++] == 0u);
+        assert(cursor < info->size);
+        if (element_count == 0u) {
+            ++empty_pack_count;
+        } else if (element_count == 1u && found_global_template) {
+            ++single_pack_count;
+        } else if (element_count == 2u && found_global_template &&
+                   found_qualified_template) {
+            ++two_element_pack_count;
+        } else {
+            assert(false);
+        }
+    }
+    assert(holder_count == 3u && empty_pack_count == 1u &&
+           single_pack_count == 1u && two_element_pack_count == 1u);
+    objfile_free(object);
+}
+
 static void verify_class_template_parameter_pack_dies(
     const char* path, uint16_t architecture)
 {
@@ -4638,6 +4729,10 @@ int main(int argc, char** argv)
     verify_class_template_parameter_dies(argv[27], ARCH_X64);
     verify_class_template_template_parameter_die(argv[26], ARCH_X86);
     verify_class_template_template_parameter_die(argv[27], ARCH_X64);
+    verify_class_template_template_parameter_pack_dies(
+        argv[26], ARCH_X86);
+    verify_class_template_template_parameter_pack_dies(
+        argv[27], ARCH_X64);
     verify_class_template_parameter_pack_dies(argv[26], ARCH_X86);
     verify_class_template_parameter_pack_dies(argv[27], ARCH_X64);
     verify_class_non_type_template_parameter_pack_dies(

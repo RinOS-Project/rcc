@@ -120,7 +120,36 @@ typedef struct CxxMangleContext {
 static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type);
 static void cxx_mangle_type_append_context(
     char* buf, size_t* pos, Type* type, CxxMangleContext* context);
+static void cxx_mangle_type_char(char* buf, size_t* pos, char value);
 static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls);
+
+/* A template-template argument is encoded as a template-name, not as a type.
+ * In particular, namespace-qualified names use Itanium's nested-name form. */
+static void mangle_template_argument_name(char* buf, size_t* pos,
+                                          Type* argument) {
+    CxxNamespace* namespace_stack[32];
+    CxxTemplate* actual_template = argument ? argument->cxx_template : NULL;
+    int namespace_count = 0;
+    if (!actual_template || !actual_template->name) {
+        rcc_fatal("C++ template-template argument is missing its template name");
+    }
+    for (CxxNamespace* current = actual_template->ns;
+         current && current->name; current = current->parent) {
+        if (namespace_count >=
+            (int)(sizeof(namespace_stack) / sizeof(namespace_stack[0]))) {
+            rcc_fatal("C++ template-template namespace is too deep to mangle");
+        }
+        namespace_stack[namespace_count++] = current;
+    }
+    if (namespace_count > 0) {
+        cxx_mangle_type_char(buf, pos, 'N');
+        for (int index = namespace_count - 1; index >= 0; --index) {
+            mangle_name(buf, pos, namespace_stack[index]->name);
+        }
+    }
+    mangle_name(buf, pos, actual_template->name);
+    if (namespace_count > 0) cxx_mangle_type_char(buf, pos, 'E');
+}
 
 static void mangle_nested_prefix(char* buf, size_t* pos,
                                   CxxNamespace* ns, CxxClass* cls) {
@@ -234,9 +263,10 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
     for (int index = 0; expanded_pack && index < pack_parameter_index;
          ++index) {
         TemplateParam* parameter = &tmpl->params[index];
-        if (parameter->kind == TPARAM_TYPE ||
-            parameter->kind == TPARAM_TEMPLATE) {
+        if (parameter->kind == TPARAM_TYPE) {
             cxx_mangle_type_append(buf, pos, template_args[index]);
+        } else if (parameter->kind == TPARAM_TEMPLATE) {
+            mangle_template_argument_name(buf, pos, template_args[index]);
         } else if (parameter->kind == TPARAM_NONTYPE) {
             int written;
             if (!template_value_present || !template_value_present[index] ||
@@ -274,6 +304,10 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
             int written;
             if (tmpl->params[pack_parameter_index].kind == TPARAM_TYPE) {
                 cxx_mangle_type_append(
+                    buf, pos, template_args[pack_parameter_index + pack_index]);
+            } else if (tmpl->params[pack_parameter_index].kind ==
+                       TPARAM_TEMPLATE) {
+                mangle_template_argument_name(
                     buf, pos, template_args[pack_parameter_index + pack_index]);
             } else {
                 if (!template_value_present ||
@@ -350,10 +384,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 !template_args[index]->cxx_template) {
                 rcc_fatal("C++ template class template argument is missing");
             }
-            /* The carrier's tag is the source template name.  Including it
-             * in the instance identity keeps distinct template arguments
-             * separate without pretending that a template is an object type. */
-            cxx_mangle_type_append(buf, pos, template_args[index]);
+            mangle_template_argument_name(buf, pos, template_args[index]);
         } else {
             rcc_fatal("unsupported C++ template class parameter");
         }

@@ -1754,6 +1754,40 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                                 section_add_byte(info, 0u);
                             } else if (
                                 parameter_index == templ->param_count - 1 &&
+                                parameter->kind == TPARAM_TEMPLATE) {
+                                section_add_byte(info, 50u);
+                                debug_line_u32(
+                                    info, debug_str_add(strings,
+                                                        parameter->name));
+                                for (int pack_index = parameter_index;
+                                     pack_index < argument_count;
+                                     ++pack_index) {
+                                    Type* template_argument = arguments
+                                        ? arguments[pack_index] : NULL;
+                                    const char* template_name =
+                                        template_argument
+                                            ? template_argument->tag : NULL;
+                                    if (!template_name && template_argument &&
+                                        template_argument->cxx_template) {
+                                        template_name = template_argument
+                                            ->cxx_template->name;
+                                    }
+                                    if (!template_argument ||
+                                        !template_argument->cxx_template ||
+                                        !template_name ||
+                                        template_name[0] == '\0') {
+                                        rcc_fatal(
+                                            "DWARF class-template template-pack argument is missing");
+                                        return;
+                                    }
+                                    section_add_byte(info, 55u);
+                                    debug_line_u32(
+                                        info, debug_str_add(strings,
+                                                            template_name));
+                                }
+                                section_add_byte(info, 0u);
+                            } else if (
+                                parameter_index == templ->param_count - 1 &&
                                 parameter->kind == TPARAM_NONTYPE &&
                                 parameter->type &&
                                 debug_type_has_integral_constant_encoding(
@@ -4738,6 +4772,13 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0x2110u); /* DW_AT_GNU_template_name */
     debug_line_uleb(abbrev, 0x0eu);    /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 55u);
+    debug_line_uleb(abbrev, 0x4106u);  /* DW_TAG_GNU_template_template_param */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x2110u); /* DW_AT_GNU_template_name */
+    debug_line_uleb(abbrev, 0x0eu);   /* DW_FORM_strp */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

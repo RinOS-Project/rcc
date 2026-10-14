@@ -1270,10 +1270,26 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		>$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
 	$(GREP) -F -q 'DW_TAG_GNU_template_template_param' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
-	$(GREP) -F -q 'DW_AT_GNU_template_name: DebugTemplateTemplateLeaf' \
+	$(GREP) -F -q 'DW_TAG_GNU_template_parameter_pack' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
-	$(GREP) -F -q 'DW_AT_GNU_template_name: debug_template_namespace::Leaf' \
+	$(GREP) -F -q 'DW_AT_GNU_template_name:' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
+	$(GREP) -F -q 'DebugTemplateTemplateLeaf' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
+	$(GREP) -F -q 'debug_template_namespace::Leaf' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-dwarf.log
+	strings $(TEST_OUT)/debug-info/cxx-template-gcc.o \
+		>$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	strings $(TEST_OUT)/debug-info/cxx-template-x64-g.ro \
+		>$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z34debug_template_template_pack_entryP31DebugTemplateTemplatePackHolderIJ25DebugTemplateTemplateLeafN24debug_template_namespace4LeafEEE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z35debug_template_template_fixed_entryP27DebugTemplateTemplateHolderIN24debug_template_namespace4LeafEE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z34debug_template_template_pack_entryP31DebugTemplateTemplatePackHolderIJ25DebugTemplateTemplateLeafN24debug_template_namespace4LeafEEE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z35debug_template_template_fixed_entryP27DebugTemplateTemplateHolderIN24debug_template_namespace4LeafEE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/debug-info/x86-no-g.ro tests/debug_info.c
 	$(RCC_TARGET) --target i686-unknown-rinos -g -O0 -fverified-backend -c \
