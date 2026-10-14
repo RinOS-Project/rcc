@@ -208,6 +208,10 @@ struct Type {
     /* A dependent `T::template alias<...>` type-id retains its explicit
      * specialization arguments until T is known. */
     bool cxx_dependent_alias_template;
+    /* Keep a substituted dependent owner expression when an alias resolves
+     * to another dependent nested alias, so later instantiation can continue
+     * the owner chain instead of reusing an out-of-scope parameter index. */
+    Type* cxx_dependent_alias_owner;
     Type** cxx_template_args;
     int cxx_template_arg_count;
     /* A dependent template-id argument can be a type-pack expansion (for

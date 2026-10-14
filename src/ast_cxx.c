@@ -5644,14 +5644,25 @@ static Type* template_substitute_dependent_alias_template_type(
     bool accessible = false;
     bool unresolved_template_argument = false;
 
-    if (!type || !type->cxx_dependent_alias_template || owner_index < 0 ||
-        owner_index >= arg_count || !args || !args[owner_index]) {
+    if (!type || !type->cxx_dependent_alias_template || !args) {
         return type;
     }
-    owner = args[owner_index];
+    if (type->cxx_dependent_alias_owner) {
+        owner = template_substitute_type(
+            tmpl, type->cxx_dependent_alias_owner, args, arg_count,
+            value_args, value_present);
+    } else {
+        if (owner_index < 0 || owner_index >= arg_count ||
+            !args[owner_index]) {
+            return type;
+        }
+        owner = args[owner_index];
+    }
+    if (!owner) return NULL;
     if (owner->cxx_dependent) {
         Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
         *unresolved = *type;
+        unresolved->cxx_dependent_alias_owner = owner;
         unresolved->cxx_class = owner->cxx_class;
         if (owner->cxx_template_param_index >= 0) {
             unresolved->cxx_template_param_index =
@@ -5923,6 +5934,7 @@ static Type* template_substitute_dependent_alias_template_type(
     if (unresolved_template_argument) {
         Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
         *unresolved = *type;
+        unresolved->cxx_dependent_alias_owner = owner;
         if (explicit_argument_count > 0 && type->cxx_template_args) {
             unresolved->cxx_template_args = ast_arena_alloc(
                 sizeof(*unresolved->cxx_template_args) *

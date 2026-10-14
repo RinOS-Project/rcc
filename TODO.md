@@ -3976,7 +3976,8 @@ remains a separate open item.
   `test-cxx-function-template-overloads` gates (exit 0).
 - [x] Re-run and record the full native-Windows MinGW GCC `test-cxx` aggregate
   after the constrained-alias, template-template argument, and outer-parameter
-  substitution changes; it completed successfully (exit 0).
+  substitution and dependent-owner expression changes; it completed
+  successfully (exit 0).
 - [x] Parse requires-clauses on nested alias templates and evaluate their
   constraints after dependent owner substitution. A satisfied `sizeof(Type)`
   constraint compiles; an unsatisfied `char` case matches GCC's rejection on
@@ -3992,6 +3993,9 @@ remains a separate open item.
 - [x] Resolve an alias declared through a dependent class-template owner whose
   own alias type refers to a second dependent owner alias; compare the exact
   consumer specialization symbol with GCC on i686 and AMD64.
-- [ ] Continue more complex dependent owner/alias chains, alias packs,
+- [x] Preserve and substitute the owner type expression when an alias resolves
+  to another still-dependent alias; verify a three-stage owner/alias chain's
+  exact specialization symbol against GCC on i686 and AMD64.
+- [ ] Continue deeper dependent owner/alias chains, alias packs,
   pointer/reference/member-pointer declared types with non-integral NTTP
   values, and broader type-directed grammar.

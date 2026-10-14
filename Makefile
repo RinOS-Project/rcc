@@ -1322,6 +1322,8 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z55debug_template_nested_alias_chain_scalar_value_consumerP40DebugTemplateNestedAliasChainScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn31EE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z56debug_template_nested_alias_chain2_scalar_value_consumerP41DebugTemplateNestedAliasChain2ScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn37EE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z49debug_template_dependent_enum_value_pack_consumerP31DebugTemplateDependentValuePackI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z34debug_template_enum_value_consumerP22DebugTemplateEnumValueIL31DebugTemplateDependentValueEnumn3EE' \
@@ -1367,6 +1369,8 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -x -q '_Z73debug_template_nested_outer_template_template_alias_scalar_value_consumerP56DebugTemplateNestedOuterTemplateTemplateAliasScalarValueI36DebugTemplateAliasTemplateValueOwner34DebugTemplateAliasTemplateArgumentLin29EE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z55debug_template_nested_alias_chain_scalar_value_consumerP40DebugTemplateNestedAliasChainScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn31EE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z56debug_template_nested_alias_chain2_scalar_value_consumerP41DebugTemplateNestedAliasChain2ScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn37EE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(call REMOVE_FILE,$(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x86.ro tests/cxx_dependent_alias_template_constraint_invalid.cpp,$(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x86.log)
