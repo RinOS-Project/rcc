@@ -42,6 +42,14 @@ struct DebugTemplateNestedValueOwner {
     using value_type = short;
 };
 
+struct DebugTemplateCompoundNestedValueLeaf {
+    using nested_type = short;
+};
+
+struct DebugTemplateCompoundValueOwner {
+    using value_type = DebugTemplateCompoundNestedValueLeaf;
+};
+
 template <typename Owner, typename Owner::value_type... Values>
 struct DebugTemplateNestedValuePack {
     int marker;
@@ -52,6 +60,20 @@ DebugTemplateNestedValuePack<DebugTemplateNestedValueOwner, -4, 19>
 
 int debug_template_nested_value_pack_consumer(
     DebugTemplateNestedValuePack<DebugTemplateNestedValueOwner, -4, 19>* value) {
+    return value ? value->marker : 0;
+}
+
+template <typename Owner, typename Owner::value_type::nested_type... Values>
+struct DebugTemplateCompoundNestedValuePack {
+    int marker;
+};
+
+DebugTemplateCompoundNestedValuePack<DebugTemplateCompoundValueOwner, -4, 19>
+    debug_template_compound_nested_value_pack;
+
+int debug_template_compound_nested_value_pack_consumer(
+    DebugTemplateCompoundNestedValuePack<
+        DebugTemplateCompoundValueOwner, -4, 19>* value) {
     return value ? value->marker : 0;
 }
 
@@ -278,6 +300,16 @@ int debug_template_function_nested_value_pack() {
 int debug_template_function_nested_value_pack_entry() {
     return debug_template_function_nested_value_pack<
         DebugTemplateNestedValueOwner, -4, 19>();
+}
+
+template <typename Owner, typename Owner::value_type::nested_type... Values>
+int debug_template_function_compound_nested_value_pack() {
+    return static_cast<int>(sizeof...(Values));
+}
+
+int debug_template_function_compound_nested_value_pack_entry() {
+    return debug_template_function_compound_nested_value_pack<
+        DebugTemplateCompoundValueOwner, -4, 19>();
 }
 
 template <DebugTemplateDependentValueEnum Value>

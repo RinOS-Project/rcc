@@ -1275,7 +1275,8 @@ static void verify_class_dependent_non_type_template_parameter_pack_dies(
 }
 
 static void verify_class_nested_dependent_non_type_pack_die(
-    const char* path, uint16_t architecture)
+    const char* path, uint16_t architecture, const char* class_prefix,
+    const char* expected_owner_name)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
@@ -1299,8 +1300,7 @@ static void verify_class_nested_dependent_non_type_pack_die(
         class_name_offset = read_u32(info->data, die + 1u);
         if (class_name_offset >= strings->size) continue;
         class_name = (const char*)strings->data + class_name_offset;
-        if (strncmp(class_name, "DebugTemplateNestedValuePack.",
-                    sizeof("DebugTemplateNestedValuePack.") - 1u) != 0) {
+        if (strncmp(class_name, class_prefix, strlen(class_prefix)) != 0) {
             continue;
         }
 
@@ -1314,7 +1314,7 @@ static void verify_class_nested_dependent_non_type_pack_die(
         owner_name_offset = read_u32(info->data, owner_type_offset + 1u);
         assert(owner_name_offset < strings->size);
         owner_name = (const char*)strings->data + owner_name_offset;
-        assert(strcmp(owner_name, "DebugTemplateNestedValueOwner") == 0);
+        assert(strcmp(owner_name, expected_owner_name) == 0);
 
         assert(cursor < info->size && info->data[cursor++] == 50u);
         assert(cursor + 4u <= info->size);
@@ -4510,7 +4510,8 @@ static void verify_function_template_dependent_value_pack_dies(
 }
 
 static void verify_function_template_nested_dependent_value_pack_die(
-    const char* path, uint16_t architecture)
+    const char* path, uint16_t architecture, const char* expected_function,
+    const char* expected_owner_name)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
@@ -4534,7 +4535,7 @@ static void verify_function_template_nested_dependent_value_pack_die(
         function_name_offset = read_u32(info->data, die + 1u);
         if (function_name_offset >= strings->size ||
             strcmp((const char*)strings->data + function_name_offset,
-                   "debug_template_function_nested_value_pack") != 0) {
+                   expected_function) != 0) {
             continue;
         }
 
@@ -4552,7 +4553,7 @@ static void verify_function_template_nested_dependent_value_pack_die(
         owner_name_offset = read_u32(info->data, owner_type_offset + 1u);
         assert(owner_name_offset < strings->size &&
                strcmp((const char*)strings->data + owner_name_offset,
-                      "DebugTemplateNestedValueOwner") == 0);
+                      expected_owner_name) == 0);
 
         assert(cursor < info->size && info->data[cursor++] == 50u);
         assert(cursor + 4u <= info->size);
@@ -5342,8 +5343,18 @@ int main(int argc, char** argv)
         argv[26], ARCH_X86);
     verify_class_dependent_non_type_template_parameter_pack_dies(
         argv[27], ARCH_X64);
-    verify_class_nested_dependent_non_type_pack_die(argv[26], ARCH_X86);
-    verify_class_nested_dependent_non_type_pack_die(argv[27], ARCH_X64);
+    verify_class_nested_dependent_non_type_pack_die(
+        argv[26], ARCH_X86, "DebugTemplateNestedValuePack.",
+        "DebugTemplateNestedValueOwner");
+    verify_class_nested_dependent_non_type_pack_die(
+        argv[27], ARCH_X64, "DebugTemplateNestedValuePack.",
+        "DebugTemplateNestedValueOwner");
+    verify_class_nested_dependent_non_type_pack_die(
+        argv[26], ARCH_X86, "DebugTemplateCompoundNestedValuePack.",
+        "DebugTemplateCompoundValueOwner");
+    verify_class_nested_dependent_non_type_pack_die(
+        argv[27], ARCH_X64, "DebugTemplateCompoundNestedValuePack.",
+        "DebugTemplateCompoundValueOwner");
     verify_zero_argument_non_type_template_pack_die(
         argv[26], ARCH_X86, "DebugTemplateEmptyNonTypePack.");
     verify_zero_argument_non_type_template_pack_die(
@@ -5365,9 +5376,21 @@ int main(int argc, char** argv)
     verify_function_template_dependent_value_pack_dies(
         argv[27], ARCH_X64);
     verify_function_template_nested_dependent_value_pack_die(
-        argv[26], ARCH_X86);
+        argv[26], ARCH_X86,
+        "debug_template_function_nested_value_pack",
+        "DebugTemplateNestedValueOwner");
     verify_function_template_nested_dependent_value_pack_die(
-        argv[27], ARCH_X64);
+        argv[27], ARCH_X64,
+        "debug_template_function_nested_value_pack",
+        "DebugTemplateNestedValueOwner");
+    verify_function_template_nested_dependent_value_pack_die(
+        argv[26], ARCH_X86,
+        "debug_template_function_compound_nested_value_pack",
+        "DebugTemplateCompoundValueOwner");
+    verify_function_template_nested_dependent_value_pack_die(
+        argv[27], ARCH_X64,
+        "debug_template_function_compound_nested_value_pack",
+        "DebugTemplateCompoundValueOwner");
     verify_enum_template_value_dies(argv[26], ARCH_X86);
     verify_enum_template_value_dies(argv[27], ARCH_X64);
     verify_verified_fallback_debug_object(argv[28], ARCH_X86);
