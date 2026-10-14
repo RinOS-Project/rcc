@@ -4,10 +4,14 @@ struct NestedClassTemplateOwnerChain {
     struct Inner {
         template <typename LeafType>
         struct Leaf {
+            OuterType outer;
+            InnerType inner;
             LeafType leaf;
 
             int value() const {
-                return static_cast<int>(leaf);
+                return static_cast<int>(outer) +
+                       static_cast<int>(inner) +
+                       static_cast<int>(leaf);
             }
         };
     };
@@ -38,8 +42,12 @@ using LongOwnerChainValue =
 int main() {
     IntegerOwnerChainValue integer_owner{};
     LongOwnerChainValue long_owner{};
-    integer_owner.leaf = 18;
-    long_owner.leaf = 18;
+    integer_owner.outer = 3;
+    integer_owner.inner = 7;
+    integer_owner.leaf = 8;
+    long_owner.outer = 4;
+    long_owner.inner = 6;
+    long_owner.leaf = 8;
     return integer_owner.value() == 18 &&
                    long_owner.value() == 18 &&
                    make_nested_class_template_owner_chain_value<int, long,

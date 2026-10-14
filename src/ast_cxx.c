@@ -4576,29 +4576,25 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
 }
 
 static int template_type_parameter_index(CxxTemplate* tmpl, Type* type) {
+    int offset = 0;
     if (!tmpl || !type) {
         return -1;
     }
     if (type->kind != TYPE_STRUCT || !type->tag) return -1;
     if (type->cxx_dependent && type->cxx_template_param_index >= 0) {
         int parameter_index = type->cxx_template_param_index;
-        if (parameter_index < tmpl->param_count &&
-            tmpl->params[parameter_index].kind == TPARAM_TYPE &&
-            tmpl->params[parameter_index].name &&
-            strcmp(tmpl->params[parameter_index].name, type->tag) == 0) {
-            return parameter_index;
-        }
-        if (tmpl->enclosing_template &&
-            parameter_index >= tmpl->param_count &&
-            parameter_index - tmpl->param_count <
-                tmpl->enclosing_template->param_count) {
-            int enclosing_index = parameter_index - tmpl->param_count;
-            TemplateParam* parameter =
-                &tmpl->enclosing_template->params[enclosing_index];
-            if (parameter->kind == TPARAM_TYPE && parameter->name &&
-                strcmp(parameter->name, type->tag) == 0) {
-                return parameter_index;
+        for (CxxTemplate* scope = tmpl; scope;
+             scope = scope->enclosing_template) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                TemplateParam* parameter = &scope->params[index];
+                if (parameter_index == offset + index &&
+                    parameter->kind == TPARAM_TYPE && parameter->name &&
+                    strcmp(parameter->name, type->tag) == 0) {
+                    return parameter_index;
+                }
             }
+            if (scope->param_count > INT_MAX - offset) return -1;
+            offset += scope->param_count;
         }
     }
     for (int index = 0; index < tmpl->param_count; ++index) {

@@ -11575,34 +11575,25 @@ bool rcc_parse_cxx_type_start(void) {
 
 static int template_parameter_index(CxxTemplate* tmpl, Type* type) {
     int index;
+    int offset = 0;
     if (!tmpl || !type || type->kind != TYPE_STRUCT || !type->tag) {
         return -1;
     }
-    if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
-        type->cxx_template_param_index < tmpl->param_count &&
-        tmpl->params[type->cxx_template_param_index].kind ==
-            TPARAM_TEMPLATE &&
-        tmpl->params[type->cxx_template_param_index].name &&
-        strcmp(tmpl->params[type->cxx_template_param_index].name,
-               type->tag) == 0) {
-        return type->cxx_template_param_index;
-    }
-    for (index = 0; index < tmpl->param_count; ++index) {
-        if (tmpl->params[index].kind == TPARAM_TYPE &&
-            tmpl->params[index].name &&
-            strcmp(tmpl->params[index].name, type->tag) == 0) {
-            return index;
-        }
-    }
-    if (tmpl->enclosing_template) {
-        CxxTemplate* enclosing = tmpl->enclosing_template;
-        for (index = 0; index < enclosing->param_count; ++index) {
-            if (enclosing->params[index].kind == TPARAM_TYPE &&
-                enclosing->params[index].name &&
-                strcmp(enclosing->params[index].name, type->tag) == 0) {
-                return tmpl->param_count + index;
+    for (CxxTemplate* scope = tmpl; scope;
+         scope = scope->enclosing_template) {
+        for (index = 0; index < scope->param_count; ++index) {
+            TemplateParam* parameter = &scope->params[index];
+            bool indexed_template_parameter = type->cxx_dependent &&
+                type->cxx_template_param_index == offset + index &&
+                parameter->kind == TPARAM_TEMPLATE;
+            if ((parameter->kind == TPARAM_TYPE ||
+                 indexed_template_parameter) && parameter->name &&
+                strcmp(parameter->name, type->tag) == 0) {
+                return offset + index;
             }
         }
+        if (scope->param_count > INT_MAX - offset) return -1;
+        offset += scope->param_count;
     }
     return -1;
 }
@@ -11611,6 +11602,12 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                                         const int64_t* value_args,
                                         const bool* value_present,
                                         int argument_count, SourceLoc loc);
+static CxxTemplate* cxx_class_instance_template(CxxClass* class_instance) {
+    if (!class_instance) return NULL;
+    return class_instance->template_identity_tmpl
+        ? class_instance->template_identity_tmpl : class_instance->templ;
+}
+
 static Type* instantiate_class_template_for_owner(
     CxxTemplate* tmpl, Type** arguments, const int64_t* value_args,
     const bool* value_present, int argument_count, CxxClass* owner_class,
@@ -11618,22 +11615,18 @@ static Type* instantiate_class_template_for_owner(
 
 static int active_template_template_parameter_index(const char* name) {
     if (!active_template || !name) return -1;
-    for (int index = 0; index < active_template->param_count; ++index) {
-        TemplateParam* parameter = &active_template->params[index];
-        if (parameter->kind == TPARAM_TEMPLATE && parameter->name &&
-            strcmp(parameter->name, name) == 0) {
-            return index;
-        }
-    }
-    if (active_template->enclosing_template) {
-        CxxTemplate* enclosing = active_template->enclosing_template;
-        for (int index = 0; index < enclosing->param_count; ++index) {
-            TemplateParam* parameter = &enclosing->params[index];
+    int offset = 0;
+    for (CxxTemplate* scope = active_template; scope;
+         scope = scope->enclosing_template) {
+        for (int index = 0; index < scope->param_count; ++index) {
+            TemplateParam* parameter = &scope->params[index];
             if (parameter->kind == TPARAM_TEMPLATE && parameter->name &&
                 strcmp(parameter->name, name) == 0) {
-                return active_template->param_count + index;
+                return offset + index;
             }
         }
+        if (scope->param_count > INT_MAX - offset) return -1;
+        offset += scope->param_count;
     }
     return -1;
 }
@@ -11641,21 +11634,19 @@ static int active_template_template_parameter_index(const char* name) {
 static const TemplateParam* active_template_template_parameter(
     int parameter_index) {
     if (!active_template || parameter_index < 0) return NULL;
-    if (parameter_index < active_template->param_count) {
-        const TemplateParam* parameter =
-            &active_template->params[parameter_index];
-        return parameter->kind == TPARAM_TEMPLATE ? parameter : NULL;
+    int offset = 0;
+    for (CxxTemplate* scope = active_template; scope;
+         scope = scope->enclosing_template) {
+        if (parameter_index >= offset &&
+            parameter_index - offset < scope->param_count) {
+            const TemplateParam* parameter =
+                &scope->params[parameter_index - offset];
+            return parameter->kind == TPARAM_TEMPLATE ? parameter : NULL;
+        }
+        if (scope->param_count > INT_MAX - offset) return NULL;
+        offset += scope->param_count;
     }
-    parameter_index -= active_template->param_count;
-    if (!active_template->enclosing_template ||
-        parameter_index >= active_template->enclosing_template->param_count) {
-        return NULL;
-    }
-    {
-        const TemplateParam* parameter =
-            &active_template->enclosing_template->params[parameter_index];
-        return parameter->kind == TPARAM_TEMPLATE ? parameter : NULL;
-    }
+    return NULL;
 }
 
 static bool template_template_parameter_signatures_match(
@@ -13227,43 +13218,72 @@ static Type* instantiate_class_template_for_owner(
         }
     }
     if (owner_class && tmpl->enclosing_template) {
-        CxxTemplate* enclosing_template = tmpl->enclosing_template;
-        CxxTemplate* owner_template = owner_class->template_identity_tmpl
-            ? owner_class->template_identity_tmpl : owner_class->templ;
-        Type** owner_arguments = owner_class->template_identity_tmpl
-            ? owner_class->template_identity_args : owner_class->template_args;
-        int owner_argument_count = owner_class->template_identity_tmpl
-            ? owner_class->template_identity_arg_count
-            : owner_class->template_arg_count;
-        const int64_t* owner_values = owner_class->template_identity_tmpl
-            ? owner_class->template_identity_value_args
-            : owner_class->template_value_args;
-        const bool* owner_value_present = owner_class->template_identity_tmpl
-            ? owner_class->template_identity_value_present
-            : owner_class->template_value_present;
-        int enclosing_pack_index = cxx_class_pack_index(enclosing_template);
+        int enclosing_argument_count = 0;
         int combined_count;
         size_t combined_slots;
         Type** combined_arguments;
         int64_t* combined_values;
         bool* combined_value_present;
-        if (owner_template != enclosing_template ||
-            owner_argument_count < 0 ||
-            (enclosing_pack_index < 0 &&
-             owner_argument_count != enclosing_template->param_count) ||
-            (enclosing_pack_index >= 0 &&
-             owner_argument_count < enclosing_pack_index) ||
-            (owner_argument_count > 0 && !owner_arguments)) {
-            rcc_error(loc,
-                      "nested class template owner arguments are incomplete");
-            return NULL;
+        CxxClass* owner_scope;
+        CxxTemplate* enclosing_scope;
+
+        /* A nested declaration's lexical template environment is flattened
+         * in nearest-owner-first order after its own parameters. Match that
+         * order against the concrete enclosing-class chain. */
+        owner_scope = owner_class;
+        for (enclosing_scope = tmpl->enclosing_template;
+             enclosing_scope;
+             enclosing_scope = enclosing_scope->enclosing_template) {
+            CxxTemplate* owner_template;
+            int owner_argument_count;
+            int enclosing_pack_index;
+            while (owner_scope &&
+                   cxx_class_instance_template(owner_scope) !=
+                       enclosing_scope) {
+                owner_scope = owner_scope->enclosing_class;
+            }
+            if (!owner_scope) {
+                rcc_error(loc,
+                          "nested class template owner chain is incomplete "
+                          "at '%s'",
+                          enclosing_scope->name
+                              ? enclosing_scope->name : "<unnamed>");
+                return NULL;
+            }
+            owner_template = cxx_class_instance_template(owner_scope);
+            owner_argument_count = owner_scope->template_identity_tmpl
+                ? owner_scope->template_identity_arg_count
+                : owner_scope->template_arg_count;
+            enclosing_pack_index = cxx_class_pack_index(enclosing_scope);
+            if (owner_template != enclosing_scope ||
+                owner_argument_count < 0 ||
+                (enclosing_pack_index < 0 &&
+                 owner_argument_count != enclosing_scope->param_count) ||
+                (enclosing_pack_index >= 0 &&
+                 owner_argument_count < enclosing_pack_index)) {
+                rcc_error(loc,
+                          "nested class template owner arguments are "
+                          "incomplete for '%s'",
+                          enclosing_scope->name
+                              ? enclosing_scope->name : "<unnamed>");
+                return NULL;
+            }
+            if (owner_argument_count >
+                INT_MAX - enclosing_argument_count) {
+                rcc_error(loc,
+                          "nested class template substitution argument count "
+                          "overflow");
+                return NULL;
+            }
+            enclosing_argument_count += owner_argument_count;
+            owner_scope = owner_scope->enclosing_class;
         }
-        if (owner_argument_count > INT_MAX - argument_count) {
+        if (enclosing_argument_count > INT_MAX - argument_count) {
             rcc_error(loc,
                       "nested class template substitution argument count overflow");
             return NULL;
         }
-        combined_count = argument_count + owner_argument_count;
+        combined_count = argument_count + enclosing_argument_count;
         combined_slots = combined_count > 0 ? (size_t)combined_count : 1u;
         if (combined_slots > SIZE_MAX / sizeof(*combined_arguments) ||
             combined_slots > SIZE_MAX / sizeof(*combined_values) ||
@@ -13295,19 +13315,65 @@ static Type* instantiate_class_template_for_owner(
                            (size_t)argument_count);
             }
         }
-        if (owner_argument_count > 0) {
-            memcpy(combined_arguments + argument_count, owner_arguments,
-                   sizeof(*combined_arguments) *
-                       (size_t)owner_argument_count);
-            if (owner_values && owner_value_present) {
-                memcpy(combined_values + argument_count, owner_values,
-                       sizeof(*combined_values) *
-                           (size_t)owner_argument_count);
-                memcpy(combined_value_present + argument_count,
-                       owner_value_present,
-                       sizeof(*combined_value_present) *
-                           (size_t)owner_argument_count);
+        owner_scope = owner_class;
+        int owner_argument_offset = 0;
+        for (enclosing_scope = tmpl->enclosing_template;
+             enclosing_scope;
+             enclosing_scope = enclosing_scope->enclosing_template) {
+            Type** owner_arguments;
+            int owner_argument_count;
+            const int64_t* owner_values;
+            const bool* owner_value_present;
+            while (owner_scope &&
+                   cxx_class_instance_template(owner_scope) !=
+                       enclosing_scope) {
+                owner_scope = owner_scope->enclosing_class;
             }
+            if (!owner_scope) {
+                rcc_error(loc,
+                          "nested class template owner chain changed during "
+                          "substitution");
+                return NULL;
+            }
+            owner_arguments = owner_scope->template_identity_tmpl
+                ? owner_scope->template_identity_args
+                : owner_scope->template_args;
+            owner_argument_count = owner_scope->template_identity_tmpl
+                ? owner_scope->template_identity_arg_count
+                : owner_scope->template_arg_count;
+            owner_values = owner_scope->template_identity_tmpl
+                ? owner_scope->template_identity_value_args
+                : owner_scope->template_value_args;
+            owner_value_present = owner_scope->template_identity_tmpl
+                ? owner_scope->template_identity_value_present
+                : owner_scope->template_value_present;
+            if (owner_argument_count > 0 && !owner_arguments) {
+                rcc_error(loc,
+                          "nested class template owner arguments are "
+                          "incomplete");
+                return NULL;
+            }
+            if (owner_argument_count > 0) {
+                memcpy(combined_arguments + argument_count +
+                           owner_argument_offset,
+                       owner_arguments,
+                       sizeof(*combined_arguments) *
+                           (size_t)owner_argument_count);
+                if (owner_values && owner_value_present) {
+                    memcpy(combined_values + argument_count +
+                               owner_argument_offset,
+                           owner_values,
+                           sizeof(*combined_values) *
+                               (size_t)owner_argument_count);
+                    memcpy(combined_value_present + argument_count +
+                               owner_argument_offset,
+                           owner_value_present,
+                           sizeof(*combined_value_present) *
+                               (size_t)owner_argument_count);
+                }
+            }
+            owner_argument_offset += owner_argument_count;
+            owner_scope = owner_scope->enclosing_class;
         }
         substitution_arguments = combined_arguments;
         substitution_value_args = combined_values;
@@ -25616,19 +25682,11 @@ static Expr* parse_cxx_expression(void) {
 extern Stmt* parse_declaration(void);
 
 static bool is_active_template_type(const char* name) {
-    int index;
     if (!active_template || !name) return false;
-    for (index = 0; index < active_template->param_count; ++index) {
-        TemplateParam* parameter = &active_template->params[index];
-        if (parameter->kind == TPARAM_TYPE && parameter->name &&
-            strcmp(parameter->name, name) == 0) {
-            return true;
-        }
-    }
-    if (active_template->enclosing_template) {
-        CxxTemplate* enclosing = active_template->enclosing_template;
-        for (index = 0; index < enclosing->param_count; ++index) {
-            TemplateParam* parameter = &enclosing->params[index];
+    for (CxxTemplate* scope = active_template; scope;
+         scope = scope->enclosing_template) {
+        for (int index = 0; index < scope->param_count; ++index) {
+            TemplateParam* parameter = &scope->params[index];
             if (parameter->kind == TPARAM_TYPE && parameter->name &&
                 strcmp(parameter->name, name) == 0) {
                 return true;
@@ -25903,22 +25961,18 @@ static bool cxx_range_for_header(void) {
 
 static int active_template_type_index(const char* name) {
     if (!active_template || !name) return -1;
-    for (int index = 0; index < active_template->param_count; ++index) {
-        TemplateParam* parameter = &active_template->params[index];
-        if (parameter->kind == TPARAM_TYPE && parameter->name &&
-            strcmp(parameter->name, name) == 0) {
-            return index;
-        }
-    }
-    if (active_template->enclosing_template) {
-        CxxTemplate* enclosing = active_template->enclosing_template;
-        for (int index = 0; index < enclosing->param_count; ++index) {
-            TemplateParam* parameter = &enclosing->params[index];
+    int offset = 0;
+    for (CxxTemplate* scope = active_template; scope;
+         scope = scope->enclosing_template) {
+        for (int index = 0; index < scope->param_count; ++index) {
+            TemplateParam* parameter = &scope->params[index];
             if (parameter->kind == TPARAM_TYPE && parameter->name &&
                 strcmp(parameter->name, name) == 0) {
-                return active_template->param_count + index;
+                return offset + index;
             }
         }
+        if (scope->param_count > INT_MAX - offset) return -1;
+        offset += scope->param_count;
     }
     return -1;
 }

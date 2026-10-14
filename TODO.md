@@ -4291,7 +4291,13 @@ remains a separate open item.
   verify i686/AMD64 output, PE-i386 generation, AMD64 and GCC C++20 host
   execution, exact GCC Itanium symbol parity, and private nested-template
   rejection with no output object.
-- [ ] Extend deeper nested-template bodies to capture enclosing template
-  parameters and cover dependent pack expansions.
+- [x] Capture enclosing type-template parameters through multiple lexical
+  nested-class-template scopes, substituting the concrete outer and
+  intermediate owner arguments in deeper bodies. The owner-chain fixture now
+  reads all three levels and passes the full C++ and debug-info aggregates.
+- [ ] Cover enclosing non-type/template-template parameters and dependent
+  pack expansions in deeper owner chains.
+- [ ] Add explicit/partial nested class-template specializations and
+  structural NTTP owner packs.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` and
   `test-debug-info` aggregates after this parser change.
