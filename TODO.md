@@ -4051,6 +4051,20 @@ remains a separate open item.
   gate. GCC C++20 `-Wall -Wextra -Werror` positive build/run also passes.
 - [x] Pass the full native-Windows MinGW GCC `test-cxx` aggregate after the
   constrained alias-pack regression.
-- [ ] Extend constraints to value predicates/fold expressions and multiple
-  distinct source packs; template-template packs, wider transformations, and
-  non-integral structural NTTP packs remain open.
+- [ ] Extend constrained aliases to multiple distinct source packs;
+  template-template packs, wider transformations, and non-integral structural
+  NTTP packs remain open.
+
+## RCC continuation (2026-10-14, constrained alias value-pack folds)
+
+- [x] Parse unary `&&` and `||` fold expressions directly as requires-clauses
+  instead of consuming their parentheses as an optional clause wrapper.
+  Evaluate per-value predicates for trailing integral alias packs; verify the
+  empty `&&` fold identity, accepted/rejected non-empty packs, and GCC parity.
+- [x] Pass `test-cxx-alias-templates` on i686/AMD64 with AMD64 execution and
+  exact single-error/no-object checks for rejected constraints.
+- [x] Pass the full native-Windows MinGW GCC `test-cxx` and `test-debug-info`
+  aggregates after the parser change (both exit 0).
+- [ ] Extend constrained alias packs to multiple distinct source packs,
+  template-template packs, wider transformed expression trees, and
+  non-integral structural NTTP types.

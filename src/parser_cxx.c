@@ -1843,6 +1843,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                                                   Type* owner_type);
 static bool cxx_parser_expression_is_lvalue(Expr* expression);
 static Expr* parse_cxx_trailing_requires_clause(SourceLoc loc);
+static Expr* parse_cxx_requires_clause_expression(void);
 static Type* parse_cxx_lambda_auto_type(CxxTemplate* tmpl,
                                         int parameter_index,
                                         bool is_const, bool is_pointer,
@@ -1857,6 +1858,25 @@ static bool cxx_constructor_dmi_value_is_lowerable(
     CxxClass* cls, TypeParam* initialized_field, Type* type,
     Expr* expression);
 static CxxClass* find_class(const char* qualified_name);
+
+/* The parentheses of a fold-expression also satisfy the usual visual shape
+ * of a parenthesized requires-clause.  Try the fold grammar before consuming
+ * them as an optional requires-clause wrapper. */
+static Expr* parse_cxx_requires_clause_expression(void) {
+    Expr* constraint;
+    bool parenthesized = false;
+
+    if (check(TOK_LPAREN)) {
+        constraint = rcc_parse_cxx_fold_expression();
+        if (constraint) return constraint;
+        parenthesized = match(TOK_LPAREN);
+    }
+    constraint = parse_assignment_expression();
+    if (parenthesized) {
+        expect(TOK_RPAREN, ") after requires-clause");
+    }
+    return constraint;
+}
 static CxxTemplate* find_class_template(const char* qualified_name);
 static CxxTemplate* find_alias_template(const char* qualified_name);
 static CxxTemplate* find_template(const char* qualified_name, int kind);
@@ -10113,9 +10133,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
      * substituted; unsupported constraint forms remain explicit diagnostics
      * instead of being treated as an always-true annotation. */
     if (match(TOK_REQUIRES)) {
-        bool parenthesized = match(TOK_LPAREN);
-        tmpl->constraint = parse_assignment_expression();
-        if (parenthesized) expect(TOK_RPAREN, ")");
+        tmpl->constraint = parse_cxx_requires_clause_expression();
         if (!tmpl->constraint) {
             rcc_error(loc, "requires-clause requires a constraint expression");
         } else {
@@ -10926,16 +10944,13 @@ Expr* rcc_parse_cxx_concept_expression(void) {
  * function template.  Keeping this separate from the body parser makes the
  * same constrained-template path serve abbreviated and explicit templates. */
 static Expr* parse_cxx_trailing_requires_clause(SourceLoc loc) {
-    bool parenthesized;
     Expr* constraint;
 
     if (!match(TOK_REQUIRES)) return NULL;
     if (!rcc_parser_cxx_standard_at_least(20)) {
         rcc_error(loc, "requires-clauses require C++20 or newer");
     }
-    parenthesized = match(TOK_LPAREN);
-    constraint = parse_assignment_expression();
-    if (parenthesized) expect(TOK_RPAREN, ") after trailing requires-clause");
+    constraint = parse_cxx_requires_clause_expression();
     if (!constraint) {
         rcc_error(loc,
                   "trailing requires-clause requires a constraint expression");
