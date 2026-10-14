@@ -736,11 +736,168 @@ static void verified_propagate_block_debug_ranges(Stmt* statement) {
     }
 }
 
+static bool verified_first_statement_pc(const Stmt* statement,
+                                        uint32_t* first_pc) {
+    bool found = false;
+    uint32_t result = UINT32_MAX;
+    if (!statement || !first_pc) return false;
+    for (const StmtDebugRange* range = statement->debug_code_ranges;
+         range; range = range->next) {
+        if (range->end <= range->start) continue;
+        if (!found || range->start < result) result = range->start;
+        found = true;
+    }
+    if (statement->debug_code_end > statement->debug_code_start &&
+        (!found || statement->debug_code_start < result)) {
+        result = statement->debug_code_start;
+        found = true;
+    }
+#define RCC_DEBUG_FIRST_CHILD(child) do { \
+        uint32_t child_pc; \
+        if (verified_first_statement_pc((child), &child_pc) && \
+            (!found || child_pc < result)) { \
+            result = child_pc; \
+            found = true; \
+        } \
+    } while (0)
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                RCC_DEBUG_FIRST_CHILD(item->stmt);
+            }
+            break;
+        case STMT_IF:
+            RCC_DEBUG_FIRST_CHILD(statement->if_then);
+            RCC_DEBUG_FIRST_CHILD(statement->if_else);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            RCC_DEBUG_FIRST_CHILD(statement->while_body);
+            break;
+        case STMT_FOR:
+            RCC_DEBUG_FIRST_CHILD(statement->for_init);
+            RCC_DEBUG_FIRST_CHILD(statement->for_body);
+            break;
+        case STMT_SWITCH:
+            RCC_DEBUG_FIRST_CHILD(statement->switch_body);
+            break;
+        case STMT_CASE:
+            RCC_DEBUG_FIRST_CHILD(statement->case_stmt);
+            break;
+        case STMT_DEFAULT:
+            RCC_DEBUG_FIRST_CHILD(statement->default_stmt);
+            break;
+        case STMT_LABEL:
+            RCC_DEBUG_FIRST_CHILD(statement->label_stmt);
+            break;
+        case STMT_TRY:
+            RCC_DEBUG_FIRST_CHILD(statement->try_body);
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                RCC_DEBUG_FIRST_CHILD(handler->body);
+            }
+            break;
+        default:
+            break;
+    }
+#undef RCC_DEBUG_FIRST_CHILD
+    if (!found) return false;
+    *first_pc = result;
+    return true;
+}
+
+static bool verified_is_empty_variable_declaration(const Stmt* statement) {
+    const Decl* declaration;
+    return statement && statement->kind == STMT_DECL &&
+        (declaration = statement->decl) != NULL &&
+        declaration->kind == DECL_VAR && !declaration->var_is_global &&
+        !declaration->var_is_static_local &&
+        !statement->debug_code_ranges &&
+        statement->debug_code_end <= statement->debug_code_start;
+}
+
+static void verified_set_declaration_location_start(Stmt* statement,
+                                                    uint32_t start) {
+    if (!statement) return;
+    statement->debug_location_start = start;
+    statement->debug_location_start_valid = true;
+}
+
+static void verified_anchor_empty_declaration_locations(Stmt* statement) {
+    if (!statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (verified_is_empty_variable_declaration(item->stmt)) {
+                    for (StmtList* next = item->next; next;
+                         next = next->next) {
+                        uint32_t first_pc;
+                        if (verified_first_statement_pc(next->stmt,
+                                                        &first_pc)) {
+                            verified_set_declaration_location_start(
+                                item->stmt, first_pc);
+                            break;
+                        }
+                    }
+                }
+                verified_anchor_empty_declaration_locations(item->stmt);
+            }
+            break;
+        case STMT_IF:
+            verified_anchor_empty_declaration_locations(statement->if_then);
+            verified_anchor_empty_declaration_locations(statement->if_else);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            verified_anchor_empty_declaration_locations(
+                statement->while_body);
+            break;
+        case STMT_FOR:
+            if (verified_is_empty_variable_declaration(statement->for_init)) {
+                uint32_t first_pc;
+                if (verified_first_statement_pc(statement, &first_pc)) {
+                    verified_set_declaration_location_start(
+                        statement->for_init, first_pc);
+                }
+            }
+            verified_anchor_empty_declaration_locations(statement->for_init);
+            verified_anchor_empty_declaration_locations(statement->for_body);
+            break;
+        case STMT_SWITCH:
+            verified_anchor_empty_declaration_locations(
+                statement->switch_body);
+            break;
+        case STMT_CASE:
+            verified_anchor_empty_declaration_locations(statement->case_stmt);
+            break;
+        case STMT_DEFAULT:
+            verified_anchor_empty_declaration_locations(
+                statement->default_stmt);
+            break;
+        case STMT_LABEL:
+            verified_anchor_empty_declaration_locations(statement->label_stmt);
+            break;
+        case STMT_TRY:
+            verified_anchor_empty_declaration_locations(statement->try_body);
+            for (CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                verified_anchor_empty_declaration_locations(handler->body);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 static void verified_clear_statement_debug_ranges(Stmt* statement) {
     StmtDebugRange* range;
     if (!statement) return;
     statement->debug_code_start = 0u;
     statement->debug_code_end = 0u;
+    statement->debug_location_start = 0u;
+    statement->debug_location_start_valid = false;
     statement->debug_line_offset = 0u;
     statement->debug_line_valid = false;
     range = statement->debug_code_ranges;
@@ -1208,6 +1365,10 @@ RccVerifiedObjectStatus rcc_emit_verified_object(
         }
         verified_apply_statement_debug_ranges(object, object_name, &encoded);
         verified_propagate_block_debug_ranges(declaration->func_body);
+        if (g_opts.debug_info) {
+            verified_anchor_empty_declaration_locations(
+                declaration->func_body);
+        }
         rcc_free(scoped_name);
         rcc_x86_encoded_function_release(&encoded);
         rcc_ir_module_destroy(module);

@@ -2537,7 +2537,7 @@ static uint32_t debug_emit_location_list(
     const ModuleSymbol* function,
     const Stmt* scope, const Stmt* declaration_statement,
     int architecture, int64_t frame_offset, uint32_t alignment,
-    bool dereference);
+    bool dereference, bool* empty);
 
 static void debug_emit_variable_die(
     ObjectFile* obj, ObjSection* info, ObjSection* strings,
@@ -2553,6 +2553,7 @@ static void debug_emit_variable_die(
     uint32_t frame_alignment = 0u;
     bool has_frame_location = true;
     bool use_location_list = false;
+    bool empty_location_list = false;
     uint32_t location_list_offset = 0u;
     int64_t constant_value = 0;
     uint64_t unsigned_constant_value = 0u;
@@ -2591,50 +2592,64 @@ static void debug_emit_variable_die(
                 break;
             }
         }
-        if (!has_frame_location) {
-            if (abbreviation == 3u) abbreviation = 31u;
-            else if (abbreviation == 4u) abbreviation = 32u;
-            else if (abbreviation == 27u) abbreviation = 33u;
-            else return;
-            if (abbreviation == 32u && declaration->kind == DECL_VAR &&
-                declaration->type && declaration->type->is_const &&
-                !declaration->type->is_volatile &&
-                !declaration->type->is_reference &&
-                ((declaration->type->kind >= TYPE_BOOL &&
-                  declaration->type->kind <= TYPE_LLONG) ||
-                 declaration->type->kind == TYPE_ENUM ||
-                 declaration->type->kind == TYPE_FLOAT ||
-                 declaration->type->kind == TYPE_DOUBLE) &&
-                declaration->var_debug_const_value_valid) {
-                /* Keep the known source value available to debuggers after
-                 * optimization removes the object's stack storage. */
-                if (declaration->var_debug_const_value_float) {
-                    floating_constant_bits =
-                        declaration->var_debug_const_float_bits;
-                    floating_constant_size =
-                        declaration->var_debug_const_float_size;
-                    abbreviation = 56u;
-                } else if (declaration->var_debug_const_value_unsigned) {
-                    unsigned_constant_value =
-                        declaration->var_debug_const_unsigned_value;
-                    abbreviation = 55u;
-                } else {
-                    constant_value = declaration->var_debug_const_value;
-                    abbreviation = 54u;
-                }
-                has_constant_value = true;
-            }
+        if (has_frame_location && declaration_statement &&
+            !declaration_statement->debug_code_ranges &&
+            declaration_statement->debug_code_end <=
+                declaration_statement->debug_code_start &&
+            !declaration_statement->debug_location_start_valid) {
+            /* No instruction in this lexical lifetime can describe the
+             * declaration's frame slot.  Do not make it appear available
+             * from the enclosing block's first PC. */
+            has_frame_location = false;
         }
     }
-    if (abbreviation == 4u && location_scope &&
+    if (has_frame_location && abbreviation == 4u && location_scope &&
         location_scope->debug_code_end > location_scope->debug_code_start) {
         location_list_offset = debug_emit_location_list(
             obj, mod, filename, function, location_scope,
             declaration_statement, architecture, frame_offset,
-            frame_alignment,
-            declaration->var_is_vla);
-        use_location_list = location_list_offset != UINT32_MAX;
-        if (use_location_list) abbreviation = 39u;
+            frame_alignment, declaration->var_is_vla,
+            &empty_location_list);
+        if (empty_location_list) {
+            has_frame_location = false;
+        } else {
+            use_location_list = location_list_offset != UINT32_MAX;
+            if (use_location_list) abbreviation = 39u;
+        }
+    }
+    if (!has_frame_location) {
+        if (abbreviation == 3u) abbreviation = 31u;
+        else if (abbreviation == 4u) abbreviation = 32u;
+        else if (abbreviation == 27u) abbreviation = 33u;
+        else return;
+        if (abbreviation == 32u && declaration->kind == DECL_VAR &&
+            declaration->type && declaration->type->is_const &&
+            !declaration->type->is_volatile &&
+            !declaration->type->is_reference &&
+            ((declaration->type->kind >= TYPE_BOOL &&
+              declaration->type->kind <= TYPE_LLONG) ||
+             declaration->type->kind == TYPE_ENUM ||
+             declaration->type->kind == TYPE_FLOAT ||
+             declaration->type->kind == TYPE_DOUBLE) &&
+            declaration->var_debug_const_value_valid) {
+            /* Keep the known source value available to debuggers after
+             * optimization removes the object's stack storage. */
+            if (declaration->var_debug_const_value_float) {
+                floating_constant_bits =
+                    declaration->var_debug_const_float_bits;
+                floating_constant_size =
+                    declaration->var_debug_const_float_size;
+                abbreviation = 56u;
+            } else if (declaration->var_debug_const_value_unsigned) {
+                unsigned_constant_value =
+                    declaration->var_debug_const_unsigned_value;
+                abbreviation = 55u;
+            } else {
+                constant_value = declaration->var_debug_const_value;
+                abbreviation = 54u;
+            }
+            has_constant_value = true;
+        }
     }
     section_add_byte(info, abbreviation);
     debug_line_u32(info, debug_str_add(strings, declaration->name));
@@ -2831,7 +2846,8 @@ static uint32_t debug_emit_location_list(
     ObjectFile* obj, const Module* mod, const char* filename,
     const ModuleSymbol* function, const Stmt* scope,
     const Stmt* declaration_statement, int architecture,
-    int64_t frame_offset, uint32_t alignment, bool dereference) {
+    int64_t frame_offset, uint32_t alignment, bool dereference,
+    bool* empty) {
     ObjSection* locations;
     const char* symbol_name;
     char* scoped_name = NULL;
@@ -2847,23 +2863,9 @@ static uint32_t debug_emit_location_list(
     uint64_t entry_count;
     int locations_section;
     int address_size = architecture == ARCH_X64 ? 8 : 4;
+    if (empty) *empty = false;
     if (!obj || !mod || !filename || !function || !scope ||
         scope->debug_code_end <= scope->debug_code_start) {
-        return UINT32_MAX;
-    }
-    locations = objfile_get_section(obj, ".debug_loc");
-    if (!locations) {
-        locations = objfile_add_section(
-            obj, ".debug_loc", SECT_DEBUG_LOC, 0u);
-        locations->align = 1u;
-    }
-    if (locations->size > UINT32_MAX) {
-        rcc_fatal("DWARF location-list section exceeds 32-bit offsets");
-        return UINT32_MAX;
-    }
-    locations_section = objfile_section_index(obj, locations);
-    if (locations_section < 0) {
-        rcc_fatal("DWARF location-list section is detached");
         return UINT32_MAX;
     }
     function_size = debug_function_size(mod, function);
@@ -2885,6 +2887,9 @@ static uint32_t debug_emit_location_list(
                    declaration_statement->debug_code_end >
                        declaration_statement->debug_code_start) {
             lifetime_start = declaration_statement->debug_code_end;
+            has_lifetime_start = true;
+        } else if (declaration_statement->debug_location_start_valid) {
+            lifetime_start = declaration_statement->debug_location_start;
             has_lifetime_start = true;
         }
     }
@@ -2925,6 +2930,25 @@ static uint32_t debug_emit_location_list(
             return UINT32_MAX;
         }
         if (included) entry_count = 1u;
+    }
+    if (entry_count == 0u) {
+        if (empty) *empty = true;
+        return UINT32_MAX;
+    }
+    locations = objfile_get_section(obj, ".debug_loc");
+    if (!locations) {
+        locations = objfile_add_section(
+            obj, ".debug_loc", SECT_DEBUG_LOC, 0u);
+        locations->align = 1u;
+    }
+    if (locations->size > UINT32_MAX) {
+        rcc_fatal("DWARF location-list section exceeds 32-bit offsets");
+        return UINT32_MAX;
+    }
+    locations_section = objfile_section_index(obj, locations);
+    if (locations_section < 0) {
+        rcc_fatal("DWARF location-list section is detached");
+        return UINT32_MAX;
     }
     entry_size = (uint64_t)address_size * 2u + 2u + expression_size;
     if (entry_size == 0u ||

@@ -1866,8 +1866,12 @@
         list開始を初期化完了PCまでclipし、C legacyでscope開始PCより後になることを
         i686/AMD64のrelocation addend比較で検証。C legacy、C verified O0/O2、
         C++ verified O2の`.ro`回帰と、RLDがdebug-only sectionをloadable image
-        から除外する回帰を`test-debug-info`へ接続。命令rangeを持たない宣言、
-        全制御フローでの正確なlifetime、register/piece locationsは未完
+        から除外する回帰を`test-debug-info`へ接続。全制御フローでの正確な
+        lifetime、register/piece locationsは未完
+  - [x] verified backendで命令rangeのないframe-backed localのlocation listを
+        同一lexical scope内の次の実PCから開始し、scope entryより後になることを
+        i686/AMD64のC verified O0/O2で検証。scope末尾に後続PCがないlocalは
+        empty `.debug_loc`や偽のframe locationを出さないことも同じ回帰で確認
   - [x] verified statement PC rangeを挿入時に昇順・disjoint unionへ正規化し、
         overlapと隣接rangeを統合。branch scope localのlocation listを
         i686/AMD64のO0/O2で検証し、`branch_value`の開始・終了PCが

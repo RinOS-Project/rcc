@@ -1024,6 +1024,11 @@ struct Stmt {
      * positions consumed only by the relocatable DWARF emitter. */
     uint32_t debug_code_start;
     uint32_t debug_code_end;
+    /* Verified lowering can eliminate every instruction for a declaration.
+     * In that case the first following instruction in its lexical scope is
+     * the earliest PC at which its storage can be described. */
+    uint32_t debug_location_start;
+    bool debug_location_start_valid;
     /* Legacy code generators record the first emitted text offset for each
      * statement so DWARF line tables can map non-block statements as well. */
     uint32_t debug_line_offset;

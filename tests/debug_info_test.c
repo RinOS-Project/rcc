@@ -1869,6 +1869,78 @@ static bool verify_location_starts_after_simple_scope(
     return found_scope && found_location && location_start > scope_start;
 }
 
+static bool verify_location_starts_after_ranges_scope(
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* locations, const ObjSection* ranges,
+    const char* variable_name, uint64_t address_size)
+{
+    int64_t scope_start = 0;
+    int64_t location_start;
+    bool found_scope = false;
+    bool found_location = false;
+    if (!info || !strings || !locations || !ranges || !variable_name) {
+        return false;
+    }
+    for (uint64_t offset = 11u; offset + 14u <= info->size; ++offset) {
+        uint32_t name_offset;
+        uint32_t list_offset;
+        uint64_t child_offset;
+        uint64_t cursor;
+        bool saw_range = false;
+        if (info->data[offset] != 25u) continue;
+        child_offset = offset + 14u;
+        if (child_offset + 5u > info->size ||
+            (info->data[child_offset] != 4u &&
+             info->data[child_offset] != 39u)) {
+            continue;
+        }
+        name_offset = read_u32(info->data, child_offset + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) != 0) {
+            continue;
+        }
+        list_offset = read_u32(info->data, offset + 1u);
+        cursor = list_offset;
+        while (cursor <= ranges->size &&
+               address_size * 2u <= ranges->size - cursor) {
+            int64_t start;
+            int64_t end;
+            bool has_start = find_relocation_addend(ranges, cursor, &start);
+            bool has_end = find_relocation_addend(
+                ranges, cursor + address_size, &end);
+            if (!has_start && !has_end) break;
+            if (!has_start || !has_end || end <= start) return false;
+            if (!saw_range || start < scope_start) scope_start = start;
+            saw_range = true;
+            cursor += address_size * 2u;
+        }
+        if (!saw_range) continue;
+        found_scope = true;
+        break;
+    }
+    for (uint64_t die = 11u; die + 25u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint32_t list_offset;
+        if (info->data[die] != 39u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   variable_name) != 0) {
+            continue;
+        }
+        list_offset = read_u32(info->data, die + 21u);
+        if (list_offset >= locations->size ||
+            !find_relocation_addend(locations, list_offset,
+                                    &location_start)) {
+            return false;
+        }
+        found_location = true;
+        break;
+    }
+    return found_scope && found_location && location_start > scope_start;
+}
+
 static uint64_t read_uleb(const uint8_t* data, uint64_t size,
                           uint64_t* offset)
 {
@@ -2254,6 +2326,11 @@ static bool find_variable_location(const ObjSection* info,
                     }
                 }
                 if (!start_reloc && !end_reloc) {
+                    if (!saw_entry) {
+                        fprintf(stderr,
+                                "empty DWARF location list for '%s'\n",
+                                variable_name);
+                    }
                     assert(saw_entry);
                     for (uint64_t byte = cursor;
                          byte < cursor + address_size * 2u; ++byte) {
@@ -2334,6 +2411,20 @@ static bool find_variable_const_value(const ObjSection* info,
         return true;
     }
     return false;
+}
+
+static void assert_variable_has_no_location(
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* locations, const char* variable_name,
+    uint16_t architecture)
+{
+    bool has_location = false;
+    bool is_location_list = false;
+    int64_t frame_offset = 0;
+    assert(find_variable_location(info, strings, locations, variable_name,
+                                  architecture, &has_location,
+                                  &is_location_list, &frame_offset));
+    assert(!has_location && !is_location_list);
 }
 
 static bool find_variable_unsigned_const_value(
@@ -2501,6 +2592,7 @@ static void verify_optimized_verified_debug_object(
     ObjSection* strings;
     ObjSection* frame;
     ObjSection* locations;
+    ObjSection* ranges;
     bool has_location;
     bool is_location_list;
     int64_t value_offset;
@@ -2513,6 +2605,7 @@ static void verify_optimized_verified_debug_object(
     strings = objfile_get_section(object, ".debug_str");
     frame = objfile_get_section(object, ".debug_frame");
     locations = objfile_get_section(object, ".debug_loc");
+    ranges = objfile_get_section(object, ".debug_ranges");
     assert(info != NULL && strings != NULL && frame != NULL &&
            locations != NULL);
     verify_multiple_return_frame_fde(frame, architecture);
@@ -2540,7 +2633,12 @@ static void verify_optimized_verified_debug_object(
                                   architecture, &has_location,
                                   &is_location_list, &branch_offset));
     assert(has_location && branch_offset < 0 && is_location_list);
+    assert(verify_location_starts_after_ranges_scope(
+        info, strings, locations, ranges, "no_code_local",
+        architecture == ARCH_X64 ? 8u : 4u));
     assert(is_location_list);
+    assert_variable_has_no_location(info, strings, locations,
+                                    "no_code_unlocated", architecture);
     assert(find_variable_location(
         info, strings, locations, "optimized_constant", architecture,
         &has_location, &is_location_list, &branch_offset));
@@ -5203,6 +5301,11 @@ static void verify_verified_debug_object(const char* path,
                                   architecture, &has_location,
                                   &is_location_list, &branch_offset));
     assert(has_location && branch_offset < 0 && is_location_list);
+    assert(verify_location_starts_after_ranges_scope(
+        info, strings, locations, ranges, "no_code_local",
+        architecture == ARCH_X64 ? 8u : 4u));
+    assert_variable_has_no_location(info, strings, locations,
+                                    "no_code_unlocated", architecture);
     {
         int64_t branch_start;
         int64_t branch_end;

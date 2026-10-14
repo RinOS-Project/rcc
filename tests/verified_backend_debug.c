@@ -44,6 +44,19 @@ int verified_debug_branch_scope(int selector)
     return result;
 }
 
+int verified_debug_empty_declaration_scope(int input)
+{
+    int result = 0;
+    {
+        input = input + 1;
+        int no_code_local;
+        no_code_local = input + 2;
+        result = no_code_local;
+        int no_code_unlocated;
+    }
+    return result;
+}
+
 static int verified_debug_call(int value)
 {
     return value * 3 + 1;
