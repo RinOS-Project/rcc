@@ -44,6 +44,26 @@ struct NestedTypeChain {
     }
 };
 
+template <int OuterValue>
+struct NestedNonTypeOwner {
+    template <typename InnerType>
+    struct Inner {
+        template <typename LeafType>
+        struct Leaf {
+            int read() const {
+                return OuterValue + sizeof(InnerType) + sizeof(LeafType);
+            }
+        };
+    };
+};
+
+template <int OuterValue, typename InnerType, typename LeafType>
+int read_nested_non_type_owner_chain() {
+    typename NestedNonTypeOwner<OuterValue>::template Inner<InnerType>::
+        template Leaf<LeafType> value;
+    return value.read();
+}
+
 template <typename T>
 typename T::value_type::value_type function_template_nested_type_chain() {
     return 43;
@@ -116,6 +136,7 @@ int main() {
                    wide.read() == 29 && wide.read_base_type() == 29 &&
                    type_parameter.read() == 37 &&
                    chained_type.read() == 41 &&
+                   read_nested_non_type_owner_chain<17, char, long long>() == 26 &&
                    function_template_nested_type_chain<
                        NestedTypeChainOuter>() == 43 &&
                    dmi_effect_count == 4 && effects.called == 7 &&

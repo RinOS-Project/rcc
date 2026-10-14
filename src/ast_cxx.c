@@ -7312,6 +7312,73 @@ static bool template_eval_dependent_static_member(
     return false;
 }
 
+static CxxTemplate* template_clone_class_identity(CxxClass* class_scope) {
+    if (!class_scope) return NULL;
+    return class_scope->template_identity_tmpl
+        ? class_scope->template_identity_tmpl : class_scope->templ;
+}
+
+static int template_clone_class_argument_count(CxxClass* class_scope) {
+    if (!class_scope) return 0;
+    return class_scope->template_identity_tmpl
+        ? class_scope->template_identity_arg_count
+        : class_scope->template_arg_count;
+}
+
+static int template_clone_value_parameter_index(
+    CxxTemplate* tmpl, const char* name, int argument_count,
+    TemplateParam** result_parameter) {
+    CxxClass* class_scope = tmpl ? tmpl->active_class_instance : NULL;
+    int offset = 0;
+    bool first_scope = true;
+    if (result_parameter) *result_parameter = NULL;
+    if (!tmpl || !name || argument_count < 0) return -1;
+
+    for (CxxTemplate* scope = tmpl; scope;
+         scope = scope->enclosing_template) {
+        CxxClass* matching_class = NULL;
+        int scope_argument_count = scope->param_count;
+
+        if (class_scope) {
+            CxxClass* candidate = first_scope
+                ? class_scope : class_scope->enclosing_class;
+            for (; candidate; candidate = candidate->enclosing_class) {
+                if (template_clone_class_identity(candidate) == scope) {
+                    matching_class = candidate;
+                    break;
+                }
+            }
+            if (matching_class) {
+                scope_argument_count =
+                    template_clone_class_argument_count(matching_class);
+            } else {
+                class_scope = NULL;
+            }
+        }
+
+        for (int index = 0; index < scope->param_count; ++index) {
+            TemplateParam* parameter = &scope->params[index];
+            if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                strcmp(parameter->name, name) == 0) {
+                if (offset > INT_MAX - index) return -1;
+                int substitution_index = offset + index;
+                if (substitution_index >= argument_count) return -1;
+                if (result_parameter) *result_parameter = parameter;
+                return substitution_index;
+            }
+        }
+
+        if (scope_argument_count < 0 ||
+            scope_argument_count > INT_MAX - offset) {
+            return -1;
+        }
+        offset += scope_argument_count;
+        if (matching_class) class_scope = matching_class;
+        first_scope = false;
+    }
+    return -1;
+}
+
 static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                  Type** args, int arg_count,
                                  const int64_t* value_args,
@@ -7366,17 +7433,16 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
         copy->type = type_uint;
         return copy;
     }
-    if (expression->kind == EXPR_IDENT && tmpl && value_present &&
-        expression->ident_name) {
-        for (int index = 0; index < tmpl->param_count; ++index) {
-            TemplateParam* parameter = &tmpl->params[index];
-            if (parameter->kind == TPARAM_NONTYPE &&
-                parameter->name && value_present[index] &&
-                strcmp(parameter->name, expression->ident_name) == 0) {
-                copy = expr_int(value_args[index], expression->loc);
-                copy->type = parameter->type ? parameter->type : type_int;
-                return copy;
-            }
+    if (expression->kind == EXPR_IDENT && tmpl && value_args &&
+        value_present && expression->ident_name) {
+        TemplateParam* parameter = NULL;
+        int index = template_clone_value_parameter_index(
+            tmpl, expression->ident_name, arg_count, &parameter);
+        if (index >= 0 && value_present[index]) {
+            copy = expr_int(value_args[index], expression->loc);
+            copy->type = parameter && parameter->type
+                ? parameter->type : type_int;
+            return copy;
         }
     }
     copy = ast_arena_alloc(sizeof(*copy));

@@ -4299,8 +4299,11 @@ remains a separate open item.
   nested-class-template scopes, substituting the concrete outer and
   intermediate owner arguments in deeper bodies. The owner-chain fixture now
   reads all three levels and passes the full C++ and debug-info aggregates.
-- [ ] Cover enclosing non-type/template-template parameters and dependent
-  pack expansions in deeper owner chains.
+- [x] Substitute an enclosing integral non-type parameter through a deeper
+  nested owner chain into a member-function body; verify GCC C++20, RCC i686
+  and AMD64 compilation, and i686 freestanding plus AMD64 host execution.
+- [ ] Capture enclosing template-template parameters and dependent pack
+  expansions in deeper owner chains.
 - [ ] Add explicit/partial nested class-template specializations and
   structural NTTP owner packs.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` and
