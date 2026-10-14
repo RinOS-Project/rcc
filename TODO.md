@@ -4189,5 +4189,5 @@ remains a separate open item.
   specialization/lookup; the class-member parser currently lacks that path.
 - [ ] Extend structural non-integral NTTP packs and defaults/constraints in
   nested template-template signatures.
-- [ ] Commit the implementation, regressions, and TODO on RCC `main`, then
-  record its exact commit and gitlink in the parent TODO. No push.
+- [x] Commit the parser implementation, regression fixture, and test record
+  on RCC `main` as `cfa1568fb5c2083612a1b973c6e16022af9eba19`; no push.
