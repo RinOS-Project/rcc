@@ -1803,8 +1803,9 @@
   - [x] 先行type parameterを宣言型とするconcrete signed／unsigned integral
         non-type packs（`template<class T, T... Values>`）をclass／function
         templateのDWARF parameter-pack DIEへ出力。empty／複数要素、`short`の
-        負値、`unsigned short`の高bit値をi686/AMD64で検証し、同じ値を異なる
-        dependent型でspecializeした場合のclass-instance cache分離も回帰化
+        負値、`unsigned short`の高bit値、およびsigned enum型値をi686/AMD64で
+        検証。class/functionのItanium manglingもGCCと完全一致させ、同じ値を
+        異なるdependent型でspecializeした場合のclass-instance cache分離も回帰化
   - [ ] Qualified／compound dependent declared type、non-integral structural
         non-type packs、他形式のdependent pack expansion、未instantiateのdependent
         alias/template-definition DIEは引き続き未完

@@ -12653,7 +12653,8 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         if (parameter->kind == TPARAM_NONTYPE &&
             (!value_args || !value_present || !value_present[index] ||
              !non_type_argument_type || non_type_argument_type->cxx_dependent ||
-             !type_is_integer(non_type_argument_type))) {
+             (!type_is_integer(non_type_argument_type) &&
+              non_type_argument_type->kind != TYPE_ENUM))) {
             rcc_error(loc,
                       "class template non-type argument %d requires an "
                       "integer constant", index + 1);

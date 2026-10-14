@@ -47,6 +47,23 @@ DebugTemplateDependentValuePack<unsigned short, 0xF000U>
 DebugTemplateDependentValuePack<int, 7>
     debug_template_dependent_int_value_pack;
 
+enum class DebugTemplateDependentValueEnum : short {
+    negative = -3,
+    positive = 12
+};
+DebugTemplateDependentValuePack<DebugTemplateDependentValueEnum,
+                                DebugTemplateDependentValueEnum::negative,
+                                DebugTemplateDependentValueEnum::positive>
+    debug_template_dependent_enum_value_pack;
+
+int debug_template_dependent_enum_value_pack_consumer(
+    DebugTemplateDependentValuePack<
+        DebugTemplateDependentValueEnum,
+        DebugTemplateDependentValueEnum::negative,
+        DebugTemplateDependentValueEnum::positive>* value) {
+    return value ? value->marker : 0;
+}
+
 template <int... Values>
 struct DebugTemplateEmptyNonTypePack {};
 
@@ -216,5 +233,9 @@ int debug_template_function_dependent_value_pack_entry() {
            debug_template_function_dependent_value_pack<short, -2, 7>() +
            debug_template_function_dependent_value_pack<unsigned short,
                                                         0xF000U>() +
-           debug_template_function_dependent_value_pack<int, 7>();
+           debug_template_function_dependent_value_pack<int, 7>() +
+           debug_template_function_dependent_value_pack<
+               DebugTemplateDependentValueEnum,
+               DebugTemplateDependentValueEnum::negative,
+               DebugTemplateDependentValueEnum::positive>();
 }

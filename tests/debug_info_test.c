@@ -662,8 +662,10 @@ static void verify_typedef_die(const char* path, uint16_t architecture,
         file_index = read_u32(info->data, die + 9u);
         line = read_u32(info->data, die + 13u);
         column = read_u32(info->data, die + 17u);
-        assert((uint64_t)type_offset + 7u <= info->size &&
-               info->data[type_offset] == 5u);
+        assert((uint64_t)type_offset + 5u <= info->size &&
+               (info->data[type_offset] == 5u ||
+                info->data[type_offset] == 15u ||
+                info->data[type_offset] == 36u));
         base_name_offset = read_u32(info->data, type_offset + 1u);
         assert(base_name_offset < strings->size &&
                strcmp((const char*)strings->data + base_name_offset,
@@ -1166,6 +1168,7 @@ static void verify_class_dependent_non_type_template_parameter_pack_dies(
     unsigned signed_count = 0u;
     unsigned unsigned_count = 0u;
     unsigned same_value_different_type_count = 0u;
+    unsigned enum_count = 0u;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -1177,7 +1180,9 @@ static void verify_class_dependent_non_type_template_parameter_pack_dies(
         uint64_t cursor;
         uint32_t type_offset;
         uint32_t type_name_offset;
+        uint32_t value_type_offset;
         const char* value_type_name;
+        bool value_is_enum;
         uint32_t pack_name_offset;
         unsigned element_count = 0u;
         if (info->data[die] != 12u) continue;
@@ -1194,8 +1199,13 @@ static void verify_class_dependent_non_type_template_parameter_pack_dies(
         assert(cursor + 8u <= info->size);
         type_offset = read_u32(info->data, cursor + 4u);
         cursor += 8u;
-        assert((uint64_t)type_offset + 7u <= info->size &&
-               info->data[type_offset] == 5u);
+        assert((uint64_t)type_offset + 5u <= info->size &&
+               (info->data[type_offset] == 5u ||
+                info->data[type_offset] == 15u ||
+                info->data[type_offset] == 36u));
+        value_type_offset = type_offset;
+        value_is_enum = info->data[type_offset] == 15u ||
+                        info->data[type_offset] == 36u;
         type_name_offset = read_u32(info->data, type_offset + 1u);
         assert(type_name_offset < strings->size);
         value_type_name = (const char*)strings->data + type_name_offset;
@@ -1214,20 +1224,21 @@ static void verify_class_dependent_non_type_template_parameter_pack_dies(
             ++cursor;
             type_offset = read_u32(info->data, cursor);
             cursor += 4u;
-            assert((uint64_t)type_offset + 7u <= info->size &&
-                   info->data[type_offset] == 5u);
-            type_name_offset = read_u32(info->data, type_offset + 1u);
-            assert(type_name_offset < strings->size &&
-                   strcmp((const char*)strings->data + type_name_offset,
-                          value_type_name) == 0);
+            assert(type_offset == value_type_offset);
             if (is_unsigned) {
                 value = read_uleb(info->data, info->size, &cursor);
-                assert(strcmp(value_type_name, "unsigned short") == 0 &&
+                assert(!value_is_enum &&
+                       strcmp(value_type_name, "unsigned short") == 0 &&
                        element_count == 0u && value == UINT16_C(0xf000));
             } else {
                 int64_t signed_value = read_sleb(info->data, info->size,
                                                  &cursor);
-                if (strcmp(value_type_name, "short") == 0) {
+                if (value_is_enum) {
+                    assert(strcmp(value_type_name,
+                                  "DebugTemplateDependentValueEnum") == 0 &&
+                           ((element_count == 0u && signed_value == -3) ||
+                            (element_count == 1u && signed_value == 12)));
+                } else if (strcmp(value_type_name, "short") == 0) {
                     assert((element_count == 0u && signed_value == -2) ||
                            (element_count == 1u && signed_value == 7));
                 } else {
@@ -1247,6 +1258,11 @@ static void verify_class_dependent_non_type_template_parameter_pack_dies(
         } else if (strcmp(value_type_name, "unsigned short") == 0) {
             assert(element_count == 1u);
             ++unsigned_count;
+        } else if (value_is_enum) {
+            assert(strcmp(value_type_name,
+                          "DebugTemplateDependentValueEnum") == 0 &&
+                   element_count == 2u);
+            ++enum_count;
         } else {
             assert(strcmp(value_type_name, "int") == 0 &&
                    element_count == 1u);
@@ -1254,7 +1270,7 @@ static void verify_class_dependent_non_type_template_parameter_pack_dies(
         }
     }
     assert(empty_count == 1u && signed_count == 1u && unsigned_count == 1u &&
-           same_value_different_type_count == 1u);
+           same_value_different_type_count == 1u && enum_count == 1u);
     objfile_free(object);
 }
 
@@ -4309,6 +4325,7 @@ static void verify_function_template_dependent_value_pack_dies(
     unsigned signed_count = 0u;
     unsigned unsigned_count = 0u;
     unsigned same_value_different_type_count = 0u;
+    unsigned enum_count = 0u;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -4319,7 +4336,9 @@ static void verify_function_template_dependent_value_pack_dies(
         uint64_t cursor;
         uint32_t name_offset;
         uint32_t type_offset;
+        uint32_t value_type_offset;
         const char* value_type_name;
+        bool value_is_enum;
         unsigned element_count = 0u;
         if (info->data[die] != 2u) continue;
         function_name_offset = read_u32(info->data, die + 1u);
@@ -4337,11 +4356,17 @@ static void verify_function_template_dependent_value_pack_dies(
         assert(name_offset < strings->size &&
                strcmp((const char*)strings->data + name_offset,
                       "ValueType") == 0);
-        assert((uint64_t)type_offset + 7u <= info->size &&
-               info->data[type_offset] == 5u);
+        assert((uint64_t)type_offset + 5u <= info->size &&
+               (info->data[type_offset] == 5u ||
+                info->data[type_offset] == 15u ||
+                info->data[type_offset] == 36u));
         name_offset = read_u32(info->data, type_offset + 1u);
         assert(name_offset < strings->size);
+        value_type_offset = type_offset;
         value_type_name = (const char*)strings->data + name_offset;
+        value_is_enum = info->data[type_offset] == 15u ||
+                        info->data[type_offset] == 36u;
+        assert(info->data[type_offset] == 5u || value_is_enum);
 
         assert(cursor < info->size && info->data[cursor++] == 50u);
         assert(cursor + 4u <= info->size);
@@ -4357,19 +4382,20 @@ static void verify_function_template_dependent_value_pack_dies(
             ++cursor;
             type_offset = read_u32(info->data, cursor);
             cursor += 4u;
-            assert((uint64_t)type_offset + 7u <= info->size &&
-                   info->data[type_offset] == 5u);
-            name_offset = read_u32(info->data, type_offset + 1u);
-            assert(name_offset < strings->size &&
-                   strcmp((const char*)strings->data + name_offset,
-                          value_type_name) == 0);
+            assert(type_offset == value_type_offset);
             if (is_unsigned) {
                 uint64_t value = read_uleb(info->data, info->size, &cursor);
-                assert(strcmp(value_type_name, "unsigned short") == 0 &&
+                assert(!value_is_enum &&
+                       strcmp(value_type_name, "unsigned short") == 0 &&
                        element_count == 0u && value == UINT16_C(0xf000));
             } else {
                 int64_t value = read_sleb(info->data, info->size, &cursor);
-                if (strcmp(value_type_name, "short") == 0) {
+                if (value_is_enum) {
+                    assert(strcmp(value_type_name,
+                                  "DebugTemplateDependentValueEnum") == 0 &&
+                           ((element_count == 0u && value == -3) ||
+                            (element_count == 1u && value == 12)));
+                } else if (strcmp(value_type_name, "short") == 0) {
                     assert((element_count == 0u && value == -2) ||
                            (element_count == 1u && value == 7));
                 } else {
@@ -4389,6 +4415,11 @@ static void verify_function_template_dependent_value_pack_dies(
         } else if (strcmp(value_type_name, "unsigned short") == 0) {
             assert(element_count == 1u);
             ++unsigned_count;
+        } else if (value_is_enum) {
+            assert(strcmp(value_type_name,
+                          "DebugTemplateDependentValueEnum") == 0 &&
+                   element_count == 2u);
+            ++enum_count;
         } else {
             assert(strcmp(value_type_name, "int") == 0 &&
                    element_count == 1u);
@@ -4396,7 +4427,7 @@ static void verify_function_template_dependent_value_pack_dies(
         }
     }
     assert(empty_count == 1u && signed_count == 1u && unsigned_count == 1u &&
-           same_value_different_type_count == 1u);
+           same_value_different_type_count == 1u && enum_count == 1u);
     objfile_free(object);
 }
 

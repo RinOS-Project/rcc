@@ -115,6 +115,7 @@ static void mangle_name(char* buf, size_t* pos, const char* name) {
 typedef struct CxxMangleContext {
     Type** class_types;
     size_t class_type_count;
+    size_t class_type_index_base;
 } CxxMangleContext;
 
 static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type);
@@ -122,6 +123,58 @@ static void cxx_mangle_type_append_context(
     char* buf, size_t* pos, Type* type, CxxMangleContext* context);
 static void cxx_mangle_type_char(char* buf, size_t* pos, char value);
 static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls);
+static size_t cxx_mangle_find_class_substitution(
+    const CxxMangleContext* context, Type* type);
+static void cxx_mangle_record_class_type(CxxMangleContext* context,
+                                         Type* type);
+
+static void cxx_mangle_enum_name(char* buf, size_t* pos, Type* type) {
+    const char* namespace_name;
+    if (!type || !type->enum_tag || type->enum_tag[0] == '\0') {
+        rcc_fatal("C++ anonymous enum cannot be mangled as a type");
+    }
+    namespace_name = type->cxx_namespace;
+    if (!namespace_name || namespace_name[0] == '\0') {
+        mangle_name(buf, pos, type->enum_tag);
+        return;
+    }
+    cxx_mangle_type_char(buf, pos, 'N');
+    while (*namespace_name) {
+        const char* separator = strstr(namespace_name, "::");
+        size_t component_length = separator
+            ? (size_t)(separator - namespace_name) : strlen(namespace_name);
+        char component[512];
+        if (component_length == 0u || component_length >= sizeof(component)) {
+            rcc_fatal("C++ enum namespace component is invalid for mangling");
+        }
+        memcpy(component, namespace_name, component_length);
+        component[component_length] = '\0';
+        mangle_name(buf, pos, component);
+        if (!separator) break;
+        namespace_name = separator + 2;
+    }
+    mangle_name(buf, pos, type->enum_tag);
+    cxx_mangle_type_char(buf, pos, 'E');
+}
+
+static Type* cxx_mangle_template_value_type(
+    const TemplateParam* parameter, Type* const* arguments,
+    int argument_count, int argument_slot) {
+    Type* value_type = NULL;
+    Type* declared_type = parameter ? parameter->type : NULL;
+    if (arguments && argument_slot >= 0 && argument_slot < argument_count) {
+        value_type = arguments[argument_slot];
+        if (value_type && !value_type->cxx_dependent) return value_type;
+    }
+    if (declared_type && declared_type->cxx_dependent &&
+        declared_type->cxx_template_param_index >= 0 && arguments &&
+        declared_type->cxx_template_param_index < argument_count) {
+        Type* substituted = arguments[
+            declared_type->cxx_template_param_index];
+        if (substituted && !substituted->cxx_dependent) return substituted;
+    }
+    return value_type ? value_type : declared_type;
+}
 
 /* A template-template argument is encoded as a template-name, not as a type.
  * In particular, namespace-qualified names use Itanium's nested-name form. */
@@ -220,6 +273,8 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
     bool* template_value_present;
     bool expanded_pack;
     int pack_parameter_index = -1;
+    CxxMangleContext template_argument_context = { 0 };
+    template_argument_context.class_type_index_base = 1u;
     if (!cls) return;
     tmpl = cls->template_identity_tmpl
         ? cls->template_identity_tmpl : cls->templ;
@@ -264,7 +319,8 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
          ++index) {
         TemplateParam* parameter = &tmpl->params[index];
         if (parameter->kind == TPARAM_TYPE) {
-            cxx_mangle_type_append(buf, pos, template_args[index]);
+            cxx_mangle_type_append_context(
+                buf, pos, template_args[index], &template_argument_context);
         } else if (parameter->kind == TPARAM_TEMPLATE) {
             mangle_template_argument_name(buf, pos, template_args[index]);
         } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -274,7 +330,11 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 rcc_fatal("C++ template class value argument is missing");
             }
             cxx_mangle_type_char(buf, pos, 'L');
-            cxx_mangle_type_append(buf, pos, parameter->type);
+            cxx_mangle_type_append_context(
+                buf, pos,
+                cxx_mangle_template_value_type(
+                    parameter, template_args, template_arg_count, index),
+                &template_argument_context);
             if (template_value_args[index] < 0) {
                 uint64_t magnitude = (uint64_t)(
                     -(template_value_args[index] + 1)) + 1u;
@@ -303,8 +363,10 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
              ++pack_index) {
             int written;
             if (tmpl->params[pack_parameter_index].kind == TPARAM_TYPE) {
-                cxx_mangle_type_append(
-                    buf, pos, template_args[pack_parameter_index + pack_index]);
+                cxx_mangle_type_append_context(
+                    buf, pos,
+                    template_args[pack_parameter_index + pack_index],
+                    &template_argument_context);
             } else if (tmpl->params[pack_parameter_index].kind ==
                        TPARAM_TEMPLATE) {
                 mangle_template_argument_name(
@@ -319,8 +381,13 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                     rcc_fatal("C++ template class name is too long");
                 }
                 buf[(*pos)++] = 'L';
-                cxx_mangle_type_append(
-                    buf, pos, tmpl->params[pack_parameter_index].type);
+                cxx_mangle_type_append_context(
+                    buf, pos,
+                    cxx_mangle_template_value_type(
+                        &tmpl->params[pack_parameter_index], template_args,
+                        template_arg_count,
+                        pack_parameter_index + pack_index),
+                    &template_argument_context);
                 if (template_value_args[pack_parameter_index + pack_index] < 0) {
                     uint64_t magnitude =
                         (uint64_t)(-(
@@ -351,7 +418,8 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         TemplateParam* parameter = &tmpl->params[index];
         if (expanded_pack && index <= pack_parameter_index) continue;
         if (parameter->kind == TPARAM_TYPE) {
-            cxx_mangle_type_append(buf, pos, template_args[index]);
+            cxx_mangle_type_append_context(
+                buf, pos, template_args[index], &template_argument_context);
         } else if (parameter->kind == TPARAM_NONTYPE) {
             int written;
             if (!template_value_present || !template_value_present[index] ||
@@ -362,7 +430,11 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 rcc_fatal("C++ template class name is too long");
             }
             buf[(*pos)++] = 'L';
-            cxx_mangle_type_append(buf, pos, parameter->type);
+            cxx_mangle_type_append_context(
+                buf, pos,
+                cxx_mangle_template_value_type(
+                    parameter, template_args, template_arg_count, index),
+                &template_argument_context);
             if (template_value_args[index] < 0) {
                 uint64_t magnitude =
                     (uint64_t)(-(template_value_args[index] + 1)) + 1u;
@@ -400,7 +472,7 @@ static size_t cxx_mangle_find_class_substitution(
     if (!context || !type) return (size_t)-1;
     for (size_t index = 0; index < context->class_type_count; ++index) {
         if (type_is_compatible(context->class_types[index], type)) {
-            return index;
+            return index + context->class_type_index_base;
         }
     }
     return (size_t)-1;
@@ -541,6 +613,17 @@ static void cxx_mangle_type_append_context(
             cxx_mangle_type_char(buf, pos, 'D');
             cxx_mangle_type_char(buf, pos, 'n');
             break;
+        case TYPE_ENUM: {
+            size_t substitution = cxx_mangle_find_class_substitution(
+                context, type);
+            if (substitution != (size_t)-1) {
+                cxx_mangle_append_substitution(buf, pos, substitution);
+            } else {
+                cxx_mangle_enum_name(buf, pos, type);
+                cxx_mangle_record_class_type(context, type);
+            }
+            break;
+        }
         case TYPE_STRUCT:
         case TYPE_UNION:
             {
@@ -1557,6 +1640,7 @@ static void cxx_mangle_template_type_append(
     bool is_substitutable_type = type &&
         (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
          type->kind == TYPE_STRUCT || type->kind == TYPE_UNION ||
+         type->kind == TYPE_ENUM ||
          type->kind == TYPE_FUNC) &&
         cxx_function_template_type_parameter_index(tmpl, type) < 0;
 
@@ -1601,8 +1685,10 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     bool has_type_argument = false;
     bool encode_member_signature;
     CxxMemberTemplateMangleContext member_mangle_context = { 0 };
+    CxxMangleContext template_argument_context = { 0 };
 
     if (!func || !tmpl) return cxx_mangle_function(func, ns, cls);
+    template_argument_context.class_type_index_base = 1u;
     mangling_namespace = ns == g_global_namespace ? NULL : ns;
     encode_member_signature = tmpl->member_method &&
         (!func->name || strcmp(func->name, "operator conversion") != 0);
@@ -1691,37 +1777,29 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                 buf[pos++] = 'J';
                 for (int pack_index = 0;
                      pack_index < tmpl->pending_pack_count; ++pack_index) {
-                    char* type_mangled = cxx_mangle_type(
-                        tmpl->pending_pack_args[pack_index]);
-                    size_t type_length = type_mangled
-                        ? strlen(type_mangled) : 0u;
-                    if (!type_mangled || pos + type_length >= sizeof(buf) - 32u) {
+                    size_t old_pos = pos;
+                    cxx_mangle_type_append_context(
+                        buf, &pos, tmpl->pending_pack_args[pack_index],
+                        &template_argument_context);
+                    if (old_pos == pos || pos >= sizeof(buf) - 32u) {
                         rcc_fatal("C++ template function name is too long");
                     }
-                    memcpy(buf + pos, type_mangled, type_length);
-                    pos += type_length;
                 }
                 buf[pos++] = 'E';
                 continue;
             }
-            const char* type_mangled;
-            size_t type_length;
             if (!type_args || !type_args[index]) {
                 continue;
             }
-            type_mangled = cxx_mangle_type(type_args[index]);
-            type_length = strlen(type_mangled);
-            if (pos + type_length >= sizeof(buf) - 32u) {
+            cxx_mangle_type_append_context(
+                buf, &pos, type_args[index], &template_argument_context);
+            if (pos >= sizeof(buf) - 32u) {
                 rcc_fatal("C++ template function name is too long");
             }
-            memcpy(buf + pos, type_mangled, type_length);
-            pos += type_length;
             continue;
         }
         if (parameter->is_pack && tmpl->pending_pack_count >= 0) {
-            char* type_mangled = cxx_mangle_type(parameter->type);
-            size_t type_length = type_mangled ? strlen(type_mangled) : 0u;
-            if (!type_mangled || pos + 2u + (type_length + 32u) *
+            if (pos + 2u + 32u *
                     (size_t)tmpl->pending_pack_count >= sizeof(buf) - 32u) {
                 rcc_fatal("C++ template function name is too long");
             }
@@ -1729,8 +1807,11 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
             for (int pack_index = 0;
                  pack_index < tmpl->pending_pack_count; ++pack_index) {
                 buf[pos++] = 'L';
-                memcpy(buf + pos, type_mangled, type_length);
-                pos += type_length;
+                cxx_mangle_type_append_context(
+                    buf, &pos,
+                    cxx_mangle_template_value_type(
+                        parameter, type_args, tmpl->param_count, index),
+                    &template_argument_context);
                 if (!tmpl->pending_pack_value_present ||
                     !tmpl->pending_pack_value_present[pack_index]) {
                     rcc_fatal("C++ non-type parameter pack value is missing");
@@ -1753,15 +1834,11 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         if (parameter->kind == TPARAM_NONTYPE && value_present &&
             value_present[index]) {
             buf[pos++] = 'L';
-            {
-                char* type_mangled = cxx_mangle_type(parameter->type);
-                size_t type_length = strlen(type_mangled);
-                if (pos + type_length >= sizeof(buf) - 32u) {
-                    rcc_fatal("C++ template function name is too long");
-                }
-                memcpy(buf + pos, type_mangled, type_length);
-                pos += type_length;
-            }
+            cxx_mangle_type_append_context(
+                buf, &pos,
+                cxx_mangle_template_value_type(
+                    parameter, type_args, tmpl->param_count, index),
+                &template_argument_context);
             if (value_args[index] < 0) {
                 uint64_t magnitude = (uint64_t)(-(value_args[index] + 1)) + 1u;
                 pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos,
