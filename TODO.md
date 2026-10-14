@@ -4076,5 +4076,7 @@ remains a separate open item.
   calls and AMD64 execution.
 - [x] Pass `test-cxx-alias-templates` on i686/AMD64 with AMD64 execution and
   GCC C++20 `-Wall -Wextra -Werror` compile/run.
-- [ ] Cover additional expression operators, dependent-owner chains, and
-  transformed expressions combined with constraints.
+- [x] Combine a per-value `&&` constraint fold with an arithmetic alias-pack
+  transformation; accept positive values and reject a pack containing zero,
+  with GCC parity on i686/AMD64 and AMD64 execution.
+- [ ] Cover additional expression operators and dependent-owner chains.

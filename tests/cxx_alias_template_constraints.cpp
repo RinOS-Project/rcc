@@ -28,8 +28,14 @@ template<int... Values>
 using NestedTransformedAliasPack =
     AliasTransformedValues<((Values + 2) * 3 - 1)...>;
 
+template<int... Values>
+    requires ((Values > 0) && ...)
+using PositiveTransformedAliasPack =
+    AliasTransformedValues<(Values * 3 + 2)...>;
+
 TransformedAliasPack<2, 4> transformed_alias_pack_value;
 NestedTransformedAliasPack<1, 3> nested_transformed_alias_pack_value;
+PositiveTransformedAliasPack<2, 4> constrained_transformed_alias_pack_value;
 
 int check_alias_transformed_values(AliasTransformedValues<8, 14>* value) {
     return value ? 0 : 1;
@@ -43,6 +49,10 @@ int main() {
     if (check_alias_transformed_values(&transformed_alias_pack_value)) return 5;
     if (check_alias_transformed_values(&nested_transformed_alias_pack_value)) {
         return 6;
+    }
+    if (check_alias_transformed_values(
+            &constrained_transformed_alias_pack_value)) {
+        return 7;
     }
     return 0;
 }
