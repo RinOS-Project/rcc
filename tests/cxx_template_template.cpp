@@ -63,6 +63,9 @@ struct SecondTemplateBase {
 template<template<typename> class... Bases>
 struct TemplateBasePack : Bases<int>... {};
 
+template<template<typename> class... Templates>
+struct TemplateTemplatePackForward : TemplateBasePack<Templates...> {};
+
 template<template<typename...> class Container, typename T>
 struct VariadicTypeHolder {
     Container<T> value;
@@ -108,6 +111,12 @@ int main() {
     static_assert(sizeof(TemplateBasePack<FirstTemplateBase,
                                           SecondTemplateBase>) ==
                   sizeof(int) * 2);
+    static_assert(sizeof(TemplateTemplatePackForward<>) == 1);
+    static_assert(sizeof(TemplateTemplatePackForward<FirstTemplateBase>) ==
+                  sizeof(int));
+    static_assert(sizeof(TemplateTemplatePackForward<FirstTemplateBase,
+                                                     SecondTemplateBase>) ==
+                  sizeof(int) * 2);
     return holder.get() == 41 && default_holder.get() == 43 &&
                    dependent_holder.get() == 47 &&
                    dependent_int_holder.get() == 53 &&
@@ -115,5 +124,8 @@ int main() {
                    variadic_int_holder.get() == 61 &&
                    sizeof(TemplateBasePack<FirstTemplateBase,
                                            SecondTemplateBase>) ==
+                       sizeof(int) * 2 &&
+                   sizeof(TemplateTemplatePackForward<FirstTemplateBase,
+                                                      SecondTemplateBase>) ==
                        sizeof(int) * 2 ? 0 : 1;
 }

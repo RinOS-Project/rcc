@@ -22,6 +22,17 @@ struct InvalidSignatureHolder {
 
 InvalidSignatureHolder<UnsignedValueBox, 7> invalid_signature;
 
+template<template<typename> class... Templates>
+struct TemplatePackTarget {};
+
+template<template<typename> class... Templates>
+struct InvalidUnexpandedTemplatePack
+    : TemplatePackTarget<Templates> {};
+
+template<template<typename> class Template>
+struct InvalidNonPackTemplateExpansion
+    : TemplatePackTarget<Template...> {};
+
 int main() {
     return invalid_dependent.value.value;
 }

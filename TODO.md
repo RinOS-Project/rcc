@@ -1797,8 +1797,9 @@
         Itanium manglingをGCCと比較。DWARF v4のGNU parameter-pack DIEと各実template名
         をi686/AMD64 `test-debug-info`で検証
   - [x] dependent class template-template parameter packsを基底指定
-        `Bases<int>...`で実体化し、空／1／2要素のbase countとobject layoutをGCCと比較、
-        i686/AMD64生成とAMD64実行で検証
+        `Bases<int>...`と別class template-idへの`Templates...` forwardingの両方で実体化し、
+        空／1／2要素のbase countとobject layoutをGCCと比較、i686/AMD64生成とAMD64実行で検証。
+        sourceがpackでないexpansionとellipsis欠落もi686/AMD64でdiagnosticを検証
   - [ ] その他のdependent pack expansion、dependent-typed non-type packs、未instantiateの
         dependent alias/template definition DIEは未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの

@@ -5689,6 +5689,14 @@ endif
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log
 	$(GREP) -q "template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
+	$(GREP) -q "template-template parameter pack requires an ellipsis" \
+		$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log
+	$(GREP) -q "template-template parameter pack requires an ellipsis" \
+		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
+	$(GREP) -q "class-template-id template argument pack expansion must use template-template packs" \
+		$(TEST_OUT)/cxx-template-template-dependent-invalid/x86.log
+	$(GREP) -q "class-template-id template argument pack expansion must use template-template packs" \
+		$(TEST_OUT)/cxx-template-template-dependent-invalid/x64.log
 	@echo "RCC++ dependent template-template value diagnostics completed"
 
 test-cxx-conversion-operator-posix: $(RCXX_TARGET) test-cxx-conversion-reference-ranking-ambiguous
