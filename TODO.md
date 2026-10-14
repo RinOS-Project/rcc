@@ -3976,8 +3976,8 @@ remains a separate open item.
   `test-cxx-function-template-overloads` gates (exit 0).
 - [x] Re-run and record the full native-Windows MinGW GCC `test-cxx` aggregate
   after the constrained-alias, template-template argument, and outer-parameter
-  substitution and dependent-owner expression changes; it completed
-  successfully (exit 0).
+  substitution, dependent-owner expression, and alias type-pack changes; it
+  completed successfully (exit 0).
 - [x] Parse requires-clauses on nested alias templates and evaluate their
   constraints after dependent owner substitution. A satisfied `sizeof(Type)`
   constraint compiles; an unsatisfied `char` case matches GCC's rejection on
@@ -3996,6 +3996,13 @@ remains a separate open item.
 - [x] Preserve and substitute the owner type expression when an alias resolves
   to another still-dependent alias; verify a three-stage owner/alias chain's
   exact specialization symbol against GCC on i686 and AMD64.
-- [ ] Continue deeper dependent owner/alias chains, alias packs,
+- [x] Support trailing type parameter packs in alias templates, including
+  empty and multi-type packs expanded into a class-template-id; run both target
+  objects and AMD64 execution in `test-cxx-alias-templates`. Keep non-type and
+  template-template alias packs explicitly diagnosed.
+- [x] Pass the focused native-Windows MinGW GCC `test-cxx-alias-templates`
+  gate (exit 0).
+- [ ] Continue dependent pack forwarding through alias templates, non-type and
+  template-template alias packs, deeper owner/alias chains,
   pointer/reference/member-pointer declared types with non-integral NTTP
   values, and broader type-directed grammar.

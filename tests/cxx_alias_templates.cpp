@@ -13,6 +13,21 @@ struct Box {
 template<typename T> using BoxAlias = Box<T>;
 template<int N> using IntArray = int[N];
 
+template<typename... Types>
+struct AliasPackHolder {
+    int marker;
+};
+
+template<typename... Types>
+using AliasPack = AliasPackHolder<Types...>;
+
+AliasPack<> empty_alias_pack_value = {67};
+AliasPack<int, short> multi_alias_pack_value = {71};
+
+int alias_pack_value(AliasPack<int, short>* value) {
+    return value ? value->marker : 0;
+}
+
 struct ClassAliasTemplateOwner {
     template<typename T> using Identity = T;
     template<int N> using Array = int[N];
@@ -66,6 +81,8 @@ int main() {
     return alias_identity(3) == 5 &&
                    alias_pointer(&value) == 5 &&
                    alias_class(&box) == 40 &&
+                   empty_alias_pack_value.marker == 67 &&
+                   alias_pack_value(&multi_alias_pack_value) == 71 &&
                    values[2] == 3 &&
                    class_alias_value == 47 &&
                    nested_class_alias_value.value == 61 &&

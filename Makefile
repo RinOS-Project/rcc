@@ -4141,13 +4141,13 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro \
 		tests/cxx_alias_templates_invalid.cpp \
 		>$(TEST_OUT)/cxx-alias-templates/invalid-x86.log 2>&1
-	$(GREP) -q "alias template parameter packs are not supported" \
+	$(GREP) -q "RCC\+\+ alias template packs currently require one trailing type parameter pack" \
 		$(TEST_OUT)/cxx-alias-templates/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alias-templates/invalid-x64.ro \
 		tests/cxx_alias_templates_invalid.cpp \
 		>$(TEST_OUT)/cxx-alias-templates/invalid-x64.log 2>&1
-	$(GREP) -q "alias template parameter packs are not supported" \
+	$(GREP) -q "RCC\+\+ alias template packs currently require one trailing type parameter pack" \
 		$(TEST_OUT)/cxx-alias-templates/invalid-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.ro \
@@ -4876,9 +4876,9 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.s tests/cxx_alias_templates.cpp
 	gcc -c -o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.s
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro tests/cxx_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/invalid-x86.log)
-	$(GREP) -F -q "alias template parameter packs are not supported" $(TEST_OUT)/cxx-alias-templates/invalid-x86.log
+	$(GREP) -F -q "RCC++ alias template packs currently require one trailing type parameter pack" $(TEST_OUT)/cxx-alias-templates/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/invalid-x64.ro tests/cxx_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/invalid-x64.log)
-	$(GREP) -F -q "alias template parameter packs are not supported" $(TEST_OUT)/cxx-alias-templates/invalid-x64.log
+	$(GREP) -F -q "RCC++ alias template packs currently require one trailing type parameter pack" $(TEST_OUT)/cxx-alias-templates/invalid-x64.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.ro tests/cxx_class_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.log)
 	$(GREP) -F -q "nested alias template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.log,3)

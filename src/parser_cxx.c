@@ -10217,10 +10217,12 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         }
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
-            if (parameter->is_pack) {
+            if (parameter->is_pack &&
+                (parameter->kind != TPARAM_TYPE ||
+                 index != tmpl->param_count - 1)) {
                 rcc_error(loc,
-                          "RCC++ alias template parameter packs are not "
-                          "supported by the bounded type ABI");
+                          "RCC++ alias template packs currently require one "
+                          "trailing type parameter pack");
             }
         }
         expect(TOK_ASSIGN, "= after alias template name");
@@ -16737,6 +16739,13 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
     int64_t* owner_values = NULL;
     bool* owner_value_present = NULL;
     int argument_count = 0;
+    int alias_pack_index = -1;
+    Type** alias_pack_arguments = NULL;
+    int alias_pack_count = 0;
+    int saved_pending_pack_count = -1;
+    Type** saved_pending_pack_args = NULL;
+    int64_t* saved_pending_pack_values = NULL;
+    bool* saved_pending_pack_value_present = NULL;
     int owner_argument_count = 0;
     int substitution_argument_count;
     int declared_argument_count;
@@ -16746,6 +16755,17 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
     if (!tmpl || tmpl->kind != TMPL_ALIAS || !tmpl->alias_type) {
         rcc_error(loc, "invalid alias template declaration");
         return type_int;
+    }
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (!tmpl->params[index].is_pack) continue;
+        if (alias_pack_index >= 0 || index != tmpl->param_count - 1 ||
+            tmpl->params[index].kind != TPARAM_TYPE) {
+            rcc_error(loc,
+                      "RCC++ alias template packs currently require one "
+                      "trailing type parameter pack");
+            return type_int;
+        }
+        alias_pack_index = index;
     }
     if (tmpl->enclosing_template &&
         owner_template == tmpl->enclosing_template) {
@@ -16823,8 +16843,31 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                 continue;
             }
             parameter = &tmpl->params[argument_count];
-            if (parameter->kind == TPARAM_TYPE) {
+            if (parameter->is_pack) {
+                Type* pack_argument;
+                if (parameter->kind != TPARAM_TYPE) {
+                    rcc_error(peek()->loc,
+                              "RCC++ alias template packs currently require "
+                              "type parameters");
+                    while (!check(TOK_COMMA) && !check(TOK_GT) && !at_end()) {
+                        advance();
+                    }
+                    break;
+                }
+                pack_argument = parse_cxx_type_spec();
+                alias_pack_arguments = ast_arena_grow(
+                    alias_pack_arguments,
+                    sizeof(*alias_pack_arguments) *
+                        (size_t)alias_pack_count,
+                    sizeof(*alias_pack_arguments) *
+                        (size_t)(alias_pack_count + 1));
+                alias_pack_arguments[alias_pack_count++] = pack_argument;
+                if (!arguments[argument_count]) {
+                    arguments[argument_count] = pack_argument;
+                }
+            } else if (parameter->kind == TPARAM_TYPE) {
                 arguments[argument_count] = parse_cxx_type_spec();
+                ++argument_count;
             } else if (parameter->kind == TPARAM_NONTYPE) {
                 Expr* value_expression;
                 int64_t value;
@@ -16844,6 +16887,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                     value_present[argument_count] = true;
                 }
                 arguments[argument_count] = parameter->type;
+                ++argument_count;
             } else {
                 const char* argument_name = NULL;
                 Type* template_carrier = NULL;
@@ -16881,8 +16925,8 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                 }
                 arguments[argument_count] = template_carrier
                     ? template_carrier : type_int;
+                ++argument_count;
             }
-            ++argument_count;
         } while (match(TOK_COMMA));
     }
     if (owner_argument_count > 0) {
@@ -16899,6 +16943,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
         }
     }
     while (argument_count < tmpl->param_count &&
+           !tmpl->params[argument_count].is_pack &&
            tmpl->params[argument_count].has_default) {
         TemplateParam* parameter = &tmpl->params[argument_count];
         if (parameter->kind == TPARAM_TYPE && parameter->default_type) {
@@ -16955,6 +17000,12 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
         }
         ++argument_count;
     }
+    if (alias_pack_index >= 0 && argument_count == alias_pack_index) {
+        if (!arguments[alias_pack_index]) {
+            arguments[alias_pack_index] = type_int;
+        }
+        argument_count = tmpl->param_count;
+    }
     expect(TOK_GT, ">");
     if (argument_count != tmpl->param_count) {
         rcc_error(loc, "alias template '%s' expects %d argument(s), got %d",
@@ -16962,14 +17013,39 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                   argument_count);
         return type_int;
     }
+    if (alias_pack_index >= 0) {
+        saved_pending_pack_args = tmpl->pending_pack_args;
+        saved_pending_pack_values = tmpl->pending_pack_values;
+        saved_pending_pack_value_present =
+            tmpl->pending_pack_value_present;
+        saved_pending_pack_count = tmpl->pending_pack_count;
+        tmpl->pending_pack_args = alias_pack_arguments;
+        tmpl->pending_pack_values = NULL;
+        tmpl->pending_pack_value_present = NULL;
+        tmpl->pending_pack_count = alias_pack_count;
+    }
     if (!cxx_template_constraint_satisfied(
             tmpl, arguments, values, value_present, loc, true, NULL)) {
+        if (alias_pack_index >= 0) {
+            tmpl->pending_pack_args = saved_pending_pack_args;
+            tmpl->pending_pack_values = saved_pending_pack_values;
+            tmpl->pending_pack_value_present =
+                saved_pending_pack_value_present;
+            tmpl->pending_pack_count = saved_pending_pack_count;
+        }
         return type_int;
     }
     {
         Type* result = substitute_template_type(
             tmpl, tmpl->alias_type, arguments, substitution_argument_count,
             values, value_present);
+        if (alias_pack_index >= 0) {
+            tmpl->pending_pack_args = saved_pending_pack_args;
+            tmpl->pending_pack_values = saved_pending_pack_values;
+            tmpl->pending_pack_value_present =
+                saved_pending_pack_value_present;
+            tmpl->pending_pack_count = saved_pending_pack_count;
+        }
         if (result && owner_type && owner_type->cxx_dependent &&
             owner_template == tmpl->enclosing_template) {
             result = cxx_substitute_class_owner_value_expressions(
