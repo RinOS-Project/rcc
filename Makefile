@@ -476,7 +476,7 @@ endif
 .PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
-.PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix test-cxx-nested-class-template-owner test-cxx-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner test-cxx-dependent-nested-class-template-owner-posix
+.PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix test-cxx-nested-class-template-owner test-cxx-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner test-cxx-dependent-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner-chain test-cxx-dependent-nested-class-template-owner-chain-posix
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
@@ -663,6 +663,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-nested-class-templates \
 	test-cxx-nested-class-template-owner \
 	test-cxx-dependent-nested-class-template-owner \
+	test-cxx-dependent-nested-class-template-owner-chain \
 	test-cxx-operator-overload \
 	test-cxx-member-operator-forms \
 	test-cxx-assignment-operator \
@@ -4370,12 +4371,14 @@ test-cxx-nested-class-templates-posix: $(RCXX_TARGET)
 		tests/cxx_nested_class_templates_access_invalid.cpp \
 		>$(TEST_OUT)/cxx-nested-class-templates/private-x86.log 2>&1
 	$(GREP) -F -q "nested class template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x86.log
+	$(GREP) -F -q "nested class template 'HiddenLeaf' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-templates/private-x86.ro)
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-nested-class-templates/private-x64.ro \
 		tests/cxx_nested_class_templates_access_invalid.cpp \
 		>$(TEST_OUT)/cxx-nested-class-templates/private-x64.log 2>&1
 	$(GREP) -F -q "nested class template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x64.log
+	$(GREP) -F -q "nested class template 'HiddenLeaf' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-templates/private-x64.ro)
 	! g++ -std=c++20 -fsyntax-only tests/cxx_nested_class_templates_access_invalid.cpp \
 		>$(TEST_OUT)/cxx-nested-class-templates/private-gcc.log 2>&1
@@ -4401,6 +4404,19 @@ test-cxx-dependent-nested-class-template-owner-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK36NestedTemplateDependentOwnerTemplateIlE5ValueIiE8combinedEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner/gcc.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-dependent-nested-class-template-owner/gcc-host tests/cxx_dependent_nested_class_template_owner.cpp
 	$(TEST_OUT)/cxx-dependent-nested-class-template-owner/gcc-host
+
+test-cxx-dependent-nested-class-template-owner-chain-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-dependent-nested-class-template-owner-chain,cxx_dependent_nested_class_template_owner_chain.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc.s tests/cxx_dependent_nested_class_template_owner_chain.cpp
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIiE5InnerIlE4LeafIsE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/x86.s
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIlE5InnerIiE4LeafIlE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/x86.s
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIiE5InnerIlE4LeafIsE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/x64.s
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIlE5InnerIiE4LeafIlE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/x64.s
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIiE5InnerIlE4LeafIsE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc.s
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIlE5InnerIiE4LeafIlE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc.s
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc-host tests/cxx_dependent_nested_class_template_owner_chain.cpp
+	$(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc-host
 
 ifeq ($(OS),Windows_NT)
 test-cxx-variable-templates: $(RCXX_TARGET)
@@ -5128,9 +5144,11 @@ test-cxx-nested-class-templates: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-nested-class-templates/gcc-host.exe
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-nested-class-templates/private-x86.ro tests/cxx_nested_class_templates_access_invalid.cpp,$(TEST_OUT)/cxx-nested-class-templates/private-x86.log)
 	$(GREP) -F -q "nested class template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x86.log
+	$(GREP) -F -q "nested class template 'HiddenLeaf' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-templates/private-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-nested-class-templates/private-x64.ro tests/cxx_nested_class_templates_access_invalid.cpp,$(TEST_OUT)/cxx-nested-class-templates/private-x64.log)
 	$(GREP) -F -q "nested class template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x64.log
+	$(GREP) -F -q "nested class template 'HiddenLeaf' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-templates/private-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_nested_class_templates_access_invalid.cpp,$(TEST_OUT)/cxx-nested-class-templates/private-gcc.log)
 
@@ -5157,6 +5175,19 @@ test-cxx-dependent-nested-class-template-owner: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK36NestedTemplateDependentOwnerTemplateIlE5ValueIiE8combinedEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner/gcc.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-dependent-nested-class-template-owner/gcc-host.exe tests/cxx_dependent_nested_class_template_owner.cpp
 	$(TEST_OUT)/cxx-dependent-nested-class-template-owner/gcc-host.exe
+
+test-cxx-dependent-nested-class-template-owner-chain: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-dependent-nested-class-template-owner-chain,cxx_dependent_nested_class_template_owner_chain.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc.s tests/cxx_dependent_nested_class_template_owner_chain.cpp
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIiE5InnerIlE4LeafIsE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/x86.s
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIlE5InnerIiE4LeafIlE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/x86.s
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIiE5InnerIlE4LeafIsE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/x64.s
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIlE5InnerIiE4LeafIlE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/x64.s
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIiE5InnerIlE4LeafIsE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc.s
+	$(GREP) -F -q "_ZNK29NestedClassTemplateOwnerChainIlE5InnerIiE4LeafIlE5valueEv" $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc.s
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc-host.exe tests/cxx_dependent_nested_class_template_owner_chain.cpp
+	$(TEST_OUT)/cxx-dependent-nested-class-template-owner-chain/gcc-host.exe
 else
 test-cxx-variable-templates: test-cxx-variable-templates-posix
 test-cxx-function-template-overloads: test-cxx-function-template-overloads-posix
@@ -5175,6 +5206,7 @@ test-cxx-alias-templates: test-cxx-alias-templates-posix
 test-cxx-nested-class-templates: test-cxx-nested-class-templates-posix
 test-cxx-nested-class-template-owner: test-cxx-nested-class-template-owner-posix
 test-cxx-dependent-nested-class-template-owner: test-cxx-dependent-nested-class-template-owner-posix
+test-cxx-dependent-nested-class-template-owner-chain: test-cxx-dependent-nested-class-template-owner-chain-posix
 endif
 
 test-cxx-member-pointer-functions: test-cxx-member-pointer-functions-invalid

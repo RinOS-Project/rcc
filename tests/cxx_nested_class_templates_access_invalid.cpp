@@ -38,3 +38,24 @@ struct NestedTemplateDependentAccessUse {
 
 using InaccessibleDependentTemplateOwner =
     NestedTemplateDependentAccessUse<int>::Hidden;
+
+template <typename OwnerType>
+struct NestedTemplateDependentChainAccessOwner {
+    template <typename InnerType>
+    struct Inner {
+    private:
+        template <typename LeafType>
+        struct HiddenLeaf {
+            LeafType value;
+        };
+    };
+};
+
+template <typename OwnerType>
+struct NestedTemplateDependentChainAccessUse {
+    using HiddenLeaf = typename NestedTemplateDependentChainAccessOwner<
+        OwnerType>::template Inner<int>::template HiddenLeaf<long>;
+};
+
+using InaccessibleDependentTemplateOwnerChain =
+    NestedTemplateDependentChainAccessUse<int>::HiddenLeaf;

@@ -4231,10 +4231,12 @@ remains a separate open item.
   the full `test-debug-info` aggregate on native Windows (`cmd.exe`).
 - [x] Re-run the complete native-Windows MinGW GCC `test-cxx` aggregate after
   this parser change (exit 0).
+- [x] Support dependent owners before the enclosing class template is
+  instantiated, including a multi-level `Outer<T>::Inner<U>::Leaf<V>` chain;
+  owner specialization identity and nested access are covered by regressions.
 - [ ] Add nested class-template specializations owned by class-template
   specializations with structural NTTP owner arguments and explicit/partial
-  specialization declarations; support dependent owners before the enclosing
-  class template is instantiated.
+  specialization declarations.
 
 ## RCC continuation (2026-10-14, nested templates on concrete template owners)
 
@@ -4256,8 +4258,8 @@ remains a separate open item.
   specialization/mangling, and reject private nested templates after owner
   substitution.
 - [ ] Add explicit/partial nested class-template specializations and structural
-  NTTP owner packs; extend coverage to deeper dependent-owner chains and pack
-  expansions.
+  NTTP owner packs; extend deeper owner-chain support to enclosing-template
+  parameter capture and pack expansions.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` aggregate after
   this parser change (exit 0).
 
@@ -4279,3 +4281,17 @@ remains a separate open item.
   this change (exit 0).
 - [ ] Add explicit/partial nested class-template specializations, structural
   NTTP owner packs, and deeper dependent-owner/pack expansion cases.
+
+## RCC continuation (2026-10-15, dependent nested class-template owner chains)
+
+- [x] Continue resolving each nested class-template-id in a dependent chain,
+  retaining the newly specialized type as the next owner for
+  `Outer<T>::template Inner<U>::template Leaf<V>`.
+- [x] Add a focused chain regression for two distinct owner specializations;
+  verify i686/AMD64 output, PE-i386 generation, AMD64 and GCC C++20 host
+  execution, exact GCC Itanium symbol parity, and private nested-template
+  rejection with no output object.
+- [ ] Extend deeper nested-template bodies to capture enclosing template
+  parameters and cover dependent pack expansions.
+- [x] Pass the complete native-Windows MinGW GCC `test-cxx` and
+  `test-debug-info` aggregates after this parser change.

@@ -24622,7 +24622,6 @@ static Type* parse_cxx_type_spec(void) {
         } else if (cxx_template_id_followed_by_scope(&owner_template_name)) {
             CxxTemplate* owner_template;
             CxxTemplate* owner_alias_template;
-            CxxClass* owner_class;
             (void)parse_qualified_name();
             owner_template = find_class_template(owner_template_name);
             owner_alias_template = owner_template
@@ -24633,76 +24632,108 @@ static Type* parse_cxx_type_spec(void) {
                     ? parse_alias_template_specialization(
                           owner_alias_template, loc, NULL)
                     : NULL;
-            bool has_owner_scope = owner_type && match(TOK_SCOPE);
-            if (has_owner_scope) (void)match(TOK_TEMPLATE);
-            if (!has_owner_scope || !check(TOK_IDENT)) {
+            if (!owner_type) {
                 rcc_error(loc,
                           "typename must name a nested type of a class type");
                 t = type_int;
             } else {
-                member_name = rcc_intern(advance()->value.str_val);
-                owner_class = owner_type->cxx_class;
-                if (!owner_class && owner_type->cxx_template &&
-                    owner_type->cxx_template->kind == TMPL_CLASS) {
-                    owner_class = owner_type->cxx_template->templated_class;
-                }
-                if (!owner_class && active_class && active_template &&
-                    owner_type->cxx_template == active_template) {
-                    owner_class = active_class;
-                }
-                member_class_template = owner_class
-                    ? cxx_class_find_nested_template(owner_class,
-                                                     member_name)
-                    : NULL;
-                if (member_class_template && check(TOK_LT)) {
-                    bool accessible = cxx_nested_class_template_accessible(
-                        member_class_template, owner_class, active_class);
-                    Type* specialization =
-                        owner_type->cxx_dependent
+                bool inaccessible_member = false;
+                bool saw_member = false;
+                while (match(TOK_SCOPE)) {
+                    CxxClass* owner_class;
+                    (void)match(TOK_TEMPLATE);
+                    if (!check(TOK_IDENT)) {
+                        rcc_error(loc,
+                                  "expected nested type name after '::'");
+                        t = type_int;
+                        typename_resolved = true;
+                        break;
+                    }
+                    member_name = rcc_intern(advance()->value.str_val);
+                    owner_class = owner_type->cxx_class;
+                    if (!owner_class && owner_type->cxx_template &&
+                        owner_type->cxx_template->kind == TMPL_CLASS) {
+                        owner_class =
+                            owner_type->cxx_template->templated_class;
+                    }
+                    if (!owner_class && active_class && active_template &&
+                        owner_type->cxx_template == active_template) {
+                        owner_class = active_class;
+                    }
+                    member_class_template = owner_class
+                        ? cxx_class_find_nested_template(owner_class,
+                                                         member_name)
+                        : NULL;
+                    if (member_class_template && check(TOK_LT)) {
+                        bool accessible =
+                            cxx_nested_class_template_accessible(
+                                member_class_template, owner_class,
+                                active_class);
+                        Type* specialization = owner_type->cxx_dependent
                             ? parse_class_template_specialization_for_dependent_owner(
                                   member_class_template->declaration,
                                   owner_type, loc)
                             : parse_class_template_specialization_for_owner(
                                   member_class_template->declaration,
                                   owner_class, loc);
-                    if (!accessible) {
-                        rcc_error(loc,
-                                  "nested class template '%s' is inaccessible in class '%s'",
-                                  member_name,
-                                  owner_class->name ? owner_class->name
-                                                    : "<unnamed>");
-                        t = type_int;
-                    } else {
-                        t = specialization;
+                        if (!accessible) {
+                            rcc_error(loc,
+                                      "nested class template '%s' is inaccessible in class '%s'",
+                                      member_name,
+                                      owner_class && owner_class->name
+                                          ? owner_class->name : "<unnamed>");
+                            inaccessible_member = true;
+                        }
+                        owner_type = specialization;
+                        typename_resolved = true;
+                        saw_member = true;
+                        if (check(TOK_SCOPE)) continue;
+                        break;
                     }
+
+                    alias_ambiguous = false;
+                    alias_accessible = false;
+                    member_alias = owner_class
+                        ? cxx_class_find_inherited_type_alias(
+                              owner_class, member_name, active_class,
+                              &alias_ambiguous, &alias_accessible)
+                        : NULL;
+                    if (member_alias && alias_accessible) {
+                        owner_type = member_alias->type;
+                        typename_resolved = true;
+                        saw_member = true;
+                        if (check(TOK_SCOPE)) continue;
+                        break;
+                    }
+                    if (member_alias) {
+                        rcc_error(loc,
+                                  "nested type '%s' is inaccessible in class '%s'",
+                                  member_name,
+                                  owner_class && owner_class->name
+                                      ? owner_class->name : "<unnamed>");
+                    } else if (alias_ambiguous) {
+                        rcc_error(loc,
+                                  "nested type '%s' is ambiguous in class '%s'",
+                                  member_name,
+                                  owner_class && owner_class->name
+                                      ? owner_class->name : owner_template_name);
+                    } else {
+                        rcc_error(loc,
+                                  "unknown or inaccessible nested type '%s'",
+                                  member_name);
+                    }
+                    t = type_int;
                     typename_resolved = true;
+                    break;
                 }
-                member_alias = owner_class
-                    ? cxx_class_find_inherited_type_alias(
-                          owner_class, member_name, active_class,
-                          &alias_ambiguous, &alias_accessible)
-                    : NULL;
-                if (!typename_resolved && member_alias && alias_accessible) {
-                    t = member_alias->type;
-                } else if (!typename_resolved && member_alias) {
+                if (!saw_member && !typename_resolved) {
                     rcc_error(loc,
-                              "nested type '%s' is inaccessible in class '%s'",
-                              member_name,
-                              owner_class->name ? owner_class->name
-                                                : "<unnamed>");
+                              "typename must name a nested type of a class type");
                     t = type_int;
-                } else if (!typename_resolved && alias_ambiguous) {
-                    rcc_error(loc,
-                              "nested type '%s' is ambiguous in class '%s'",
-                              member_name,
-                              owner_class && owner_class->name
-                                  ? owner_class->name : owner_template_name);
+                } else if (inaccessible_member) {
                     t = type_int;
-                } else if (!typename_resolved) {
-                    rcc_error(loc,
-                              "unknown or inaccessible nested type '%s'",
-                              member_name);
-                    t = type_int;
+                } else if (saw_member) {
+                    t = owner_type;
                 }
             }
             typename_resolved = true;
