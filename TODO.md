@@ -4039,3 +4039,18 @@ remains a separate open item.
 - [ ] Extend alias value-pack support to constrained alias templates, multiple
   distinct source packs, template-template packs, wider transformed expression
   trees, and non-integral structural NTTP types.
+
+## RCC continuation (2026-10-14, constrained alias value packs)
+
+- [x] Evaluate a C++20 alias-template requires-clause over a trailing integral
+  value pack's `sizeof...(Values)` while preserving its pending pack context;
+  accept a non-empty pack and reject the empty specialization.
+- [x] Add a runnable positive fixture and negative empty-pack fixture; compare
+  RCC and GCC diagnostics, require exactly one RCC error and no output object,
+  and pass i686/AMD64 code-generation plus AMD64 execution in the focused alias
+  gate. GCC C++20 `-Wall -Wextra -Werror` positive build/run also passes.
+- [x] Pass the full native-Windows MinGW GCC `test-cxx` aggregate after the
+  constrained alias-pack regression.
+- [ ] Extend constraints to value predicates/fold expressions and multiple
+  distinct source packs; template-template packs, wider transformations, and
+  non-integral structural NTTP packs remain open.
