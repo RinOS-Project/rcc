@@ -837,6 +837,21 @@ int choose_compound_pack_size_order(
     return 265;
 }
 
+template<typename Head, typename... Types>
+int choose_compound_pack_size_plus_one_order(
+    FunctionTemplateDependentValuePackBox<
+        sizeof...(Types) + 1, Head,
+        FunctionTemplatePackCompoundElement<Types>...>) {
+    return 266;
+}
+
+template<typename Head, typename... Types>
+int choose_compound_pack_size_plus_one_order(
+    FunctionTemplateDependentValuePackBox<sizeof...(Types) + 1, Head,
+                                          Types...>) {
+    return 267;
+}
+
 template<typename Type>
 int choose_mixed_value_class_order(
     FunctionTemplateMixedValueBox<7, Type>) {
@@ -2980,6 +2995,22 @@ int main(void) {
                        FunctionTemplateDependentValuePackBox<
                            2, int, FunctionTemplatePackCompoundElement<short>,
                            long>{}) == 265 &&
+                   choose_compound_pack_size_plus_one_order(
+                       FunctionTemplateDependentValuePackBox<1, int>{}) == 266 &&
+                   choose_compound_pack_size_plus_one_order(
+                       FunctionTemplateDependentValuePackBox<
+                           2, int,
+                           FunctionTemplatePackCompoundElement<short>>{}) == 266 &&
+                   choose_compound_pack_size_plus_one_order(
+                       FunctionTemplateDependentValuePackBox<
+                           3, int,
+                           FunctionTemplatePackCompoundElement<short>,
+                           FunctionTemplatePackCompoundElement<long>>{}) == 266 &&
+                   choose_compound_pack_size_plus_one_order(
+                       FunctionTemplateDependentValuePackBox<
+                           3, int,
+                           FunctionTemplatePackCompoundElement<short>,
+                           long>{}) == 267 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_constraint_disjunction_partial_order(
