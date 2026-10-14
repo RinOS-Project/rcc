@@ -4203,13 +4203,13 @@ remains a separate open item.
 - [x] Pass the focused native-Windows `test-cxx-alias-templates` gate on
   i686/x86_64, including x86_64 execution, GCC C++20 `-Wall -Wextra -Werror`
   execution, and invalid-case parity checks.
-- [ ] Complete the full `test-cxx` aggregate after this change; the earlier
-  aggregate run lost its session during an unrelated later test and has no
-  success exit code.
-- [ ] Complete the full `test-debug-info` aggregate after this change.
+- [x] Complete the full native-Windows MinGW GCC `test-cxx` aggregate after
+  this change (exit 0; `build/test-cxx-20261014.log`).
+- [x] Complete the full native-Windows MinGW GCC `test-debug-info` aggregate
+  after this change (exit 0; `build/test-debug-info-20261014.log`).
 - [ ] Continue with nested class-template declarations/specializations,
   structural non-integral NTTP packs, and deeper/cross-kind dependent-owner
   expansions. Defaults and constraints in nested template-template signatures
   also remain open.
 - [x] Commit the parser change, regression fixtures, and this TODO record on
-  RCC `main` as `9df04fa`; no push.
+  RCC `main` as `9df04fa`, and its follow-up TODO commit as `60cc591`; no push.
