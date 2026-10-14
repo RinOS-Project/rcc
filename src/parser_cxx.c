@@ -91,6 +91,9 @@ static CxxClass* find_class(const char* qualified_name);
 static bool cxx_class_access_context_is_derived_from(
     CxxClass* context, CxxClass* target, CxxClass* access_context,
     unsigned depth);
+static bool cxx_nested_class_template_accessible(
+    CxxNestedClassTemplate* nested_template, CxxClass* owner,
+    CxxClass* access_context);
 static void cxx_record_friend_signature_alias_use(
     CxxClass* owner, const char* name,
     CxxClassAliasTemplate* alias_template) {
@@ -1841,6 +1844,8 @@ static DeclList* parse_cxx_parameter_declarations(bool* is_variadic);
 static Type* parse_cxx_type_spec(void);
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc);
+static Type* parse_class_template_specialization_for_owner(
+    CxxTemplate* tmpl, CxxClass* owner_class, SourceLoc loc);
 static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                                                   SourceLoc loc,
                                                   Type* owner_type);
@@ -11601,6 +11606,10 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                                         const int64_t* value_args,
                                         const bool* value_present,
                                         int argument_count, SourceLoc loc);
+static Type* instantiate_class_template_for_owner(
+    CxxTemplate* tmpl, Type** arguments, const int64_t* value_args,
+    const bool* value_present, int argument_count, CxxClass* owner_class,
+    SourceLoc loc);
 
 static int active_template_template_parameter_index(const char* name) {
     if (!active_template || !name) return -1;
@@ -12915,10 +12924,11 @@ static int cxx_template_pack_index_in_type(CxxTemplate* tmpl, Type* type) {
 static bool class_template_instance_matches(
     CxxTemplate* tmpl, int instance_index, Type** arguments,
     const int64_t* value_args, const bool* value_present, int argument_count,
-    int pack_index) {
+    int pack_index, CxxClass* owner_class) {
     int expected_pack_count;
     if (!tmpl || instance_index < 0 || instance_index >= tmpl->instance_count ||
-        tmpl->instances[instance_index].arg_count != argument_count) {
+        tmpl->instances[instance_index].arg_count != argument_count ||
+        tmpl->instances[instance_index].owner_class != owner_class) {
         return false;
     }
     for (int index = 0; index < tmpl->param_count; ++index) {
@@ -13071,10 +13081,10 @@ static const char* cxx_method_pack_name(DeclList* parameters,
     return NULL;
 }
 
-static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
-                                        const int64_t* value_args,
-                                        const bool* value_present,
-                                        int argument_count, SourceLoc loc) {
+static Type* instantiate_class_template_for_owner(
+    CxxTemplate* tmpl, Type** arguments, const int64_t* value_args,
+    const bool* value_present, int argument_count, CxxClass* owner_class,
+    SourceLoc loc) {
     CxxClass* definition;
     CxxClass* instance;
     char tag[320];
@@ -13083,6 +13093,10 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     bool has_value_parameters = false;
     CxxClass* saved_local_class_instance;
     CxxClass* saved_active_class_instance;
+    Type** substitution_arguments = arguments;
+    const int64_t* substitution_value_args = value_args;
+    const bool* substitution_value_present = value_present;
+    int substitution_argument_count = argument_count;
     int pack_index = cxx_class_pack_index(tmpl);
 
     if (!tmpl || tmpl->kind != TMPL_CLASS || !tmpl->templated_class ||
@@ -13150,14 +13164,103 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             }
         }
     }
+    if (owner_class && tmpl->enclosing_template) {
+        CxxTemplate* enclosing_template = tmpl->enclosing_template;
+        CxxTemplate* owner_template = owner_class->template_identity_tmpl
+            ? owner_class->template_identity_tmpl : owner_class->templ;
+        Type** owner_arguments = owner_class->template_identity_tmpl
+            ? owner_class->template_identity_args : owner_class->template_args;
+        int owner_argument_count = owner_class->template_identity_tmpl
+            ? owner_class->template_identity_arg_count
+            : owner_class->template_arg_count;
+        const int64_t* owner_values = owner_class->template_identity_tmpl
+            ? owner_class->template_identity_value_args
+            : owner_class->template_value_args;
+        const bool* owner_value_present = owner_class->template_identity_tmpl
+            ? owner_class->template_identity_value_present
+            : owner_class->template_value_present;
+        int enclosing_pack_index = cxx_class_pack_index(enclosing_template);
+        int combined_count;
+        size_t combined_slots;
+        Type** combined_arguments;
+        int64_t* combined_values;
+        bool* combined_value_present;
+        if (owner_template != enclosing_template ||
+            owner_argument_count < 0 ||
+            (enclosing_pack_index < 0 &&
+             owner_argument_count != enclosing_template->param_count) ||
+            (enclosing_pack_index >= 0 &&
+             owner_argument_count < enclosing_pack_index) ||
+            (owner_argument_count > 0 && !owner_arguments)) {
+            rcc_error(loc,
+                      "nested class template owner arguments are incomplete");
+            return NULL;
+        }
+        if (owner_argument_count > INT_MAX - argument_count) {
+            rcc_error(loc,
+                      "nested class template substitution argument count overflow");
+            return NULL;
+        }
+        combined_count = argument_count + owner_argument_count;
+        combined_slots = combined_count > 0 ? (size_t)combined_count : 1u;
+        if (combined_slots > SIZE_MAX / sizeof(*combined_arguments) ||
+            combined_slots > SIZE_MAX / sizeof(*combined_values) ||
+            combined_slots > SIZE_MAX / sizeof(*combined_value_present)) {
+            rcc_error(loc,
+                      "nested class template substitution storage size overflow");
+            return NULL;
+        }
+        combined_arguments = ast_arena_alloc(
+            sizeof(*combined_arguments) * combined_slots);
+        combined_values = ast_arena_alloc(
+            sizeof(*combined_values) * combined_slots);
+        combined_value_present = ast_arena_alloc(
+            sizeof(*combined_value_present) * combined_slots);
+        memset(combined_arguments, 0,
+               sizeof(*combined_arguments) * combined_slots);
+        memset(combined_values, 0,
+               sizeof(*combined_values) * combined_slots);
+        memset(combined_value_present, 0,
+               sizeof(*combined_value_present) * combined_slots);
+        if (argument_count > 0) {
+            memcpy(combined_arguments, arguments,
+                   sizeof(*combined_arguments) * (size_t)argument_count);
+            if (value_args && value_present) {
+                memcpy(combined_values, value_args,
+                       sizeof(*combined_values) * (size_t)argument_count);
+                memcpy(combined_value_present, value_present,
+                       sizeof(*combined_value_present) *
+                           (size_t)argument_count);
+            }
+        }
+        if (owner_argument_count > 0) {
+            memcpy(combined_arguments + argument_count, owner_arguments,
+                   sizeof(*combined_arguments) *
+                       (size_t)owner_argument_count);
+            if (owner_values && owner_value_present) {
+                memcpy(combined_values + argument_count, owner_values,
+                       sizeof(*combined_values) *
+                           (size_t)owner_argument_count);
+                memcpy(combined_value_present + argument_count,
+                       owner_value_present,
+                       sizeof(*combined_value_present) *
+                           (size_t)owner_argument_count);
+            }
+        }
+        substitution_arguments = combined_arguments;
+        substitution_value_args = combined_values;
+        substitution_value_present = combined_value_present;
+        substitution_argument_count = combined_count;
+    }
     if (!cxx_template_constraint_satisfied(
-            tmpl, arguments, value_args, value_present, loc, true, NULL)) {
+            tmpl, substitution_arguments, substitution_value_args,
+            substitution_value_present, loc, true, NULL)) {
         return type_int;
     }
     for (index = 0; index < tmpl->instance_count; ++index) {
         if (class_template_instance_matches(
                 tmpl, index, arguments, value_args, value_present,
-                argument_count, pack_index)) {
+                argument_count, pack_index, owner_class)) {
             return ((CxxClass*)tmpl->instances[index].instantiated)->type;
         }
     }
@@ -13204,7 +13307,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     instance->is_struct = definition->is_struct;
     instance->is_final = definition->is_final;
     instance->ns = definition->ns;
-    instance->enclosing_class = definition->enclosing_class;
+    instance->enclosing_class = owner_class
+        ? owner_class : definition->enclosing_class;
+    instance->nested_class_templates = definition->nested_class_templates;
     instance->has_user_constructor = definition->has_user_constructor;
     instance->has_nonpublic_field = definition->has_nonpublic_field;
     instance->has_static_field = definition->has_static_field;
@@ -13516,8 +13621,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         }
         {
             Type* resolved = substitute_template_type(
-                tmpl, pattern, arguments, argument_count,
-                value_args, value_present);
+                tmpl, pattern, substitution_arguments,
+                substitution_argument_count, substitution_value_args,
+                substitution_value_present);
             cxx_template_class_add_resolved_base(
                 instance, resolved,
                 definition->bases[base_index].base_name,
@@ -13534,8 +13640,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         bool is_direct_base = false;
         if (!pattern) continue;
         resolved = substitute_template_type(
-            tmpl, pattern, arguments, argument_count, value_args,
-            value_present);
+            tmpl, pattern, substitution_arguments,
+            substitution_argument_count, substitution_value_args,
+            substitution_value_present);
         used_base = resolved ? resolved->cxx_class : NULL;
         if (!resolved || resolved->kind != TYPE_STRUCT ||
             resolved->cxx_dependent || !used_base) {
@@ -13577,20 +13684,24 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
          alias = alias->next) {
         cxx_class_add_type_alias(
             instance, alias->name,
-            substitute_template_type(tmpl, alias->type, arguments,
-                                     argument_count, value_args, value_present),
+            substitute_template_type(
+                tmpl, alias->type, substitution_arguments,
+                substitution_argument_count, substitution_value_args,
+                substitution_value_present),
             alias->access, alias->loc);
     }
     for (TypeParam* field = definition->fields; field; field = field->next) {
     cxx_class_add_field_initializer(
         instance, field->name,
             substitute_template_type(
-                tmpl, field->type, arguments, argument_count,
-                value_args, value_present),
+                tmpl, field->type, substitution_arguments,
+                substitution_argument_count, substitution_value_args,
+                substitution_value_present),
             (AccessSpec)field->cxx_access,
             cxx_template_clone_expr_with_values(
-                tmpl, field->initializer, arguments, argument_count,
-                value_args, value_present),
+                tmpl, field->initializer, substitution_arguments,
+                substitution_argument_count, substitution_value_args,
+                substitution_value_present),
             field->is_bitfield, field->bit_width, field->is_static,
             field->is_deprecated, field->deprecated_message,
             field->cxx_no_unique_address);
@@ -13599,8 +13710,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     for (struct CxxMember* member = definition->members; member;
          member = member->next) {
         CxxMethod* method = substitute_template_method(
-            tmpl, member->method, arguments, argument_count,
-            value_args, value_present);
+            tmpl, member->method, substitution_arguments,
+            substitution_argument_count, substitution_value_args,
+            substitution_value_present);
         if (method) {
             method->owner = instance;
             method->decl->func_method_owner = instance->type;
@@ -13622,8 +13734,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                 copy->method->decl->func_params, &copy->parameter_count);
         } else {
             copy->parameters = substitute_template_parameters(
-                tmpl, constructor->parameters, arguments, argument_count,
-                value_args, value_present);
+                tmpl, constructor->parameters, substitution_arguments,
+                substitution_argument_count, substitution_value_args,
+                substitution_value_present);
         }
         copy->initializers = NULL;
         copy->initializer_count = 0;
@@ -13738,8 +13851,11 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                 } else {
                     if (initializer->base_type_pattern) {
                         Type* resolved_base = substitute_template_type(
-                            tmpl, initializer->base_type_pattern, arguments,
-                            argument_count, value_args, value_present);
+                            tmpl, initializer->base_type_pattern,
+                            substitution_arguments,
+                            substitution_argument_count,
+                            substitution_value_args,
+                            substitution_value_present);
                         if (!resolved_base ||
                             resolved_base->kind != TYPE_STRUCT ||
                             resolved_base->cxx_dependent ||
@@ -13754,15 +13870,21 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                     }
                     initializer_copy->value =
                         cxx_template_clone_expr_with_values(
-                            tmpl, initializer->value, arguments,
-                            argument_count, value_args, value_present);
+                            tmpl, initializer->value,
+                            substitution_arguments,
+                            substitution_argument_count,
+                            substitution_value_args,
+                            substitution_value_present);
                     for (ExprList* argument = initializer->arguments;
                          argument; argument = argument->next) {
                         exprlist_append(
                             &initializer_copy->arguments,
                             cxx_template_clone_expr_with_values(
-                                tmpl, argument->expr, arguments,
-                                argument_count, value_args, value_present));
+                                tmpl, argument->expr,
+                                substitution_arguments,
+                                substitution_argument_count,
+                                substitution_value_args,
+                                substitution_value_present));
                     }
                 }
                 /* The cloned initializer is re-resolved against the concrete
@@ -13885,9 +14007,18 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
         }
     }
     tmpl->instances[tmpl->instance_count].arg_count = argument_count;
+    tmpl->instances[tmpl->instance_count].owner_class = owner_class;
     tmpl->instances[tmpl->instance_count].instantiated = instance;
     ++tmpl->instance_count;
     return instance->type;
+}
+
+static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
+                                        const int64_t* value_args,
+                                        const bool* value_present,
+                                        int argument_count, SourceLoc loc) {
+    return instantiate_class_template_for_owner(
+        tmpl, arguments, value_args, value_present, argument_count, NULL, loc);
 }
 
 static bool deduce_class_specialization_value(
@@ -14227,8 +14358,8 @@ static bool cxx_type_pattern_contains_dependent_component(
     return false;
 }
 
-static Type* parse_class_template_specialization(CxxTemplate* tmpl,
-                                                 SourceLoc loc) {
+static Type* parse_class_template_specialization_for_owner(
+    CxxTemplate* tmpl, CxxClass* owner_class, SourceLoc loc) {
     Type* arguments[32] = { NULL };
     int64_t values[32] = { 0 };
     bool value_present[32] = { false };
@@ -14690,10 +14821,10 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 identity_present, argument_count);
             return specialized->type;
         }
-        Type* instance_type = instantiate_class_template(
+        Type* instance_type = instantiate_class_template_for_owner(
             selected, selected_arguments, selected_values,
             selected_value_present,
-            selected->param_count, loc);
+            selected->param_count, owner_class, loc);
         if (instance_type && instance_type->cxx_class) {
             cxx_set_template_identity(
                 instance_type->cxx_class, tmpl, arguments, values,
@@ -14701,8 +14832,14 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
         }
         return instance_type;
     }
-    return instantiate_class_template(tmpl, arguments, values, value_present,
-                                      argument_count, loc);
+    return instantiate_class_template_for_owner(
+        tmpl, arguments, values, value_present, argument_count, owner_class,
+        loc);
+}
+
+static Type* parse_class_template_specialization(CxxTemplate* tmpl,
+                                                 SourceLoc loc) {
+    return parse_class_template_specialization_for_owner(tmpl, NULL, loc);
 }
 
 static bool cxx_deduction_guide_starts(void) {
@@ -18009,6 +18146,17 @@ static bool cxx_class_template_alias_template_starts(
         if (token && token->type == TOK_TEMPLATE) token = token->next;
         starts = token && token->type == TOK_IDENT && token->next &&
                  token->next->type == TOK_LT;
+        if (starts && owner_template) {
+            CxxClass* owner_class = owner_template->templated_class;
+            if (!owner_class && active_template == owner_template) {
+                owner_class = active_class;
+            }
+            if (owner_class &&
+                cxx_class_find_nested_template(owner_class,
+                                               token->value.str_val)) {
+                starts = false;
+            }
+        }
     }
 done:
     parser.cur = saved_cur;
@@ -18104,6 +18252,18 @@ static bool cxx_class_access_context_is_derived_from(
         }
     }
     return false;
+}
+
+static bool cxx_nested_class_template_accessible(
+    CxxNestedClassTemplate* nested_template, CxxClass* owner,
+    CxxClass* access_context) {
+    if (!nested_template || !owner) return false;
+    if (nested_template->access == ACCESS_PUBLIC || access_context == owner) {
+        return true;
+    }
+    return nested_template->access == ACCESS_PROTECTED &&
+           cxx_class_access_context_is_derived_from(
+               access_context, owner, access_context, 0u);
 }
 
 static CxxClassAliasTemplate* cxx_parser_find_inherited_alias_template(
@@ -24283,6 +24443,7 @@ static Type* parse_cxx_type_spec(void) {
         Type* owner_type = NULL;
         CxxTypeAlias* owner_alias = NULL;
         CxxTypeAlias* member_alias = NULL;
+        CxxNestedClassTemplate* member_class_template = NULL;
         const char* owner_name = NULL;
         const char* member_name = NULL;
         const char* owner_template_name = NULL;
@@ -24299,10 +24460,8 @@ static Type* parse_cxx_type_spec(void) {
                 rcc_error(loc,
                           "nested class template name could not be resolved");
                 t = type_int;
-            } else if (nested_template->access != ACCESS_PUBLIC &&
-                       active_class != nested_owner &&
-                       !cxx_class_access_context_is_derived_from(
-                           active_class, nested_owner, active_class, 0u)) {
+            } else if (!cxx_nested_class_template_accessible(
+                           nested_template, nested_owner, active_class)) {
                 rcc_error(loc,
                           "nested class template '%s' is inaccessible in class '%s'",
                           nested_template->declaration->name,
@@ -24351,28 +24510,51 @@ static Type* parse_cxx_type_spec(void) {
                     owner_type->cxx_template == active_template) {
                     owner_class = active_class;
                 }
+                member_class_template = owner_class
+                    ? cxx_class_find_nested_template(owner_class,
+                                                     member_name)
+                    : NULL;
+                if (member_class_template && check(TOK_LT)) {
+                    bool accessible = cxx_nested_class_template_accessible(
+                        member_class_template, owner_class, active_class);
+                    Type* specialization =
+                        parse_class_template_specialization_for_owner(
+                            member_class_template->declaration, owner_class,
+                            loc);
+                    if (!accessible) {
+                        rcc_error(loc,
+                                  "nested class template '%s' is inaccessible in class '%s'",
+                                  member_name,
+                                  owner_class->name ? owner_class->name
+                                                    : "<unnamed>");
+                        t = type_int;
+                    } else {
+                        t = specialization;
+                    }
+                    typename_resolved = true;
+                }
                 member_alias = owner_class
                     ? cxx_class_find_inherited_type_alias(
                           owner_class, member_name, active_class,
                           &alias_ambiguous, &alias_accessible)
                     : NULL;
-                if (member_alias && alias_accessible) {
+                if (!typename_resolved && member_alias && alias_accessible) {
                     t = member_alias->type;
-                } else if (member_alias) {
+                } else if (!typename_resolved && member_alias) {
                     rcc_error(loc,
                               "nested type '%s' is inaccessible in class '%s'",
                               member_name,
                               owner_class->name ? owner_class->name
                                                 : "<unnamed>");
                     t = type_int;
-                } else if (alias_ambiguous) {
+                } else if (!typename_resolved && alias_ambiguous) {
                     rcc_error(loc,
                               "nested type '%s' is ambiguous in class '%s'",
                               member_name,
                               owner_class && owner_class->name
                                   ? owner_class->name : owner_template_name);
                     t = type_int;
-                } else {
+                } else if (!typename_resolved) {
                     rcc_error(loc,
                               "unknown or inaccessible nested type '%s'",
                               member_name);
@@ -24631,6 +24813,7 @@ static Type* parse_cxx_type_spec(void) {
                 : NULL;
         CxxClass* owner_class = owner_type ? owner_type->cxx_class : NULL;
         CxxTypeAlias* member_alias = NULL;
+        CxxNestedClassTemplate* member_class_template = NULL;
         bool alias_ambiguous = false;
         bool alias_accessible = false;
         const char* member_name = NULL;
@@ -24641,6 +24824,28 @@ static Type* parse_cxx_type_spec(void) {
             t = type_int;
         } else {
             member_name = rcc_intern(advance()->value.str_val);
+            member_class_template = owner_class && check(TOK_LT)
+                ? cxx_class_find_nested_template(owner_class, member_name)
+                : NULL;
+            if (member_class_template &&
+                member_class_template->declaration) {
+                bool accessible = cxx_nested_class_template_accessible(
+                    member_class_template, owner_class, active_class);
+                Type* specialization =
+                    parse_class_template_specialization_for_owner(
+                        member_class_template->declaration, owner_class,
+                        loc);
+                if (!accessible) {
+                    rcc_error(loc,
+                              "nested class template '%s' is inaccessible in class '%s'",
+                              member_name,
+                              owner_class->name ? owner_class->name
+                                                : "<unnamed>");
+                    t = type_int;
+                } else {
+                    t = specialization;
+                }
+            } else {
             if (owner_class) {
                 member_alias = cxx_class_find_inherited_type_alias(
                     owner_class, member_name, active_class,
@@ -24665,6 +24870,7 @@ static Type* parse_cxx_type_spec(void) {
                           "class template '%s' has no accessible nested type '%s'",
                           template_name, member_name);
                 t = type_int;
+            }
             }
         }
     } else if (check(TOK_IDENT) || check(TOK_SCOPE)) {
@@ -24884,11 +25090,9 @@ static Type* parse_cxx_type_spec(void) {
                    nested_class_template->declaration) {
             Type* specialization = parse_class_template_specialization(
                 nested_class_template->declaration, loc);
-            bool accessible = nested_class_template->access == ACCESS_PUBLIC ||
-                active_class == nested_class_template_owner ||
-                cxx_class_access_context_is_derived_from(
-                    active_class, nested_class_template_owner,
-                    active_class, 0u);
+            bool accessible = cxx_nested_class_template_accessible(
+                nested_class_template, nested_class_template_owner,
+                active_class);
             if (!accessible) {
                 rcc_error(loc,
                           "nested class template '%s' is inaccessible in class '%s'",

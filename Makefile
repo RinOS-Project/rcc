@@ -476,7 +476,7 @@ endif
 .PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
-.PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix
+.PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix test-cxx-nested-class-template-owner test-cxx-nested-class-template-owner-posix
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
@@ -661,6 +661,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-named-concepts \
 	test-cxx-alias-templates \
 	test-cxx-nested-class-templates \
+	test-cxx-nested-class-template-owner \
 	test-cxx-operator-overload \
 	test-cxx-member-operator-forms \
 	test-cxx-assignment-operator \
@@ -4378,6 +4379,17 @@ test-cxx-nested-class-templates-posix: $(RCXX_TARGET)
 	! g++ -std=c++20 -fsyntax-only tests/cxx_nested_class_templates_access_invalid.cpp \
 		>$(TEST_OUT)/cxx-nested-class-templates/private-gcc.log 2>&1
 
+test-cxx-nested-class-template-owner-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-nested-class-template-owner,cxx_nested_class_template_owner.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-template-owner/gcc.s tests/cxx_nested_class_template_owner.cpp
+	$(GREP) -F -q "_ZNK27NestedTemplateOwnerTemplateIiE5ValueIlE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner/x64.s
+	$(GREP) -F -q "_ZNK27NestedTemplateOwnerTemplateIlE5ValueIlE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner/x64.s
+	$(GREP) -F -q "_ZNK27NestedTemplateOwnerTemplateIiE5ValueIlE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner/gcc.s
+	$(GREP) -F -q "_ZNK27NestedTemplateOwnerTemplateIlE5ValueIlE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner/gcc.s
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner/gcc-host tests/cxx_nested_class_template_owner.cpp
+	$(TEST_OUT)/cxx-nested-class-template-owner/gcc-host
+
 ifeq ($(OS),Windows_NT)
 test-cxx-variable-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-variable-templates)
@@ -5109,6 +5121,17 @@ test-cxx-nested-class-templates: $(RCXX_TARGET)
 	$(GREP) -F -q "nested class template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-templates/private-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_nested_class_templates_access_invalid.cpp,$(TEST_OUT)/cxx-nested-class-templates/private-gcc.log)
+
+test-cxx-nested-class-template-owner: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nested-class-template-owner,cxx_nested_class_template_owner.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-template-owner/gcc.s tests/cxx_nested_class_template_owner.cpp
+	$(GREP) -F -q "_ZNK27NestedTemplateOwnerTemplateIiE5ValueIlE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner/x64.s
+	$(GREP) -F -q "_ZNK27NestedTemplateOwnerTemplateIlE5ValueIlE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner/x64.s
+	$(GREP) -F -q "_ZNK27NestedTemplateOwnerTemplateIiE5ValueIlE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner/gcc.s
+	$(GREP) -F -q "_ZNK27NestedTemplateOwnerTemplateIlE5ValueIlE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner/gcc.s
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner/gcc-host.exe tests/cxx_nested_class_template_owner.cpp
+	$(TEST_OUT)/cxx-nested-class-template-owner/gcc-host.exe
 else
 test-cxx-variable-templates: test-cxx-variable-templates-posix
 test-cxx-function-template-overloads: test-cxx-function-template-overloads-posix
@@ -5125,6 +5148,7 @@ test-cxx-friend-requires-forms: test-cxx-friend-requires-forms-posix
 test-cxx-named-concepts: test-cxx-named-concepts-posix
 test-cxx-alias-templates: test-cxx-alias-templates-posix
 test-cxx-nested-class-templates: test-cxx-nested-class-templates-posix
+test-cxx-nested-class-template-owner: test-cxx-nested-class-template-owner-posix
 endif
 
 test-cxx-member-pointer-functions: test-cxx-member-pointer-functions-invalid

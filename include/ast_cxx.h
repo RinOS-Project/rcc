@@ -390,6 +390,7 @@ struct CxxTemplate {
         bool* pack_value_present;
         int pack_count;
         int arg_count;
+        CxxClass* owner_class;
         void* instantiated;  /* CxxClass* or Decl* */
     } *instances;
     int instance_count;

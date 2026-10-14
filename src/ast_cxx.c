@@ -8355,6 +8355,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         tmpl->instances[tmpl->instance_count].pack_value_present = NULL;
         tmpl->instances[tmpl->instance_count].pack_count =
             tmpl->pending_pack_count >= 0 ? tmpl->pending_pack_count : 0;
+        tmpl->instances[tmpl->instance_count].owner_class = NULL;
         if (arg_count > 0) {
             tmpl->instances[tmpl->instance_count].value_args =
                 ast_arena_alloc(sizeof(int64_t) * (size_t)arg_count);
@@ -8456,6 +8457,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         tmpl->instances[tmpl->instance_count].pack_value_present = NULL;
         tmpl->instances[tmpl->instance_count].pack_count = 0;
         tmpl->instances[tmpl->instance_count].arg_count = arg_count;
+        tmpl->instances[tmpl->instance_count].owner_class = NULL;
         if (arg_count > 0) {
             tmpl->instances[tmpl->instance_count].value_args = ast_arena_alloc(
                 sizeof(int64_t) * (size_t)arg_count);

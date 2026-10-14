@@ -4186,9 +4186,9 @@ remains a separate open item.
 - [ ] Forward dependent template-template packs through nested alias-template
   specializations and support deeper multi-source-pack expansion.
 - [ ] Resolve nested class-template specializations when the owner is itself
-  a class-template specialization (`Outer<T>::Inner<U>`), including dependent
-  owners and explicit/partial nested specializations; propagate the enclosing
-  owner's substituted template arguments through lookup and instantiation.
+  dependent (`Outer<T>::Inner<U>` before `T` is known), and support explicit/
+  partial nested specializations. Structural non-integral owner packs and
+  deeper cross-kind dependent-owner expansion also remain open.
 - [ ] Extend structural non-integral NTTP packs and defaults/constraints in
   nested template-template signatures.
 - [x] Commit the parser implementation, regression fixture, and test record
@@ -4229,8 +4229,27 @@ remains a separate open item.
 - [x] Pass `test-cxx-nested-class-templates`, class-template methods,
   specialization, dependent-base regressions, `test-cxx-alias-templates`, and
   the full `test-debug-info` aggregate on native Windows (`cmd.exe`).
-- [ ] Re-run the complete `test-cxx` aggregate after this parser change; the
-  attempt in this continuation ended without a captured success exit code.
+- [x] Re-run the complete native-Windows MinGW GCC `test-cxx` aggregate after
+  this parser change (exit 0).
 - [ ] Add nested class-template specializations owned by class-template
-  specializations (`Outer<T>::Inner<U>`), including dependent owners and
-  explicit/partial specializations.
+  specializations with structural NTTP owner arguments and explicit/partial
+  specialization declarations; support dependent owners before the enclosing
+  class template is instantiated.
+
+## RCC continuation (2026-10-14, nested templates on concrete template owners)
+
+- [x] Resolve `Outer<int>::Inner<long>` for a concrete class-template owner;
+  substitute outer parameters into nested fields and methods, separate cached
+  inner instances by owner specialization, and preserve the full owner in
+  Itanium mangling.
+- [x] Compare both owner-specialization symbols with GCC and pass the focused
+  i686/AMD64 assembly, PE-i386 object, AMD64 runtime, nested-alias/access, and
+  full `test-debug-info` aggregate (exit 0).
+- [x] Enforce private versus protected nested-template access: reject private
+  lookup from a derived class and accept protected lookup; verify invalid cases
+  against GCC and ensure no object is emitted.
+- [ ] Support dependent owner forms (`Outer<T>::Inner<U>` while `T` is still
+  dependent), explicit/partial nested specializations, and structural NTTP
+  owner packs.
+- [x] Pass the complete native-Windows MinGW GCC `test-cxx` aggregate after
+  this parser change (exit 0).
