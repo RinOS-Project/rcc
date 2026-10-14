@@ -77,6 +77,19 @@ int debug_template_compound_nested_value_pack_consumer(
     return value ? value->marker : 0;
 }
 
+template <typename Owner, typename Owner::value_type Value>
+struct DebugTemplateNestedScalarValue {
+    int marker;
+};
+
+DebugTemplateNestedScalarValue<DebugTemplateNestedValueOwner, -6>
+    debug_template_nested_scalar_value;
+
+int debug_template_nested_scalar_value_consumer(
+    DebugTemplateNestedScalarValue<DebugTemplateNestedValueOwner, -6>* value) {
+    return value ? value->marker : 0;
+}
+
 DebugTemplateDependentValuePack<short>
     debug_template_dependent_empty_value_pack;
 DebugTemplateDependentValuePack<short, -2, 7>
@@ -310,6 +323,16 @@ int debug_template_function_compound_nested_value_pack() {
 int debug_template_function_compound_nested_value_pack_entry() {
     return debug_template_function_compound_nested_value_pack<
         DebugTemplateCompoundValueOwner, -4, 19>();
+}
+
+template <typename Owner, typename Owner::value_type Value>
+int debug_template_function_nested_scalar_value() {
+    return Value;
+}
+
+int debug_template_function_nested_scalar_value_entry() {
+    return debug_template_function_nested_scalar_value<
+        DebugTemplateNestedValueOwner, -6>();
 }
 
 template <DebugTemplateDependentValueEnum Value>

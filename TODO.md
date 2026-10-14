@@ -1818,6 +1818,10 @@
         のItanium symbolをGCCとbyte-for-byte比較し、Owner型、`short`型参照、-4/19の
         pack値をi686/AMD64 `test-debug-info`で検証。class/function dependent nested
         type、named-concept、template-template、non-type pack expressionの回帰も通過
+  - [x] `typename Owner::value_type Value`をdependent scalar non-type parameterの
+        宣言型としてfunction template instantiate時にも解決。class／function双方の
+        specializationで`short`型と-6のDWARF値をi686/AMD64で検証し、GCCとItanium
+        manglingを照合
   - [ ] Pointer／reference／member-pointer等のcompound dependent declared type、
         non-integral structural non-type packs、他形式のdependent pack expansion、
         未instantiateのdependent alias/template-definition DIEは引き続き未完
