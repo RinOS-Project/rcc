@@ -112,6 +112,12 @@ struct DebugTemplateAliasTemplateValueOwner {
     using default_template_value_type = int;
 };
 
+template <typename Owner>
+struct DebugTemplateNestedAliasChain {
+    template <typename Type>
+    using value_type = typename Owner::template value_type_template<Type>;
+};
+
 template <template <typename> class Container>
 using DebugTemplateStandaloneTemplateAliasValue = int;
 
@@ -227,6 +233,23 @@ int debug_template_nested_outer_template_template_alias_scalar_value_consumer(
     DebugTemplateNestedOuterTemplateTemplateAliasScalarValue<
         DebugTemplateAliasTemplateValueOwner,
         DebugTemplateAliasTemplateArgument, -29>* value) {
+    return value ? value->marker : 0;
+}
+
+template <typename Owner,
+          typename DebugTemplateNestedAliasChain<Owner>::template value_type<
+              short> Value>
+struct DebugTemplateNestedAliasChainScalarValue {
+    int marker;
+};
+
+DebugTemplateNestedAliasChainScalarValue<
+    DebugTemplateAliasTemplateValueOwner, -31>
+    debug_template_nested_alias_chain_scalar_value;
+
+int debug_template_nested_alias_chain_scalar_value_consumer(
+    DebugTemplateNestedAliasChainScalarValue<
+        DebugTemplateAliasTemplateValueOwner, -31>* value) {
     return value ? value->marker : 0;
 }
 

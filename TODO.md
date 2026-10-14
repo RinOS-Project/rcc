@@ -3989,6 +3989,9 @@ remains a separate open item.
   an outer template-template parameter and preserve the complete final class
   specialization mangling; compare the emitted consumer symbol exactly with
   GCC on i686 and AMD64 in `test-debug-info`.
-- [ ] Continue dependent owner/alias chains, alias packs,
+- [x] Resolve an alias declared through a dependent class-template owner whose
+  own alias type refers to a second dependent owner alias; compare the exact
+  consumer specialization symbol with GCC on i686 and AMD64.
+- [ ] Continue more complex dependent owner/alias chains, alias packs,
   pointer/reference/member-pointer declared types with non-integral NTTP
   values, and broader type-directed grammar.
