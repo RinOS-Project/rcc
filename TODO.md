@@ -3947,6 +3947,14 @@ remains a separate open item.
   matching pairs, while differing pair members and mixed pair/plain elements
   select the general overload. GCC C++20 agrees; the full focused RCC overload
   gate passes i686/AMD64 code generation and AMD64 execution.
-- [ ] Extend ordering to further compound/mixed pack sources, dependent
-  non-type expressions, non-type/template-template packs, and their
-  interactions with constraints and conversion-sequence ties.
+- [x] Combine a dependent `sizeof...(Types)` class-template argument with a
+  compound trailing type-pack expansion and compare it with the corresponding
+  direct pack. The compound expansion wins for empty, one-element, and
+  multi-element wrapped packs; a mixed wrapped/plain pack selects the general
+  overload. GCC C++20 agrees, and the full focused RCC overload gate passes on
+  i686/AMD64 with AMD64 execution. This also fixes empty-pack ordering, where
+  RCC previously reported a false ambiguity because the transformed patterns
+  did not associate the count expression with their corresponding pack.
+- [ ] Extend ordering to other dependent non-type expression forms,
+  non-type/template-template packs, further compound/mixed pack sources, and
+  their interactions with constraints and conversion-sequence ties.

@@ -19622,10 +19622,24 @@ static bool cxx_function_template_partial_order_deduce_value_expression(
     return false;
 }
 
+static int cxx_function_template_named_type_pack_index(
+    const CxxTemplate* tmpl, const char* pack_name) {
+    if (!tmpl || !pack_name || !*pack_name) return -1;
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        const TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind == TPARAM_TYPE && parameter->is_pack &&
+            parameter->name && strcmp(parameter->name, pack_name) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
 static bool cxx_function_template_class_pack_nontype_values_match(
     const CxxFunctionTemplateMatch* parameter_match,
     const CxxFunctionTemplateMatch* argument_match,
     Type* parameter_type, Type* argument_type, int argument_index,
+    int parameter_pack_index, int argument_pack_index,
     Type** deduced_arguments, int* deduced_value_parameters,
     bool* supported) {
     int64_t parameter_value;
@@ -19649,6 +19663,24 @@ static bool cxx_function_template_class_pack_nontype_values_match(
     Expr* argument_expression =
         cxx_function_template_class_nontype_argument_expression(
             argument_type, argument_index);
+    if (parameter_expression && argument_expression &&
+        parameter_expression->kind == EXPR_SIZEOF &&
+        argument_expression->kind == EXPR_SIZEOF &&
+        parameter_expression->sizeof_pack_name &&
+        argument_expression->sizeof_pack_name &&
+        cxx_function_template_named_type_pack_index(
+            parameter_match->tmpl,
+            parameter_expression->sizeof_pack_name) == parameter_pack_index &&
+        cxx_function_template_named_type_pack_index(
+            argument_match->tmpl,
+            argument_expression->sizeof_pack_name) == argument_pack_index) {
+        /* `sizeof...(Pack)` is a fixed non-type component of the enclosing
+         * class-template-id, but it is deduced by the same expansion as the
+         * trailing type pack. Compare those pack identities directly so the
+         * empty-pack case still preserves transformed-template ordering. */
+        if (supported) *supported = true;
+        return true;
+    }
     /* Match supported arithmetic trees structurally while deducing their
      * sizeof type operands, as required for transformed function templates. */
     bool nested_supported = false;
@@ -19832,7 +19864,8 @@ static bool cxx_function_template_class_pack_expansion_deduce(
             bool value_deduced =
                 cxx_function_template_class_pack_nontype_values_match(
                     parameter_match, argument_match, parameter_type,
-                    argument_type, index, deduced_arguments,
+                    argument_type, index, parameter_template_pack_index,
+                    argument_template_pack_index, deduced_arguments,
                     deduced_value_parameters, &element_supported);
             if (!value_deduced) {
                 if (element_supported && supported) *supported = true;

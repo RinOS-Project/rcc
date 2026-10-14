@@ -823,6 +823,20 @@ int choose_repeated_compound_class_pack_order(
     return 263;
 }
 
+template<typename Head, typename... Types>
+int choose_compound_pack_size_order(
+    FunctionTemplateDependentValuePackBox<
+        sizeof...(Types), Head,
+        FunctionTemplatePackCompoundElement<Types>...>) {
+    return 264;
+}
+
+template<typename Head, typename... Types>
+int choose_compound_pack_size_order(
+    FunctionTemplateDependentValuePackBox<sizeof...(Types), Head, Types...>) {
+    return 265;
+}
+
 template<typename Type>
 int choose_mixed_value_class_order(
     FunctionTemplateMixedValueBox<7, Type>) {
@@ -2951,6 +2965,21 @@ int main(void) {
                        FunctionTemplatePackPartialOrderBox<
                            FunctionTemplatePackRepeatedPair<int, int>, short>{}) ==
                        263 &&
+                   choose_compound_pack_size_order(
+                       FunctionTemplateDependentValuePackBox<0, int>{}) == 264 &&
+                   choose_compound_pack_size_order(
+                       FunctionTemplateDependentValuePackBox<
+                           1, int, FunctionTemplatePackCompoundElement<short>>{}) ==
+                       264 &&
+                   choose_compound_pack_size_order(
+                       FunctionTemplateDependentValuePackBox<
+                           2, int,
+                           FunctionTemplatePackCompoundElement<short>,
+                           FunctionTemplatePackCompoundElement<long>>{}) == 264 &&
+                   choose_compound_pack_size_order(
+                       FunctionTemplateDependentValuePackBox<
+                           2, int, FunctionTemplatePackCompoundElement<short>,
+                           long>{}) == 265 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_constraint_disjunction_partial_order(
