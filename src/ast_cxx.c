@@ -4857,6 +4857,37 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         return template_substitute_dependent_alias_template_type(
             tmpl, type, args, arg_count, value_args, value_present);
     }
+    if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
+        type->cxx_template_param_index < arg_count && args &&
+        args[type->cxx_template_param_index] && tmpl &&
+        type->cxx_template_param_index < tmpl->param_count &&
+        tmpl->params[type->cxx_template_param_index].kind ==
+            TPARAM_TEMPLATE &&
+        type->cxx_template_arg_count == 0) {
+        TemplateParam* parameter =
+            &tmpl->params[type->cxx_template_param_index];
+        replacement = args[type->cxx_template_param_index];
+        if (replacement->cxx_dependent && !replacement->cxx_template) {
+            return replacement;
+        }
+        if (!replacement->cxx_template ||
+            !rcc_parser_cxx_template_template_argument_matches(
+                parameter, replacement->cxx_template)) {
+            rcc_error((SourceLoc){"<template-template-argument>", 0, 0},
+                      "template-template argument does not match its "
+                      "parameter list");
+            return type_int;
+        }
+        if (type->is_const || type->is_volatile) {
+            Type* qualified = ast_arena_alloc(sizeof(*qualified));
+            *qualified = *replacement;
+            qualified->is_const = qualified->is_const || type->is_const;
+            qualified->is_volatile = qualified->is_volatile ||
+                                     type->is_volatile;
+            return qualified;
+        }
+        return replacement;
+    }
     if (type->cxx_dependent_member_name && type->cxx_template &&
         type->cxx_template_arg_count > 0) {
         Type* owner_pattern = ast_arena_alloc(sizeof(*owner_pattern));

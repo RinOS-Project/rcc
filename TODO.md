@@ -3975,8 +3975,8 @@ remains a separate open item.
 - [x] Pass focused native-Windows MinGW GCC `test-debug-info` and
   `test-cxx-function-template-overloads` gates (exit 0).
 - [x] Re-run and record the full native-Windows MinGW GCC `test-cxx` aggregate
-  after the constrained-alias and template-template argument extensions; it
-  completed successfully (exit 0).
+  after the constrained-alias, template-template argument, and outer-parameter
+  substitution changes; it completed successfully (exit 0).
 - [x] Parse requires-clauses on nested alias templates and evaluate their
   constraints after dependent owner substitution. A satisfied `sizeof(Type)`
   constraint compiles; an unsatisfied `char` case matches GCC's rejection on
@@ -3985,7 +3985,10 @@ remains a separate open item.
   specializations, including defaulted template-template parameters. Compare
   specialization symbols with GCC and verify mismatched signatures are
   rejected on both targets; also cover ordinary alias-template specialization.
-- [ ] Complete dependent template-template arguments passed through an outer
-  template parameter (including final specialization mangling), dependent
-  owner/alias chains, alias packs, pointer/reference/member-pointer declared
-  types with non-integral NTTP values, and broader type-directed grammar.
+- [x] Substitute a dependent alias-template template argument passed through
+  an outer template-template parameter and preserve the complete final class
+  specialization mangling; compare the emitted consumer symbol exactly with
+  GCC on i686 and AMD64 in `test-debug-info`.
+- [ ] Continue dependent owner/alias chains, alias packs,
+  pointer/reference/member-pointer declared types with non-integral NTTP
+  values, and broader type-directed grammar.

@@ -212,6 +212,24 @@ int debug_template_nested_default_template_template_alias_scalar_value_consumer(
     return value ? value->marker : 0;
 }
 
+template <typename Owner, template <typename> class Container,
+          typename Owner::template template_value_type<Container> Value>
+struct DebugTemplateNestedOuterTemplateTemplateAliasScalarValue {
+    int marker;
+};
+
+DebugTemplateNestedOuterTemplateTemplateAliasScalarValue<
+    DebugTemplateAliasTemplateValueOwner,
+    DebugTemplateAliasTemplateArgument, -29>
+    debug_template_nested_outer_template_template_alias_scalar_value;
+
+int debug_template_nested_outer_template_template_alias_scalar_value_consumer(
+    DebugTemplateNestedOuterTemplateTemplateAliasScalarValue<
+        DebugTemplateAliasTemplateValueOwner,
+        DebugTemplateAliasTemplateArgument, -29>* value) {
+    return value ? value->marker : 0;
+}
+
 DebugTemplateDependentValuePack<short>
     debug_template_dependent_empty_value_pack;
 DebugTemplateDependentValuePack<short, -2, 7>
