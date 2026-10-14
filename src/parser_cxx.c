@@ -88,6 +88,9 @@ static bool cxx_leading_alignas_class_starts(void) {
 
 static const char* cxx_method_source_name(CxxMethod* method);
 static CxxClass* find_class(const char* qualified_name);
+static bool cxx_class_access_context_is_derived_from(
+    CxxClass* context, CxxClass* target, CxxClass* access_context,
+    unsigned depth);
 static void cxx_record_friend_signature_alias_use(
     CxxClass* owner, const char* name,
     CxxClassAliasTemplate* alias_template) {
@@ -7848,6 +7851,15 @@ static Token* cxx_template_parameter_list_end(Token* token) {
     return NULL;
 }
 
+static bool cxx_class_class_template_starts(void) {
+    Token* declaration = cxx_template_parameter_list_end(parser.cur);
+    return declaration &&
+        (declaration->type == TOK_CLASS || declaration->type == TOK_STRUCT) &&
+        declaration->next && declaration->next->type == TOK_IDENT &&
+        (!declaration->next->next ||
+         declaration->next->next->type != TOK_LT);
+}
+
 /* Keep nested class, alias, and variable templates on their existing parser
  * paths while recognizing ordinary in-class member function templates. */
 static bool cxx_member_function_declaration_starts(Token* token) {
@@ -7937,6 +7949,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
      * the class its namespace identity before member declarations are read;
      * namespace registration still happens after the complete definition. */
     cls->ns = active_namespace ? active_namespace : g_global_namespace;
+    cls->enclosing_class = active_class;
     if (active_template && active_template->kind == TMPL_CLASS &&
         active_template->param_count > 0 &&
         !active_template->templated_class &&
@@ -8031,6 +8044,22 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                               "class-scope alias template declaration is invalid");
                 } else {
                     cxx_class_add_alias_template(
+                        cls, member_template, current_access, template_loc);
+                }
+                continue;
+            }
+
+            if (cxx_class_class_template_starts()) {
+                SourceLoc template_loc = peek()->loc;
+                CxxTemplate* member_template;
+                advance(); /* template */
+                member_template = parse_cxx_template(current_access);
+                if (!member_template || member_template->kind != TMPL_CLASS ||
+                    !member_template->templated_class) {
+                    rcc_error(template_loc,
+                              "class-scope nested class template is invalid");
+                } else {
+                    cxx_class_add_nested_template(
                         cls, member_template, current_access, template_loc);
                 }
                 continue;
@@ -9954,6 +9983,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     expect(TOK_LT, "<");
 
     CxxTemplate* tmpl = cxx_template_new(loc);
+    if (active_class) tmpl->enclosing_class = active_class;
     if (active_class && parameter_outer_template &&
         parameter_outer_template->kind == TMPL_CLASS) {
         tmpl->enclosing_template = parameter_outer_template;
@@ -10552,6 +10582,60 @@ static CxxTemplate* find_template(const char* qualified_name,
 
 static CxxTemplate* find_class_template(const char* qualified_name) {
     return find_template(qualified_name, TMPL_CLASS);
+}
+
+static CxxNestedClassTemplate* find_nested_class_template(
+    const char* qualified_name, CxxClass** owner_out) {
+    const char* separator;
+    size_t owner_length;
+    char owner_name[512];
+    CxxClass* owner;
+    if (owner_out) *owner_out = NULL;
+    if (!qualified_name || !(separator = strrchr(qualified_name, ':')) ||
+        separator == qualified_name || separator[-1] != ':') {
+        return NULL;
+    }
+    owner_length = (size_t)(separator - qualified_name - 1);
+    if (owner_length == 0 || owner_length >= sizeof(owner_name)) return NULL;
+    memcpy(owner_name, qualified_name, owner_length);
+    owner_name[owner_length] = '\0';
+    /* A class-template owner must first be specialized; treating its primary
+     * pattern as an ordinary class would lose the enclosing arguments. */
+    if (find_class_template(owner_name)) return NULL;
+    owner = find_class(owner_name);
+    if (!owner && active_class && active_class->name &&
+        strcmp(active_class->name, owner_name) == 0) {
+        owner = active_class;
+    }
+    if (owner_out) *owner_out = owner;
+    return owner ? cxx_class_find_nested_template(owner, separator + 1) : NULL;
+}
+
+static bool cxx_nested_class_template_id_starts(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    Token* token = parser.cur;
+    const char* qualified_name;
+    bool result = false;
+    if (token && token->type == TOK_SCOPE) token = token->next;
+    if (!token || token->type != TOK_IDENT) return false;
+    token = token->next;
+    while (token && token->type == TOK_SCOPE) {
+        token = token->next;
+        /* `Owner::template Alias<T>` is a dependent alias-template-id, not
+         * the non-dependent nested class-template form handled here.  Keep
+         * this speculative recognizer diagnostic-free for that syntax. */
+        if (!token || token->type != TOK_IDENT) return false;
+        token = token->next;
+    }
+    if (!token || token->type != TOK_LT) return false;
+
+    qualified_name = parse_qualified_name();
+    result = check(TOK_LT) &&
+        find_nested_class_template(qualified_name, NULL) != NULL;
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    return result;
 }
 
 static CxxTemplate* find_alias_template(const char* qualified_name) {
@@ -11444,6 +11528,10 @@ bool rcc_parse_cxx_type_start(void) {
     result = is_active_template_type(name) || find_class(name) != NULL ||
              find_class_template(name) != NULL ||
              rcc_parser_lookup_type(name) != NULL;
+    if (!result && check(TOK_LT) &&
+        find_nested_class_template(name, NULL) != NULL) {
+        result = true;
+    }
     if (!result && strstr(name, "::")) {
         bool ambiguous = false;
         bool accessible = false;
@@ -13116,6 +13204,7 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
     instance->is_struct = definition->is_struct;
     instance->is_final = definition->is_final;
     instance->ns = definition->ns;
+    instance->enclosing_class = definition->enclosing_class;
     instance->has_user_constructor = definition->has_user_constructor;
     instance->has_nonpublic_field = definition->has_nonpublic_field;
     instance->has_static_field = definition->has_static_field;
@@ -24201,7 +24290,33 @@ static Type* parse_cxx_type_spec(void) {
         bool alias_accessible = false;
         bool typename_resolved = false;
 
-        if (cxx_dependent_alias_template_starts()) {
+        if (cxx_nested_class_template_id_starts()) {
+            const char* nested_name = parse_qualified_name();
+            CxxClass* nested_owner = NULL;
+            CxxNestedClassTemplate* nested_template =
+                find_nested_class_template(nested_name, &nested_owner);
+            if (!nested_template || !nested_template->declaration) {
+                rcc_error(loc,
+                          "nested class template name could not be resolved");
+                t = type_int;
+            } else if (nested_template->access != ACCESS_PUBLIC &&
+                       active_class != nested_owner &&
+                       !cxx_class_access_context_is_derived_from(
+                           active_class, nested_owner, active_class, 0u)) {
+                rcc_error(loc,
+                          "nested class template '%s' is inaccessible in class '%s'",
+                          nested_template->declaration->name,
+                          nested_owner && nested_owner->name
+                              ? nested_owner->name : "<unnamed>");
+                (void)parse_class_template_specialization(
+                    nested_template->declaration, loc);
+                t = type_int;
+            } else {
+                t = parse_class_template_specialization(
+                    nested_template->declaration, loc);
+            }
+            typename_resolved = true;
+        } else if (cxx_dependent_alias_template_starts()) {
             t = parse_dependent_nested_alias_template_type(loc);
             typename_resolved = true;
         } else if (cxx_qualified_class_alias_template_starts()) {
@@ -24562,6 +24677,10 @@ static Type* parse_cxx_type_spec(void) {
         bool qualified_alias_ambiguous = false;
         bool qualified_alias_accessible = false;
         CxxTemplate* tmpl = find_class_template(name);
+        CxxClass* nested_class_template_owner = NULL;
+        CxxNestedClassTemplate* nested_class_template = check(TOK_LT)
+            ? find_nested_class_template(name, &nested_class_template_owner)
+            : NULL;
         CxxClass* class_scope_alias_template_owner = NULL;
         bool class_scope_alias_template_ambiguous = false;
         bool class_scope_alias_template_accessible = false;
@@ -24760,6 +24879,27 @@ static Type* parse_cxx_type_spec(void) {
                     alias_tmpl, loc,
                     class_scope_alias_template_owner
                         ? class_scope_alias_template_owner->type : NULL);
+            }
+        } else if (nested_class_template &&
+                   nested_class_template->declaration) {
+            Type* specialization = parse_class_template_specialization(
+                nested_class_template->declaration, loc);
+            bool accessible = nested_class_template->access == ACCESS_PUBLIC ||
+                active_class == nested_class_template_owner ||
+                cxx_class_access_context_is_derived_from(
+                    active_class, nested_class_template_owner,
+                    active_class, 0u);
+            if (!accessible) {
+                rcc_error(loc,
+                          "nested class template '%s' is inaccessible in class '%s'",
+                          nested_class_template->declaration->name,
+                          nested_class_template_owner &&
+                                  nested_class_template_owner->name
+                              ? nested_class_template_owner->name
+                              : "<unnamed>");
+                t = type_int;
+            } else {
+                t = specialization;
             }
         } else if (tmpl) {
             t = parse_class_template_specialization(tmpl, loc);

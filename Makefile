@@ -476,7 +476,7 @@ endif
 .PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
-.PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates
+.PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
@@ -660,6 +660,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx20-unsupported-boundaries \
 	test-cxx-named-concepts \
 	test-cxx-alias-templates \
+	test-cxx-nested-class-templates \
 	test-cxx-operator-overload \
 	test-cxx-member-operator-forms \
 	test-cxx-assignment-operator \
@@ -4353,6 +4354,30 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-friend-signature-constrained-alias,cxx_friend_signature_constrained_alias_templates.cpp)
 	@echo "RCC++ bounded alias template tests completed"
 
+test-cxx-nested-class-templates-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-templates)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-nested-class-templates,cxx_nested_class_templates.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-templates/gcc.s tests/cxx_nested_class_templates.cpp
+	$(GREP) -F -q "_ZNK19NestedTemplateOwner5ValueIiE3getEv" $(TEST_OUT)/cxx-nested-class-templates/gcc.s
+	$(GREP) -F -q "_ZNK19NestedTemplateOwner5ValueIiE3getEv" $(TEST_OUT)/cxx-nested-class-templates/x86.s
+	$(GREP) -F -q "_ZNK19NestedTemplateOwner5ValueIiE3getEv" $(TEST_OUT)/cxx-nested-class-templates/x64.s
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-templates/gcc-host tests/cxx_nested_class_templates.cpp
+	$(TEST_OUT)/cxx-nested-class-templates/gcc-host
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-nested-class-templates/private-x86.ro \
+		tests/cxx_nested_class_templates_access_invalid.cpp \
+		>$(TEST_OUT)/cxx-nested-class-templates/private-x86.log 2>&1
+	$(GREP) -F -q "nested class template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-templates/private-x86.ro)
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-nested-class-templates/private-x64.ro \
+		tests/cxx_nested_class_templates_access_invalid.cpp \
+		>$(TEST_OUT)/cxx-nested-class-templates/private-x64.log 2>&1
+	$(GREP) -F -q "nested class template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-templates/private-x64.ro)
+	! g++ -std=c++20 -fsyntax-only tests/cxx_nested_class_templates_access_invalid.cpp \
+		>$(TEST_OUT)/cxx-nested-class-templates/private-gcc.log 2>&1
+
 ifeq ($(OS),Windows_NT)
 test-cxx-variable-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-variable-templates)
@@ -5067,6 +5092,23 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 	$(GREP) -F -q "nested alias template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.log,3)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-templates/class-access-invalid-x64.ro)
+
+test-cxx-nested-class-templates: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-templates)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nested-class-templates,cxx_nested_class_templates.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-templates/gcc.s tests/cxx_nested_class_templates.cpp
+	$(GREP) -F -q "_ZNK19NestedTemplateOwner5ValueIiE3getEv" $(TEST_OUT)/cxx-nested-class-templates/gcc.s
+	$(GREP) -F -q "_ZNK19NestedTemplateOwner5ValueIiE3getEv" $(TEST_OUT)/cxx-nested-class-templates/x86.s
+	$(GREP) -F -q "_ZNK19NestedTemplateOwner5ValueIiE3getEv" $(TEST_OUT)/cxx-nested-class-templates/x64.s
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-templates/gcc-host.exe tests/cxx_nested_class_templates.cpp
+	$(TEST_OUT)/cxx-nested-class-templates/gcc-host.exe
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-nested-class-templates/private-x86.ro tests/cxx_nested_class_templates_access_invalid.cpp,$(TEST_OUT)/cxx-nested-class-templates/private-x86.log)
+	$(GREP) -F -q "nested class template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-templates/private-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-nested-class-templates/private-x64.ro tests/cxx_nested_class_templates_access_invalid.cpp,$(TEST_OUT)/cxx-nested-class-templates/private-x64.log)
+	$(GREP) -F -q "nested class template 'Hidden' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-templates/private-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_nested_class_templates_access_invalid.cpp,$(TEST_OUT)/cxx-nested-class-templates/private-gcc.log)
 else
 test-cxx-variable-templates: test-cxx-variable-templates-posix
 test-cxx-function-template-overloads: test-cxx-function-template-overloads-posix
@@ -5082,6 +5124,7 @@ test-cxx-constraints: test-cxx-constraints-posix
 test-cxx-friend-requires-forms: test-cxx-friend-requires-forms-posix
 test-cxx-named-concepts: test-cxx-named-concepts-posix
 test-cxx-alias-templates: test-cxx-alias-templates-posix
+test-cxx-nested-class-templates: test-cxx-nested-class-templates-posix
 endif
 
 test-cxx-member-pointer-functions: test-cxx-member-pointer-functions-invalid

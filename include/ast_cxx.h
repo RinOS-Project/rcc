@@ -20,6 +20,7 @@ typedef struct CxxVtableEntry CxxVtableEntry;
 typedef struct CxxSecondaryVtable CxxSecondaryVtable;
 typedef struct CxxTypeAlias CxxTypeAlias;
 typedef struct CxxClassAliasTemplate CxxClassAliasTemplate;
+typedef struct CxxNestedClassTemplate CxxNestedClassTemplate;
 typedef struct CxxLocalClassTemplate CxxLocalClassTemplate;
 
 typedef struct CxxVirtualBaseInfo {
@@ -47,6 +48,12 @@ struct CxxClassAliasTemplate {
     CxxTemplate* declaration;
     AccessSpec access;
     CxxClassAliasTemplate* next;
+};
+
+struct CxxNestedClassTemplate {
+    CxxTemplate* declaration;
+    AccessSpec access;
+    CxxNestedClassTemplate* next;
 };
 
 /* Constructor facts retained until all class fields are known.  Only the
@@ -180,9 +187,13 @@ struct CxxClass {
     /* Class-scope alias templates retain their access and template
      * declaration for qualified specialization lookup. */
     CxxClassAliasTemplate* alias_templates;
+    /* Class templates declared directly in this class scope. */
+    CxxNestedClassTemplate* nested_class_templates;
 
     /* Namespace context */
     CxxNamespace* ns;
+    /* Lexical class owner for nested class declarations. */
+    CxxClass* enclosing_class;
 
     /* Template instantiation info */
     CxxTemplate* templ;
@@ -321,6 +332,8 @@ struct CxxTemplate {
      * class-template parameters. Their own parameters occupy the leading
      * substitution slots while the class pattern is being parsed. */
     CxxTemplate* enclosing_template;
+    /* Lexical class owner, including when it is not itself a template. */
+    CxxClass* enclosing_class;
 
     bool is_constexpr;
     bool is_noexcept;
@@ -472,6 +485,11 @@ CxxClassAliasTemplate* cxx_class_add_alias_template(
     CxxClass* cls, CxxTemplate* declaration, AccessSpec access,
     SourceLoc loc);
 CxxClassAliasTemplate* cxx_class_find_alias_template(
+    CxxClass* cls, const char* name);
+CxxNestedClassTemplate* cxx_class_add_nested_template(
+    CxxClass* cls, CxxTemplate* declaration, AccessSpec access,
+    SourceLoc loc);
+CxxNestedClassTemplate* cxx_class_find_nested_template(
     CxxClass* cls, const char* name);
 CxxClassAliasTemplate* cxx_class_find_inherited_alias_template(
     CxxClass* cls, const char* name, CxxClass* access_context,

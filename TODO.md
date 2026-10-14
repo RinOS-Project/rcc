@@ -4185,8 +4185,10 @@ remains a separate open item.
   aggregates after this parser change (both exit 0).
 - [ ] Forward dependent template-template packs through nested alias-template
   specializations and support deeper multi-source-pack expansion.
-- [ ] Implement nested class-template declarations and `Outer<T>::Inner<U>`
-  specialization/lookup; the class-member parser currently lacks that path.
+- [ ] Resolve nested class-template specializations when the owner is itself
+  a class-template specialization (`Outer<T>::Inner<U>`), including dependent
+  owners and explicit/partial nested specializations; propagate the enclosing
+  owner's substituted template arguments through lookup and instantiation.
 - [ ] Extend structural non-integral NTTP packs and defaults/constraints in
   nested template-template signatures.
 - [x] Commit the parser implementation, regression fixture, and test record
@@ -4207,9 +4209,28 @@ remains a separate open item.
   this change (exit 0; `build/test-cxx-20261014.log`).
 - [x] Complete the full native-Windows MinGW GCC `test-debug-info` aggregate
   after this change (exit 0; `build/test-debug-info-20261014.log`).
-- [ ] Continue with nested class-template declarations/specializations,
+- [ ] Continue with `Outer<T>::Inner<U>` nested class-template owners,
   structural non-integral NTTP packs, and deeper/cross-kind dependent-owner
   expansions. Defaults and constraints in nested template-template signatures
   also remain open.
 - [x] Commit the parser change, regression fixtures, and this TODO record on
   RCC `main` as `9df04fa`, and its follow-up TODO commit as `60cc591`; no push.
+
+## RCC continuation (2026-10-14, nested class templates on concrete owners)
+
+- [x] Parse and register class-scope nested class-template declarations,
+  preserve access, and diagnose duplicate names against nested aliases.
+- [x] Resolve and specialize `Owner::Inner<T>` for a concrete non-template
+  owner, including optional `typename`; enforce private/protected access from
+  unrelated and derived class contexts.
+- [x] Preserve the lexical owner in nested-class member Itanium names. Check
+  the exact GCC symbol on i686/AMD64 assembly, generate PE-i386 objects, and
+  execute compiler- and GCC-produced AMD64 programs.
+- [x] Pass `test-cxx-nested-class-templates`, class-template methods,
+  specialization, dependent-base regressions, `test-cxx-alias-templates`, and
+  the full `test-debug-info` aggregate on native Windows (`cmd.exe`).
+- [ ] Re-run the complete `test-cxx` aggregate after this parser change; the
+  attempt in this continuation ended without a captured success exit code.
+- [ ] Add nested class-template specializations owned by class-template
+  specializations (`Outer<T>::Inner<U>`), including dependent owners and
+  explicit/partial specializations.

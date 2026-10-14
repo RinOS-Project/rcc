@@ -320,6 +320,9 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         mangle_name(buf, pos, cls->name);
         return;
     }
+    if (cls->enclosing_class) {
+        mangle_class_name(buf, pos, cls->enclosing_class);
+    }
     if (tmpl) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             if (!tmpl->params[index].is_pack) continue;
@@ -2104,7 +2107,9 @@ CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
     cls->fields = NULL;
     cls->type_aliases = NULL;
     cls->alias_templates = NULL;
+    cls->nested_class_templates = NULL;
     cls->ns = NULL;
+    cls->enclosing_class = NULL;
     cls->templ = NULL;
     cls->template_args = NULL;
     cls->template_arg_count = 0;
@@ -4529,6 +4534,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->member_method = NULL;
     tmpl->alias_type = NULL;
     tmpl->enclosing_template = NULL;
+    tmpl->enclosing_class = NULL;
     tmpl->is_constexpr = false;
     tmpl->is_noexcept = false;
     tmpl->is_concept = false;
@@ -8721,7 +8727,8 @@ void cxx_class_add_type_alias(CxxClass* cls, const char* name, Type* type,
     CxxTypeAlias* alias;
     CxxTypeAlias** tail;
     if (!cls || !name || !*name || !type) return;
-    if (cxx_class_find_alias_template(cls, name)) {
+    if (cxx_class_find_alias_template(cls, name) ||
+        cxx_class_find_nested_template(cls, name)) {
         rcc_error(loc, "duplicate nested type name '%s'", name);
         return;
     }
@@ -8751,7 +8758,8 @@ CxxClassAliasTemplate* cxx_class_add_alias_template(
         !declaration->name || !*declaration->name) {
         return NULL;
     }
-    if (cxx_class_find_type_alias(cls, declaration->name)) {
+    if (cxx_class_find_type_alias(cls, declaration->name) ||
+        cxx_class_find_nested_template(cls, declaration->name)) {
         rcc_error(loc, "duplicate nested type name '%s'",
                   declaration->name);
         return NULL;
@@ -8784,6 +8792,44 @@ CxxClassAliasTemplate* cxx_class_find_alias_template(
             alias_template->declaration->name &&
             strcmp(alias_template->declaration->name, name) == 0) {
             return alias_template;
+        }
+    }
+    return NULL;
+}
+
+CxxNestedClassTemplate* cxx_class_add_nested_template(
+    CxxClass* cls, CxxTemplate* declaration, AccessSpec access,
+    SourceLoc loc) {
+    CxxNestedClassTemplate* nested_template;
+    CxxNestedClassTemplate** tail;
+    if (!cls || !declaration || declaration->kind != TMPL_CLASS ||
+        !declaration->name || !*declaration->name) {
+        return NULL;
+    }
+    if (cxx_class_find_type_alias(cls, declaration->name) ||
+        cxx_class_find_alias_template(cls, declaration->name) ||
+        cxx_class_find_nested_template(cls, declaration->name)) {
+        rcc_error(loc, "duplicate nested type name '%s'", declaration->name);
+        return NULL;
+    }
+    nested_template = ast_arena_alloc(sizeof(*nested_template));
+    nested_template->declaration = declaration;
+    nested_template->access = access;
+    nested_template->next = NULL;
+    tail = &cls->nested_class_templates;
+    while (*tail) tail = &(*tail)->next;
+    *tail = nested_template;
+    return nested_template;
+}
+
+CxxNestedClassTemplate* cxx_class_find_nested_template(
+    CxxClass* cls, const char* name) {
+    if (!cls || !name) return NULL;
+    for (CxxNestedClassTemplate* nested = cls->nested_class_templates;
+         nested; nested = nested->next) {
+        if (nested->declaration && nested->declaration->name &&
+            strcmp(nested->declaration->name, name) == 0) {
+            return nested;
         }
     }
     return NULL;
