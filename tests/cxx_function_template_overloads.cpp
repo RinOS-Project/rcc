@@ -436,6 +436,9 @@ struct FunctionTemplatePackPartialOrderBox {};
 template<typename Type>
 struct FunctionTemplatePackCompoundElement {};
 
+template<typename First, typename Second>
+struct FunctionTemplatePackRepeatedPair {};
+
 template<int Id, typename Type>
 struct FunctionTemplateMixedValueBox {};
 
@@ -805,6 +808,19 @@ template<typename... Types>
 int choose_compound_class_pack_order(
     FunctionTemplatePackPartialOrderBox<Types...>) {
     return 261;
+}
+
+template<typename... Types>
+int choose_repeated_compound_class_pack_order(
+    FunctionTemplatePackPartialOrderBox<
+        FunctionTemplatePackRepeatedPair<Types, Types>...>) {
+    return 262;
+}
+
+template<typename... Types>
+int choose_repeated_compound_class_pack_order(
+    FunctionTemplatePackPartialOrderBox<Types...>) {
+    return 263;
 }
 
 template<typename Type>
@@ -2916,6 +2932,25 @@ int main(void) {
                        FunctionTemplatePackPartialOrderBox<
                            FunctionTemplatePackCompoundElement<int>, short>{}) ==
                        261 &&
+                   choose_repeated_compound_class_pack_order(
+                       FunctionTemplatePackPartialOrderBox<>{}) == 262 &&
+                   choose_repeated_compound_class_pack_order(
+                       FunctionTemplatePackPartialOrderBox<
+                           FunctionTemplatePackRepeatedPair<int, int>>{}) ==
+                       262 &&
+                   choose_repeated_compound_class_pack_order(
+                       FunctionTemplatePackPartialOrderBox<
+                           FunctionTemplatePackRepeatedPair<int, int>,
+                           FunctionTemplatePackRepeatedPair<short, short>>{}) ==
+                       262 &&
+                   choose_repeated_compound_class_pack_order(
+                       FunctionTemplatePackPartialOrderBox<
+                           FunctionTemplatePackRepeatedPair<int, short>>{}) ==
+                       263 &&
+                   choose_repeated_compound_class_pack_order(
+                       FunctionTemplatePackPartialOrderBox<
+                           FunctionTemplatePackRepeatedPair<int, int>, short>{}) ==
+                       263 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
                    choose_constraint_disjunction_partial_order(

@@ -3942,6 +3942,11 @@ remains a separate open item.
   and multi-element expansions, while a mixed wrapped/unwrapped pack selects
   the general overload. GCC C++20 agrees; the focused RCC overload gate passes
   i686/AMD64 code generation and AMD64 execution.
-- [ ] Extend ordering to other compound/repeated or mixed pack sources,
-  dependent non-type expressions, non-type/template-template packs, and their
+- [x] Compare `Box<Pair<Types, Types>...>` with `Box<Types...>`. Verify the
+  repeated-type compound expansion wins for empty, single, and multi-element
+  matching pairs, while differing pair members and mixed pair/plain elements
+  select the general overload. GCC C++20 agrees; the full focused RCC overload
+  gate passes i686/AMD64 code generation and AMD64 execution.
+- [ ] Extend ordering to further compound/mixed pack sources, dependent
+  non-type expressions, non-type/template-template packs, and their
   interactions with constraints and conversion-sequence ties.
