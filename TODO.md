@@ -4079,7 +4079,7 @@ remains a separate open item.
 - [x] Combine a per-value `&&` constraint fold with an arithmetic alias-pack
   transformation; accept positive values and reject a pack containing zero,
   with GCC parity on i686/AMD64 and AMD64 execution.
-- [ ] Cover dependent-owner chains and remaining transformed-expression
+- [ ] Cover deeper dependent-owner chains and remaining transformed-expression
   operator combinations.
 
 ## RCC continuation (2026-10-14, bitwise and conditional alias pack transforms)
@@ -4089,5 +4089,16 @@ remains a separate open item.
   exact pack values against GCC and execute the AMD64 fixture.
 - [x] Pass `test-cxx-alias-templates` on i686/AMD64 with AMD64 execution and
   GCC C++20 `-Wall -Wextra -Werror` compile/run.
-- [ ] Extend expression coverage through dependent-owner chains and remaining
-  operator combinations.
+- [ ] Extend expression coverage through deeper dependent-owner chains and
+  remaining operator combinations.
+
+## RCC continuation (2026-10-14, dependent owner with constrained alias packs)
+
+- [x] Substitute an enclosing class NTTP into both a nested alias pack's
+  requires-clause and its transformed pack expansion. Accept owner value 2,
+  reject owner value 0 with a non-empty positive value pack, and compare RCC
+  diagnostics/results with GCC.
+- [x] Pass `test-cxx-alias-templates` on i686/AMD64 with AMD64 execution,
+  single-error/no-object negative checks, and GCC C++20 warning-clean run.
+- [ ] Extend this coverage through deeper dependent-owner/alias chains and
+  other source-pack combinations.

@@ -33,6 +33,14 @@ template<int... Values>
 using PositiveTransformedAliasPack =
     AliasTransformedValues<(Values * 3 + 2)...>;
 
+template<int OwnerValue>
+struct AliasPackConstraintOwner {
+    template<int... Values>
+        requires (OwnerValue > 0 && ((Values > 0) && ...))
+    using OwnerAdjustedAliasPack =
+        AliasTransformedValues<(Values * 3 + OwnerValue)...>;
+};
+
 template<int... Values>
 using BitwiseTransformedAliasPack =
     AliasTransformedValues<((Values << 1) | 1)...>;
@@ -45,6 +53,9 @@ using ConditionalTransformedAliasPack =
 TransformedAliasPack<2, 4> transformed_alias_pack_value;
 NestedTransformedAliasPack<1, 3> nested_transformed_alias_pack_value;
 PositiveTransformedAliasPack<2, 4> constrained_transformed_alias_pack_value;
+using OwnerAdjustedAliasPack =
+    AliasPackConstraintOwner<2>::OwnerAdjustedAliasPack<2, 4>;
+OwnerAdjustedAliasPack owner_adjusted_alias_pack_value;
 BitwiseTransformedAliasPack<3, 6> bitwise_transformed_alias_pack_value;
 ConditionalTransformedAliasPack<2, 3>
     conditional_transformed_alias_pack_value;
@@ -74,12 +85,15 @@ int main() {
             &constrained_transformed_alias_pack_value)) {
         return 7;
     }
-    if (check_bitwise_transformed_values(&bitwise_transformed_alias_pack_value)) {
+    if (check_alias_transformed_values(&owner_adjusted_alias_pack_value)) {
         return 8;
+    }
+    if (check_bitwise_transformed_values(&bitwise_transformed_alias_pack_value)) {
+        return 9;
     }
     if (check_conditional_transformed_values(
             &conditional_transformed_alias_pack_value)) {
-        return 9;
+        return 10;
     }
     return 0;
 }
