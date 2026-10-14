@@ -4211,3 +4211,5 @@ remains a separate open item.
   structural non-integral NTTP packs, and deeper/cross-kind dependent-owner
   expansions. Defaults and constraints in nested template-template signatures
   also remain open.
+- [x] Commit the parser change, regression fixtures, and this TODO record on
+  RCC `main` as `9df04fa`; no push.
