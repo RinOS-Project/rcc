@@ -4135,5 +4135,23 @@ remains a separate open item.
   aggregates after the substitution change (both exit 0).
 - [x] Commit the implementation, regressions, and TODO update on RCC `main`,
   and update the parent repository's RCC gitlink to that commit. No push.
-- [ ] Extend to template-template packs, structural non-integral NTTP packs,
-  and deeper dependent-owner/alias chains.
+- [ ] Extend to structural non-integral NTTP packs, deeper dependent-owner/
+  alias chains, and additional cross-kind pack combinations.
+
+## RCC continuation (2026-10-14, alias template-template packs)
+
+- [x] Support trailing alias-template template-template packs, including a
+  direct alias expansion and a nested alias expansion zipped with an enclosing
+  type pack.
+- [x] Check concrete and dependent template-template argument signatures;
+  reject mismatches with one diagnostic and no output object.
+- [x] Pass the focused `test-cxx-alias-templates` gate on i686/AMD64, including
+  AMD64 execution, GCC C++20 `-Wall -Wextra -Werror`, and negative GCC parity.
+- [x] Pass the full native-Windows MinGW GCC `test-cxx` aggregate after the
+  final dependent-signature validation change (exit 0).
+- [x] Pass the full native-Windows MinGW GCC `test-debug-info` aggregate after
+  the final dependent-signature validation change (exit 0).
+- [ ] Add nested template-template parameter declaration support and matching
+  regressions; accept alias templates as template-template pack arguments;
+  extend deeper dependent-owner/cross-kind pack combinations. Structural
+  non-integral NTTP packs remain open.

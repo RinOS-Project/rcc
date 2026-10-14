@@ -10243,10 +10243,12 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
             if (parameter->is_pack &&
                 (index != tmpl->param_count - 1 ||
                  (parameter->kind != TPARAM_TYPE &&
-                  parameter->kind != TPARAM_NONTYPE))) {
+                  parameter->kind != TPARAM_NONTYPE &&
+                  parameter->kind != TPARAM_TEMPLATE))) {
                 rcc_error(loc,
                           "RCC++ alias template packs currently require one "
-                          "trailing type or non-type parameter pack");
+                          "trailing type, non-type, or template-template "
+                          "parameter pack");
             } else if (parameter->is_pack &&
                        parameter->kind == TPARAM_NONTYPE &&
                        (!parameter->type ||
@@ -11499,27 +11501,63 @@ static int active_template_template_parameter_index(const char* name) {
     return -1;
 }
 
-static bool template_template_signature_matches(
-    const TemplateParam* parameter, const CxxTemplate* actual) {
-    const CxxTemplate* signature = parameter ? parameter->template_signature : NULL;
-    if (!parameter || parameter->kind != TPARAM_TEMPLATE || !signature ||
-        !actual || actual->kind != TMPL_CLASS ||
-        signature->param_count != actual->param_count) {
+static const TemplateParam* active_template_template_parameter(
+    int parameter_index) {
+    if (!active_template || parameter_index < 0) return NULL;
+    if (parameter_index < active_template->param_count) {
+        const TemplateParam* parameter =
+            &active_template->params[parameter_index];
+        return parameter->kind == TPARAM_TEMPLATE ? parameter : NULL;
+    }
+    parameter_index -= active_template->param_count;
+    if (!active_template->enclosing_template ||
+        parameter_index >= active_template->enclosing_template->param_count) {
+        return NULL;
+    }
+    {
+        const TemplateParam* parameter =
+            &active_template->enclosing_template->params[parameter_index];
+        return parameter->kind == TPARAM_TEMPLATE ? parameter : NULL;
+    }
+}
+
+static bool template_template_parameter_signatures_match(
+    const CxxTemplate* expected, const CxxTemplate* actual, int depth) {
+    if (!expected || !actual || depth > 32 ||
+        expected->param_count != actual->param_count) {
         return false;
     }
-    for (int index = 0; index < signature->param_count; ++index) {
-        if (signature->params[index].kind != actual->params[index].kind ||
-            signature->params[index].is_pack != actual->params[index].is_pack) {
+    for (int index = 0; index < expected->param_count; ++index) {
+        const TemplateParam* expected_parameter = &expected->params[index];
+        const TemplateParam* actual_parameter = &actual->params[index];
+        if (expected_parameter->kind != actual_parameter->kind ||
+            expected_parameter->is_pack != actual_parameter->is_pack) {
             return false;
         }
-        if (signature->params[index].kind == TPARAM_NONTYPE &&
-            (!signature->params[index].type || !actual->params[index].type ||
-             !type_is_compatible(signature->params[index].type,
-                                 actual->params[index].type))) {
+        if (expected_parameter->kind == TPARAM_NONTYPE &&
+            (!expected_parameter->type || !actual_parameter->type ||
+             !type_is_compatible(expected_parameter->type,
+                                 actual_parameter->type))) {
+            return false;
+        }
+        if (expected_parameter->kind == TPARAM_TEMPLATE &&
+            !template_template_parameter_signatures_match(
+                expected_parameter->template_signature,
+                actual_parameter->template_signature, depth + 1)) {
             return false;
         }
     }
     return true;
+}
+
+static bool template_template_signature_matches(
+    const TemplateParam* parameter, const CxxTemplate* actual) {
+    const CxxTemplate* signature = parameter ? parameter->template_signature : NULL;
+    if (!parameter || parameter->kind != TPARAM_TEMPLATE || !signature ||
+        !actual || actual->kind != TMPL_CLASS) {
+        return false;
+    }
+    return template_template_parameter_signatures_match(signature, actual, 0);
 }
 
 bool rcc_parser_cxx_template_template_argument_matches(
@@ -17033,10 +17071,12 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
         TemplateParam* parameter = &tmpl->params[index];
         if (alias_pack_index >= 0 || index != tmpl->param_count - 1 ||
             (parameter->kind != TPARAM_TYPE &&
-             parameter->kind != TPARAM_NONTYPE)) {
+             parameter->kind != TPARAM_NONTYPE &&
+             parameter->kind != TPARAM_TEMPLATE)) {
             rcc_error(loc,
                       "RCC++ alias template packs currently require one "
-                      "trailing type or non-type parameter pack");
+                      "trailing type, non-type, or template-template "
+                      "parameter pack");
             return type_int;
         }
         if (parameter->kind == TPARAM_NONTYPE &&
@@ -17292,10 +17332,121 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                         }
                     }
                     ++alias_pack_count;
+                } else if (parameter->kind == TPARAM_TEMPLATE) {
+                    const char* argument_name = NULL;
+                    CxxTemplate* argument_template = NULL;
+                    Type* template_carrier = NULL;
+                    bool pack_argument_expansion = false;
+                    int source_parameter_index = -1;
+                    if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+                        argument_name = parse_qualified_name();
+                    } else {
+                        rcc_error(peek()->loc,
+                                  "template-template alias pack argument "
+                                  "requires a class template name");
+                        invalid_alias_pack_argument = true;
+                    }
+                    if (argument_name) {
+                        source_parameter_index =
+                            active_template_template_parameter_index(
+                                argument_name);
+                        if (source_parameter_index >= 0 && active_template) {
+                            const TemplateParam* source_parameter =
+                                active_template_template_parameter(
+                                    source_parameter_index);
+                            if (!source_parameter ||
+                                !template_template_parameter_signatures_match(
+                                    parameter->template_signature,
+                                    source_parameter->template_signature, 0)) {
+                                rcc_error(
+                                    loc,
+                                    "alias template template argument does "
+                                    "not match its parameter list");
+                                invalid_alias_pack_argument = true;
+                            } else {
+                                template_carrier = type_struct(argument_name);
+                                template_carrier->cxx_dependent = true;
+                                template_carrier->cxx_template_param_index =
+                                    source_parameter_index;
+                            }
+                        } else {
+                            argument_template =
+                                find_class_template(argument_name);
+                            if (!argument_template ||
+                                !template_template_signature_matches(
+                                    parameter, argument_template)) {
+                                rcc_error(
+                                    loc,
+                                    "alias template template argument does "
+                                    "not match its parameter list");
+                                invalid_alias_pack_argument = true;
+                            } else {
+                                template_carrier = type_struct(argument_name);
+                                template_carrier->cxx_template =
+                                    argument_template;
+                            }
+                        }
+                    }
+                    if (match(TOK_ELLIPSIS)) {
+                        int source_pack_index =
+                            !invalid_alias_pack_argument && active_template
+                            ? cxx_parser_template_parameter_pack_index(
+                                  active_template, template_carrier)
+                            : -1;
+                        pack_argument_expansion = true;
+                        if (invalid_alias_pack_argument) {
+                            /* Preserve the signature diagnostic above. */
+                        } else if (!active_template || source_pack_index < 0 ||
+                            source_pack_index >= active_template->param_count ||
+                            active_template->params[source_pack_index].kind !=
+                                TPARAM_TEMPLATE ||
+                            !active_template->params[source_pack_index].is_pack) {
+                            rcc_error(
+                                loc,
+                                "template-template alias pack expansion "
+                                "must name a template-template parameter pack");
+                            invalid_alias_pack_argument = true;
+                        } else if (alias_pack_expansion &&
+                                   alias_pack_source_index !=
+                                       source_pack_index) {
+                            rcc_error(
+                                loc,
+                                "alias template pack expansions must use the "
+                                "same source parameter pack");
+                            invalid_alias_pack_argument = true;
+                        } else {
+                            alias_pack_expansion = true;
+                            alias_pack_source_index = source_pack_index;
+                        }
+                    }
+                    if (invalid_alias_pack_argument) {
+                        while (!check(TOK_GT) && !at_end()) advance();
+                        break;
+                    }
+                    alias_pack_arguments = ast_arena_grow(
+                        alias_pack_arguments,
+                        sizeof(*alias_pack_arguments) *
+                            (size_t)alias_pack_count,
+                        sizeof(*alias_pack_arguments) *
+                            (size_t)(alias_pack_count + 1));
+                    alias_pack_argument_expansions = ast_arena_grow(
+                        alias_pack_argument_expansions,
+                        sizeof(*alias_pack_argument_expansions) *
+                            (size_t)alias_pack_count,
+                        sizeof(*alias_pack_argument_expansions) *
+                            (size_t)(alias_pack_count + 1));
+                    alias_pack_arguments[alias_pack_count] = template_carrier;
+                    alias_pack_argument_expansions[alias_pack_count] =
+                        pack_argument_expansion;
+                    if (!arguments[argument_count]) {
+                        arguments[argument_count] = template_carrier;
+                    }
+                    ++alias_pack_count;
                 } else {
                     rcc_error(peek()->loc,
                               "RCC++ alias template packs currently require "
-                              "type or non-type parameters");
+                              "type, non-type, or template-template "
+                              "parameters");
                     invalid_alias_pack_argument = true;
                     while (!check(TOK_GT) && !at_end()) advance();
                     break;
@@ -17334,10 +17485,23 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                         active_template_template_parameter_index(
                             argument_name);
                     if (source_parameter_index >= 0) {
-                        template_carrier = type_struct(argument_name);
-                        template_carrier->cxx_dependent = true;
-                        template_carrier->cxx_template_param_index =
-                            source_parameter_index;
+                        const TemplateParam* source_parameter =
+                            active_template_template_parameter(
+                                source_parameter_index);
+                        if (!source_parameter ||
+                            !template_template_parameter_signatures_match(
+                                parameter->template_signature,
+                                source_parameter->template_signature, 0)) {
+                            rcc_error(
+                                loc,
+                                "alias template template argument does "
+                                "not match its parameter list");
+                        } else {
+                            template_carrier = type_struct(argument_name);
+                            template_carrier->cxx_dependent = true;
+                            template_carrier->cxx_template_param_index =
+                                source_parameter_index;
+                        }
                     } else {
                         CxxTemplate* argument_template =
                             find_class_template(argument_name);

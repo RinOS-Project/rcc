@@ -1,4 +1,4 @@
-template<template<typename> class... Templates>
+template<typename... Types, int... Values>
 using PackedAlias = int;
 
 int main() {
