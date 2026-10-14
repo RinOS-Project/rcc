@@ -1857,6 +1857,7 @@ static CxxTemplate* find_alias_template(const char* qualified_name);
 static CxxTemplate* find_template(const char* qualified_name, int kind);
 static CxxTemplate* find_concept(const char* qualified_name);
 static bool cxx_qualified_class_alias_template_starts(void);
+static bool cxx_dependent_alias_template_starts(void);
 static Type* cxx_lambda_function_type(Type* return_type, DeclList* params);
 static bool consume_cxx_class_alias_template_owner(
     const char** owner_name_out);
@@ -11576,6 +11577,11 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             return substituted;
         }
     }
+    if (type->cxx_dependent_alias_template) {
+        return rcc_cxx_template_substitute_type(
+            tmpl, type, arguments, argument_count, value_args,
+            value_present);
+    }
     if (type->cxx_dependent && type->cxx_dependent_member_name &&
         type->cxx_template_param_index >= 0 &&
         type->cxx_template_param_index < argument_count &&
@@ -16459,6 +16465,13 @@ static bool cxx_template_constraint_satisfied(CxxTemplate* tmpl,
     return true;
 }
 
+bool rcc_parser_cxx_template_constraint_satisfied(
+    CxxTemplate* tmpl, Type** arguments, const int64_t* values,
+    const bool* value_present, SourceLoc loc) {
+    return cxx_template_constraint_satisfied(
+        tmpl, arguments, values, value_present, loc, true, NULL);
+}
+
 typedef struct CxxAliasOwnerValueSubstitution {
     CxxTemplate* alias_template;
     Expr** alias_value_expressions;
@@ -17116,6 +17129,18 @@ static bool cxx_qualified_class_alias_template_starts(void) {
     parser.cur = saved_cur;
     parser.prev = saved_prev;
     return starts;
+}
+
+static bool cxx_dependent_alias_template_starts(void) {
+    Token* owner = parser.cur;
+    return owner && owner->type == TOK_IDENT &&
+           active_template_type_index(owner->value.str_val) >= 0 &&
+           owner->next && owner->next->type == TOK_SCOPE &&
+           owner->next->next && owner->next->next->type == TOK_TEMPLATE &&
+           owner->next->next->next &&
+           owner->next->next->next->type == TOK_IDENT &&
+           owner->next->next->next->next &&
+           owner->next->next->next->next->type == TOK_LT;
 }
 
 static void cxx_resolve_known_class_bases(CxxClass* cls) {
@@ -18628,6 +18653,8 @@ static bool cxx_function_template_nontype_pattern_type_matches(
         left->is_rvalue_reference != right->is_rvalue_reference ||
         left->is_unsigned != right->is_unsigned ||
         left->cxx_is_member_pointer != right->cxx_is_member_pointer ||
+        left->cxx_dependent_alias_template !=
+            right->cxx_dependent_alias_template ||
         left->cxx_dependent != right->cxx_dependent ||
         (!!left->cxx_dependent_member_name !=
          !!right->cxx_dependent_member_name) ||
@@ -22996,6 +23023,117 @@ static bool parse_cxx_member_pointer_owner_type(Type** owner_out) {
     return true;
 }
 
+static bool cxx_template_argument_starts_type(void) {
+    switch (peek()->type) {
+        case TOK_BOOL:
+        case TOK_CHAR:
+        case TOK_CHAR8_T:
+        case TOK_CHAR16_T:
+        case TOK_CHAR32_T:
+        case TOK_DOUBLE:
+        case TOK_FLOAT:
+        case TOK_INT:
+        case TOK_LONG:
+        case TOK_SHORT:
+        case TOK_SIGNED:
+        case TOK_UNSIGNED:
+        case TOK_VOID:
+        case TOK_WCHAR_T:
+        case TOK_TYPENAME:
+        case TOK_CLASS:
+        case TOK_STRUCT:
+            return true;
+        default:
+            return rcc_parse_cxx_type_start();
+    }
+}
+
+static Type* parse_dependent_nested_alias_template_type(SourceLoc loc) {
+    Type** arguments = NULL;
+    Expr** value_arguments = NULL;
+    size_t capacity = 0u;
+    int argument_count = 0;
+    Token* owner_token;
+    Token* alias_token;
+    const char* owner_name;
+    const char* alias_name;
+    int parameter_index;
+    char dependent_tag[512];
+    int written;
+    Type* dependent;
+
+    if (!cxx_dependent_alias_template_starts()) {
+        rcc_error(loc, "expected a dependent nested alias-template-id");
+        return type_int;
+    }
+    owner_token = advance();
+    owner_name = rcc_intern(owner_token->value.str_val);
+    parameter_index = active_template_type_index(owner_name);
+    expect(TOK_SCOPE, "::");
+    expect(TOK_TEMPLATE, "template");
+    alias_token = expect(TOK_IDENT, "nested alias-template name");
+    alias_name = rcc_intern(alias_token->value.str_val);
+    expect(TOK_LT, "<");
+
+    if (!check(TOK_GT)) {
+        do {
+            Type* argument = NULL;
+            Expr* value_argument = NULL;
+            if (cxx_template_argument_starts_type()) {
+                argument = parse_cxx_type_spec();
+            } else {
+                rcc_parser_set_cxx_template_default_mode(true);
+                value_argument = parse_assignment_expression();
+                rcc_parser_set_cxx_template_default_mode(false);
+                argument = type_int;
+            }
+            if ((size_t)argument_count == capacity) {
+                size_t next_capacity = capacity ? capacity * 2u : 4u;
+                if (next_capacity < capacity ||
+                    next_capacity > SIZE_MAX / sizeof(*arguments) ||
+                    next_capacity > SIZE_MAX / sizeof(*value_arguments)) {
+                    rcc_error(loc,
+                              "dependent alias-template argument storage "
+                              "size overflow");
+                    return type_int;
+                }
+                arguments = ast_arena_grow(
+                    arguments, sizeof(*arguments) * capacity,
+                    sizeof(*arguments) * next_capacity);
+                value_arguments = ast_arena_grow(
+                    value_arguments, sizeof(*value_arguments) * capacity,
+                    sizeof(*value_arguments) * next_capacity);
+                memset(arguments + capacity, 0,
+                       sizeof(*arguments) * (next_capacity - capacity));
+                memset(value_arguments + capacity, 0,
+                       sizeof(*value_arguments) *
+                           (next_capacity - capacity));
+                capacity = next_capacity;
+            }
+            arguments[argument_count] = argument ? argument : type_int;
+            value_arguments[argument_count] = value_argument;
+            ++argument_count;
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_GT, ">");
+
+    written = snprintf(dependent_tag, sizeof(dependent_tag), "%s::%s",
+                       owner_name, alias_name);
+    if (written < 0 || (size_t)written >= sizeof(dependent_tag)) {
+        rcc_error(loc, "dependent nested alias-template name is too long");
+        return type_int;
+    }
+    dependent = type_struct(rcc_intern(dependent_tag));
+    dependent->cxx_dependent = true;
+    dependent->cxx_template_param_index = parameter_index;
+    dependent->cxx_dependent_member_name = alias_name;
+    dependent->cxx_dependent_alias_template = true;
+    dependent->cxx_template_args = arguments;
+    dependent->cxx_template_value_args = value_arguments;
+    dependent->cxx_template_arg_count = argument_count;
+    return dependent;
+}
+
 static Type* parse_cxx_type_spec(void) {
     SourceLoc loc = peek()->loc;
     Type* t = NULL;
@@ -23036,7 +23174,10 @@ static Type* parse_cxx_type_spec(void) {
         bool alias_accessible = false;
         bool typename_resolved = false;
 
-        if (cxx_qualified_class_alias_template_starts()) {
+        if (cxx_dependent_alias_template_starts()) {
+            t = parse_dependent_nested_alias_template_type(loc);
+            typename_resolved = true;
+        } else if (cxx_qualified_class_alias_template_starts()) {
             t = parse_qualified_class_alias_template_type(loc);
             typename_resolved = true;
         } else if (cxx_template_id_followed_by_scope(&owner_template_name)) {

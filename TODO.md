@@ -3959,3 +3959,23 @@ remains a separate open item.
 - [ ] Extend ordering to other dependent non-type expression forms,
   non-type/template-template packs, further compound/mixed pack sources, and
   their interactions with constraints and conversion-sequence ties.
+
+## RCC continuation (2026-10-14, dependent alias-template scalar NTTP types)
+
+- [x] Parse dependent declared types of the form
+  `typename Owner::template value_type_template<short> Value` for scalar
+  non-type template parameters in class and function templates.
+- [x] Substitute the enclosing owner and alias-template arguments (including
+  defaulted and explicit non-type alias arguments), resolve the inherited
+  alias declaration, and evaluate its constraints when instantiating the
+  declared parameter type.
+- [x] Compare class and function specialization Itanium names byte-for-byte
+  with GCC; cover negative values and verify concrete dependent declared types
+  in the i686 and AMD64 debug-info gate.
+- [x] Pass focused native-Windows MinGW GCC `test-debug-info` and
+  `test-cxx-function-template-overloads` gates (exit 0).
+- [x] Finish the full native-Windows MinGW GCC `test-cxx` aggregate after this
+  change; it completed successfully (exit 0), including generated-RIN validation.
+- [ ] Extend dependent alias-template declared types to template-template
+  arguments, unresolved owner/alias chains, parameter packs, and broader
+  type-directed grammar; add cases for aliases with recursive dependent types.

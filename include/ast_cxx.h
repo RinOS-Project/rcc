@@ -438,6 +438,12 @@ bool cxx_method_override_signature_matches(const CxxMethod* derived,
 bool rcc_parser_cxx_eval_template_integer_expression(
     Expr* expression, CxxTemplate* tmpl, const int64_t* values,
     const bool* value_present, int64_t* result);
+bool rcc_parser_cxx_template_constraint_satisfied(
+    CxxTemplate* tmpl, Type** arguments, const int64_t* values,
+    const bool* value_present, SourceLoc loc);
+Type* rcc_cxx_template_substitute_type(
+    CxxTemplate* tmpl, Type* type, Type** arguments, int argument_count,
+    const int64_t* value_args, const bool* value_present);
 
 /* Name mangling */
 char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls);

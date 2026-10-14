@@ -205,6 +205,9 @@ struct Type {
      * parameter is identified by cxx_template_param_index and is resolved
      * only after template substitution. */
     const char* cxx_dependent_member_name;
+    /* A dependent `T::template alias<...>` type-id retains its explicit
+     * specialization arguments until T is known. */
+    bool cxx_dependent_alias_template;
     Type** cxx_template_args;
     int cxx_template_arg_count;
     /* A dependent template-id argument can be a type-pack expansion (for

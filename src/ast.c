@@ -210,6 +210,7 @@ Type* type_ptr(Type* base) {
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
     t->cxx_dependent = false;
+    t->cxx_dependent_alias_template = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
     t->cxx_scope_identity = NULL;
@@ -267,6 +268,7 @@ Type* type_array(Type* base, int len) {
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
     t->cxx_dependent = false;
+    t->cxx_dependent_alias_template = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
     t->cxx_scope_identity = NULL;
@@ -341,6 +343,7 @@ Type* type_struct(const char* tag) {
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
     t->cxx_dependent = false;
+    t->cxx_dependent_alias_template = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
     t->cxx_scope_identity = NULL;
@@ -363,6 +366,7 @@ Type* type_union(const char* tag) {
     t->cxx_is_class = false;
     t->cxx_nontrivial = false;
     t->cxx_dependent = false;
+    t->cxx_dependent_alias_template = false;
     t->cxx_class = NULL;
     t->cxx_namespace = NULL;
     t->cxx_scope_identity = NULL;
@@ -635,7 +639,9 @@ bool type_is_same_template_argument(Type* a, Type* b) {
         a->is_plain_char != b->is_plain_char || a->is_char8 != b->is_char8 ||
         a->is_wchar != b->is_wchar ||
         a->is_char16 != b->is_char16 || a->is_char32 != b->is_char32 ||
-        a->cxx_is_member_pointer != b->cxx_is_member_pointer) {
+        a->cxx_is_member_pointer != b->cxx_is_member_pointer ||
+        a->cxx_dependent_alias_template !=
+            b->cxx_dependent_alias_template) {
         return false;
     }
     if (a == b) return true;

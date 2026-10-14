@@ -167,6 +167,12 @@ static Type* cxx_mangle_template_value_type(
         value_type = arguments[argument_slot];
         if (value_type && !value_type->cxx_dependent) return value_type;
     }
+    if (declared_type && declared_type->cxx_dependent_alias_template) {
+        Type* substituted = rcc_cxx_template_substitute_type(
+            templ, declared_type, (Type**)arguments, argument_count,
+            NULL, NULL);
+        if (substituted && !substituted->cxx_dependent) return substituted;
+    }
     if (declared_type && declared_type->cxx_dependent &&
         declared_type->cxx_dependent_member_name &&
         declared_type->cxx_template_param_index >= 0 && arguments &&
@@ -3455,7 +3461,9 @@ static bool cxx_template_redeclaration_type_matches(
         left->is_reference != right->is_reference ||
         left->is_rvalue_reference != right->is_rvalue_reference ||
         left->is_unsigned != right->is_unsigned ||
-        left->cxx_is_member_pointer != right->cxx_is_member_pointer) {
+        left->cxx_is_member_pointer != right->cxx_is_member_pointer ||
+        left->cxx_dependent_alias_template !=
+            right->cxx_dependent_alias_template) {
         return false;
     }
     if (left->cxx_dependent || right->cxx_dependent) {
@@ -4829,6 +4837,9 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                  Type** args, int arg_count,
                                  const int64_t* value_args,
                                  const bool* value_present);
+static Type* template_substitute_dependent_alias_template_type(
+    CxxTemplate* tmpl, Type* type, Type** args, int arg_count,
+    const int64_t* value_args, const bool* value_present);
 
 static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                       Type** args, int arg_count,
@@ -4842,6 +4853,10 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
     int index;
 
     if (!type) return NULL;
+    if (type->cxx_dependent_alias_template) {
+        return template_substitute_dependent_alias_template_type(
+            tmpl, type, args, arg_count, value_args, value_present);
+    }
     if (type->cxx_dependent_member_name && type->cxx_template &&
         type->cxx_template_arg_count > 0) {
         Type* owner_pattern = ast_arena_alloc(sizeof(*owner_pattern));
@@ -5573,6 +5588,277 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         }
     }
     return type;
+}
+
+static Type* template_substitute_dependent_alias_template_type(
+    CxxTemplate* tmpl, Type* type, Type** args, int arg_count,
+    const int64_t* value_args, const bool* value_present) {
+    SourceLoc loc = {"<dependent-alias-template>", 0, 0};
+    int owner_index = type ? type->cxx_template_param_index : -1;
+    Type* owner;
+    CxxClass* owner_class;
+    CxxClass* declaring_class = NULL;
+    CxxClass* access_context;
+    CxxClassAliasTemplate* alias_entry;
+    CxxTemplate* alias_template;
+    CxxTemplate* owner_template;
+    Type** alias_arguments;
+    int64_t* alias_values;
+    bool* alias_value_present;
+    int owner_argument_count = 0;
+    int total_argument_count;
+    int explicit_argument_count;
+    size_t slot_count;
+    bool ambiguous = false;
+    bool accessible = false;
+
+    if (!type || !type->cxx_dependent_alias_template || owner_index < 0 ||
+        owner_index >= arg_count || !args || !args[owner_index]) {
+        return type;
+    }
+    owner = args[owner_index];
+    if (owner->cxx_dependent) {
+        Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
+        *unresolved = *type;
+        unresolved->cxx_class = owner->cxx_class;
+        if (owner->cxx_template_param_index >= 0) {
+            unresolved->cxx_template_param_index =
+                owner->cxx_template_param_index;
+        }
+        if (type->cxx_template_arg_count > 0 && type->cxx_template_args) {
+            int count = type->cxx_template_arg_count;
+            unresolved->cxx_template_args = ast_arena_alloc(
+                sizeof(*unresolved->cxx_template_args) * (size_t)count);
+            unresolved->cxx_template_value_args = ast_arena_alloc(
+                sizeof(*unresolved->cxx_template_value_args) *
+                (size_t)count);
+            for (int index = 0; index < count; ++index) {
+                Expr* expression = type->cxx_template_value_args
+                    ? type->cxx_template_value_args[index] : NULL;
+                unresolved->cxx_template_args[index] = expression
+                    ? type->cxx_template_args[index]
+                    : template_substitute_type(
+                          tmpl, type->cxx_template_args[index], args,
+                          arg_count, value_args, value_present);
+                unresolved->cxx_template_value_args[index] = expression
+                    ? template_clone_expr(tmpl, expression, args, arg_count,
+                                          value_args, value_present)
+                    : NULL;
+            }
+        }
+        return unresolved;
+    }
+
+    owner_class = owner->cxx_class;
+    if (!owner_class) {
+        rcc_error(loc,
+                  "dependent nested alias template '%s' requires a class "
+                  "owner after substitution",
+                  type->cxx_dependent_member_name
+                      ? type->cxx_dependent_member_name : "<unnamed>");
+        return type_int;
+    }
+    access_context = tmpl ? tmpl->active_class_instance : NULL;
+    if (!access_context && tmpl && tmpl->func_def &&
+        tmpl->func_def->func_method_owner) {
+        access_context = tmpl->func_def->func_method_owner->cxx_class;
+    }
+    if (!access_context && tmpl) access_context = tmpl->templated_class;
+    alias_entry = cxx_class_find_inherited_alias_template(
+        owner_class, type->cxx_dependent_member_name, access_context,
+        &declaring_class, &ambiguous, &accessible);
+    if (!alias_entry || !alias_entry->declaration || ambiguous) {
+        rcc_error(loc,
+                  ambiguous
+                      ? "nested alias template '%s' is ambiguous in class '%s'"
+                      : "class '%s' has no nested alias template '%s'",
+                  ambiguous
+                      ? (type->cxx_dependent_member_name
+                             ? type->cxx_dependent_member_name : "<unnamed>")
+                      : (owner_class->name ? owner_class->name : "<unnamed>"),
+                  ambiguous
+                      ? (owner_class->name ? owner_class->name : "<unnamed>")
+                      : (type->cxx_dependent_member_name
+                             ? type->cxx_dependent_member_name : "<unnamed>"));
+        return type_int;
+    }
+    if (!accessible) {
+        rcc_error(loc, "nested alias template '%s' is inaccessible in class '%s'",
+                  type->cxx_dependent_member_name
+                      ? type->cxx_dependent_member_name : "<unnamed>",
+                  owner_class->name ? owner_class->name : "<unnamed>");
+        return type_int;
+    }
+    alias_template = alias_entry->declaration;
+    if (alias_template->param_count < 0 ||
+        type->cxx_template_arg_count < 0 ||
+        type->cxx_template_arg_count > alias_template->param_count) {
+        rcc_error(loc, "nested alias template '%s' has an invalid argument count",
+                  alias_template->name ? alias_template->name : "<alias>");
+        return type_int;
+    }
+    explicit_argument_count = type->cxx_template_arg_count;
+    owner_template = declaring_class ? declaring_class->templ
+                                     : owner_class->templ;
+    if (alias_template->enclosing_template &&
+        owner_template == alias_template->enclosing_template) {
+        CxxClass* alias_owner = declaring_class ? declaring_class : owner_class;
+        owner_argument_count = alias_owner->template_arg_count;
+        if (owner_argument_count != owner_template->param_count ||
+            (owner_argument_count > 0 && !alias_owner->template_args)) {
+            rcc_error(loc, "nested alias-template owner arguments are incomplete");
+            return type_int;
+        }
+    } else if (alias_template->enclosing_template) {
+        rcc_error(loc,
+                  "nested alias template '%s' is not attached to its owner "
+                  "specialization",
+                  alias_template->name ? alias_template->name : "<alias>");
+        return type_int;
+    }
+    if (owner_argument_count > INT_MAX - alias_template->param_count) {
+        rcc_error(loc, "nested alias template argument count overflow");
+        return type_int;
+    }
+    total_argument_count = alias_template->param_count + owner_argument_count;
+    slot_count = total_argument_count > 0 ? (size_t)total_argument_count : 1u;
+    if (slot_count > SIZE_MAX / sizeof(*alias_arguments) ||
+        slot_count > SIZE_MAX / sizeof(*alias_values) ||
+        slot_count > SIZE_MAX / sizeof(*alias_value_present)) {
+        rcc_error(loc, "nested alias template argument storage size overflow");
+        return type_int;
+    }
+    alias_arguments = ast_arena_alloc(sizeof(*alias_arguments) * slot_count);
+    alias_values = ast_arena_alloc(sizeof(*alias_values) * slot_count);
+    alias_value_present =
+        ast_arena_alloc(sizeof(*alias_value_present) * slot_count);
+    memset(alias_arguments, 0, sizeof(*alias_arguments) * slot_count);
+    memset(alias_values, 0, sizeof(*alias_values) * slot_count);
+    memset(alias_value_present, 0,
+           sizeof(*alias_value_present) * slot_count);
+    if (owner_argument_count > 0) {
+        CxxClass* alias_owner = declaring_class ? declaring_class : owner_class;
+        memcpy(alias_arguments + alias_template->param_count,
+               alias_owner->template_args,
+               sizeof(*alias_arguments) * (size_t)owner_argument_count);
+        if (alias_owner->template_value_args &&
+            alias_owner->template_value_present) {
+            memcpy(alias_values + alias_template->param_count,
+                   alias_owner->template_value_args,
+                   sizeof(*alias_values) * (size_t)owner_argument_count);
+            memcpy(alias_value_present + alias_template->param_count,
+                   alias_owner->template_value_present,
+                   sizeof(*alias_value_present) *
+                       (size_t)owner_argument_count);
+        }
+    }
+
+    for (int index = 0; index < alias_template->param_count; ++index) {
+        TemplateParam* parameter = &alias_template->params[index];
+        Expr* source_value = type->cxx_template_value_args &&
+                index < explicit_argument_count
+            ? type->cxx_template_value_args[index] : NULL;
+        if (index < explicit_argument_count) {
+            if (!type->cxx_template_args) {
+                rcc_error(loc, "nested alias template arguments are missing");
+                return type_int;
+            }
+            if (parameter->kind == TPARAM_TYPE) {
+                if (source_value) {
+                    rcc_error(loc,
+                              "nested alias-template argument %d must be a type",
+                              index + 1);
+                    return type_int;
+                }
+                alias_arguments[index] = template_substitute_type(
+                    tmpl, type->cxx_template_args[index], args, arg_count,
+                    value_args, value_present);
+                if (!alias_arguments[index]) return NULL;
+            } else if (parameter->kind == TPARAM_NONTYPE) {
+                Expr* substituted_value;
+                int64_t value;
+                if (!source_value) {
+                    rcc_error(loc,
+                              "nested alias-template argument %d must be a "
+                              "non-type value",
+                              index + 1);
+                    return type_int;
+                }
+                substituted_value = template_clone_expr(
+                    tmpl, source_value, args, arg_count, value_args,
+                    value_present);
+                if (!substituted_value ||
+                    (!expr_eval_integer_constant(substituted_value, &value) &&
+                     !rcc_parser_cxx_eval_template_integer_expression(
+                         substituted_value, tmpl, value_args, value_present,
+                         &value))) {
+                    rcc_error(source_value->loc,
+                              "nested alias-template non-type argument must "
+                              "be a constant expression after substitution");
+                    return type_int;
+                }
+                alias_values[index] = value;
+                alias_value_present[index] = true;
+                alias_arguments[index] = template_substitute_type(
+                    alias_template, parameter->type, alias_arguments,
+                    total_argument_count, alias_values,
+                    alias_value_present);
+            } else {
+                rcc_error(loc,
+                          "nested alias-template template-template arguments "
+                          "are not supported by the bounded type ABI");
+                return type_int;
+            }
+        } else if (parameter->has_default &&
+                   parameter->kind == TPARAM_TYPE &&
+                   parameter->default_type) {
+            alias_arguments[index] = template_substitute_type(
+                alias_template, parameter->default_type, alias_arguments,
+                total_argument_count, alias_values, alias_value_present);
+        } else if (parameter->has_default &&
+                   parameter->kind == TPARAM_NONTYPE &&
+                   parameter->default_value) {
+            Expr* default_value = template_clone_expr(
+                alias_template, parameter->default_value, alias_arguments,
+                total_argument_count, alias_values, alias_value_present);
+            int64_t value;
+            if (!default_value ||
+                (!expr_eval_integer_constant(default_value, &value) &&
+                 !rcc_parser_cxx_eval_template_integer_expression(
+                     default_value, alias_template, alias_values,
+                     alias_value_present, &value))) {
+                rcc_error(loc,
+                          "nested alias-template non-type default is not a "
+                          "constant expression");
+                return type_int;
+            }
+            alias_values[index] = value;
+            alias_value_present[index] = true;
+            alias_arguments[index] = template_substitute_type(
+                alias_template, parameter->type, alias_arguments,
+                total_argument_count, alias_values, alias_value_present);
+        } else {
+            rcc_error(loc, "nested alias template '%s' expects %d argument(s), got %d",
+                      alias_template->name ? alias_template->name : "<alias>",
+                      alias_template->param_count, explicit_argument_count);
+            return type_int;
+        }
+    }
+    if (!rcc_parser_cxx_template_constraint_satisfied(
+            alias_template, alias_arguments, alias_values,
+            alias_value_present, loc)) {
+        return type_int;
+    }
+    return template_substitute_type(
+        alias_template, alias_template->alias_type, alias_arguments,
+        total_argument_count, alias_values, alias_value_present);
+}
+
+Type* rcc_cxx_template_substitute_type(
+    CxxTemplate* tmpl, Type* type, Type** arguments, int argument_count,
+    const int64_t* value_args, const bool* value_present) {
+    return template_substitute_type(
+        tmpl, type, arguments, argument_count, value_args, value_present);
 }
 
 static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,

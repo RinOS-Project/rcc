@@ -1306,6 +1306,12 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z43debug_template_function_nested_scalar_valueI29DebugTemplateNestedValueOwnerLsn6EEiv' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z58debug_template_nested_alias_template_scalar_value_consumerP43DebugTemplateNestedAliasTemplateScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn9EE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z58debug_template_function_nested_alias_template_scalar_valueI36DebugTemplateAliasTemplateValueOwnerLin11EEiv' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z66debug_template_nested_alias_template_nontype_scalar_value_consumerP50DebugTemplateNestedAliasTemplateNontypeScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn13EE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z49debug_template_dependent_enum_value_pack_consumerP31DebugTemplateDependentValuePackI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z34debug_template_enum_value_consumerP22DebugTemplateEnumValueIL31DebugTemplateDependentValueEnumn3EE' \
@@ -1335,6 +1341,12 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -x -q '_Z43debug_template_nested_scalar_value_consumerP30DebugTemplateNestedScalarValueI29DebugTemplateNestedValueOwnerLsn6EE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z43debug_template_function_nested_scalar_valueI29DebugTemplateNestedValueOwnerLsn6EEiv' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z58debug_template_nested_alias_template_scalar_value_consumerP43DebugTemplateNestedAliasTemplateScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn9EE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z58debug_template_function_nested_alias_template_scalar_valueI36DebugTemplateAliasTemplateValueOwnerLin11EEiv' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z66debug_template_nested_alias_template_nontype_scalar_value_consumerP50DebugTemplateNestedAliasTemplateNontypeScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn13EE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z49debug_template_dependent_enum_value_pack_consumerP31DebugTemplateDependentValuePackI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
