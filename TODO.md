@@ -4036,9 +4036,8 @@ remains a separate open item.
   these changes (exit 0).
 - [x] Pass the full native-Windows MinGW GCC `test-cxx` aggregate after these
   changes (exit 0).
-- [ ] Extend alias value-pack support to constrained alias templates, multiple
-  distinct source packs, template-template packs, wider transformed expression
-  trees, and non-integral structural NTTP types.
+- [ ] Extend alias value-pack support to multiple distinct source packs,
+  template-template packs, and non-integral structural NTTP types.
 
 ## RCC continuation (2026-10-14, constrained alias value packs)
 
@@ -4068,3 +4067,14 @@ remains a separate open item.
 - [ ] Extend constrained alias packs to multiple distinct source packs,
   template-template packs, wider transformed expression trees, and
   non-integral structural NTTP types.
+
+## RCC continuation (2026-10-14, nested arithmetic alias value-pack expansions)
+
+- [x] Extend alias-pack transformation coverage from `Values + 1` to
+  `Values * 3 + 2` and `((Values + 2) * 3 - 1)`. Both must instantiate the
+  exact `AliasTransformedValues<8, 14>` type; verify through typed pointer
+  calls and AMD64 execution.
+- [x] Pass `test-cxx-alias-templates` on i686/AMD64 with AMD64 execution and
+  GCC C++20 `-Wall -Wextra -Werror` compile/run.
+- [ ] Cover additional expression operators, dependent-owner chains, and
+  transformed expressions combined with constraints.
