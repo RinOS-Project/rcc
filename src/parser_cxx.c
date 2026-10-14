@@ -17848,6 +17848,7 @@ static bool cxx_class_template_alias_template_starts(
     Token* saved_prev = parser.prev;
     const char* owner_template_name = NULL;
     CxxTemplate* owner_template;
+    CxxTemplate* owner_alias_template;
     Token* token;
     int depth = 0;
     int parentheses = 0;
@@ -17861,12 +17862,14 @@ static bool cxx_class_template_alias_template_starts(
         goto done;
     }
     owner_template = find_class_template(owner_template_name);
+    owner_alias_template = owner_template
+        ? NULL : find_alias_template(owner_template_name);
     if (!owner_template && active_template &&
         active_template->kind == TMPL_CLASS && active_template->name &&
         strcmp(active_template->name, owner_template_name) == 0) {
         owner_template = active_template;
     }
-    if (!owner_template) goto done;
+    if (!owner_template && !owner_alias_template) goto done;
 
     (void)parse_qualified_name();
     for (token = parser.cur; token && token->type != TOK_EOF;
@@ -18083,6 +18086,8 @@ static Type* parse_qualified_class_alias_template_type(SourceLoc loc) {
     if (cxx_class_template_alias_template_starts(&owner_template_name)) {
         CxxTemplate* owner_class_template =
             find_class_template(owner_template_name);
+        CxxTemplate* owner_alias_template = owner_class_template
+            ? NULL : find_alias_template(owner_template_name);
         CxxClass* owner_definition;
         CxxClass* alias_declaring_class = NULL;
         CxxClass* lookup_owner;
@@ -18094,13 +18099,15 @@ static Type* parse_qualified_class_alias_template_type(SourceLoc loc) {
             owner_class_template = active_template;
         }
         (void)parse_qualified_name();
-        if (!owner_class_template) {
+        if (!owner_class_template && !owner_alias_template) {
             rcc_error(loc, "unknown class-template alias owner '%s'",
                       owner_template_name);
             return type_int;
         }
-        owner_type = parse_class_template_specialization(
-            owner_class_template, loc);
+        owner_type = owner_class_template
+            ? parse_class_template_specialization(owner_class_template, loc)
+            : parse_alias_template_specialization(
+                  owner_alias_template, loc, NULL);
         if (!match(TOK_SCOPE)) {
             rcc_error(peek()->loc, "expected :: before nested alias template");
             return type_int;
@@ -18115,7 +18122,9 @@ static Type* parse_qualified_class_alias_template_type(SourceLoc loc) {
         owner_definition = owner_instance && owner_instance->templ &&
                 owner_instance->templ->templated_class
             ? owner_instance->templ->templated_class
-            : owner_class_template->templated_class;
+            : owner_class_template
+                ? owner_class_template->templated_class
+                : owner_instance;
         if (!owner_definition && active_class &&
             active_template == owner_class_template) {
             owner_definition = active_class;

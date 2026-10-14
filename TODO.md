@@ -4172,3 +4172,22 @@ remains a separate open item.
 - [ ] Expand deeper dependent-owner/cross-kind pack coverage. Defaults and
   constraints in nested signatures and structural non-integral NTTP packs
   remain open.
+
+## RCC continuation (2026-10-14, alias-template owners of nested aliases)
+
+- [x] Resolve an alias-template specialization used as the owner of a nested
+  alias template, then validate its template-template pack arguments. Cover
+  type and integral non-type owner parameters, and class/alias template actuals.
+- [x] Pass the focused native-Windows `test-cxx-alias-templates` gate on
+  i686/x86_64, including x86_64 execution and GCC C++20
+  `-Wall -Wextra -Werror` execution.
+- [x] Pass the full native-Windows MinGW GCC `test-cxx` and `test-debug-info`
+  aggregates after this parser change (both exit 0).
+- [ ] Forward dependent template-template packs through nested alias-template
+  specializations and support deeper multi-source-pack expansion.
+- [ ] Implement nested class-template declarations and `Outer<T>::Inner<U>`
+  specialization/lookup; the class-member parser currently lacks that path.
+- [ ] Extend structural non-integral NTTP packs and defaults/constraints in
+  nested template-template signatures.
+- [ ] Commit the implementation, regressions, and TODO on RCC `main`, then
+  record its exact commit and gitlink in the parent TODO. No push.

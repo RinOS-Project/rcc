@@ -50,6 +50,31 @@ struct AliasTypePackOwner {
         AliasTemplateList<AliasTemplates<OwnerTypes>...>;
 };
 
+template<typename OwnerType>
+struct AliasSingleTypeOwner {
+    template<template<typename> class... Templates>
+    using TemplateZip = AliasTemplateList<Templates<OwnerType>...>;
+};
+
+template<typename OwnerType>
+using DeeperTemplateAliasOwner = AliasSingleTypeOwner<OwnerType>;
+
+template<int Value>
+struct AliasNumberTemplate {};
+
+template<int Value>
+using AliasNumberAlias = AliasNumberTemplate<Value>;
+
+template<int OwnerValue>
+struct AliasSingleNumberOwner {
+    template<template<int> class... Templates>
+    using TemplateZip = AliasTemplateList<Templates<OwnerValue>...>;
+};
+
+template<int OwnerValue>
+using DeeperNumberTemplateAliasOwner =
+    AliasSingleNumberOwner<OwnerValue>;
+
 template<template<typename> class... Templates>
 using AliasTemplatePackList =
     AliasTemplateList<Templates<int>...>;
@@ -82,6 +107,16 @@ using ZippedAliasTemplatePacks =
     AliasTemplatePackList<AliasTemplateOne, AliasTemplateTwo>;
 using ExpectedAliasTemplatePacks =
     AliasTemplateList<AliasTemplateOne<int>, AliasTemplateTwo<int>>;
+using DeeperlyZippedAliasTemplatePacks =
+    DeeperTemplateAliasOwner<int>::TemplateZip<
+        AliasTemplateOne, AliasTemplateTwo>;
+using ExpectedDeeperlyZippedAliasTemplatePacks = AliasTemplateList<
+    AliasTemplateOne<int>, AliasTemplateTwo<int>>;
+using DeeperlyZippedNumberTemplatePacks =
+    DeeperNumberTemplateAliasOwner<7>::TemplateZip<
+        AliasNumberAlias, AliasNumberTemplate>;
+using ExpectedDeeperlyZippedNumberTemplatePacks = AliasTemplateList<
+    AliasNumberAlias<7>, AliasNumberTemplate<7>>;
 using AliasRightShiftValue = AliasValuePair<(8 >> 1), 4>;
 
 int check_zipped_alias_values(ExpectedAliasValues*) {
@@ -108,6 +143,16 @@ int check_zipped_alias_template_packs(ExpectedAliasTemplatePacks*) {
     return 0;
 }
 
+int check_deeperly_zipped_alias_template_packs(
+    ExpectedDeeperlyZippedAliasTemplatePacks*) {
+    return 0;
+}
+
+int check_deeperly_zipped_number_template_packs(
+    ExpectedDeeperlyZippedNumberTemplatePacks*) {
+    return 0;
+}
+
 int check_alias_right_shift(AliasValuePair<4, 4>*) {
     return 0;
 }
@@ -119,6 +164,8 @@ int main() {
     ZippedAliasTypeValues type_values;
     ZippedAliasValueTypes value_types;
     ZippedAliasTemplatePacks template_packs;
+    DeeperlyZippedAliasTemplatePacks deeper_template_packs;
+    DeeperlyZippedNumberTemplatePacks deeper_number_template_packs;
     AliasRightShiftValue shifted;
     if (check_zipped_alias_values(&values) != 0) return 1;
     if (check_zipped_alias_types(&types) != 0) return 1;
@@ -127,5 +174,9 @@ int main() {
     if (check_zipped_alias_type_values(&type_values) != 0) return 1;
     if (check_zipped_alias_value_types(&value_types) != 0) return 1;
     if (check_zipped_alias_template_packs(&template_packs) != 0) return 1;
+    if (check_deeperly_zipped_alias_template_packs(&deeper_template_packs) != 0)
+        return 1;
+    if (check_deeperly_zipped_number_template_packs(
+            &deeper_number_template_packs) != 0) return 1;
     return check_alias_right_shift(&shifted);
 }
