@@ -24034,8 +24034,10 @@ static bool cxx_template_argument_starts_type(void) {
 static Type* parse_dependent_nested_alias_template_type(SourceLoc loc) {
     Type** arguments = NULL;
     Expr** value_arguments = NULL;
+    bool* argument_pack_expansions = NULL;
     size_t capacity = 0u;
     int argument_count = 0;
+    bool has_pack_expansion = false;
     Token* owner_token;
     Token* alias_token;
     const char* owner_name;
@@ -24075,11 +24077,38 @@ static Type* parse_dependent_nested_alias_template_type(SourceLoc loc) {
                 rcc_parser_set_cxx_template_default_mode(false);
                 argument = type_int;
             }
+            bool pack_expansion = match(TOK_ELLIPSIS);
+            if (pack_expansion) {
+                int source_pack_index = active_template
+                    ? cxx_parser_template_parameter_pack_index(
+                          active_template, argument)
+                    : -1;
+                int value_pack_index = active_template
+                    ? cxx_parser_template_value_pack_index_expression(
+                          active_template, value_argument)
+                    : -1;
+                if (source_pack_index < 0) {
+                    source_pack_index = value_pack_index;
+                } else if (value_pack_index >= 0 &&
+                           source_pack_index != value_pack_index) {
+                    source_pack_index = -2;
+                }
+                if (!active_template || source_pack_index < 0 ||
+                    source_pack_index >= active_template->param_count ||
+                    !active_template->params[source_pack_index].is_pack) {
+                    rcc_error(loc,
+                              "dependent nested alias-template pack expansion "
+                              "must name one template parameter pack");
+                }
+                has_pack_expansion = true;
+            }
             if ((size_t)argument_count == capacity) {
                 size_t next_capacity = capacity ? capacity * 2u : 4u;
                 if (next_capacity < capacity ||
                     next_capacity > SIZE_MAX / sizeof(*arguments) ||
-                    next_capacity > SIZE_MAX / sizeof(*value_arguments)) {
+                    next_capacity > SIZE_MAX / sizeof(*value_arguments) ||
+                    next_capacity >
+                        SIZE_MAX / sizeof(*argument_pack_expansions)) {
                     rcc_error(loc,
                               "dependent alias-template argument storage "
                               "size overflow");
@@ -24091,15 +24120,23 @@ static Type* parse_dependent_nested_alias_template_type(SourceLoc loc) {
                 value_arguments = ast_arena_grow(
                     value_arguments, sizeof(*value_arguments) * capacity,
                     sizeof(*value_arguments) * next_capacity);
+                argument_pack_expansions = ast_arena_grow(
+                    argument_pack_expansions,
+                    sizeof(*argument_pack_expansions) * capacity,
+                    sizeof(*argument_pack_expansions) * next_capacity);
                 memset(arguments + capacity, 0,
                        sizeof(*arguments) * (next_capacity - capacity));
                 memset(value_arguments + capacity, 0,
                        sizeof(*value_arguments) *
                            (next_capacity - capacity));
+                memset(argument_pack_expansions + capacity, 0,
+                       sizeof(*argument_pack_expansions) *
+                           (next_capacity - capacity));
                 capacity = next_capacity;
             }
             arguments[argument_count] = argument ? argument : type_int;
             value_arguments[argument_count] = value_argument;
+            argument_pack_expansions[argument_count] = pack_expansion;
             ++argument_count;
         } while (match(TOK_COMMA));
     }
@@ -24118,6 +24155,8 @@ static Type* parse_dependent_nested_alias_template_type(SourceLoc loc) {
     dependent->cxx_dependent_alias_template = true;
     dependent->cxx_template_args = arguments;
     dependent->cxx_template_value_args = value_arguments;
+    dependent->cxx_template_arg_pack_expansions = has_pack_expansion
+        ? argument_pack_expansions : NULL;
     dependent->cxx_template_arg_count = argument_count;
     return dependent;
 }

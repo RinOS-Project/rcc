@@ -4191,3 +4191,23 @@ remains a separate open item.
   nested template-template signatures.
 - [x] Commit the parser implementation, regression fixture, and test record
   on RCC `main` as `cfa1568fb5c2083612a1b973c6e16022af9eba19`; no push.
+
+## RCC continuation (2026-10-14, forwarded dependent template-template packs)
+
+- [x] Forward a dependent template-template pack through a dependent nested
+  alias-template specialization, zipping its templates with the owner class's
+  type pack and preserving each corresponding owner argument.
+- [x] Add a positive exact-type/runtime regression and a pack-length mismatch
+  regression. Confirm GCC C++20 rejects the mismatch and RCC emits its direct
+  diagnostic without an object file.
+- [x] Pass the focused native-Windows `test-cxx-alias-templates` gate on
+  i686/x86_64, including x86_64 execution, GCC C++20 `-Wall -Wextra -Werror`
+  execution, and invalid-case parity checks.
+- [ ] Complete the full `test-cxx` aggregate after this change; the earlier
+  aggregate run lost its session during an unrelated later test and has no
+  success exit code.
+- [ ] Complete the full `test-debug-info` aggregate after this change.
+- [ ] Continue with nested class-template declarations/specializations,
+  structural non-integral NTTP packs, and deeper/cross-kind dependent-owner
+  expansions. Defaults and constraints in nested template-template signatures
+  also remain open.

@@ -79,6 +79,10 @@ template<template<typename> class... Templates>
 using AliasTemplatePackList =
     AliasTemplateList<Templates<int>...>;
 
+template<typename Owner, template<typename> class... Templates>
+using ForwardedAliasTemplatePack =
+    typename Owner::template TemplateZip<Templates...>;
+
 using ZippedAliasValues =
     AliasValuePackOwner<1, 2, 3>::Zip<4, 5, 6>;
 using ExpectedAliasValues = AliasValueList<
@@ -117,6 +121,10 @@ using DeeperlyZippedNumberTemplatePacks =
         AliasNumberAlias, AliasNumberTemplate>;
 using ExpectedDeeperlyZippedNumberTemplatePacks = AliasTemplateList<
     AliasNumberAlias<7>, AliasNumberTemplate<7>>;
+using ForwardedDependentAliasTemplatePacks = ForwardedAliasTemplatePack<
+    AliasTypePackOwner<int, long>, AliasTemplateOne, AliasTemplateTwo>;
+using ExpectedForwardedDependentAliasTemplatePacks = AliasTemplateList<
+    AliasTemplateOne<int>, AliasTemplateTwo<long>>;
 using AliasRightShiftValue = AliasValuePair<(8 >> 1), 4>;
 
 int check_zipped_alias_values(ExpectedAliasValues*) {
@@ -153,6 +161,11 @@ int check_deeperly_zipped_number_template_packs(
     return 0;
 }
 
+int check_forwarded_dependent_alias_template_packs(
+    ExpectedForwardedDependentAliasTemplatePacks*) {
+    return 0;
+}
+
 int check_alias_right_shift(AliasValuePair<4, 4>*) {
     return 0;
 }
@@ -166,6 +179,7 @@ int main() {
     ZippedAliasTemplatePacks template_packs;
     DeeperlyZippedAliasTemplatePacks deeper_template_packs;
     DeeperlyZippedNumberTemplatePacks deeper_number_template_packs;
+    ForwardedDependentAliasTemplatePacks forwarded_dependent_template_packs;
     AliasRightShiftValue shifted;
     if (check_zipped_alias_values(&values) != 0) return 1;
     if (check_zipped_alias_types(&types) != 0) return 1;
@@ -178,5 +192,7 @@ int main() {
         return 1;
     if (check_deeperly_zipped_number_template_packs(
             &deeper_number_template_packs) != 0) return 1;
+    if (check_forwarded_dependent_alias_template_packs(
+            &forwarded_dependent_template_packs) != 0) return 1;
     return check_alias_right_shift(&shifted);
 }
