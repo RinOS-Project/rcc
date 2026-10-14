@@ -9859,6 +9859,92 @@ static CxxTemplate* cxx_template_snapshot_parameter_scope(
     return snapshot;
 }
 
+static void cxx_template_add_template_param(CxxTemplate* tmpl,
+                                           const char* name,
+                                           CxxTemplate* signature,
+                                           bool is_pack) {
+    TemplateParam* parameter;
+    tmpl->params = ast_arena_grow(
+        tmpl->params, sizeof(*tmpl->params) * (size_t)tmpl->param_count,
+        sizeof(*tmpl->params) * (size_t)(tmpl->param_count + 1));
+    parameter = &tmpl->params[tmpl->param_count++];
+    memset(parameter, 0, sizeof(*parameter));
+    parameter->kind = TPARAM_TEMPLATE;
+    parameter->name = name ? rcc_strdup(name) : NULL;
+    parameter->template_signature = signature;
+    parameter->is_pack = is_pack;
+}
+
+static CxxTemplate* parse_cxx_template_template_signature(SourceLoc loc) {
+    CxxTemplate* signature = cxx_template_new(loc);
+    CxxTemplate* enclosing_template = active_template;
+    signature->enclosing_template = enclosing_template;
+    active_template = signature;
+    expect(TOK_LT, "template parameter list");
+    if (!check(TOK_GT)) {
+        do {
+            const char* nested_name = NULL;
+            bool nested_parameter_pack = false;
+            if (match(TOK_TEMPLATE)) {
+                CxxTemplate* nested_signature =
+                    parse_cxx_template_template_signature(peek()->loc);
+                if (!match(TOK_CLASS) && !match(TOK_TYPENAME)) {
+                    rcc_error(peek()->loc,
+                              "template-template parameter requires class "
+                              "or typename");
+                }
+                nested_parameter_pack = match(TOK_ELLIPSIS);
+                if (check(TOK_IDENT)) nested_name = advance()->value.str_val;
+                cxx_template_add_template_param(
+                    signature, nested_name, nested_signature,
+                    nested_parameter_pack);
+            } else if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
+                nested_parameter_pack = match(TOK_ELLIPSIS);
+                if (check(TOK_IDENT)) nested_name = advance()->value.str_val;
+                cxx_template_add_type_param(signature, nested_name);
+                signature->params[signature->param_count - 1].is_pack =
+                    nested_parameter_pack;
+            } else if (match(TOK_AUTO)) {
+                if (!rcc_parser_cxx_standard_at_least(17)) {
+                    rcc_error(peek()->loc,
+                              "template<auto> parameters require C++17 or newer");
+                }
+                nested_parameter_pack = match(TOK_ELLIPSIS);
+                if (check(TOK_IDENT)) {
+                    nested_name = advance()->value.str_val;
+                } else {
+                    rcc_error(peek()->loc,
+                              "template-template auto parameter requires a "
+                              "name");
+                }
+                cxx_template_add_value_param(signature, nested_name, type_int);
+                signature->params[signature->param_count - 1].is_pack =
+                    nested_parameter_pack;
+            } else {
+                Type* nested_type = parse_cxx_type_spec();
+                nested_parameter_pack = match(TOK_ELLIPSIS);
+                if (!nested_type ||
+                    (!type_is_integer(nested_type) &&
+                     nested_type->kind != TYPE_ENUM &&
+                     !nested_type->cxx_dependent)) {
+                    rcc_error(peek()->loc,
+                              "template-template non-type parameter requires "
+                              "an integral or dependent type");
+                    nested_type = type_int;
+                }
+                if (check(TOK_IDENT)) nested_name = advance()->value.str_val;
+                cxx_template_add_value_param(signature, nested_name,
+                                             nested_type);
+                signature->params[signature->param_count - 1].is_pack =
+                    nested_parameter_pack;
+            }
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_GT, "template parameter list");
+    active_template = enclosing_template;
+    return signature;
+}
+
 CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     SourceLoc loc = previous()->loc;
     CxxTemplate* parameter_outer_template = active_template;
@@ -9947,58 +10033,9 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                 /* Keep the accepted template-template profile explicit.  The
                  * nested signature is retained so an argument cannot be
                  * accepted merely because it happens to name a class. */
-                CxxTemplate* signature = cxx_template_new(peek()->loc);
+                CxxTemplate* signature =
+                    parse_cxx_template_template_signature(peek()->loc);
                 const char* param_name = NULL;
-                expect(TOK_LT, "template parameter list");
-                if (!check(TOK_GT)) {
-                    do {
-                        const char* nested_name = NULL;
-                        bool nested_parameter_pack = false;
-                        if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
-                            nested_parameter_pack = match(TOK_ELLIPSIS);
-                            if (check(TOK_IDENT)) {
-                                nested_name = advance()->value.str_val;
-                            }
-                            cxx_template_add_type_param(signature, nested_name);
-                            signature->params[signature->param_count - 1].is_pack =
-                                nested_parameter_pack;
-                        } else if (match(TOK_AUTO)) {
-                            if (!rcc_parser_cxx_standard_at_least(17)) {
-                                rcc_error(peek()->loc,
-                                          "template<auto> parameters require C++17 or newer");
-                            }
-                            nested_parameter_pack = match(TOK_ELLIPSIS);
-                            if (check(TOK_IDENT)) {
-                                nested_name = advance()->value.str_val;
-                            } else {
-                                rcc_error(peek()->loc,
-                                          "template-template auto parameter "
-                                          "requires a name");
-                            }
-                            cxx_template_add_value_param(signature, nested_name,
-                                                         type_int);
-                            signature->params[signature->param_count - 1].is_pack =
-                                nested_parameter_pack;
-                        } else {
-                            Type* nested_type = parse_cxx_type_spec();
-                            nested_parameter_pack = match(TOK_ELLIPSIS);
-                            if (!nested_type || !type_is_integer(nested_type)) {
-                                rcc_error(peek()->loc,
-                                          "template-template non-type "
-                                          "parameter requires an integral type");
-                                nested_type = type_int;
-                            }
-                            if (check(TOK_IDENT)) {
-                                nested_name = advance()->value.str_val;
-                            }
-                            cxx_template_add_value_param(signature, nested_name,
-                                                         nested_type);
-                            signature->params[signature->param_count - 1].is_pack =
-                                nested_parameter_pack;
-                        }
-                    } while (match(TOK_COMMA));
-                }
-                expect(TOK_GT, "template parameter list");
                 if (!match(TOK_CLASS) && !match(TOK_TYPENAME)) {
                     rcc_error(peek()->loc,
                               "template-template parameter requires class "
@@ -10006,18 +10043,8 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                 }
                 parameter_pack = match(TOK_ELLIPSIS);
                 if (check(TOK_IDENT)) param_name = advance()->value.str_val;
-                tmpl->params = ast_arena_grow(
-                    tmpl->params, sizeof(TemplateParam) * (size_t)tmpl->param_count,
-                    sizeof(TemplateParam) * (size_t)(tmpl->param_count + 1));
-                {
-                    TemplateParam* parameter =
-                        &tmpl->params[tmpl->param_count++];
-                    memset(parameter, 0, sizeof(*parameter));
-                    parameter->kind = TPARAM_TEMPLATE;
-                    parameter->name = param_name ? rcc_strdup(param_name) : NULL;
-                    parameter->template_signature = signature;
-                    parameter->is_pack = parameter_pack;
-                }
+                cxx_template_add_template_param(
+                    tmpl, param_name, signature, parameter_pack);
                 template_parameter = true;
             } else if (match(TOK_AUTO)) {
                 /* C++17 `template<auto N>` is represented by the existing
@@ -14095,6 +14122,7 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
     int argument_count = 0;
     int pack_index = cxx_class_pack_index(tmpl);
     bool has_pack_expansion = false;
+    bool invalid_template_argument = false;
     expect(TOK_LT, "<");
     if (!check(TOK_GT)) {
         do {
@@ -14199,6 +14227,7 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 CxxTemplate* argument_template;
                 Type* template_carrier;
                 int source_parameter_index;
+                bool invalid_current_template_argument = false;
                 if (check(TOK_IDENT) || check(TOK_SCOPE)) {
                     argument_name = parse_qualified_name();
                 } else {
@@ -14209,12 +14238,26 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 source_parameter_index = argument_name && active_template
                     ? active_template_template_parameter_index(argument_name)
                     : -1;
-                if (source_parameter_index >= 0 && active_template &&
-                    source_parameter_index < active_template->param_count) {
-                    template_carrier = type_struct(argument_name);
-                    template_carrier->cxx_dependent = true;
-                    template_carrier->cxx_template_param_index =
-                        source_parameter_index;
+                if (source_parameter_index >= 0 && active_template) {
+                    const TemplateParam* source_parameter =
+                        active_template_template_parameter(
+                            source_parameter_index);
+                    if (!source_parameter ||
+                        !template_template_parameter_signatures_match(
+                            parameter->template_signature,
+                            source_parameter->template_signature, 0)) {
+                        rcc_error(loc,
+                                  "template-template argument does not match "
+                                  "its parameter list");
+                        template_carrier = type_int;
+                        invalid_template_argument = true;
+                        invalid_current_template_argument = true;
+                    } else {
+                        template_carrier = type_struct(argument_name);
+                        template_carrier->cxx_dependent = true;
+                        template_carrier->cxx_template_param_index =
+                            source_parameter_index;
+                    }
                 } else {
                     argument_template = argument_name
                         ? find_class_template(argument_name) : NULL;
@@ -14225,6 +14268,8 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                   "template-template argument does not match "
                                   "its parameter list");
                         template_carrier = type_int;
+                        invalid_template_argument = true;
+                        invalid_current_template_argument = true;
                     } else {
                         template_carrier = type_struct(argument_name);
                         template_carrier->cxx_template = argument_template;
@@ -14233,11 +14278,14 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 int argument_index = argument_count++;
                 arguments[argument_index] = template_carrier;
                 if (match(TOK_ELLIPSIS)) {
-                    int template_pack_index = active_template
+                    int template_pack_index =
+                        !invalid_current_template_argument && active_template
                         ? cxx_parser_template_parameter_pack_index(
                               active_template, template_carrier)
                         : -1;
-                    if (!parameter->is_pack || pack_index < 0 ||
+                    if (invalid_current_template_argument) {
+                        /* Keep the primary signature-mismatch diagnostic. */
+                    } else if (!parameter->is_pack || pack_index < 0 ||
                         template_pack_index < 0 ||
                         template_pack_index >= active_template->param_count ||
                         active_template->params[template_pack_index].kind !=
@@ -14325,6 +14373,7 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
         ++argument_count;
     }
     expect(TOK_GT, ">");
+    if (invalid_template_argument) return type_int;
     for (int argument_index = 0; argument_index < argument_count;
          ++argument_index) {
         if (cxx_type_pattern_contains_dependent_component(

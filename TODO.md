@@ -4155,3 +4155,17 @@ remains a separate open item.
   regressions; accept alias templates as template-template pack arguments;
   extend deeper dependent-owner/cross-kind pack combinations. Structural
   non-integral NTTP packs remain open.
+
+## RCC continuation (2026-10-14, nested template-template signatures)
+
+- [x] Parse nested template-template parameter declarations recursively,
+  retaining nested type, integral/dependent non-type, template-template, and
+  pack signatures for compatibility checks.
+- [x] Accept matching nested signatures and reject a mismatched nested
+  signature with exactly one diagnostic and no output object; compare the
+  negative case with GCC.
+- [x] Pass the focused nested-signature tests and the full native-Windows
+  MinGW GCC `test-cxx` and `test-debug-info` aggregates (both exit 0).
+- [ ] Accept alias templates as template-template pack arguments; expand
+  deeper dependent-owner/cross-kind pack coverage. Defaults/constraints in
+  nested signatures and structural non-integral NTTP packs remain open.

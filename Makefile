@@ -5879,6 +5879,10 @@ test-cxx-template-template-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-template-template/start-x64.o \
 		$(TEST_OUT)/cxx-template-template/x64.o
 	$(TEST_OUT)/cxx-template-template/x64
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template-nested-signatures)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-template-template-nested-signatures,cxx_template_template_nested_signatures.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-template-template-nested-signatures/gcc-host tests/cxx_template_template_nested_signatures.cpp
+	$(TEST_OUT)/cxx-template-template-nested-signatures/gcc-host
 	@echo "RCC++ template-template parameter tests completed"
 
 test-cxx-template-template-invalid: $(RCXX_TARGET)
@@ -5900,6 +5904,16 @@ else
 		echo "mismatched template-template argument unexpectedly compiled on AMD64"; exit 1; \
 	fi
 endif
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-template-invalid/nested-signature-x86.ro tests/cxx_template_template_nested_signatures_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-signature-x86.log)
+	$(GREP) -F -q "template-template argument does not match its parameter list" $(TEST_OUT)/cxx-template-template-invalid/nested-signature-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-template-template-invalid/nested-signature-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-template-template-invalid/nested-signature-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-template-template-invalid/nested-signature-x64.ro tests/cxx_template_template_nested_signatures_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-signature-x64.log)
+	$(GREP) -F -q "template-template argument does not match its parameter list" $(TEST_OUT)/cxx-template-template-invalid/nested-signature-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-template-template-invalid/nested-signature-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-template-template-invalid/nested-signature-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_template_template_nested_signatures_invalid.cpp,$(TEST_OUT)/cxx-template-template-invalid/nested-signature-gcc.log)
+	$(GREP) -F -q "type/value mismatch at argument 1" $(TEST_OUT)/cxx-template-template-invalid/nested-signature-gcc.log
 	$(GREP) -q "template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-invalid/x86.log
 	$(GREP) -q "template-template argument does not match its parameter list" \
@@ -7038,6 +7052,10 @@ test-cxx-using-enum: $(RCXX_TARGET)
 test-cxx-template-template: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-template-template,cxx_template_template.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-template-template-nested-signatures)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-template-template-nested-signatures,cxx_template_template_nested_signatures.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-template-template-nested-signatures/gcc-host.exe tests/cxx_template_template_nested_signatures.cpp
+	$(TEST_OUT)/cxx-template-template-nested-signatures/gcc-host.exe
 
 test-cxx-range-for: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-range-for)
