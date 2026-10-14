@@ -7243,7 +7243,9 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             }
         } else if (parameter->kind == TPARAM_NONTYPE) {
             if (!value_present || !value_present[index] || !value_args ||
-                !parameter->type || !type_is_integer(parameter->type)) {
+                !parameter->type ||
+                (!type_is_integer(parameter->type) &&
+                 parameter->type->kind != TYPE_ENUM)) {
                 rcc_error(template_loc,
                           "function template non-type argument %d requires "
                           "an integer constant",

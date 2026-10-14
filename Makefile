@@ -1296,6 +1296,10 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z49debug_template_dependent_enum_value_pack_consumerP31DebugTemplateDependentValuePackI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z34debug_template_enum_value_consumerP22DebugTemplateEnumValueIL31DebugTemplateDependentValueEnumn3EE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z34debug_template_function_enum_valueIL31DebugTemplateDependentValueEnum12EEiv' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z34debug_template_template_pack_entryP31DebugTemplateTemplatePackHolderIJ25DebugTemplateTemplateLeafN24debug_template_namespace4LeafEEE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z35debug_template_template_fixed_entryP27DebugTemplateTemplateHolderIN24debug_template_namespace4LeafEE' \
@@ -1309,6 +1313,10 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -x -q '_Z44debug_template_function_dependent_value_packI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEEiv' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z49debug_template_dependent_enum_value_pack_consumerP31DebugTemplateDependentValuePackI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z34debug_template_enum_value_consumerP22DebugTemplateEnumValueIL31DebugTemplateDependentValueEnumn3EE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z34debug_template_function_enum_valueIL31DebugTemplateDependentValueEnum12EEiv' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/debug-info/x86-no-g.ro tests/debug_info.c

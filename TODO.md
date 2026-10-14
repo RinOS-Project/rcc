@@ -1804,8 +1804,13 @@
         non-type packs（`template<class T, T... Values>`）をclass／function
         templateのDWARF parameter-pack DIEへ出力。empty／複数要素、`short`の
         負値、`unsigned short`の高bit値、およびsigned enum型値をi686/AMD64で
-        検証。class/functionのItanium manglingもGCCと完全一致させ、同じ値を
-        異なるdependent型でspecializeした場合のclass-instance cache分離も回帰化
+        検証。scalar enum NTTPもclass/function templateのDWARFとItanium
+        manglingをGCCと比較。同じ値を異なるdependent型でspecializeした場合の
+        class-instance cache分離も回帰化
+  - [x] Named enum NTTPをconcrete class/function template scalar valueとして
+        instantiateし、enum underlying type参照とsigned enumeratorをDWARFへ出力。
+        enum型をunregistered conceptと誤認しないlookaheadを追加し、scalar／pack
+        manglingのGCC一致、i686/AMD64 `test-debug-info`、named-concept回帰で検証
   - [ ] Qualified／compound dependent declared type、non-integral structural
         non-type packs、他形式のdependent pack expansion、未instantiateのdependent
         alias/template-definition DIEは引き続き未完

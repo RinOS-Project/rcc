@@ -4431,6 +4431,80 @@ static void verify_function_template_dependent_value_pack_dies(
     objfile_free(object);
 }
 
+static void verify_enum_template_value_dies(const char* path,
+                                            uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    uint64_t enum_offset;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    unsigned class_count = 0u;
+    unsigned function_count = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    enum_offset = verify_enum_type_underlying(
+        info, abbrev, strings, "DebugTemplateDependentValueEnum", "short",
+        2u, 0x05u, true);
+
+    for (uint64_t die = 11u; die + 9u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint32_t type_offset;
+        uint64_t cursor;
+        if (info->data[die] != 12u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strncmp((const char*)strings->data + name_offset,
+                    "DebugTemplateEnumValue.",
+                    sizeof("DebugTemplateEnumValue.") - 1u) != 0) {
+            continue;
+        }
+        cursor = die + 9u;
+        assert(cursor < info->size && info->data[cursor++] == 48u);
+        assert(cursor + 8u <= info->size);
+        name_offset = read_u32(info->data, cursor);
+        type_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset,
+                      "Value") == 0 &&
+               type_offset == enum_offset &&
+               read_sleb(info->data, info->size, &cursor) == -3);
+        ++class_count;
+    }
+
+    for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
+        uint32_t name_offset;
+        uint32_t type_offset;
+        uint64_t cursor;
+        if (info->data[die] != 2u) continue;
+        name_offset = read_u32(info->data, die + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_template_function_enum_value") != 0) {
+            continue;
+        }
+        cursor = function_template_children_start(info, die, address_size);
+        assert(cursor < info->size && info->data[cursor++] == 48u);
+        assert(cursor + 8u <= info->size);
+        name_offset = read_u32(info->data, cursor);
+        type_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset,
+                      "Value") == 0 &&
+               type_offset == enum_offset &&
+               read_sleb(info->data, info->size, &cursor) == 12);
+        ++function_count;
+    }
+    assert(class_count == 1u && function_count == 1u);
+    objfile_free(object);
+}
+
 static uint8_t read_inline_attribute(const ObjSection* info,
                                      uint64_t function_offset,
                                      uint64_t address_size,
@@ -5129,6 +5203,8 @@ int main(int argc, char** argv)
         argv[26], ARCH_X86);
     verify_function_template_dependent_value_pack_dies(
         argv[27], ARCH_X64);
+    verify_enum_template_value_dies(argv[26], ARCH_X86);
+    verify_enum_template_value_dies(argv[27], ARCH_X64);
     verify_verified_fallback_debug_object(argv[28], ARCH_X86);
     verify_verified_fallback_debug_object(argv[29], ARCH_X64);
     return 0;

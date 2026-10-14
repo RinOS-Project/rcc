@@ -64,6 +64,19 @@ int debug_template_dependent_enum_value_pack_consumer(
     return value ? value->marker : 0;
 }
 
+template <DebugTemplateDependentValueEnum Value>
+struct DebugTemplateEnumValue {
+    int marker;
+};
+
+DebugTemplateEnumValue<DebugTemplateDependentValueEnum::negative>
+    debug_template_enum_value;
+
+int debug_template_enum_value_consumer(
+    DebugTemplateEnumValue<DebugTemplateDependentValueEnum::negative>* value) {
+    return value ? value->marker : 0;
+}
+
 template <int... Values>
 struct DebugTemplateEmptyNonTypePack {};
 
@@ -238,4 +251,14 @@ int debug_template_function_dependent_value_pack_entry() {
                DebugTemplateDependentValueEnum,
                DebugTemplateDependentValueEnum::negative,
                DebugTemplateDependentValueEnum::positive>();
+}
+
+template <DebugTemplateDependentValueEnum Value>
+int debug_template_function_enum_value() {
+    return static_cast<int>(Value);
+}
+
+int debug_template_function_enum_value_entry() {
+    return debug_template_function_enum_value<
+        DebugTemplateDependentValueEnum::positive>();
 }

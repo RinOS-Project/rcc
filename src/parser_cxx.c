@@ -8776,23 +8776,48 @@ static bool cxx_constrained_auto_parameter_starts(void) {
  * consumed while deciding which template-parameter form is present. */
 static bool cxx_constrained_type_parameter_starts(void) {
     Token* token = parser.cur;
+    char qualified_name[512];
+    size_t name_length = 0u;
+    bool leading_scope = false;
 
     if (!token || (token->type != TOK_IDENT && token->type != TOK_SCOPE)) {
         return false;
     }
-    if (token->type == TOK_SCOPE) token = token->next;
+    if (token->type == TOK_SCOPE) {
+        leading_scope = true;
+        token = token->next;
+    }
     if (!token || token->type != TOK_IDENT) return false;
     /* A preceding type template parameter in `T... Values` is the declared
      * type of a non-type pack, not a concept name. */
     if (token == parser.cur && is_active_template_type(token->value.str_val)) {
         return false;
     }
-    while (token->next && token->next->type == TOK_SCOPE) {
+    if (leading_scope) {
+        qualified_name[name_length++] = ':';
+        qualified_name[name_length++] = ':';
+    }
+    for (;;) {
+        size_t component_length = strlen(token->value.str_val);
+        if (component_length >= sizeof(qualified_name) - name_length) {
+            return false;
+        }
+        memcpy(qualified_name + name_length, token->value.str_val,
+               component_length);
+        name_length += component_length;
+        if (!token->next || token->next->type != TOK_SCOPE) break;
+        if (name_length + 2u >= sizeof(qualified_name)) return false;
+        qualified_name[name_length++] = ':';
+        qualified_name[name_length++] = ':';
         token = token->next->next;
         if (!token || token->type != TOK_IDENT) return false;
     }
-    return token->next && (token->next->type == TOK_IDENT ||
-                           token->next->type == TOK_ELLIPSIS);
+    if (!token->next || (token->next->type != TOK_IDENT &&
+                         token->next->type != TOK_ELLIPSIS)) {
+        return false;
+    }
+    qualified_name[name_length] = '\0';
+    return find_concept(qualified_name) != NULL;
 }
 
 static DeclList* parse_cxx_parameter_declarations(bool* is_variadic) {
