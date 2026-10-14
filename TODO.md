@@ -4079,4 +4079,15 @@ remains a separate open item.
 - [x] Combine a per-value `&&` constraint fold with an arithmetic alias-pack
   transformation; accept positive values and reject a pack containing zero,
   with GCC parity on i686/AMD64 and AMD64 execution.
-- [ ] Cover additional expression operators and dependent-owner chains.
+- [ ] Cover dependent-owner chains and remaining transformed-expression
+  operator combinations.
+
+## RCC continuation (2026-10-14, bitwise and conditional alias pack transforms)
+
+- [x] Verify transformed trailing alias-pack values using left shift,
+  bitwise OR, remainder, comparison, and the conditional operator. Type-check
+  exact pack values against GCC and execute the AMD64 fixture.
+- [x] Pass `test-cxx-alias-templates` on i686/AMD64 with AMD64 execution and
+  GCC C++20 `-Wall -Wextra -Werror` compile/run.
+- [ ] Extend expression coverage through dependent-owner chains and remaining
+  operator combinations.

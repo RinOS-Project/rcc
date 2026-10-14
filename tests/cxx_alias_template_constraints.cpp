@@ -33,11 +33,31 @@ template<int... Values>
 using PositiveTransformedAliasPack =
     AliasTransformedValues<(Values * 3 + 2)...>;
 
+template<int... Values>
+using BitwiseTransformedAliasPack =
+    AliasTransformedValues<((Values << 1) | 1)...>;
+
+template<int... Values>
+using ConditionalTransformedAliasPack =
+    AliasTransformedValues<
+        ((Values % 2) == 0 ? Values + 1 : Values + 2)...>;
+
 TransformedAliasPack<2, 4> transformed_alias_pack_value;
 NestedTransformedAliasPack<1, 3> nested_transformed_alias_pack_value;
 PositiveTransformedAliasPack<2, 4> constrained_transformed_alias_pack_value;
+BitwiseTransformedAliasPack<3, 6> bitwise_transformed_alias_pack_value;
+ConditionalTransformedAliasPack<2, 3>
+    conditional_transformed_alias_pack_value;
 
 int check_alias_transformed_values(AliasTransformedValues<8, 14>* value) {
+    return value ? 0 : 1;
+}
+
+int check_bitwise_transformed_values(AliasTransformedValues<7, 13>* value) {
+    return value ? 0 : 1;
+}
+
+int check_conditional_transformed_values(AliasTransformedValues<3, 5>* value) {
     return value ? 0 : 1;
 }
 
@@ -53,6 +73,13 @@ int main() {
     if (check_alias_transformed_values(
             &constrained_transformed_alias_pack_value)) {
         return 7;
+    }
+    if (check_bitwise_transformed_values(&bitwise_transformed_alias_pack_value)) {
+        return 8;
+    }
+    if (check_conditional_transformed_values(
+            &conditional_transformed_alias_pack_value)) {
+        return 9;
     }
     return 0;
 }
