@@ -1796,7 +1796,10 @@
         `sizeof...(Template)`の0/1/2要素、重複specializationのcache、namespaceを含む
         Itanium manglingをGCCと比較。DWARF v4のGNU parameter-pack DIEと各実template名
         をi686/AMD64 `test-debug-info`で検証
-  - [ ] dependent pack expansion、dependent-typed non-type packs、未instantiateの
+  - [x] dependent class template-template parameter packsを基底指定
+        `Bases<int>...`で実体化し、空／1／2要素のbase countとobject layoutをGCCと比較、
+        i686/AMD64生成とAMD64実行で検証
+  - [ ] その他のdependent pack expansion、dependent-typed non-type packs、未instantiateの
         dependent alias/template definition DIEは未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
         type/value argumentsを保持し、subprogram DIE配下へtemplate type／

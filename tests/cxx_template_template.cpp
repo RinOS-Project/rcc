@@ -50,6 +50,19 @@ struct IntPackBox {
     int value;
 };
 
+template<typename T>
+struct FirstTemplateBase {
+    T first;
+};
+
+template<typename T>
+struct SecondTemplateBase {
+    T second;
+};
+
+template<template<typename> class... Bases>
+struct TemplateBasePack : Bases<int>... {};
+
 template<template<typename...> class Container, typename T>
 struct VariadicTypeHolder {
     Container<T> value;
@@ -90,9 +103,17 @@ int main() {
     variadic_type_holder.value.value = 59;
     VariadicIntHolder<IntPackBox, 61> variadic_int_holder;
     variadic_int_holder.value.value = 61;
+    static_assert(sizeof(TemplateBasePack<>) == 1);
+    static_assert(sizeof(TemplateBasePack<FirstTemplateBase>) == sizeof(int));
+    static_assert(sizeof(TemplateBasePack<FirstTemplateBase,
+                                          SecondTemplateBase>) ==
+                  sizeof(int) * 2);
     return holder.get() == 41 && default_holder.get() == 43 &&
                    dependent_holder.get() == 47 &&
                    dependent_int_holder.get() == 53 &&
                    variadic_type_holder.get() == 59 &&
-                   variadic_int_holder.get() == 61 ? 0 : 1;
+                   variadic_int_holder.get() == 61 &&
+                   sizeof(TemplateBasePack<FirstTemplateBase,
+                                           SecondTemplateBase>) ==
+                       sizeof(int) * 2 ? 0 : 1;
 }

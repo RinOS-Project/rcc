@@ -12370,6 +12370,15 @@ static int cxx_class_pack_index(CxxTemplate* tmpl) {
 
 static int cxx_template_pack_index_in_type(CxxTemplate* tmpl, Type* type) {
     if (!tmpl || !type) return -1;
+    if (type->kind == TYPE_STRUCT && type->cxx_dependent &&
+        type->cxx_template_param_index >= 0 &&
+        type->cxx_template_param_index < tmpl->param_count) {
+        TemplateParam* parameter =
+            &tmpl->params[type->cxx_template_param_index];
+        if (parameter->kind == TPARAM_TEMPLATE && parameter->is_pack) {
+            return type->cxx_template_param_index;
+        }
+    }
     if (type->kind == TYPE_STRUCT && type->tag) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
@@ -12925,12 +12934,14 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
             int base_pack_index = cxx_template_pack_index_in_type(tmpl,
                                                                   pattern);
             if (base_pack_index < 0 ||
-                tmpl->params[base_pack_index].kind != TPARAM_TYPE ||
+                (tmpl->params[base_pack_index].kind != TPARAM_TYPE &&
+                 tmpl->params[base_pack_index].kind != TPARAM_TEMPLATE) ||
                 tmpl->pending_pack_count < 0 ||
                 (tmpl->pending_pack_count > 0 &&
                  !tmpl->pending_pack_args)) {
                 rcc_error(loc,
-                          "local base pack expansion requires one type parameter pack");
+                          "class base pack expansion requires one type or "
+                          "template-template parameter pack");
                 continue;
             }
             for (int pack_value = 0;
