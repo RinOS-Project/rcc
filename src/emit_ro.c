@@ -1577,6 +1577,61 @@ static const char* debug_type_name(const Type* type) {
     }
 }
 
+static const char* debug_template_argument_name(const Type* argument) {
+    CxxTemplate* actual_template = argument
+        ? argument->cxx_template : NULL;
+    const char* spelling = argument ? argument->tag : NULL;
+    CxxNamespace* namespace_stack[32];
+    int namespace_count = 0;
+    char qualified_name[512];
+    size_t length = 0u;
+    if (!actual_template || !actual_template->name ||
+        actual_template->name[0] == '\0') {
+        return NULL;
+    }
+    if (spelling && strstr(spelling, "::")) {
+        return spelling;
+    }
+    for (CxxNamespace* current = actual_template->ns;
+         current && current->name; current = current->parent) {
+        if (namespace_count >= (int)(sizeof(namespace_stack) /
+                                     sizeof(namespace_stack[0]))) {
+            rcc_fatal("DWARF template-template namespace is too deep");
+            return NULL;
+        }
+        namespace_stack[namespace_count++] = current;
+    }
+    if (namespace_count == 0) {
+        return spelling && spelling[0] != '\0'
+            ? spelling : actual_template->name;
+    }
+    for (int index = namespace_count - 1; index >= 0; --index) {
+        size_t component_length = strlen(namespace_stack[index]->name);
+        size_t separator_length = length == 0u ? 0u : 2u;
+        if (separator_length + component_length >=
+            sizeof(qualified_name) - length) {
+            rcc_fatal("DWARF template-template argument name is too long");
+            return NULL;
+        }
+        if (separator_length) {
+            memcpy(qualified_name + length, "::", separator_length);
+            length += separator_length;
+        }
+        memcpy(qualified_name + length, namespace_stack[index]->name,
+               component_length);
+        length += component_length;
+    }
+    if (length + 2u + strlen(actual_template->name) >=
+        sizeof(qualified_name)) {
+        rcc_fatal("DWARF template-template argument name is too long");
+        return NULL;
+    }
+    memcpy(qualified_name + length, "::", 2u);
+    length += 2u;
+    strcpy(qualified_name + length, actual_template->name);
+    return rcc_intern(qualified_name);
+}
+
 static uint8_t debug_type_encoding(const Type* type) {
     if (!type) return 0xffu;
     switch (type->kind) {
@@ -5081,7 +5136,23 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                     function_decl->func_template_arg_count) {
                     continue;
                 }
-                if (parameter->kind == TPARAM_TYPE) {
+                if (parameter->kind == TPARAM_TEMPLATE) {
+                    Type* template_argument = function_decl->func_template_args
+                        ? function_decl->func_template_args[parameter_index]
+                        : NULL;
+                    const char* template_name =
+                        debug_template_argument_name(template_argument);
+                    if (!template_name || template_name[0] == '\0') {
+                        rcc_fatal(
+                            "DWARF function-template template argument is missing");
+                        return;
+                    }
+                    section_add_byte(info, 54u);
+                    debug_line_u32(
+                        info, debug_str_add(strings, parameter->name));
+                    debug_line_u32(
+                        info, debug_str_add(strings, template_name));
+                } else if (parameter->kind == TPARAM_TYPE) {
                     Type* argument_type = function_decl->func_template_args
                         ? function_decl->func_template_args[parameter_index]
                         : NULL;

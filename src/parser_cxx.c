@@ -14287,6 +14287,103 @@ static bool deduce_function_template_type_with_pack(
         actual = actual->base;
         if (!actual) return false;
     }
+    if (pattern->kind == TYPE_STRUCT && pattern->cxx_dependent &&
+        pattern->cxx_template_param_index >= 0 &&
+        pattern->cxx_template_arg_count > 0) {
+        int template_parameter_index = pattern->cxx_template_param_index;
+        CxxClass* actual_class = actual->cxx_class;
+        CxxTemplate* actual_template = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_tmpl
+            : actual_class && actual_class->templ
+                ? actual_class->templ : actual->cxx_template;
+        Type** actual_arguments = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_args
+            : actual_class && actual_class->templ
+                ? actual_class->template_args : actual->cxx_template_args;
+        int actual_argument_count = actual_class &&
+                actual_class->template_identity_tmpl
+            ? actual_class->template_identity_arg_count
+            : actual_class && actual_class->templ
+                ? actual_class->template_arg_count
+                : actual->cxx_template_arg_count;
+        Type* template_carrier;
+        if (template_parameter_index >= tmpl->param_count ||
+            tmpl->params[template_parameter_index].kind != TPARAM_TEMPLATE ||
+            !template_template_signature_matches(
+                &tmpl->params[template_parameter_index], actual_template) ||
+            actual_argument_count != pattern->cxx_template_arg_count ||
+            !pattern->cxx_template_args || !actual_arguments) {
+            return false;
+        }
+        template_carrier = arguments[template_parameter_index];
+        if (template_carrier) {
+            if (template_carrier->cxx_template != actual_template) {
+                return false;
+            }
+        } else {
+            template_carrier = type_struct(actual_template->name);
+            template_carrier->cxx_template = actual_template;
+            arguments[template_parameter_index] = template_carrier;
+        }
+        for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
+            TemplateParam* nested_parameter =
+                &actual_template->params[index];
+            if (nested_parameter->kind == TPARAM_TYPE) {
+                if (!deduce_function_template_type_with_pack(
+                        tmpl, pattern->cxx_template_args[index],
+                        actual_arguments[index], arguments, values,
+                        value_present, specificity, deduced_pack_args,
+                        deduced_pack_count, deduced_pack_seen)) {
+                    return false;
+                }
+            } else if (nested_parameter->kind == TPARAM_NONTYPE) {
+                int64_t actual_value;
+                Expr* pattern_expression = pattern->cxx_template_value_args
+                    ? pattern->cxx_template_value_args[index] : NULL;
+                bool matched_parameter = false;
+                if (!cxx_function_template_class_nontype_argument_value(
+                        actual, index, &actual_value)) {
+                    return false;
+                }
+                if (pattern_expression &&
+                    pattern_expression->kind == EXPR_IDENT &&
+                    pattern_expression->ident_name) {
+                    for (int parameter_index = 0;
+                         parameter_index < tmpl->param_count;
+                         ++parameter_index) {
+                        TemplateParam* function_parameter =
+                            &tmpl->params[parameter_index];
+                        if (function_parameter->kind != TPARAM_NONTYPE ||
+                            !function_parameter->name ||
+                            strcmp(function_parameter->name,
+                                   pattern_expression->ident_name) != 0) {
+                            continue;
+                        }
+                        if (value_present[parameter_index] &&
+                            values[parameter_index] != actual_value) {
+                            return false;
+                        }
+                        values[parameter_index] = actual_value;
+                        value_present[parameter_index] = true;
+                        matched_parameter = true;
+                        break;
+                    }
+                }
+                if (!matched_parameter &&
+                    !cxx_function_template_class_nontype_argument_matches(
+                        tmpl, pattern, actual, index, arguments, values,
+                        value_present)) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        if (specificity) *specificity += 16;
+        return true;
+    }
     if (pattern->kind == TYPE_STRUCT && pattern->tag) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
@@ -18667,6 +18764,126 @@ static bool cxx_function_template_partial_order_deduce_type(
                 depth + 1u);
         case TYPE_STRUCT:
         case TYPE_UNION: {
+            if (parameter_pattern->cxx_dependent &&
+                parameter_pattern->cxx_template_param_index >= 0 &&
+                parameter_pattern->cxx_template_arg_count > 0) {
+                int template_parameter_index =
+                    parameter_pattern->cxx_template_param_index;
+                CxxTemplate* argument_class_template = NULL;
+                Type** argument_class_arguments = NULL;
+                int argument_class_argument_count = 0;
+                CxxTemplate* signature;
+                Type* template_carrier;
+                bool matches = true;
+                if (template_parameter_index >=
+                        parameter_template->param_count ||
+                    parameter_template->params[template_parameter_index].kind !=
+                        TPARAM_TEMPLATE) {
+                    return false;
+                }
+                signature = parameter_template->params[
+                    template_parameter_index].template_signature;
+                cxx_function_template_class_type_pattern_arguments(
+                    argument_pattern, &argument_class_template,
+                    &argument_class_arguments,
+                    &argument_class_argument_count);
+                if (!signature || !argument_class_template ||
+                    !template_template_signature_matches(
+                        &parameter_template->params[template_parameter_index],
+                        argument_class_template) ||
+                    parameter_pattern->cxx_template_arg_count !=
+                        argument_class_argument_count ||
+                    !parameter_pattern->cxx_template_args ||
+                    !argument_class_arguments) {
+                    if (supported) *supported = true;
+                    return false;
+                }
+                template_carrier = deduced_arguments[
+                    template_parameter_index];
+                if (template_carrier) {
+                    if (template_carrier->cxx_template !=
+                        argument_class_template) {
+                        if (supported) *supported = true;
+                        return false;
+                    }
+                } else {
+                    template_carrier =
+                        type_struct(argument_class_template->name);
+                    template_carrier->cxx_template =
+                        argument_class_template;
+                    deduced_arguments[template_parameter_index] =
+                        template_carrier;
+                }
+                for (int index = 0;
+                     index < parameter_pattern->cxx_template_arg_count;
+                     ++index) {
+                    if (signature->params[index].kind == TPARAM_TYPE) {
+                        bool nested_supported = false;
+                        if (!cxx_function_template_partial_order_deduce_type(
+                                parameter_template,
+                                parameter_pattern->cxx_template_args[index],
+                                argument_template,
+                                argument_class_arguments[index],
+                                deduced_arguments,
+                                deduced_value_parameters,
+                                &nested_supported, depth + 1u)) {
+                            matches = false;
+                        }
+                        if (!nested_supported) {
+                            if (supported) *supported = false;
+                            return false;
+                        }
+                        if (!matches) {
+                            if (supported) *supported = true;
+                            return false;
+                        }
+                    } else if (signature->params[index].kind ==
+                               TPARAM_NONTYPE) {
+                        bool value_supported = false;
+                        bool value_matches =
+                            cxx_function_template_partial_order_deduce_value_expression(
+                                parameter_template,
+                                cxx_function_template_class_nontype_argument_expression(
+                                    parameter_pattern, index),
+                                argument_template,
+                                cxx_function_template_class_nontype_argument_expression(
+                                    argument_pattern, index),
+                                deduced_arguments,
+                                deduced_value_parameters, &value_supported,
+                                depth + 1u);
+                        if (!value_supported) {
+                            if (supported) *supported = false;
+                            return false;
+                        }
+                        if (!value_matches) {
+                            if (supported) *supported = true;
+                            return false;
+                        }
+                    } else {
+                        if (supported) *supported = false;
+                        return false;
+                    }
+                }
+                if (supported) *supported = true;
+                return true;
+            }
+            if (argument_pattern->cxx_dependent &&
+                argument_pattern->cxx_template_param_index >= 0 &&
+                argument_pattern->cxx_template_arg_count > 0) {
+                CxxTemplate* parameter_class_template = NULL;
+                Type** parameter_class_arguments = NULL;
+                int parameter_class_argument_count = 0;
+                cxx_function_template_class_type_pattern_arguments(
+                    parameter_pattern, &parameter_class_template,
+                    &parameter_class_arguments,
+                    &parameter_class_argument_count);
+                if (parameter_class_template &&
+                    parameter_class_argument_count > 0 &&
+                    parameter_class_arguments) {
+                    if (supported) *supported = true;
+                    return false;
+                }
+            }
             CxxTemplate* parameter_class_template = NULL;
             CxxTemplate* argument_class_template = NULL;
             Type** parameter_arguments = NULL;
@@ -18802,13 +19019,15 @@ static bool cxx_function_template_partial_order_deduces(
         const TemplateParam* parameter = &parameter_match->tmpl->params[index];
         if (parameter->is_pack ||
             (parameter->kind != TPARAM_TYPE &&
-             parameter->kind != TPARAM_NONTYPE)) return false;
+             parameter->kind != TPARAM_NONTYPE &&
+             parameter->kind != TPARAM_TEMPLATE)) return false;
     }
     for (int index = 0; index < argument_match->tmpl->param_count; ++index) {
         const TemplateParam* parameter = &argument_match->tmpl->params[index];
         if (parameter->is_pack ||
             (parameter->kind != TPARAM_TYPE &&
-             parameter->kind != TPARAM_NONTYPE)) return false;
+             parameter->kind != TPARAM_NONTYPE &&
+             parameter->kind != TPARAM_TEMPLATE)) return false;
     }
     TypeParam* parameter = parameter_function->params;
     TypeParam* argument = argument_function->params;
@@ -20537,7 +20756,7 @@ static bool prepare_cxx_function_template_match(
             TemplateParam* parameter;
             if (parameter_index >= tmpl->param_count) return false;
             parameter = &tmpl->params[parameter_index];
-            if ((parameter->kind == TPARAM_TYPE) !=
+            if ((parameter->kind != TPARAM_NONTYPE) !=
                 explicit_arguments[index].is_type) {
                 return false;
             }
@@ -20571,6 +20790,14 @@ static bool prepare_cxx_function_template_match(
                 match->arguments[parameter_index] =
                     explicit_arguments[index].type;
                 if (!match->arguments[parameter_index]) return false;
+            } else if (parameter->kind == TPARAM_TEMPLATE) {
+                Type* template_argument = explicit_arguments[index].type;
+                if (!template_argument || !template_argument->cxx_template ||
+                    !template_template_signature_matches(
+                        parameter, template_argument->cxx_template)) {
+                    return false;
+                }
+                match->arguments[parameter_index] = template_argument;
             } else {
                 int64_t explicit_value = explicit_arguments[index].value;
                 if (!explicit_arguments[index].value_valid &&
@@ -21897,6 +22124,27 @@ Expr* rcc_parse_cxx_template_call(void) {
                     if (parameter && parameter->kind == TPARAM_TYPE) {
                         parsed->is_type = true;
                         parsed->type = parse_cxx_type_spec();
+                    } else if (parameter &&
+                               parameter->kind == TPARAM_TEMPLATE) {
+                        const char* argument_name = check(TOK_IDENT) ||
+                                check(TOK_SCOPE)
+                            ? parse_qualified_name() : NULL;
+                        CxxTemplate* argument_template = argument_name
+                            ? find_class_template(argument_name) : NULL;
+                        if (!argument_template ||
+                            !template_template_signature_matches(
+                                parameter, argument_template)) {
+                            rcc_error(loc,
+                                      "function template-template argument "
+                                      "does not match its parameter list");
+                        } else {
+                            Type* template_carrier =
+                                type_struct(argument_name);
+                            template_carrier->cxx_template =
+                                argument_template;
+                            parsed->is_type = true;
+                            parsed->type = template_carrier;
+                        }
                     } else if (parameter && parameter->kind == TPARAM_NONTYPE) {
                         Expr* value_expression;
                         int64_t value;

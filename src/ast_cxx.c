@@ -1253,6 +1253,148 @@ static void cxx_mangle_template_type_append_impl(
     if (cxx_mangle_dependent_nested_type_append(buf, pos, type)) {
         return;
     }
+    if (type->kind == TYPE_STRUCT && type->cxx_dependent &&
+        type->cxx_template_param_index >= 0 &&
+        type->cxx_template_arg_count > 0 && type->cxx_template_args) {
+        int parameter_index = type->cxx_template_param_index;
+        CxxTemplate* signature = parameter_index < tmpl->param_count
+            ? tmpl->params[parameter_index].template_signature : NULL;
+        int64_t nested_values[32] = { 0 };
+        int nested_value_parameter_indices[32];
+        Expr* nested_value_expressions[32] = { NULL };
+        bool encodable = parameter_index >= 0 &&
+            parameter_index < tmpl->param_count &&
+            tmpl->params[parameter_index].kind == TPARAM_TEMPLATE &&
+            signature && type->cxx_template_arg_count <= 32 &&
+            type->cxx_template_arg_count == signature->param_count &&
+            type->cxx_template_value_args;
+        for (int index = 0; index < 32; ++index) {
+            nested_value_parameter_indices[index] = -1;
+        }
+        for (int index = 0; encodable &&
+             index < type->cxx_template_arg_count; ++index) {
+            TemplateParam* nested_parameter = &signature->params[index];
+            if (nested_parameter->kind == TPARAM_TYPE) continue;
+            if (nested_parameter->kind != TPARAM_NONTYPE ||
+                !nested_parameter->type) {
+                encodable = false;
+                break;
+            }
+            Expr* expression = type->cxx_template_value_args[index];
+            if (!expression) {
+                encodable = false;
+                break;
+            }
+            if (expr_eval_integer_constant(expression,
+                                           &nested_values[index])) {
+                continue;
+            }
+            if (expression->kind == EXPR_IDENT &&
+                expression->ident_name) {
+                for (int function_index = 0;
+                     function_index < tmpl->param_count; ++function_index) {
+                    TemplateParam* function_parameter =
+                        &tmpl->params[function_index];
+                    if (function_parameter->kind == TPARAM_NONTYPE &&
+                        !function_parameter->is_pack &&
+                        function_parameter->name &&
+                        strcmp(function_parameter->name,
+                               expression->ident_name) == 0) {
+                        nested_value_parameter_indices[index] =
+                            function_index;
+                        break;
+                    }
+                }
+            }
+            if (nested_value_parameter_indices[index] < 0 &&
+                cxx_member_template_expression_supported(expression, tmpl)) {
+                nested_value_expressions[index] = expression;
+            }
+            if (nested_value_parameter_indices[index] < 0 &&
+                !nested_value_expressions[index]) {
+                encodable = false;
+            }
+        }
+        if (encodable) {
+            CXX_MANGLE_TEMPLATE_APPEND('T');
+            if (parameter_index > 0) {
+                int written = snprintf(buf + *pos,
+                                       CXX_MANGLE_BUFFER_SIZE - *pos,
+                                       "%d", parameter_index - 1);
+                if (written < 0 ||
+                    (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
+                    rcc_fatal(
+                        "C++ dependent template-template parameter is too long");
+                    return;
+                }
+                *pos += (size_t)written;
+            }
+            CXX_MANGLE_TEMPLATE_APPEND('_');
+            CXX_MANGLE_TEMPLATE_APPEND('I');
+            for (int index = 0; index < type->cxx_template_arg_count;
+                 ++index) {
+                TemplateParam* nested_parameter = &signature->params[index];
+                if (nested_parameter->kind == TPARAM_TYPE) {
+                    cxx_mangle_template_type_append(
+                        buf, pos, type->cxx_template_args[index], tmpl,
+                        context);
+                    continue;
+                }
+                if (nested_value_parameter_indices[index] >= 0) {
+                    int value_parameter_index =
+                        nested_value_parameter_indices[index];
+                    CXX_MANGLE_TEMPLATE_APPEND('X');
+                    CXX_MANGLE_TEMPLATE_APPEND('T');
+                    if (value_parameter_index > 0) {
+                        int written = snprintf(
+                            buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                            "%d", value_parameter_index - 1);
+                        if (written < 0 || (size_t)written >=
+                                CXX_MANGLE_BUFFER_SIZE - *pos) {
+                            rcc_fatal(
+                                "C++ dependent template value parameter is too long");
+                            return;
+                        }
+                        *pos += (size_t)written;
+                    }
+                    CXX_MANGLE_TEMPLATE_APPEND('_');
+                    CXX_MANGLE_TEMPLATE_APPEND('E');
+                } else if (nested_value_expressions[index]) {
+                    CXX_MANGLE_TEMPLATE_APPEND('X');
+                    cxx_member_template_expression_append(
+                        buf, pos, nested_value_expressions[index], tmpl,
+                        context);
+                    CXX_MANGLE_TEMPLATE_APPEND('E');
+                } else {
+                    int64_t value = nested_values[index];
+                    CXX_MANGLE_TEMPLATE_APPEND('L');
+                    cxx_mangle_template_type_append(
+                        buf, pos, nested_parameter->type, tmpl, context);
+                    int written;
+                    if (value < 0) {
+                        uint64_t magnitude =
+                            (uint64_t)(-(value + 1)) + 1u;
+                        written = snprintf(
+                            buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                            "n%lluE", (unsigned long long)magnitude);
+                    } else {
+                        written = snprintf(
+                            buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                            "%lldE", (long long)value);
+                    }
+                    if (written < 0 || (size_t)written >=
+                            CXX_MANGLE_BUFFER_SIZE - *pos) {
+                        rcc_fatal(
+                            "C++ dependent template value argument is too long");
+                        return;
+                    }
+                    *pos += (size_t)written;
+                }
+            }
+            CXX_MANGLE_TEMPLATE_APPEND('E');
+            return;
+        }
+    }
     int64_t nested_value_arguments[32] = { 0 };
     int nested_value_parameter_indices[32];
     Expr* nested_value_expressions[32] = { NULL };
@@ -1490,8 +1632,9 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                    tmpl->params[index].is_pack &&
                    tmpl->pending_pack_count >= 0) {
             has_value_argument = true;
-        } else if (tmpl->params[index].kind == TPARAM_TYPE && type_args &&
-                   type_args[index]) {
+        } else if ((tmpl->params[index].kind == TPARAM_TYPE ||
+                    tmpl->params[index].kind == TPARAM_TEMPLATE) &&
+                   type_args && type_args[index]) {
             has_type_argument = true;
         }
     }
@@ -1531,6 +1674,15 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     buf[pos++] = 'I';
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
+        if (parameter->kind == TPARAM_TEMPLATE) {
+            if (!type_args || !type_args[index] ||
+                !type_args[index]->cxx_template) {
+                rcc_fatal(
+                    "C++ function template-template argument is missing");
+            }
+            mangle_template_argument_name(buf, &pos, type_args[index]);
+            continue;
+        }
         if (parameter->kind == TPARAM_TYPE) {
             if (parameter->is_pack && tmpl->pending_pack_count >= 0) {
                 if (pos + 2u >= sizeof(buf)) {

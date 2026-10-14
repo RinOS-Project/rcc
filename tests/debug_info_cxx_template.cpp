@@ -104,6 +104,45 @@ int debug_template_template_pack_count_entry() {
            DebugTemplateTemplatePackHolder<>::count == 0;
 }
 
+DebugTemplateTemplateLeaf<int> debug_template_function_template_leaf;
+debug_template_namespace::Leaf<int>
+    debug_template_namespace_function_template_leaf;
+
+template <template <typename> class Template, typename Value>
+int debug_template_template_function(Template<Value>* value) {
+    return value != nullptr;
+}
+
+int debug_template_template_function_entry() {
+    return debug_template_template_function<DebugTemplateTemplateLeaf, int>(
+               &debug_template_function_template_leaf) +
+           debug_template_template_function<debug_template_namespace::Leaf,
+                                            int>(
+               &debug_template_namespace_function_template_leaf) +
+           debug_template_template_function(
+               &debug_template_function_template_leaf);
+}
+
+template <int Value>
+struct DebugTemplateValueTemplateLeaf {
+    int value;
+};
+
+template <template <int> class Template, int Value>
+int debug_template_value_template_function(Template<Value>* value) {
+    return value != nullptr;
+}
+
+DebugTemplateValueTemplateLeaf<7> debug_template_value_template_leaf;
+
+int debug_template_value_template_function_entry() {
+    return debug_template_value_template_function<
+               DebugTemplateValueTemplateLeaf, 7>(
+               &debug_template_value_template_leaf) +
+           debug_template_value_template_function(
+               &debug_template_value_template_leaf);
+}
+
 template <typename Value, int Bias>
 int debug_template_function(Value value) {
     return (int)value + Bias;

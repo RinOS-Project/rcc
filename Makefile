@@ -1286,9 +1286,21 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z35debug_template_template_fixed_entryP27DebugTemplateTemplateHolderIN24debug_template_namespace4LeafEE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z32debug_template_template_functionI25DebugTemplateTemplateLeafiEiPT_IT0_E' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z32debug_template_template_functionIN24debug_template_namespace4LeafEiEiPT_IT0_E' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z38debug_template_value_template_functionI30DebugTemplateValueTemplateLeafLi7EEiPT_IXT0_EE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z34debug_template_template_pack_entryP31DebugTemplateTemplatePackHolderIJ25DebugTemplateTemplateLeafN24debug_template_namespace4LeafEEE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z35debug_template_template_fixed_entryP27DebugTemplateTemplateHolderIN24debug_template_namespace4LeafEE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z32debug_template_template_functionI25DebugTemplateTemplateLeafiEiPT_IT0_E' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z32debug_template_template_functionIN24debug_template_namespace4LeafEiEiPT_IT0_E' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z38debug_template_value_template_functionI30DebugTemplateValueTemplateLeafLi7EEiPT_IXT0_EE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/debug-info/x86-no-g.ro tests/debug_info.c
@@ -5643,6 +5655,10 @@ endif
 	$(GREP) -q "template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-invalid/x86.log
 	$(GREP) -q "template-template argument does not match its parameter list" \
+		$(TEST_OUT)/cxx-template-template-invalid/x64.log
+	$(GREP) -q "function template-template argument does not match its parameter list" \
+		$(TEST_OUT)/cxx-template-template-invalid/x86.log
+	$(GREP) -q "function template-template argument does not match its parameter list" \
 		$(TEST_OUT)/cxx-template-template-invalid/x64.log
 	@echo "RCC++ template-template parameter diagnostics completed"
 

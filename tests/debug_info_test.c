@@ -3852,6 +3852,128 @@ static uint64_t function_template_children_start(
     return cursor;
 }
 
+static void verify_function_template_template_parameter_dies(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    unsigned global_template_count = 0u;
+    unsigned namespace_template_count = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+
+    for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
+        uint32_t function_name_offset;
+        uint32_t parameter_name_offset;
+        uint32_t template_name_offset;
+        uint32_t type_offset;
+        uint64_t cursor;
+        const char* template_name;
+        if (info->data[die] != 2u) continue;
+        function_name_offset = read_u32(info->data, die + 1u);
+        if (function_name_offset >= strings->size ||
+            strcmp((const char*)strings->data + function_name_offset,
+                   "debug_template_template_function") != 0) {
+            continue;
+        }
+        cursor = function_template_children_start(info, die, address_size);
+        assert(cursor + 9u <= info->size && info->data[cursor++] == 54u);
+        parameter_name_offset = read_u32(info->data, cursor);
+        template_name_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
+        assert(parameter_name_offset < strings->size &&
+               strcmp((const char*)strings->data + parameter_name_offset,
+                      "Template") == 0);
+        assert(template_name_offset < strings->size);
+        template_name = (const char*)strings->data + template_name_offset;
+        if (strcmp(template_name, "DebugTemplateTemplateLeaf") == 0) {
+            ++global_template_count;
+        } else if (strcmp(template_name,
+                          "debug_template_namespace::Leaf") == 0) {
+            ++namespace_template_count;
+        } else {
+            assert(false);
+        }
+
+        assert(cursor + 9u <= info->size && info->data[cursor++] == 47u);
+        parameter_name_offset = read_u32(info->data, cursor);
+        type_offset = read_u32(info->data, cursor + 4u);
+        assert(parameter_name_offset < strings->size &&
+               strcmp((const char*)strings->data + parameter_name_offset,
+                      "Value") == 0);
+        assert((uint64_t)type_offset + 7u <= info->size &&
+               info->data[type_offset] == 5u);
+        parameter_name_offset = read_u32(info->data, type_offset + 1u);
+        assert(parameter_name_offset < strings->size &&
+               strcmp((const char*)strings->data + parameter_name_offset,
+                      "int") == 0);
+    }
+    assert(global_template_count == 1u && namespace_template_count == 1u);
+    objfile_free(object);
+}
+
+static void verify_function_template_nontype_signature_die(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    unsigned matching_function_count = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+
+    for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
+        uint32_t function_name_offset;
+        uint32_t parameter_name_offset;
+        uint32_t template_name_offset;
+        uint32_t value_type_offset;
+        uint64_t cursor;
+        if (info->data[die] != 2u) continue;
+        function_name_offset = read_u32(info->data, die + 1u);
+        if (function_name_offset >= strings->size ||
+            strcmp((const char*)strings->data + function_name_offset,
+                   "debug_template_value_template_function") != 0) {
+            continue;
+        }
+        ++matching_function_count;
+        cursor = function_template_children_start(info, die, address_size);
+        assert(cursor + 9u <= info->size && info->data[cursor++] == 54u);
+        parameter_name_offset = read_u32(info->data, cursor);
+        template_name_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
+        assert(parameter_name_offset < strings->size &&
+               strcmp((const char*)strings->data + parameter_name_offset,
+                      "Template") == 0);
+        assert(template_name_offset < strings->size &&
+               strcmp((const char*)strings->data + template_name_offset,
+                      "DebugTemplateValueTemplateLeaf") == 0);
+
+        assert(cursor + 13u <= info->size && info->data[cursor++] == 48u);
+        parameter_name_offset = read_u32(info->data, cursor);
+        value_type_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
+        assert(parameter_name_offset < strings->size &&
+               strcmp((const char*)strings->data + parameter_name_offset,
+                      "Value") == 0);
+        assert((uint64_t)value_type_offset + 7u <= info->size &&
+               info->data[value_type_offset] == 5u);
+        parameter_name_offset = read_u32(info->data, value_type_offset + 1u);
+        assert(parameter_name_offset < strings->size &&
+               strcmp((const char*)strings->data + parameter_name_offset,
+                      "int") == 0);
+        assert(read_sleb(info->data, info->size, &cursor) == 7);
+    }
+    assert(matching_function_count == 1u);
+    objfile_free(object);
+}
+
 static void verify_function_template_type_pack_dies(
     const char* path, uint16_t architecture)
 {
@@ -4751,6 +4873,10 @@ int main(int argc, char** argv)
         argv[27], ARCH_X64, "DebugTemplateEmptyNonTypePack.");
     verify_function_template_parameter_dies(argv[26], ARCH_X86);
     verify_function_template_parameter_dies(argv[27], ARCH_X64);
+    verify_function_template_template_parameter_dies(argv[26], ARCH_X86);
+    verify_function_template_template_parameter_dies(argv[27], ARCH_X64);
+    verify_function_template_nontype_signature_die(argv[26], ARCH_X86);
+    verify_function_template_nontype_signature_die(argv[27], ARCH_X64);
     verify_function_template_type_pack_dies(argv[26], ARCH_X86);
     verify_function_template_type_pack_dies(argv[27], ARCH_X64);
     verify_function_template_signed_pack_dies(argv[26], ARCH_X86);

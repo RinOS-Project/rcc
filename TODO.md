@@ -1804,8 +1804,13 @@
         `Value = unsigned short`と`Bias = -7`を検証。trailing type packおよび
         non-dependent integral型のsigned/unsigned non-type packもpack DIEと
         実引数ごとのchild DIEへ出力し、empty／複数要素、負値、高bit unsigned値を
-        i686/AMD64で検証。template-template parameter、dependent-typed/non-integral
-        value pack、未instantiateのdependent function-template definitionは未完
+        i686/AMD64で検証。dependent-typed/non-integral value packと、未instantiateの
+        dependent function-template definition DIEは未完
+  - [x] Concrete function-template template-template argumentを明示指定および
+        deductionで解決し、type parameter／integral non-type parameter signaturesの
+        compatible actual template名を保持。Itanium manglingとGNU DWARF v4
+        `DW_TAG_GNU_template_template_param`をglobal／namespace-qualified名でGCCと比較し、
+        `test-debug-info`のi686/AMD64回帰およびfunction-template overload orderingで検証
   - [x] enum型と列挙子へ`DW_TAG_enumeration_type`／`DW_TAG_enumerator`と
         signed／unsigned constant valueを出力し、unsigned full-width値を含む
         i686/AMD64のobject・link回帰で検証
