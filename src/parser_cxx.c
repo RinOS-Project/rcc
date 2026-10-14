@@ -11898,34 +11898,37 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                     "its deduced type arguments");
                     return NULL;
                 }
-                int enclosing_value_pack_index =
+                int enclosing_pack_index =
                     tmpl->enclosing_template
                         ? cxx_parser_template_parameter_pack_index(
                               tmpl->enclosing_template, pattern_argument)
                         : -1;
-                bool expands_enclosing_value_pack =
-                    enclosing_value_pack_index >= 0 &&
-                    enclosing_value_pack_index <
+                bool expands_enclosing_pack =
+                    enclosing_pack_index >= 0 &&
+                    enclosing_pack_index <
                         tmpl->enclosing_template->param_count &&
                     tmpl->enclosing_template
-                            ->params[enclosing_value_pack_index].kind ==
-                        TPARAM_NONTYPE &&
-                    tmpl->enclosing_template
-                        ->params[enclosing_value_pack_index].is_pack;
-                int enclosing_value_pack_offset =
-                    expands_enclosing_value_pack
-                        ? tmpl->param_count + enclosing_value_pack_index
+                        ->params[enclosing_pack_index].is_pack &&
+                    (tmpl->enclosing_template
+                             ->params[enclosing_pack_index].kind ==
+                         TPARAM_TYPE ||
+                     tmpl->enclosing_template
+                             ->params[enclosing_pack_index].kind ==
+                         TPARAM_NONTYPE);
+                int enclosing_pack_offset =
+                    expands_enclosing_pack
+                        ? tmpl->param_count + enclosing_pack_index
                         : -1;
-                if (expands_enclosing_value_pack) {
-                    int enclosing_value_pack_count =
-                        argument_count - enclosing_value_pack_offset;
-                    if (enclosing_value_pack_offset < 0 ||
-                        enclosing_value_pack_count < 0 ||
-                        enclosing_value_pack_count !=
+                if (expands_enclosing_pack) {
+                    int enclosing_pack_count =
+                        argument_count - enclosing_pack_offset;
+                    if (enclosing_pack_offset < 0 ||
+                        enclosing_pack_count < 0 ||
+                        enclosing_pack_count !=
                             tmpl->pending_pack_count) {
                         rcc_error((SourceLoc){"<template>", 0, 0},
                                   "nested alias pack expansion requires its "
-                                  "enclosing non-type pack to have the same "
+                                  "enclosing pack to have the same "
                                   "number of arguments");
                         return NULL;
                     }
@@ -11965,21 +11968,36 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                         expanded_arguments[expansion_pack_index] =
                             tmpl->pending_pack_args[pack_value];
                     }
-                    if (expands_enclosing_value_pack) {
+                    if (expands_enclosing_pack) {
                         int owner_argument_index =
-                            enclosing_value_pack_offset + pack_value;
+                            enclosing_pack_offset + pack_value;
                         if (owner_argument_index >= argument_count ||
-                            !value_args || !value_present ||
-                            !value_present[owner_argument_index]) {
-                            rcc_error((SourceLoc){"<template>", 0, 0},
-                                      "nested alias pack expansion is missing "
-                                      "an enclosing non-type pack value");
+                            !arguments || !arguments[owner_argument_index]) {
+                            rcc_error(
+                                (SourceLoc){"<template>", 0, 0},
+                                "nested alias pack expansion is missing an "
+                                "enclosing pack argument");
                             return NULL;
                         }
-                        expanded_values[enclosing_value_pack_offset] =
-                            value_args[owner_argument_index];
-                        expanded_value_present[enclosing_value_pack_offset] =
-                            true;
+                        if (tmpl->enclosing_template
+                                ->params[enclosing_pack_index].kind ==
+                            TPARAM_NONTYPE) {
+                            if (!value_args || !value_present ||
+                                !value_present[owner_argument_index]) {
+                                rcc_error(
+                                    (SourceLoc){"<template>", 0, 0},
+                                    "nested alias pack expansion is missing "
+                                    "an enclosing non-type pack value");
+                                return NULL;
+                            }
+                            expanded_values[enclosing_pack_offset] =
+                                value_args[owner_argument_index];
+                            expanded_value_present[enclosing_pack_offset] =
+                                true;
+                        } else {
+                            expanded_arguments[enclosing_pack_offset] =
+                                arguments[owner_argument_index];
+                        }
                     }
                     nested_arguments[nested_count] = substitute_template_type(
                         tmpl, pattern_argument, expanded_arguments,

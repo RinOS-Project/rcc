@@ -4190,13 +4190,21 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		tests/cxx_alias_template_multiple_source_packs.cpp
 	$(TEST_OUT)/cxx-alias-template-multiple-source-packs/gcc-host
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x86.ro tests/cxx_alias_template_multiple_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x86.log)
-	$(GREP) -F -q "nested alias pack expansion requires its enclosing non-type pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x86.log
+	$(GREP) -F -q "nested alias pack expansion requires its enclosing pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x64.ro tests/cxx_alias_template_multiple_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x64.log)
-	$(GREP) -F -q "nested alias pack expansion requires its enclosing non-type pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x64.log
+	$(GREP) -F -q "nested alias pack expansion requires its enclosing pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_alias_template_multiple_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-gcc.log)
 	$(GREP) -F -q "mismatched argument pack lengths" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x86.ro tests/cxx_alias_template_multiple_type_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x86.log)
+	$(GREP) -F -q "nested alias pack expansion requires its enclosing pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x64.ro tests/cxx_alias_template_multiple_type_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x64.log)
+	$(GREP) -F -q "nested alias pack expansion requires its enclosing pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_alias_template_multiple_type_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-gcc.log)
+	$(GREP) -F -q "mismatched argument pack lengths" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-gcc.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro \
 		tests/cxx_alias_templates_invalid.cpp \
@@ -4964,13 +4972,21 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/gcc-host.exe tests/cxx_alias_template_multiple_source_packs.cpp
 	$(TEST_OUT)/cxx-alias-template-multiple-source-packs/gcc-host.exe
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x86.ro tests/cxx_alias_template_multiple_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x86.log)
-	$(GREP) -F -q "nested alias pack expansion requires its enclosing non-type pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x86.log
+	$(GREP) -F -q "nested alias pack expansion requires its enclosing pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x86.ro)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x64.ro tests/cxx_alias_template_multiple_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x64.log)
-	$(GREP) -F -q "nested alias pack expansion requires its enclosing non-type pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x64.log
+	$(GREP) -F -q "nested alias pack expansion requires its enclosing pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_alias_template_multiple_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-gcc.log)
 	$(GREP) -F -q "mismatched argument pack lengths" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x86.ro tests/cxx_alias_template_multiple_type_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x86.log)
+	$(GREP) -F -q "nested alias pack expansion requires its enclosing pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x64.ro tests/cxx_alias_template_multiple_type_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x64.log)
+	$(GREP) -F -q "nested alias pack expansion requires its enclosing pack to have the same number of arguments" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_alias_template_multiple_type_source_packs_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-gcc.log)
+	$(GREP) -F -q "mismatched argument pack lengths" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-type-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro tests/cxx_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/invalid-x86.log)
 	$(GREP) -F -q "RCC++ alias template packs currently require one trailing type or non-type parameter pack" $(TEST_OUT)/cxx-alias-templates/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/invalid-x64.ro tests/cxx_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/invalid-x64.log)

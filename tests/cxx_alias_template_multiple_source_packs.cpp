@@ -4,20 +4,73 @@ struct AliasValuePair {};
 template<typename... Values>
 struct AliasValueList {};
 
+template<typename Left, typename Right>
+struct AliasTypePair {};
+
+template<typename... Values>
+struct AliasTypeList {};
+
+template<typename Type, int Value>
+struct AliasTypeValuePair {};
+
+template<typename... Values>
+struct AliasMixedList {};
+
 template<int... OwnerValues>
 struct AliasValuePackOwner {
     template<int... AliasValues>
     using Zip = AliasValueList<
         AliasValuePair<OwnerValues * 2, AliasValues + 1>...>;
+
+    template<typename... AliasTypes>
+    using MixedZip = AliasMixedList<
+        AliasTypeValuePair<AliasTypes, OwnerValues>...>;
+};
+
+template<typename... OwnerTypes>
+struct AliasTypePackOwner {
+    template<typename... AliasTypes>
+    using Zip = AliasTypeList<AliasTypePair<OwnerTypes, AliasTypes>...>;
+
+    template<int... AliasValues>
+    using MixedZip = AliasMixedList<
+        AliasTypeValuePair<OwnerTypes, AliasValues>...>;
 };
 
 using ZippedAliasValues =
     AliasValuePackOwner<1, 2, 3>::Zip<4, 5, 6>;
 using ExpectedAliasValues = AliasValueList<
     AliasValuePair<2, 5>, AliasValuePair<4, 6>, AliasValuePair<6, 7>>;
+using ZippedAliasTypes =
+    AliasTypePackOwner<int, char, long>::Zip<float, double, short>;
+using ExpectedAliasTypes = AliasTypeList<
+    AliasTypePair<int, float>, AliasTypePair<char, double>,
+    AliasTypePair<long, short>>;
+using ZippedAliasTypeValues =
+    AliasTypePackOwner<int, char, long>::MixedZip<2, 4, 6>;
+using ExpectedAliasTypeValues = AliasMixedList<
+    AliasTypeValuePair<int, 2>, AliasTypeValuePair<char, 4>,
+    AliasTypeValuePair<long, 6>>;
+using ZippedAliasValueTypes =
+    AliasValuePackOwner<3, 5, 7>::MixedZip<int, char, long>;
+using ExpectedAliasValueTypes = AliasMixedList<
+    AliasTypeValuePair<int, 3>, AliasTypeValuePair<char, 5>,
+    AliasTypeValuePair<long, 7>>;
 using AliasRightShiftValue = AliasValuePair<(8 >> 1), 4>;
 
 int check_zipped_alias_values(ExpectedAliasValues*) {
+    return 0;
+}
+
+int check_zipped_alias_types(ExpectedAliasTypes*) {
+    return 0;
+}
+
+int check_zipped_alias_type_values(ExpectedAliasTypeValues*) {
+    return 0;
+}
+
+int check_zipped_alias_value_types(ExpectedAliasValueTypes*) {
     return 0;
 }
 
@@ -27,7 +80,13 @@ int check_alias_right_shift(AliasValuePair<4, 4>*) {
 
 int main() {
     ZippedAliasValues values;
+    ZippedAliasTypes types;
+    ZippedAliasTypeValues type_values;
+    ZippedAliasValueTypes value_types;
     AliasRightShiftValue shifted;
     if (check_zipped_alias_values(&values) != 0) return 1;
+    if (check_zipped_alias_types(&types) != 0) return 1;
+    if (check_zipped_alias_type_values(&type_values) != 0) return 1;
+    if (check_zipped_alias_value_types(&value_types) != 0) return 1;
     return check_alias_right_shift(&shifted);
 }

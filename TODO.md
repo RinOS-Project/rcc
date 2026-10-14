@@ -4121,3 +4121,19 @@ remains a separate open item.
 - [ ] Extend multiple-source-pack expansion coverage to additional pack kinds
   and deeper dependent-owner/alias chains; template-template packs and
   non-integral structural NTTP packs remain open.
+
+## RCC continuation (2026-10-14, mixed nested alias type/value packs)
+
+- [x] Zip the enclosing and alias packs for type/type expansions and both
+  mixed type/value directions, preserving the existing value/value behavior.
+- [x] Reject unequal enclosing/alias type-pack lengths with a direct
+  diagnostic and no output object; compare GCC C++20 behavior for mismatched
+  type and value packs.
+- [x] Pass the focused alias-template gate on i686/AMD64, including AMD64
+  execution and GCC C++20 `-Wall -Wextra -Werror` compile/run.
+- [x] Pass the full native-Windows MinGW GCC `test-cxx` and `test-debug-info`
+  aggregates after the substitution change (both exit 0).
+- [x] Commit the implementation, regressions, and TODO update on RCC `main`,
+  and update the parent repository's RCC gitlink to that commit. No push.
+- [ ] Extend to template-template packs, structural non-integral NTTP packs,
+  and deeper dependent-owner/alias chains.
