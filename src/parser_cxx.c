@@ -7700,6 +7700,7 @@ static bool cxx_friend_function_template_starts(void) {
 static bool cxx_class_alias_template_starts(void) {
     Token* token;
     int depth = 0;
+    int brace_depth = 0;
     if (!check(TOK_TEMPLATE)) return false;
     token = parser.cur->next;
     if (!token || token->type != TOK_LT) return false;
@@ -7718,6 +7719,22 @@ static bool cxx_class_alias_template_starts(void) {
                 break;
             }
         }
+    }
+    if (token && token->type == TOK_REQUIRES) {
+        for (; token; token = token->next) {
+            if (token->type == TOK_LBRACE) {
+                ++brace_depth;
+            } else if (token->type == TOK_RBRACE && brace_depth > 0) {
+                --brace_depth;
+            } else if (brace_depth == 0 && token->type == TOK_USING) {
+                return true;
+            } else if (brace_depth == 0 &&
+                       (token->type == TOK_SEMICOLON ||
+                        token->type == TOK_LBRACE)) {
+                return false;
+            }
+        }
+        return false;
     }
     return token && token->type == TOK_USING;
 }
@@ -10205,11 +10222,6 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                           "RCC++ alias template parameter packs are not "
                           "supported by the bounded type ABI");
             }
-            if (parameter->kind == TPARAM_TEMPLATE) {
-                rcc_error(loc,
-                          "RCC++ alias template template-parameters are not "
-                          "supported by the bounded type ABI");
-            }
         }
         expect(TOK_ASSIGN, "= after alias template name");
         active_template = tmpl;
@@ -11477,6 +11489,11 @@ static bool template_template_signature_matches(
         }
     }
     return true;
+}
+
+bool rcc_parser_cxx_template_template_argument_matches(
+    const TemplateParam* parameter, const CxxTemplate* actual) {
+    return template_template_signature_matches(parameter, actual);
 }
 
 static Type* parse_template_template_default(SourceLoc loc) {
@@ -16828,9 +16845,42 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                 }
                 arguments[argument_count] = parameter->type;
             } else {
-                rcc_error(loc,
-                          "alias template template-arguments are not "
-                          "supported by the bounded type ABI");
+                const char* argument_name = NULL;
+                Type* template_carrier = NULL;
+                if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+                    argument_name = parse_qualified_name();
+                }
+                if (argument_name) {
+                    int source_parameter_index =
+                        active_template_template_parameter_index(
+                            argument_name);
+                    if (source_parameter_index >= 0) {
+                        template_carrier = type_struct(argument_name);
+                        template_carrier->cxx_dependent = true;
+                        template_carrier->cxx_template_param_index =
+                            source_parameter_index;
+                    } else {
+                        CxxTemplate* argument_template =
+                            find_class_template(argument_name);
+                        if (argument_template &&
+                            template_template_signature_matches(
+                                parameter, argument_template)) {
+                            template_carrier = type_struct(argument_name);
+                            template_carrier->cxx_template =
+                                argument_template;
+                        } else {
+                            rcc_error(loc,
+                                      "alias template template argument does "
+                                      "not match its parameter list");
+                        }
+                    }
+                } else {
+                    rcc_error(loc,
+                              "alias template argument requires a class "
+                              "template name");
+                }
+                arguments[argument_count] = template_carrier
+                    ? template_carrier : type_int;
             }
             ++argument_count;
         } while (match(TOK_COMMA));
@@ -16886,6 +16936,20 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                 value_present[argument_count] = true;
             }
             arguments[argument_count] = parameter->type;
+        } else if (parameter->kind == TPARAM_TEMPLATE &&
+                   parameter->default_type) {
+            Type* template_carrier = substitute_template_type(
+                tmpl, parameter->default_type, arguments,
+                substitution_argument_count, values, value_present);
+            if (template_carrier && template_carrier->cxx_template &&
+                !template_template_signature_matches(
+                    parameter, template_carrier->cxx_template)) {
+                rcc_error(loc,
+                          "alias template template default does not match "
+                          "its parameter list");
+            }
+            arguments[argument_count] = template_carrier
+                ? template_carrier : type_int;
         } else {
             break;
         }
@@ -23023,6 +23087,39 @@ static bool parse_cxx_member_pointer_owner_type(Type** owner_out) {
     return true;
 }
 
+static Type* parse_dependent_alias_template_template_argument(void) {
+    Token* saved_cur = parser.cur;
+    Token* saved_prev = parser.prev;
+    const char* name;
+    Type* carrier;
+    CxxTemplate* actual;
+    int parameter_index;
+
+    if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return NULL;
+    name = parse_qualified_name();
+    if (!name) {
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+        return NULL;
+    }
+    parameter_index = active_template_template_parameter_index(name);
+    if (parameter_index >= 0) {
+        carrier = type_struct(name);
+        carrier->cxx_dependent = true;
+        carrier->cxx_template_param_index = parameter_index;
+        return carrier;
+    }
+    actual = find_class_template(name);
+    if (actual) {
+        carrier = type_struct(name);
+        carrier->cxx_template = actual;
+        return carrier;
+    }
+    parser.cur = saved_cur;
+    parser.prev = saved_prev;
+    return NULL;
+}
+
 static bool cxx_template_argument_starts_type(void) {
     switch (peek()->type) {
         case TOK_BOOL:
@@ -23079,7 +23176,12 @@ static Type* parse_dependent_nested_alias_template_type(SourceLoc loc) {
         do {
             Type* argument = NULL;
             Expr* value_argument = NULL;
-            if (cxx_template_argument_starts_type()) {
+            argument = parse_dependent_alias_template_template_argument();
+            if (argument) {
+                /* A template-template parameter or class-template name is
+                 * retained as a carrier until the owner alias declaration
+                 * supplies its parameter kind and signature. */
+            } else if (cxx_template_argument_starts_type()) {
                 argument = parse_cxx_type_spec();
             } else {
                 rcc_parser_set_cxx_template_default_mode(true);

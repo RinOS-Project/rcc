@@ -5611,6 +5611,7 @@ static Type* template_substitute_dependent_alias_template_type(
     size_t slot_count;
     bool ambiguous = false;
     bool accessible = false;
+    bool unresolved_template_argument = false;
 
     if (!type || !type->cxx_dependent_alias_template || owner_index < 0 ||
         owner_index >= arg_count || !args || !args[owner_index]) {
@@ -5804,10 +5805,32 @@ static Type* template_substitute_dependent_alias_template_type(
                     total_argument_count, alias_values,
                     alias_value_present);
             } else {
-                rcc_error(loc,
-                          "nested alias-template template-template arguments "
-                          "are not supported by the bounded type ABI");
-                return type_int;
+                Type* template_argument;
+                if (source_value) {
+                    rcc_error(loc,
+                              "nested alias-template template argument must "
+                              "name a class template");
+                    return type_int;
+                }
+                template_argument = template_substitute_type(
+                    tmpl, type->cxx_template_args[index], args, arg_count,
+                    value_args, value_present);
+                if (!template_argument) return NULL;
+                if (template_argument->cxx_dependent &&
+                    !template_argument->cxx_template) {
+                    alias_arguments[index] = template_argument;
+                    unresolved_template_argument = true;
+                    continue;
+                }
+                if (!template_argument->cxx_template ||
+                    !rcc_parser_cxx_template_template_argument_matches(
+                        parameter, template_argument->cxx_template)) {
+                    rcc_error(loc,
+                              "nested alias-template template argument does "
+                              "not match its parameter list");
+                    return type_int;
+                }
+                alias_arguments[index] = template_argument;
             }
         } else if (parameter->has_default &&
                    parameter->kind == TPARAM_TYPE &&
@@ -5837,12 +5860,60 @@ static Type* template_substitute_dependent_alias_template_type(
             alias_arguments[index] = template_substitute_type(
                 alias_template, parameter->type, alias_arguments,
                 total_argument_count, alias_values, alias_value_present);
+        } else if (parameter->has_default &&
+                   parameter->kind == TPARAM_TEMPLATE &&
+                   parameter->default_type) {
+            Type* template_argument = template_substitute_type(
+                alias_template, parameter->default_type, alias_arguments,
+                total_argument_count, alias_values, alias_value_present);
+            if (!template_argument) return NULL;
+            if (template_argument->cxx_dependent &&
+                !template_argument->cxx_template) {
+                alias_arguments[index] = template_argument;
+                unresolved_template_argument = true;
+                continue;
+            }
+            if (!template_argument->cxx_template ||
+                !rcc_parser_cxx_template_template_argument_matches(
+                    parameter, template_argument->cxx_template)) {
+                rcc_error(loc,
+                          "nested alias-template template default does not "
+                          "match its parameter list");
+                return type_int;
+            }
+            alias_arguments[index] = template_argument;
         } else {
             rcc_error(loc, "nested alias template '%s' expects %d argument(s), got %d",
                       alias_template->name ? alias_template->name : "<alias>",
                       alias_template->param_count, explicit_argument_count);
             return type_int;
         }
+    }
+    if (unresolved_template_argument) {
+        Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
+        *unresolved = *type;
+        if (explicit_argument_count > 0 && type->cxx_template_args) {
+            unresolved->cxx_template_args = ast_arena_alloc(
+                sizeof(*unresolved->cxx_template_args) *
+                (size_t)explicit_argument_count);
+            unresolved->cxx_template_value_args = ast_arena_alloc(
+                sizeof(*unresolved->cxx_template_value_args) *
+                (size_t)explicit_argument_count);
+            for (int index = 0; index < explicit_argument_count; ++index) {
+                Expr* expression = type->cxx_template_value_args
+                    ? type->cxx_template_value_args[index] : NULL;
+                unresolved->cxx_template_args[index] = expression
+                    ? type->cxx_template_args[index]
+                    : template_substitute_type(
+                          tmpl, type->cxx_template_args[index], args,
+                          arg_count, value_args, value_present);
+                unresolved->cxx_template_value_args[index] = expression
+                    ? template_clone_expr(tmpl, expression, args, arg_count,
+                                          value_args, value_present)
+                    : NULL;
+            }
+        }
+        return unresolved;
     }
     if (!rcc_parser_cxx_template_constraint_satisfied(
             alias_template, alias_arguments, alias_values,

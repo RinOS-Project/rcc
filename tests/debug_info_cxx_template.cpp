@@ -90,13 +90,33 @@ int debug_template_nested_scalar_value_consumer(
     return value ? value->marker : 0;
 }
 
+template <typename Type>
+struct DebugTemplateAliasTemplateArgument {};
+
 struct DebugTemplateAliasTemplateValueOwner {
     template <typename Type, int Width = 4>
     using value_type_template = Type;
 
     template <typename Type, int Width>
     using explicit_value_type_template = Type;
+
+    template <typename Type>
+        requires (sizeof(Type) >= 2)
+    using constrained_value_type_template = Type;
+
+    template <template <typename> class Container>
+    using template_value_type = int;
+
+    template <template <typename> class Container =
+                  DebugTemplateAliasTemplateArgument>
+    using default_template_value_type = int;
 };
+
+template <template <typename> class Container>
+using DebugTemplateStandaloneTemplateAliasValue = int;
+
+DebugTemplateStandaloneTemplateAliasValue<DebugTemplateAliasTemplateArgument>
+    debug_template_standalone_template_alias_value;
 
 template <typename Owner,
           typename Owner::template value_type_template<short> Value>
@@ -139,6 +159,56 @@ DebugTemplateNestedAliasTemplateNontypeScalarValue<
 int debug_template_nested_alias_template_nontype_scalar_value_consumer(
     DebugTemplateNestedAliasTemplateNontypeScalarValue<
         DebugTemplateAliasTemplateValueOwner, -13>* value) {
+    return value ? value->marker : 0;
+}
+
+template <typename Owner,
+          typename Owner::template constrained_value_type_template<short>
+              Value>
+struct DebugTemplateNestedConstrainedAliasTemplateScalarValue {
+    int marker;
+};
+
+DebugTemplateNestedConstrainedAliasTemplateScalarValue<
+    DebugTemplateAliasTemplateValueOwner, -17>
+    debug_template_nested_constrained_alias_template_scalar_value;
+
+int debug_template_nested_constrained_alias_template_scalar_value_consumer(
+    DebugTemplateNestedConstrainedAliasTemplateScalarValue<
+        DebugTemplateAliasTemplateValueOwner, -17>* value) {
+    return value ? value->marker : 0;
+}
+
+template <typename Owner,
+          typename Owner::template template_value_type<
+              DebugTemplateAliasTemplateArgument> Value>
+struct DebugTemplateNestedTemplateTemplateAliasScalarValue {
+    int marker;
+};
+
+DebugTemplateNestedTemplateTemplateAliasScalarValue<
+    DebugTemplateAliasTemplateValueOwner, -19>
+    debug_template_nested_template_template_alias_scalar_value;
+
+int debug_template_nested_template_template_alias_scalar_value_consumer(
+    DebugTemplateNestedTemplateTemplateAliasScalarValue<
+        DebugTemplateAliasTemplateValueOwner, -19>* value) {
+    return value ? value->marker : 0;
+}
+
+template <typename Owner,
+          typename Owner::template default_template_value_type<> Value>
+struct DebugTemplateNestedDefaultTemplateTemplateAliasScalarValue {
+    int marker;
+};
+
+DebugTemplateNestedDefaultTemplateTemplateAliasScalarValue<
+    DebugTemplateAliasTemplateValueOwner, -23>
+    debug_template_nested_default_template_template_alias_scalar_value;
+
+int debug_template_nested_default_template_template_alias_scalar_value_consumer(
+    DebugTemplateNestedDefaultTemplateTemplateAliasScalarValue<
+        DebugTemplateAliasTemplateValueOwner, -23>* value) {
     return value ? value->marker : 0;
 }
 

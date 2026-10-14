@@ -1312,6 +1312,12 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z66debug_template_nested_alias_template_nontype_scalar_value_consumerP50DebugTemplateNestedAliasTemplateNontypeScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn13EE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z70debug_template_nested_constrained_alias_template_scalar_value_consumerP54DebugTemplateNestedConstrainedAliasTemplateScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn17EE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z67debug_template_nested_template_template_alias_scalar_value_consumerP51DebugTemplateNestedTemplateTemplateAliasScalarValueI36DebugTemplateAliasTemplateValueOwnerLin19EE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z75debug_template_nested_default_template_template_alias_scalar_value_consumerP58DebugTemplateNestedDefaultTemplateTemplateAliasScalarValueI36DebugTemplateAliasTemplateValueOwnerLin23EE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z49debug_template_dependent_enum_value_pack_consumerP31DebugTemplateDependentValuePackI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z34debug_template_enum_value_consumerP22DebugTemplateEnumValueIL31DebugTemplateDependentValueEnumn3EE' \
@@ -1348,6 +1354,32 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z66debug_template_nested_alias_template_nontype_scalar_value_consumerP50DebugTemplateNestedAliasTemplateNontypeScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn13EE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z70debug_template_nested_constrained_alias_template_scalar_value_consumerP54DebugTemplateNestedConstrainedAliasTemplateScalarValueI36DebugTemplateAliasTemplateValueOwnerLsn17EE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z67debug_template_nested_template_template_alias_scalar_value_consumerP51DebugTemplateNestedTemplateTemplateAliasScalarValueI36DebugTemplateAliasTemplateValueOwnerLin19EE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z75debug_template_nested_default_template_template_alias_scalar_value_consumerP58DebugTemplateNestedDefaultTemplateTemplateAliasScalarValueI36DebugTemplateAliasTemplateValueOwnerLin23EE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(call REMOVE_FILE,$(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x86.ro tests/cxx_dependent_alias_template_constraint_invalid.cpp,$(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x86.log)
+	$(GREP) -F -q 'template constraints are not satisfied' $(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x64.ro tests/cxx_dependent_alias_template_constraint_invalid.cpp,$(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x64.log)
+	$(GREP) -F -q 'template constraints are not satisfied' $(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-x64.ro)
+	$(CXX) -std=c++20 -fsyntax-only tests/cxx_dependent_alias_template_constraint_invalid.cpp >$(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-gcc.log 2>&1 & if not errorlevel 1 exit /b 1
+	$(GREP) -F -q 'constraints not satisfied' $(TEST_OUT)/debug-info/dependent-alias-constraint-invalid-gcc.log
+	$(call REMOVE_FILE,$(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-x86.ro tests/cxx_dependent_alias_template_template_argument_invalid.cpp,$(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-x86.log)
+	$(GREP) -F -q 'nested alias-template template argument does not match its parameter list' $(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-x64.ro tests/cxx_dependent_alias_template_template_argument_invalid.cpp,$(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-x64.log)
+	$(GREP) -F -q 'nested alias-template template argument does not match its parameter list' $(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-x64.ro)
+	$(CXX) -std=c++20 -fsyntax-only tests/cxx_dependent_alias_template_template_argument_invalid.cpp >$(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-gcc.log 2>&1 & if not errorlevel 1 exit /b 1
+	$(GREP) -F -q 'expected a template of type' $(TEST_OUT)/debug-info/dependent-alias-template-argument-invalid-gcc.log
 	$(GREP) -F -x -q '_Z49debug_template_dependent_enum_value_pack_consumerP31DebugTemplateDependentValuePackI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z34debug_template_enum_value_consumerP22DebugTemplateEnumValueIL31DebugTemplateDependentValueEnumn3EE' \
