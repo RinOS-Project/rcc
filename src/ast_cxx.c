@@ -5554,7 +5554,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 TPARAM_TEMPLATE ||
             !outer_parameter->template_signature ||
             outer_parameter->template_signature->param_count != nested_count ||
-            actual_template->kind != TMPL_CLASS ||
+            (actual_template->kind != TMPL_CLASS &&
+             actual_template->kind != TMPL_ALIAS) ||
             actual_template->param_count != nested_count) {
             rcc_error((SourceLoc){"<template>", 0, 0},
                       "template-template argument cannot be instantiated");
@@ -5612,6 +5613,23 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                     arg_count, value_args, value_present);
                 if (!nested_arguments[nested_index]) return NULL;
             }
+        }
+        if (actual_template->kind == TMPL_ALIAS) {
+            SourceLoc template_loc = {"<template>", 0, 0};
+            if (!actual_template->alias_type) {
+                rcc_error(template_loc,
+                          "alias template-template argument has no type body");
+                return NULL;
+            }
+            if (!rcc_parser_cxx_template_constraint_satisfied(
+                    actual_template, nested_arguments, nested_values,
+                    nested_value_present, template_loc)) {
+                return type_int;
+            }
+            return template_substitute_type(
+                actual_template, actual_template->alias_type,
+                nested_arguments, nested_count, nested_values,
+                nested_value_present);
         }
         {
             CxxClass* instantiated = rcc_cxx_instantiate_class_template(

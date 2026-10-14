@@ -1879,6 +1879,8 @@ static Expr* parse_cxx_requires_clause_expression(void) {
 }
 static CxxTemplate* find_class_template(const char* qualified_name);
 static CxxTemplate* find_alias_template(const char* qualified_name);
+static CxxTemplate* find_template_template_argument(
+    const char* qualified_name);
 static CxxTemplate* find_template(const char* qualified_name, int kind);
 static CxxTemplate* find_concept(const char* qualified_name);
 static bool cxx_qualified_class_alias_template_starts(void);
@@ -10556,6 +10558,12 @@ static CxxTemplate* find_alias_template(const char* qualified_name) {
     return find_template(qualified_name, TMPL_ALIAS);
 }
 
+static CxxTemplate* find_template_template_argument(
+    const char* qualified_name) {
+    CxxTemplate* result = find_class_template(qualified_name);
+    return result ? result : find_alias_template(qualified_name);
+}
+
 static CxxTemplate* find_variable_template(const char* qualified_name) {
     return find_template(qualified_name, TMPL_VARIABLE);
 }
@@ -11581,7 +11589,8 @@ static bool template_template_signature_matches(
     const TemplateParam* parameter, const CxxTemplate* actual) {
     const CxxTemplate* signature = parameter ? parameter->template_signature : NULL;
     if (!parameter || parameter->kind != TPARAM_TEMPLATE || !signature ||
-        !actual || actual->kind != TMPL_CLASS) {
+        !actual || (actual->kind != TMPL_CLASS &&
+                    actual->kind != TMPL_ALIAS)) {
         return false;
     }
     return template_template_parameter_signatures_match(signature, actual, 0);
@@ -11601,12 +11610,12 @@ static Type* parse_template_template_default(SourceLoc loc) {
         name = parse_qualified_name();
     } else {
         rcc_error(peek()->loc,
-                  "template-template default requires a class template name");
+                  "template-template default requires a template name");
     }
-    if (name) actual = find_class_template(name);
+    if (name) actual = find_template_template_argument(name);
     if (!actual) {
         rcc_error(loc,
-                  "template-template default must name a class template");
+                  "template-template default must name a template");
         return type_int;
     }
     carrier = type_struct(name);
@@ -12311,6 +12320,23 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     argument_count, value_args, value_present);
                 if (!nested_arguments[nested_index]) return NULL;
             }
+        }
+        if (actual_template->kind == TMPL_ALIAS) {
+            SourceLoc template_loc = {"<template>", 0, 0};
+            if (!actual_template->alias_type) {
+                rcc_error(template_loc,
+                          "alias template-template argument has no type body");
+                return NULL;
+            }
+            if (!cxx_template_constraint_satisfied(
+                    actual_template, nested_arguments, nested_values,
+                    nested_value_present, template_loc, true, NULL)) {
+                return type_int;
+            }
+            return substitute_template_type(
+                actual_template, actual_template->alias_type,
+                nested_arguments, type->cxx_template_arg_count,
+                nested_values, nested_value_present);
         }
         instantiated = instantiate_class_template(
             actual_template, nested_arguments, nested_values,
@@ -14260,7 +14286,7 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                     }
                 } else {
                     argument_template = argument_name
-                        ? find_class_template(argument_name) : NULL;
+                        ? find_template_template_argument(argument_name) : NULL;
                     if (!argument_template ||
                         !template_template_signature_matches(
                             parameter, argument_template)) {
@@ -17420,7 +17446,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                             }
                         } else {
                             argument_template =
-                                find_class_template(argument_name);
+                                find_template_template_argument(argument_name);
                             if (!argument_template ||
                                 !template_template_signature_matches(
                                     parameter, argument_template)) {
@@ -17553,7 +17579,7 @@ static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                         }
                     } else {
                         CxxTemplate* argument_template =
-                            find_class_template(argument_name);
+                            find_template_template_argument(argument_name);
                         if (argument_template &&
                             template_template_signature_matches(
                                 parameter, argument_template)) {
@@ -23290,7 +23316,8 @@ Expr* rcc_parse_cxx_template_call(void) {
                                 check(TOK_SCOPE)
                             ? parse_qualified_name() : NULL;
                         CxxTemplate* argument_template = argument_name
-                            ? find_class_template(argument_name) : NULL;
+                            ? find_template_template_argument(argument_name)
+                            : NULL;
                         if (!argument_template ||
                             !template_template_signature_matches(
                                 parameter, argument_template)) {
@@ -23959,7 +23986,7 @@ static Type* parse_dependent_alias_template_template_argument(void) {
         carrier->cxx_template_param_index = parameter_index;
         return carrier;
     }
-    actual = find_class_template(name);
+    actual = find_template_template_argument(name);
     if (actual) {
         carrier = type_struct(name);
         carrier->cxx_template = actual;

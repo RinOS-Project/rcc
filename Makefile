@@ -4123,6 +4123,10 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-alias-templates/start-x64.o \
 		$(TEST_OUT)/cxx-alias-templates/x64.o
 	$(TEST_OUT)/cxx-alias-templates/x64
+	$(call MKDIR_P,$(TEST_OUT)/cxx-alias-template-template-pack)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-alias-template-template-pack,cxx_alias_template_template_pack.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-alias-template-template-pack/gcc-host tests/cxx_alias_template_template_pack.cpp
+	$(TEST_OUT)/cxx-alias-template-template-pack/gcc-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S \
 		-o $(TEST_OUT)/cxx-alias-templates/cxx11-x86.s \
 		tests/cxx_alias_templates.cpp
@@ -4225,6 +4229,16 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-template-dependent-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_alias_template_template_pack_dependent_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-template-dependent-gcc.log)
 	$(GREP) -F -q "type/value mismatch at argument 1" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-template-dependent-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x86.ro tests/cxx_alias_template_template_pack_alias_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x86.log)
+	$(GREP) -F -q "alias template template argument does not match its parameter list" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x64.ro tests/cxx_alias_template_template_pack_alias_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x64.log)
+	$(GREP) -F -q "alias template template argument does not match its parameter list" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_alias_template_template_pack_alias_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-gcc.log)
+	$(GREP) -F -q "type/value mismatch at argument 1" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-gcc.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro \
 		tests/cxx_alias_templates_invalid.cpp \
@@ -4915,6 +4929,10 @@ test-cxx-named-concepts: $(RCXX_TARGET)
 test-cxx-alias-templates: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-alias-templates)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-alias-templates,cxx_alias_templates.cpp)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-alias-template-template-pack)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-alias-template-template-pack,cxx_alias_template_template_pack.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-alias-template-template-pack/gcc-host.exe tests/cxx_alias_template_template_pack.cpp
+	$(TEST_OUT)/cxx-alias-template-template-pack/gcc-host.exe
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-alias-owner)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-alias-owner,cxx_class_template_alias_templates.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S -o $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.s tests/cxx_class_template_alias_templates.cpp
@@ -5027,6 +5045,16 @@ test-cxx-alias-templates: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-template-dependent-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_alias_template_template_pack_dependent_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-template-dependent-gcc.log)
 	$(GREP) -F -q "type/value mismatch at argument 1" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-template-dependent-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x86.ro tests/cxx_alias_template_template_pack_alias_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x86.log)
+	$(GREP) -F -q "alias template template argument does not match its parameter list" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x64.ro tests/cxx_alias_template_template_pack_alias_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x64.log)
+	$(GREP) -F -q "alias template template argument does not match its parameter list" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_alias_template_template_pack_alias_invalid.cpp,$(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-gcc.log)
+	$(GREP) -F -q "type/value mismatch at argument 1" $(TEST_OUT)/cxx-alias-template-multiple-source-packs/invalid-alias-gcc.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro tests/cxx_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/invalid-x86.log)
 	$(GREP) -F -q "RCC++ alias template packs currently require one trailing type, non-type, or template-template parameter pack" $(TEST_OUT)/cxx-alias-templates/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-alias-templates/invalid-x64.ro tests/cxx_alias_templates_invalid.cpp,$(TEST_OUT)/cxx-alias-templates/invalid-x64.log)

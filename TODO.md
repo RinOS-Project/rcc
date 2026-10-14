@@ -4151,9 +4151,7 @@ remains a separate open item.
   final dependent-signature validation change (exit 0).
 - [x] Pass the full native-Windows MinGW GCC `test-debug-info` aggregate after
   the final dependent-signature validation change (exit 0).
-- [ ] Add nested template-template parameter declaration support and matching
-  regressions; accept alias templates as template-template pack arguments;
-  extend deeper dependent-owner/cross-kind pack combinations. Structural
+- [ ] Extend deeper dependent-owner/cross-kind pack combinations. Structural
   non-integral NTTP packs remain open.
 
 ## RCC continuation (2026-10-14, nested template-template signatures)
@@ -4166,6 +4164,11 @@ remains a separate open item.
   negative case with GCC.
 - [x] Pass the focused nested-signature tests and the full native-Windows
   MinGW GCC `test-cxx` and `test-debug-info` aggregates (both exit 0).
-- [ ] Accept alias templates as template-template pack arguments; expand
-  deeper dependent-owner/cross-kind pack coverage. Defaults/constraints in
-  nested signatures and structural non-integral NTTP packs remain open.
+- [x] Accept alias templates as concrete and dependent template-template pack
+  arguments, including defaults, type and non-type signatures, nested aliases,
+  mixed alias/class packs, and invalid-signature diagnostics. The focused
+  `test-cxx-alias-templates` gate passed for i686/x86_64, with x86_64 runtime,
+  GCC C++20 runtime, and negative GCC parity.
+- [ ] Expand deeper dependent-owner/cross-kind pack coverage. Defaults and
+  constraints in nested signatures and structural non-integral NTTP packs
+  remain open.
