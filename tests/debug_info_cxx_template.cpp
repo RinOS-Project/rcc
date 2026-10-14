@@ -33,6 +33,20 @@ struct DebugTemplateUnsignedValuePack {
 DebugTemplateUnsignedValuePack<int, 0xF0000000U>
     debug_template_unsigned_value_pack;
 
+template <typename ValueType, ValueType... Values>
+struct DebugTemplateDependentValuePack {
+    int marker;
+};
+
+DebugTemplateDependentValuePack<short>
+    debug_template_dependent_empty_value_pack;
+DebugTemplateDependentValuePack<short, -2, 7>
+    debug_template_dependent_signed_value_pack;
+DebugTemplateDependentValuePack<unsigned short, 0xF000U>
+    debug_template_dependent_unsigned_value_pack;
+DebugTemplateDependentValuePack<int, 7>
+    debug_template_dependent_int_value_pack;
+
 template <int... Values>
 struct DebugTemplateEmptyNonTypePack {};
 
@@ -190,4 +204,17 @@ int debug_template_function_unsigned_pack_empty_entry() {
 
 int debug_template_function_unsigned_pack_entry() {
     return debug_template_function_unsigned_pack<0xF0000000U>();
+}
+
+template <typename ValueType, ValueType... Values>
+int debug_template_function_dependent_value_pack() {
+    return static_cast<int>(sizeof...(Values));
+}
+
+int debug_template_function_dependent_value_pack_entry() {
+    return debug_template_function_dependent_value_pack<short>() +
+           debug_template_function_dependent_value_pack<short, -2, 7>() +
+           debug_template_function_dependent_value_pack<unsigned short,
+                                                        0xF000U>() +
+           debug_template_function_dependent_value_pack<int, 7>();
 }

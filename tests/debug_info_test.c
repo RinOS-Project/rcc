@@ -1015,7 +1015,8 @@ static void verify_class_template_parameter_pack_dies(
 
 static void verify_class_non_type_template_parameter_pack_dies(
     const char* path, uint16_t architecture, const char* class_prefix,
-    const char* expected_type, bool is_unsigned)
+    const char* expected_type, bool is_unsigned,
+    uint64_t expected_unsigned_value)
 {
     static const uint8_t signed_pack_element_abbreviation[] = {
         52u, 0x30u, 0u, 0x49u, 0x13u, 0x1cu, 0x0du, 0u, 0u
@@ -1094,7 +1095,7 @@ static void verify_class_non_type_template_parameter_pack_dies(
             if (is_unsigned) {
                 unsigned_value = read_uleb(info->data, info->size, &cursor);
                 assert(element_count == 0u &&
-                       unsigned_value == UINT32_C(0xf0000000));
+                       unsigned_value == expected_unsigned_value);
             } else {
                 signed_value = read_sleb(info->data, info->size, &cursor);
                 assert((element_count == 0u && signed_value == -2) ||
@@ -1152,6 +1153,108 @@ static void verify_zero_argument_non_type_template_pack_die(
         ++found;
     }
     assert(found == 1u);
+    objfile_free(object);
+}
+
+static void verify_class_dependent_non_type_template_parameter_pack_dies(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    unsigned empty_count = 0u;
+    unsigned signed_count = 0u;
+    unsigned unsigned_count = 0u;
+    unsigned same_value_different_type_count = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+
+    for (uint64_t die = 11u; die + 9u <= info->size; ++die) {
+        uint32_t class_name_offset;
+        const char* class_name;
+        uint64_t cursor;
+        uint32_t type_offset;
+        uint32_t type_name_offset;
+        const char* value_type_name;
+        uint32_t pack_name_offset;
+        unsigned element_count = 0u;
+        if (info->data[die] != 12u) continue;
+        class_name_offset = read_u32(info->data, die + 1u);
+        if (class_name_offset >= strings->size) continue;
+        class_name = (const char*)strings->data + class_name_offset;
+        if (strncmp(class_name, "DebugTemplateDependentValuePack.",
+                    sizeof("DebugTemplateDependentValuePack.") - 1u) != 0) {
+            continue;
+        }
+
+        cursor = die + 9u;
+        assert(cursor < info->size && info->data[cursor++] == 47u);
+        assert(cursor + 8u <= info->size);
+        type_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
+        assert((uint64_t)type_offset + 7u <= info->size &&
+               info->data[type_offset] == 5u);
+        type_name_offset = read_u32(info->data, type_offset + 1u);
+        assert(type_name_offset < strings->size);
+        value_type_name = (const char*)strings->data + type_name_offset;
+        assert(cursor < info->size && info->data[cursor++] == 50u);
+        assert(cursor + 4u <= info->size);
+        pack_name_offset = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(pack_name_offset < strings->size &&
+               strcmp((const char*)strings->data + pack_name_offset,
+                      "Values") == 0);
+        while (cursor < info->size &&
+               (info->data[cursor] == 52u || info->data[cursor] == 53u)) {
+            bool is_unsigned = info->data[cursor] == 53u;
+            uint64_t value;
+            assert(cursor + 5u <= info->size);
+            ++cursor;
+            type_offset = read_u32(info->data, cursor);
+            cursor += 4u;
+            assert((uint64_t)type_offset + 7u <= info->size &&
+                   info->data[type_offset] == 5u);
+            type_name_offset = read_u32(info->data, type_offset + 1u);
+            assert(type_name_offset < strings->size &&
+                   strcmp((const char*)strings->data + type_name_offset,
+                          value_type_name) == 0);
+            if (is_unsigned) {
+                value = read_uleb(info->data, info->size, &cursor);
+                assert(strcmp(value_type_name, "unsigned short") == 0 &&
+                       element_count == 0u && value == UINT16_C(0xf000));
+            } else {
+                int64_t signed_value = read_sleb(info->data, info->size,
+                                                 &cursor);
+                if (strcmp(value_type_name, "short") == 0) {
+                    assert((element_count == 0u && signed_value == -2) ||
+                           (element_count == 1u && signed_value == 7));
+                } else {
+                    assert(strcmp(value_type_name, "int") == 0 &&
+                           element_count == 0u && signed_value == 7);
+                }
+            }
+            ++element_count;
+        }
+        assert(cursor < info->size && info->data[cursor++] == 0u);
+        if (strcmp(value_type_name, "short") == 0) {
+            if (element_count == 0u) ++empty_count;
+            else {
+                assert(element_count == 2u);
+                ++signed_count;
+            }
+        } else if (strcmp(value_type_name, "unsigned short") == 0) {
+            assert(element_count == 1u);
+            ++unsigned_count;
+        } else {
+            assert(strcmp(value_type_name, "int") == 0 &&
+                   element_count == 1u);
+            ++same_value_different_type_count;
+        }
+    }
+    assert(empty_count == 1u && signed_count == 1u && unsigned_count == 1u &&
+           same_value_different_type_count == 1u);
     objfile_free(object);
 }
 
@@ -4195,6 +4298,108 @@ static void verify_function_template_unsigned_pack_die(
     objfile_free(object);
 }
 
+static void verify_function_template_dependent_value_pack_dies(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    unsigned empty_count = 0u;
+    unsigned signed_count = 0u;
+    unsigned unsigned_count = 0u;
+    unsigned same_value_different_type_count = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+
+    for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
+        uint32_t function_name_offset;
+        uint64_t cursor;
+        uint32_t name_offset;
+        uint32_t type_offset;
+        const char* value_type_name;
+        unsigned element_count = 0u;
+        if (info->data[die] != 2u) continue;
+        function_name_offset = read_u32(info->data, die + 1u);
+        if (function_name_offset >= strings->size ||
+            strcmp((const char*)strings->data + function_name_offset,
+                   "debug_template_function_dependent_value_pack") != 0) {
+            continue;
+        }
+        cursor = function_template_children_start(info, die, address_size);
+        assert(cursor < info->size && info->data[cursor++] == 47u);
+        assert(cursor + 8u <= info->size);
+        name_offset = read_u32(info->data, cursor);
+        type_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset,
+                      "ValueType") == 0);
+        assert((uint64_t)type_offset + 7u <= info->size &&
+               info->data[type_offset] == 5u);
+        name_offset = read_u32(info->data, type_offset + 1u);
+        assert(name_offset < strings->size);
+        value_type_name = (const char*)strings->data + name_offset;
+
+        assert(cursor < info->size && info->data[cursor++] == 50u);
+        assert(cursor + 4u <= info->size);
+        name_offset = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset,
+                      "Values") == 0);
+        while (cursor < info->size &&
+               (info->data[cursor] == 52u || info->data[cursor] == 53u)) {
+            bool is_unsigned = info->data[cursor] == 53u;
+            assert(cursor + 5u <= info->size);
+            ++cursor;
+            type_offset = read_u32(info->data, cursor);
+            cursor += 4u;
+            assert((uint64_t)type_offset + 7u <= info->size &&
+                   info->data[type_offset] == 5u);
+            name_offset = read_u32(info->data, type_offset + 1u);
+            assert(name_offset < strings->size &&
+                   strcmp((const char*)strings->data + name_offset,
+                          value_type_name) == 0);
+            if (is_unsigned) {
+                uint64_t value = read_uleb(info->data, info->size, &cursor);
+                assert(strcmp(value_type_name, "unsigned short") == 0 &&
+                       element_count == 0u && value == UINT16_C(0xf000));
+            } else {
+                int64_t value = read_sleb(info->data, info->size, &cursor);
+                if (strcmp(value_type_name, "short") == 0) {
+                    assert((element_count == 0u && value == -2) ||
+                           (element_count == 1u && value == 7));
+                } else {
+                    assert(strcmp(value_type_name, "int") == 0 &&
+                           element_count == 0u && value == 7);
+                }
+            }
+            ++element_count;
+        }
+        assert(cursor < info->size && info->data[cursor++] == 0u);
+        if (strcmp(value_type_name, "short") == 0) {
+            if (element_count == 0u) ++empty_count;
+            else {
+                assert(element_count == 2u);
+                ++signed_count;
+            }
+        } else if (strcmp(value_type_name, "unsigned short") == 0) {
+            assert(element_count == 1u);
+            ++unsigned_count;
+        } else {
+            assert(strcmp(value_type_name, "int") == 0 &&
+                   element_count == 1u);
+            ++same_value_different_type_count;
+        }
+    }
+    assert(empty_count == 1u && signed_count == 1u && unsigned_count == 1u &&
+           same_value_different_type_count == 1u);
+    objfile_free(object);
+}
+
 static uint8_t read_inline_attribute(const ObjSection* info,
                                      uint64_t function_offset,
                                      uint64_t address_size,
@@ -4858,15 +5063,21 @@ int main(int argc, char** argv)
     verify_class_template_parameter_pack_dies(argv[26], ARCH_X86);
     verify_class_template_parameter_pack_dies(argv[27], ARCH_X64);
     verify_class_non_type_template_parameter_pack_dies(
-        argv[26], ARCH_X86, "DebugTemplateSignedValuePack.", "int", false);
+        argv[26], ARCH_X86, "DebugTemplateSignedValuePack.", "int", false,
+        0u);
     verify_class_non_type_template_parameter_pack_dies(
-        argv[27], ARCH_X64, "DebugTemplateSignedValuePack.", "int", false);
+        argv[27], ARCH_X64, "DebugTemplateSignedValuePack.", "int", false,
+        0u);
     verify_class_non_type_template_parameter_pack_dies(
         argv[26], ARCH_X86, "DebugTemplateUnsignedValuePack.",
-        "unsigned int", true);
+        "unsigned int", true, UINT32_C(0xf0000000));
     verify_class_non_type_template_parameter_pack_dies(
         argv[27], ARCH_X64, "DebugTemplateUnsignedValuePack.",
-        "unsigned int", true);
+        "unsigned int", true, UINT32_C(0xf0000000));
+    verify_class_dependent_non_type_template_parameter_pack_dies(
+        argv[26], ARCH_X86);
+    verify_class_dependent_non_type_template_parameter_pack_dies(
+        argv[27], ARCH_X64);
     verify_zero_argument_non_type_template_pack_die(
         argv[26], ARCH_X86, "DebugTemplateEmptyNonTypePack.");
     verify_zero_argument_non_type_template_pack_die(
@@ -4883,6 +5094,10 @@ int main(int argc, char** argv)
     verify_function_template_signed_pack_dies(argv[27], ARCH_X64);
     verify_function_template_unsigned_pack_die(argv[26], ARCH_X86);
     verify_function_template_unsigned_pack_die(argv[27], ARCH_X64);
+    verify_function_template_dependent_value_pack_dies(
+        argv[26], ARCH_X86);
+    verify_function_template_dependent_value_pack_dies(
+        argv[27], ARCH_X64);
     verify_verified_fallback_debug_object(argv[28], ARCH_X86);
     verify_verified_fallback_debug_object(argv[29], ARCH_X64);
     return 0;

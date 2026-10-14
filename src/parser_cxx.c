@@ -8782,6 +8782,11 @@ static bool cxx_constrained_type_parameter_starts(void) {
     }
     if (token->type == TOK_SCOPE) token = token->next;
     if (!token || token->type != TOK_IDENT) return false;
+    /* A preceding type template parameter in `T... Values` is the declared
+     * type of a non-type pack, not a concept name. */
+    if (token == parser.cur && is_active_template_type(token->value.str_val)) {
+        return false;
+    }
     while (token->next && token->next->type == TOK_SCOPE) {
         token = token->next->next;
         if (!token || token->type != TOK_IDENT) return false;
@@ -12440,12 +12445,21 @@ static bool class_template_instance_matches(
         TemplateParam* parameter = &tmpl->params[index];
         if (parameter->is_pack) continue;
         if (parameter->kind == TPARAM_NONTYPE) {
+            Type* argument_type = arguments ? arguments[index] : NULL;
             if (!value_args || !value_present || !value_present[index] ||
                 !tmpl->instances[instance_index].value_args ||
                 !tmpl->instances[instance_index].value_present ||
                 !tmpl->instances[instance_index].value_present[index] ||
                 tmpl->instances[instance_index].value_args[index] !=
                     value_args[index]) {
+                return false;
+            }
+            if (!argument_type ||
+                !tmpl->instances[instance_index].args ||
+                !tmpl->instances[instance_index].args[index] ||
+                !type_is_same_template_argument(
+                    tmpl->instances[instance_index].args[index],
+                    argument_type)) {
                 return false;
             }
         } else if (parameter->kind == TPARAM_TEMPLATE) {
@@ -12632,9 +12646,14 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
                       "class template type argument %d is missing", index + 1);
             return NULL;
         }
+        Type* non_type_argument_type = parameter->kind == TPARAM_NONTYPE
+            ? arguments && arguments[index]
+                ? arguments[index] : parameter->type
+            : NULL;
         if (parameter->kind == TPARAM_NONTYPE &&
             (!value_args || !value_present || !value_present[index] ||
-             !parameter->type || !type_is_integer(parameter->type))) {
+             !non_type_argument_type || non_type_argument_type->cxx_dependent ||
+             !type_is_integer(non_type_argument_type))) {
             rcc_error(loc,
                       "class template non-type argument %d requires an "
                       "integer constant", index + 1);
@@ -13795,7 +13814,14 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                     values[argument_count] = value;
                     value_present[argument_count] = true;
                 }
-                arguments[argument_count] = parameter->type;
+                arguments[argument_count] = substitute_template_type(
+                    tmpl, parameter->type, arguments, argument_count,
+                    values, value_present);
+                if (!arguments[argument_count]) {
+                    rcc_error(loc,
+                              "class template non-type parameter type could not be substituted");
+                    arguments[argument_count] = parameter->type;
+                }
                 ++argument_count;
             } else {
                 const char* argument_name = NULL;
@@ -13906,7 +13932,14 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                 }
             }
             value_expressions[argument_count] = parameter->default_value;
-            arguments[argument_count] = parameter->type;
+            arguments[argument_count] = substitute_template_type(
+                tmpl, parameter->type, arguments, argument_count,
+                values, value_present);
+            if (!arguments[argument_count]) {
+                rcc_error(loc,
+                          "class template non-type default type could not be substituted");
+                arguments[argument_count] = parameter->type;
+            }
             if (eval_template_integer_expression(
                     parameter->default_value,
                     parameter->default_context
@@ -23483,6 +23516,7 @@ static Type* parse_cxx_type_spec(void) {
              * template substitution. */
             t = type_struct(name);
             t->cxx_dependent = true;
+            t->cxx_template_param_index = active_template_type_index(name);
         } else {
             if (check(TOK_LT)) {
                 rcc_error(loc, "unknown C++ class template '%s'", name);

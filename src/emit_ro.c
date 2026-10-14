@@ -1081,6 +1081,32 @@ static bool debug_type_is_dependent(const Type* type, unsigned depth) {
 static void debug_type_collect(DebugTypeContext* context, const Type* type);
 static bool debug_type_has_integral_constant_encoding(const Type* type);
 
+/* A non-type template parameter may use a preceding type parameter as its
+ * declared type (`template<class T, T... Values>`).  The declaration retains
+ * that dependent carrier, while a concrete specialization stores the actual
+ * type argument in the corresponding template slot. */
+static Type* debug_template_value_parameter_type(
+    const CxxTemplate* templ, const TemplateParam* parameter,
+    Type* const* arguments, int argument_count) {
+    Type* parameter_type;
+    int type_parameter_index;
+    if (!parameter || !(parameter_type = parameter->type)) return NULL;
+    if (!debug_type_is_dependent(parameter_type, 0u)) return parameter_type;
+    if (!parameter_type->cxx_dependent ||
+        parameter_type->cxx_template_param_index < 0) {
+        return NULL;
+    }
+    type_parameter_index = parameter_type->cxx_template_param_index;
+    if (!templ || !arguments || type_parameter_index >= argument_count ||
+        type_parameter_index >= templ->param_count ||
+        templ->params[type_parameter_index].kind != TPARAM_TYPE ||
+        !arguments[type_parameter_index] ||
+        debug_type_is_dependent(arguments[type_parameter_index], 0u)) {
+        return NULL;
+    }
+    return arguments[type_parameter_index];
+}
+
 static void debug_type_collect_class_template_arguments(
     DebugTypeContext* context, const CxxClass* class_info) {
     CxxTemplate* templ;
@@ -1098,6 +1124,7 @@ static void debug_type_collect_class_template_arguments(
     for (int index = 0; index < templ->param_count; ++index) {
         TemplateParam* parameter = &templ->params[index];
         Type* argument_type = NULL;
+        Type* value_type = NULL;
         if (parameter->is_pack) {
             /* Class-template type arguments are stored flattened: the pack
              * begins at its declared parameter index and extends to the
@@ -1114,12 +1141,12 @@ static void debug_type_collect_class_template_arguments(
                     }
                 }
             } else if (parameter->kind == TPARAM_NONTYPE &&
-                       index == templ->param_count - 1 &&
-                       parameter->type &&
-                       debug_type_has_integral_constant_encoding(
-                           parameter->type) &&
-                       !debug_type_is_dependent(parameter->type, 0u)) {
-                debug_type_collect(context, parameter->type);
+                       index == templ->param_count - 1) {
+                value_type = debug_template_value_parameter_type(
+                    templ, parameter, arguments, argument_count);
+                if (debug_type_has_integral_constant_encoding(value_type)) {
+                    debug_type_collect(context, value_type);
+                }
             }
             continue;
         }
@@ -1127,7 +1154,9 @@ static void debug_type_collect_class_template_arguments(
         if (parameter->kind == TPARAM_TYPE) {
             argument_type = arguments ? arguments[index] : NULL;
         } else if (parameter->kind == TPARAM_NONTYPE) {
-            argument_type = parameter->type;
+            value_type = debug_template_value_parameter_type(
+                templ, parameter, arguments, argument_count);
+            argument_type = value_type;
         }
         if (argument_type &&
             !debug_type_is_dependent(argument_type, 0u)) {
@@ -1351,6 +1380,7 @@ static void debug_collect_function_types(DebugTypeContext* context,
         for (int index = 0; index < templ->param_count; ++index) {
             TemplateParam* parameter = &templ->params[index];
             Type* argument_type = NULL;
+            Type* value_type = NULL;
             if (parameter->is_pack) {
                 if (index == templ->param_count - 1 &&
                     parameter->kind == TPARAM_TYPE &&
@@ -1367,12 +1397,14 @@ static void debug_collect_function_types(DebugTypeContext* context,
                         }
                     }
                 } else if (index == templ->param_count - 1 &&
-                           parameter->kind == TPARAM_NONTYPE &&
-                           parameter->type &&
-                           debug_type_has_integral_constant_encoding(
-                               parameter->type) &&
-                           !debug_type_is_dependent(parameter->type, 0u)) {
-                    debug_type_collect(context, parameter->type);
+                           parameter->kind == TPARAM_NONTYPE) {
+                    value_type = debug_template_value_parameter_type(
+                        templ, parameter, function->func_template_args,
+                        function->func_template_arg_count);
+                    if (debug_type_has_integral_constant_encoding(
+                            value_type)) {
+                        debug_type_collect(context, value_type);
+                    }
                 }
                 continue;
             }
@@ -1381,7 +1413,10 @@ static void debug_collect_function_types(DebugTypeContext* context,
                 argument_type = function->func_template_args
                     ? function->func_template_args[index] : NULL;
             } else if (parameter->kind == TPARAM_NONTYPE) {
-                argument_type = parameter->type;
+                value_type = debug_template_value_parameter_type(
+                    templ, parameter, function->func_template_args,
+                    function->func_template_arg_count);
+                argument_type = value_type;
             }
             if (argument_type &&
                 !debug_type_is_dependent(argument_type, 0u)) {
@@ -1843,14 +1878,17 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                                 section_add_byte(info, 0u);
                             } else if (
                                 parameter_index == templ->param_count - 1 &&
-                                parameter->kind == TPARAM_NONTYPE &&
-                                parameter->type &&
-                                debug_type_has_integral_constant_encoding(
-                                    parameter->type) &&
-                                !debug_type_is_dependent(
-                                    parameter->type, 0u)) {
+                                parameter->kind == TPARAM_NONTYPE) {
+                                Type* value_type =
+                                    debug_template_value_parameter_type(
+                                        templ, parameter, arguments,
+                                        argument_count);
+                                if (!debug_type_has_integral_constant_encoding(
+                                        value_type)) {
+                                    continue;
+                                }
                                 parameter_type = debug_type_find(
-                                    context, parameter->type);
+                                    context, value_type);
                                 if (!parameter_type) {
                                     rcc_fatal(
                                         "DWARF class-template value-pack type was not collected");
@@ -1868,11 +1906,11 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                                         continue;
                                     }
                                     section_add_byte(
-                                        info, parameter->type->is_unsigned
+                                        info, value_type->is_unsigned
                                             ? 53u : 52u);
                                     debug_type_ref(info, patches,
                                                    parameter_type);
-                                    if (parameter->type->is_unsigned) {
+                                    if (value_type->is_unsigned) {
                                         debug_line_uleb(
                                             info, (uint64_t)value_arguments[
                                                 pack_index]);
@@ -1930,25 +1968,29 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
                         } else if (parameter->kind == TPARAM_NONTYPE &&
                                    value_arguments &&
                                    value_present &&
-                                   value_present[parameter_index] &&
-                                   debug_type_has_integral_constant_encoding(
-                                       parameter->type) &&
-                                   !debug_type_is_dependent(
-                                       parameter->type, 0u)) {
+                                   value_present[parameter_index]) {
+                            Type* value_type =
+                                debug_template_value_parameter_type(
+                                    templ, parameter, arguments,
+                                    argument_count);
+                            if (!debug_type_has_integral_constant_encoding(
+                                    value_type)) {
+                                continue;
+                            }
                             parameter_type = debug_type_find(
-                                context, parameter->type);
+                                context, value_type);
                             if (!parameter_type) {
                                 rcc_fatal(
                                     "DWARF class-template value type was not collected");
                                 return;
                             }
                             section_add_byte(
-                                info, parameter->type->is_unsigned
+                                info, value_type->is_unsigned
                                     ? 49u : 48u);
                             debug_line_u32(
                                 info, debug_str_add(strings, parameter->name));
                             debug_type_ref(info, patches, parameter_type);
-                            if (parameter->type->is_unsigned) {
+                            if (value_type->is_unsigned) {
                                 debug_line_uleb(
                                     info, (uint64_t)value_arguments[
                                         parameter_index]);
@@ -5092,13 +5134,23 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                     } else if (
                         parameter_index == templ->param_count - 1 &&
                         parameter->kind == TPARAM_NONTYPE &&
-                        function_decl->func_template_pack_count >= 0 &&
-                        parameter->type &&
-                        debug_type_has_integral_constant_encoding(
-                            parameter->type) &&
-                        !debug_type_is_dependent(parameter->type, 0u)) {
+                        function_decl->func_template_pack_count >= 0) {
+                        Type* value_type =
+                            debug_template_value_parameter_type(
+                                templ, parameter,
+                                function_decl->func_template_args,
+                                function_decl->func_template_arg_count);
+                        if (!debug_type_has_integral_constant_encoding(
+                                value_type)) {
+                            continue;
+                        }
                         parameter_type = debug_type_find(
-                            &types, parameter->type);
+                            &types, value_type);
+                        if (!parameter_type) {
+                            rcc_fatal(
+                                "DWARF function-template value-pack type was not collected");
+                            return;
+                        }
                         section_add_byte(info, 50u);
                         debug_line_u32(
                             info, debug_str_add(strings, parameter->name));
@@ -5113,10 +5165,10 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                                 continue;
                             }
                             section_add_byte(
-                                info, parameter->type->is_unsigned
+                                info, value_type->is_unsigned
                                     ? 53u : 52u);
                             debug_type_ref(info, NULL, parameter_type);
-                            if (parameter->type->is_unsigned) {
+                            if (value_type->is_unsigned) {
                                 debug_line_uleb(
                                     info, (uint64_t)
                                         function_decl->func_template_pack_values[
@@ -5174,23 +5226,29 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                            function_decl->func_template_value_args &&
                            function_decl->func_template_value_present &&
                            function_decl->func_template_value_present[
-                               parameter_index] &&
-                           debug_type_has_integral_constant_encoding(
-                               parameter->type) &&
-                           !debug_type_is_dependent(parameter->type, 0u)) {
+                               parameter_index]) {
+                    Type* value_type =
+                        debug_template_value_parameter_type(
+                            templ, parameter,
+                            function_decl->func_template_args,
+                            function_decl->func_template_arg_count);
+                    if (!debug_type_has_integral_constant_encoding(
+                            value_type)) {
+                        continue;
+                    }
                     parameter_type = debug_type_find(&types,
-                                                     parameter->type);
+                                                     value_type);
                     if (!parameter_type) {
                         rcc_fatal(
                             "DWARF function-template value type was not collected");
                         return;
                     }
                     section_add_byte(
-                        info, parameter->type->is_unsigned ? 49u : 48u);
+                        info, value_type->is_unsigned ? 49u : 48u);
                     debug_line_u32(
                         info, debug_str_add(strings, parameter->name));
                     debug_type_ref(info, NULL, parameter_type);
-                    if (parameter->type->is_unsigned) {
+                    if (value_type->is_unsigned) {
                         debug_line_uleb(
                             info, (uint64_t)function_decl->func_template_value_args[
                                 parameter_index]);

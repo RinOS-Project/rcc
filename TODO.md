@@ -1800,8 +1800,14 @@
         `Bases<int>...`と別class template-idへの`Templates...` forwardingの両方で実体化し、
         空／1／2要素のbase countとobject layoutをGCCと比較、i686/AMD64生成とAMD64実行で検証。
         sourceがpackでないexpansionとellipsis欠落もi686/AMD64でdiagnosticを検証
-  - [ ] その他のdependent pack expansion、dependent-typed non-type packs、未instantiateの
-        dependent alias/template definition DIEは未完
+  - [x] 先行type parameterを宣言型とするconcrete signed／unsigned integral
+        non-type packs（`template<class T, T... Values>`）をclass／function
+        templateのDWARF parameter-pack DIEへ出力。empty／複数要素、`short`の
+        負値、`unsigned short`の高bit値をi686/AMD64で検証し、同じ値を異なる
+        dependent型でspecializeした場合のclass-instance cache分離も回帰化
+  - [ ] Qualified／compound dependent declared type、non-integral structural
+        non-type packs、他形式のdependent pack expansion、未instantiateのdependent
+        alias/template-definition DIEは引き続き未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
         type/value argumentsを保持し、subprogram DIE配下へtemplate type／
         integral value parameter DIEを出力。i686/AMD64の`test-debug-info`で
