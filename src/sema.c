@@ -12540,19 +12540,29 @@ static bool sema_instantiate_cxx_lambda(Expr* call) {
                   "generic lambda template instantiation is unavailable");
         return false;
 #endif
+        Decl* instance;
+        bool* saved_pending_pack_expansions =
+            tmpl->pending_pack_expansions;
+        Expr** saved_pending_pack_value_expressions =
+            tmpl->pending_pack_value_expressions;
         if (has_pack) {
             tmpl->pending_pack_args = has_value_pack ? NULL : pack_arguments;
+            tmpl->pending_pack_expansions = NULL;
             tmpl->pending_pack_values = has_value_pack ? pack_values : NULL;
             tmpl->pending_pack_value_present = has_value_pack
                 ? pack_value_present : NULL;
+            tmpl->pending_pack_value_expressions = NULL;
             tmpl->pending_pack_count = pack_count;
         }
-        Decl* instance = (Decl*)cxx_template_instantiate_with_values(
+        instance = (Decl*)cxx_template_instantiate_with_values(
             tmpl, arguments, values, value_present, tmpl->param_count);
         if (has_pack) {
             tmpl->pending_pack_args = NULL;
             tmpl->pending_pack_values = NULL;
             tmpl->pending_pack_value_present = NULL;
+            tmpl->pending_pack_expansions = saved_pending_pack_expansions;
+            tmpl->pending_pack_value_expressions =
+                saved_pending_pack_value_expressions;
             tmpl->pending_pack_count = -1;
         }
         if (!instance || instance->kind != DECL_FUNC) {

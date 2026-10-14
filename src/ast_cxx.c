@@ -4554,6 +4554,7 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->pending_pack_expansions = NULL;
     tmpl->pending_pack_values = NULL;
     tmpl->pending_pack_value_present = NULL;
+    tmpl->pending_pack_value_expressions = NULL;
     tmpl->pending_pack_count = -1;
     tmpl->active_pack_parameters = NULL;
     return tmpl;
@@ -4973,6 +4974,7 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             bool* saved_pack_expansions;
             int64_t* saved_pack_values;
             bool* saved_pack_value_present;
+            Expr** saved_pack_value_expressions;
             int saved_pack_count;
             if (!local->pattern || local->pattern != type->cxx_class ||
                 !local->templ) {
@@ -4984,6 +4986,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             saved_pack_values = local->templ->pending_pack_values;
             saved_pack_value_present =
                 local->templ->pending_pack_value_present;
+            saved_pack_value_expressions =
+                local->templ->pending_pack_value_expressions;
             saved_pack_count = local->templ->pending_pack_count;
             local->templ->pending_pack_args = tmpl->pending_pack_args;
             local->templ->pending_pack_expansions =
@@ -4991,6 +4995,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             local->templ->pending_pack_values = tmpl->pending_pack_values;
             local->templ->pending_pack_value_present =
                 tmpl->pending_pack_value_present;
+            local->templ->pending_pack_value_expressions =
+                tmpl->pending_pack_value_expressions;
             local->templ->pending_pack_count = tmpl->pending_pack_count;
             instance = rcc_cxx_instantiate_class_template(
                 local->templ, args, value_args, value_present, arg_count,
@@ -5001,6 +5007,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             local->templ->pending_pack_values = saved_pack_values;
             local->templ->pending_pack_value_present =
                 saved_pack_value_present;
+            local->templ->pending_pack_value_expressions =
+                saved_pack_value_expressions;
             local->templ->pending_pack_count = saved_pack_count;
             if (!instance) return NULL;
             replacement = instance->type;
@@ -5247,12 +5255,28 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             if (is_pack_expansion) {
                 Type* pattern_argument = type->cxx_template_args
                     ? type->cxx_template_args[nested_index] : NULL;
+                Expr* pattern_value_expression =
+                    type->cxx_template_value_args
+                        ? type->cxx_template_value_args[nested_index] : NULL;
                 int expansion_pack_index =
                     template_parameter_pack_index_nested(tmpl,
                                                          pattern_argument);
+                int value_expansion_pack_index =
+                    template_parameter_pack_index_expression(
+                        tmpl, pattern_value_expression);
+                if (expansion_pack_index < 0) {
+                    expansion_pack_index = value_expansion_pack_index;
+                } else if (value_expansion_pack_index >= 0 &&
+                           expansion_pack_index !=
+                               value_expansion_pack_index) {
+                    expansion_pack_index = -2;
+                }
                 if (pack_index < 0 || nested_index < pack_index ||
                     nested_index != type->cxx_template_arg_count - 1 ||
-                    !parameter || parameter->kind != TPARAM_TYPE ||
+                    !parameter ||
+                    (parameter->kind != TPARAM_TYPE &&
+                     parameter->kind != TPARAM_NONTYPE &&
+                     parameter->kind != TPARAM_TEMPLATE) ||
                     !parameter->is_pack || !tmpl ||
                     expansion_pack_index < 0 ||
                     expansion_pack_index >= tmpl->param_count ||
@@ -5264,8 +5288,10 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 }
                 bool value_pack = tmpl->params[expansion_pack_index].kind ==
                     TPARAM_NONTYPE;
+                bool template_pack = tmpl->params[expansion_pack_index].kind ==
+                    TPARAM_TEMPLATE;
                 if (tmpl->params[expansion_pack_index].kind != TPARAM_TYPE &&
-                    !value_pack) {
+                    !value_pack && !template_pack) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
                               "dependent class-template pack expansion has "
                               "an unsupported parameter kind");
@@ -5284,6 +5310,18 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                         tmpl, pattern_argument, args, arg_count,
                         value_args, value_present);
                     if (!nested_arguments[nested_count]) return NULL;
+                    if (value_pack) {
+                        nested_value_expressions[nested_count] =
+                            template_clone_expr(
+                                tmpl, pattern_value_expression, args,
+                                arg_count, value_args, value_present);
+                        if (!nested_value_expressions[nested_count]) {
+                            rcc_error((SourceLoc){"<template>", 0, 0},
+                                      "dependent non-type pack expansion is "
+                                      "missing its value pattern");
+                            return NULL;
+                        }
+                    }
                     nested_pack_expansions[nested_count] = true;
                     still_dependent = true;
                     ++nested_count;
@@ -5342,6 +5380,72 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                         tmpl, pattern_argument, expanded_arguments, arg_count,
                         expanded_values, expanded_value_present);
                     if (!nested_arguments[nested_count]) return NULL;
+                    if (value_pack) {
+                        bool pending_value_present =
+                            tmpl->pending_pack_value_present[pack_value];
+                        bool pending_value_expansion =
+                            tmpl->pending_pack_expansions &&
+                            tmpl->pending_pack_expansions[pack_value];
+                        nested_values[nested_count] =
+                            tmpl->pending_pack_values[pack_value];
+                        nested_value_present[nested_count] =
+                            pending_value_present;
+                        if (pending_value_present &&
+                            pattern_value_expression) {
+                            Expr* expanded_value_expression =
+                                template_clone_expr(
+                                    tmpl, pattern_value_expression,
+                                    expanded_arguments, arg_count,
+                                    expanded_values,
+                                    expanded_value_present);
+                            int64_t expanded_value;
+                            if (expanded_value_expression &&
+                                (expr_eval_integer_constant(
+                                     expanded_value_expression,
+                                     &expanded_value) ||
+                                 rcc_parser_cxx_eval_template_integer_expression(
+                                     expanded_value_expression, tmpl,
+                                     expanded_values,
+                                     expanded_value_present,
+                                     &expanded_value))) {
+                                nested_values[nested_count] = expanded_value;
+                                nested_value_expressions[nested_count] =
+                                    expr_int(expanded_value,
+                                             pattern_value_expression->loc);
+                            } else {
+                                rcc_error(
+                                    pattern_value_expression->loc,
+                                    "expanded non-type pack argument must be "
+                                    "an integer constant expression");
+                                return NULL;
+                            }
+                        } else if (pending_value_present) {
+                            nested_value_expressions[nested_count] = expr_int(
+                                nested_values[nested_count],
+                                pattern_value_expression
+                                    ? pattern_value_expression->loc
+                                    : (SourceLoc){"<template>", 0, 0});
+                        } else {
+                            nested_value_expressions[nested_count] =
+                                tmpl->pending_pack_value_expressions
+                                    ? tmpl->pending_pack_value_expressions[
+                                          pack_value]
+                                    : NULL;
+                        }
+                        if (!pending_value_present &&
+                            !nested_value_expressions[nested_count]) {
+                            rcc_error((SourceLoc){"<template>", 0, 0},
+                                      "dependent non-type pack argument is "
+                                      "missing its expression");
+                            return NULL;
+                        }
+                        if (!nested_value_present[nested_count] ||
+                            (pending_value_expansion &&
+                             !pending_value_present)) {
+                            still_dependent = true;
+                            nested_pack_expansions[nested_count] = true;
+                        }
+                    }
                     still_dependent = still_dependent ||
                         nested_arguments[nested_count]->cxx_dependent;
                     ++nested_count;

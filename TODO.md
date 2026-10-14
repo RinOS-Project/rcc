@@ -3998,8 +3998,9 @@ remains a separate open item.
   exact specialization symbol against GCC on i686 and AMD64.
 - [x] Support trailing type parameter packs in alias templates, including
   empty and multi-type packs expanded into a class-template-id; run both target
-  objects and AMD64 execution in `test-cxx-alias-templates`. Keep non-type and
-  template-template alias packs explicitly diagnosed.
+  objects and AMD64 execution in `test-cxx-alias-templates`. Keep
+  template-template alias packs explicitly diagnosed; integral and enum
+  non-type alias packs are tracked below.
 - [x] Forward a dependent trailing type pack through one and two alias layers,
   including empty and multi-type packs plus fixed arguments around the forwarded
   expansion; verify both target objects and AMD64 execution.
@@ -4008,7 +4009,33 @@ remains a separate open item.
 - [x] Pass the full native-Windows MinGW GCC `test-cxx` aggregate after alias
   pack forwarding (exit 0).
 - [ ] Extend dependent alias-pack forwarding to constrained alias templates
-  and multiple distinct source packs; implement non-type and template-template
-  alias packs, deeper owner/alias chains,
+  and multiple distinct source packs; implement template-template alias packs,
+  deeper owner/alias chains,
   pointer/reference/member-pointer declared types with non-integral NTTP
   values, and broader type-directed grammar.
+
+## RCC continuation (2026-10-14, integral and enum alias value packs)
+
+- [x] Parse trailing integral and enum non-type parameter packs in alias
+  templates; accept explicit values, empty packs, and dependent pack
+  expansions, while retaining a precise diagnostic for unsupported trailing
+  template-template packs.
+- [x] Forward dependent non-type packs through one and two alias layers,
+  substitute transformed expressions such as `(Values + 1)...`, and preserve
+  pending value-expression state through class/function template
+  instantiation.
+- [x] Cover empty and multi-element integral packs, enum-valued packs,
+  expression transformations, class-template fields, function-template local
+  types, and negative template-template-pack diagnostics in the alias tests.
+- [x] Pass the focused native-Windows MinGW GCC
+  `test-cxx-alias-templates` gate (exit 0), including the C++11 compatibility
+  path.
+- [x] Compile and run the alias fixture with GCC C++20 using
+  `-Wall -Wextra -Werror` (exit 0).
+- [x] Pass the full native-Windows MinGW GCC `test-debug-info` aggregate after
+  these changes (exit 0).
+- [x] Pass the full native-Windows MinGW GCC `test-cxx` aggregate after these
+  changes (exit 0).
+- [ ] Extend alias value-pack support to constrained alias templates, multiple
+  distinct source packs, template-template packs, wider transformed expression
+  trees, and non-integral structural NTTP types.

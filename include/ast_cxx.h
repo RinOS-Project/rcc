@@ -392,6 +392,7 @@ struct CxxTemplate {
     bool* pending_pack_expansions;
     int64_t* pending_pack_values;
     bool* pending_pack_value_present;
+    Expr** pending_pack_value_expressions;
     int pending_pack_count;
     /* While cloning a local class method, this names the method's own
      * parameter list so pack expressions bind to that method's parameter pack. */
