@@ -2154,6 +2154,25 @@ static Expr* parse_additive(void) {
     return e;
 }
 
+static bool parser_cxx_template_shift_closes_arguments(void) {
+    Token* token = parser.cur;
+    TokenType next_type;
+    if (!parser_cxx_template_default_mode ||
+        parser_cxx_template_paren_depth != 0 || !token ||
+        token->type != TOK_RSHIFT) {
+        return false;
+    }
+    next_type = token->next ? token->next->type : TOK_EOF;
+    /* In a non-type template argument, a trailing `>>` closes nested
+     * template-ids when no right operand follows. Leave it for expect('>')
+     * to split; parenthesized shifts and shifts with an operand still parse
+     * as expressions. */
+    return next_type == TOK_COMMA || next_type == TOK_GT ||
+           next_type == TOK_RPAREN || next_type == TOK_RBRACKET ||
+           next_type == TOK_RBRACE || next_type == TOK_SEMICOLON ||
+           next_type == TOK_EOF;
+}
+
 /* Shift: a << b, a >> b */
 static Expr* parse_shift(void) {
     Expr* e = parse_additive();
@@ -2162,6 +2181,8 @@ static Expr* parse_shift(void) {
         SourceLoc loc = peek()->loc;
         if (match(TOK_LSHIFT)) {
             e = expr_binary(EXPR_LSHIFT, e, parse_additive(), loc);
+        } else if (parser_cxx_template_shift_closes_arguments()) {
+            break;
         } else if (match(TOK_RSHIFT)) {
             e = expr_binary(EXPR_RSHIFT, e, parse_additive(), loc);
         } else {

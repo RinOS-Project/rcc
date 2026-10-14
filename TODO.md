@@ -4102,3 +4102,22 @@ remains a separate open item.
   single-error/no-object negative checks, and GCC C++20 warning-clean run.
 - [ ] Extend this coverage through deeper dependent-owner/alias chains and
   other source-pack combinations.
+
+## RCC continuation (2026-10-14, zipped nested alias source packs)
+
+- [x] Expand a dependent nested alias pattern using both the enclosing
+  class's non-type pack and the alias's non-type pack, pairing corresponding
+  values and rejecting mismatched pack lengths without producing an object.
+- [x] Disambiguate a trailing nested-template `>>` from a shift operator while
+  preserving a parenthesized non-type right-shift expression; compare positive
+  and mismatched-pack behavior with GCC.
+- [x] Pass the focused alias-template gate on i686/AMD64, including AMD64
+  execution and GCC C++20 `-Wall -Wextra -Werror` compile/run.
+- [x] Pass the full native-Windows MinGW GCC `test-cxx` and `test-debug-info`
+  aggregates after these parser/substitution changes (both exit 0).
+- [x] Commit the implementation, regression fixtures, and this TODO update on
+  RCC `main`; update the parent repository's RCC gitlink to that commit. No
+  push was performed.
+- [ ] Extend multiple-source-pack expansion coverage to additional pack kinds
+  and deeper dependent-owner/alias chains; template-template packs and
+  non-integral structural NTTP packs remain open.
