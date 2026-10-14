@@ -8820,6 +8820,36 @@ static bool cxx_constrained_type_parameter_starts(void) {
     return find_concept(qualified_name) != NULL;
 }
 
+/* `typename T` introduces a type template parameter, while
+ * `typename T::value_type N` declares a non-type parameter whose type is a
+ * dependent nested name.  The latter must go through parse_cxx_type_spec;
+ * otherwise the parameter parser consumes only `T` and loses the nested
+ * qualification.  A scope operator before the parameter-list separator is
+ * sufficient to distinguish the qualified type form, including template-id
+ * owners such as `typename Owner<T>::value_type N`. */
+static bool cxx_template_parameter_has_dependent_type_name(void) {
+    Token* token;
+    int angle_depth = 0;
+    if (!check(TOK_TYPENAME)) return false;
+    for (token = parser.cur->next; token; token = token->next) {
+        if (token->type == TOK_SCOPE) return true;
+        if (token->type == TOK_LT) {
+            ++angle_depth;
+        } else if (token->type == TOK_GT) {
+            if (angle_depth == 0) return false;
+            --angle_depth;
+        } else if (token->type == TOK_RSHIFT) {
+            if (angle_depth < 2) return false;
+            angle_depth -= 2;
+        } else if (angle_depth == 0 &&
+                   (token->type == TOK_COMMA ||
+                    token->type == TOK_ASSIGN)) {
+            return false;
+        }
+    }
+    return false;
+}
+
 static DeclList* parse_cxx_parameter_declarations(bool* is_variadic) {
     DeclList* params = NULL;
     int param_idx = 0;
@@ -9857,8 +9887,11 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                         tmpl->constraint = concept_call;
                     }
                 }
-            } else if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
+            } else if ((check(TOK_TYPENAME) &&
+                        !cxx_template_parameter_has_dependent_type_name()) ||
+                       check(TOK_CLASS)) {
                 /* Type parameter */
+                advance();
                 type_parameter = true;
                 parameter_pack = match(TOK_ELLIPSIS);
                 const char* param_name = NULL;

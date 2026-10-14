@@ -1294,6 +1294,10 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z44debug_template_function_dependent_value_packI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEEiv' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z41debug_template_nested_value_pack_consumerP28DebugTemplateNestedValuePackI29DebugTemplateNestedValueOwnerJLsn4ELs19EEE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z41debug_template_function_nested_value_packI29DebugTemplateNestedValueOwnerJLsn4ELs19EEEiv' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z49debug_template_dependent_enum_value_pack_consumerP31DebugTemplateDependentValuePackI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z34debug_template_enum_value_consumerP22DebugTemplateEnumValueIL31DebugTemplateDependentValueEnumn3EE' \
@@ -1311,6 +1315,10 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -x -q '_Z38debug_template_value_template_functionI30DebugTemplateValueTemplateLeafLi7EEiPT_IXT0_EE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z44debug_template_function_dependent_value_packI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEEiv' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z41debug_template_nested_value_pack_consumerP28DebugTemplateNestedValuePackI29DebugTemplateNestedValueOwnerJLsn4ELs19EEE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z41debug_template_function_nested_value_packI29DebugTemplateNestedValueOwnerJLsn4ELs19EEEiv' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z49debug_template_dependent_enum_value_pack_consumerP31DebugTemplateDependentValuePackI31DebugTemplateDependentValueEnumJLS0_n3ELS0_12EEE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log

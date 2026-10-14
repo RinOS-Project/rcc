@@ -1081,6 +1081,49 @@ static bool debug_type_is_dependent(const Type* type, unsigned depth) {
 static void debug_type_collect(DebugTypeContext* context, const Type* type);
 static bool debug_type_has_integral_constant_encoding(const Type* type);
 
+static Type* debug_template_find_nested_alias_type(
+    CxxClass* cls, const char* name, unsigned depth) {
+    if (!cls || !name || depth >= 64u) return NULL;
+    for (CxxTypeAlias* alias = cls->type_aliases; alias;
+         alias = alias->next) {
+        if (alias->name && strcmp(alias->name, name) == 0) {
+            return alias->type;
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base && cls->bases[index].type_pattern) {
+            base = cls->bases[index].type_pattern->cxx_class;
+        }
+        Type* found = debug_template_find_nested_alias_type(
+            base, name, depth + 1u);
+        if (found) return found;
+    }
+    return NULL;
+}
+
+static Type* debug_template_resolve_nested_type_path(
+    CxxClass* cls, const char* path, unsigned depth) {
+    const char* separator;
+    char component[512];
+    size_t component_length;
+    Type* nested_type;
+    if (!cls || !path || !*path || depth >= 64u) return NULL;
+    separator = strstr(path, "::");
+    component_length = separator ? (size_t)(separator - path) : strlen(path);
+    if (component_length == 0u || component_length >= sizeof(component)) {
+        return NULL;
+    }
+    memcpy(component, path, component_length);
+    component[component_length] = '\0';
+    nested_type = debug_template_find_nested_alias_type(
+        cls, component, depth + 1u);
+    if (!nested_type || !separator) return nested_type;
+    if (!nested_type->cxx_class || separator[2] == '\0') return NULL;
+    return debug_template_resolve_nested_type_path(
+        nested_type->cxx_class, separator + 2, depth + 1u);
+}
+
 /* A non-type template parameter may use a preceding type parameter as its
  * declared type (`template<class T, T... Values>`).  The declaration retains
  * that dependent carrier, while a concrete specialization stores the actual
@@ -1092,6 +1135,20 @@ static Type* debug_template_value_parameter_type(
     int type_parameter_index;
     if (!parameter || !(parameter_type = parameter->type)) return NULL;
     if (!debug_type_is_dependent(parameter_type, 0u)) return parameter_type;
+    if (parameter_type->cxx_dependent_member_name &&
+        parameter_type->cxx_template_param_index >= 0 && arguments &&
+        parameter_type->cxx_template_param_index < argument_count) {
+        Type* owner = arguments[
+            parameter_type->cxx_template_param_index];
+        Type* nested_type = owner && owner->cxx_class
+            ? debug_template_resolve_nested_type_path(
+                  owner->cxx_class,
+                  parameter_type->cxx_dependent_member_name, 0u)
+            : NULL;
+        if (nested_type) {
+            return nested_type;
+        }
+    }
     if (!parameter_type->cxx_dependent ||
         parameter_type->cxx_template_param_index < 0) {
         return NULL;

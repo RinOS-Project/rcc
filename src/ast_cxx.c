@@ -158,13 +158,36 @@ static void cxx_mangle_enum_name(char* buf, size_t* pos, Type* type) {
 }
 
 static Type* cxx_mangle_template_value_type(
-    const TemplateParam* parameter, Type* const* arguments,
+    CxxTemplate* templ, const TemplateParam* parameter,
+    Type* const* arguments,
     int argument_count, int argument_slot) {
     Type* value_type = NULL;
     Type* declared_type = parameter ? parameter->type : NULL;
     if (arguments && argument_slot >= 0 && argument_slot < argument_count) {
         value_type = arguments[argument_slot];
         if (value_type && !value_type->cxx_dependent) return value_type;
+    }
+    if (declared_type && declared_type->cxx_dependent &&
+        declared_type->cxx_dependent_member_name &&
+        declared_type->cxx_template_param_index >= 0 && arguments &&
+        declared_type->cxx_template_param_index < argument_count) {
+        Type* owner = arguments[
+            declared_type->cxx_template_param_index];
+        CxxClass* access_context = templ && templ->func_def &&
+                templ->func_def->func_method_owner
+            ? templ->func_def->func_method_owner->cxx_class
+            : templ ? templ->templated_class : NULL;
+        Type* nested_type = NULL;
+        bool ambiguous = false;
+        bool accessible = false;
+        if (owner && owner->cxx_class &&
+            cxx_class_resolve_nested_type_path(
+                owner->cxx_class,
+                declared_type->cxx_dependent_member_name,
+                access_context, &nested_type, &ambiguous, &accessible) &&
+            nested_type) {
+            return nested_type;
+        }
     }
     if (declared_type && declared_type->cxx_dependent &&
         declared_type->cxx_template_param_index >= 0 && arguments &&
@@ -333,7 +356,8 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
             cxx_mangle_type_append_context(
                 buf, pos,
                 cxx_mangle_template_value_type(
-                    parameter, template_args, template_arg_count, index),
+                    tmpl, parameter, template_args, template_arg_count,
+                    index),
                 &template_argument_context);
             if (template_value_args[index] < 0) {
                 uint64_t magnitude = (uint64_t)(
@@ -384,8 +408,8 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 cxx_mangle_type_append_context(
                     buf, pos,
                     cxx_mangle_template_value_type(
-                        &tmpl->params[pack_parameter_index], template_args,
-                        template_arg_count,
+                        tmpl, &tmpl->params[pack_parameter_index],
+                        template_args, template_arg_count,
                         pack_parameter_index + pack_index),
                     &template_argument_context);
                 if (template_value_args[pack_parameter_index + pack_index] < 0) {
@@ -433,7 +457,8 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
             cxx_mangle_type_append_context(
                 buf, pos,
                 cxx_mangle_template_value_type(
-                    parameter, template_args, template_arg_count, index),
+                    tmpl, parameter, template_args, template_arg_count,
+                    index),
                 &template_argument_context);
             if (template_value_args[index] < 0) {
                 uint64_t magnitude =
@@ -1810,7 +1835,8 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                 cxx_mangle_type_append_context(
                     buf, &pos,
                     cxx_mangle_template_value_type(
-                        parameter, type_args, tmpl->param_count, index),
+                        tmpl, parameter, type_args, tmpl->param_count,
+                        index),
                     &template_argument_context);
                 if (!tmpl->pending_pack_value_present ||
                     !tmpl->pending_pack_value_present[pack_index]) {
@@ -1837,7 +1863,7 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
             cxx_mangle_type_append_context(
                 buf, &pos,
                 cxx_mangle_template_value_type(
-                    parameter, type_args, tmpl->param_count, index),
+                    tmpl, parameter, type_args, tmpl->param_count, index),
                 &template_argument_context);
             if (value_args[index] < 0) {
                 uint64_t magnitude = (uint64_t)(-(value_args[index] + 1)) + 1u;

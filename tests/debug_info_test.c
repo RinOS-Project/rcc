@@ -1274,6 +1274,84 @@ static void verify_class_dependent_non_type_template_parameter_pack_dies(
     objfile_free(object);
 }
 
+static void verify_class_nested_dependent_non_type_pack_die(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    unsigned found = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+
+    for (uint64_t die = 11u; die + 9u <= info->size; ++die) {
+        uint32_t class_name_offset;
+        const char* class_name;
+        uint64_t cursor;
+        uint32_t owner_type_offset;
+        uint32_t owner_name_offset;
+        const char* owner_name;
+        uint32_t pack_name_offset;
+        unsigned value_count = 0u;
+        if (info->data[die] != 12u) continue;
+        class_name_offset = read_u32(info->data, die + 1u);
+        if (class_name_offset >= strings->size) continue;
+        class_name = (const char*)strings->data + class_name_offset;
+        if (strncmp(class_name, "DebugTemplateNestedValuePack.",
+                    sizeof("DebugTemplateNestedValuePack.") - 1u) != 0) {
+            continue;
+        }
+
+        cursor = die + 9u;
+        assert(cursor < info->size && info->data[cursor++] == 47u);
+        assert(cursor + 8u <= info->size);
+        owner_type_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
+        assert(owner_type_offset + 5u <= info->size &&
+               info->data[owner_type_offset] == 12u);
+        owner_name_offset = read_u32(info->data, owner_type_offset + 1u);
+        assert(owner_name_offset < strings->size);
+        owner_name = (const char*)strings->data + owner_name_offset;
+        assert(strcmp(owner_name, "DebugTemplateNestedValueOwner") == 0);
+
+        assert(cursor < info->size && info->data[cursor++] == 50u);
+        assert(cursor + 4u <= info->size);
+        pack_name_offset = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(pack_name_offset < strings->size &&
+               strcmp((const char*)strings->data + pack_name_offset,
+                      "Values") == 0);
+        while (cursor < info->size && info->data[cursor] == 52u) {
+            uint32_t value_type_offset;
+            uint32_t value_type_name_offset;
+            int64_t value;
+            assert(cursor + 5u <= info->size);
+            ++cursor;
+            value_type_offset = read_u32(info->data, cursor);
+            cursor += 4u;
+            assert(value_type_offset + 5u <= info->size &&
+                   info->data[value_type_offset] == 5u);
+            value_type_name_offset = read_u32(info->data,
+                                              value_type_offset + 1u);
+            assert(value_type_name_offset < strings->size &&
+                   strcmp((const char*)strings->data +
+                              value_type_name_offset,
+                          "short") == 0);
+            value = read_sleb(info->data, info->size, &cursor);
+            assert((value_count == 0u && value == -4) ||
+                   (value_count == 1u && value == 19));
+            ++value_count;
+        }
+        assert(value_count == 2u && cursor < info->size &&
+               info->data[cursor++] == 0u);
+        ++found;
+    }
+    assert(found == 1u);
+    objfile_free(object);
+}
+
 static void verify_cxx_class_type_alias(const char* path,
                                         uint16_t architecture,
                                         const char* alias_name,
@@ -4431,6 +4509,87 @@ static void verify_function_template_dependent_value_pack_dies(
     objfile_free(object);
 }
 
+static void verify_function_template_nested_dependent_value_pack_die(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    unsigned found = 0u;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+
+    for (uint64_t die = 11u; die + 5u <= info->size; ++die) {
+        uint32_t function_name_offset;
+        uint64_t cursor;
+        uint32_t name_offset;
+        uint32_t owner_type_offset;
+        uint32_t owner_name_offset;
+        uint32_t pack_name_offset;
+        unsigned value_count = 0u;
+        if (info->data[die] != 2u) continue;
+        function_name_offset = read_u32(info->data, die + 1u);
+        if (function_name_offset >= strings->size ||
+            strcmp((const char*)strings->data + function_name_offset,
+                   "debug_template_function_nested_value_pack") != 0) {
+            continue;
+        }
+
+        cursor = function_template_children_start(info, die, address_size);
+        assert(cursor < info->size && info->data[cursor++] == 47u);
+        assert(cursor + 8u <= info->size);
+        name_offset = read_u32(info->data, cursor);
+        owner_type_offset = read_u32(info->data, cursor + 4u);
+        cursor += 8u;
+        assert(name_offset < strings->size &&
+               strcmp((const char*)strings->data + name_offset,
+                      "Owner") == 0);
+        assert(owner_type_offset + 5u <= info->size &&
+               info->data[owner_type_offset] == 12u);
+        owner_name_offset = read_u32(info->data, owner_type_offset + 1u);
+        assert(owner_name_offset < strings->size &&
+               strcmp((const char*)strings->data + owner_name_offset,
+                      "DebugTemplateNestedValueOwner") == 0);
+
+        assert(cursor < info->size && info->data[cursor++] == 50u);
+        assert(cursor + 4u <= info->size);
+        pack_name_offset = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(pack_name_offset < strings->size &&
+               strcmp((const char*)strings->data + pack_name_offset,
+                      "Values") == 0);
+        while (cursor < info->size && info->data[cursor] == 52u) {
+            uint32_t value_type_offset;
+            uint32_t value_type_name_offset;
+            int64_t value;
+            assert(cursor + 5u <= info->size);
+            ++cursor;
+            value_type_offset = read_u32(info->data, cursor);
+            cursor += 4u;
+            assert(value_type_offset + 5u <= info->size &&
+                   info->data[value_type_offset] == 5u);
+            value_type_name_offset = read_u32(info->data,
+                                              value_type_offset + 1u);
+            assert(value_type_name_offset < strings->size &&
+                   strcmp((const char*)strings->data +
+                              value_type_name_offset,
+                          "short") == 0);
+            value = read_sleb(info->data, info->size, &cursor);
+            assert((value_count == 0u && value == -4) ||
+                   (value_count == 1u && value == 19));
+            ++value_count;
+        }
+        assert(value_count == 2u && cursor < info->size &&
+               info->data[cursor++] == 0u);
+        ++found;
+    }
+    assert(found == 1u);
+    objfile_free(object);
+}
+
 static void verify_enum_template_value_dies(const char* path,
                                             uint16_t architecture)
 {
@@ -5183,6 +5342,8 @@ int main(int argc, char** argv)
         argv[26], ARCH_X86);
     verify_class_dependent_non_type_template_parameter_pack_dies(
         argv[27], ARCH_X64);
+    verify_class_nested_dependent_non_type_pack_die(argv[26], ARCH_X86);
+    verify_class_nested_dependent_non_type_pack_die(argv[27], ARCH_X64);
     verify_zero_argument_non_type_template_pack_die(
         argv[26], ARCH_X86, "DebugTemplateEmptyNonTypePack.");
     verify_zero_argument_non_type_template_pack_die(
@@ -5202,6 +5363,10 @@ int main(int argc, char** argv)
     verify_function_template_dependent_value_pack_dies(
         argv[26], ARCH_X86);
     verify_function_template_dependent_value_pack_dies(
+        argv[27], ARCH_X64);
+    verify_function_template_nested_dependent_value_pack_die(
+        argv[26], ARCH_X86);
+    verify_function_template_nested_dependent_value_pack_die(
         argv[27], ARCH_X64);
     verify_enum_template_value_dies(argv[26], ARCH_X86);
     verify_enum_template_value_dies(argv[27], ARCH_X64);

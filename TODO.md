@@ -1811,17 +1811,26 @@
         instantiateし、enum underlying type参照とsigned enumeratorをDWARFへ出力。
         enum型をunregistered conceptと誤認しないlookaheadを追加し、scalar／pack
         manglingのGCC一致、i686/AMD64 `test-debug-info`、named-concept回帰で検証
-  - [ ] Qualified／compound dependent declared type、non-integral structural
-        non-type packs、他形式のdependent pack expansion、未instantiateのdependent
-        alias/template-definition DIEは引き続き未完
+  - [x] `typename Owner::value_type... Values`のようなqualified dependent nested
+        aliasをintegral non-type packの宣言型としてparseし、concrete alias型を
+        function-template manglingとclass／function DWARFへ反映。class consumerと
+        function specializationのItanium symbolをGCCとbyte-for-byte比較し、Owner型、
+        `short`型参照、-4/19のpack値をi686/AMD64 `test-debug-info`で検証。
+        class/function dependent nested type、named-concept、template-template、
+        non-type pack expressionの回帰も通過
+  - [ ] Pointer／reference／member-pointer等のcompound dependent declared type、
+        non-integral structural non-type packs、他形式のdependent pack expansion、
+        未instantiateのdependent alias/template-definition DIEは引き続き未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
         type/value argumentsを保持し、subprogram DIE配下へtemplate type／
         integral value parameter DIEを出力。i686/AMD64の`test-debug-info`で
         `Value = unsigned short`と`Bias = -7`を検証。trailing type packおよび
         non-dependent integral型のsigned/unsigned non-type packもpack DIEと
         実引数ごとのchild DIEへ出力し、empty／複数要素、負値、高bit unsigned値を
-        i686/AMD64で検証。dependent-typed/non-integral value packと、未instantiateの
-        dependent function-template definition DIEは未完
+        i686/AMD64で検証。qualified nested aliasを宣言型とするintegral packも
+        function DIEに実型・値を出力しGCCとmangling照合済み。compound／non-integral
+        dependent value packと、未instantiateのdependent function-template definition
+        DIEは未完
   - [x] Concrete function-template template-template argumentを明示指定および
         deductionで解決し、type parameter／integral non-type parameter signaturesの
         compatible actual template名を保持。Itanium manglingとGNU DWARF v4
