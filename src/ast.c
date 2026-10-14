@@ -645,6 +645,14 @@ bool type_is_same_template_argument(Type* a, Type* b) {
         return false;
     }
     if (a == b) return true;
+    if (!!a->cxx_dependent_class_template_owner !=
+            !!b->cxx_dependent_class_template_owner ||
+        (a->cxx_dependent_class_template_owner &&
+         !type_is_same_template_argument(
+             a->cxx_dependent_class_template_owner,
+             b->cxx_dependent_class_template_owner))) {
+        return false;
+    }
     switch (a->kind) {
         case TYPE_PTR:
             return (!a->cxx_is_member_pointer ||

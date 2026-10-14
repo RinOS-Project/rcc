@@ -1846,6 +1846,11 @@ static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc);
 static Type* parse_class_template_specialization_for_owner(
     CxxTemplate* tmpl, CxxClass* owner_class, SourceLoc loc);
+static Type* parse_class_template_specialization_for_dependent_owner(
+    CxxTemplate* tmpl, Type* owner_type, SourceLoc loc);
+static Type* parse_class_template_specialization_with_owner_type(
+    CxxTemplate* tmpl, CxxClass* owner_class, Type* owner_type,
+    SourceLoc loc);
 static Type* parse_alias_template_specialization(CxxTemplate* tmpl,
                                                   SourceLoc loc,
                                                   Type* owner_type);
@@ -11957,15 +11962,64 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
     }
     if (type->cxx_dependent && type->cxx_template &&
         type->cxx_template_param_index < 0 &&
-        type->cxx_template_arg_count > 0) {
+        (type->cxx_template_arg_count > 0 ||
+         type->cxx_dependent_class_template_owner)) {
+        Type* nested_owner_type = NULL;
+        CxxClass* nested_owner_class = NULL;
+        CxxTemplate* nested_class_template = type->cxx_template;
         Type* nested_arguments[32] = { NULL };
         int64_t nested_values[32] = { 0 };
         bool nested_value_present[32] = { false };
         Expr* nested_value_expressions[32] = { NULL };
         bool nested_pack_expansions[32] = { false };
-        int pack_index = cxx_class_pack_index(type->cxx_template);
+        int pack_index;
         int nested_count = 0;
         bool still_dependent = false;
+        if (type->cxx_dependent_class_template_owner) {
+            CxxNestedClassTemplate* nested_entry;
+            CxxClass* access_context;
+            nested_owner_type = substitute_template_type(
+                tmpl, type->cxx_dependent_class_template_owner, arguments,
+                argument_count, value_args, value_present);
+            if (!nested_owner_type) return NULL;
+            still_dependent = nested_owner_type->cxx_dependent;
+            if (!still_dependent) {
+                nested_owner_class = nested_owner_type->cxx_class;
+                if (!nested_owner_class) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "nested class-template owner did not resolve "
+                              "to a class type");
+                    return NULL;
+                }
+                nested_entry = cxx_class_find_nested_template(
+                    nested_owner_class, type->cxx_template->name);
+                if (!nested_entry || !nested_entry->declaration) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "class '%s' has no nested class template '%s'",
+                              nested_owner_class->name
+                                  ? nested_owner_class->name : "<unnamed>",
+                              type->cxx_template->name
+                                  ? type->cxx_template->name : "<unnamed>");
+                    return NULL;
+                }
+                access_context = tmpl && tmpl->active_class_instance
+                    ? tmpl->active_class_instance
+                    : tmpl ? tmpl->templated_class : NULL;
+                if (!cxx_nested_class_template_accessible(
+                        nested_entry, nested_owner_class, access_context)) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "nested class template '%s' is inaccessible "
+                              "in class '%s'",
+                              type->cxx_template->name
+                                  ? type->cxx_template->name : "<unnamed>",
+                              nested_owner_class->name
+                                  ? nested_owner_class->name : "<unnamed>");
+                    return NULL;
+                }
+                nested_class_template = nested_entry->declaration;
+            }
+        }
+        pack_index = cxx_class_pack_index(nested_class_template);
         if (type->cxx_template_arg_count >
             (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
             rcc_error((SourceLoc){"<template>", 0, 0},
@@ -11978,8 +12032,8 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     nested_index >= pack_index
                 ? pack_index : nested_index;
             TemplateParam* parameter = parameter_index <
-                    type->cxx_template->param_count
-                ? &type->cxx_template->params[parameter_index] : NULL;
+                    nested_class_template->param_count
+                ? &nested_class_template->params[parameter_index] : NULL;
             bool is_pack_expansion =
                 type->cxx_template_arg_pack_expansions &&
                 type->cxx_template_arg_pack_expansions[nested_index];
@@ -12360,12 +12414,20 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                         : value_expression;
             }
             substituted->cxx_template_arg_count = nested_count;
+            substituted->cxx_dependent_class_template_owner =
+                nested_owner_type;
             return substituted;
         }
+        if (nested_owner_type) {
+            return instantiate_class_template_for_owner(
+                nested_class_template, nested_arguments, nested_values,
+                nested_value_present, nested_count, nested_owner_class,
+                (SourceLoc){"<template>", 0, 0});
+        }
         return instantiate_class_template(
-            type->cxx_template, nested_arguments, nested_values,
-            nested_value_present,
-            nested_count, (SourceLoc){"<template>", 0, 0});
+            nested_class_template, nested_arguments, nested_values,
+            nested_value_present, nested_count,
+            (SourceLoc){"<template>", 0, 0});
     }
     if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
         type->cxx_template_arg_count > 0) {
@@ -14189,6 +14251,16 @@ CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
     return type ? type->cxx_class : NULL;
 }
 
+CxxClass* rcc_cxx_instantiate_class_template_for_owner(
+    CxxTemplate* tmpl, Type** arguments, const int64_t* value_args,
+    const bool* value_present, int argument_count, CxxClass* owner_class,
+    SourceLoc loc) {
+    Type* type = instantiate_class_template_for_owner(
+        tmpl, arguments, value_args, value_present, argument_count,
+        owner_class, loc);
+    return type ? type->cxx_class : NULL;
+}
+
 static bool cxx_expression_is_dependent(
     const Expr* expression, const CxxTemplate* tmpl) {
     const CxxTemplate* expression_template;
@@ -14358,8 +14430,9 @@ static bool cxx_type_pattern_contains_dependent_component(
     return false;
 }
 
-static Type* parse_class_template_specialization_for_owner(
-    CxxTemplate* tmpl, CxxClass* owner_class, SourceLoc loc) {
+static Type* parse_class_template_specialization_with_owner_type(
+    CxxTemplate* tmpl, CxxClass* owner_class, Type* owner_type,
+    SourceLoc loc) {
     Type* arguments[32] = { NULL };
     int64_t values[32] = { 0 };
     bool value_present[32] = { false };
@@ -14620,6 +14693,51 @@ static Type* parse_class_template_specialization_for_owner(
     }
     expect(TOK_GT, ">");
     if (invalid_template_argument) return type_int;
+    if (owner_type && owner_type->cxx_dependent) {
+        Type* dependent = type_struct(tmpl->name ? tmpl->name
+                                                  : "dependent-template");
+        dependent->cxx_dependent = true;
+        dependent->cxx_template = tmpl;
+        dependent->cxx_template_param_index = -1;
+        dependent->cxx_dependent_class_template_owner = owner_type;
+        dependent->cxx_template_arg_count = argument_count;
+        if (argument_count > 0) {
+            dependent->cxx_template_args = ast_arena_alloc(
+                sizeof(*dependent->cxx_template_args) *
+                (size_t)argument_count);
+            dependent->cxx_template_value_args = ast_arena_alloc(
+                sizeof(*dependent->cxx_template_value_args) *
+                (size_t)argument_count);
+            for (int argument_index = 0; argument_index < argument_count;
+                 ++argument_index) {
+                int parameter_index = pack_index >= 0 &&
+                        argument_index >= pack_index
+                    ? pack_index : argument_index;
+                TemplateParam* parameter = parameter_index < tmpl->param_count
+                    ? &tmpl->params[parameter_index] : NULL;
+                dependent->cxx_template_args[argument_index] =
+                    parameter && parameter->kind == TPARAM_NONTYPE
+                        ? arguments[argument_index]
+                              ? arguments[argument_index]
+                              : parameter->type
+                        : arguments[argument_index];
+                dependent->cxx_template_value_args[argument_index] =
+                    parameter && parameter->kind == TPARAM_NONTYPE &&
+                            value_present[argument_index]
+                        ? expr_int(values[argument_index], loc)
+                        : value_expressions[argument_index];
+            }
+            if (has_pack_expansion) {
+                dependent->cxx_template_arg_pack_expansions =
+                    ast_arena_alloc(sizeof(bool) *
+                                    (size_t)argument_count);
+                memcpy(dependent->cxx_template_arg_pack_expansions,
+                       pack_expansions,
+                       sizeof(bool) * (size_t)argument_count);
+            }
+        }
+        return dependent;
+    }
     for (int argument_index = 0; argument_index < argument_count;
          ++argument_index) {
         if (cxx_type_pattern_contains_dependent_component(
@@ -14835,6 +14953,18 @@ static Type* parse_class_template_specialization_for_owner(
     return instantiate_class_template_for_owner(
         tmpl, arguments, values, value_present, argument_count, owner_class,
         loc);
+}
+
+static Type* parse_class_template_specialization_for_owner(
+    CxxTemplate* tmpl, CxxClass* owner_class, SourceLoc loc) {
+    return parse_class_template_specialization_with_owner_type(
+        tmpl, owner_class, NULL, loc);
+}
+
+static Type* parse_class_template_specialization_for_dependent_owner(
+    CxxTemplate* tmpl, Type* owner_type, SourceLoc loc) {
+    return parse_class_template_specialization_with_owner_type(
+        tmpl, NULL, owner_type, loc);
 }
 
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
@@ -19760,9 +19890,17 @@ static bool cxx_function_template_nontype_pattern_type_matches(
         (left->cxx_dependent_member_name &&
          strcmp(left->cxx_dependent_member_name,
                 right->cxx_dependent_member_name) != 0) ||
+        (!!left->cxx_dependent_class_template_owner !=
+         !!right->cxx_dependent_class_template_owner) ||
         (left->cxx_dependent &&
          left->cxx_template_param_index !=
              right->cxx_template_param_index)) {
+        return false;
+    }
+    if (left->cxx_dependent_class_template_owner &&
+        !cxx_function_template_nontype_pattern_type_matches(
+            pattern, left->cxx_dependent_class_template_owner,
+            right->cxx_dependent_class_template_owner, depth + 1u)) {
         return false;
     }
     switch (left->kind) {
@@ -24495,7 +24633,9 @@ static Type* parse_cxx_type_spec(void) {
                     ? parse_alias_template_specialization(
                           owner_alias_template, loc, NULL)
                     : NULL;
-            if (!owner_type || !match(TOK_SCOPE) || !check(TOK_IDENT)) {
+            bool has_owner_scope = owner_type && match(TOK_SCOPE);
+            if (has_owner_scope) (void)match(TOK_TEMPLATE);
+            if (!has_owner_scope || !check(TOK_IDENT)) {
                 rcc_error(loc,
                           "typename must name a nested type of a class type");
                 t = type_int;
@@ -24518,9 +24658,13 @@ static Type* parse_cxx_type_spec(void) {
                     bool accessible = cxx_nested_class_template_accessible(
                         member_class_template, owner_class, active_class);
                     Type* specialization =
-                        parse_class_template_specialization_for_owner(
-                            member_class_template->declaration, owner_class,
-                            loc);
+                        owner_type->cxx_dependent
+                            ? parse_class_template_specialization_for_dependent_owner(
+                                  member_class_template->declaration,
+                                  owner_type, loc)
+                            : parse_class_template_specialization_for_owner(
+                                  member_class_template->declaration,
+                                  owner_class, loc);
                     if (!accessible) {
                         rcc_error(loc,
                                   "nested class template '%s' is inaccessible in class '%s'",

@@ -3468,7 +3468,16 @@ static bool cxx_template_redeclaration_type_matches(
         left->is_unsigned != right->is_unsigned ||
         left->cxx_is_member_pointer != right->cxx_is_member_pointer ||
         left->cxx_dependent_alias_template !=
-            right->cxx_dependent_alias_template) {
+            right->cxx_dependent_alias_template ||
+        (!!left->cxx_dependent_class_template_owner !=
+         !!right->cxx_dependent_class_template_owner)) {
+        return false;
+    }
+    if (left->cxx_dependent_class_template_owner &&
+        !cxx_template_redeclaration_type_matches(
+            left->cxx_dependent_class_template_owner, left_template,
+            right->cxx_dependent_class_template_owner, right_template,
+            depth + 1)) {
         return false;
     }
     if (left->cxx_dependent || right->cxx_dependent) {
@@ -5256,7 +5265,11 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
      * the template and its argument patterns on the dependent carrier so the
      * real class instance, including its field layout, is materialized here. */
     if (type->cxx_dependent && type->cxx_template &&
-        type->cxx_template_arg_count > 0) {
+        (type->cxx_template_arg_count > 0 ||
+         type->cxx_dependent_class_template_owner)) {
+        Type* nested_owner_type = NULL;
+        CxxClass* nested_owner_class = NULL;
+        CxxTemplate* nested_class_template = type->cxx_template;
         Type* nested_arguments[32] = { NULL };
         int64_t nested_values[32] = { 0 };
         bool nested_value_present[32] = { false };
@@ -5266,6 +5279,30 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         int pack_index = -1;
         bool still_dependent = false;
         CxxClass* instantiated;
+        if (type->cxx_dependent_class_template_owner) {
+            CxxNestedClassTemplate* nested_entry;
+            nested_owner_type = template_substitute_type(
+                tmpl, type->cxx_dependent_class_template_owner, args,
+                arg_count, value_args, value_present);
+            if (!nested_owner_type) return NULL;
+            still_dependent = nested_owner_type->cxx_dependent;
+            if (!still_dependent) {
+                nested_owner_class = nested_owner_type->cxx_class;
+                nested_entry = nested_owner_class
+                    ? cxx_class_find_nested_template(
+                          nested_owner_class, type->cxx_template->name)
+                    : NULL;
+                if (!nested_entry || !nested_entry->declaration) {
+                    rcc_error((SourceLoc){"<template>", 0, 0},
+                              "dependent class-template owner has no nested "
+                              "class template '%s'",
+                              type->cxx_template->name
+                                  ? type->cxx_template->name : "<unnamed>");
+                    return NULL;
+                }
+                nested_class_template = nested_entry->declaration;
+            }
+        }
         if (type->cxx_template_arg_count >
             (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
             rcc_error((SourceLoc){"<template>", 0, 0},
@@ -5273,11 +5310,13 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
             return NULL;
         }
         for (int parameter_index = 0;
-             parameter_index < type->cxx_template->param_count;
+             parameter_index < nested_class_template->param_count;
              ++parameter_index) {
-            if (!type->cxx_template->params[parameter_index].is_pack) continue;
+            if (!nested_class_template->params[parameter_index].is_pack) {
+                continue;
+            }
             if (pack_index >= 0 ||
-                parameter_index != type->cxx_template->param_count - 1) {
+                parameter_index != nested_class_template->param_count - 1) {
                 pack_index = -2;
                 break;
             }
@@ -5289,8 +5328,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                     nested_index >= pack_index
                 ? pack_index : nested_index;
             TemplateParam* parameter = parameter_index >= 0 &&
-                    parameter_index < type->cxx_template->param_count
-                ? &type->cxx_template->params[parameter_index] : NULL;
+                    parameter_index < nested_class_template->param_count
+                ? &nested_class_template->params[parameter_index] : NULL;
             bool is_pack_expansion =
                 type->cxx_template_arg_pack_expansions &&
                 type->cxx_template_arg_pack_expansions[nested_index];
@@ -5634,12 +5673,19 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 }
             }
             dependent_type->cxx_template_arg_count = nested_count;
+            dependent_type->cxx_dependent_class_template_owner =
+                nested_owner_type;
             return dependent_type;
         }
-        instantiated = rcc_cxx_instantiate_class_template(
-            type->cxx_template, nested_arguments, nested_values,
-            nested_value_present, nested_count,
-            (SourceLoc){"<template>", 0, 0});
+        instantiated = nested_owner_type
+            ? rcc_cxx_instantiate_class_template_for_owner(
+                  nested_class_template, nested_arguments, nested_values,
+                  nested_value_present, nested_count, nested_owner_class,
+                  (SourceLoc){"<template>", 0, 0})
+            : rcc_cxx_instantiate_class_template(
+                  nested_class_template, nested_arguments, nested_values,
+                  nested_value_present, nested_count,
+                  (SourceLoc){"<template>", 0, 0});
         return instantiated ? instantiated->type : NULL;
     }
     if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&

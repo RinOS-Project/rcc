@@ -4248,8 +4248,34 @@ remains a separate open item.
 - [x] Enforce private versus protected nested-template access: reject private
   lookup from a derived class and accept protected lookup; verify invalid cases
   against GCC and ensure no object is emitted.
-- [ ] Support dependent owner forms (`Outer<T>::Inner<U>` while `T` is still
-  dependent), explicit/partial nested specializations, and structural NTTP
-  owner packs.
+- [x] Resolve dependent class-template owners for `typename
+  Outer<T>::template Inner<U>` while `T` is still dependent. Retain the owner
+  and nested arguments until substitution, then select and instantiate the
+  nested declaration belonging to the concrete owner. Cover class-template
+  aliases and cloned function-template bodies, preserve per-owner
+  specialization/mangling, and reject private nested templates after owner
+  substitution.
+- [ ] Add explicit/partial nested class-template specializations and structural
+  NTTP owner packs; extend coverage to deeper dependent-owner chains and pack
+  expansions.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` aggregate after
   this parser change (exit 0).
+
+## RCC continuation (2026-10-15, dependent nested class-template owners)
+
+- [x] Preserve a dependent owner separately from a nested class-template's
+  own type/value arguments in `Outer<T>::template Inner<U>`, then substitute
+  the owner before looking up and instantiating its nested declaration.
+- [x] Exercise the owner-aware substitution in both class-template aliases
+  and cloned function-template bodies. Check two distinct outer/inner type
+  combinations, GCC Itanium symbols on i686/AMD64, PE-i386 object generation,
+  AMD64 execution, and GCC C++20 `-Wall -Wextra -Werror` execution.
+- [x] Reject a private nested class template after dependent-owner
+  substitution; verify diagnostics and absence of an output object on both
+  target architectures, with GCC also rejecting the fixture.
+- [x] Pass the full native-Windows MinGW GCC `test-cxx` aggregate after this
+  change (exit 0).
+- [x] Pass the full native-Windows MinGW GCC `test-debug-info` aggregate after
+  this change (exit 0).
+- [ ] Add explicit/partial nested class-template specializations, structural
+  NTTP owner packs, and deeper dependent-owner/pack expansion cases.

@@ -212,6 +212,10 @@ struct Type {
      * to another dependent nested alias, so later instantiation can continue
      * the owner chain instead of reusing an out-of-scope parameter index. */
     Type* cxx_dependent_alias_owner;
+    /* A nested class-template-id such as
+     * `Outer<T>::Inner<U>` retains the dependent owner separately from the
+     * nested template's own argument list until Outer<T> is specialized. */
+    Type* cxx_dependent_class_template_owner;
     Type** cxx_template_args;
     int cxx_template_arg_count;
     /* A dependent template-id argument can be a type-pack expansion (for

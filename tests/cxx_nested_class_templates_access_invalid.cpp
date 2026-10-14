@@ -29,3 +29,12 @@ struct NestedTemplateAccessPrivateDerived
     : NestedTemplateAccessPrivateOwner {
     using Hidden = typename NestedTemplateAccessPrivateOwner::Hidden<long>;
 };
+
+template <typename OwnerType>
+struct NestedTemplateDependentAccessUse {
+    using Hidden = typename NestedTemplateAccessTemplateOwner<
+        OwnerType>::template Hidden<long>;
+};
+
+using InaccessibleDependentTemplateOwner =
+    NestedTemplateDependentAccessUse<int>::Hidden;
