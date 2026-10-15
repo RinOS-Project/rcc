@@ -4593,8 +4593,10 @@ remains a separate open item.
   generated AMD64 plus GCC-host programs. The focused nested-owner gate passes;
   the full native-Windows MinGW `test-cxx` aggregate passes with the same parser
   implementation (exit 0).
-- [ ] Chains deeper than four nested member-template levels and non-null
-  structural pointer NTTP values remain open.
+- [x] Verify a standard-valid explicit member specialization across five
+  nested member-template levels (see the five-level explicit-specialization
+  continuation below).
+- [ ] Non-null structural pointer NTTP values remain open.
 
 ## RCC continuation (2026-10-16, partial specialization through nested partial owners)
 
@@ -4634,8 +4636,23 @@ remains a separate open item.
   primary outer owner and unspecialized `Mid`/`Leaf` selections. Compare all
   four exact GCC Itanium symbols on i686/AMD64 and execute both host programs;
   the focused nested-owner target passes (exit 0).
-- [ ] Chains deeper than four nested member-template levels and non-null
-  structural pointer NTTP values remain open.
+- [ ] Chains deeper than four nested member-template levels with an explicitly
+  specialized intermediate owner and non-null structural pointer NTTP values
+  remain open.
+
+## RCC continuation (2026-10-16, five-level nested explicit specialization)
+
+- [x] Resolve an explicit nested member specialization through four nested
+  member-class-template owners, consuming five consecutive explicit
+  specialization template heads for `Owner<int>::First<char>::Second<short>`
+  `::Third<int>::Fourth<float>::Inner<double>`.
+- [x] Retain the primary and explicitly specialized outer-owner cases; compare
+  all three exact GCC Itanium symbols against RCC on i686/AMD64 and execute the
+  generated AMD64 and GCC-host programs. The focused nested-owner target passes
+  (exit 0).
+- [ ] Explicit-specialization chains deeper than five nested levels, forms
+  with specialized intermediate owners, and non-null structural pointer NTTP
+  values remain open.
 
 ## RCC continuation (2026-10-16, five nested partial-owner levels)
 
