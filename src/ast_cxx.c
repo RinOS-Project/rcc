@@ -315,6 +315,37 @@ static void cxx_mangle_type_char(char* buf, size_t* pos, char value) {
     buf[(*pos)++] = value;
 }
 
+static bool cxx_mangle_single_integer_structural_value(
+    char* buf, size_t* pos, Type* value_type, int64_t value,
+    CxxMangleContext* context) {
+    TypeParam* field;
+    if (!cxx_structural_class_has_single_integer_field(value_type)) {
+        return false;
+    }
+    field = value_type->cxx_class->fields;
+    cxx_mangle_type_char(buf, pos, 'X');
+    cxx_mangle_type_char(buf, pos, 't');
+    cxx_mangle_type_char(buf, pos, 'l');
+    cxx_mangle_type_append_context(buf, pos, value_type, context);
+    cxx_mangle_type_char(buf, pos, 'L');
+    cxx_mangle_type_append_context(buf, pos, field->type, context);
+    cxx_mangle_template_value_suffix(buf, pos, field->type, value);
+    cxx_mangle_type_char(buf, pos, 'E');
+    return true;
+}
+
+static void cxx_mangle_template_class_value_argument(
+    char* buf, size_t* pos, Type* value_type, int64_t value,
+    CxxMangleContext* context) {
+    if (cxx_mangle_single_integer_structural_value(
+            buf, pos, value_type, value, context)) {
+        return;
+    }
+    cxx_mangle_type_char(buf, pos, 'L');
+    cxx_mangle_type_append_context(buf, pos, value_type, context);
+    cxx_mangle_template_value_suffix(buf, pos, value_type, value);
+}
+
 /* Use the source template and its complete argument list for class members.
  * The parser's internal `.__instanceN` tag is intentionally useful for AST
  * ownership, but N is translation-unit order and therefore cannot identify an
@@ -388,11 +419,9 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
             }
             value_type = cxx_mangle_template_value_type(
                 tmpl, parameter, template_args, template_arg_count, index);
-            cxx_mangle_type_char(buf, pos, 'L');
-            cxx_mangle_type_append_context(
-                buf, pos, value_type, &template_argument_context);
-            cxx_mangle_template_value_suffix(
-                buf, pos, value_type, template_value_args[index]);
+            cxx_mangle_template_class_value_argument(
+                buf, pos, value_type, template_value_args[index],
+                &template_argument_context);
         }
     }
     if (expanded_pack) {
@@ -424,12 +453,10 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 Type* value_type = cxx_mangle_template_value_type(
                     tmpl, &tmpl->params[pack_parameter_index], template_args,
                     template_arg_count, pack_parameter_index + pack_index);
-                buf[(*pos)++] = 'L';
-                cxx_mangle_type_append_context(
-                    buf, pos, value_type, &template_argument_context);
-                cxx_mangle_template_value_suffix(
+                cxx_mangle_template_class_value_argument(
                     buf, pos, value_type,
-                    template_value_args[pack_parameter_index + pack_index]);
+                    template_value_args[pack_parameter_index + pack_index],
+                    &template_argument_context);
             }
         }
         if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
@@ -452,13 +479,11 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
             if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
                 rcc_fatal("C++ template class name is too long");
             }
-            buf[(*pos)++] = 'L';
             value_type = cxx_mangle_template_value_type(
                 tmpl, parameter, template_args, template_arg_count, index);
-            cxx_mangle_type_append_context(
-                buf, pos, value_type, &template_argument_context);
-            cxx_mangle_template_value_suffix(
-                buf, pos, value_type, template_value_args[index]);
+            cxx_mangle_template_class_value_argument(
+                buf, pos, value_type, template_value_args[index],
+                &template_argument_context);
         } else if (parameter->kind == TPARAM_TEMPLATE) {
             if (!template_args || !template_args[index] ||
                 !template_args[index]->cxx_template) {
@@ -2043,6 +2068,21 @@ bool cxx_method_override_signature_matches(const CxxMethod* derived,
            derived->decl->type && base->decl->type &&
            type_is_compatible(derived->decl->type->ret_type,
                               base->decl->type->ret_type);
+}
+
+bool cxx_structural_class_has_single_integer_field(const Type* type) {
+    const CxxClass* cls;
+    const TypeParam* field;
+    if (!type || type->kind != TYPE_STRUCT || type->cxx_nontrivial ||
+        !(cls = type->cxx_class) || cls->base_count != 0 ||
+        cls->has_nonpublic_field || cls->has_user_constructor ||
+        cls->vtable_size != 0 || cls->is_abstract ||
+        !(field = cls->fields) || field->next || field->is_bitfield ||
+        field->cxx_access != ACCESS_PUBLIC || !field->type ||
+        !type_is_integer(field->type)) {
+        return false;
+    }
+    return true;
 }
 
 CxxClass* cxx_class_alloc(const char* name, bool is_struct) {

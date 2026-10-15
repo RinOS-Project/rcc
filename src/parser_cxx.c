@@ -1870,6 +1870,28 @@ static bool cxx_template_non_type_constant_value(
         *value_out = 0;
         return true;
     }
+    if (expression->kind == EXPR_COMPOUND) {
+        Type* value_type = expression->compound_type
+            ? expression->compound_type : expression->type;
+        CxxClass* value_class = value_type ? value_type->cxx_class : NULL;
+        TypeParam* field = value_class ? value_class->fields : NULL;
+        ExprList* initializer = expression->compound_init;
+        if (!cxx_structural_class_has_single_integer_field(value_type)) {
+            return false;
+        }
+        if (!initializer) {
+            if (field->initializer) {
+                return expr_eval_integer_constant(
+                    field->initializer, value_out);
+            }
+            *value_out = 0;
+            return true;
+        }
+        return !initializer->next &&
+            initializer->designator_kind == INIT_DESIGNATOR_NONE &&
+            initializer->expr &&
+            expr_eval_integer_constant(initializer->expr, value_out);
+    }
     return false;
 }
 static Type* parse_class_template_specialization_for_owner(
@@ -13828,7 +13850,9 @@ static Type* instantiate_class_template_for_owner(
              !non_type_argument_type || non_type_argument_type->cxx_dependent ||
              (!type_is_integer(non_type_argument_type) &&
              non_type_argument_type->kind != TYPE_ENUM &&
-             non_type_argument_type->kind != TYPE_NULLPTR))) {
+             non_type_argument_type->kind != TYPE_NULLPTR &&
+             !cxx_structural_class_has_single_integer_field(
+                 non_type_argument_type)))) {
             rcc_error(loc,
                       "class template non-type argument %d has an "
                       "unsupported constant type", index + 1);

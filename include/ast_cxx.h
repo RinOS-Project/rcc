@@ -476,6 +476,7 @@ char* cxx_mangle_type(Type* type);
 
 /* Class operations (core API) */
 CxxClass* cxx_class_alloc(const char* name, bool is_struct);
+bool cxx_structural_class_has_single_integer_field(const Type* type);
 void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bool is_virtual);
 void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
                                      const char* member_name,
