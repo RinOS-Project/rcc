@@ -199,6 +199,10 @@ struct NestedOwnerMixedPack {
         value_type payload;
 
         int inner_payload_size() const { return sizeof(payload); }
+
+        bool packed_widths_match() const {
+            return ((sizeof(OuterTypes) == InnerValues) && ...);
+        }
     };
 };
 
@@ -315,8 +319,11 @@ int main() {
         typename NestedOwnerMixedPack<>::template Inner<>;
     using two_element_mixed_pack_inner_owner =
         typename NestedOwnerMixedPack<short, char>::template Inner<1, 2>;
+    using matching_mixed_pack_inner_owner =
+        typename NestedOwnerMixedPack<short, char>::template Inner<2, 1>;
     empty_mixed_pack_inner_owner empty_mixed_pack;
     two_element_mixed_pack_inner_owner two_element_mixed_pack;
+    matching_mixed_pack_inner_owner matching_mixed_pack;
     NestedTypeDerived<int> integer(17);
     NestedTypeDerived<long long> wide(29);
     TypeParameterNestedType<NestedTypeCarrier> type_parameter(37);
@@ -355,6 +362,7 @@ int main() {
                        9 &&
                     empty_mixed_pack.inner_payload_size() == 1 &&
                     two_element_mixed_pack.inner_payload_size() == 8 &&
+                    matching_mixed_pack.packed_widths_match() &&
                     read_explicit_nested_owner_mixed_pack_layout() == 8 &&
                    function_template_nested_type_chain<
                        NestedTypeChainOuter>() == 43 &&

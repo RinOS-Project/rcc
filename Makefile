@@ -5359,6 +5359,18 @@ test-cxx-class-template-dependent-nested-type-invalid: $(RCXX_TARGET)
 	$(GREP) -q "dependent nested type 'value_type::nested_type' is inaccessible in class 'NestedAliasPrivateOuter'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log
 	$(GREP) -q "class 'NestedAliasMissingOuter' has no unique accessible nested type 'value_type::nested_type'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log,5)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_dependent_nested_owner_fold_pack_mismatch_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-gcc.log)
+	$(GREP) -F -q "mismatched argument pack lengths" $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-gcc.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.ro tests/cxx_dependent_nested_owner_fold_pack_mismatch_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.log)
+	$(GREP) -F -q "nested fold expression has inconsistent pack lengths" $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.ro tests/cxx_dependent_nested_owner_fold_pack_mismatch_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.log)
+	$(GREP) -F -q "nested fold expression has inconsistent pack lengths" $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.ro)
 else
 test-cxx-class-template-methods: test-cxx-class-template-methods-posix
 test-cxx-class-template-specialization: test-cxx-class-template-specialization-posix
@@ -5407,6 +5419,18 @@ test-cxx-class-template-dependent-nested-type-invalid: $(RCXX_TARGET)
 	$(GREP) -q "class 'MissingNestedType' has no unique accessible nested type 'value_type'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log
 	$(GREP) -q "dependent nested type 'value_type' is inaccessible in class 'PrivateNestedType'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log
 	$(GREP) -q "nested type 'value_type' is ambiguous in class 'AmbiguousNestedType'" $(TEST_OUT)/cxx-class-template-dependent-nested-type/invalid-x64.log
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_dependent_nested_owner_fold_pack_mismatch_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-gcc.log)
+	$(GREP) -F -q "mismatched argument pack lengths" $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-gcc.log
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.ro tests/cxx_dependent_nested_owner_fold_pack_mismatch_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.log)
+	$(GREP) -F -q "nested fold expression has inconsistent pack lengths" $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.ro tests/cxx_dependent_nested_owner_fold_pack_mismatch_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.log)
+	$(GREP) -F -q "nested fold expression has inconsistent pack lengths" $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-mismatch-x64.ro)
 endif
 
 test-cxx-dependent-nested-alias-transitive-invalid: $(RCXX_TARGET)

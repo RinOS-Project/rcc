@@ -7042,6 +7042,7 @@ static Expr* template_clone_pack_pattern(
     Type** expanded_type_args = NULL;
     DeclList* pack_parameters;
     int type_pack_index = -1;
+    int local_pack_index = -1;
     if (!pattern || !pack_name) return NULL;
     written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
     if (written < 0 || (size_t)written >= sizeof(name)) return NULL;
@@ -7057,6 +7058,10 @@ static Expr* template_clone_pack_pattern(
         candidate = template_parameter_pack_index_nested(
             tmpl, parameter->decl->type);
         if (candidate >= 0 && candidate < tmpl->param_count &&
+            tmpl->params[candidate].is_pack) {
+            local_pack_index = candidate;
+        }
+        if (candidate >= 0 && candidate < tmpl->param_count &&
             tmpl->params[candidate].kind == TPARAM_TYPE &&
             tmpl->params[candidate].is_pack) {
             type_pack_index = candidate;
@@ -7067,9 +7072,12 @@ static Expr* template_clone_pack_pattern(
         for (int parameter_index = 0; parameter_index < tmpl->param_count;
              ++parameter_index) {
             TemplateParam* parameter = &tmpl->params[parameter_index];
-            if (parameter->kind == TPARAM_TYPE && parameter->is_pack &&
-                parameter->name && strcmp(parameter->name, pack_name) == 0) {
-                type_pack_index = parameter_index;
+            if (parameter->is_pack && parameter->name &&
+                strcmp(parameter->name, pack_name) == 0) {
+                local_pack_index = parameter_index;
+                if (parameter->kind == TPARAM_TYPE) {
+                    type_pack_index = parameter_index;
+                }
                 break;
             }
         }
@@ -7087,6 +7095,87 @@ static Expr* template_clone_pack_pattern(
                sizeof(*expanded_type_args) * (size_t)arg_count);
         expanded_type_args[type_pack_index] = tmpl->pending_pack_args[index];
         clone_args = expanded_type_args;
+    }
+
+    /* A nested class member can expand its own pack in an expression that
+     * also refers to a pack from an enclosing class template.  The enclosing
+     * owner arguments are appended after this template's flattened arguments;
+     * substitute the matching owner element at the parameter's lexical index
+     * before cloning the expression. */
+    if (tmpl && local_pack_index >= 0 && tmpl->pending_pack_count >= 0) {
+        CxxTemplate* enclosing_pack_scope = NULL;
+        int enclosing_pack_index = -1;
+        int enclosing_pack_offset = -1;
+        int enclosing_pack_parameter_offset = -1;
+        int enclosing_pack_trailing_count = 0;
+        if (template_find_enclosing_pack_source(
+                tmpl, NULL, pattern, local_pack_index,
+                &enclosing_pack_scope, &enclosing_pack_index,
+                &enclosing_pack_offset,
+                &enclosing_pack_parameter_offset,
+                &enclosing_pack_trailing_count)) {
+            TemplateParam* enclosing_parameter =
+                &enclosing_pack_scope->params[enclosing_pack_index];
+            int enclosing_pack_count =
+                arg_count - enclosing_pack_offset -
+                enclosing_pack_trailing_count;
+            if (enclosing_pack_count < 0 ||
+                enclosing_pack_count != tmpl->pending_pack_count) {
+                rcc_error(pattern->loc,
+                          "nested fold expression has inconsistent pack lengths");
+                return NULL;
+            }
+            if (enclosing_parameter->kind == TPARAM_TYPE ||
+                enclosing_parameter->kind == TPARAM_TEMPLATE) {
+                if (!args || index >= enclosing_pack_count ||
+                    enclosing_pack_offset >
+                        INT_MAX - index ||
+                    enclosing_pack_parameter_offset < 0 ||
+                    enclosing_pack_parameter_offset >= arg_count) {
+                    rcc_error(pattern->loc,
+                              "nested fold expression is missing its enclosing type pack argument");
+                    return NULL;
+                }
+                if (!expanded_type_args) {
+                    expanded_type_args = ast_arena_alloc(
+                        sizeof(*expanded_type_args) * (size_t)arg_count);
+                    memcpy(expanded_type_args, clone_args,
+                           sizeof(*expanded_type_args) * (size_t)arg_count);
+                }
+                expanded_type_args[enclosing_pack_parameter_offset] =
+                    args[enclosing_pack_offset + index];
+                clone_args = expanded_type_args;
+            } else if (enclosing_parameter->kind == TPARAM_NONTYPE) {
+                int owner_argument_index = enclosing_pack_offset + index;
+                if (!value_args || !value_present ||
+                    owner_argument_index < 0 ||
+                    owner_argument_index >= arg_count ||
+                    !value_present[owner_argument_index] ||
+                    enclosing_pack_parameter_offset < 0 ||
+                    enclosing_pack_parameter_offset >= arg_count) {
+                    rcc_error(pattern->loc,
+                              "nested fold expression is missing its enclosing non-type pack value");
+                    return NULL;
+                }
+                if (!expanded_value_args) {
+                    expanded_value_args = ast_arena_alloc(
+                        sizeof(*expanded_value_args) * (size_t)arg_count);
+                    expanded_value_present = ast_arena_alloc(
+                        sizeof(*expanded_value_present) * (size_t)arg_count);
+                    memcpy(expanded_value_args, clone_value_args,
+                           sizeof(*expanded_value_args) * (size_t)arg_count);
+                    memcpy(expanded_value_present, clone_value_present,
+                           sizeof(*expanded_value_present) *
+                               (size_t)arg_count);
+                }
+                expanded_value_args[enclosing_pack_parameter_offset] =
+                    value_args[owner_argument_index];
+                expanded_value_present[enclosing_pack_parameter_offset] =
+                    true;
+                clone_value_args = expanded_value_args;
+                clone_value_present = expanded_value_present;
+            }
+        }
     }
     if (value_pack) {
         int parameter_index;
@@ -7222,11 +7311,13 @@ static Expr* template_clone_pack_fold(
             char name[64];
             int written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
             Expr* item;
+            int errors_before;
             if (written < 0 || (size_t)written >= sizeof(name)) {
                 rcc_error(expression->loc,
                           "C++ fold parameter name is too long");
                 return expression;
             }
+            errors_before = g_error_count;
             if (expression->cxx_fold_pattern) {
                 item = template_clone_pack_pattern(
                     tmpl, expression->cxx_fold_pattern, pack_name, index,
@@ -7245,8 +7336,10 @@ static Expr* template_clone_pack_fold(
                 item = expr_ident(rcc_intern(name), expression->loc);
             }
             if (!item) {
-                rcc_error(expression->loc,
-                          "C++ fold expression pattern could not be cloned");
+                if (g_error_count == errors_before) {
+                    rcc_error(expression->loc,
+                              "C++ fold expression pattern could not be cloned");
+                }
                 return expression;
             }
             if (!result) {
@@ -7263,11 +7356,13 @@ static Expr* template_clone_pack_fold(
         char name[64];
         int written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
         Expr* item;
+        int errors_before;
         if (written < 0 || (size_t)written >= sizeof(name)) {
             rcc_error(expression->loc,
                       "C++ fold parameter name is too long");
             return expression;
         }
+        errors_before = g_error_count;
         if (expression->cxx_fold_pattern) {
             item = template_clone_pack_pattern(
                 tmpl, expression->cxx_fold_pattern, pack_name, index,
@@ -7285,8 +7380,10 @@ static Expr* template_clone_pack_fold(
             item = expr_ident(rcc_intern(name), expression->loc);
         }
         if (!item) {
-            rcc_error(expression->loc,
-                      "C++ fold expression pattern could not be cloned");
+            if (g_error_count == errors_before) {
+                rcc_error(expression->loc,
+                          "C++ fold expression pattern could not be cloned");
+            }
             return expression;
         }
         if (!result) result = item;
