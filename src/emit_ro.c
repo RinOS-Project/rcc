@@ -5524,9 +5524,6 @@ static void module_emit_debug_frame(ObjectFile* obj, Module* mod,
     for (int index = 0; index < mod->symbol_count; ++index) {
         ModuleSymbol* symbol = &mod->symbols[index];
         if (!symbol->is_defined || symbol->section != MODULE_SYMBOL_CODE ||
-            (g_opts.debug_info &&
-             (!symbol->source_file || symbol->source_file[0] == '\0' ||
-              symbol->source_line == 0u)) ||
             debug_frame_prologue_kind(mod, symbol) ==
                 DEBUG_FRAME_PROLOGUE_NONE) continue;
         functions[function_count++] = symbol;

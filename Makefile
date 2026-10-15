@@ -1233,6 +1233,18 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		-o $(TEST_OUT)/debug-info/x86-g.ro tests/debug_info.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -g -c \
 		-o $(TEST_OUT)/debug-info/x64-g.ro tests/debug_info.c
+	$(RCC_TARGET) --target i686-unknown-rinos -g -c \
+		-o $(TEST_OUT)/debug-info/global-init-x86-g.ro \
+		tests/c_global_initializers.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -g -c \
+		-o $(TEST_OUT)/debug-info/global-init-x64-g.ro \
+		tests/c_global_initializers.c
+	$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/debug-info/global-init-x86-no-g.ro \
+		tests/c_global_initializers.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/debug-info/global-init-x64-no-g.ro \
+		tests/c_global_initializers.c
 	$(RCC_TARGET) --target i686-unknown-rinos -g -O1 -c \
 		-o $(TEST_OUT)/debug-info/x86-inline-g.ro tests/debug_info.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -g -O1 -c \
@@ -1485,7 +1497,11 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-template-x86-g.ro \
 		$(TEST_OUT)/debug-info/cxx-template-x64-g.ro \
 		$(TEST_OUT)/debug-info/verified-fallback-x86-g.ro \
-		$(TEST_OUT)/debug-info/verified-fallback-x64-g.ro
+		$(TEST_OUT)/debug-info/verified-fallback-x64-g.ro \
+		$(TEST_OUT)/debug-info/global-init-x86-g.ro \
+		$(TEST_OUT)/debug-info/global-init-x64-g.ro \
+		$(TEST_OUT)/debug-info/global-init-x86-no-g.ro \
+		$(TEST_OUT)/debug-info/global-init-x64-no-g.ro
 	@echo "Relocatable DWARF line/info/location-list/frame tests completed"
 
 test-aqc: $(AQC_TARGET)
@@ -15166,15 +15182,17 @@ test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 test-format-validation: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/format-validation)
 	$(RCC_TARGET) --target i686-unknown-rinos -g -c \
-		-o $(TEST_OUT)/format-validation/debug-x86.ro tests/debug_info.c
+		-o $(TEST_OUT)/format-validation/debug-x86.ro \
+		tests/c_global_initializers.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -g -c \
-		-o $(TEST_OUT)/format-validation/debug-x64.ro tests/debug_info.c
+		-o $(TEST_OUT)/format-validation/debug-x64.ro \
+		tests/c_global_initializers.c
 	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
-		-e debug_line_entry \
+		-e main \
 		-o $(TEST_OUT)/format-validation/debug-x86.rin \
 		$(TEST_OUT)/format-validation/debug-x86.ro
 	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
-		-e debug_line_entry \
+		-e main \
 		-o $(TEST_OUT)/format-validation/debug-x64.rin \
 		$(TEST_OUT)/format-validation/debug-x64.ro
 	$(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \

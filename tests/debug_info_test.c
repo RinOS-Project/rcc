@@ -5223,6 +5223,25 @@ static void verify_linked_image_excludes_debug_sections(
     assert(fclose(file) == 0);
 }
 
+static void verify_global_initializer_unwind(const char* path,
+                                             uint16_t architecture,
+                                             bool expect_debug_info)
+{
+    const char* initializer_symbol =
+        "tests/c_global_initializers.c::__rcc_global_init";
+    ObjectFile* object = objfile_read(path);
+    ObjSection* unwind;
+    assert(object != NULL && object->arch == architecture);
+    unwind = objfile_get_section(object, ".unwind");
+    assert(unwind != NULL);
+    assert(has_relocation_symbol(
+        unwind, initializer_symbol,
+        architecture == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U));
+    assert((objfile_get_section(object, ".debug_info") != NULL) ==
+           expect_debug_info);
+    objfile_free(object);
+}
+
 static void verify_verified_debug_object(const char* path,
                                          uint16_t architecture)
 {
@@ -5441,7 +5460,7 @@ static void verify_verified_fallback_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 30);
+    assert(argc == 34);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -5545,6 +5564,10 @@ int main(int argc, char** argv)
     verify_optimized_cxx_verified_debug_object(argv[21], ARCH_X64);
     verify_linked_image_excludes_debug_sections(argv[22], RIN_ARCH_X86);
     verify_linked_image_excludes_debug_sections(argv[23], RIN_ARCH_X86_64);
+    verify_global_initializer_unwind(argv[30], ARCH_X86, true);
+    verify_global_initializer_unwind(argv[31], ARCH_X64, true);
+    verify_global_initializer_unwind(argv[32], ARCH_X86, false);
+    verify_global_initializer_unwind(argv[33], ARCH_X64, false);
     verify_enum_underlying_dwarf(argv[18], ARCH_X86, "DebugSignedEnum",
                                  "char", 1u, 0x06u, false);
     verify_enum_underlying_dwarf(argv[19], ARCH_X64, "DebugSignedEnum",

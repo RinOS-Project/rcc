@@ -1919,6 +1919,10 @@
         `READ | UNWIND_DWARF_DEBUG_FRAME` flagsを両architectureで確認し、
         `test-format-validation`から同じdebug-frame形式のRINをrinvalidateへ
         渡して受理を検証。
+  - [x] `-g`の有無でruntime `.unwind` FDE coverageを変えず、source locationを
+        持たないsynthetic `__rcc_global_init`も含める。i686/AMD64のdebug／
+        non-debug object relocation回帰とlinked debug RINのrinvalidate検証を
+        `test-debug-info`／`test-format-validation`で確認。
   - [ ] `.debug_info`の全inline attribution／全scopeの宣言開始・終了に一致する
         location lists、register・piece location追跡、非標準prologueを含む
         完全なCFI/unwind
