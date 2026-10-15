@@ -4915,9 +4915,10 @@ remains a separate open item.
       negation, unsigned comparison, and later narrowing to `unsigned char`.
       Both valid and invalid forms pass the GCC comparison and the focused
       i686/AMD64 regressions.
-- [ ] Other direct non-type template argument values above `INT64_MAX`, the
-      full remaining unsigned-expression/type-conversion matrix, and floating
-      casts remain open.
+- [ ] Other direct unsigned non-type template argument types and conversion
+      forms above `INT64_MAX`, floating casts, non-null structural pointer
+      NTTP values, and overflow contexts outside dependent array-bound
+      substitution remain open.
 
 ## RCC continuation (2026-10-16, direct unsigned-64 template arguments)
 
@@ -4928,8 +4929,9 @@ remains a separate open item.
   exactly four out-of-range diagnostics including this case, verify no `.ro`
   artifact, and compare against GCC rejection. Both focused tests are in the
   `test-cxx`/`test-ci` regression path.
-- [ ] Other direct values above `INT64_MAX`, full unsigned expression and
-  conversion coverage, and floating casts remain open.
+- [ ] Other direct unsigned argument types/conversion forms above
+      `INT64_MAX`, floating casts, and unsigned constant-expression contexts
+      outside dependent array-bound substitution remain open.
 
 ## RCC continuation (2026-10-16, ten-level nested explicit specialization)
 
@@ -4943,3 +4945,17 @@ remains a separate open item.
   passes (exit 0) and is a dependency of the aggregate nested-class suite.
 - [ ] Chains deeper than ten levels and non-null structural pointer NTTP
   values remain open.
+
+## RCC continuation (2026-10-16, unsigned-64 template expression operations)
+
+- [x] Carry the target-width unsigned value through direct `ULLONG_MAX`
+  template arguments in dependent array bounds. Verify unsigned comparison,
+  multiplication, division, remainder, bitwise AND/OR/XOR/complement, shifts,
+  and narrowing to `unsigned char`; GCC accepts the matching C++20 fixture.
+- [x] Run `make test-cxx test-debug-info` with the expanded direct-argument
+  fixture and evaluator changes. The complete C++ and debug-info aggregates
+  pass (exit 0).
+- [ ] Other unsigned argument types/conversion paths, signed shift and
+  overflow rules, floating casts, and constant-expression contexts outside
+  dependent array bounds remain open; non-null structural pointer NTTP values
+  and specialization chains deeper than ten levels also remain open.
