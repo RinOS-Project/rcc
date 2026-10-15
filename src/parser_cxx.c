@@ -10701,22 +10701,46 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                                   "head is missing");
                     } else if (owner_parameters->param_count ==
                                owner_template->param_count) {
+                        int owner_kind_counts[3][2] = { { 0 } };
+                        int primary_kind_counts[3][2] = { { 0 } };
+                        bool matching_parameter_multiset = true;
                         for (int parameter_index = 0;
                              parameter_index < owner_template->param_count;
                              ++parameter_index) {
-                            TemplateParam* declared =
-                                &owner_parameters->params[parameter_index];
+                            TemplateParam* declared = &owner_parameters->params[
+                                parameter_index];
                             TemplateParam* primary_parameter =
                                 &owner_template->params[parameter_index];
-                            if (declared->kind != primary_parameter->kind ||
-                                declared->is_pack !=
-                                    primary_parameter->is_pack) {
-                                rcc_error(loc,
-                                          "nested partial specialization owner "
-                                          "template parameters do not match "
-                                          "the primary template");
+                            if (declared->kind < TPARAM_TYPE ||
+                                declared->kind > TPARAM_TEMPLATE ||
+                                primary_parameter->kind < TPARAM_TYPE ||
+                                primary_parameter->kind > TPARAM_TEMPLATE) {
+                                matching_parameter_multiset = false;
                                 break;
                             }
+                            ++owner_kind_counts[declared->kind]
+                                               [declared->is_pack ? 1 : 0];
+                            ++primary_kind_counts[primary_parameter->kind]
+                                                 [primary_parameter->is_pack
+                                                      ? 1 : 0];
+                        }
+                        for (int kind = TPARAM_TYPE;
+                             matching_parameter_multiset &&
+                                 kind <= TPARAM_TEMPLATE;
+                             ++kind) {
+                            for (int is_pack = 0; is_pack <= 1; ++is_pack) {
+                                if (owner_kind_counts[kind][is_pack] !=
+                                    primary_kind_counts[kind][is_pack]) {
+                                    matching_parameter_multiset = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!matching_parameter_multiset) {
+                            rcc_error(loc,
+                                      "nested partial specialization owner "
+                                      "template parameters do not match "
+                                      "the primary template");
                         }
                     }
                 }

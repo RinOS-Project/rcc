@@ -4406,8 +4406,7 @@ remains a separate open item.
   type-parameter-context owner matching; all completed with exit 0.
 - [ ] Extend structural non-integral NTTP owner packs beyond the current
   single-public-integral-or-enum-member subset; add multi-member/nested class
-  and pointer values, parameter-identity mapping when partial owner heads
-  reorder type parameters, and remaining standard-valid explicit
+  and pointer values, and remaining standard-valid explicit
   member-specialization forms on these owner shapes.
 
 ## RCC continuation (2026-10-15, enum structural NTTP nested owners)
@@ -4421,9 +4420,9 @@ remains a separate open item.
 - [x] Commit implementation, fixtures, and target checks as `0e32d07` on local
   RCC `main`; no push.
 - [ ] Extend to structural classes with multiple or nested members and
-  non-null pointer-valued members; cover dependent owner-head reordering and
-  remaining standard-valid explicit member specializations on these owner
-  shapes.
+  non-null pointer-valued members; cover additional dependent owner-head
+  patterns beyond parameter-kind reordering and remaining standard-valid
+  explicit member specializations on these owner shapes.
 
 ## RCC continuation (2026-10-15, null pointer structural NTTP members)
 
@@ -4441,3 +4440,16 @@ remains a separate open item.
 - [ ] Extend to structural classes with multiple or nested members and
   non-null pointer-valued members, and cover remaining standard-valid explicit
   member specializations on these owner shapes.
+
+## RCC continuation (2026-10-15, reordered structural NTTP owner heads)
+
+- [x] Match a nested member partial specialization whose owner head reorders
+  both parameter positions and kinds (`typename` and a one-field structural
+  integral NTTP). Map owner-head parameters by identity, not by position, while
+  retaining primary-owner fallback and member-value substitution.
+- [x] Verify primary and partial selection, exact GCC Itanium symbols on
+  i686/AMD64, and generated-code plus GCC-host runtime behavior. The focused
+  `test-cxx-nested-class-template-owner-structural-value-pack`, full native
+  Windows MinGW `test-cxx`, and `test-debug-info` gates all pass (exit 0).
+- [ ] Multi-member/nested structural values, non-null pointer members, and
+  remaining standard-valid explicit member specializations remain open.

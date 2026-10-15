@@ -116,6 +116,7 @@ typedef struct CxxMangleContext {
     Type** class_types;
     size_t class_type_count;
     size_t class_type_index_base;
+    size_t class_name_depth;
 } CxxMangleContext;
 
 static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type);
@@ -123,6 +124,8 @@ static void cxx_mangle_type_append_context(
     char* buf, size_t* pos, Type* type, CxxMangleContext* context);
 static void cxx_mangle_type_char(char* buf, size_t* pos, char value);
 static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls);
+static void mangle_class_name_context(char* buf, size_t* pos, CxxClass* cls,
+                                      CxxMangleContext* context);
 static size_t cxx_mangle_find_class_substitution(
     const CxxMangleContext* context, Type* type);
 static void cxx_mangle_record_class_type(CxxMangleContext* context,
@@ -355,6 +358,14 @@ static void cxx_mangle_template_class_value_argument(
  * ownership, but N is translation-unit order and therefore cannot identify an
  * inline variable or an in-class method across object files. */
 static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
+    CxxMangleContext context = { 0 };
+    context.class_type_index_base = 1u;
+    mangle_class_name_context(buf, pos, cls, &context);
+}
+
+static void mangle_class_name_context(
+    char* buf, size_t* pos, CxxClass* cls,
+    CxxMangleContext* template_argument_context) {
     CxxTemplate* tmpl;
     Type** template_args;
     int template_arg_count;
@@ -362,8 +373,6 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
     bool* template_value_present;
     bool expanded_pack;
     int pack_parameter_index = -1;
-    CxxMangleContext template_argument_context = { 0 };
-    template_argument_context.class_type_index_base = 1u;
     if (!cls) return;
     tmpl = cls->template_identity_tmpl
         ? cls->template_identity_tmpl : cls->templ;
@@ -380,8 +389,10 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         mangle_name(buf, pos, cls->name);
         return;
     }
+    ++template_argument_context->class_name_depth;
     if (cls->enclosing_class) {
-        mangle_class_name(buf, pos, cls->enclosing_class);
+        mangle_class_name_context(
+            buf, pos, cls->enclosing_class, template_argument_context);
     }
     if (tmpl) {
         for (int index = 0; index < tmpl->param_count; ++index) {
@@ -400,6 +411,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
          (expanded_pack && template_arg_count < pack_parameter_index) ||
          (template_arg_count > 0 && !template_args))) {
         mangle_name(buf, pos, cls->name);
+        --template_argument_context->class_name_depth;
         return;
     }
     mangle_name(buf, pos, tmpl->name);
@@ -412,7 +424,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         TemplateParam* parameter = &tmpl->params[index];
         if (parameter->kind == TPARAM_TYPE) {
             cxx_mangle_type_append_context(
-                buf, pos, template_args[index], &template_argument_context);
+                buf, pos, template_args[index], template_argument_context);
         } else if (parameter->kind == TPARAM_TEMPLATE) {
             mangle_template_argument_name(buf, pos, template_args[index]);
         } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -425,7 +437,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 tmpl, parameter, template_args, template_arg_count, index);
             cxx_mangle_template_class_value_argument(
                 buf, pos, value_type, template_value_args[index],
-                &template_argument_context);
+                template_argument_context);
         }
     }
     if (expanded_pack) {
@@ -440,7 +452,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 cxx_mangle_type_append_context(
                     buf, pos,
                     template_args[pack_parameter_index + pack_index],
-                    &template_argument_context);
+                    template_argument_context);
             } else if (tmpl->params[pack_parameter_index].kind ==
                        TPARAM_TEMPLATE) {
                 mangle_template_argument_name(
@@ -460,7 +472,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 cxx_mangle_template_class_value_argument(
                     buf, pos, value_type,
                     template_value_args[pack_parameter_index + pack_index],
-                    &template_argument_context);
+                    template_argument_context);
             }
         }
         if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
@@ -473,7 +485,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         if (expanded_pack && index <= pack_parameter_index) continue;
         if (parameter->kind == TPARAM_TYPE) {
             cxx_mangle_type_append_context(
-                buf, pos, template_args[index], &template_argument_context);
+                buf, pos, template_args[index], template_argument_context);
         } else if (parameter->kind == TPARAM_NONTYPE) {
             Type* value_type;
             if (!template_value_present || !template_value_present[index] ||
@@ -487,7 +499,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 tmpl, parameter, template_args, template_arg_count, index);
             cxx_mangle_template_class_value_argument(
                 buf, pos, value_type, template_value_args[index],
-                &template_argument_context);
+                template_argument_context);
         } else if (parameter->kind == TPARAM_TEMPLATE) {
             if (!template_args || !template_args[index] ||
                 !template_args[index]->cxx_template) {
@@ -502,6 +514,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         rcc_fatal("C++ template class name is too long");
     }
     buf[(*pos)++] = 'E';
+    --template_argument_context->class_name_depth;
 }
 
 static size_t cxx_mangle_find_class_substitution(
@@ -555,9 +568,20 @@ static void cxx_mangle_record_class_type(CxxMangleContext* context,
  * across parameters, as required by the Itanium ABI. */
 static void cxx_mangle_type_append_context(
     char* buf, size_t* pos, Type* type, CxxMangleContext* context) {
+    Type* original_type = type;
+    bool ordinary_pointer_type = type && type->kind == TYPE_PTR &&
+        !type->cxx_is_member_pointer;
     if (!type) {
         cxx_mangle_type_char(buf, pos, 'v');
         return;
+    }
+    if (ordinary_pointer_type && context) {
+        size_t substitution = cxx_mangle_find_class_substitution(
+            context, original_type);
+        if (substitution != (size_t)-1) {
+            cxx_mangle_append_substitution(buf, pos, substitution);
+            return;
+        }
     }
 
     while (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) {
@@ -674,7 +698,15 @@ static void cxx_mangle_type_append_context(
                     rcc_fatal("C++ anonymous type cannot be mangled");
                 }
                 if (type->cxx_class) {
-                    mangle_class_name(buf, pos, type->cxx_class);
+                    if (context && context->class_name_depth > 0u) {
+                        mangle_class_name_context(
+                            buf, pos, type->cxx_class, context);
+                    } else {
+                        CxxMangleContext class_context = { 0 };
+                        class_context.class_type_index_base = 1u;
+                        mangle_class_name_context(
+                            buf, pos, type->cxx_class, &class_context);
+                    }
                 } else {
                     mangle_name(buf, pos, type->tag);
                 }
@@ -718,6 +750,9 @@ static void cxx_mangle_type_append_context(
             break;
         default:
             rcc_fatal("unsupported C++ type in name mangling");
+    }
+    if (ordinary_pointer_type) {
+        cxx_mangle_record_class_type(context, original_type);
     }
 }
 

@@ -5278,18 +5278,27 @@ test-cxx-nested-class-template-owner-structural-value-pack: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK30NestedStructuralEnumValueOwnerIXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode37EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK36NestedStructuralNullPointerOwnerPackIJXtl35NestedStructuralOwnerNullPointerKeyEEXtlS0_EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK32NestedStructuralNullPointerOwnerIXtl35NestedStructuralOwnerNullPointerKeyEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPlXtl24NestedStructuralOwnerKeyLi47EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK30NestedStructuralValueOwnerPackIJXtl24NestedStructuralOwnerKeyLi3EEEXtlS0_Li7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK26NestedStructuralValueOwnerIXtl24NestedStructuralOwnerKeyLi37EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK34NestedStructuralEnumValueOwnerPackIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS0_LS1_7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK30NestedStructuralEnumValueOwnerIXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode37EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK36NestedStructuralNullPointerOwnerPackIJXtl35NestedStructuralOwnerNullPointerKeyEEXtlS0_EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK32NestedStructuralNullPointerOwnerIXtl35NestedStructuralOwnerNullPointerKeyEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPlXtl24NestedStructuralOwnerKeyLi47EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK30NestedStructuralValueOwnerPackIJXtl24NestedStructuralOwnerKeyLi3EEEXtlS0_Li7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK26NestedStructuralValueOwnerIXtl24NestedStructuralOwnerKeyLi37EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK34NestedStructuralEnumValueOwnerPackIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS0_LS1_7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK30NestedStructuralEnumValueOwnerIXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode37EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK36NestedStructuralNullPointerOwnerPackIJXtl35NestedStructuralOwnerNullPointerKeyEEXtlS0_EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK32NestedStructuralNullPointerOwnerIXtl35NestedStructuralOwnerNullPointerKeyEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPlXtl24NestedStructuralOwnerKeyLi47EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe tests/cxx_nested_class_template_owner_structural_value_pack.cpp
 	$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe
 
@@ -5361,18 +5370,27 @@ test-cxx-nested-class-template-owner-structural-value-pack-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK30NestedStructuralEnumValueOwnerIXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode37EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK36NestedStructuralNullPointerOwnerPackIJXtl35NestedStructuralOwnerNullPointerKeyEEXtlS0_EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK32NestedStructuralNullPointerOwnerIXtl35NestedStructuralOwnerNullPointerKeyEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPlXtl24NestedStructuralOwnerKeyLi47EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK30NestedStructuralValueOwnerPackIJXtl24NestedStructuralOwnerKeyLi3EEEXtlS0_Li7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK26NestedStructuralValueOwnerIXtl24NestedStructuralOwnerKeyLi37EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK34NestedStructuralEnumValueOwnerPackIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS0_LS1_7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK30NestedStructuralEnumValueOwnerIXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode37EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK36NestedStructuralNullPointerOwnerPackIJXtl35NestedStructuralOwnerNullPointerKeyEEXtlS0_EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK32NestedStructuralNullPointerOwnerIXtl35NestedStructuralOwnerNullPointerKeyEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPlXtl24NestedStructuralOwnerKeyLi47EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK30NestedStructuralValueOwnerPackIJXtl24NestedStructuralOwnerKeyLi3EEEXtlS0_Li7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK26NestedStructuralValueOwnerIXtl24NestedStructuralOwnerKeyLi37EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK34NestedStructuralEnumValueOwnerPackIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS0_LS1_7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK30NestedStructuralEnumValueOwnerIXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode37EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK36NestedStructuralNullPointerOwnerPackIJXtl35NestedStructuralOwnerNullPointerKeyEEXtlS0_EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK32NestedStructuralNullPointerOwnerIXtl35NestedStructuralOwnerNullPointerKeyEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIPlXtl24NestedStructuralOwnerKeyLi47EEEE5InnerIS0_E6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZNK30NestedStructuralReorderedOwnerIiXtl24NestedStructuralOwnerKeyLi43EEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe tests/cxx_nested_class_template_owner_structural_value_pack.cpp
 	$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe
 
