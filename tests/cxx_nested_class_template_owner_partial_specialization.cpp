@@ -222,6 +222,18 @@ struct NestedExplicitSpecializedOuterOwner<int*>::Inner<char> {
     int result() const { return 270; }
 };
 
+struct NestedConcreteOwnerExplicitSpecialization {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 280; }
+    };
+};
+
+template <>
+struct NestedConcreteOwnerExplicitSpecialization::Inner<char> {
+    int result() const { return 290; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -256,6 +268,8 @@ int main() {
         explicit_outer_partial_primary;
     NestedExplicitSpecializedOuterOwner<int*>::Inner<char>
         explicit_nested_member;
+    NestedConcreteOwnerExplicitSpecialization::Inner<char>
+        explicit_concrete_owner_member;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -278,5 +292,6 @@ int main() {
     if (explicit_outer_primary.result() != 250) return 20;
     if (explicit_outer_partial_primary.result() != 260) return 21;
     if (explicit_nested_member.result() != 270) return 22;
+    if (explicit_concrete_owner_member.result() != 290) return 23;
     return 0;
 }

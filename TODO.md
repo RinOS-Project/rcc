@@ -4427,6 +4427,15 @@ remains a separate open item.
 - [ ] Non-null pointer-valued members and remaining standard-valid explicit
   member-specialization forms remain open.
 
+## RCC continuation (2026-10-16, concrete-owner nested explicit specialization)
+
+- [x] Cover explicit specialization of a nested class-template member owned by
+  a non-template concrete class. Verify its GCC Itanium symbol against RCC on
+  i686 and AMD64 and execute both generated AMD64 and GCC-host programs; the
+  focused owner gate and full native-Windows MinGW `test-cxx` aggregate pass.
+- [ ] Other standard-valid member-specialization forms and non-null structural
+  pointer-valued NTTP members remain open.
+
 ## RCC continuation (2026-10-15, explicit nested specialization on a partial owner)
 
 - [x] Explicitly specialize a nested class-template member for
