@@ -4392,7 +4392,22 @@ remains a separate open item.
 - [x] Re-run the focused nested-owner gate and full native-Windows MinGW GCC
   `test-cxx` and `test-debug-info` aggregates after dependent-expression and
   type-parameter-context owner matching; all completed with exit 0.
-- [ ] Add structural non-integral NTTP owner-pack specializations and cover
-  non-integral class/pointer values, parameter-identity mapping when partial
-  owner heads reorder type parameters, and remaining standard-valid explicit
+- [ ] Extend structural non-integral NTTP owner packs beyond the current
+  single-public-integral-or-enum-member subset; add multi-member/nested class
+  and pointer values, parameter-identity mapping when partial owner heads
+  reorder type parameters, and remaining standard-valid explicit
   member-specialization forms on these owner shapes.
+
+## RCC continuation (2026-10-15, enum structural NTTP nested owners)
+
+- [x] Extend the bounded structural owner argument representation to classes
+  with exactly one public enum data member, including enum-valued owner packs
+  and nested member reads from the class template parameter object.
+- [x] Verify GCC/RCC Itanium symbols on i686 and AMD64 and generated-code plus
+  GCC-host runtime behavior. The focused owner gate and full native-Windows
+  `test-cxx` and `test-debug-info` aggregates all pass (exit 0).
+- [x] Commit implementation, fixtures, and target checks as `0e32d07` on local
+  RCC `main`; no push.
+- [ ] Extend to structural classes with multiple or nested members and
+  pointer-valued members; cover dependent owner-head reordering and remaining
+  standard-valid explicit member specializations on these owner shapes.
