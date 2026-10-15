@@ -5235,6 +5235,9 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK37NestedExpressionSpecializedOuterOwnerIPiLi1ELi4EE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
 	$(GREP) -F -q "_ZNK28NestedReorderedTemplateOwnerIPicE5InnerIPlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
 	$(GREP) -F -q "_ZNK28NestedReorderedTemplateOwnerIiPcE5InnerIPlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK35NestedExplicitSpecializedOuterOwnerIlE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK35NestedExplicitSpecializedOuterOwnerIPiE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK35NestedExplicitSpecializedOuterOwnerIPiE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIiE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIlE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIjE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
@@ -5254,6 +5257,9 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK37NestedExpressionSpecializedOuterOwnerIPiLi1ELi4EE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK28NestedReorderedTemplateOwnerIPicE5InnerIPlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK28NestedReorderedTemplateOwnerIiPcE5InnerIPlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK35NestedExplicitSpecializedOuterOwnerIlE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK35NestedExplicitSpecializedOuterOwnerIPiE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK35NestedExplicitSpecializedOuterOwnerIPiE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIiE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIlE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIjE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
@@ -5273,6 +5279,9 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK37NestedExpressionSpecializedOuterOwnerIPiLi1ELi4EE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK28NestedReorderedTemplateOwnerIPicE5InnerIPlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK28NestedReorderedTemplateOwnerIiPcE5InnerIPlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK35NestedExplicitSpecializedOuterOwnerIlE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK35NestedExplicitSpecializedOuterOwnerIPiE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK35NestedExplicitSpecializedOuterOwnerIPiE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc-host.exe tests/cxx_nested_class_template_owner_partial_specialization.cpp
 	$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc-host.exe
 

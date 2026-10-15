@@ -200,6 +200,28 @@ struct NestedReorderedTemplateOwner<Right*, Left>::Inner<Value*> {
     int result() const { return 240 + sizeof(Left) + sizeof(Right); }
 };
 
+template <typename OwnerValue>
+struct NestedExplicitSpecializedOuterOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 250; }
+    };
+};
+
+template <typename OwnerValue>
+struct NestedExplicitSpecializedOuterOwner<OwnerValue*> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 260; }
+    };
+};
+
+template <>
+template <>
+struct NestedExplicitSpecializedOuterOwner<int*>::Inner<char> {
+    int result() const { return 270; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -228,6 +250,12 @@ int main() {
         reordered_outer_partial;
     NestedReorderedTemplateOwner<int, char*>::Inner<long*>
         primary_reordered_outer;
+    NestedExplicitSpecializedOuterOwner<long>::Inner<char>
+        explicit_outer_primary;
+    NestedExplicitSpecializedOuterOwner<int*>::Inner<long>
+        explicit_outer_partial_primary;
+    NestedExplicitSpecializedOuterOwner<int*>::Inner<char>
+        explicit_nested_member;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -247,5 +275,8 @@ int main() {
     if (primary_outer_expression.result() != 200) return 17;
     if (reordered_outer_partial.result() != 245) return 18;
     if (primary_reordered_outer.result() != 220) return 19;
+    if (explicit_outer_primary.result() != 250) return 20;
+    if (explicit_outer_partial_primary.result() != 260) return 21;
+    if (explicit_nested_member.result() != 270) return 22;
     return 0;
 }

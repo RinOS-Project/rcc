@@ -4423,6 +4423,16 @@ remains a separate open item.
 - [ ] Non-null pointer-valued members and remaining standard-valid explicit
   member-specialization forms remain open.
 
+## RCC continuation (2026-10-15, explicit nested specialization on a partial owner)
+
+- [x] Explicitly specialize a nested class-template member for
+      `Outer<int*>::Inner<char>` when `Outer<T*>` is an outer partial
+      specialization. Keep the primary outer and outer-partial member cases
+      distinct, run generated AMD64 and GCC programs, and compare exact
+      Itanium symbols for all three selections on i686/AMD64.
+- [ ] Other standard-valid nested member-specialization forms and non-null
+      structural pointer NTTP values remain open.
+
 ## RCC continuation (2026-10-15, enum structural NTTP nested owners)
 
 - [x] Extend the bounded structural owner argument representation to classes
