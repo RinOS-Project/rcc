@@ -4715,7 +4715,7 @@ remains a separate open item.
 - [x] Correct array type mangling to include the Itanium ABI separator after
   the dimension; RCC's names now match GCC for all four tested instantiations.
 - [ ] Additional dependent array-bound expressions beyond the verified `+`,
-  `*`, and `<<` arithmetic forms, reference/array-reference and
+  `*`, `<<`, and conditional-comparison forms, reference/array-reference and
   template-template owner forms, non-null structural pointer NTTP values, and
   explicit owner-specialization chains deeper than six levels remain open.
 
@@ -4728,9 +4728,9 @@ remains a separate open item.
   exact GCC Itanium symbols with RCC on i686/AMD64 and execute generated AMD64
   and GCC-host programs. The full focused nested-owner gate passes (exit 0).
 - [ ] Other reference type-id combinations, additional dependent array-bound
-  expressions beyond the verified arithmetic forms, template-template owners,
-  non-null structural pointer NTTP values, and explicit owner-specialization
-  chains deeper than six levels remain open.
+  expressions beyond the verified arithmetic and conditional forms,
+  template-template owners, non-null structural pointer NTTP values, and
+  explicit owner-specialization chains deeper than six levels remain open.
 
 ## RCC continuation (2026-10-16, rvalue-reference-to-array nested partial owners)
 
@@ -4741,9 +4741,9 @@ remains a separate open item.
   and GCC-host programs. The focused target and aggregate `test-cxx`
   / `test-debug-info` gates pass (exit 0).
 - [ ] Other reference type-id combinations, additional dependent array-bound
-  expressions beyond the verified arithmetic forms, template-template owners,
-  non-null structural pointer NTTP values, and explicit owner-specialization
-  chains deeper than six levels remain open.
+  expressions beyond the verified arithmetic and conditional forms,
+  template-template owners, non-null structural pointer NTTP values, and
+  explicit owner-specialization chains deeper than six levels remain open.
 
 ## RCC continuation (2026-10-16, six-level nested explicit specialization)
 
@@ -4768,7 +4768,13 @@ remains a separate open item.
   mismatching extents; compare all six exact GCC Itanium symbols against RCC
   on i686/AMD64 and execute generated AMD64 plus GCC-host programs. The focused
   nested-owner gate and aggregate `test-cxx test-debug-info` both pass (exit 0).
+- [x] Evaluate `T[(N == 0) ? 1 : (N * 2)]` at an outer owner and its nested
+  `Inner`, covering both conditional branches, primary fallback, and nested
+  partial selection. Match all four exact GCC Itanium symbols on i686/AMD64 and
+  execute generated AMD64 plus GCC-host programs; the focused nested-owner
+  gate passes (exit 0).
 - [ ] Additional dependent array-bound operators/forms beyond the verified
-  addition, multiplication, and left-shift cases, other reference type-id and
-  template-template owner forms, non-null structural pointer NTTP values, and
-  explicit owner-specialization chains deeper than six levels remain open.
+  addition, multiplication, left-shift, and conditional-comparison cases,
+  other reference type-id and template-template owner forms, non-null
+  structural pointer NTTP values, and explicit owner-specialization chains
+  deeper than six levels remain open.

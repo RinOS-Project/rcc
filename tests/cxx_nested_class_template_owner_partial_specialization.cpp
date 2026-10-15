@@ -1062,6 +1062,31 @@ struct NestedArrayDeducedExtentOwner<OwnerValue[Extent], 7> {
     };
 };
 
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayConditionalBoundOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2300; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayConditionalBoundOwner<
+    OwnerValue[(OwnerExtent == 0) ? 1 : (OwnerExtent * 2)], OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2310; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+template <typename Value>
+struct NestedArrayConditionalBoundOwner<
+    OwnerValue[(OwnerExtent == 0) ? 1 : (OwnerExtent * 2)], OwnerExtent>::
+    Inner<Value*> {
+    int result() const { return 2320; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -1251,6 +1276,14 @@ int main() {
         array_bound_deduced_extent_partial;
     NestedArrayDeducedExtentOwner<int[4], 8>::Inner<char>
         array_bound_deduced_extent_primary;
+    NestedArrayConditionalBoundOwner<int[3], 2>::Inner<char*>
+        array_bound_conditional_primary;
+    NestedArrayConditionalBoundOwner<int[4], 2>::Inner<char>
+        array_bound_conditional_outer;
+    NestedArrayConditionalBoundOwner<int[4], 2>::Inner<char*>
+        array_bound_conditional_inner;
+    NestedArrayConditionalBoundOwner<int[1], 0>::Inner<char*>
+        array_bound_conditional_zero_extent;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -1350,5 +1383,9 @@ int main() {
     if (array_bound_expression_wrong_leaf_extent.result() != 2020) return 93;
     if (array_bound_deduced_extent_partial.result() != 2210) return 94;
     if (array_bound_deduced_extent_primary.result() != 2200) return 95;
+    if (array_bound_conditional_primary.result() != 2300) return 96;
+    if (array_bound_conditional_outer.result() != 2310) return 97;
+    if (array_bound_conditional_inner.result() != 2320) return 98;
+    if (array_bound_conditional_zero_extent.result() != 2320) return 99;
     return 0;
 }
