@@ -1759,6 +1759,9 @@ static bool linker_emit_image_v3(Linker* ld, const char* filename, bool library)
         alias = &sections[section_index++];
         alias->type = linker_rin_section_type(linked->type);
         alias->flags = RIN_IMAGE_SECTION_READ;
+        if (linked->type == SECT_UNWIND) {
+            alias->flags |= RIN_IMAGE_SECTION_UNWIND_DWARF_DEBUG_FRAME;
+        }
         alias->alignment = linker_power_of_two(linked->align)
             ? linked->align : 1u;
         alias->virtual_address = linked->vaddr - ld->base_addr;
