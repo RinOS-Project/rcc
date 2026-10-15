@@ -1308,6 +1308,86 @@ struct NestedArrayIntegralCastBoundOwner<
     int result() const { return 2840; }
 };
 
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArraySignedIntegralCastBoundOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2850; }
+    };
+};
+
+template <int OwnerExtent>
+struct NestedArraySignedIntegralCastBoundOwner<
+    int[static_cast<signed char>(OwnerExtent) + 2], OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2860; }
+    };
+};
+
+template <int OwnerExtent>
+template <typename Value>
+struct NestedArraySignedIntegralCastBoundOwner<
+    int[static_cast<signed char>(OwnerExtent) + 2], OwnerExtent>::
+    Inner<Value*> {
+    int result() const { return 2870; }
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayBoolCastBoundOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2880; }
+    };
+};
+
+template <int OwnerExtent>
+struct NestedArrayBoolCastBoundOwner<
+    int[static_cast<bool>(OwnerExtent) + 1], OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2890; }
+    };
+};
+
+template <int OwnerExtent>
+template <typename Value>
+struct NestedArrayBoolCastBoundOwner<
+    int[static_cast<bool>(OwnerExtent) + 1], OwnerExtent>::
+    Inner<Value*> {
+    int result() const { return 2900; }
+};
+
+enum class NestedArrayCastByteEnum : unsigned char {};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayEnumCastBoundOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2910; }
+    };
+};
+
+template <int OwnerExtent>
+struct NestedArrayEnumCastBoundOwner<
+    int[static_cast<unsigned char>(
+            static_cast<NestedArrayCastByteEnum>(OwnerExtent)) + 1],
+    OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2920; }
+    };
+};
+
+template <int OwnerExtent>
+template <typename Value>
+struct NestedArrayEnumCastBoundOwner<
+    int[static_cast<unsigned char>(
+            static_cast<NestedArrayCastByteEnum>(OwnerExtent)) + 1],
+    OwnerExtent>::Inner<Value*> {
+    int result() const { return 2930; }
+};
+
 template <typename OwnerValue, int OwnerTag>
 struct NestedArrayDeducedExtentOwner {
     template <typename Value>
@@ -1694,6 +1774,26 @@ int main() {
         array_bound_integral_cast_outer;
     NestedArrayIntegralCastBoundOwner<int[1], 256>::Inner<char*>
         array_bound_integral_cast_inner;
+    NestedArraySignedIntegralCastBoundOwner<int[4], 255>::Inner<char>
+        array_bound_signed_integral_cast_primary;
+    NestedArraySignedIntegralCastBoundOwner<int[1], 255>::Inner<char>
+        array_bound_signed_integral_cast_outer;
+    NestedArraySignedIntegralCastBoundOwner<int[1], 255>::Inner<char*>
+        array_bound_signed_integral_cast_inner;
+    NestedArrayBoolCastBoundOwner<int[2], 0>::Inner<char>
+        array_bound_bool_cast_primary;
+    NestedArrayBoolCastBoundOwner<int[1], 0>::Inner<char>
+        array_bound_bool_cast_outer;
+    NestedArrayBoolCastBoundOwner<int[1], 0>::Inner<char*>
+        array_bound_bool_cast_inner;
+    NestedArrayBoolCastBoundOwner<int[2], 1>::Inner<char*>
+        array_bound_bool_cast_true_inner;
+    NestedArrayEnumCastBoundOwner<int[2], 256>::Inner<char>
+        array_bound_enum_cast_primary;
+    NestedArrayEnumCastBoundOwner<int[1], 256>::Inner<char>
+        array_bound_enum_cast_outer;
+    NestedArrayEnumCastBoundOwner<int[1], 256>::Inner<char*>
+        array_bound_enum_cast_inner;
     NestedArrayDeducedExtentOwner<int[4], 7>::Inner<char>
         array_bound_deduced_extent_partial;
     NestedArrayDeducedExtentOwner<int[4], 8>::Inner<char>
@@ -1862,6 +1962,16 @@ int main() {
     if (array_bound_integral_cast_primary.result() != 2820) return 136;
     if (array_bound_integral_cast_outer.result() != 2830) return 137;
     if (array_bound_integral_cast_inner.result() != 2840) return 138;
+    if (array_bound_signed_integral_cast_primary.result() != 2850) return 139;
+    if (array_bound_signed_integral_cast_outer.result() != 2860) return 140;
+    if (array_bound_signed_integral_cast_inner.result() != 2870) return 141;
+    if (array_bound_bool_cast_primary.result() != 2880) return 142;
+    if (array_bound_bool_cast_outer.result() != 2890) return 143;
+    if (array_bound_bool_cast_inner.result() != 2900) return 144;
+    if (array_bound_bool_cast_true_inner.result() != 2900) return 148;
+    if (array_bound_enum_cast_primary.result() != 2910) return 145;
+    if (array_bound_enum_cast_outer.result() != 2920) return 146;
+    if (array_bound_enum_cast_inner.result() != 2930) return 147;
     if (array_bound_deduced_extent_partial.result() != 2210) return 94;
     if (array_bound_deduced_extent_primary.result() != 2200) return 95;
     if (array_bound_conditional_primary.result() != 2300) return 96;

@@ -2461,7 +2461,8 @@ static bool cxx_eval_i64_integral_cast(Type* target, int64_t value,
     if (target->kind == TYPE_ENUM && target->enum_underlying_type) {
         representation = target->enum_underlying_type;
     }
-    if (!type_is_integer(target) || !representation ||
+    if ((!type_is_integer(target) && target->kind != TYPE_ENUM) ||
+        !representation ||
         representation->size <= 0 ||
         representation->size > (int)sizeof(uint64_t)) {
         return false;
