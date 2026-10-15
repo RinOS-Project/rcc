@@ -4651,7 +4651,7 @@ remains a separate open item.
   all three exact GCC Itanium symbols against RCC on i686/AMD64 and execute the
   generated AMD64 and GCC-host programs. The focused nested-owner target passes
   (exit 0).
-- [ ] Explicit-specialization chains deeper than six nested levels and
+- [ ] Explicit-specialization chains deeper than seven nested levels and
   non-null structural pointer NTTP values remain open.
 
 ## RCC continuation (2026-10-16, deep specialization below a specialized intermediate owner)
@@ -4663,7 +4663,7 @@ remains a separate open item.
 - [x] Compare all four exact GCC Itanium symbols against RCC on i686/AMD64 and
   execute generated AMD64 and GCC-host programs. The focused nested-owner
   target passes (exit 0).
-- [ ] Explicit-specialization chains deeper than six nested levels and
+- [ ] Explicit-specialization chains deeper than seven nested levels and
   non-null structural pointer NTTP values remain open.
 
 ## RCC continuation (2026-10-16, five nested partial-owner levels)
@@ -4717,7 +4717,7 @@ remains a separate open item.
 - [ ] Additional dependent array-bound expressions beyond the verified `+`,
   `*`, `<<`, and conditional-comparison forms, reference/array-reference and
   template-template owner forms, non-null structural pointer NTTP values, and
-  explicit owner-specialization chains deeper than six levels remain open.
+  explicit owner-specialization chains deeper than seven levels remain open.
 
 ## RCC continuation (2026-10-16, reference-to-array nested partial owners)
 
@@ -4730,7 +4730,7 @@ remains a separate open item.
 - [ ] Other reference type-id combinations, additional dependent array-bound
   expressions beyond the verified arithmetic and conditional forms,
   template-template owners, non-null structural pointer NTTP values, and
-  explicit owner-specialization chains deeper than six levels remain open.
+  explicit owner-specialization chains deeper than seven levels remain open.
 
 ## RCC continuation (2026-10-16, rvalue-reference-to-array nested partial owners)
 
@@ -4743,7 +4743,7 @@ remains a separate open item.
 - [ ] Other reference type-id combinations, additional dependent array-bound
   expressions beyond the verified arithmetic and conditional forms,
   template-template owners, non-null structural pointer NTTP values, and
-  explicit owner-specialization chains deeper than six levels remain open.
+  explicit owner-specialization chains deeper than seven levels remain open.
 
 ## RCC continuation (2026-10-16, six-level nested explicit specialization)
 
@@ -4754,7 +4754,7 @@ remains a separate open item.
 - [x] Retain the primary and explicit outer-owner cases; compare all three exact
   GCC Itanium symbols with RCC on i686/AMD64 and execute the generated AMD64 and
   GCC-host programs. The focused nested-owner target passes (exit 0).
-- [ ] Explicit-specialization chains deeper than six nested levels and
+- [ ] Explicit-specialization chains deeper than seven nested levels and
   non-null structural pointer NTTP values remain open.
 
 ## RCC continuation (2026-10-16, dependent array-bound nested partial owners)
@@ -4777,4 +4777,17 @@ remains a separate open item.
   addition, multiplication, left-shift, and conditional-comparison cases,
   other reference type-id and template-template owner forms, non-null
   structural pointer NTTP values, and explicit owner-specialization chains
-  deeper than six levels remain open.
+  deeper than seven levels remain open.
+
+## RCC continuation (2026-10-16, seven-level nested explicit specialization)
+
+- [x] Resolve an explicit member specialization through six intermediate
+  member-class-template owners, consuming seven consecutive explicit
+  specialization template heads for `Owner<int>::First<char>::Second<short>`
+  `::Third<int>::Fourth<float>::Fifth<long>::Sixth<char>::Inner<double>`.
+- [x] Retain the primary and explicitly specialized outer-owner cases; compare
+  all three exact GCC Itanium symbols against RCC on i686/AMD64 and execute the
+  generated AMD64 and GCC-host programs. The focused nested-owner target passes
+  (exit 0).
+- [ ] Explicit-specialization chains deeper than seven nested levels and
+  non-null structural pointer NTTP values remain open.
