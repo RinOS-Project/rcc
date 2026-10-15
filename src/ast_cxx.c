@@ -4648,6 +4648,9 @@ static int template_value_parameter_index(CxxTemplate* tmpl,
 
 static int template_parameter_pack_index_nested(CxxTemplate* tmpl,
                                                 Type* type);
+static bool template_expr_contains_type_parameter(Expr* expression,
+                                                   const char* parameter_name,
+                                                   int depth);
 
 static int template_parameter_pack_index_merge(int current, int nested) {
     if (nested == -1) return current;
@@ -4933,6 +4936,18 @@ static bool template_find_enclosing_pack_source(
         int value_pack_index = value_pattern
             ? template_parameter_pack_index_expression(scope, value_pattern)
             : -1;
+        if (value_pack_index < 0 && value_pattern) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                TemplateParam* parameter = &scope->params[index];
+                if (parameter->kind == TPARAM_TEMPLATE &&
+                    parameter->is_pack && parameter->name &&
+                    template_expr_contains_type_parameter(
+                        value_pattern, parameter->name, 0)) {
+                    value_pack_index = index;
+                    break;
+                }
+            }
+        }
         int pack_index = type_pack_index >= 0
             ? type_pack_index : value_pack_index;
         if (type_pack_index >= 0 && value_pack_index >= 0 &&

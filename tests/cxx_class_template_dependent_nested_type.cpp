@@ -210,6 +210,26 @@ bool nested_owner_fold_values_equal(int left, int right) {
     return left == right;
 }
 
+template <typename T>
+struct NestedOwnerFoldOneByte {
+    unsigned char value;
+};
+
+template <typename T>
+struct NestedOwnerFoldTwoBytes {
+    unsigned char value[2];
+};
+
+template <template <typename> class... OuterTemplates>
+struct NestedOwnerTemplateTemplateFold {
+    template <int... InnerValues>
+    struct Inner {
+        bool sizes_match() const {
+            return ((sizeof(OuterTemplates<int>) == InnerValues) && ...);
+        }
+    };
+};
+
 template <int... OuterValues>
 struct NestedOwnerValueFold {
     template <int... InnerValues>
@@ -348,6 +368,13 @@ int main() {
     using empty_owner_value_fold = NestedOwnerValueFold<>::Inner<>;
     matching_owner_value_fold matching_value_fold;
     empty_owner_value_fold empty_value_fold;
+    using matching_template_template_fold =
+        NestedOwnerTemplateTemplateFold<NestedOwnerFoldOneByte,
+                                        NestedOwnerFoldTwoBytes>::Inner<1, 2>;
+    using empty_template_template_fold =
+        NestedOwnerTemplateTemplateFold<>::Inner<>;
+    matching_template_template_fold template_template_fold;
+    empty_template_template_fold empty_template_template_fold_value;
     NestedTypeDerived<int> integer(17);
     NestedTypeDerived<long long> wide(29);
     TypeParameterNestedType<NestedTypeCarrier> type_parameter(37);
@@ -390,6 +417,8 @@ int main() {
                     matching_value_fold.values_match() &&
                     matching_value_fold.values_match_via_call() &&
                     empty_value_fold.values_match() &&
+                    template_template_fold.sizes_match() &&
+                    empty_template_template_fold_value.sizes_match() &&
                     read_explicit_nested_owner_mixed_pack_layout() == 8 &&
                    function_template_nested_type_chain<
                        NestedTypeChainOuter>() == 43 &&
