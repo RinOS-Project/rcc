@@ -11053,7 +11053,9 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                         parse_assignment_expression();
                     rcc_parser_set_cxx_template_default_mode(false);
                 } else {
-                    arguments[argument_count] = parse_cxx_type_spec();
+                    arguments[argument_count] =
+                        rcc_parser_parse_cxx_declarator(
+                            parse_cxx_type_spec(), NULL, NULL);
                 }
                 ++argument_count;
             } while (match(TOK_COMMA));
@@ -11214,7 +11216,9 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                     }
                     arguments[argument_count] = template_carrier;
                 } else {
-                    arguments[argument_count] = parse_cxx_type_spec();
+                    arguments[argument_count] =
+                        rcc_parser_parse_cxx_declarator(
+                            parse_cxx_type_spec(), NULL, NULL);
                 }
                 ++argument_count;
             } while (match(TOK_COMMA));
@@ -16321,6 +16325,12 @@ static Type* parse_class_template_specialization_with_owner_type(
                     ? pack_index : argument_count];
             if (parameter->kind == TPARAM_TYPE) {
                 Type* argument = parse_cxx_type_spec();
+                /* A type template argument is a type-id, not only a type
+                 * specifier. Parse its abstract declarator too so array,
+                 * function, and parenthesized pointer-to-array forms retain
+                 * their full type in the template argument list. */
+                argument = rcc_parser_parse_cxx_declarator(
+                    argument, NULL, NULL);
                 int argument_index = argument_count++;
                 arguments[argument_index] = argument;
                 if (match(TOK_ELLIPSIS)) {

@@ -826,6 +826,45 @@ struct NestedOwnerPartialOrdering<OwnerValue*>::Mid<MidValue*> {
     };
 };
 
+template <typename OwnerValue>
+struct NestedArrayPartialOwnerChain {
+    template <typename MidValue>
+    struct Mid {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 1800; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+struct NestedArrayPartialOwnerChain<OwnerValue[3]> {
+    template <typename MidValue>
+    struct Mid {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 1810; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+struct NestedArrayPartialOwnerChain<OwnerValue[3]>::Mid<MidValue[2]> {
+    template <typename LeafValue>
+    struct Leaf {
+        int result() const { return 1820; }
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+template <typename LeafValue>
+struct NestedArrayPartialOwnerChain<OwnerValue[3]>::Mid<MidValue[2]>::
+    Leaf<LeafValue[1]> {
+    int result() const { return 1830; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -968,6 +1007,14 @@ int main() {
         partial_ordering_pointer_owner;
     NestedOwnerPartialOrdering<int*>::Mid<char*>::Leaf<long>
         partial_ordering_pointer_mid_owner;
+    NestedArrayPartialOwnerChain<long>::Mid<char>::Leaf<int>
+        array_partial_primary_owner;
+    NestedArrayPartialOwnerChain<int[3]>::Mid<char>::Leaf<int>
+        array_partial_outer_owner;
+    NestedArrayPartialOwnerChain<int[3]>::Mid<char[2]>::Leaf<int>
+        array_partial_mid_owner;
+    NestedArrayPartialOwnerChain<int[3]>::Mid<char[2]>::Leaf<long[1]>
+        array_partial_leaf_owner;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -1042,5 +1089,9 @@ int main() {
     if (partial_ordering_const_mid_owner.result() != 1720) return 72;
     if (partial_ordering_pointer_owner.result() != 1730) return 73;
     if (partial_ordering_pointer_mid_owner.result() != 1740) return 74;
+    if (array_partial_primary_owner.result() != 1800) return 75;
+    if (array_partial_outer_owner.result() != 1810) return 76;
+    if (array_partial_mid_owner.result() != 1820) return 77;
+    if (array_partial_leaf_owner.result() != 1830) return 78;
     return 0;
 }

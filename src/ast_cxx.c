@@ -775,8 +775,8 @@ static void cxx_mangle_type_append_context(
                 base_mangled, &base_pos, type->base, context);
             base_mangled[base_pos] = '\0';
             written = type->array_len >= 0
-                ? snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos, "A%d%s",
-                           type->array_len, base_mangled)
+                ? snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                           "A%d_%s", type->array_len, base_mangled)
                 : snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
                            "A_%s", base_mangled);
             if (written < 0 ||

@@ -4702,3 +4702,18 @@ remains a separate open item.
 - [ ] Other dependent owner patterns (including expression, array/reference,
   and template-template forms) and non-null structural pointer NTTP values
   remain open.
+
+## RCC continuation (2026-10-16, array type-id nested partial owners)
+
+- [x] Parse abstract declarators in class partial-specialization arguments,
+  nested member-specialization arguments, and ordinary class-template-ids so
+  constant-bound array types survive as complete type arguments.
+- [x] Cover array patterns at the outer owner, nested `Mid`, and `Leaf` levels;
+  match all four exact GCC Itanium symbols on i686/AMD64 and execute generated
+  AMD64 plus GCC-host programs. The focused nested-owner target passes
+  (exit 0).
+- [x] Correct array type mangling to include the Itanium ABI separator after
+  the dimension; RCC's names now match GCC for all four tested instantiations.
+- [ ] Dependent expression, reference/array-reference, and template-template
+  owner forms, non-null structural pointer NTTP values, and explicit owner
+  specialization chains deeper than five levels remain open.
