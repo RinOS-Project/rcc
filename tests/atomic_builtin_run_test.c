@@ -152,6 +152,11 @@ typedef void (RCC_SYSV_ABI *atomic_u64_store_fn)(volatile uint64_t*, uint64_t);
 typedef uint64_t (RCC_SYSV_ABI *atomic_u64_binary_fn)(volatile uint64_t*, uint64_t);
 typedef int (RCC_SYSV_ABI *atomic_u64_compare_fn)(volatile uint64_t*, uint64_t*,
                                      uint64_t);
+typedef int (RCC_SYSV_ABI *atomic_u64_sync_bool_compare_fn)(
+    volatile uint64_t*, uint64_t, uint64_t);
+typedef uint64_t (RCC_SYSV_ABI *atomic_u64_sync_value_compare_fn)(
+    volatile uint64_t*, uint64_t, uint64_t);
+typedef void (RCC_SYSV_ABI *atomic_u64_release_fn)(volatile uint64_t*);
 typedef int64_t (RCC_SYSV_ABI *atomic_i64_order_fn)(volatile int64_t*, int64_t,
                                                      int);
 typedef uint64_t (RCC_SYSV_ABI *atomic_u64_order_fn)(volatile uint64_t*,
@@ -321,11 +326,37 @@ int main(int argc, char** argv) {
     atomic_u64_binary_fn u64_sub_fetch;
     atomic_u64_binary_fn u64_fetch_xor;
     atomic_u64_binary_fn u64_or_fetch;
+    atomic_u64_binary_fn u64_fetch_and;
+    atomic_u64_binary_fn u64_and_fetch;
+    atomic_u64_binary_fn u64_fetch_or;
+    atomic_u64_binary_fn u64_xor_fetch;
+    atomic_u64_binary_fn u64_fetch_nand;
+    atomic_u64_binary_fn u64_nand_fetch;
     atomic_u64_compare_fn u64_compare;
+    atomic_u64_compare_fn u64_compare_weak;
     atomic_i64_order_fn i64_fetch_min;
     atomic_i64_order_fn i64_fetch_max;
     atomic_u64_order_fn u64_fetch_min_order;
     atomic_u64_order_fn u64_fetch_max_order;
+    atomic_u64_order_fn u64_fetch_uinc_order;
+    atomic_u64_order_fn u64_fetch_udec_order;
+    atomic_u64_binary_fn sync_u64_swap;
+    atomic_u64_binary_fn sync_u64_lock_test_and_set;
+    atomic_u64_release_fn sync_u64_lock_release;
+    atomic_u64_sync_bool_compare_fn sync_u64_bool_compare;
+    atomic_u64_sync_value_compare_fn sync_u64_val_compare;
+    atomic_u64_binary_fn sync_u64_fetch_add;
+    atomic_u64_binary_fn sync_u64_fetch_sub;
+    atomic_u64_binary_fn sync_u64_add_fetch;
+    atomic_u64_binary_fn sync_u64_sub_fetch;
+    atomic_u64_binary_fn sync_u64_fetch_and;
+    atomic_u64_binary_fn sync_u64_and_fetch;
+    atomic_u64_binary_fn sync_u64_fetch_or;
+    atomic_u64_binary_fn sync_u64_or_fetch;
+    atomic_u64_binary_fn sync_u64_fetch_xor;
+    atomic_u64_binary_fn sync_u64_xor_fetch;
+    atomic_u64_binary_fn sync_u64_fetch_nand;
+    atomic_u64_binary_fn sync_u64_nand_fetch;
     atomic_u64_binary_fn standard_ullong_fetch_add;
     atomic_u64_load_fn standard_ullong_is_lock_free;
 #if defined(__i386__)
@@ -342,6 +373,7 @@ int main(int argc, char** argv) {
     atomic_binary_fn sync_fetch_or;
     atomic_binary_fn sync_xor_fetch;
     atomic_fence_fn atomic_fence;
+    atomic_fence_fn atomic_signal_fence;
     atomic_fence_fn sync_fence;
     atomic_store_fn standard_init;
     atomic_load_fn standard_load;
@@ -388,6 +420,7 @@ int main(int argc, char** argv) {
     atomic_pointer_binary_fn pointer_exchange;
     atomic_pointer_compare_fn pointer_compare;
     atomic_pointer_binary_fn standard_pointer_exchange;
+    atomic_pointer_binary_fn sync_pointer_swap;
     atomic_generic_load_fn generic_load;
     atomic_generic_store_fn generic_store;
     atomic_generic_binary_fn generic_exchange;
@@ -473,6 +506,18 @@ int main(int argc, char** argv) {
                   "atomic_u64_fetch_xor_value");
     LOAD_FUNCTION(u64_or_fetch, object, mapping,
                   "atomic_u64_or_fetch_value");
+    LOAD_FUNCTION(u64_fetch_and, object, mapping,
+                  "atomic_u64_fetch_and_value");
+    LOAD_FUNCTION(u64_and_fetch, object, mapping,
+                  "atomic_u64_and_fetch_value");
+    LOAD_FUNCTION(u64_fetch_or, object, mapping,
+                  "atomic_u64_fetch_or_value");
+    LOAD_FUNCTION(u64_xor_fetch, object, mapping,
+                  "atomic_u64_xor_fetch_value");
+    LOAD_FUNCTION(u64_fetch_nand, object, mapping,
+                  "atomic_u64_fetch_nand_value");
+    LOAD_FUNCTION(u64_nand_fetch, object, mapping,
+                  "atomic_u64_nand_fetch_value");
     LOAD_FUNCTION(i64_fetch_min, object, mapping,
                   "atomic_i64_fetch_min_order");
     LOAD_FUNCTION(i64_fetch_max, object, mapping,
@@ -481,8 +526,47 @@ int main(int argc, char** argv) {
                   "atomic_u64_fetch_min_order");
     LOAD_FUNCTION(u64_fetch_max_order, object, mapping,
                   "atomic_u64_fetch_max_order");
+    LOAD_FUNCTION(u64_fetch_uinc_order, object, mapping,
+                  "atomic_u64_fetch_uinc_order");
+    LOAD_FUNCTION(u64_fetch_udec_order, object, mapping,
+                  "atomic_u64_fetch_udec_order");
     LOAD_FUNCTION(u64_compare, object, mapping,
                   "atomic_u64_compare_exchange_value");
+    LOAD_FUNCTION(u64_compare_weak, object, mapping,
+                  "atomic_u64_compare_exchange_weak_value");
+    LOAD_FUNCTION(sync_u64_swap, object, mapping, "sync_u64_swap_value");
+    LOAD_FUNCTION(sync_u64_lock_test_and_set, object, mapping,
+                  "sync_u64_lock_test_and_set_value");
+    LOAD_FUNCTION(sync_u64_lock_release, object, mapping,
+                  "sync_u64_lock_release_value");
+    LOAD_FUNCTION(sync_u64_bool_compare, object, mapping,
+                  "sync_u64_bool_compare_exchange_value");
+    LOAD_FUNCTION(sync_u64_val_compare, object, mapping,
+                  "sync_u64_val_compare_exchange_value");
+    LOAD_FUNCTION(sync_u64_fetch_add, object, mapping,
+                  "sync_u64_fetch_add_value");
+    LOAD_FUNCTION(sync_u64_fetch_sub, object, mapping,
+                  "sync_u64_fetch_sub_value");
+    LOAD_FUNCTION(sync_u64_add_fetch, object, mapping,
+                  "sync_u64_add_fetch_value");
+    LOAD_FUNCTION(sync_u64_sub_fetch, object, mapping,
+                  "sync_u64_sub_fetch_value");
+    LOAD_FUNCTION(sync_u64_fetch_and, object, mapping,
+                  "sync_u64_fetch_and_value");
+    LOAD_FUNCTION(sync_u64_and_fetch, object, mapping,
+                  "sync_u64_and_fetch_value");
+    LOAD_FUNCTION(sync_u64_fetch_or, object, mapping,
+                  "sync_u64_fetch_or_value");
+    LOAD_FUNCTION(sync_u64_or_fetch, object, mapping,
+                  "sync_u64_or_fetch_value");
+    LOAD_FUNCTION(sync_u64_fetch_xor, object, mapping,
+                  "sync_u64_fetch_xor_value");
+    LOAD_FUNCTION(sync_u64_xor_fetch, object, mapping,
+                  "sync_u64_xor_fetch_value");
+    LOAD_FUNCTION(sync_u64_fetch_nand, object, mapping,
+                  "sync_u64_fetch_nand_value");
+    LOAD_FUNCTION(sync_u64_nand_fetch, object, mapping,
+                  "sync_u64_nand_fetch_value");
     LOAD_FUNCTION(standard_ullong_fetch_add, object, mapping,
                   "standard_atomic_ullong_fetch_add_value");
     LOAD_FUNCTION(standard_ullong_is_lock_free, object, mapping,
@@ -503,6 +587,8 @@ int main(int argc, char** argv) {
     LOAD_FUNCTION(sync_fetch_or, object, mapping, "sync_fetch_or_value");
     LOAD_FUNCTION(sync_xor_fetch, object, mapping, "sync_xor_fetch_value");
     LOAD_FUNCTION(atomic_fence, object, mapping, "atomic_thread_fence_value");
+    LOAD_FUNCTION(atomic_signal_fence, object, mapping,
+                  "atomic_signal_fence_value");
     LOAD_FUNCTION(sync_fence, object, mapping, "sync_synchronize_value");
     LOAD_FUNCTION(standard_init, object, mapping,
                   "standard_atomic_init_value");
@@ -583,6 +669,8 @@ int main(int argc, char** argv) {
                   "atomic_pointer_compare_exchange_value");
     LOAD_FUNCTION(standard_pointer_exchange, object, mapping,
                   "standard_atomic_pointer_exchange_value");
+    LOAD_FUNCTION(sync_pointer_swap, object, mapping,
+                  "sync_pointer_swap_value");
     LOAD_FUNCTION(generic_load, object, mapping,
                   "atomic_generic_load_value");
     LOAD_FUNCTION(generic_store, object, mapping,
@@ -675,6 +763,91 @@ int main(int argc, char** argv) {
         assert(standard_ullong_is_lock_free(&wide) == UINT64_C(1));
     }
     {
+        volatile uint64_t wide = UINT64_C(0xf);
+        uint64_t expected = UINT64_C(0x12);
+        assert(u64_fetch_and(&wide, UINT64_C(0x6)) == UINT64_C(0xf) &&
+               wide == UINT64_C(0x6));
+        assert(u64_and_fetch(&wide, UINT64_C(0x3)) == UINT64_C(0x2) &&
+               wide == UINT64_C(0x2));
+        assert(u64_fetch_or(&wide, UINT64_C(0x10)) == UINT64_C(0x2) &&
+               wide == UINT64_C(0x12));
+        assert(u64_xor_fetch(&wide, UINT64_C(0x3)) == UINT64_C(0x11) &&
+               wide == UINT64_C(0x11));
+        assert(u64_fetch_nand(&wide, UINT64_C(0x1)) == UINT64_C(0x11) &&
+               wide == UINT64_C(0xfffffffffffffffe));
+        assert(u64_nand_fetch(&wide, UINT64_C(0x2)) ==
+                   UINT64_C(0xfffffffffffffffd) &&
+               wide == UINT64_C(0xfffffffffffffffd));
+        expected = UINT64_C(0xfffffffffffffffd);
+        assert(u64_compare_weak(&wide, &expected, UINT64_C(0x20)) == 1 &&
+               wide == UINT64_C(0x20));
+        expected = UINT64_C(7);
+        assert(u64_compare_weak(&wide, &expected, UINT64_C(0x30)) == 0 &&
+               expected == UINT64_C(0x20) && wide == UINT64_C(0x20));
+    }
+    {
+        volatile uint64_t wide = UINT64_C(4);
+        assert(u64_fetch_uinc_order(&wide, UINT64_C(4),
+                                    __ATOMIC_RELAXED) == UINT64_C(4) &&
+               wide == 0u);
+        wide = UINT64_C(2);
+        assert(u64_fetch_uinc_order(&wide, UINT64_C(4),
+                                    __ATOMIC_CONSUME) == UINT64_C(2) &&
+               wide == UINT64_C(3));
+        wide = UINT64_MAX;
+        assert(u64_fetch_uinc_order(&wide, UINT64_MAX,
+                                    __ATOMIC_ACQUIRE) == UINT64_MAX &&
+               wide == 0u);
+        wide = 0u;
+        assert(u64_fetch_udec_order(&wide, UINT64_C(4),
+                                    __ATOMIC_RELEASE) == 0u &&
+               wide == UINT64_C(4));
+        wide = UINT64_C(6);
+        assert(u64_fetch_udec_order(&wide, UINT64_C(4),
+                                    __ATOMIC_ACQ_REL) == UINT64_C(6) &&
+               wide == UINT64_C(4));
+        wide = UINT64_C(4);
+        assert(u64_fetch_udec_order(&wide, UINT64_C(4),
+                                    __ATOMIC_SEQ_CST) == UINT64_C(4) &&
+               wide == UINT64_C(3));
+    }
+    {
+        volatile uint64_t wide = UINT64_C(5);
+        assert(sync_u64_swap(&wide, UINT64_C(9)) == UINT64_C(5) &&
+               wide == UINT64_C(9));
+        assert(sync_u64_lock_test_and_set(&wide, UINT64_C(11)) ==
+                   UINT64_C(9) && wide == UINT64_C(11));
+        assert(sync_u64_bool_compare(&wide, UINT64_C(11), UINT64_C(13)) ==
+                   1 && wide == UINT64_C(13));
+        assert(sync_u64_val_compare(&wide, UINT64_C(13), UINT64_C(17)) ==
+                   UINT64_C(13) && wide == UINT64_C(17));
+        assert(sync_u64_fetch_add(&wide, UINT64_C(3)) == UINT64_C(17) &&
+               wide == UINT64_C(20));
+        assert(sync_u64_fetch_sub(&wide, UINT64_C(2)) == UINT64_C(20) &&
+               wide == UINT64_C(18));
+        assert(sync_u64_add_fetch(&wide, UINT64_C(3)) == UINT64_C(21) &&
+               wide == UINT64_C(21));
+        assert(sync_u64_sub_fetch(&wide, UINT64_C(1)) == UINT64_C(20) &&
+               wide == UINT64_C(20));
+        assert(sync_u64_fetch_and(&wide, UINT64_C(6)) == UINT64_C(20) &&
+               wide == UINT64_C(4));
+        assert(sync_u64_and_fetch(&wide, UINT64_C(3)) == 0u && wide == 0u);
+        assert(sync_u64_fetch_or(&wide, UINT64_C(4)) == 0u &&
+               wide == UINT64_C(4));
+        assert(sync_u64_or_fetch(&wide, UINT64_C(0x10)) == UINT64_C(0x14) &&
+               wide == UINT64_C(0x14));
+        assert(sync_u64_fetch_xor(&wide, UINT64_C(1)) == UINT64_C(0x14) &&
+               wide == UINT64_C(0x15));
+        assert(sync_u64_xor_fetch(&wide, UINT64_C(3)) == UINT64_C(0x16) &&
+               wide == UINT64_C(0x16));
+        assert(sync_u64_fetch_nand(&wide, UINT64_C(3)) == UINT64_C(0x16) &&
+               wide == UINT64_C(0xfffffffffffffffd));
+        assert(sync_u64_nand_fetch(&wide, UINT64_MAX) == UINT64_C(2) &&
+               wide == UINT64_C(2));
+        sync_u64_lock_release(&wide);
+        assert(wide == 0u);
+    }
+    {
         volatile int64_t signed_value = INT64_C(0x7fffffffffffffff);
         volatile uint64_t unsigned_value = UINT64_C(0x7fffffffffffffff);
 
@@ -733,6 +906,7 @@ int main(int argc, char** argv) {
     sync_release(&value);
     assert(value == 0u);
     atomic_fence();
+    atomic_signal_fence();
     sync_fence();
 
     standard_init(&value, 12u);
@@ -778,6 +952,8 @@ int main(int argc, char** argv) {
         assert(expected_pointer == &first && pointer == &first);
         assert(standard_pointer_exchange(&pointer, &second) == &first &&
                pointer == &second);
+        assert(sync_pointer_swap(&pointer, &third) == &second &&
+               pointer == &third);
     }
 
     {

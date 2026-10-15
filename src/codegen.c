@@ -5836,6 +5836,20 @@ static AtomicMinMaxOp atomic_minmax_operation(const char* name) {
     return ATOMIC_MINMAX_NONE;
 }
 
+typedef enum {
+    ATOMIC_WRAP_NONE,
+    ATOMIC_WRAP_INCREMENT,
+    ATOMIC_WRAP_DECREMENT
+} AtomicWrapOp;
+
+static AtomicWrapOp atomic_wrap_operation(const char* name) {
+    if (strcmp(name, "__atomic_fetch_uinc") == 0)
+        return ATOMIC_WRAP_INCREMENT;
+    if (strcmp(name, "__atomic_fetch_udec") == 0)
+        return ATOMIC_WRAP_DECREMENT;
+    return ATOMIC_WRAP_NONE;
+}
+
 /* A plain aligned x86 load is atomic for all scalar widths supported by the
  * frontend.  i686 has no single-instruction 64-bit load, so use CMPXCHG8B
  * with a zero desired value; success leaves the compared zero in EDX:EAX and
@@ -5880,6 +5894,7 @@ static bool gen_atomic_builtin64_i686(Module* mod, Expr* call,
                                       const char* name) {
     int retry_label;
     AtomicMinMaxOp minmax_operation = atomic_minmax_operation(name);
+    AtomicWrapOp wrap_operation = atomic_wrap_operation(name);
 
     if ((strncmp(name, "__atomic_", 9) != 0 &&
          strncmp(name, "__sync_", 7) != 0) ||
@@ -5953,6 +5968,77 @@ static bool gen_atomic_builtin64_i686(Module* mod, Expr* call,
         emit_atomic_cmpxchg8b(mod, ESI);
         emit_jcc_label(mod, CC_NE, retry_label);
         emit_add_reg_imm(mod, ESP, 12);
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
+
+    if (wrap_operation != ATOMIC_WRAP_NONE) {
+        int retry_label = new_label();
+        int update_label = new_label();
+        int wrap_label = new_label();
+        int decrement_label = new_label();
+        int compare_exchange_label = new_label();
+
+        /* CMPXCHG8B gives a full barrier, which is stronger than each valid
+         * order for these unsigned read-modify-write builtins. */
+        gen_expr(mod, call_argument(call, 2));
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        gen_expr(mod, call_argument(call, 0));
+        emit_mov_reg_reg(mod, ESI, EAX);
+        gen_expr_as_integer64(mod, call_argument(call, 1));
+        emit_push_reg(mod, EDX); /* Wrap limit high word. */
+        emit_push_reg(mod, EAX); /* Wrap limit low word. */
+        emit_mov_reg_mem(mod, EAX, ESI, 0);
+        emit_mov_reg_mem(mod, EDX, ESI, 4);
+
+        emit_label(mod, retry_label);
+        if (wrap_operation == ATOMIC_WRAP_INCREMENT) {
+            emit_mov_reg_mem(mod, ECX, ESP, 4);
+            emit_cmp_reg_reg(mod, EDX, ECX);
+            emit_jcc_label(mod, CC_A, wrap_label);
+            emit_jcc_label(mod, CC_B, update_label);
+            emit_mov_reg_mem(mod, ECX, ESP, 0);
+            emit_cmp_reg_reg(mod, EAX, ECX);
+            emit_jcc_label(mod, CC_AE, wrap_label);
+            emit_label(mod, update_label);
+            emit_mov_reg_reg(mod, EBX, EAX);
+            emit_mov_reg_reg(mod, ECX, EDX);
+            emit_add_reg_imm(mod, EBX, 1);
+            emit_adc_reg_imm8(mod, ECX, 0);
+            emit_jmp_label(mod, compare_exchange_label);
+            emit_label(mod, wrap_label);
+            emit_mov_reg_imm(mod, EBX, 0u);
+            emit_mov_reg_imm(mod, ECX, 0u);
+        } else {
+            emit_cmp_reg_imm(mod, EDX, 0);
+            emit_jcc_label(mod, CC_NE, update_label);
+            emit_cmp_reg_imm(mod, EAX, 0);
+            emit_jcc_label(mod, CC_E, wrap_label);
+            emit_label(mod, update_label);
+            emit_mov_reg_mem(mod, ECX, ESP, 4);
+            emit_cmp_reg_reg(mod, EDX, ECX);
+            emit_jcc_label(mod, CC_A, wrap_label);
+            emit_jcc_label(mod, CC_B, decrement_label);
+            emit_mov_reg_mem(mod, ECX, ESP, 0);
+            emit_cmp_reg_reg(mod, EAX, ECX);
+            emit_jcc_label(mod, CC_A, wrap_label);
+            emit_label(mod, decrement_label);
+            emit_mov_reg_reg(mod, EBX, EAX);
+            emit_mov_reg_reg(mod, ECX, EDX);
+            emit_sub_reg_imm(mod, EBX, 1);
+            emit_sbb_reg_imm8(mod, ECX, 0);
+            emit_jmp_label(mod, compare_exchange_label);
+            emit_label(mod, wrap_label);
+            emit_mov_reg_mem(mod, EBX, ESP, 0);
+            emit_mov_reg_mem(mod, ECX, ESP, 4);
+        }
+
+        emit_label(mod, compare_exchange_label);
+        emit_atomic_cmpxchg8b(mod, ESI);
+        emit_jcc_label(mod, CC_NE, retry_label);
+        emit_add_reg_imm(mod, ESP, 8);
         emit_pop_reg(mod, ESI);
         emit_pop_reg(mod, EBX);
         return true;
@@ -6101,7 +6187,8 @@ static bool gen_atomic_builtin64_i686(Module* mod, Expr* call,
 
     if (strcmp(name, "__atomic_store_n") == 0 ||
         strcmp(name, "__atomic_exchange_n") == 0 ||
-        strcmp(name, "__sync_lock_test_and_set") == 0) {
+        strcmp(name, "__sync_lock_test_and_set") == 0 ||
+        strcmp(name, "__sync_swap") == 0) {
         bool is_atomic_store = strcmp(name, "__atomic_store_n") == 0;
         bool has_order = strncmp(name, "__atomic_", 9) == 0;
         if (has_order) {
@@ -6413,6 +6500,7 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
     bool is_subtract;
     bool returns_new;
     AtomicMinMaxOp minmax_operation;
+    AtomicWrapOp wrap_operation;
     AtomicBitwiseOp bitwise_operation;
     const Type* value_type;
 
@@ -6420,8 +6508,61 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
     name = function->ident_name;
     value_type = atomic_value_type(call);
     minmax_operation = atomic_minmax_operation(name);
+    wrap_operation = atomic_wrap_operation(name);
     if (gen_atomic_lock_free_query32(mod, call)) return true;
     if (gen_atomic_builtin64_i686(mod, call, name)) return true;
+    if (wrap_operation != ATOMIC_WRAP_NONE) {
+        int retry_label = new_label();
+        int wrap_label = new_label();
+        int compare_exchange_label = new_label();
+
+        gen_expr(mod, call_argument(call, 2));
+        emit_push_reg(mod, EBX);
+        emit_push_reg(mod, ESI);
+        emit_push_reg(mod, EDI);
+        gen_expr(mod, call_argument(call, 0));
+        emit_mov_reg_reg(mod, ESI, EAX);
+        gen_expr(mod, call_argument(call, 1));
+        emit_normalize_atomic_value(mod, EAX, value_type);
+        emit_push_reg(mod, EAX); /* Wrap limit. */
+        emit_load_typed32(mod, EAX, ESI, 0, value_type);
+
+        emit_label(mod, retry_label);
+        if (wrap_operation == ATOMIC_WRAP_INCREMENT) {
+            emit_mov_reg_mem(mod, ECX, ESP, 0);
+            emit_cmp_reg_reg(mod, EAX, ECX);
+            emit_jcc_label(mod, CC_AE, wrap_label);
+            emit_mov_reg_reg(mod, EDX, EAX);
+            emit_add_reg_imm(mod, EDX, 1);
+            emit_normalize_atomic_value(mod, EDX, value_type);
+            emit_jmp_label(mod, compare_exchange_label);
+        } else {
+            emit_cmp_reg_imm(mod, EAX, 0);
+            emit_jcc_label(mod, CC_E, wrap_label);
+            emit_mov_reg_mem(mod, ECX, ESP, 0);
+            emit_cmp_reg_reg(mod, EAX, ECX);
+            emit_jcc_label(mod, CC_A, wrap_label);
+            emit_mov_reg_reg(mod, EDX, EAX);
+            emit_sub_reg_imm(mod, EDX, 1);
+            emit_normalize_atomic_value(mod, EDX, value_type);
+            emit_jmp_label(mod, compare_exchange_label);
+        }
+        emit_label(mod, wrap_label);
+        if (wrap_operation == ATOMIC_WRAP_INCREMENT)
+            emit_mov_reg_imm(mod, EDX, 0u);
+        else
+            emit_mov_reg_mem(mod, EDX, ESP, 0);
+        emit_normalize_atomic_value(mod, EDX, value_type);
+        emit_label(mod, compare_exchange_label);
+        emit_atomic_cmpxchg_width(mod, EDX, ESI, value_type);
+        emit_jcc_label(mod, CC_NE, retry_label);
+        emit_normalize_atomic_value(mod, EAX, value_type);
+        emit_add_reg_imm(mod, ESP, 4);
+        emit_pop_reg(mod, EDI);
+        emit_pop_reg(mod, ESI);
+        emit_pop_reg(mod, EBX);
+        return true;
+    }
     if (strcmp(name, "__atomic_load") == 0) {
         gen_expr(mod, call_argument(call, 2));
         gen_expr(mod, call_argument(call, 0));
@@ -6564,7 +6705,8 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
     }
     is_atomic = strncmp(name, "__atomic_", 9) == 0;
     if (strcmp(name, "__atomic_exchange_n") == 0 ||
-        strcmp(name, "__sync_lock_test_and_set") == 0) {
+        strcmp(name, "__sync_lock_test_and_set") == 0 ||
+        strcmp(name, "__sync_swap") == 0) {
         if (is_atomic) gen_expr(mod, call_argument(call, 2));
         gen_expr(mod, call_argument(call, 0));
         emit_push_reg(mod, EAX);
@@ -6727,8 +6869,10 @@ static bool gen_atomic_builtin(Module* mod, Expr* call) {
         return true;
     }
     if (strcmp(name, "__atomic_thread_fence") == 0 ||
+        strcmp(name, "__atomic_signal_fence") == 0 ||
         strcmp(name, "__sync_synchronize") == 0) {
-        if (strcmp(name, "__atomic_thread_fence") == 0) {
+        if (strcmp(name, "__atomic_thread_fence") == 0 ||
+            strcmp(name, "__atomic_signal_fence") == 0) {
             gen_expr(mod, call_argument(call, 0));
         }
         /* A locked operation is a full barrier on every supported i686 CPU. */

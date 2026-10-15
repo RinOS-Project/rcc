@@ -21,8 +21,8 @@ int invalid_lock_free_pointer_type(unsigned size, int value) {
     return __atomic_is_lock_free(size, value);
 }
 
-uint64_t unsupported_wide_atomic(volatile uint64_t* value) {
-    return __atomic_fetch_add(value, 1u, __ATOMIC_RELAXED);
+uint64_t invalid_signed_atomic_wrap(volatile int64_t* value) {
+    return __atomic_fetch_uinc(value, 4u, __ATOMIC_SEQ_CST);
 }
 
 int unsupported_wide_expected(volatile uint32_t* value,

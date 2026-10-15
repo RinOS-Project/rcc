@@ -2329,6 +2329,20 @@ static Atomic64MinMaxOp atomic64_minmax_operation(const char* name) {
     return ATOMIC64_MINMAX_NONE;
 }
 
+typedef enum {
+    ATOMIC64_WRAP_NONE,
+    ATOMIC64_WRAP_INCREMENT,
+    ATOMIC64_WRAP_DECREMENT
+} Atomic64WrapOp;
+
+static Atomic64WrapOp atomic64_wrap_operation(const char* name) {
+    if (strcmp(name, "__atomic_fetch_uinc") == 0)
+        return ATOMIC64_WRAP_INCREMENT;
+    if (strcmp(name, "__atomic_fetch_udec") == 0)
+        return ATOMIC64_WRAP_DECREMENT;
+    return ATOMIC64_WRAP_NONE;
+}
+
 /* SSE/SSE2 instructions operate on an XMM scratch register while the public
  * RCC ABI carries vectors as 16-byte aggregate addresses. */
 static void emit64_sse128_memory(Module* mod, int xmm, int base, int32_t disp,
@@ -3197,6 +3211,7 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     bool is_subtract;
     bool returns_new;
     Atomic64MinMaxOp minmax_operation;
+    Atomic64WrapOp wrap_operation;
     Atomic64BitwiseOp bitwise_operation;
     const Type* value_type;
 
@@ -3204,6 +3219,7 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     name = function->ident_name;
     value_type = atomic64_value_type(call);
     minmax_operation = atomic64_minmax_operation(name);
+    wrap_operation = atomic64_wrap_operation(name);
     if (gen64_atomic_lock_free_query(mod, call)) return true;
     if (minmax_operation != ATOMIC64_MINMAX_NONE) {
         int retry_label = new_label64();
@@ -3255,6 +3271,56 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
         emit64_normalize_atomic_value(mod, RAX, value_type);
         emit64_jmp_label(mod, retry_label);
         emit64_label(mod, done_label);
+        return true;
+    }
+    if (wrap_operation != ATOMIC64_WRAP_NONE) {
+        int retry_label = new_label64();
+        int wrap_label = new_label64();
+        int compare_exchange_label = new_label64();
+
+        /* CMPXCHG has sequentially-consistent ordering and therefore
+         * satisfies every valid order requested by this RMW builtin. */
+        gen64_expr(mod, call64_argument(call, 2));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX); /* Object address. */
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_normalize_atomic_value(mod, RAX, value_type);
+        emit64_push_reg(mod, RAX); /* Wrap limit. */
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_load_typed(mod, RAX, RCX, 0, value_type);
+
+        emit64_label(mod, retry_label);
+        if (wrap_operation == ATOMIC64_WRAP_INCREMENT) {
+            emit64_mov_reg_mem(mod, RCX, RSP, 0);
+            emit64_cmp_reg_reg(mod, RAX, RCX);
+            emit64_jcc_label(mod, CC64_AE, wrap_label);
+            emit64_mov_reg_reg(mod, RDX, RAX);
+            emit64_add_reg_imm(mod, RDX, 1);
+            emit64_normalize_atomic_value(mod, RDX, value_type);
+            emit64_jmp_label(mod, compare_exchange_label);
+        } else {
+            emit64_test_reg_reg(mod, RAX, RAX);
+            emit64_jcc_label(mod, CC64_E, wrap_label);
+            emit64_mov_reg_mem(mod, RCX, RSP, 0);
+            emit64_cmp_reg_reg(mod, RAX, RCX);
+            emit64_jcc_label(mod, CC64_A, wrap_label);
+            emit64_mov_reg_reg(mod, RDX, RAX);
+            emit64_sub_reg_imm(mod, RDX, 1);
+            emit64_normalize_atomic_value(mod, RDX, value_type);
+            emit64_jmp_label(mod, compare_exchange_label);
+        }
+        emit64_label(mod, wrap_label);
+        if (wrap_operation == ATOMIC64_WRAP_INCREMENT)
+            emit64_mov_reg_imm64(mod, RDX, 0u);
+        else
+            emit64_mov_reg_mem(mod, RDX, RSP, 0);
+        emit64_normalize_atomic_value(mod, RDX, value_type);
+        emit64_label(mod, compare_exchange_label);
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_atomic_cmpxchg_width(mod, RDX, RCX, value_type);
+        emit64_jcc_label(mod, CC64_NE, retry_label);
+        emit64_normalize_atomic_value(mod, RAX, value_type);
+        emit64_add_reg_imm(mod, RSP, 16);
         return true;
     }
     if (strcmp(name, "__atomic_load") == 0) {
@@ -3384,7 +3450,8 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     }
     is_atomic = strncmp(name, "__atomic_", 9) == 0;
     if (strcmp(name, "__atomic_exchange_n") == 0 ||
-        strcmp(name, "__sync_lock_test_and_set") == 0) {
+        strcmp(name, "__sync_lock_test_and_set") == 0 ||
+        strcmp(name, "__sync_swap") == 0) {
         if (is_atomic) gen64_expr(mod, call64_argument(call, 2));
         gen64_expr(mod, call64_argument(call, 0));
         emit64_push_reg(mod, RAX);
@@ -3502,8 +3569,10 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
         return true;
     }
     if (strcmp(name, "__atomic_thread_fence") == 0 ||
+        strcmp(name, "__atomic_signal_fence") == 0 ||
         strcmp(name, "__sync_synchronize") == 0) {
-        if (strcmp(name, "__atomic_thread_fence") == 0) {
+        if (strcmp(name, "__atomic_thread_fence") == 0 ||
+            strcmp(name, "__atomic_signal_fence") == 0) {
             gen64_expr(mod, call64_argument(call, 0));
         }
         emit_byte(mod, 0xF0);

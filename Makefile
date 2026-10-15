@@ -13636,6 +13636,8 @@ endif
 		$(TEST_OUT)/atomic-x86/invalid.log
 	$(GREP) -F -q "__atomic_clear requires a byte-sized object pointer" \
 		$(TEST_OUT)/atomic-x86/invalid.log
+	$(GREP) -F -q "__atomic_fetch_uinc requires an unsigned integer object pointer" \
+		$(TEST_OUT)/atomic-x86/invalid.log
 	$(GREP) -F -q "__atomic_always_lock_free size argument must be an integer constant" \
 		$(TEST_OUT)/atomic-x86/invalid.log
 	$(GREP) -F -q "__atomic_is_lock_free size argument must have integer type" \
@@ -13650,6 +13652,8 @@ endif
 	$(GREP) -F -q "__atomic_load does not accept release or acq_rel order" \
 		$(TEST_OUT)/atomic-x64/invalid-order.log
 	$(GREP) -F -q "__atomic_store accepts only relaxed, release, or seq_cst order" \
+		$(TEST_OUT)/atomic-x64/invalid-order.log
+	$(GREP) -F -q "__atomic_signal_fence memory order is outside the range 0..5" \
 		$(TEST_OUT)/atomic-x64/invalid-order.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/atomic-x86/invalid-pointer.ro \

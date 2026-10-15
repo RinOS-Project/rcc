@@ -1998,7 +1998,8 @@ static bool atomic_allows_pointer_value(const char* name) {
            strcmp(name, "__atomic_load") == 0 ||
            strcmp(name, "__atomic_store") == 0 ||
            strcmp(name, "__atomic_exchange") == 0 ||
-           strcmp(name, "__atomic_compare_exchange") == 0;
+           strcmp(name, "__atomic_compare_exchange") == 0 ||
+           strcmp(name, "__sync_swap") == 0;
 }
 
 /* ═══════════════════════════════════════
@@ -17325,6 +17326,8 @@ static bool sema_atomic_builtin_call(Expr* expr) {
                strcmp(name, "__atomic_fetch_nand") == 0 ||
                strcmp(name, "__atomic_fetch_min") == 0 ||
                strcmp(name, "__atomic_fetch_max") == 0 ||
+               strcmp(name, "__atomic_fetch_uinc") == 0 ||
+               strcmp(name, "__atomic_fetch_udec") == 0 ||
                strcmp(name, "__atomic_add_fetch") == 0 ||
                strcmp(name, "__atomic_sub_fetch") == 0 ||
                strcmp(name, "__atomic_and_fetch") == 0 ||
@@ -17341,7 +17344,8 @@ static bool sema_atomic_builtin_call(Expr* expr) {
         returns_bool = true;
     } else if (strcmp(name, "__sync_val_compare_and_swap") == 0) {
         expected_count = 3;
-    } else if (strcmp(name, "__sync_lock_test_and_set") == 0 ||
+    } else if (strcmp(name, "__sync_swap") == 0 ||
+               strcmp(name, "__sync_lock_test_and_set") == 0 ||
                strcmp(name, "__sync_fetch_and_add") == 0 ||
                strcmp(name, "__sync_fetch_and_sub") == 0 ||
                strcmp(name, "__sync_fetch_and_and") == 0 ||
@@ -17358,7 +17362,8 @@ static bool sema_atomic_builtin_call(Expr* expr) {
     } else if (strcmp(name, "__sync_lock_release") == 0) {
         expected_count = 1;
         returns_void = true;
-    } else if (strcmp(name, "__atomic_thread_fence") == 0) {
+    } else if (strcmp(name, "__atomic_thread_fence") == 0 ||
+               strcmp(name, "__atomic_signal_fence") == 0) {
         expected_count = 1;
         requires_pointer = false;
         returns_void = true;
@@ -17447,6 +17452,14 @@ static bool sema_atomic_builtin_call(Expr* expr) {
                    (!pointer_type->base || pointer_type->base->size != 1u)) {
             rcc_error(expr->loc,
                       "%s requires a byte-sized object pointer", name);
+        } else if ((strcmp(name, "__atomic_fetch_uinc") == 0 ||
+                    strcmp(name, "__atomic_fetch_udec") == 0) &&
+                   (!pointer_type->base ||
+                    !type_is_integer(pointer_type->base) ||
+                    !pointer_type->base->is_unsigned)) {
+            rcc_error(expr->loc,
+                      "%s requires an unsigned integer object pointer",
+                      name);
         }
     }
     if (requires_expected_pointer) {
@@ -17561,7 +17574,8 @@ static bool sema_atomic_builtin_call(Expr* expr) {
                       name);
         }
     } else if (strncmp(name, "__atomic_", 9) == 0) {
-        int order_index = strcmp(name, "__atomic_thread_fence") == 0
+        int order_index = (strcmp(name, "__atomic_thread_fence") == 0 ||
+                           strcmp(name, "__atomic_signal_fence") == 0)
             ? 0
             : ((strcmp(name, "__atomic_test_and_set") == 0 ||
                 strcmp(name, "__atomic_clear") == 0) ? 1 : 2);

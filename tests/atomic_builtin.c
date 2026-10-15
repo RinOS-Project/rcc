@@ -184,6 +184,46 @@ uint64_t atomic_u64_or_fetch_value(volatile uint64_t* value,
     return __atomic_or_fetch(value, operand, __ATOMIC_SEQ_CST);
 }
 
+uint64_t atomic_u64_fetch_and_value(volatile uint64_t* value,
+                                    uint64_t operand) {
+    return __atomic_fetch_and(value, operand, __ATOMIC_RELAXED);
+}
+
+uint64_t atomic_u64_and_fetch_value(volatile uint64_t* value,
+                                    uint64_t operand) {
+    return __atomic_and_fetch(value, operand, __ATOMIC_ACQUIRE);
+}
+
+uint64_t atomic_u64_fetch_or_value(volatile uint64_t* value,
+                                   uint64_t operand) {
+    return __atomic_fetch_or(value, operand, __ATOMIC_RELEASE);
+}
+
+uint64_t atomic_u64_xor_fetch_value(volatile uint64_t* value,
+                                    uint64_t operand) {
+    return __atomic_xor_fetch(value, operand, __ATOMIC_ACQ_REL);
+}
+
+uint64_t atomic_u64_fetch_nand_value(volatile uint64_t* value,
+                                     uint64_t operand) {
+    return __atomic_fetch_nand(value, operand, __ATOMIC_SEQ_CST);
+}
+
+uint64_t atomic_u64_nand_fetch_value(volatile uint64_t* value,
+                                     uint64_t operand) {
+    return __atomic_nand_fetch(value, operand, __ATOMIC_RELAXED);
+}
+
+uint64_t atomic_u64_fetch_uinc_order(volatile uint64_t* value,
+                                     uint64_t limit, int order) {
+    return __atomic_fetch_uinc(value, limit, order);
+}
+
+uint64_t atomic_u64_fetch_udec_order(volatile uint64_t* value,
+                                     uint64_t limit, int order) {
+    return __atomic_fetch_udec(value, limit, order);
+}
+
 int64_t atomic_i64_fetch_min_order(volatile int64_t* value, int64_t operand,
                                    int order) {
     return __atomic_fetch_min(value, operand, order);
@@ -210,6 +250,103 @@ int atomic_u64_compare_exchange_value(volatile uint64_t* value,
     return __atomic_compare_exchange_n(value, expected, desired, 0,
                                        __ATOMIC_ACQ_REL,
                                        __ATOMIC_ACQUIRE);
+}
+
+int atomic_u64_compare_exchange_weak_value(volatile uint64_t* value,
+                                          uint64_t* expected,
+                                          uint64_t desired) {
+    return __atomic_compare_exchange_n(value, expected, desired, 1,
+                                       __ATOMIC_ACQ_REL,
+                                       __ATOMIC_ACQUIRE);
+}
+
+uint64_t sync_u64_swap_value(volatile uint64_t* value, uint64_t desired) {
+    return __sync_swap(value, desired);
+}
+
+uint64_t sync_u64_lock_test_and_set_value(volatile uint64_t* value,
+                                          uint64_t desired) {
+    return __sync_lock_test_and_set(value, desired);
+}
+
+void sync_u64_lock_release_value(volatile uint64_t* value) {
+    __sync_lock_release(value);
+}
+
+int sync_u64_bool_compare_exchange_value(volatile uint64_t* value,
+                                         uint64_t expected,
+                                         uint64_t desired) {
+    return __sync_bool_compare_and_swap(value, expected, desired);
+}
+
+uint64_t sync_u64_val_compare_exchange_value(volatile uint64_t* value,
+                                             uint64_t expected,
+                                             uint64_t desired) {
+    return __sync_val_compare_and_swap(value, expected, desired);
+}
+
+uint64_t sync_u64_fetch_add_value(volatile uint64_t* value,
+                                  uint64_t operand) {
+    return __sync_fetch_and_add(value, operand);
+}
+
+uint64_t sync_u64_fetch_sub_value(volatile uint64_t* value,
+                                  uint64_t operand) {
+    return __sync_fetch_and_sub(value, operand);
+}
+
+uint64_t sync_u64_add_fetch_value(volatile uint64_t* value,
+                                  uint64_t operand) {
+    return __sync_add_and_fetch(value, operand);
+}
+
+uint64_t sync_u64_sub_fetch_value(volatile uint64_t* value,
+                                  uint64_t operand) {
+    return __sync_sub_and_fetch(value, operand);
+}
+
+uint64_t sync_u64_fetch_and_value(volatile uint64_t* value,
+                                  uint64_t operand) {
+    return __sync_fetch_and_and(value, operand);
+}
+
+uint64_t sync_u64_and_fetch_value(volatile uint64_t* value,
+                                  uint64_t operand) {
+    return __sync_and_and_fetch(value, operand);
+}
+
+uint64_t sync_u64_fetch_or_value(volatile uint64_t* value,
+                                 uint64_t operand) {
+    return __sync_fetch_and_or(value, operand);
+}
+
+uint64_t sync_u64_or_fetch_value(volatile uint64_t* value,
+                                 uint64_t operand) {
+    return __sync_or_and_fetch(value, operand);
+}
+
+uint64_t sync_u64_fetch_xor_value(volatile uint64_t* value,
+                                  uint64_t operand) {
+    return __sync_fetch_and_xor(value, operand);
+}
+
+uint64_t sync_u64_xor_fetch_value(volatile uint64_t* value,
+                                  uint64_t operand) {
+    return __sync_xor_and_fetch(value, operand);
+}
+
+uint64_t sync_u64_fetch_nand_value(volatile uint64_t* value,
+                                   uint64_t operand) {
+    return __sync_fetch_and_nand(value, operand);
+}
+
+uint64_t sync_u64_nand_fetch_value(volatile uint64_t* value,
+                                   uint64_t operand) {
+    return __sync_nand_and_fetch(value, operand);
+}
+
+void* sync_pointer_swap_value(void* volatile* value, void* desired) {
+    return __sync_swap(value, desired);
 }
 
 uint64_t standard_atomic_ullong_fetch_add_value(atomic_ullong* value,
@@ -469,6 +606,10 @@ uint32_t sync_xor_fetch_value(volatile uint32_t* value, uint32_t operand) {
 
 void atomic_thread_fence_value(void) {
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
+}
+
+void atomic_signal_fence_value(void) {
+    __atomic_signal_fence(__ATOMIC_SEQ_CST);
 }
 
 void sync_synchronize_value(void) {

@@ -49,3 +49,7 @@ int invalid_atomic_weak_flag(volatile uint32_t* value,
                                        __ATOMIC_SEQ_CST,
                                        __ATOMIC_SEQ_CST);
 }
+
+void invalid_signal_fence_order(void) {
+    __atomic_signal_fence(6);
+}
