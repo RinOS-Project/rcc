@@ -4595,3 +4595,15 @@ remains a separate open item.
   implementation (exit 0).
 - [ ] Chains deeper than four nested member-template levels and non-null
   structural pointer NTTP values remain open.
+
+## RCC continuation (2026-10-16, explicit member specialization below a specialized intermediate owner)
+
+- [x] Specialize `Inner<long>` after explicitly specializing its enclosing
+  member class template `Mid<char>` inside `Owner<int>`. Retain the primary
+  `Owner<long>::Mid<char>` case and the unspecialized inner-template case for
+  `Owner<int>::Mid<char>`.
+- [x] Compare the three exact GCC Itanium symbols against RCC on i686/AMD64 and
+  execute both the generated AMD64 program and GCC-host program. The focused
+  nested-owner target passes (exit 0).
+- [ ] Chains deeper than four nested member-template levels and non-null
+  structural pointer NTTP values remain open.

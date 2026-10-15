@@ -5251,6 +5251,9 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK28NestedFourLevelExplicitOwnerIiE5FirstIcE6SecondIsE5ThirdIlE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
 	$(GREP) -F -q "_ZNK28NestedFourLevelExplicitOwnerIlE5FirstIcE6SecondIsE5ThirdIlE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
 	$(GREP) -F -q "_ZNK28NestedFourLevelExplicitOwnerIiE5FirstIlE6SecondIsE5ThirdIlE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIlE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIiE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIlE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIjE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
@@ -5286,6 +5289,9 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK28NestedFourLevelExplicitOwnerIiE5FirstIcE6SecondIsE5ThirdIlE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK28NestedFourLevelExplicitOwnerIlE5FirstIcE6SecondIsE5ThirdIlE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK28NestedFourLevelExplicitOwnerIiE5FirstIlE6SecondIsE5ThirdIlE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIlE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIiE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIlE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIjE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
@@ -5321,6 +5327,9 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK28NestedFourLevelExplicitOwnerIiE5FirstIcE6SecondIsE5ThirdIlE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK28NestedFourLevelExplicitOwnerIlE5FirstIcE6SecondIsE5ThirdIlE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK28NestedFourLevelExplicitOwnerIiE5FirstIlE6SecondIsE5ThirdIlE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIlE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc-host.exe tests/cxx_nested_class_template_owner_partial_specialization.cpp
 	$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc-host.exe
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-x86.ro tests/cxx_nested_member_explicit_specialization_missing_owner_header_invalid.cpp,$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-x86.log)

@@ -360,6 +360,32 @@ struct NestedFourLevelExplicitOwner<int>::First<char>::Second<short>::Third<long
     int result() const { return 620; }
 };
 
+template <typename OwnerValue>
+struct NestedMidSpecializedOwner {
+    template <typename MidValue>
+    struct Mid {
+        template <typename InnerValue>
+        struct Inner {
+            int result() const { return 700; }
+        };
+    };
+};
+
+template <>
+template <>
+struct NestedMidSpecializedOwner<int>::Mid<char> {
+    template <typename InnerValue>
+    struct Inner {
+        int result() const { return 710; }
+    };
+};
+
+template <>
+template <>
+struct NestedMidSpecializedOwner<int>::Mid<char>::Inner<long> {
+    int result() const { return 720; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -420,6 +446,12 @@ int main() {
         four_level_explicit_outer;
     NestedFourLevelExplicitOwner<int>::First<char>::Second<short>::Third<long>::Inner<double>
         four_level_explicit_member;
+    NestedMidSpecializedOwner<long>::Mid<char>::Inner<long>
+        specialized_mid_primary_owner;
+    NestedMidSpecializedOwner<int>::Mid<char>::Inner<char>
+        specialized_mid_member_template;
+    NestedMidSpecializedOwner<int>::Mid<char>::Inner<long>
+        specialized_mid_explicit_member;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -455,5 +487,8 @@ int main() {
     if (four_level_primary_outer.result() != 600) return 33;
     if (four_level_explicit_outer.result() != 610) return 34;
     if (four_level_explicit_member.result() != 620) return 35;
+    if (specialized_mid_primary_owner.result() != 700) return 36;
+    if (specialized_mid_member_template.result() != 710) return 37;
+    if (specialized_mid_explicit_member.result() != 720) return 38;
     return 0;
 }
