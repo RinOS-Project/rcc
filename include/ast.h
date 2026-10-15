@@ -201,6 +201,8 @@ struct Type {
     uint32_t cxx_constructor_arity_mask;
     struct CxxTemplate* cxx_template;
     int cxx_template_param_index;
+    /* Scope that owns cxx_template_param_index for dependent type patterns. */
+    struct CxxTemplate* cxx_template_param_context;
     /* Dependent nested type name such as `T::value_type`.  The owner
      * parameter is identified by cxx_template_param_index and is resolved
      * only after template substitution. */

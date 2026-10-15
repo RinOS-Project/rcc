@@ -154,7 +154,7 @@ struct NestedNullptrSpecializedOuterOwner<nullptr, OwnerValue>::
     int result() const { return 190 + sizeof(OwnerValue); }
 };
 
-template <typename OwnerType, int FirstValue, int LastValue>
+template <typename OuterType, int FirstValue, int LastValue>
 struct NestedExpressionSpecializedOuterOwner {
     template <typename Value>
     struct Inner {
@@ -164,7 +164,7 @@ struct NestedExpressionSpecializedOuterOwner {
 
 template <typename OwnerType, int OwnerValue>
 struct NestedExpressionSpecializedOuterOwner<
-    OwnerType, OwnerValue, OwnerValue * 3 + 2> {
+    OwnerType*, OwnerValue, OwnerValue * 3 + 2> {
     template <typename Value>
     struct Inner {
         int result() const { return 205; }
@@ -174,7 +174,7 @@ struct NestedExpressionSpecializedOuterOwner<
 template <typename OwnerType, int OwnerValue>
 template <typename Value>
 struct NestedExpressionSpecializedOuterOwner<
-    OwnerType, OwnerValue, OwnerValue * 3 + 2>::Inner<Value*> {
+    OwnerType*, OwnerValue, OwnerValue * 3 + 2>::Inner<Value*> {
     int result() const { return 210 + sizeof(OwnerType) + OwnerValue; }
 };
 
@@ -198,9 +198,9 @@ int main() {
         partial_outer_template_template;
     NestedNullptrSpecializedOuterOwner<nullptr, int>::Inner<char*>
         partial_outer_nullptr;
-    NestedExpressionSpecializedOuterOwner<int, 1, 5>::Inner<char*>
+    NestedExpressionSpecializedOuterOwner<int*, 1, 5>::Inner<char*>
         partial_outer_expression;
-    NestedExpressionSpecializedOuterOwner<int, 1, 4>::Inner<char*>
+    NestedExpressionSpecializedOuterOwner<int*, 1, 4>::Inner<char*>
         primary_outer_expression;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;

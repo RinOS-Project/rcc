@@ -15549,6 +15549,86 @@ static bool cxx_nested_owner_value_expression_matches(
     return false;
 }
 
+static CxxTemplate* cxx_nested_owner_type_parameter_context(
+    const Type* pattern, unsigned depth) {
+    CxxTemplate* context;
+    if (!pattern || depth >= 64u) return NULL;
+    if (pattern->cxx_template_param_context) {
+        return pattern->cxx_template_param_context;
+    }
+    if (pattern->kind == TYPE_PTR || pattern->kind == TYPE_ARRAY ||
+        pattern->kind == TYPE_VECTOR) {
+        context = cxx_nested_owner_type_parameter_context(
+            pattern->base, depth + 1u);
+        if (context) return context;
+    } else if (pattern->kind == TYPE_FUNC) {
+        context = cxx_nested_owner_type_parameter_context(
+            pattern->ret_type, depth + 1u);
+        if (context) return context;
+        for (TypeParam* parameter = pattern->params; parameter;
+             parameter = parameter->next) {
+            context = cxx_nested_owner_type_parameter_context(
+                parameter->type, depth + 1u);
+            if (context) return context;
+        }
+    }
+    for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
+        context = pattern->cxx_template_args
+            ? cxx_nested_owner_type_parameter_context(
+                  pattern->cxx_template_args[index], depth + 1u)
+            : NULL;
+        if (context) return context;
+    }
+    return NULL;
+}
+
+static bool cxx_nested_owner_type_expression_matches(
+    Type* pattern, Type* actual, CxxTemplate* parameter_context,
+    Type** deduced_arguments, int* specificity, unsigned depth) {
+    CxxTemplate* pattern_context;
+    int parameter_index;
+    if (!pattern || !actual || depth >= 64u) return false;
+    if (pattern->cxx_dependent) {
+        if ((pattern->is_const && !actual->is_const) ||
+            (pattern->is_volatile && !actual->is_volatile)) {
+            return false;
+        }
+    } else if (pattern->is_const != actual->is_const ||
+               pattern->is_volatile != actual->is_volatile) {
+        return false;
+    }
+    pattern_context = pattern->cxx_template_param_context
+        ? pattern->cxx_template_param_context : parameter_context;
+    parameter_index = pattern->cxx_template_param_index;
+    if (pattern->kind == TYPE_STRUCT && pattern->cxx_dependent &&
+        pattern_context && parameter_index >= 0 && deduced_arguments &&
+        parameter_index < pattern_context->param_count &&
+        pattern_context->params[parameter_index].kind == TPARAM_TYPE) {
+        if (deduced_arguments[parameter_index]) {
+            return cxx_class_specialization_type_equal(
+                deduced_arguments[parameter_index], actual);
+        }
+        deduced_arguments[parameter_index] = actual;
+        return true;
+    }
+    if (pattern->kind == TYPE_PTR && actual->kind == TYPE_PTR &&
+        pattern->is_reference == actual->is_reference &&
+        pattern->is_rvalue_reference == actual->is_rvalue_reference) {
+        return cxx_nested_owner_type_expression_matches(
+            pattern->base, actual->base, parameter_context,
+            deduced_arguments, specificity, depth + 1u) &&
+            (!specificity || (*specificity += 1, true));
+    }
+    if (pattern->kind == TYPE_ARRAY && actual->kind == TYPE_ARRAY &&
+        (pattern->array_len < 0 ||
+         pattern->array_len == actual->array_len)) {
+        return cxx_nested_owner_type_expression_matches(
+            pattern->base, actual->base, parameter_context,
+            deduced_arguments, specificity, depth + 1u);
+    }
+    return cxx_class_specialization_type_equal(pattern, actual);
+}
+
 static int cxx_nested_specialization_owner_matches(
     CxxTemplate* specialization, CxxClass* owner_class) {
     Type* pattern = specialization
@@ -15563,6 +15643,7 @@ static int cxx_nested_specialization_owner_matches(
     bool* deduced_value_present = NULL;
     int64_t* owner_value_context_values = NULL;
     bool* owner_value_context_present = NULL;
+    Type** owner_value_context_arguments = NULL;
     int pack_index;
     int expansion_index = -1;
     int specificity = 0;
@@ -15576,8 +15657,16 @@ static int cxx_nested_specialization_owner_matches(
     owner_template = pattern->cxx_template;
     owner_value_context = owner_template;
     for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
+        CxxTemplate* type_context = pattern->cxx_template_args
+            ? cxx_nested_owner_type_parameter_context(
+                  pattern->cxx_template_args[index], 0u)
+            : NULL;
         Expr* value_expression = pattern->cxx_template_value_args
             ? pattern->cxx_template_value_args[index] : NULL;
+        if (type_context) {
+            owner_value_context = type_context;
+            break;
+        }
         if (value_expression && value_expression->cxx_template_context) {
             owner_value_context = value_expression->cxx_template_context;
             break;
@@ -15598,10 +15687,14 @@ static int cxx_nested_specialization_owner_matches(
             sizeof(*owner_value_context_values) * value_context_count);
         owner_value_context_present = ast_arena_alloc(
             sizeof(*owner_value_context_present) * value_context_count);
+        owner_value_context_arguments = ast_arena_alloc(
+            sizeof(*owner_value_context_arguments) * value_context_count);
         memset(owner_value_context_values, 0,
                sizeof(*owner_value_context_values) * value_context_count);
         memset(owner_value_context_present, 0,
                sizeof(*owner_value_context_present) * value_context_count);
+        memset(owner_value_context_arguments, 0,
+               sizeof(*owner_value_context_arguments) * value_context_count);
     }
     if (owner_template->param_count > 0) {
         deduced_arguments = ast_arena_alloc(
@@ -15654,11 +15747,22 @@ static int cxx_nested_specialization_owner_matches(
          ++index) {
         TemplateParam* parameter = &owner_template->params[index];
         if (parameter->kind == TPARAM_TYPE) {
-            if (!pattern->cxx_template_args || !actual_arguments[index] ||
-                !deduce_class_specialization_type(
-                    owner_template, pattern->cxx_template_args[index],
-                    actual_arguments[index], deduced_arguments,
-                    &specificity)) {
+            Type* type_pattern = pattern->cxx_template_args
+                ? pattern->cxx_template_args[index] : NULL;
+            CxxTemplate* type_context =
+                cxx_nested_owner_type_parameter_context(type_pattern, 0u);
+            if (!type_pattern || !actual_arguments[index] ||
+                (type_context
+                     ? (type_context != owner_value_context ||
+                        !cxx_nested_owner_type_expression_matches(
+                            type_pattern, actual_arguments[index],
+                            owner_value_context,
+                            owner_value_context_arguments,
+                            &specificity, 0u))
+                     : !deduce_class_specialization_type(
+                           owner_template, type_pattern,
+                           actual_arguments[index], deduced_arguments,
+                           &specificity))) {
                 return 0;
             }
         } else if (parameter->kind == TPARAM_NONTYPE) {
@@ -26827,6 +26931,7 @@ static Type* parse_cxx_type_spec(void) {
             t = type_struct(name);
             t->cxx_dependent = true;
             t->cxx_template_param_index = active_template_type_index(name);
+            t->cxx_template_param_context = active_template;
         } else {
             if (check(TOK_LT)) {
                 rcc_error(loc, "unknown C++ class template '%s'", name);
