@@ -477,6 +477,7 @@ endif
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
 .PHONY: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-posix
+.PHONY: test-cxx-dependent-array-bound-overflow
 .PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix test-cxx-nested-class-template-specializations test-cxx-nested-class-template-template-owner-specialization test-cxx-nested-class-template-owner-partial-specialization test-cxx-nested-class-template-owner test-cxx-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner test-cxx-dependent-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner-chain test-cxx-dependent-nested-class-template-owner-chain-posix
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
@@ -666,6 +667,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-nested-class-template-owner \
 	test-cxx-dependent-nested-class-template-owner \
 	test-cxx-dependent-nested-class-template-owner-chain \
+	test-cxx-dependent-array-bound-overflow \
 	test-cxx-operator-overload \
 	test-cxx-member-operator-forms \
 	test-cxx-assignment-operator \
@@ -5679,6 +5681,18 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_nested_member_explicit_specialization_missing_owner_header_invalid.cpp,$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-gcc.log)
 	$(GREP) -F -q "too few template-parameter-lists" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-gcc.log
+
+test-cxx-dependent-array-bound-overflow: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-array-bound-overflow)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-dependent-array-bound-overflow/x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-dependent-array-bound-overflow/x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-dependent-array-bound-overflow/x86.ro tests/cxx_dependent_array_bound_overflow_invalid.cpp,$(TEST_OUT)/cxx-dependent-array-bound-overflow/x86.log)
+	$(call CHECK_COUNT,overflow in dependent array bound constant expression,$(TEST_OUT)/cxx-dependent-array-bound-overflow/x86.log,6)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-dependent-array-bound-overflow/x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-dependent-array-bound-overflow/x64.ro tests/cxx_dependent_array_bound_overflow_invalid.cpp,$(TEST_OUT)/cxx-dependent-array-bound-overflow/x64.log)
+	$(call CHECK_COUNT,overflow in dependent array bound constant expression,$(TEST_OUT)/cxx-dependent-array-bound-overflow/x64.log,6)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-dependent-array-bound-overflow/x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_dependent_array_bound_overflow_invalid.cpp,$(TEST_OUT)/cxx-dependent-array-bound-overflow/gcc.log)
 
 test-cxx-nested-class-template-owner-structural-value-pack: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack)

@@ -2494,6 +2494,9 @@ static bool eval_template_integer_expression(Expr* expression,
                                               const int64_t* values,
                                               const bool* value_present,
                                               int64_t* result);
+static bool cxx_template_integer_expression_overflows(
+    Expr* expression, CxxTemplate* tmpl, const int64_t* values,
+    const bool* value_present);
 static bool cxx_expression_is_dependent(
     const Expr* expression, const CxxTemplate* tmpl);
 static bool cxx_friend_function_name_matches(CxxNamespace* ns,
@@ -13503,6 +13506,12 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 }
                 array_len = (int)value;
                 array_bound = NULL;
+            } else if (cxx_template_integer_expression_overflows(
+                           type->array_bound, tmpl, value_args,
+                           value_present)) {
+                rcc_error(type->array_bound->loc,
+                          "overflow in dependent array bound constant expression");
+                return NULL;
             }
         }
         if (base != type->base || array_len != type->array_len ||
@@ -19180,6 +19189,130 @@ static bool eval_template_integer_expression(Expr* expression,
                     &left)) return false;
             return cxx_eval_i64_integral_cast(
                 expression->cast_type, left, result);
+        default:
+            return false;
+    }
+}
+
+static bool cxx_template_integer_expression_overflows(
+    Expr* expression, CxxTemplate* tmpl, const int64_t* values,
+    const bool* value_present) {
+    int64_t left;
+    int64_t right;
+    int64_t ignored;
+    bool has_left;
+    bool has_right;
+    if (!expression) return false;
+
+    switch (expression->kind) {
+        case EXPR_NEG:
+            if (eval_template_integer_expression(
+                    expression->unary_operand, tmpl, values, value_present,
+                    &left)) {
+                return (!expression->type ||
+                        !expression->type->is_unsigned) &&
+                    left == INT64_MIN;
+            }
+            return cxx_template_integer_expression_overflows(
+                expression->unary_operand, tmpl, values, value_present);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+            has_left = eval_template_integer_expression(
+                expression->binary_lhs, tmpl, values, value_present, &left);
+            has_right = eval_template_integer_expression(
+                expression->binary_rhs, tmpl, values, value_present, &right);
+            if (has_left && has_right) {
+                if (expression->type && expression->type->is_unsigned) {
+                    return false;
+                }
+                switch (expression->kind) {
+                    case EXPR_ADD:
+                        return !cxx_eval_i64_add(left, right, &ignored);
+                    case EXPR_SUB:
+                        return !cxx_eval_i64_sub(left, right, &ignored);
+                    case EXPR_MUL:
+                        return !cxx_eval_i64_mul(left, right, &ignored);
+                    case EXPR_DIV:
+                    case EXPR_MOD:
+                        return left == INT64_MIN && right == -1;
+                    default:
+                        return false;
+                }
+            }
+            return cxx_template_integer_expression_overflows(
+                       expression->binary_lhs, tmpl, values, value_present) ||
+                cxx_template_integer_expression_overflows(
+                       expression->binary_rhs, tmpl, values, value_present);
+        case EXPR_AND:
+        case EXPR_OR:
+            if (eval_template_integer_expression(
+                    expression->binary_lhs, tmpl, values, value_present,
+                    &left)) {
+                if ((expression->kind == EXPR_AND && !left) ||
+                    (expression->kind == EXPR_OR && left)) {
+                    return false;
+                }
+                return cxx_template_integer_expression_overflows(
+                    expression->binary_rhs, tmpl, values, value_present);
+            }
+            return cxx_template_integer_expression_overflows(
+                expression->binary_lhs, tmpl, values, value_present);
+        case EXPR_COND:
+            if (eval_template_integer_expression(
+                    expression->cond_test, tmpl, values, value_present,
+                    &left)) {
+                return cxx_template_integer_expression_overflows(
+                    left ? expression->cond_then : expression->cond_else,
+                    tmpl, values, value_present);
+            }
+            return cxx_template_integer_expression_overflows(
+                expression->cond_test, tmpl, values, value_present);
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+            return cxx_template_integer_expression_overflows(
+                expression->unary_operand, tmpl, values, value_present);
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_COMMA:
+            return cxx_template_integer_expression_overflows(
+                       expression->binary_lhs, tmpl, values, value_present) ||
+                cxx_template_integer_expression_overflows(
+                       expression->binary_rhs, tmpl, values, value_present);
+        case EXPR_CAST:
+            return cxx_template_integer_expression_overflows(
+                expression->cast_expr, tmpl, values, value_present);
+        case EXPR_CALL:
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                if (cxx_template_integer_expression_overflows(
+                        argument->expr, tmpl, values, value_present)) {
+                    return true;
+                }
+            }
+            return false;
+        case EXPR_INDEX:
+            return cxx_template_integer_expression_overflows(
+                       expression->index_base, tmpl, values, value_present) ||
+                cxx_template_integer_expression_overflows(
+                       expression->index_expr, tmpl, values, value_present);
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            return cxx_template_integer_expression_overflows(
+                expression->member_base, tmpl, values, value_present);
         default:
             return false;
     }

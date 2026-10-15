@@ -4854,11 +4854,9 @@ remains a separate open item.
 - [x] Compare the added GCC Itanium symbols for both i686 and AMD64 and run
   generated AMD64 plus GCC-host programs. The focused nested-owner target and
   aggregate `test-cxx test-debug-info` both pass (exit 0).
-- [ ] Add explicit diagnostics/regressions for overflowing dependent
-  constant expressions and cover unsigned conversions outside the evaluator's
-  signed 64-bit range plus floating casts; non-null structural pointer NTTP
-  values and explicit-specialization chains deeper than nine nested levels
-  remain open.
+- [ ] Cover unsigned conversions outside the evaluator's signed 64-bit range
+  plus floating casts; non-null structural pointer NTTP values and
+  explicit-specialization chains deeper than nine nested levels remain open.
 
 ## RCC continuation (2026-10-16, narrowing casts in dependent array bounds)
 
@@ -4874,9 +4872,8 @@ remains a separate open item.
   compare exact GCC Itanium symbols on i686/AMD64 and run generated AMD64 plus
   GCC-host programs. The focused nested-owner target passes (exit 0).
 - [ ] Cover unsigned conversions outside the evaluator's signed 64-bit range
-  and floating casts; overflow diagnostics, non-null structural pointer NTTP
-  values, and specialization chains deeper than nine nested levels remain
-  open.
+  and floating casts; non-null structural pointer NTTP values and
+  specialization chains deeper than nine nested levels remain open.
 
 ## RCC continuation (2026-10-16, nine-level nested explicit specialization)
 
@@ -4889,3 +4886,17 @@ remains a separate open item.
   nested-owner target passes (exit 0).
 - [ ] Chains deeper than nine levels and non-null structural pointer NTTP
   values remain open.
+
+## RCC continuation (2026-10-16, dependent array-bound overflow diagnostics)
+
+- [x] Distinguish signed overflow from an unevaluable dependent expression in
+  class-template member array bounds. Diagnose overflowing addition,
+  subtraction, multiplication, unary negation, division, and remainder rather
+  than silently leaving an invalid dependent bound unresolved.
+- [x] Add six GCC-invalid regressions covering positive/negative overflow and
+  `INT64_MIN / -1` plus `% -1`; verify six diagnostics for both i686 and AMD64,
+  no `.ro` artifact, and GCC rejection. The focused overflow target passes.
+- [ ] Unsigned conversions outside the evaluator's signed 64-bit range,
+  floating casts, non-null structural pointer NTTP values, specialization
+  chains deeper than nine levels, and overflow contexts outside this array-
+  bound substitution path remain open.
