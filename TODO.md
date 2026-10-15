@@ -4605,5 +4605,10 @@ remains a separate open item.
 - [x] Compare the three exact GCC Itanium symbols against RCC on i686/AMD64 and
   execute both the generated AMD64 program and GCC-host program. The focused
   nested-owner target passes (exit 0).
+- [x] Explicitly specialize a nested `Leaf<long>` through an outer partial
+  specialization (`Owner<int*>::Mid<char>::Leaf<long>`), while checking the
+  primary outer owner and unspecialized `Mid`/`Leaf` selections. Compare all
+  four exact GCC Itanium symbols on i686/AMD64 and execute both host programs;
+  the focused nested-owner target passes (exit 0).
 - [ ] Chains deeper than four nested member-template levels and non-null
   structural pointer NTTP values remain open.

@@ -386,6 +386,35 @@ struct NestedMidSpecializedOwner<int>::Mid<char>::Inner<long> {
     int result() const { return 720; }
 };
 
+template <typename OwnerValue>
+struct NestedPartialOwnerChain {
+    template <typename MidValue>
+    struct Mid {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 800; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+struct NestedPartialOwnerChain<OwnerValue*> {
+    template <typename MidValue>
+    struct Mid {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 810; }
+        };
+    };
+};
+
+template <>
+template <>
+template <>
+struct NestedPartialOwnerChain<int*>::Mid<char>::Leaf<long> {
+    int result() const { return 820; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -452,6 +481,14 @@ int main() {
         specialized_mid_member_template;
     NestedMidSpecializedOwner<int>::Mid<char>::Inner<long>
         specialized_mid_explicit_member;
+    NestedPartialOwnerChain<long>::Mid<char>::Leaf<long>
+        partial_chain_primary_owner;
+    NestedPartialOwnerChain<int*>::Mid<long>::Leaf<long>
+        partial_chain_unspecialized_mid;
+    NestedPartialOwnerChain<int*>::Mid<char>::Leaf<char>
+        partial_chain_unspecialized_leaf;
+    NestedPartialOwnerChain<int*>::Mid<char>::Leaf<long>
+        partial_chain_explicit_leaf;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -490,5 +527,9 @@ int main() {
     if (specialized_mid_primary_owner.result() != 700) return 36;
     if (specialized_mid_member_template.result() != 710) return 37;
     if (specialized_mid_explicit_member.result() != 720) return 38;
+    if (partial_chain_primary_owner.result() != 800) return 39;
+    if (partial_chain_unspecialized_mid.result() != 810) return 40;
+    if (partial_chain_unspecialized_leaf.result() != 810) return 41;
+    if (partial_chain_explicit_leaf.result() != 820) return 42;
     return 0;
 }
