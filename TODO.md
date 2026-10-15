@@ -4189,10 +4189,10 @@ remains a separate open item.
   aggregates after this parser change (both exit 0).
 - [ ] Forward dependent template-template packs through nested alias-template
   specializations and support deeper multi-source-pack expansion.
-- [ ] Resolve nested class-template specializations when the owner is itself
-  dependent (`Outer<T>::Inner<U>` before `T` is known), and support explicit/
-  partial nested specializations. Structural non-integral owner packs and
-  deeper cross-kind dependent-owner expansion also remain open.
+- [ ] Add explicit/partial nested member specializations for dependent owners
+  and outer class-template-specialization owner patterns. Structural
+  non-integral owner packs and deeper cross-kind dependent-owner expansion also
+  remain open.
 - [ ] Extend structural non-integral NTTP packs and defaults/constraints in
   nested template-template signatures.
 - [x] Commit the parser implementation, regression fixture, and test record
@@ -4238,9 +4238,9 @@ remains a separate open item.
 - [x] Support dependent owners before the enclosing class template is
   instantiated, including a multi-level `Outer<T>::Inner<U>::Leaf<V>` chain;
   owner specialization identity and nested access are covered by regressions.
-- [ ] Add nested class-template specializations owned by class-template
-  specializations with structural NTTP owner arguments and explicit/partial
-  specialization declarations.
+- [ ] Add nested member specializations owned by outer class-template
+  specializations, including structural NTTP owner arguments and dependent
+  owner declarations.
 
 ## RCC continuation (2026-10-14, nested templates on concrete template owners)
 
@@ -4261,9 +4261,9 @@ remains a separate open item.
   aliases and cloned function-template bodies, preserve per-owner
   specialization/mangling, and reject private nested templates after owner
   substitution.
-- [ ] Add explicit/partial nested class-template specializations and structural
-  NTTP owner packs; extend deeper owner-chain support to enclosing-template
-  parameter capture and pack expansions.
+- [ ] Extend nested member specialization matching to dependent and outer
+  class-template-specialization owners; structural NTTP owner packs remain
+  open.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` aggregate after
   this parser change (exit 0).
 
@@ -4283,8 +4283,8 @@ remains a separate open item.
   change (exit 0).
 - [x] Pass the full native-Windows MinGW GCC `test-debug-info` aggregate after
   this change (exit 0).
-- [ ] Add explicit/partial nested class-template specializations, structural
-  NTTP owner packs, and deeper dependent-owner/pack expansion cases.
+- [ ] Add explicit/partial nested member specializations for dependent or outer
+  class-template-specialization owners, plus structural NTTP owner packs.
 
 ## RCC continuation (2026-10-15, dependent nested class-template owner chains)
 
@@ -4359,6 +4359,15 @@ remains a separate open item.
 - [x] Pass `test-cxx-nested-class-templates`, the complete native-Windows
   MinGW GCC `test-cxx` aggregate, and `test-debug-info` after the owner-aware
   specialization-selection change (all exit 0).
-- [ ] Add partial nested specializations for class-template owners, explicit/
-  partial nested specializations for dependent owners, and structural NTTP
-  owner-pack specializations.
+- [x] Parse and select `Outer<T>::Inner<U*>` partial specializations for a
+  primary class-template owner. Preserve and match the dependent owner pattern
+  separately from inner arguments; verify primary and partial instantiations
+  across multiple owner types. Match empty and multi-element type, integral
+  value, and template-template owner packs.
+- [x] Compare GCC Itanium symbols for primary, partial, and owner-pack cases on
+  i686/AMD64; execute RCC-generated AMD64 and GCC C++20 programs. Pass the
+  focused nested owner-partial target and the full `test-cxx` and
+  `test-debug-info` aggregates on native Windows (all exit 0).
+- [ ] Extend explicit/partial nested member specializations to dependent owner
+  declarations and outer class-template-specialization owner patterns such as
+  `Outer<T*>::Inner<U*>`; add structural NTTP owner-pack specializations.

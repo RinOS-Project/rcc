@@ -476,7 +476,7 @@ endif
 .PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
-.PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix test-cxx-nested-class-template-specializations test-cxx-nested-class-template-template-owner-specialization test-cxx-nested-class-template-owner test-cxx-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner test-cxx-dependent-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner-chain test-cxx-dependent-nested-class-template-owner-chain-posix
+.PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix test-cxx-nested-class-template-specializations test-cxx-nested-class-template-template-owner-specialization test-cxx-nested-class-template-owner-partial-specialization test-cxx-nested-class-template-owner test-cxx-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner test-cxx-dependent-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner-chain test-cxx-dependent-nested-class-template-owner-chain-posix
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
@@ -5154,6 +5154,7 @@ test-cxx-nested-class-templates: $(RCXX_TARGET)
 
 test-cxx-nested-class-templates: test-cxx-nested-class-template-specializations
 test-cxx-nested-class-templates: test-cxx-nested-class-template-template-owner-specialization
+test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-partial-specialization
 
 test-cxx-nested-class-template-specializations: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-specializations)
@@ -5183,6 +5184,37 @@ test-cxx-nested-class-template-template-owner-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK33NestedTemplateSpecializationOwnerIlE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-template-owner-specialization/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-template-owner-specialization/gcc-host.exe tests/cxx_nested_class_template_template_owner_specialization.cpp
 	$(TEST_OUT)/cxx-nested-class-template-template-owner-specialization/gcc-host.exe
+
+test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nested-class-template-owner-partial-specialization,cxx_nested_class_template_owner_partial_specialization.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s tests/cxx_nested_class_template_owner_partial_specialization.cpp
+	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIiE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIlE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIjE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK30NestedPartialTemplateOwnerPackIJEE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK30NestedPartialTemplateOwnerPackIJilEE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK35NestedPartialValueTemplateOwnerPackIJEE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK35NestedPartialValueTemplateOwnerPackIJLi2ELi4EEE5InnerIPdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK38NestedPartialTemplateTemplateOwnerPackIJ21NestedPartialOwnerBoxEE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIiE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIlE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIjE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK30NestedPartialTemplateOwnerPackIJEE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK30NestedPartialTemplateOwnerPackIJilEE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK35NestedPartialValueTemplateOwnerPackIJEE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK35NestedPartialValueTemplateOwnerPackIJLi2ELi4EEE5InnerIPdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK38NestedPartialTemplateTemplateOwnerPackIJ21NestedPartialOwnerBoxEE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIiE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIlE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK26NestedPartialTemplateOwnerIjE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK30NestedPartialTemplateOwnerPackIJEE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK30NestedPartialTemplateOwnerPackIJilEE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK35NestedPartialValueTemplateOwnerPackIJEE5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK35NestedPartialValueTemplateOwnerPackIJLi2ELi4EEE5InnerIPdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK38NestedPartialTemplateTemplateOwnerPackIJ21NestedPartialOwnerBoxEE5InnerIPvE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc-host.exe tests/cxx_nested_class_template_owner_partial_specialization.cpp
+	$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc-host.exe
 
 test-cxx-nested-class-template-owner: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner)

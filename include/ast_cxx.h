@@ -374,6 +374,9 @@ struct CxxTemplate {
     CxxTemplate** specializations;
     int specialization_count;
     Type** specialization_args;
+    /* Owner class-template-id pattern for an out-of-class nested member
+     * specialization, when the owner itself is still dependent. */
+    Type* specialization_owner_pattern;
     /* Non-type arguments in a class-specialization pattern.  The parallel
      * array is indexed by the primary template's argument position; NULL
      * entries denote type arguments. */

@@ -10037,11 +10037,151 @@ static bool cxx_explicit_nested_template_owner_specialization_starts(void) {
            token->next->next->type == TOK_LT;
 }
 
+static bool cxx_partial_nested_template_owner_specialization_starts(void) {
+    Token* token = parser.cur;
+    int angle_depth = 0;
+
+    if (!token || token->type != TOK_TEMPLATE || !token->next ||
+        token->next->type != TOK_LT) {
+        return false;
+    }
+    token = token->next->next;
+    if (!token || token->type == TOK_GT) return false;
+    angle_depth = 1;
+    for (; token; token = token->next) {
+        if (token->type == TOK_LT) {
+            ++angle_depth;
+        } else if (token->type == TOK_GT) {
+            if (--angle_depth == 0) break;
+        } else if (token->type == TOK_RSHIFT) {
+            angle_depth -= 2;
+            if (angle_depth <= 0) break;
+        }
+    }
+    if (!token || angle_depth > 0) return false;
+    token = token->next;
+    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT) ||
+        !token->next || token->next->type != TOK_IDENT || !token->next->next ||
+        token->next->next->type != TOK_LT) {
+        return false;
+    }
+    angle_depth = 1;
+    for (token = token->next->next->next; token; token = token->next) {
+        if (token->type == TOK_LT) {
+            ++angle_depth;
+        } else if (token->type == TOK_GT) {
+            if (--angle_depth == 0) break;
+        } else if (token->type == TOK_RSHIFT) {
+            angle_depth -= 2;
+            if (angle_depth <= 0) break;
+        }
+    }
+    if (!token || angle_depth > 0) return false;
+    token = token->next;
+    return token && token->type == TOK_SCOPE && token->next &&
+           token->next->type == TOK_IDENT && token->next->next &&
+           token->next->next->type == TOK_LT;
+}
+
+static CxxTemplate* parse_cxx_nested_template_parameter_head(
+    CxxTemplate* enclosing_template) {
+    SourceLoc loc = peek()->loc;
+    CxxTemplate* tmpl;
+
+    expect(TOK_TEMPLATE, "template in nested specialization");
+    expect(TOK_LT, "< in nested specialization template head");
+    tmpl = cxx_template_new(loc);
+    tmpl->enclosing_template = enclosing_template;
+    active_template = tmpl;
+    if (!check(TOK_GT)) {
+        do {
+            bool type_parameter = false;
+            bool template_parameter = false;
+            bool parameter_pack = false;
+            if ((check(TOK_TYPENAME) &&
+                 !cxx_template_parameter_has_dependent_type_name()) ||
+                check(TOK_CLASS)) {
+                const char* name = NULL;
+                advance();
+                parameter_pack = match(TOK_ELLIPSIS);
+                if (check(TOK_IDENT)) name = advance()->value.str_val;
+                cxx_template_add_type_param(tmpl, name);
+                type_parameter = true;
+            } else if (match(TOK_TEMPLATE)) {
+                CxxTemplate* signature =
+                    parse_cxx_template_template_signature(peek()->loc);
+                const char* name = NULL;
+                if (!match(TOK_CLASS) && !match(TOK_TYPENAME)) {
+                    rcc_error(peek()->loc,
+                              "template-template parameter requires class "
+                              "or typename");
+                }
+                parameter_pack = match(TOK_ELLIPSIS);
+                if (check(TOK_IDENT)) name = advance()->value.str_val;
+                cxx_template_add_template_param(tmpl, name, signature,
+                                                parameter_pack);
+                template_parameter = true;
+            } else if (match(TOK_AUTO)) {
+                const char* name = NULL;
+                if (!rcc_parser_cxx_standard_at_least(17)) {
+                    rcc_error(peek()->loc,
+                              "template<auto> parameters require C++17 or newer");
+                }
+                parameter_pack = match(TOK_ELLIPSIS);
+                if (check(TOK_IDENT)) name = advance()->value.str_val;
+                cxx_template_add_value_param(tmpl, name, type_int);
+            } else {
+                Type* parameter_type = parse_cxx_type_spec();
+                const char* name = NULL;
+                parameter_pack = match(TOK_ELLIPSIS);
+                if (check(TOK_IDENT)) name = advance()->value.str_val;
+                cxx_template_add_value_param(tmpl, name, parameter_type);
+            }
+
+            if (parameter_pack && tmpl->param_count > 0) {
+                tmpl->params[tmpl->param_count - 1].is_pack = true;
+            }
+            if (match(TOK_ASSIGN) && tmpl->param_count > 0) {
+                int parameter_index = tmpl->param_count - 1;
+                TemplateParam* parameter = &tmpl->params[parameter_index];
+                parameter->has_default = true;
+                if (template_parameter) {
+                    parameter->default_type =
+                        parse_template_template_default(peek()->loc);
+                } else if (type_parameter) {
+                    parameter->default_type = parse_cxx_type_spec();
+                } else {
+                    rcc_parser_set_cxx_template_default_mode(true);
+                    parameter->default_value = parse_assignment_expression();
+                    parameter->default_context =
+                        cxx_template_snapshot_parameter_scope(tmpl);
+                    rcc_parser_set_cxx_template_default_mode(false);
+                }
+            }
+        } while (match(TOK_COMMA));
+    }
+    expect(TOK_GT, "> in nested specialization template head");
+    if (match(TOK_REQUIRES)) {
+        tmpl->constraint = parse_cxx_requires_clause_expression();
+        if (!tmpl->constraint) {
+            rcc_error(loc,
+                      "nested specialization requires-clause requires an "
+                      "expression");
+        } else {
+            tmpl->constraint_context =
+                cxx_template_snapshot_parameter_scope(tmpl);
+        }
+    }
+    return tmpl;
+}
+
 CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     SourceLoc loc = previous()->loc;
     CxxTemplate* parameter_outer_template = active_template;
     int explicit_class_alignment = 0;
     bool nested_member_template_explicit_specialization = false;
+    bool nested_member_template_partial_specialization = false;
+    CxxTemplate* nested_member_template_owner_parameters = NULL;
     expect(TOK_LT, "<");
 
     CxxTemplate* tmpl = cxx_template_new(loc);
@@ -10274,6 +10414,16 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         expect(TOK_GT, "> in nested member specialization header");
         nested_member_template_explicit_specialization = true;
     }
+    if (tmpl->param_count > 0 &&
+        cxx_partial_nested_template_owner_specialization_starts()) {
+        CxxTemplate* owner_parameters = tmpl;
+        CxxTemplate* specialization =
+            parse_cxx_nested_template_parameter_head(owner_parameters);
+        nested_member_template_owner_parameters = owner_parameters;
+        nested_member_template_partial_specialization = true;
+        tmpl = specialization;
+        active_template = tmpl;
+    }
 
     /* A friend function template declared in a class is a namespace
      * template.  Preserve the granting class on the template so every
@@ -10450,11 +10600,13 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     if ((check(TOK_CLASS) || check(TOK_STRUCT)) && parser.cur->next &&
         parser.cur->next->type == TOK_IDENT && parser.cur->next->next &&
         (parser.cur->next->next->type == TOK_SCOPE ||
-         (nested_member_template_explicit_specialization &&
+         ((nested_member_template_explicit_specialization ||
+           nested_member_template_partial_specialization) &&
           parser.cur->next->next->type == TOK_LT))) {
         bool is_struct = match(TOK_STRUCT);
         Token* owner_token;
         Token* name_token;
+        CxxTemplate* owner_template = NULL;
         CxxClass* owner_class;
         Type* owner_type = NULL;
         CxxNestedClassTemplate* nested_template;
@@ -10469,15 +10621,56 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
 
         if (!is_struct) expect(TOK_CLASS, "class or struct");
         owner_token = expect(TOK_IDENT, "nested specialization owner");
-        if (check(TOK_LT) && nested_member_template_explicit_specialization) {
-            CxxTemplate* owner_template = owner_token
+        if (check(TOK_LT) &&
+            (nested_member_template_explicit_specialization ||
+             nested_member_template_partial_specialization)) {
+            owner_template = owner_token
                 ? find_class_template(owner_token->value.str_val) : NULL;
             if (!owner_template || owner_template->kind != TMPL_CLASS) {
                 rcc_error(loc,
                           "nested specialization owner must be a class template");
             } else {
+                if (nested_member_template_partial_specialization) {
+                    CxxTemplate* owner_parameters =
+                        nested_member_template_owner_parameters;
+                    if (!owner_parameters ||
+                        owner_parameters->param_count !=
+                            owner_template->param_count) {
+                        rcc_error(loc,
+                                  "nested partial specialization owner template "
+                                  "head does not match its primary template");
+                    } else {
+                        for (int parameter_index = 0;
+                             parameter_index < owner_template->param_count;
+                             ++parameter_index) {
+                            TemplateParam* declared =
+                                &owner_parameters->params[parameter_index];
+                            TemplateParam* primary_parameter =
+                                &owner_template->params[parameter_index];
+                            if (declared->kind != primary_parameter->kind ||
+                                declared->is_pack !=
+                                    primary_parameter->is_pack) {
+                                rcc_error(loc,
+                                          "nested partial specialization owner "
+                                          "template parameters do not match "
+                                          "the primary template");
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (nested_member_template_partial_specialization) {
+                    /* The first template head describes the owner itself;
+                     * parse its template-id in that parameter scope rather
+                     * than the inner member-template scope. */
+                    active_template =
+                        nested_member_template_owner_parameters;
+                }
                 owner_type = parse_class_template_specialization(
                     owner_template, loc);
+                if (nested_member_template_partial_specialization) {
+                    active_template = tmpl;
+                }
             }
             owner_class = owner_type ? owner_type->cxx_class : NULL;
         } else {
@@ -10489,11 +10682,19 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         nested_template = owner_class && name_token
             ? cxx_class_find_nested_template(
                   owner_class, name_token->value.str_val)
-            : NULL;
+            : owner_template && owner_template->templated_class && name_token
+                  ? cxx_class_find_nested_template(
+                        owner_template->templated_class,
+                        name_token->value.str_val)
+                  : NULL;
         primary = nested_template ? nested_template->declaration : NULL;
         if (!primary || primary->kind != TMPL_CLASS) {
             rcc_error(loc,
                       "nested class-template specialization has no matching primary template");
+        }
+        if (nested_member_template_partial_specialization && owner_template) {
+            tmpl->enclosing_template = owner_template;
+            tmpl->specialization_owner_pattern = owner_type;
         }
         tmpl->enclosing_class = owner_class;
         active_template = tmpl;
@@ -14813,6 +15014,215 @@ static bool cxx_type_pattern_contains_dependent_component(
     return false;
 }
 
+static int cxx_nested_specialization_owner_matches(
+    CxxTemplate* specialization, CxxClass* owner_class) {
+    Type* pattern = specialization
+        ? specialization->specialization_owner_pattern : NULL;
+    CxxTemplate* owner_template;
+    CxxTemplate* actual_template;
+    Type** actual_arguments;
+    int actual_argument_count;
+    Type** deduced_arguments = NULL;
+    int64_t* deduced_values = NULL;
+    bool* deduced_value_present = NULL;
+    int pack_index;
+    int expansion_index = -1;
+    int specificity = 0;
+
+    if (!pattern) return 1;
+    if (!owner_class || !pattern->cxx_template ||
+        pattern->cxx_template_arg_count < 0 ||
+        pattern->cxx_template_arg_count > 32) {
+        return 0;
+    }
+    owner_template = pattern->cxx_template;
+    if (owner_template->param_count > 0) {
+        deduced_arguments = ast_arena_alloc(
+            sizeof(*deduced_arguments) * (size_t)owner_template->param_count);
+        deduced_values = ast_arena_alloc(
+            sizeof(*deduced_values) * (size_t)owner_template->param_count);
+        deduced_value_present = ast_arena_alloc(
+            sizeof(*deduced_value_present) *
+            (size_t)owner_template->param_count);
+        memset(deduced_arguments, 0,
+               sizeof(*deduced_arguments) * (size_t)owner_template->param_count);
+        memset(deduced_values, 0,
+               sizeof(*deduced_values) * (size_t)owner_template->param_count);
+        memset(deduced_value_present, 0,
+               sizeof(*deduced_value_present) *
+               (size_t)owner_template->param_count);
+    }
+    actual_template = owner_class->template_identity_tmpl
+        ? owner_class->template_identity_tmpl : owner_class->templ;
+    actual_arguments = owner_class->template_identity_tmpl
+        ? owner_class->template_identity_args : owner_class->template_args;
+    actual_argument_count = owner_class->template_identity_tmpl
+        ? owner_class->template_identity_arg_count
+        : owner_class->template_arg_count;
+    pack_index = cxx_class_pack_index(owner_template);
+    if (pattern->cxx_template_arg_pack_expansions) {
+        for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
+            if (!pattern->cxx_template_arg_pack_expansions[index]) continue;
+            if (expansion_index >= 0 ||
+                index != pattern->cxx_template_arg_count - 1) {
+                return 0;
+            }
+            expansion_index = index;
+        }
+    }
+    if (actual_template != owner_template ||
+        (actual_argument_count > 0 && !actual_arguments) ||
+        (expansion_index < 0 &&
+         (actual_argument_count != pattern->cxx_template_arg_count ||
+          actual_argument_count != owner_template->param_count)) ||
+        (expansion_index >= 0 &&
+         (pack_index != expansion_index ||
+          pattern->cxx_template_arg_count != owner_template->param_count ||
+          actual_argument_count < pack_index))) {
+        return 0;
+    }
+    for (int index = 0;
+         index < (expansion_index >= 0 ? expansion_index
+                                      : actual_argument_count);
+         ++index) {
+        TemplateParam* parameter = &owner_template->params[index];
+        if (parameter->kind == TPARAM_TYPE) {
+            if (!pattern->cxx_template_args || !actual_arguments[index] ||
+                !deduce_class_specialization_type(
+                    owner_template, pattern->cxx_template_args[index],
+                    actual_arguments[index], deduced_arguments,
+                    &specificity)) {
+                return 0;
+            }
+        } else if (parameter->kind == TPARAM_NONTYPE) {
+            int64_t actual_value;
+            bool actual_value_present = false;
+            if (owner_class->template_identity_tmpl &&
+                owner_class->template_identity_value_present &&
+                owner_class->template_identity_value_args &&
+                index < owner_class->template_identity_arg_count &&
+                owner_class->template_identity_value_present[index]) {
+                actual_value =
+                    owner_class->template_identity_value_args[index];
+                actual_value_present = true;
+            } else if (owner_class->template_value_present &&
+                       owner_class->template_value_args &&
+                       index < owner_class->template_arg_count &&
+                       owner_class->template_value_present[index]) {
+                actual_value = owner_class->template_value_args[index];
+                actual_value_present = true;
+            }
+            if (!actual_value_present ||
+                !pattern->cxx_template_value_args ||
+                !pattern->cxx_template_value_args[index] ||
+                !deduce_class_specialization_value(
+                    owner_template,
+                    pattern->cxx_template_value_args[index], actual_value,
+                    deduced_values, deduced_value_present, &specificity)) {
+                return 0;
+            }
+        } else if (parameter->kind == TPARAM_TEMPLATE) {
+            CxxTemplate* pattern_template =
+                pattern->cxx_template_args && pattern->cxx_template_args[index]
+                    ? pattern->cxx_template_args[index]->cxx_template : NULL;
+            Type* pattern_argument = pattern->cxx_template_args
+                ? pattern->cxx_template_args[index] : NULL;
+            CxxTemplate* actual_argument_template =
+                actual_arguments[index]
+                    ? actual_arguments[index]->cxx_template : NULL;
+            int source_parameter_index = pattern_argument
+                ? pattern_argument->cxx_template_param_index : -1;
+            bool is_dependent_template_parameter =
+                pattern_argument && pattern_argument->cxx_dependent &&
+                source_parameter_index >= 0 &&
+                source_parameter_index < owner_template->param_count &&
+                owner_template->params[source_parameter_index].kind ==
+                    TPARAM_TEMPLATE;
+            if ((!is_dependent_template_parameter &&
+                 (!pattern_template ||
+                  pattern_template != actual_argument_template)) ||
+                !template_template_signature_matches(
+                    parameter, actual_argument_template)) {
+                return 0;
+            }
+        }
+    }
+    if (expansion_index >= 0) {
+        TemplateParam* parameter = &owner_template->params[expansion_index];
+        for (int index = expansion_index; index < actual_argument_count;
+             ++index) {
+            if (parameter->kind == TPARAM_TYPE) {
+                deduced_arguments[expansion_index] = NULL;
+            } else if (parameter->kind == TPARAM_NONTYPE) {
+                deduced_values[expansion_index] = 0;
+                deduced_value_present[expansion_index] = false;
+            }
+            if (parameter->kind == TPARAM_TYPE) {
+                if (!pattern->cxx_template_args || !actual_arguments[index] ||
+                    !deduce_class_specialization_type(
+                        owner_template,
+                        pattern->cxx_template_args[expansion_index],
+                        actual_arguments[index], deduced_arguments,
+                        &specificity)) {
+                    return 0;
+                }
+            } else if (parameter->kind == TPARAM_NONTYPE) {
+                int64_t actual_value;
+                bool actual_value_present = false;
+                if (owner_class->template_identity_tmpl &&
+                    owner_class->template_identity_value_present &&
+                    owner_class->template_identity_value_args &&
+                    index < owner_class->template_identity_arg_count &&
+                    owner_class->template_identity_value_present[index]) {
+                    actual_value =
+                        owner_class->template_identity_value_args[index];
+                    actual_value_present = true;
+                } else if (owner_class->template_value_present &&
+                           owner_class->template_value_args &&
+                           index < owner_class->template_arg_count &&
+                           owner_class->template_value_present[index]) {
+                    actual_value = owner_class->template_value_args[index];
+                    actual_value_present = true;
+                }
+                if (!actual_value_present ||
+                    !pattern->cxx_template_value_args ||
+                    !pattern->cxx_template_value_args[expansion_index] ||
+                    !deduce_class_specialization_value(
+                        owner_template,
+                        pattern->cxx_template_value_args[expansion_index],
+                        actual_value, deduced_values,
+                        deduced_value_present, &specificity)) {
+                    return 0;
+                }
+            } else if (parameter->kind == TPARAM_TEMPLATE) {
+                Type* pattern_argument = pattern->cxx_template_args
+                    ? pattern->cxx_template_args[expansion_index] : NULL;
+                CxxTemplate* pattern_template = pattern_argument
+                    ? pattern_argument->cxx_template : NULL;
+                CxxTemplate* actual_argument_template =
+                    actual_arguments[index]
+                        ? actual_arguments[index]->cxx_template : NULL;
+                int source_parameter_index = pattern_argument
+                    ? pattern_argument->cxx_template_param_index : -1;
+                bool is_dependent_template_parameter =
+                    pattern_argument && pattern_argument->cxx_dependent &&
+                    source_parameter_index >= 0 &&
+                    source_parameter_index < owner_template->param_count &&
+                    owner_template->params[source_parameter_index].kind ==
+                        TPARAM_TEMPLATE;
+                if ((!is_dependent_template_parameter &&
+                     (!pattern_template ||
+                      pattern_template != actual_argument_template)) ||
+                    !template_template_signature_matches(
+                        parameter, actual_argument_template)) {
+                    return 0;
+                }
+            }
+        }
+    }
+    return 1;
+}
+
 static Type* parse_class_template_specialization_with_owner_type(
     CxxTemplate* tmpl, CxxClass* owner_class, Type* owner_type,
     SourceLoc loc) {
@@ -15181,6 +15591,11 @@ static Type* parse_class_template_specialization_with_owner_type(
     int selected_ranks[32] = { 0 };
     for (int index = 0; index < tmpl->specialization_count; ++index) {
         CxxTemplate* specialization = tmpl->specializations[index];
+        int owner_matches;
+        if (!specialization) continue;
+        owner_matches = cxx_nested_specialization_owner_matches(
+            specialization, owner_class);
+        if (!owner_matches) continue;
         if (specialization && specialization->enclosing_class &&
             specialization->enclosing_class != owner_class) {
             continue;
