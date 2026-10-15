@@ -131,6 +131,29 @@ struct NestedPartialTemplateSpecializedOuterOwner<OwnerTemplate, OwnerValue*>::
     int result() const { return 170 + sizeof(OwnerValue); }
 };
 
+template <decltype(nullptr) OwnerNull, typename OwnerValue>
+struct NestedNullptrSpecializedOuterOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 180; }
+    };
+};
+
+template <typename OwnerValue>
+struct NestedNullptrSpecializedOuterOwner<nullptr, OwnerValue> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 185; }
+    };
+};
+
+template <typename OwnerValue>
+template <typename Value>
+struct NestedNullptrSpecializedOuterOwner<nullptr, OwnerValue>::
+    Inner<Value*> {
+    int result() const { return 190 + sizeof(OwnerValue); }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -149,6 +172,8 @@ int main() {
     NestedPartialTemplateSpecializedOuterOwner<
         NestedPartialOwnerTemplateBox, int*>::Inner<char*>
         partial_outer_template_template;
+    NestedNullptrSpecializedOuterOwner<nullptr, int>::Inner<char*>
+        partial_outer_nullptr;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -163,5 +188,6 @@ int main() {
     if (partial_outer_partial.owner_size() != sizeof(int)) return 12;
     if (partial_outer_nontype.result() != 137) return 13;
     if (partial_outer_template_template.result() != 174) return 14;
+    if (partial_outer_nullptr.result() != 194) return 15;
     return 0;
 }

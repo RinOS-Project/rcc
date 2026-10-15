@@ -4379,6 +4379,10 @@ remains a separate open item.
   checks runtime values, `sizeof` substitution, PE-i386 generation, and exact
   i686/AMD64 symbols; focused, full `test-cxx`, and `test-debug-info` gates
   pass.
+- [x] Match a nested class-template specialization whose outer partial owner
+  uses an explicitly declared `decltype(nullptr)` non-type argument. Preserve
+  nullptr's distinct Itanium `LDnE` encoding, and verify GCC/RCC symbol
+  equality for i686/AMD64 plus generated AMD64 runtime behavior.
 - [ ] Add structural non-integral NTTP owner-pack specializations and cover
   more complex dependent NTTP expressions plus any remaining standard-valid
   explicit member specialization forms on these owner shapes.

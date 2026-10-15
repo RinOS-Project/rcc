@@ -205,6 +205,31 @@ static Type* cxx_mangle_template_value_type(
     return value_type ? value_type : declared_type;
 }
 
+static void cxx_mangle_template_value_suffix(
+    char* buf, size_t* pos, const Type* value_type, int64_t value) {
+    int written;
+    if (value_type && value_type->kind == TYPE_NULLPTR) {
+        cxx_mangle_type_char(buf, pos, 'E');
+        return;
+    }
+    if (*pos >= CXX_MANGLE_BUFFER_SIZE) {
+        rcc_fatal("C++ non-type template argument name is too long");
+    }
+    if (value < 0) {
+        uint64_t magnitude = (uint64_t)(-(value + 1)) + 1u;
+        written = snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                           "n%lluE", (unsigned long long)magnitude);
+    } else {
+        written = snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                           "%lldE", (long long)value);
+    }
+    if (written < 0 ||
+        (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
+        rcc_fatal("C++ non-type template argument name is too long");
+    }
+    *pos += (size_t)written;
+}
+
 /* A template-template argument is encoded as a template-name, not as a type.
  * In particular, namespace-qualified names use Itanium's nested-name form. */
 static void mangle_template_argument_name(char* buf, size_t* pos,
@@ -356,34 +381,18 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         } else if (parameter->kind == TPARAM_TEMPLATE) {
             mangle_template_argument_name(buf, pos, template_args[index]);
         } else if (parameter->kind == TPARAM_NONTYPE) {
-            int written;
+            Type* value_type;
             if (!template_value_present || !template_value_present[index] ||
                 !template_value_args) {
                 rcc_fatal("C++ template class value argument is missing");
             }
+            value_type = cxx_mangle_template_value_type(
+                tmpl, parameter, template_args, template_arg_count, index);
             cxx_mangle_type_char(buf, pos, 'L');
             cxx_mangle_type_append_context(
-                buf, pos,
-                cxx_mangle_template_value_type(
-                    tmpl, parameter, template_args, template_arg_count,
-                    index),
-                &template_argument_context);
-            if (template_value_args[index] < 0) {
-                uint64_t magnitude = (uint64_t)(
-                    -(template_value_args[index] + 1)) + 1u;
-                written = snprintf(buf + *pos,
-                                   CXX_MANGLE_BUFFER_SIZE - *pos, "n%lluE",
-                                   (unsigned long long)magnitude);
-            } else {
-                written = snprintf(buf + *pos,
-                                   CXX_MANGLE_BUFFER_SIZE - *pos, "%lldE",
-                                   (long long)template_value_args[index]);
-            }
-            if (written < 0 ||
-                (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
-                rcc_fatal("C++ template class name is too long");
-            }
-            *pos += (size_t)written;
+                buf, pos, value_type, &template_argument_context);
+            cxx_mangle_template_value_suffix(
+                buf, pos, value_type, template_value_args[index]);
         }
     }
     if (expanded_pack) {
@@ -394,7 +403,6 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
         for (int pack_index = 0;
              pack_index < template_arg_count - pack_parameter_index;
              ++pack_index) {
-            int written;
             if (tmpl->params[pack_parameter_index].kind == TPARAM_TYPE) {
                 cxx_mangle_type_append_context(
                     buf, pos,
@@ -413,33 +421,15 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
                     rcc_fatal("C++ template class name is too long");
                 }
+                Type* value_type = cxx_mangle_template_value_type(
+                    tmpl, &tmpl->params[pack_parameter_index], template_args,
+                    template_arg_count, pack_parameter_index + pack_index);
                 buf[(*pos)++] = 'L';
                 cxx_mangle_type_append_context(
-                    buf, pos,
-                    cxx_mangle_template_value_type(
-                        tmpl, &tmpl->params[pack_parameter_index],
-                        template_args, template_arg_count,
-                        pack_parameter_index + pack_index),
-                    &template_argument_context);
-                if (template_value_args[pack_parameter_index + pack_index] < 0) {
-                    uint64_t magnitude =
-                        (uint64_t)(-(
-                            template_value_args[pack_parameter_index + pack_index] +
-                            1)) + 1u;
-                    written = snprintf(
-                        buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos, "n%lluE",
-                                       (unsigned long long)magnitude);
-                } else {
-                    written = snprintf(buf + *pos,
-                                       CXX_MANGLE_BUFFER_SIZE - *pos, "%lldE",
-                        (long long)template_value_args[
-                            pack_parameter_index + pack_index]);
-                }
-                if (written < 0 ||
-                    (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
-                    rcc_fatal("C++ template class name is too long");
-                }
-                *pos += (size_t)written;
+                    buf, pos, value_type, &template_argument_context);
+                cxx_mangle_template_value_suffix(
+                    buf, pos, value_type,
+                    template_value_args[pack_parameter_index + pack_index]);
             }
         }
         if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
@@ -454,7 +444,7 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
             cxx_mangle_type_append_context(
                 buf, pos, template_args[index], &template_argument_context);
         } else if (parameter->kind == TPARAM_NONTYPE) {
-            int written;
+            Type* value_type;
             if (!template_value_present || !template_value_present[index] ||
                 !template_value_args) {
                 rcc_fatal("C++ template class value argument is missing");
@@ -463,28 +453,12 @@ static void mangle_class_name(char* buf, size_t* pos, CxxClass* cls) {
                 rcc_fatal("C++ template class name is too long");
             }
             buf[(*pos)++] = 'L';
+            value_type = cxx_mangle_template_value_type(
+                tmpl, parameter, template_args, template_arg_count, index);
             cxx_mangle_type_append_context(
-                buf, pos,
-                cxx_mangle_template_value_type(
-                    tmpl, parameter, template_args, template_arg_count,
-                    index),
-                &template_argument_context);
-            if (template_value_args[index] < 0) {
-                uint64_t magnitude =
-                    (uint64_t)(-(template_value_args[index] + 1)) + 1u;
-                written = snprintf(buf + *pos,
-                                   CXX_MANGLE_BUFFER_SIZE - *pos, "n%lluE",
-                                   (unsigned long long)magnitude);
-            } else {
-                written = snprintf(buf + *pos,
-                                   CXX_MANGLE_BUFFER_SIZE - *pos, "%lldE",
-                                   (long long)template_value_args[index]);
-            }
-            if (written < 0 ||
-                (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
-                rcc_fatal("C++ template class name is too long");
-            }
-            *pos += (size_t)written;
+                buf, pos, value_type, &template_argument_context);
+            cxx_mangle_template_value_suffix(
+                buf, pos, value_type, template_value_args[index]);
         } else if (parameter->kind == TPARAM_TEMPLATE) {
             if (!template_args || !template_args[index] ||
                 !template_args[index]->cxx_template) {

@@ -1854,6 +1854,24 @@ static DeclList* parse_cxx_parameter_declarations(bool* is_variadic);
 static Type* parse_cxx_type_spec(void);
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc);
+static bool cxx_class_partial_owner_pattern_matches(
+    CxxTemplate* primary, CxxTemplate* specialization, Type* owner_pattern,
+    int* specificity_out);
+static bool cxx_expr_is_nullptr_constant(const Expr* expression) {
+    return expression &&
+        (expression->is_cxx_nullptr ||
+         (expression->type && expression->type->kind == TYPE_NULLPTR));
+}
+static bool cxx_template_non_type_constant_value(
+    const Expr* expression, int64_t* value_out) {
+    if (!expression || !value_out) return false;
+    if (expr_eval_integer_constant((Expr*)expression, value_out)) return true;
+    if (cxx_expr_is_nullptr_constant(expression)) {
+        *value_out = 0;
+        return true;
+    }
+    return false;
+}
 static Type* parse_class_template_specialization_for_owner(
     CxxTemplate* tmpl, CxxClass* owner_class, SourceLoc loc);
 static Type* parse_class_template_specialization_for_dependent_owner(
@@ -10642,13 +10660,12 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                 if (nested_member_template_partial_specialization) {
                     CxxTemplate* owner_parameters =
                         nested_member_template_owner_parameters;
-                    if (!owner_parameters ||
-                        owner_parameters->param_count !=
-                            owner_template->param_count) {
+                    if (!owner_parameters) {
                         rcc_error(loc,
                                   "nested partial specialization owner template "
-                                  "head does not match its primary template");
-                    } else {
+                                  "head is missing");
+                    } else if (owner_parameters->param_count ==
+                               owner_template->param_count) {
                         for (int parameter_index = 0;
                              parameter_index < owner_template->param_count;
                              ++parameter_index) {
@@ -10679,6 +10696,29 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                     owner_template, loc);
                 if (nested_member_template_partial_specialization) {
                     active_template = tmpl;
+                }
+                if (nested_member_template_partial_specialization &&
+                    owner_template && nested_member_template_owner_parameters &&
+                    nested_member_template_owner_parameters->param_count !=
+                        owner_template->param_count) {
+                    bool matched_partial_owner = false;
+                    for (int index = 0;
+                         index < owner_template->specialization_count;
+                         ++index) {
+                        if (cxx_class_partial_owner_pattern_matches(
+                                owner_template,
+                                owner_template->specializations[index],
+                                owner_type, NULL)) {
+                            matched_partial_owner = true;
+                            break;
+                        }
+                    }
+                    if (!matched_partial_owner) {
+                        rcc_error(loc,
+                                  "nested partial specialization owner "
+                                  "template head does not match a primary or "
+                                  "partial owner pattern");
+                    }
                 }
             }
             owner_class = owner_type ? owner_type->cxx_class : NULL;
@@ -10770,7 +10810,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                     if (primary->params[argument_index].kind ==
                             TPARAM_NONTYPE &&
                         value_arguments[argument_index] &&
-                        expr_eval_integer_constant(
+                        cxx_template_non_type_constant_value(
                             value_arguments[argument_index],
                             &identity_values[argument_index])) {
                         identity_present[argument_index] = true;
@@ -10927,7 +10967,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                     if (primary->params[argument_index].kind ==
                             TPARAM_NONTYPE &&
                         value_arguments[argument_index] &&
-                        expr_eval_integer_constant(
+                        cxx_template_non_type_constant_value(
                             value_arguments[argument_index],
                             &identity_values[argument_index])) {
                         identity_present[argument_index] = true;
@@ -13787,10 +13827,11 @@ static Type* instantiate_class_template_for_owner(
             (!value_args || !value_present || !value_present[index] ||
              !non_type_argument_type || non_type_argument_type->cxx_dependent ||
              (!type_is_integer(non_type_argument_type) &&
-              non_type_argument_type->kind != TYPE_ENUM))) {
+             non_type_argument_type->kind != TYPE_ENUM &&
+             non_type_argument_type->kind != TYPE_NULLPTR))) {
             rcc_error(loc,
-                      "class template non-type argument %d requires an "
-                      "integer constant", index + 1);
+                      "class template non-type argument %d has an "
+                      "unsupported constant type", index + 1);
             return NULL;
         }
         if (parameter->kind == TPARAM_TEMPLATE) {
@@ -14129,6 +14170,11 @@ static Type* instantiate_class_template_for_owner(
                         tmpl,
                         value_args, value_present,
                         &identity_values[identity_index])) {
+                    identity_present[identity_index] = true;
+                } else if (cxx_expr_is_nullptr_constant(
+                               tmpl->specialization_value_args[
+                                   identity_index])) {
+                    identity_values[identity_index] = 0;
                     identity_present[identity_index] = true;
                 } else {
                     rcc_error(loc,
@@ -14738,8 +14784,9 @@ static Type* instantiate_class_template(CxxTemplate* tmpl, Type** arguments,
 }
 
 static bool deduce_class_specialization_value(
-    CxxTemplate* tmpl, Expr* pattern, int64_t actual, int64_t* values,
-    bool* value_present, int* specificity) {
+    CxxTemplate* tmpl, Expr* pattern, const Type* actual_type,
+    int64_t actual, int64_t* values, bool* value_present,
+    int* specificity) {
     int parameter_index;
     int64_t constant;
     if (!tmpl || !pattern || !values || !value_present) return false;
@@ -14755,6 +14802,13 @@ static bool deduce_class_specialization_value(
         }
     }
     if (parameter_index >= 0) {
+        Type* parameter_type = tmpl->params[parameter_index].type;
+        if (parameter_type && actual_type &&
+            (parameter_type->kind == TYPE_NULLPTR ||
+             actual_type->kind == TYPE_NULLPTR) &&
+            parameter_type->kind != actual_type->kind) {
+            return false;
+        }
         if (value_present[parameter_index]) {
             return values[parameter_index] == actual;
         }
@@ -14762,6 +14816,14 @@ static bool deduce_class_specialization_value(
         value_present[parameter_index] = true;
         return true;
     }
+    if (cxx_expr_is_nullptr_constant(pattern)) {
+        if (!actual_type || actual_type->kind != TYPE_NULLPTR || actual != 0) {
+            return false;
+        }
+        if (specificity) *specificity += 16;
+        return true;
+    }
+    if (actual_type && actual_type->kind == TYPE_NULLPTR) return false;
     if (!expr_eval_integer_constant(pattern, &constant)) return false;
     if (specificity) *specificity += 16;
     return constant == actual;
@@ -15532,7 +15594,8 @@ static int cxx_nested_specialization_owner_matches(
                 !pattern->cxx_template_value_args[index] ||
                 !deduce_class_specialization_value(
                     owner_template,
-                    pattern->cxx_template_value_args[index], actual_value,
+                    pattern->cxx_template_value_args[index],
+                    actual_arguments[index], actual_value,
                     deduced_values, deduced_value_present, &specificity)) {
                 return 0;
             }
@@ -15605,7 +15668,7 @@ static int cxx_nested_specialization_owner_matches(
                     !deduce_class_specialization_value(
                         owner_template,
                         pattern->cxx_template_value_args[expansion_index],
-                        actual_value, deduced_values,
+                        actual_arguments[index], actual_value, deduced_values,
                         deduced_value_present, &specificity)) {
                     return 0;
                 }
@@ -15700,7 +15763,8 @@ static Type* parse_class_template_specialization_with_owner_type(
                 if (value_expression) {
                     value_expression->cxx_template_context = active_template;
                 }
-                if (expr_eval_integer_constant(value_expression, &value)) {
+                if (cxx_template_non_type_constant_value(value_expression,
+                                                         &value)) {
                     values[argument_count] = value;
                     value_present[argument_count] = true;
                 } else if (!cxx_expression_is_dependent(
@@ -16041,7 +16105,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                         specialization,
                         specialization->specialization_value_args[
                             argument_index],
-                        values[argument_index],
+                        arguments[argument_index], values[argument_index],
                         specialization_values,
                         specialization_value_present, &specificity);
             } else if (tmpl->params[argument_index].kind == TPARAM_TEMPLATE) {
@@ -16146,7 +16210,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                 if (tmpl->params[argument_index].kind == TPARAM_NONTYPE &&
                     selected->specialization_value_args &&
                     selected->specialization_value_args[argument_index] &&
-                    expr_eval_integer_constant(
+                    cxx_template_non_type_constant_value(
                         selected->specialization_value_args[argument_index],
                         &identity_values[argument_index])) {
                     identity_present[argument_index] = true;
