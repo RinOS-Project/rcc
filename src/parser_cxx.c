@@ -26016,6 +26016,16 @@ static bool parse_cxx_member_pointer_owner_type(Type** owner_out) {
     while (parser.cur && parser.cur != star) advance();
     if (parser.cur == star) advance();
     *owner_out = rcc_parser_lookup_type(owner_name);
+    if (!*owner_out) {
+        int parameter_index = active_template_type_index(owner_name);
+        if (parameter_index >= 0) {
+            Type* dependent_owner = type_struct(rcc_intern(owner_name));
+            dependent_owner->cxx_dependent = true;
+            dependent_owner->cxx_template_param_index = parameter_index;
+            dependent_owner->cxx_template_param_context = active_template;
+            *owner_out = dependent_owner;
+        }
+    }
     if (!*owner_out || ((*owner_out)->kind != TYPE_STRUCT &&
                         (*owner_out)->kind != TYPE_UNION)) {
         rcc_error(loc, "unknown C++ member-pointer owner type '%s'",

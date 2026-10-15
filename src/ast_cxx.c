@@ -1214,7 +1214,8 @@ static size_t cxx_mangle_free_template_substitution_base(CxxNamespace* ns) {
 }
 
 static bool cxx_mangle_dependent_nested_type_append(
-    char* buf, size_t* pos, Type* type) {
+    char* buf, size_t* pos, Type* type, CxxTemplate* tmpl,
+    CxxMemberTemplateMangleContext* context) {
     const char* component;
     int parameter_index;
     if (!type || type->kind != TYPE_STRUCT || !type->cxx_dependent ||
@@ -1241,17 +1242,31 @@ static bool cxx_mangle_dependent_nested_type_append(
     buf[(*pos)++] = (value); \
 } while (0)
     CXX_MANGLE_DEPENDENT_APPEND('N');
-    CXX_MANGLE_DEPENDENT_APPEND('T');
-    if (parameter_index > 0) {
-        int written = snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
-                               "%d", parameter_index - 1);
-        if (written < 0 ||
-            (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
-            rcc_fatal("C++ dependent nested type parameter is too long");
+    if (context && context->parameter_substitutions && tmpl &&
+        parameter_index >= 0 && parameter_index < tmpl->param_count &&
+        context->parameter_substitutions[parameter_index] >= 0) {
+        cxx_mangle_member_template_substitution(
+            buf, pos,
+            (size_t)context->parameter_substitutions[parameter_index]);
+    } else {
+        CXX_MANGLE_DEPENDENT_APPEND('T');
+        if (parameter_index > 0) {
+            int written = snprintf(buf + *pos,
+                                   CXX_MANGLE_BUFFER_SIZE - *pos,
+                                   "%d", parameter_index - 1);
+            if (written < 0 ||
+                (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
+                rcc_fatal("C++ dependent nested type parameter is too long");
+            }
+            *pos += (size_t)written;
         }
-        *pos += (size_t)written;
+        CXX_MANGLE_DEPENDENT_APPEND('_');
+        if (context && context->parameter_substitutions && tmpl &&
+            parameter_index >= 0 && parameter_index < tmpl->param_count) {
+            context->parameter_substitutions[parameter_index] =
+                (int)context->next_substitution++;
+        }
     }
-    CXX_MANGLE_DEPENDENT_APPEND('_');
     component = type->cxx_dependent_member_name;
     while (*component) {
         const char* separator = strstr(component, "::");
@@ -1270,6 +1285,7 @@ static bool cxx_mangle_dependent_nested_type_append(
         memcpy(buf + *pos, component, component_length);
         *pos += component_length;
         if (!separator) break;
+        if (context) ++context->next_substitution;
         component = separator + 2;
     }
     CXX_MANGLE_DEPENDENT_APPEND('E');
@@ -1290,11 +1306,13 @@ static void cxx_mangle_template_type_append_impl(
         CXX_MANGLE_TEMPLATE_APPEND('v');
         return;
     }
-    while (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) {
+    if (type->kind == TYPE_PTR && !type->cxx_is_member_pointer) {
         CXX_MANGLE_TEMPLATE_APPEND(
             type->is_reference
                 ? (type->is_rvalue_reference ? 'O' : 'R') : 'P');
-        type = type->base;
+        cxx_mangle_template_type_append(
+            buf, pos, type->base, tmpl, context);
+        return;
     }
     if (type->kind == TYPE_PTR && type->cxx_is_member_pointer) {
         CXX_MANGLE_TEMPLATE_APPEND('M');
@@ -1370,7 +1388,8 @@ static void cxx_mangle_template_type_append_impl(
         CXX_MANGLE_TEMPLATE_APPEND('E');
         return;
     }
-    if (cxx_mangle_dependent_nested_type_append(buf, pos, type)) {
+    if (cxx_mangle_dependent_nested_type_append(
+            buf, pos, type, tmpl, context)) {
         return;
     }
     if (type->kind == TYPE_STRUCT && type->cxx_dependent &&
@@ -1725,8 +1744,9 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     CxxMangleContext template_argument_context = { 0 };
 
     if (!func || !tmpl) return cxx_mangle_function(func, ns, cls);
-    template_argument_context.class_type_index_base = 1u;
     mangling_namespace = ns == g_global_namespace ? NULL : ns;
+    template_argument_context.class_type_index_base =
+        cxx_mangle_free_template_substitution_base(mangling_namespace);
     encode_member_signature = tmpl->member_method &&
         (!func->name || strcmp(func->name, "operator conversion") != 0);
     if ((encode_member_signature || !tmpl->member_method) &&
@@ -1886,6 +1906,16 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
                 pos += (size_t)snprintf(buf + pos, sizeof(buf) - pos, "%lldE",
                                         (long long)value_args[index]);
             }
+        }
+    }
+    if (member_mangle_context.parameter_substitutions) {
+        size_t argument_substitution_end =
+            template_argument_context.class_type_index_base +
+            template_argument_context.class_type_count;
+        if (argument_substitution_end >
+            member_mangle_context.next_substitution) {
+            member_mangle_context.next_substitution =
+                argument_substitution_end;
         }
     }
     buf[pos++] = 'E';

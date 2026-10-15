@@ -1822,6 +1822,10 @@
         宣言型としてfunction template instantiate時にも解決。class／function双方の
         specializationで`short`型と-6のDWARF値をi686/AMD64で検証し、GCCとItanium
         manglingを照合
+  - [x] Function-template return/parameterにおけるdependent nested aliasのpointer／
+        reference／member-pointer型を両architectureで解決し、owner名をASTへ安定保持。
+        2種類のownerでGCC C++20とItanium symbolを照合し、i686/AMD64生成とgenerated
+        x64実行を検証
   - [ ] Pointer／reference／member-pointer等のcompound dependent declared type、
         non-integral structural non-type packs、他形式のdependent pack expansion、
         未instantiateのdependent alias/template-definition DIEは引き続き未完

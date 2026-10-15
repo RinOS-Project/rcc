@@ -635,6 +635,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-alternative-tokens \
 	test-cxx-variable-templates \
 	test-cxx-function-template-overloads \
+	test-cxx-function-template-dependent-compound-type \
 	test-cxx-function-template-nontype-pack-expression \
 	test-cxx-return-semantics \
 	test-cxx-function-template-references \
@@ -5669,7 +5670,43 @@ test-cxx-dependent-nested-alias-transitive-invalid: $(RCXX_TARGET)
 	$(GREP) -q "dependent nested type 'value_type' is inaccessible in class 'ProtectedNestedAliasRoot'" $(TEST_OUT)/cxx-dependent-nested-alias-transitive/invalid-x64.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-dependent-nested-alias-transitive/invalid-x64.log,2)
 
-test-cxx-function-template-dependent-nested-type: $(RCXX_TARGET)
+test-cxx-function-template-dependent-compound-type: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-dependent-nested-type)
+	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only \
+		tests/cxx_function_template_dependent_compound_type.cpp
+	$(if $(filter Windows_NT,$(OS)),$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-dependent-nested-type,cxx_function_template_dependent_compound_type.cpp),$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-dependent-nested-type,cxx_function_template_dependent_compound_type.cpp))
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s \
+		tests/cxx_function_template_dependent_compound_type.cpp
+	$(GREP) -F -q "_Z23nested_pointer_identityI19NestedCompoundOwnerEPNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
+	$(GREP) -F -q "_Z23nested_pointer_identityI25NestedCompoundSecondOwnerEPNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
+	$(GREP) -F -q "_Z25nested_reference_identityI19NestedCompoundOwnerERNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
+	$(GREP) -F -q "_Z25nested_reference_identityI25NestedCompoundSecondOwnerERNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
+	$(GREP) -F -q "_Z21nested_value_identityI19NestedCompoundOwnerENT_10value_typeES2_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
+	$(GREP) -F -q "_Z21nested_value_identityI25NestedCompoundSecondOwnerENT_10value_typeES2_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
+	$(GREP) -F -q "_Z21nested_member_pointerI19NestedCompoundOwnerEMT_NS1_10value_typeEv" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
+	$(GREP) -F -q "_Z21nested_member_pointerI25NestedCompoundSecondOwnerEMT_NS1_10value_typeEv" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
+	$(GREP) -F -q "_Z23nested_pointer_identityI19NestedCompoundOwnerEPNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
+	$(GREP) -F -q "_Z23nested_pointer_identityI25NestedCompoundSecondOwnerEPNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
+	$(GREP) -F -q "_Z25nested_reference_identityI19NestedCompoundOwnerERNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
+	$(GREP) -F -q "_Z25nested_reference_identityI25NestedCompoundSecondOwnerERNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
+	$(GREP) -F -q "_Z21nested_value_identityI19NestedCompoundOwnerENT_10value_typeES2_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
+	$(GREP) -F -q "_Z21nested_value_identityI25NestedCompoundSecondOwnerENT_10value_typeES2_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
+	$(GREP) -F -q "_Z21nested_member_pointerI19NestedCompoundOwnerEMT_NS1_10value_typeEv" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
+	$(GREP) -F -q "_Z21nested_member_pointerI25NestedCompoundSecondOwnerEMT_NS1_10value_typeEv" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
+	$(GREP) -F -q "_Z23nested_pointer_identityI19NestedCompoundOwnerEPNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
+	$(GREP) -F -q "_Z23nested_pointer_identityI25NestedCompoundSecondOwnerEPNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
+	$(GREP) -F -q "_Z25nested_reference_identityI19NestedCompoundOwnerERNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
+	$(GREP) -F -q "_Z25nested_reference_identityI25NestedCompoundSecondOwnerERNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
+	$(GREP) -F -q "_Z21nested_value_identityI19NestedCompoundOwnerENT_10value_typeES2_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
+	$(GREP) -F -q "_Z21nested_value_identityI25NestedCompoundSecondOwnerENT_10value_typeES2_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
+	$(GREP) -F -q "_Z21nested_member_pointerI19NestedCompoundOwnerEMT_NS1_10value_typeEv" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
+	$(GREP) -F -q "_Z21nested_member_pointerI25NestedCompoundSecondOwnerEMT_NS1_10value_typeEv" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
+	g++ -std=c++20 -Wall -Wextra -Werror -o \
+		$(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc-host$(EXE_SUFFIX) \
+		tests/cxx_function_template_dependent_compound_type.cpp
+	$(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc-host$(EXE_SUFFIX)
+
+test-cxx-function-template-dependent-nested-type: $(RCXX_TARGET) test-cxx-function-template-dependent-compound-type
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-dependent-nested-type)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-dependent-nested-type/invalid-x86.ro tests/cxx_function_template_dependent_nested_type_invalid.cpp,$(TEST_OUT)/cxx-function-template-dependent-nested-type/invalid-x86.log)
 	$(GREP) -q "class 'MissingFunctionTemplateNestedType' has no unique accessible nested type 'value_type'" $(TEST_OUT)/cxx-function-template-dependent-nested-type/invalid-x86.log
@@ -11488,6 +11525,7 @@ endif
 	test-cxx-dependent-nested-alias-transitive \
 	test-cxx-dependent-nested-alias-transitive-invalid \
 	test-cxx-function-template-dependent-nested-type
+.PHONY: test-cxx-function-template-dependent-compound-type
 .PHONY: test-cxx-class-template-dependent-base-lookup-invalid
 .PHONY: test-cxx-member-function-templates \
 	test-cxx-member-function-templates-posix
