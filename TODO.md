@@ -4313,8 +4313,11 @@ remains a separate open item.
 - [x] Substitute arithmetic-transformed integral pack expressions such as
   `OuterValues + 1` through both `Inner` and `Leaf`; verify the transformed
   values affect the resulting payload size for empty and three-element packs.
-- [ ] Extend deeper-owner pack expansion to fold/call-expression contexts,
-  multiple source packs, and mixed pack kinds.
+- [x] Expand outer type and inner integral non-type packs together in one
+  dependent class-template-id pattern; verify empty and two-element payload
+  sizes for the nested `Inner` owner.
+- [ ] Extend multi-source pack expansion to fold/call-expression contexts,
+  template-template sources, and mismatched-pack diagnostics.
 - [ ] Add explicit/partial nested class-template specializations and
   structural NTTP owner packs.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` and

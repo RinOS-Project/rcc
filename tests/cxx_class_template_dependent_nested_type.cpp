@@ -166,6 +166,14 @@ struct NestedOwnerValuePackBytes {
 template <typename... Elements>
 struct NestedOwnerValuePackAggregate : Elements... {};
 
+template <typename OwnerType, int ByteCount>
+struct NestedOwnerMixedPackElement {
+    unsigned char elements[ByteCount];
+};
+
+template <typename... Elements>
+struct NestedOwnerMixedPackAggregate : Elements... {};
+
 template <int... OuterValues>
 struct NestedOwnerValuePack {
     template <typename InnerType>
@@ -178,6 +186,18 @@ struct NestedOwnerValuePack {
             using value_type = NestedOwnerValuePackStorage<1, OuterValues...>;
             value_type payload;
         };
+    };
+};
+
+template <typename... OuterTypes>
+struct NestedOwnerMixedPack {
+    template <int... InnerValues>
+    struct Inner {
+        using value_type = NestedOwnerMixedPackAggregate<
+            NestedOwnerMixedPackElement<OuterTypes, InnerValues>...>;
+        value_type payload;
+
+        int inner_payload_size() const { return sizeof(payload); }
     };
 };
 
@@ -283,6 +303,12 @@ struct DmiCleanup : DmiBase<T> {
 };
 
 int main() {
+    using empty_mixed_pack_inner_owner =
+        typename NestedOwnerMixedPack<>::template Inner<>;
+    using two_element_mixed_pack_inner_owner =
+        typename NestedOwnerMixedPack<short, char>::template Inner<1, 2>;
+    empty_mixed_pack_inner_owner empty_mixed_pack;
+    two_element_mixed_pack_inner_owner two_element_mixed_pack;
     NestedTypeDerived<int> integer(17);
     NestedTypeDerived<long long> wide(29);
     TypeParameterNestedType<NestedTypeCarrier> type_parameter(37);
@@ -319,6 +345,8 @@ int main() {
                    read_deep_nested_owner_transformed_value_pack<>() == 1 &&
                    read_deep_nested_owner_transformed_value_pack<1, 2, 3>() ==
                        9 &&
+                    empty_mixed_pack.inner_payload_size() == 1 &&
+                    two_element_mixed_pack.inner_payload_size() == 3 &&
                    function_template_nested_type_chain<
                        NestedTypeChainOuter>() == 43 &&
                    dmi_effect_count == 4 && effects.called == 7 &&
