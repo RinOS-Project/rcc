@@ -231,7 +231,8 @@ fetch and/or/xor/nand、fenceと`<stdatomic.h>` APIを両archで生成・linkし
 両生成コードを直接実行します。i686の64-bit操作はbaseline CPU featureのCMPXCHG8B retry
 loop、AMD64はnative 64-bit命令を使用します。符号拡張、
 幅ごとのwrap、compare-exchange失敗時のexpected更新、複数threadでの16/32/64-bit算術
-およびbitwise原子性を検査します。pointerのload/store/exchange/CASも両archで直接実行し、
+およびbitwise原子性に加え、符号付き・符号なし64-bit fetch min/maxの戻り値、比較、
+競合更新とmemory orderを検査します。pointerのload/store/exchange/CASも両archで直接実行し、
 pointerへのfetch算術・bitwiseはSemaで拒否します。wide/pointer-sized型を含むC17 atomic typedefは
 両archで公開し、i686の`long`は既存32-bit lock-free pathを使用します。定数memory orderの範囲、load/store制約、
 compare-exchangeのfailure/weak制約もSemaで拒否します。

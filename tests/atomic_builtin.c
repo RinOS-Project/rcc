@@ -184,6 +184,26 @@ uint64_t atomic_u64_or_fetch_value(volatile uint64_t* value,
     return __atomic_or_fetch(value, operand, __ATOMIC_SEQ_CST);
 }
 
+int64_t atomic_i64_fetch_min_order(volatile int64_t* value, int64_t operand,
+                                   int order) {
+    return __atomic_fetch_min(value, operand, order);
+}
+
+int64_t atomic_i64_fetch_max_order(volatile int64_t* value, int64_t operand,
+                                   int order) {
+    return __atomic_fetch_max(value, operand, order);
+}
+
+uint64_t atomic_u64_fetch_min_order(volatile uint64_t* value, uint64_t operand,
+                                    int order) {
+    return __atomic_fetch_min(value, operand, order);
+}
+
+uint64_t atomic_u64_fetch_max_order(volatile uint64_t* value, uint64_t operand,
+                                    int order) {
+    return __atomic_fetch_max(value, operand, order);
+}
+
 int atomic_u64_compare_exchange_value(volatile uint64_t* value,
                                       uint64_t* expected,
                                       uint64_t desired) {

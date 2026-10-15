@@ -152,6 +152,10 @@ typedef void (RCC_SYSV_ABI *atomic_u64_store_fn)(volatile uint64_t*, uint64_t);
 typedef uint64_t (RCC_SYSV_ABI *atomic_u64_binary_fn)(volatile uint64_t*, uint64_t);
 typedef int (RCC_SYSV_ABI *atomic_u64_compare_fn)(volatile uint64_t*, uint64_t*,
                                      uint64_t);
+typedef int64_t (RCC_SYSV_ABI *atomic_i64_order_fn)(volatile int64_t*, int64_t,
+                                                     int);
+typedef uint64_t (RCC_SYSV_ABI *atomic_u64_order_fn)(volatile uint64_t*,
+                                                      uint64_t, int);
 #if defined(__i386__)
 typedef long (RCC_SYSV_ABI *atomic_long_binary_fn)(volatile long*, long);
 #endif
@@ -180,6 +184,20 @@ typedef struct {
     volatile uint64_t* counter;
     unsigned iterations;
 } AtomicWorker64;
+
+typedef struct {
+    union {
+        atomic_i64_order_fn signed_operation;
+        atomic_u64_order_fn unsigned_operation;
+    } operation;
+    volatile int64_t* signed_value;
+    volatile uint64_t* unsigned_value;
+    int64_t signed_operand;
+    uint64_t unsigned_operand;
+    int order;
+    int is_unsigned;
+    unsigned iterations;
+} AtomicMinMaxWorker;
 
 static void* atomic_worker(void* argument) {
     AtomicWorker* worker = argument;
@@ -213,6 +231,22 @@ static void* atomic_worker64(void* argument) {
     unsigned i;
     for (i = 0; i < worker->iterations; ++i) {
         worker->fetch_add(worker->counter, UINT64_C(1));
+    }
+    return NULL;
+}
+
+static void* atomic_minmax_worker(void* argument) {
+    AtomicMinMaxWorker* worker = argument;
+    unsigned i;
+    for (i = 0; i < worker->iterations; ++i) {
+        if (worker->is_unsigned) {
+            (void)worker->operation.unsigned_operation(
+                worker->unsigned_value, worker->unsigned_operand,
+                worker->order);
+        } else {
+            (void)worker->operation.signed_operation(
+                worker->signed_value, worker->signed_operand, worker->order);
+        }
     }
     return NULL;
 }
@@ -288,6 +322,10 @@ int main(int argc, char** argv) {
     atomic_u64_binary_fn u64_fetch_xor;
     atomic_u64_binary_fn u64_or_fetch;
     atomic_u64_compare_fn u64_compare;
+    atomic_i64_order_fn i64_fetch_min;
+    atomic_i64_order_fn i64_fetch_max;
+    atomic_u64_order_fn u64_fetch_min_order;
+    atomic_u64_order_fn u64_fetch_max_order;
     atomic_u64_binary_fn standard_ullong_fetch_add;
     atomic_u64_load_fn standard_ullong_is_lock_free;
 #if defined(__i386__)
@@ -435,6 +473,14 @@ int main(int argc, char** argv) {
                   "atomic_u64_fetch_xor_value");
     LOAD_FUNCTION(u64_or_fetch, object, mapping,
                   "atomic_u64_or_fetch_value");
+    LOAD_FUNCTION(i64_fetch_min, object, mapping,
+                  "atomic_i64_fetch_min_order");
+    LOAD_FUNCTION(i64_fetch_max, object, mapping,
+                  "atomic_i64_fetch_max_order");
+    LOAD_FUNCTION(u64_fetch_min_order, object, mapping,
+                  "atomic_u64_fetch_min_order");
+    LOAD_FUNCTION(u64_fetch_max_order, object, mapping,
+                  "atomic_u64_fetch_max_order");
     LOAD_FUNCTION(u64_compare, object, mapping,
                   "atomic_u64_compare_exchange_value");
     LOAD_FUNCTION(standard_ullong_fetch_add, object, mapping,
@@ -627,6 +673,43 @@ int main(int argc, char** argv) {
         assert(standard_ullong_fetch_add(&wide, UINT64_C(0x100000000)) ==
                UINT64_C(0x800000011) && wide == UINT64_C(0x900000011));
         assert(standard_ullong_is_lock_free(&wide) == UINT64_C(1));
+    }
+    {
+        volatile int64_t signed_value = INT64_C(0x7fffffffffffffff);
+        volatile uint64_t unsigned_value = UINT64_C(0x7fffffffffffffff);
+
+        assert(i64_fetch_min(&signed_value, INT64_MIN, __ATOMIC_RELAXED) ==
+               INT64_C(0x7fffffffffffffff));
+        assert(signed_value == INT64_MIN);
+        assert(i64_fetch_min(&signed_value, -7, __ATOMIC_RELEASE) ==
+               INT64_MIN);
+        assert(signed_value == INT64_MIN);
+
+        signed_value = INT64_MIN;
+        assert(i64_fetch_max(&signed_value, INT64_C(0x7fffffffffffffff),
+                             __ATOMIC_ACQ_REL) == INT64_MIN);
+        assert(signed_value == INT64_C(0x7fffffffffffffff));
+        assert(i64_fetch_max(&signed_value, 7, __ATOMIC_SEQ_CST) ==
+               INT64_C(0x7fffffffffffffff));
+
+        assert(u64_fetch_min_order(&unsigned_value, UINT64_C(0x8000000000000000),
+                                   __ATOMIC_RELAXED) ==
+               UINT64_C(0x7fffffffffffffff));
+        assert(unsigned_value == UINT64_C(0x7fffffffffffffff));
+        unsigned_value = UINT64_C(0x7fffffffffffffff);
+        assert(u64_fetch_max_order(&unsigned_value,
+                                   UINT64_C(0x8000000000000000),
+                                   __ATOMIC_ACQ_REL) ==
+               UINT64_C(0x7fffffffffffffff));
+        assert(unsigned_value == UINT64_C(0x8000000000000000));
+        assert(u64_fetch_max_order(&unsigned_value,
+                                   UINT64_C(0xffffffffffffffff),
+                                   __ATOMIC_ACQ_REL) ==
+               UINT64_C(0x8000000000000000));
+        assert(unsigned_value == UINT64_C(0xffffffffffffffff));
+        assert(u64_fetch_max_order(&unsigned_value, UINT64_C(1),
+                                   __ATOMIC_SEQ_CST) ==
+               UINT64_C(0xffffffffffffffff));
     }
 #if defined(__i386__)
     {
@@ -830,6 +913,81 @@ int main(int argc, char** argv) {
             assert(pthread_join(threads[i], NULL) == 0);
         }
         assert(counter64 == UINT64_C(0x1000186a0));
+    }
+
+    {
+        static const int orders[4] = {
+            __ATOMIC_RELAXED, __ATOMIC_RELEASE,
+            __ATOMIC_ACQ_REL, __ATOMIC_SEQ_CST
+        };
+        volatile int64_t signed_min = INT64_MAX;
+        volatile int64_t signed_max = INT64_MIN;
+        volatile uint64_t unsigned_min = UINT64_MAX;
+        volatile uint64_t unsigned_max = 0u;
+        AtomicMinMaxWorker min_workers[4];
+        AtomicMinMaxWorker max_workers[4];
+        AtomicMinMaxWorker unsigned_min_workers[4];
+        AtomicMinMaxWorker unsigned_max_workers[4];
+
+        for (i = 0; i < 4u; ++i) {
+            min_workers[i].operation.signed_operation = i64_fetch_min;
+            min_workers[i].signed_value = &signed_min;
+            min_workers[i].signed_operand = INT64_C(1000) + i;
+            min_workers[i].order = orders[i];
+            min_workers[i].is_unsigned = 0;
+            min_workers[i].iterations = 10000u;
+
+            max_workers[i].operation.signed_operation = i64_fetch_max;
+            max_workers[i].signed_value = &signed_max;
+            max_workers[i].signed_operand = -INT64_C(1000) + i;
+            max_workers[i].order = orders[i];
+            max_workers[i].is_unsigned = 0;
+            max_workers[i].iterations = 10000u;
+
+            unsigned_min_workers[i].operation.unsigned_operation =
+                u64_fetch_min_order;
+            unsigned_min_workers[i].unsigned_value = &unsigned_min;
+            unsigned_min_workers[i].unsigned_operand =
+                UINT64_MAX - (UINT64_C(1000) + i);
+            unsigned_min_workers[i].order = orders[i];
+            unsigned_min_workers[i].is_unsigned = 1;
+            unsigned_min_workers[i].iterations = 10000u;
+
+            unsigned_max_workers[i].operation.unsigned_operation =
+                u64_fetch_max_order;
+            unsigned_max_workers[i].unsigned_value = &unsigned_max;
+            unsigned_max_workers[i].unsigned_operand = UINT64_C(1000) + i;
+            unsigned_max_workers[i].order = orders[i];
+            unsigned_max_workers[i].is_unsigned = 1;
+            unsigned_max_workers[i].iterations = 10000u;
+
+            assert(pthread_create(&threads[i], NULL, atomic_minmax_worker,
+                                  &min_workers[i]) == 0);
+        }
+        for (i = 0; i < 4u; ++i)
+            assert(pthread_join(threads[i], NULL) == 0);
+        assert(signed_min == INT64_C(1000));
+
+        for (i = 0; i < 4u; ++i)
+            assert(pthread_create(&threads[i], NULL, atomic_minmax_worker,
+                                  &max_workers[i]) == 0);
+        for (i = 0; i < 4u; ++i)
+            assert(pthread_join(threads[i], NULL) == 0);
+        assert(signed_max == -INT64_C(997));
+
+        for (i = 0; i < 4u; ++i)
+            assert(pthread_create(&threads[i], NULL, atomic_minmax_worker,
+                                  &unsigned_min_workers[i]) == 0);
+        for (i = 0; i < 4u; ++i)
+            assert(pthread_join(threads[i], NULL) == 0);
+        assert(unsigned_min == UINT64_MAX - UINT64_C(1003));
+
+        for (i = 0; i < 4u; ++i)
+            assert(pthread_create(&threads[i], NULL, atomic_minmax_worker,
+                                  &unsigned_max_workers[i]) == 0);
+        for (i = 0; i < 4u; ++i)
+            assert(pthread_join(threads[i], NULL) == 0);
+        assert(unsigned_max == UINT64_C(1003));
     }
 
     {
