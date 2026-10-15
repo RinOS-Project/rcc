@@ -10231,6 +10231,45 @@ static bool cxx_single_header_nested_member_specialization_starts(void) {
            token->next->next->type == TOK_LT;
 }
 
+static bool cxx_template_argument_list_followed_by_scope(void) {
+    Token* token = parser.cur;
+    int angle_depth = 0;
+    int parentheses = 0;
+    int brackets = 0;
+    int braces = 0;
+
+    if (!token || token->type != TOK_LT) return false;
+    for (; token; token = token->next) {
+        if (token->type == TOK_LPAREN) {
+            ++parentheses;
+        } else if (token->type == TOK_RPAREN && parentheses > 0) {
+            --parentheses;
+        } else if (token->type == TOK_LBRACKET) {
+            ++brackets;
+        } else if (token->type == TOK_RBRACKET && brackets > 0) {
+            --brackets;
+        } else if (token->type == TOK_LBRACE) {
+            ++braces;
+        } else if (token->type == TOK_RBRACE && braces > 0) {
+            --braces;
+        } else if (parentheses == 0 && brackets == 0 && braces == 0) {
+            if (token->type == TOK_LT) {
+                ++angle_depth;
+            } else if (token->type == TOK_GT) {
+                if (--angle_depth == 0) {
+                    return token->next && token->next->type == TOK_SCOPE;
+                }
+            } else if (token->type == TOK_RSHIFT) {
+                angle_depth -= 2;
+                if (angle_depth <= 0) {
+                    return token->next && token->next->type == TOK_SCOPE;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 static CxxNestedClassTemplate* cxx_find_nested_template_for_owner_pattern(
     CxxTemplate* owner_template, Type* owner_pattern, const char* name);
 
@@ -10887,20 +10926,43 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
             owner_class = owner_token
                 ? find_class(owner_token->value.str_val) : NULL;
         }
-        expect(TOK_SCOPE, ":: before nested class template name");
-        name_token = expect(TOK_IDENT, "nested class template name");
-        nested_template = owner_class && name_token
-            ? cxx_class_find_nested_template(
-                  owner_class, name_token->value.str_val)
-            : owner_template && owner_template->templated_class && name_token
-                  ? cxx_find_nested_template_for_owner_pattern(
-                        owner_template, owner_type,
-                        name_token->value.str_val)
-                  : NULL;
-        primary = nested_template ? nested_template->declaration : NULL;
-        if (!primary || primary->kind != TMPL_CLASS) {
-            rcc_error(loc,
-                      "nested class-template specialization has no matching primary template");
+        for (;;) {
+            expect(TOK_SCOPE, ":: before nested class template name");
+            name_token = expect(TOK_IDENT, "nested class template name");
+            nested_template = owner_class && name_token
+                ? cxx_class_find_nested_template(
+                      owner_class, name_token->value.str_val)
+                : owner_template && owner_template->templated_class &&
+                          name_token
+                      ? cxx_find_nested_template_for_owner_pattern(
+                            owner_template, owner_type,
+                            name_token->value.str_val)
+                      : NULL;
+            primary = nested_template ? nested_template->declaration : NULL;
+            if (!primary || primary->kind != TMPL_CLASS) {
+                rcc_error(loc,
+                          "nested class-template specialization has no matching primary template");
+                break;
+            }
+            if (!nested_member_template_explicit_specialization ||
+                !check(TOK_LT) ||
+                !cxx_template_argument_list_followed_by_scope()) {
+                break;
+            }
+
+            /* An explicit member specialization can pass through one or more
+             * specialized nested class-template owners before reaching its
+             * final member template, e.g. Owner<int>::Mid<char>::Inner<long>.
+             * Materialize each intermediate owner with its lexical owner so
+             * the next lookup is performed in that specialization's class. */
+            owner_type = parse_class_template_specialization_for_owner(
+                primary, owner_class, loc);
+            owner_class = owner_type ? owner_type->cxx_class : NULL;
+            if (!owner_class) {
+                rcc_error(loc,
+                          "nested member specialization owner could not be resolved");
+                break;
+            }
         }
         if (nested_member_template_partial_specialization && owner_template) {
             tmpl->enclosing_template = primary && primary->enclosing_template
@@ -26801,54 +26863,78 @@ static Type* parse_cxx_type_spec(void) {
                       "template-id qualified type must name a nested type");
             t = type_int;
         } else {
-            member_name = rcc_intern(advance()->value.str_val);
-            member_class_template = owner_class && check(TOK_LT)
-                ? cxx_class_find_nested_template(owner_class, member_name)
-                : NULL;
-            if (member_class_template &&
-                member_class_template->declaration) {
-                bool accessible = cxx_nested_class_template_accessible(
-                    member_class_template, owner_class, active_class);
-                Type* specialization =
-                    parse_class_template_specialization_for_owner(
-                        member_class_template->declaration, owner_class,
-                        loc);
-                if (!accessible) {
+            for (;;) {
+                member_name = rcc_intern(advance()->value.str_val);
+                member_class_template = owner_class && check(TOK_LT)
+                    ? cxx_class_find_nested_template(owner_class, member_name)
+                    : NULL;
+                if (member_class_template &&
+                    member_class_template->declaration) {
+                    bool accessible = cxx_nested_class_template_accessible(
+                        member_class_template, owner_class, active_class);
+                    Type* specialization =
+                        parse_class_template_specialization_for_owner(
+                            member_class_template->declaration, owner_class,
+                            loc);
+                    if (!accessible) {
+                        rcc_error(loc,
+                                  "nested class template '%s' is inaccessible in class '%s'",
+                                  member_name,
+                                  owner_class->name ? owner_class->name
+                                                    : "<unnamed>");
+                        t = type_int;
+                    } else {
+                        t = specialization;
+                    }
+                    owner_type = t;
+                    owner_class = owner_type ? owner_type->cxx_class : NULL;
+                    if (!check(TOK_SCOPE)) break;
+                    if (!owner_class || !match(TOK_SCOPE) ||
+                        !check(TOK_IDENT)) {
+                        rcc_error(loc,
+                                  "nested template specialization has no nested class owner");
+                        t = type_int;
+                        break;
+                    }
+                    continue;
+                }
+                if (owner_class) {
+                    member_alias = cxx_class_find_inherited_type_alias(
+                        owner_class, member_name, active_class,
+                        &alias_ambiguous, &alias_accessible);
+                }
+                if (member_alias && alias_accessible) {
+                    t = member_alias->type;
+                } else if (member_alias) {
                     rcc_error(loc,
-                              "nested class template '%s' is inaccessible in class '%s'",
+                              "nested type '%s' is inaccessible in class '%s'",
                               member_name,
                               owner_class->name ? owner_class->name
                                                 : "<unnamed>");
                     t = type_int;
+                } else if (alias_ambiguous) {
+                    rcc_error(loc,
+                              "nested type '%s' is ambiguous in class '%s'",
+                              member_name,
+                              owner_class && owner_class->name
+                                  ? owner_class->name : template_name);
+                    t = type_int;
                 } else {
-                    t = specialization;
+                    rcc_error(loc,
+                              "class template '%s' has no accessible nested type '%s'",
+                              template_name, member_name);
+                    t = type_int;
                 }
-            } else {
-            if (owner_class) {
-                member_alias = cxx_class_find_inherited_type_alias(
-                    owner_class, member_name, active_class,
-                    &alias_ambiguous, &alias_accessible);
-            }
-            if (member_alias && alias_accessible) {
-                t = member_alias->type;
-            } else if (member_alias) {
-                rcc_error(loc,
-                          "nested type '%s' is inaccessible in class '%s'",
-                          member_name,
-                          owner_class->name ? owner_class->name : "<unnamed>");
-                t = type_int;
-            } else if (alias_ambiguous) {
-                rcc_error(loc, "nested type '%s' is ambiguous in class '%s'",
-                          member_name,
-                          owner_class && owner_class->name
-                              ? owner_class->name : template_name);
-                t = type_int;
-            } else {
-                rcc_error(loc,
-                          "class template '%s' has no accessible nested type '%s'",
-                          template_name, member_name);
-                t = type_int;
-            }
+                if (!check(TOK_SCOPE)) break;
+                owner_type = t;
+                owner_class = owner_type ? owner_type->cxx_class : NULL;
+                if (!owner_class || !match(TOK_SCOPE) ||
+                    !check(TOK_IDENT)) {
+                    rcc_error(loc,
+                              "nested type has no nested class owner");
+                    t = type_int;
+                    break;
+                }
             }
         }
     } else if (check(TOK_IDENT) || check(TOK_SCOPE)) {

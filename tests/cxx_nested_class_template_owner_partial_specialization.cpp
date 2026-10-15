@@ -255,6 +255,34 @@ struct NestedExplicitMemberOfExplicitOuterOwner<int>::Inner<char> {
     int result() const { return 320; }
 };
 
+template <typename OwnerValue>
+struct NestedMultiLevelExplicitOwner {
+    template <typename MidValue>
+    struct Mid {
+        template <typename InnerValue>
+        struct Inner {
+            int result() const { return 400; }
+        };
+    };
+};
+
+template <>
+struct NestedMultiLevelExplicitOwner<int> {
+    template <typename MidValue>
+    struct Mid {
+        template <typename InnerValue>
+        struct Inner {
+            int result() const { return 410; }
+        };
+    };
+};
+
+template <>
+template <>
+struct NestedMultiLevelExplicitOwner<int>::Mid<char>::Inner<long> {
+    int result() const { return 420; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -297,6 +325,12 @@ int main() {
         explicit_outer_owner_member_primary;
     NestedExplicitMemberOfExplicitOuterOwner<int>::Inner<char>
         explicit_outer_owner_member_specialized;
+    NestedMultiLevelExplicitOwner<long>::Mid<char>::Inner<long>
+        multilevel_primary_outer;
+    NestedMultiLevelExplicitOwner<int>::Mid<long>::Inner<long>
+        multilevel_explicit_outer;
+    NestedMultiLevelExplicitOwner<int>::Mid<char>::Inner<long>
+        multilevel_explicit_member;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -323,5 +357,8 @@ int main() {
     if (explicit_outer_owner_primary.result() != 300) return 24;
     if (explicit_outer_owner_member_primary.result() != 310) return 25;
     if (explicit_outer_owner_member_specialized.result() != 320) return 26;
+    if (multilevel_primary_outer.result() != 400) return 27;
+    if (multilevel_explicit_outer.result() != 410) return 28;
+    if (multilevel_explicit_member.result() != 420) return 29;
     return 0;
 }

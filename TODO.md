@@ -4560,3 +4560,15 @@ remains a separate open item.
   no push.
 - [ ] Non-null pointer-valued members and remaining standard-valid explicit
   member-specialization forms remain open.
+
+## RCC continuation (2026-10-16, multi-level nested explicit specialization)
+
+- [x] Resolve explicit nested member-template specializations through an
+  intermediate specialized member-class-template owner, such as
+  `Owner<int>::Mid<char>::Inner<long>`, and resolve the same multi-level type-id
+  when naming primary or unspecialized member specializations.
+- [x] Compare all three GCC Itanium symbols against RCC on i686/AMD64 and run
+  both the generated AMD64 and GCC-host programs. The focused nested-owner gate
+  and full native-Windows MinGW `test-cxx` aggregate pass (exit 0).
+- [ ] Deeper nested owner chains beyond the verified member-template depth and
+  non-null structural pointer NTTP values remain open.
