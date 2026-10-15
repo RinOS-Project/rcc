@@ -4900,3 +4900,15 @@ remains a separate open item.
   floating casts, non-null structural pointer NTTP values, specialization
   chains deeper than nine levels, and overflow contexts outside this array-
   bound substitution path remain open.
+
+## RCC continuation (2026-10-16, unsigned-64 dependent array bounds)
+
+- [x] Detect a dependent array bound whose final cast converts signed `-1` to
+  `unsigned long long`; diagnose the resulting `UINT64_MAX` bound as out of
+  range instead of accepting an unresolved type.
+- [x] Compare the invalid case against GCC, check the diagnostic and absence
+  of `.ro` output for both i686 and AMD64. The focused unsigned-64 bound target
+  passes.
+- [ ] General unsigned evaluation beyond the signed 64-bit range, including
+  casts nested inside larger expressions or later narrowed conversions, and
+  floating casts remain open.

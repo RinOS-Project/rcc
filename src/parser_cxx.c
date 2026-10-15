@@ -2497,6 +2497,9 @@ static bool eval_template_integer_expression(Expr* expression,
 static bool cxx_template_integer_expression_overflows(
     Expr* expression, CxxTemplate* tmpl, const int64_t* values,
     const bool* value_present);
+static bool cxx_template_unsigned64_array_bound_exceeds_range(
+    Expr* expression, CxxTemplate* tmpl, const int64_t* values,
+    const bool* value_present);
 static bool cxx_expression_is_dependent(
     const Expr* expression, const CxxTemplate* tmpl);
 static bool cxx_friend_function_name_matches(CxxNamespace* ns,
@@ -13512,6 +13515,12 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 rcc_error(type->array_bound->loc,
                           "overflow in dependent array bound constant expression");
                 return NULL;
+            } else if (cxx_template_unsigned64_array_bound_exceeds_range(
+                           type->array_bound, tmpl, value_args,
+                           value_present)) {
+                rcc_error(type->array_bound->loc,
+                          "template array bound is out of range");
+                return NULL;
             }
         }
         if (base != type->base || array_len != type->array_len ||
@@ -19316,6 +19325,36 @@ static bool cxx_template_integer_expression_overflows(
         default:
             return false;
     }
+}
+
+static bool cxx_template_unsigned64_array_bound_exceeds_range(
+    Expr* expression, CxxTemplate* tmpl, const int64_t* values,
+    const bool* value_present) {
+    Type* representation;
+    int64_t source_value;
+    uint64_t converted;
+    if (!expression || expression->kind != EXPR_CAST ||
+        !expression->cast_type || !expression->cast_expr) {
+        return false;
+    }
+    representation = expression->cast_type;
+    if (representation->kind == TYPE_ENUM &&
+        representation->enum_underlying_type) {
+        representation = representation->enum_underlying_type;
+    }
+    if (!type_is_integer(expression->cast_type) &&
+        expression->cast_type->kind != TYPE_ENUM) {
+        return false;
+    }
+    if (!representation || !representation->is_unsigned ||
+        representation->size != (int)sizeof(uint64_t) ||
+        !eval_template_integer_expression(
+            expression->cast_expr, tmpl, values, value_present,
+            &source_value)) {
+        return false;
+    }
+    converted = (uint64_t)source_value;
+    return converted > (uint64_t)INT_MAX;
 }
 
 bool rcc_parser_cxx_eval_template_integer_expression(
