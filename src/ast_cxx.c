@@ -331,6 +331,7 @@ static bool cxx_mangle_single_integer_structural_value(
     cxx_mangle_type_append_context(buf, pos, field->type, context);
     cxx_mangle_template_value_suffix(buf, pos, field->type, value);
     cxx_mangle_type_char(buf, pos, 'E');
+    cxx_mangle_type_char(buf, pos, 'E');
     return true;
 }
 

@@ -13,7 +13,7 @@ struct NestedStructuralValueOwnerPack {
 template <NestedStructuralOwnerKey... Values>
 template <typename Element>
 struct NestedStructuralValueOwnerPack<Values...>::Inner<Element*> {
-    int result() const { return 20 + sizeof...(Values); }
+    int result() const { return 22; }
 };
 
 int main() {
