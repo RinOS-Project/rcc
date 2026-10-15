@@ -234,6 +234,27 @@ struct NestedConcreteOwnerExplicitSpecialization::Inner<char> {
     int result() const { return 290; }
 };
 
+template <typename OwnerValue>
+struct NestedExplicitMemberOfExplicitOuterOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 300; }
+    };
+};
+
+template <>
+struct NestedExplicitMemberOfExplicitOuterOwner<int> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 310; }
+    };
+};
+
+template <>
+struct NestedExplicitMemberOfExplicitOuterOwner<int>::Inner<char> {
+    int result() const { return 320; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -270,6 +291,12 @@ int main() {
         explicit_nested_member;
     NestedConcreteOwnerExplicitSpecialization::Inner<char>
         explicit_concrete_owner_member;
+    NestedExplicitMemberOfExplicitOuterOwner<long>::Inner<char>
+        explicit_outer_owner_primary;
+    NestedExplicitMemberOfExplicitOuterOwner<int>::Inner<long>
+        explicit_outer_owner_member_primary;
+    NestedExplicitMemberOfExplicitOuterOwner<int>::Inner<char>
+        explicit_outer_owner_member_specialized;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -293,5 +320,8 @@ int main() {
     if (explicit_outer_partial_primary.result() != 260) return 21;
     if (explicit_nested_member.result() != 270) return 22;
     if (explicit_concrete_owner_member.result() != 290) return 23;
+    if (explicit_outer_owner_primary.result() != 300) return 24;
+    if (explicit_outer_owner_member_primary.result() != 310) return 25;
+    if (explicit_outer_owner_member_specialized.result() != 320) return 26;
     return 0;
 }

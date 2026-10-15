@@ -10202,6 +10202,35 @@ static bool cxx_partial_nested_template_owner_specialization_starts(void) {
            token->next->next->type == TOK_LT;
 }
 
+static bool cxx_single_header_nested_member_specialization_starts(void) {
+    Token* token = parser.cur;
+    int angle_depth = 0;
+
+    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT) ||
+        !token->next || token->next->type != TOK_IDENT ||
+        !find_class_template(token->next->value.str_val)) {
+        return false;
+    }
+    token = token->next->next;
+    if (!token || token->type != TOK_LT) return false;
+    angle_depth = 1;
+    for (token = token->next; token; token = token->next) {
+        if (token->type == TOK_LT) {
+            ++angle_depth;
+        } else if (token->type == TOK_GT) {
+            if (--angle_depth == 0) break;
+        } else if (token->type == TOK_RSHIFT) {
+            angle_depth -= 2;
+            if (angle_depth <= 0) break;
+        }
+    }
+    if (!token || angle_depth > 0) return false;
+    token = token->next;
+    return token && token->type == TOK_SCOPE && token->next &&
+           token->next->type == TOK_IDENT && token->next->next &&
+           token->next->next->type == TOK_LT;
+}
+
 static CxxNestedClassTemplate* cxx_find_nested_template_for_owner_pattern(
     CxxTemplate* owner_template, Type* owner_pattern, const char* name);
 
@@ -10302,6 +10331,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     CxxTemplate* parameter_outer_template = active_template;
     int explicit_class_alignment = 0;
     bool nested_member_template_explicit_specialization = false;
+    bool nested_member_template_requires_explicit_owner = false;
     bool nested_member_template_partial_specialization = false;
     CxxTemplate* nested_member_template_owner_parameters = NULL;
     expect(TOK_LT, "<");
@@ -10535,6 +10565,10 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         expect(TOK_LT, "< in nested member specialization header");
         expect(TOK_GT, "> in nested member specialization header");
         nested_member_template_explicit_specialization = true;
+    } else if (tmpl->param_count == 0 &&
+               cxx_single_header_nested_member_specialization_starts()) {
+        nested_member_template_explicit_specialization = true;
+        nested_member_template_requires_explicit_owner = true;
     }
     if (tmpl->param_count > 0 &&
         cxx_partial_nested_template_owner_specialization_starts()) {
@@ -10841,6 +10875,14 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                 }
             }
             owner_class = owner_type ? owner_type->cxx_class : NULL;
+            if (nested_member_template_requires_explicit_owner &&
+                (!owner_class || !owner_class->templ ||
+                 owner_class->templ->param_count != 0 ||
+                 owner_class->templ->primary_template != owner_template)) {
+                rcc_error(loc,
+                          "nested member-template explicit specialization "
+                          "requires an explicitly specialized class-template owner");
+            }
         } else {
             owner_class = owner_token
                 ? find_class(owner_token->value.str_val) : NULL;
