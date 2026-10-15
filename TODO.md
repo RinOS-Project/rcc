@@ -4364,10 +4364,15 @@ remains a separate open item.
   separately from inner arguments; verify primary and partial instantiations
   across multiple owner types. Match empty and multi-element type, integral
   value, and template-template owner packs.
+- [x] Resolve `Outer<T*>::Inner<U*>` against the nested template declared by
+  the matching outer class-template partial specialization. Preserve that
+  outer specialization's parameter environment for the member body while
+  retaining primary-template identity for owner matching and mangling.
 - [x] Compare GCC Itanium symbols for primary, partial, and owner-pack cases on
   i686/AMD64; execute RCC-generated AMD64 and GCC C++20 programs. Pass the
   focused nested owner-partial target and the full `test-cxx` and
   `test-debug-info` aggregates on native Windows (all exit 0).
-- [ ] Extend explicit/partial nested member specializations to dependent owner
-  declarations and outer class-template-specialization owner patterns such as
-  `Outer<T*>::Inner<U*>`; add structural NTTP owner-pack specializations.
+- [ ] Extend outer partial-owner matching to dependent non-type and
+  template-template patterns; add structural non-integral NTTP owner-pack
+  specializations. Investigate any additional standard-valid explicit member
+  specialization forms on these owner shapes.

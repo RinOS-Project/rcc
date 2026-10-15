@@ -10083,6 +10083,9 @@ static bool cxx_partial_nested_template_owner_specialization_starts(void) {
            token->next->next->type == TOK_LT;
 }
 
+static CxxNestedClassTemplate* cxx_find_nested_template_for_owner_pattern(
+    CxxTemplate* owner_template, Type* owner_pattern, const char* name);
+
 static CxxTemplate* parse_cxx_nested_template_parameter_head(
     CxxTemplate* enclosing_template) {
     SourceLoc loc = peek()->loc;
@@ -10683,8 +10686,8 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
             ? cxx_class_find_nested_template(
                   owner_class, name_token->value.str_val)
             : owner_template && owner_template->templated_class && name_token
-                  ? cxx_class_find_nested_template(
-                        owner_template->templated_class,
+                  ? cxx_find_nested_template_for_owner_pattern(
+                        owner_template, owner_type,
                         name_token->value.str_val)
                   : NULL;
         primary = nested_template ? nested_template->declaration : NULL;
@@ -10693,7 +10696,8 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                       "nested class-template specialization has no matching primary template");
         }
         if (nested_member_template_partial_specialization && owner_template) {
-            tmpl->enclosing_template = owner_template;
+            tmpl->enclosing_template = primary && primary->enclosing_template
+                ? primary->enclosing_template : owner_template;
             tmpl->specialization_owner_pattern = owner_type;
         }
         tmpl->enclosing_class = owner_class;
@@ -12022,6 +12026,15 @@ static CxxTemplate* cxx_class_instance_template(CxxClass* class_instance) {
     if (!class_instance) return NULL;
     return class_instance->template_identity_tmpl
         ? class_instance->template_identity_tmpl : class_instance->templ;
+}
+
+static bool cxx_class_instance_matches_template(
+    CxxClass* class_instance, CxxTemplate* template_scope) {
+    CxxTemplate* identity_template =
+        cxx_class_instance_template(class_instance);
+    return identity_template == template_scope ||
+        (class_instance && class_instance->templ == template_scope &&
+         template_scope->primary_template == identity_template);
 }
 
 static Type* instantiate_class_template_for_owner(
@@ -13752,12 +13765,11 @@ static Type* instantiate_class_template_for_owner(
         for (enclosing_scope = tmpl->enclosing_template;
              enclosing_scope;
              enclosing_scope = enclosing_scope->enclosing_template) {
-            CxxTemplate* owner_template;
             int owner_argument_count;
             int enclosing_pack_index;
             while (owner_scope &&
-                   cxx_class_instance_template(owner_scope) !=
-                       enclosing_scope) {
+                   !cxx_class_instance_matches_template(owner_scope,
+                                                       enclosing_scope)) {
                 owner_scope = owner_scope->enclosing_class;
             }
             if (!owner_scope) {
@@ -13768,13 +13780,11 @@ static Type* instantiate_class_template_for_owner(
                               ? enclosing_scope->name : "<unnamed>");
                 return NULL;
             }
-            owner_template = cxx_class_instance_template(owner_scope);
-            owner_argument_count = owner_scope->template_identity_tmpl
-                ? owner_scope->template_identity_arg_count
-                : owner_scope->template_arg_count;
+            owner_argument_count = owner_scope->templ == enclosing_scope
+                ? owner_scope->template_arg_count
+                : owner_scope->template_identity_arg_count;
             enclosing_pack_index = cxx_class_pack_index(enclosing_scope);
-            if (owner_template != enclosing_scope ||
-                owner_argument_count < 0 ||
+            if (owner_argument_count < 0 ||
                 (enclosing_pack_index < 0 &&
                  owner_argument_count != enclosing_scope->param_count) ||
                 (enclosing_pack_index >= 0 &&
@@ -13843,8 +13853,8 @@ static Type* instantiate_class_template_for_owner(
             const int64_t* owner_values;
             const bool* owner_value_present;
             while (owner_scope &&
-                   cxx_class_instance_template(owner_scope) !=
-                       enclosing_scope) {
+                   !cxx_class_instance_matches_template(owner_scope,
+                                                       enclosing_scope)) {
                 owner_scope = owner_scope->enclosing_class;
             }
             if (!owner_scope) {
@@ -13853,18 +13863,19 @@ static Type* instantiate_class_template_for_owner(
                           "substitution");
                 return NULL;
             }
-            owner_arguments = owner_scope->template_identity_tmpl
-                ? owner_scope->template_identity_args
-                : owner_scope->template_args;
-            owner_argument_count = owner_scope->template_identity_tmpl
-                ? owner_scope->template_identity_arg_count
-                : owner_scope->template_arg_count;
-            owner_values = owner_scope->template_identity_tmpl
-                ? owner_scope->template_identity_value_args
-                : owner_scope->template_value_args;
-            owner_value_present = owner_scope->template_identity_tmpl
-                ? owner_scope->template_identity_value_present
-                : owner_scope->template_value_present;
+            if (owner_scope->templ == enclosing_scope) {
+                owner_arguments = owner_scope->template_args;
+                owner_argument_count = owner_scope->template_arg_count;
+                owner_values = owner_scope->template_value_args;
+                owner_value_present = owner_scope->template_value_present;
+            } else {
+                owner_arguments = owner_scope->template_identity_args;
+                owner_argument_count =
+                    owner_scope->template_identity_arg_count;
+                owner_values = owner_scope->template_identity_value_args;
+                owner_value_present =
+                    owner_scope->template_identity_value_present;
+            }
             if (owner_argument_count > 0 && !owner_arguments) {
                 rcc_error(loc,
                           "nested class template owner arguments are "
@@ -14821,6 +14832,75 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
     if (!type_is_compatible(pattern, actual)) return false;
     if (specificity) *specificity += 8;
     return true;
+}
+
+static bool cxx_class_partial_owner_pattern_matches(
+    CxxTemplate* primary, CxxTemplate* specialization, Type* owner_pattern,
+    int* specificity_out) {
+    Type** deduced_arguments;
+    int specificity = 0;
+    if (!primary || !specialization || !owner_pattern ||
+        owner_pattern->cxx_template != primary ||
+        owner_pattern->cxx_template_arg_count !=
+            specialization->specialization_arg_count ||
+        specialization->specialization_arg_count != primary->param_count ||
+        specialization->param_count <= 0 ||
+        specialization->param_count > 256 ||
+        !specialization->specialization_args ||
+        !owner_pattern->cxx_template_args ||
+        owner_pattern->cxx_template_arg_pack_expansions) {
+        return false;
+    }
+    deduced_arguments = ast_arena_alloc(
+        sizeof(*deduced_arguments) * (size_t)specialization->param_count);
+    memset(deduced_arguments, 0,
+           sizeof(*deduced_arguments) * (size_t)specialization->param_count);
+    for (int index = 0; index < primary->param_count; ++index) {
+        if (primary->params[index].kind != TPARAM_TYPE ||
+            !deduce_class_specialization_type(
+                specialization, specialization->specialization_args[index],
+                owner_pattern->cxx_template_args[index], deduced_arguments,
+                &specificity)) {
+            return false;
+        }
+    }
+    for (int index = 0; index < specialization->param_count; ++index) {
+        if (specialization->params[index].kind == TPARAM_TYPE &&
+            !deduced_arguments[index]) {
+            return false;
+        }
+    }
+    if (specificity_out) *specificity_out = specificity;
+    return true;
+}
+
+static CxxNestedClassTemplate* cxx_find_nested_template_for_owner_pattern(
+    CxxTemplate* owner_template, Type* owner_pattern, const char* name) {
+    CxxNestedClassTemplate* result = NULL;
+    int best_specificity = -1;
+    if (!owner_template || !name) return NULL;
+    for (int index = 0; index < owner_template->specialization_count; ++index) {
+        CxxTemplate* specialization = owner_template->specializations[index];
+        CxxNestedClassTemplate* candidate;
+        int specificity = 0;
+        if (!specialization || !specialization->templated_class ||
+            !cxx_class_partial_owner_pattern_matches(
+                owner_template, specialization, owner_pattern,
+                &specificity) || specificity < best_specificity) {
+            continue;
+        }
+        candidate = cxx_class_find_nested_template(
+            specialization->templated_class, name);
+        if (candidate) {
+            result = candidate;
+            best_specificity = specificity;
+        }
+    }
+    if (!result && owner_template->templated_class) {
+        result = cxx_class_find_nested_template(
+            owner_template->templated_class, name);
+    }
+    return result;
 }
 
 CxxClass* rcc_cxx_instantiate_class_template(CxxTemplate* tmpl,
