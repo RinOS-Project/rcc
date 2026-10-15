@@ -1182,6 +1182,107 @@ struct NestedArrayBoundExpressionOwnerChain<
     int result() const { return 2030; }
 };
 
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArraySubtractionBoundOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2700; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArraySubtractionBoundOwner<
+    OwnerValue[OwnerExtent - (OwnerExtent - 5)], OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2710; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+template <typename Value>
+struct NestedArraySubtractionBoundOwner<
+    OwnerValue[OwnerExtent - (OwnerExtent - 5)], OwnerExtent>::
+    Inner<Value*> {
+    int result() const { return 2720; }
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayDivisionRemainderBoundOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2730; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayDivisionRemainderBoundOwner<
+    OwnerValue[(OwnerExtent / 3) - (OwnerExtent % 4) + 3], OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2740; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+template <typename Value>
+struct NestedArrayDivisionRemainderBoundOwner<
+    OwnerValue[(OwnerExtent / 3) - (OwnerExtent % 4) + 3], OwnerExtent>::
+    Inner<Value*> {
+    int result() const { return 2750; }
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayBitwiseBoundOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2760; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayBitwiseBoundOwner<
+    OwnerValue[((OwnerExtent & 3) | ((~OwnerExtent ^ 1) & 15)) + 13],
+    OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2770; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+template <typename Value>
+struct NestedArrayBitwiseBoundOwner<
+    OwnerValue[((OwnerExtent & 3) | ((~OwnerExtent ^ 1) & 15)) + 13],
+    OwnerExtent>::
+    Inner<Value*> {
+    int result() const { return 2780; }
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayUnaryNegationBoundOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2790; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayUnaryNegationBoundOwner<
+    OwnerValue[-OwnerExtent], OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2800; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+template <typename Value>
+struct NestedArrayUnaryNegationBoundOwner<
+    OwnerValue[-OwnerExtent], OwnerExtent>::Inner<Value*> {
+    int result() const { return 2810; }
+};
+
 template <typename OwnerValue, int OwnerTag>
 struct NestedArrayDeducedExtentOwner {
     template <typename Value>
@@ -1532,6 +1633,36 @@ int main() {
     NestedArrayBoundExpressionOwnerChain<int[4], 3>::
         Mid<char[3], 1>::Leaf<long[3], 0>
         array_bound_expression_wrong_leaf_extent;
+    NestedArraySubtractionBoundOwner<int[6], 14>::Inner<char>
+        array_bound_subtraction_primary;
+    NestedArraySubtractionBoundOwner<int[5], 14>::Inner<char>
+        array_bound_subtraction_outer;
+    NestedArraySubtractionBoundOwner<int[5], 14>::Inner<char*>
+        array_bound_subtraction_inner;
+    NestedArrayDivisionRemainderBoundOwner<int[6], 14>::Inner<char>
+        array_bound_division_remainder_primary;
+    NestedArrayDivisionRemainderBoundOwner<int[5], 14>::Inner<char>
+        array_bound_division_remainder_outer;
+    NestedArrayDivisionRemainderBoundOwner<int[5], 14>::Inner<char*>
+        array_bound_division_remainder_inner;
+    NestedArrayDivisionRemainderBoundOwner<int[2], -14>::Inner<char>
+        array_bound_division_remainder_negative_primary;
+    NestedArrayDivisionRemainderBoundOwner<int[1], -14>::Inner<char>
+        array_bound_division_remainder_negative_outer;
+    NestedArrayDivisionRemainderBoundOwner<int[1], -14>::Inner<char*>
+        array_bound_division_remainder_negative_inner;
+    NestedArrayBitwiseBoundOwner<int[14], 14>::Inner<char>
+        array_bound_bitwise_primary;
+    NestedArrayBitwiseBoundOwner<int[15], 14>::Inner<char>
+        array_bound_bitwise_outer;
+    NestedArrayBitwiseBoundOwner<int[15], 14>::Inner<char*>
+        array_bound_bitwise_inner;
+    NestedArrayUnaryNegationBoundOwner<int[3], -4>::Inner<char>
+        array_bound_unary_negation_primary;
+    NestedArrayUnaryNegationBoundOwner<int[4], -4>::Inner<char>
+        array_bound_unary_negation_outer;
+    NestedArrayUnaryNegationBoundOwner<int[4], -4>::Inner<char*>
+        array_bound_unary_negation_inner;
     NestedArrayDeducedExtentOwner<int[4], 7>::Inner<char>
         array_bound_deduced_extent_partial;
     NestedArrayDeducedExtentOwner<int[4], 8>::Inner<char>
@@ -1679,6 +1810,24 @@ int main() {
     if (array_bound_expression_outer.result() != 2030) return 91;
     if (array_bound_expression_wrong_mid_extent.result() != 2010) return 92;
     if (array_bound_expression_wrong_leaf_extent.result() != 2020) return 93;
+    if (array_bound_subtraction_primary.result() != 2700) return 121;
+    if (array_bound_subtraction_outer.result() != 2710) return 122;
+    if (array_bound_subtraction_inner.result() != 2720) return 123;
+    if (array_bound_division_remainder_primary.result() != 2730) return 124;
+    if (array_bound_division_remainder_outer.result() != 2740) return 125;
+    if (array_bound_division_remainder_inner.result() != 2750) return 126;
+    if (array_bound_division_remainder_negative_primary.result() != 2730)
+        return 130;
+    if (array_bound_division_remainder_negative_outer.result() != 2740)
+        return 131;
+    if (array_bound_division_remainder_negative_inner.result() != 2750)
+        return 132;
+    if (array_bound_bitwise_primary.result() != 2760) return 127;
+    if (array_bound_bitwise_outer.result() != 2770) return 128;
+    if (array_bound_bitwise_inner.result() != 2780) return 129;
+    if (array_bound_unary_negation_primary.result() != 2790) return 133;
+    if (array_bound_unary_negation_outer.result() != 2800) return 134;
+    if (array_bound_unary_negation_inner.result() != 2810) return 135;
     if (array_bound_deduced_extent_partial.result() != 2210) return 94;
     if (array_bound_deduced_extent_primary.result() != 2200) return 95;
     if (array_bound_conditional_primary.result() != 2300) return 96;

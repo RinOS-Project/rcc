@@ -4836,6 +4836,25 @@ remains a separate open item.
   partial specializations, and primary fallback; compare all eight exact GCC
   Itanium symbols against RCC on i686/AMD64 and execute generated AMD64 plus
   GCC-host programs. The focused nested-owner target passes (exit 0).
-- [ ] Additional dependent array-bound operators beyond addition,
-  multiplication, left-shift, signed right-shift, conditional comparison, and
-  logical short-circuit forms remain open.
+- [ ] Other dependent array-bound expression operators, type-conversion and
+  overflow-diagnostic cases, non-null structural pointer NTTP values, and
+  explicit-specialization chains deeper than eight nested levels remain open.
+
+## RCC continuation (2026-10-16, checked arithmetic in dependent array bounds)
+
+- [x] Evaluate dependent subtraction, signed division and remainder, bitwise
+  AND/OR/XOR/complement, and unary negation when matching nested owner
+  partial-specialization array bounds. Cover positive and negative division
+  with C++ truncation/remainder signs, primary fallback, and nested member
+  selection.
+- [x] Guard signed addition, subtraction, multiplication, negation, division,
+  and remainder evaluation against host-language overflow/undefined behavior;
+  return “not evaluable” for unrepresentable intermediate results instead of
+  selecting a specialization from a wrapped value.
+- [x] Compare the added GCC Itanium symbols for both i686 and AMD64 and run
+  generated AMD64 plus GCC-host programs. The focused nested-owner target and
+  aggregate `test-cxx test-debug-info` both pass (exit 0).
+- [ ] Add explicit diagnostics/regressions for overflowing dependent
+  constant expressions and cover remaining expression/type-conversion forms;
+  non-null structural pointer NTTP values and explicit-specialization chains
+  deeper than eight nested levels remain open.

@@ -2397,6 +2397,55 @@ static bool cxx_eval_dependent_integer_member_template_call(
     return rcc_sema_eval_constexpr_integer_call(function, arguments, result);
 }
 
+static bool cxx_eval_i64_add(int64_t left, int64_t right,
+                             int64_t* result) {
+#if defined(__GNUC__) || defined(__clang__)
+    return !__builtin_add_overflow(left, right, result);
+#else
+    if ((right > 0 && left > INT64_MAX - right) ||
+        (right < 0 && left < INT64_MIN - right)) {
+        return false;
+    }
+    *result = left + right;
+    return true;
+#endif
+}
+
+static bool cxx_eval_i64_sub(int64_t left, int64_t right,
+                             int64_t* result) {
+#if defined(__GNUC__) || defined(__clang__)
+    return !__builtin_sub_overflow(left, right, result);
+#else
+    if ((right < 0 && left > INT64_MAX + right) ||
+        (right > 0 && left < INT64_MIN + right)) {
+        return false;
+    }
+    *result = left - right;
+    return true;
+#endif
+}
+
+static bool cxx_eval_i64_mul(int64_t left, int64_t right,
+                             int64_t* result) {
+#if defined(__GNUC__) || defined(__clang__)
+    return !__builtin_mul_overflow(left, right, result);
+#else
+    if (left > 0) {
+        if ((right > 0 && left > INT64_MAX / right) ||
+            (right < 0 && right < INT64_MIN / left)) {
+            return false;
+        }
+    } else if (left < 0) {
+        if ((right > 0 && left < INT64_MIN / right) ||
+            (right < 0 && left < INT64_MAX / right)) {
+            return false;
+        }
+    }
+    *result = left * right;
+    return true;
+#endif
+}
+
 static bool eval_template_integer_expression(Expr* expression,
                                               CxxTemplate* tmpl,
                                               const int64_t* values,
@@ -18961,6 +19010,7 @@ static bool eval_template_integer_expression(Expr* expression,
             if (!eval_template_integer_expression(
                     expression->unary_operand, tmpl, values, value_present,
                     &left)) return false;
+            if (left == INT64_MIN) return false;
             *result = -left;
             return true;
         case EXPR_NOT:
@@ -19024,15 +19074,20 @@ static bool eval_template_integer_expression(Expr* expression,
                     expression->binary_rhs, tmpl, values, value_present,
                     &right)) return false;
             switch (expression->kind) {
-                case EXPR_ADD: *result = left + right; break;
-                case EXPR_SUB: *result = left - right; break;
-                case EXPR_MUL: *result = left * right; break;
+                case EXPR_ADD:
+                    return cxx_eval_i64_add(left, right, result);
+                case EXPR_SUB:
+                    return cxx_eval_i64_sub(left, right, result);
+                case EXPR_MUL:
+                    return cxx_eval_i64_mul(left, right, result);
                 case EXPR_DIV:
-                    if (right == 0) return false;
+                    if (right == 0 ||
+                        (left == INT64_MIN && right == -1)) return false;
                     *result = left / right;
                     break;
                 case EXPR_MOD:
-                    if (right == 0) return false;
+                    if (right == 0 ||
+                        (left == INT64_MIN && right == -1)) return false;
                     *result = left % right;
                     break;
                 case EXPR_BITAND: *result = left & right; break;
