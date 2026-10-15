@@ -603,6 +603,85 @@ struct NestedEightLevelExplicitOwner<int>::First<char>::Second<short>::
 };
 
 template <typename OwnerValue>
+struct NestedNineLevelExplicitOwner {
+    template <typename FirstValue>
+    struct First {
+        template <typename SecondValue>
+        struct Second {
+            template <typename ThirdValue>
+            struct Third {
+                template <typename FourthValue>
+                struct Fourth {
+                    template <typename FifthValue>
+                    struct Fifth {
+                        template <typename SixthValue>
+                        struct Sixth {
+                            template <typename SeventhValue>
+                            struct Seventh {
+                                template <typename EighthValue>
+                                struct Eighth {
+                                    template <typename InnerValue>
+                                    struct Inner {
+                                        int result() const { return 1600; }
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+};
+
+template <>
+struct NestedNineLevelExplicitOwner<int> {
+    template <typename FirstValue>
+    struct First {
+        template <typename SecondValue>
+        struct Second {
+            template <typename ThirdValue>
+            struct Third {
+                template <typename FourthValue>
+                struct Fourth {
+                    template <typename FifthValue>
+                    struct Fifth {
+                        template <typename SixthValue>
+                        struct Sixth {
+                            template <typename SeventhValue>
+                            struct Seventh {
+                                template <typename EighthValue>
+                                struct Eighth {
+                                    template <typename InnerValue>
+                                    struct Inner {
+                                        int result() const { return 1610; }
+                                    };
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        };
+    };
+};
+
+template <>
+template <>
+template <>
+template <>
+template <>
+template <>
+template <>
+template <>
+template <>
+struct NestedNineLevelExplicitOwner<int>::First<char>::Second<short>::
+    Third<int>::Fourth<float>::Fifth<long>::Sixth<char>::Seventh<float>::
+    Eighth<long>::Inner<double> {
+    int result() const { return 1620; }
+};
+
+template <typename OwnerValue>
 struct NestedFiveLevelSpecializedIntermediateOwner {
     template <typename FirstValue>
     struct First {
@@ -1627,6 +1706,15 @@ int main() {
     NestedEightLevelExplicitOwner<int>::First<char>::Second<short>::Third<int>
         ::Fourth<float>::Fifth<long>::Sixth<char>::Seventh<float>::Inner<double>
         eight_level_explicit_member;
+    NestedNineLevelExplicitOwner<long>::First<char>::Second<short>::Third<int>
+        ::Fourth<float>::Fifth<long>::Sixth<char>::Seventh<float>::Eighth<long>
+        ::Inner<double> nine_level_explicit_primary_owner;
+    NestedNineLevelExplicitOwner<int>::First<long>::Second<short>::Third<int>
+        ::Fourth<float>::Fifth<long>::Sixth<char>::Seventh<float>::Eighth<long>
+        ::Inner<double> nine_level_explicit_owner;
+    NestedNineLevelExplicitOwner<int>::First<char>::Second<short>::Third<int>
+        ::Fourth<float>::Fifth<long>::Sixth<char>::Seventh<float>::Eighth<long>
+        ::Inner<double> nine_level_explicit_member;
     NestedFiveLevelSpecializedIntermediateOwner<long>::First<char>
         ::Second<short>::Third<int>::Fourth<float>::Inner<double>
         five_level_specialized_primary_owner;
@@ -1885,6 +1973,9 @@ int main() {
     if (eight_level_explicit_primary_owner.result() != 1500) return 118;
     if (eight_level_explicit_owner.result() != 1510) return 119;
     if (eight_level_explicit_member.result() != 1520) return 120;
+    if (nine_level_explicit_primary_owner.result() != 1600) return 121;
+    if (nine_level_explicit_owner.result() != 1610) return 122;
+    if (nine_level_explicit_member.result() != 1620) return 123;
     if (five_level_specialized_primary_owner.result() != 1400) return 62;
     if (five_level_specialized_outer_owner.result() != 1410) return 63;
     if (five_level_specialized_intermediate_owner.result() != 1420) return 64;

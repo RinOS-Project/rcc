@@ -4814,7 +4814,7 @@ remains a separate open item.
   eight consecutive explicit specialization template heads; retain primary and
   explicitly specialized outer-owner cases, compare all three exact GCC
   Itanium symbols on i686/AMD64, and run generated AMD64 plus GCC-host programs.
-- [ ] Explicit-specialization chains deeper than eight nested levels and
+- [ ] Explicit-specialization chains deeper than nine nested levels and
   non-null structural pointer NTTP values remain open.
 
 ## RCC continuation (2026-10-16, eight-level nested explicit specialization)
@@ -4824,7 +4824,7 @@ remains a separate open item.
   `::Fifth<long>::Sixth<char>::Seventh<float>::Inner<double>`.
 - [x] Verify all three exact GCC Itanium symbols against RCC for i686/AMD64 and
   run the focused generated AMD64 and GCC-host programs.
-- [ ] Chains deeper than eight levels and non-null structural pointer NTTP
+- [ ] Chains deeper than nine levels and non-null structural pointer NTTP
   values remain open.
 
 ## RCC continuation (2026-10-16, logical short-circuit in dependent array bounds)
@@ -4838,7 +4838,7 @@ remains a separate open item.
   GCC-host programs. The focused nested-owner target passes (exit 0).
 - [ ] Other dependent array-bound expression operators, type-conversion and
   overflow-diagnostic cases, non-null structural pointer NTTP values, and
-  explicit-specialization chains deeper than eight nested levels remain open.
+  explicit-specialization chains deeper than nine nested levels remain open.
 
 ## RCC continuation (2026-10-16, checked arithmetic in dependent array bounds)
 
@@ -4857,7 +4857,7 @@ remains a separate open item.
 - [ ] Add explicit diagnostics/regressions for overflowing dependent
   constant expressions and cover unsigned conversions outside the evaluator's
   signed 64-bit range plus floating casts; non-null structural pointer NTTP
-  values and explicit-specialization chains deeper than eight nested levels
+  values and explicit-specialization chains deeper than nine nested levels
   remain open.
 
 ## RCC continuation (2026-10-16, narrowing casts in dependent array bounds)
@@ -4875,5 +4875,17 @@ remains a separate open item.
   GCC-host programs. The focused nested-owner target passes (exit 0).
 - [ ] Cover unsigned conversions outside the evaluator's signed 64-bit range
   and floating casts; overflow diagnostics, non-null structural pointer NTTP
-  values, and specialization chains deeper than eight nested levels remain
+  values, and specialization chains deeper than nine nested levels remain
   open.
+
+## RCC continuation (2026-10-16, nine-level nested explicit specialization)
+
+- [x] Add primary-owner, explicit outer-owner, and explicit deepest-member
+  cases through `Owner<int>::First<char>::Second<short>::Third<int>`
+  `::Fourth<float>::Fifth<long>::Sixth<char>::Seventh<float>::Eighth<long>`
+  `::Inner<double>`.
+- [x] Compare all three exact GCC Itanium symbols against RCC for i686 and
+  AMD64, and run the generated AMD64 and GCC-host programs. The focused
+  nested-owner target passes (exit 0).
+- [ ] Chains deeper than nine levels and non-null structural pointer NTTP
+  values remain open.
