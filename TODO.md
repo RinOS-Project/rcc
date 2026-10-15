@@ -4404,10 +4404,11 @@ remains a separate open item.
 - [x] Re-run the focused nested-owner gate and full native-Windows MinGW GCC
   `test-cxx` and `test-debug-info` aggregates after dependent-expression and
   type-parameter-context owner matching; all completed with exit 0.
-- [ ] Extend structural non-integral NTTP owner packs beyond the current
-  single-public-integral-or-enum-member subset; add multi-member/nested class
-  and pointer values, and remaining standard-valid explicit
-  member-specialization forms on these owner shapes.
+- [x] Extend the structural NTTP subset from one integral/enum field to
+  multiple public integral/enum fields with a bounded 64-bit representation,
+  declaration-order member decoding, and multi-literal Itanium mangling.
+- [ ] Nested structural fields, non-null pointer-valued fields, and remaining
+  standard-valid explicit member-specialization forms remain open.
 
 ## RCC continuation (2026-10-15, enum structural NTTP nested owners)
 
@@ -4419,10 +4420,11 @@ remains a separate open item.
   `test-cxx` and `test-debug-info` aggregates all pass (exit 0).
 - [x] Commit implementation, fixtures, and target checks as `0e32d07` on local
   RCC `main`; no push.
-- [ ] Extend to structural classes with multiple or nested members and
-  non-null pointer-valued members; cover additional dependent owner-head
-  patterns beyond parameter-kind reordering and remaining standard-valid
-  explicit member specializations on these owner shapes.
+- [x] Add support for multiple public integral/enum data members in a
+  structural class owner value.
+- [ ] Nested structural fields, non-null pointer-valued fields, additional
+  dependent owner-head patterns, and remaining standard-valid explicit member
+  specializations on these owner shapes remain open.
 
 ## RCC continuation (2026-10-15, null pointer structural NTTP members)
 
@@ -4437,9 +4439,11 @@ remains a separate open item.
 - [x] Verify exact GCC/RCC symbols on i686 and AMD64 and execute generated
   AMD64 and GCC-host programs. Focused owner regression plus full native
   Windows MinGW `test-cxx` and `test-debug-info` aggregates pass (exit 0).
-- [ ] Extend to structural classes with multiple or nested members and
-  non-null pointer-valued members, and cover remaining standard-valid explicit
-  member specializations on these owner shapes.
+- [x] Add support for multiple public integral/enum data members in a
+  structural class owner value.
+- [ ] Nested structural fields, non-null pointer-valued fields, and remaining
+  standard-valid explicit member specializations on these owner shapes remain
+  open.
 
 ## RCC continuation (2026-10-15, reordered structural NTTP owner heads)
 
@@ -4451,8 +4455,10 @@ remains a separate open item.
   i686/AMD64, and generated-code plus GCC-host runtime behavior. The focused
   `test-cxx-nested-class-template-owner-structural-value-pack`, full native
   Windows MinGW `test-cxx`, and `test-debug-info` gates all pass (exit 0).
-- [ ] Multi-member/nested structural values, non-null pointer members, and
-  remaining standard-valid explicit member specializations remain open.
+- [x] Multi-member public integral/enum structural values are supported
+  within the bounded flat 64-bit representation.
+- [ ] Nested structural values, non-null pointer members, and remaining
+  standard-valid explicit member specializations remain open.
 
 ## RCC continuation (2026-10-15, empty structural NTTP values)
 
@@ -4466,5 +4472,23 @@ remains a separate open item.
   aggregates all pass (exit 0).
 - [x] Commit the RCC implementation, regression fixture, and target checks as
   `5443464` on local RCC `main`; no push.
-- [ ] Multi-member/nested structural values, non-null pointer members, and
-  remaining standard-valid explicit member-specialization forms remain open.
+- [x] Multi-member public integral/enum structural values are supported
+  within the bounded flat 64-bit representation.
+- [ ] Nested structural values, non-null pointer members, and remaining
+  standard-valid explicit member-specialization forms remain open.
+
+## RCC continuation (2026-10-15, multi-member structural NTTP values)
+
+- [x] Extend structural class NTTP values to multiple public, non-bit-field
+  integer/enum data members, packing fields in declaration order into a
+  bounded 64-bit representation. Decode signed fields for parameter-object
+  member reads and emit one Itanium literal per non-pointer field.
+- [x] Verify `{1, 2}` and `{-3, 4}` values, signed field decoding, exact
+  GCC/RCC Itanium symbols, i686/AMD64 output, and generated AMD64 plus GCC-host
+  runtime behavior. The focused owner target exits 0. The full native-Windows
+  MinGW `test-cxx` and `test-debug-info` runs reached their completion markers
+  without make errors.
+- [x] Commit implementation, fixture, and target checks as `afd7a9b` on local
+  RCC `main`; no push.
+- [ ] Nested structural values, non-null pointer-valued members, and remaining
+  standard-valid explicit member-specialization forms remain open.
