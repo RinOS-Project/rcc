@@ -4606,9 +4606,8 @@ remains a separate open item.
   selections. Compare all four GCC Itanium symbols on i686/AMD64 and execute
   generated AMD64 plus GCC-host programs; the focused nested-owner gate passes
   (exit 0).
-- [ ] Additional dependent owner forms, chains deeper than four nested
-  member-template levels, and non-null structural pointer NTTP values remain
-  open.
+- [ ] Additional dependent owner forms and non-null structural pointer NTTP
+  values remain open.
 
 ## RCC continuation (2026-10-16, deeper nested partial owner chain)
 
@@ -4618,8 +4617,8 @@ remains a separate open item.
 - [x] Compare all five exact GCC Itanium symbols against RCC on i686/AMD64 and
   execute the generated AMD64 and GCC-host programs. The focused nested-owner
   target passes (exit 0).
-- [ ] Chains deeper than this verified four-class chain, additional dependent
-  owner forms, and non-null structural pointer NTTP values remain open.
+- [ ] Additional dependent owner forms and non-null structural pointer NTTP
+  values remain open.
 
 ## RCC continuation (2026-10-16, explicit member specialization below a specialized intermediate owner)
 
@@ -4637,3 +4636,15 @@ remains a separate open item.
   the focused nested-owner target passes (exit 0).
 - [ ] Chains deeper than four nested member-template levels and non-null
   structural pointer NTTP values remain open.
+
+## RCC continuation (2026-10-16, five nested partial-owner levels)
+
+- [x] Match the primary and six progressively nested partial specializations
+  through `Owner<T*>::First<U*>::Second<V*>::Third<W*>::Fourth<X*>::Leaf<Y*>`,
+  covering five nested member-template levels.
+- [x] Compare all seven exact GCC Itanium symbols against RCC on i686/AMD64 and
+  execute the generated AMD64 and GCC-host programs. The focused nested-owner
+  target passes (exit 0).
+- [ ] Additional dependent owner forms, explicit-specialization chains deeper
+  than four nested levels, and non-null structural pointer NTTP values remain
+  open.

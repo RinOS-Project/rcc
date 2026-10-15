@@ -511,6 +511,116 @@ struct NestedDeepPartialOwnerChain<OwnerValue*>::Mid<MidValue*>::Sub<SubValue*>:
     int result() const { return 1030; }
 };
 
+template <typename OwnerValue>
+struct NestedFiveLevelPartialOwnerChain {
+    template <typename FirstValue>
+    struct First {
+        template <typename SecondValue>
+        struct Second {
+            template <typename ThirdValue>
+            struct Third {
+                template <typename FourthValue>
+                struct Fourth {
+                    template <typename LeafValue>
+                    struct Leaf {
+                        int result() const { return 1100; }
+                    };
+                };
+            };
+        };
+    };
+};
+
+template <typename OwnerValue>
+struct NestedFiveLevelPartialOwnerChain<OwnerValue*> {
+    template <typename FirstValue>
+    struct First {
+        template <typename SecondValue>
+        struct Second {
+            template <typename ThirdValue>
+            struct Third {
+                template <typename FourthValue>
+                struct Fourth {
+                    template <typename LeafValue>
+                    struct Leaf {
+                        int result() const { return 1110; }
+                    };
+                };
+            };
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename FirstValue>
+struct NestedFiveLevelPartialOwnerChain<OwnerValue*>::First<FirstValue*> {
+    template <typename SecondValue>
+    struct Second {
+        template <typename ThirdValue>
+        struct Third {
+            template <typename FourthValue>
+            struct Fourth {
+                template <typename LeafValue>
+                struct Leaf {
+                    int result() const { return 1120; }
+                };
+            };
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename FirstValue>
+template <typename SecondValue>
+struct NestedFiveLevelPartialOwnerChain<OwnerValue*>::First<FirstValue*>::Second<SecondValue*> {
+    template <typename ThirdValue>
+    struct Third {
+        template <typename FourthValue>
+        struct Fourth {
+            template <typename LeafValue>
+            struct Leaf {
+                int result() const { return 1130; }
+            };
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename FirstValue>
+template <typename SecondValue>
+template <typename ThirdValue>
+struct NestedFiveLevelPartialOwnerChain<OwnerValue*>::First<FirstValue*>::Second<SecondValue*>::Third<ThirdValue*> {
+    template <typename FourthValue>
+    struct Fourth {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 1140; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename FirstValue>
+template <typename SecondValue>
+template <typename ThirdValue>
+template <typename FourthValue>
+struct NestedFiveLevelPartialOwnerChain<OwnerValue*>::First<FirstValue*>::Second<SecondValue*>::Third<ThirdValue*>::Fourth<FourthValue*> {
+    template <typename LeafValue>
+    struct Leaf {
+        int result() const { return 1150; }
+    };
+};
+
+template <typename OwnerValue>
+template <typename FirstValue>
+template <typename SecondValue>
+template <typename ThirdValue>
+template <typename FourthValue>
+template <typename LeafValue>
+struct NestedFiveLevelPartialOwnerChain<OwnerValue*>::First<FirstValue*>::Second<SecondValue*>::Third<ThirdValue*>::Fourth<FourthValue*>::Leaf<LeafValue*> {
+    int result() const { return 1160; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -603,6 +713,20 @@ int main() {
         deep_partial_chain_sub_owner;
     NestedDeepPartialOwnerChain<int*>::Mid<char*>::Sub<short*>::Leaf<int*>
         deep_partial_chain_leaf_owner;
+    NestedFiveLevelPartialOwnerChain<long>::First<char>::Second<short>
+        ::Third<int>::Fourth<float>::Leaf<double> five_level_primary_owner;
+    NestedFiveLevelPartialOwnerChain<int*>::First<char>::Second<short>
+        ::Third<int>::Fourth<float>::Leaf<double> five_level_outer_owner;
+    NestedFiveLevelPartialOwnerChain<int*>::First<char*>::Second<short>
+        ::Third<int>::Fourth<float>::Leaf<double> five_level_first_owner;
+    NestedFiveLevelPartialOwnerChain<int*>::First<char*>::Second<short*>
+        ::Third<int>::Fourth<float>::Leaf<double> five_level_second_owner;
+    NestedFiveLevelPartialOwnerChain<int*>::First<char*>::Second<short*>
+        ::Third<int*>::Fourth<float>::Leaf<double> five_level_third_owner;
+    NestedFiveLevelPartialOwnerChain<int*>::First<char*>::Second<short*>
+        ::Third<int*>::Fourth<float*>::Leaf<double> five_level_fourth_owner;
+    NestedFiveLevelPartialOwnerChain<int*>::First<char*>::Second<short*>
+        ::Third<int*>::Fourth<float*>::Leaf<double*> five_level_leaf_owner;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -654,5 +778,12 @@ int main() {
     if (deep_partial_chain_mid_owner.result() != 1015) return 49;
     if (deep_partial_chain_sub_owner.result() != 1020) return 50;
     if (deep_partial_chain_leaf_owner.result() != 1030) return 51;
+    if (five_level_primary_owner.result() != 1100) return 52;
+    if (five_level_outer_owner.result() != 1110) return 53;
+    if (five_level_first_owner.result() != 1120) return 54;
+    if (five_level_second_owner.result() != 1130) return 55;
+    if (five_level_third_owner.result() != 1140) return 56;
+    if (five_level_fourth_owner.result() != 1150) return 57;
+    if (five_level_leaf_owner.result() != 1160) return 58;
     return 0;
 }
