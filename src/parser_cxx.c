@@ -14824,9 +14824,16 @@ static bool deduce_class_specialization_value(
         return true;
     }
     if (actual_type && actual_type->kind == TYPE_NULLPTR) return false;
-    if (!expr_eval_integer_constant(pattern, &constant)) return false;
-    if (specificity) *specificity += 16;
-    return constant == actual;
+    if (expr_eval_integer_constant(pattern, &constant)) {
+        if (specificity) *specificity += 16;
+        return constant == actual;
+    }
+    if (eval_template_integer_expression(
+            pattern, tmpl, values, value_present, &constant)) {
+        if (specificity) *specificity += 1;
+        return constant == actual;
+    }
+    return false;
 }
 
 static bool cxx_class_specialization_type_equal(const Type* pattern,
