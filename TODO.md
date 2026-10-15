@@ -1534,6 +1534,10 @@
         translation-unit fallbackなし、
         `.ro`の`.tls`/`BIND_TLS`/`TLSOFF32S`とFS/GS thread-pointer命令列、
         C/C++間のTLS importを含むRLD後のRIN v3を`rinvalidate`が受理することを検証
+  - [x] direct RCC／RLD-linkedのTLS RIN/RLLで、ABI minorが
+        `RIN_IMAGE_ABI_MINOR_UNWIND_FORMAT`以上の場合にUNWIND sectionの
+        `READ | UNWIND_DWARF_DEBUG_FRAME` flagsとfile boundsを検査し、
+        `test-tls`およびC17 aggregateで回帰確認
   - [x] `__builtin_expect`を副作用順序付き値伝播へ、`__builtin_unreachable`／
         `__builtin_trap`をtyped-SSA終端と実UD2へlowerし、i686/AMD64の
         verified backend fallbackなし回帰を追加

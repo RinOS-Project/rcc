@@ -180,8 +180,14 @@ static void verify_image(const char* path, uint16_t architecture, int library)
                data->file_offset + data->file_size &&
            tls->file_offset + tls->file_size <= size);
     if (unwind) {
-        assert(unwind->flags == RIN_IMAGE_SECTION_READ &&
-               unwind->file_offset <= size &&
+        if (header->abi_minor >= RIN_IMAGE_ABI_MINOR_UNWIND_FORMAT) {
+            assert(unwind->flags ==
+                   (RIN_IMAGE_SECTION_READ |
+                    RIN_IMAGE_SECTION_UNWIND_DWARF_DEBUG_FRAME));
+        } else {
+            assert(unwind->flags == RIN_IMAGE_SECTION_READ);
+        }
+        assert(unwind->file_offset <= size &&
                unwind->file_size <= size - unwind->file_offset);
     }
     assert(read_u32(bytes + tls->file_offset) == 7u);
