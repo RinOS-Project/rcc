@@ -245,6 +245,17 @@ struct NestedOwnerValueFold {
     };
 };
 
+template <int... OuterValues>
+struct NestedOwnerMultiScopeFold {
+    template <int... MiddleValues>
+    struct Middle {
+        bool values_match() const {
+            return (nested_owner_fold_values_equal(OuterValues,
+                                                    MiddleValues) && ...);
+        }
+    };
+};
+
 int read_explicit_nested_owner_mixed_pack_layout() {
     using value_type = NestedOwnerMixedPackAggregate<
         NestedOwnerMixedPackElement<short, 1>,
@@ -368,6 +379,12 @@ int main() {
     using empty_owner_value_fold = NestedOwnerValueFold<>::Inner<>;
     matching_owner_value_fold matching_value_fold;
     empty_owner_value_fold empty_value_fold;
+    using matching_multi_scope_middle =
+        typename NestedOwnerMultiScopeFold<3, 7>::template Middle<3, 7>;
+    using empty_multi_scope_middle =
+        typename NestedOwnerMultiScopeFold<>::template Middle<>;
+    matching_multi_scope_middle multi_scope_fold;
+    empty_multi_scope_middle empty_multi_scope_fold_value;
     using matching_template_template_fold =
         NestedOwnerTemplateTemplateFold<NestedOwnerFoldOneByte,
                                         NestedOwnerFoldTwoBytes>::Inner<1, 2>;
@@ -417,6 +434,8 @@ int main() {
                     matching_value_fold.values_match() &&
                     matching_value_fold.values_match_via_call() &&
                     empty_value_fold.values_match() &&
+                    multi_scope_fold.values_match() &&
+                    empty_multi_scope_fold_value.values_match() &&
                     template_template_fold.sizes_match() &&
                     empty_template_template_fold_value.sizes_match() &&
                     read_explicit_nested_owner_mixed_pack_layout() == 8 &&

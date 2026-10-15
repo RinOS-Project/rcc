@@ -5458,6 +5458,7 @@ test-cxx-class-template-dependent-nested-type-invalid: $(RCXX_TARGET)
 endif
 
 test-cxx-class-template-dependent-nested-type-invalid: test-cxx-class-template-dependent-nested-type-template-pack-invalid
+test-cxx-class-template-dependent-nested-type-invalid: test-cxx-class-template-dependent-nested-type-multi-scope-invalid
 
 test-cxx-class-template-dependent-nested-type-template-pack-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-nested-type)
@@ -5474,6 +5475,22 @@ test-cxx-class-template-dependent-nested-type-template-pack-invalid: $(RCXX_TARG
 	$(GREP) -F -q "nested fold expression has inconsistent pack lengths" $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-template-mismatch-x64.log
 	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-template-mismatch-x64.log,1)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-template-mismatch-x64.ro)
+
+test-cxx-class-template-dependent-nested-type-multi-scope-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-nested-type)
+	$(call EXPECT_FAILURE,$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_dependent_nested_owner_fold_multi_scope_mismatch_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-gcc.log)
+	$(GREP) -F -q "mismatched argument pack lengths" $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-gcc.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-gcc.log,1)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x86.ro tests/cxx_dependent_nested_owner_fold_multi_scope_mismatch_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x86.log)
+	$(GREP) -F -q "nested fold expression has inconsistent pack lengths" $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x86.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x86.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x64.ro tests/cxx_dependent_nested_owner_fold_multi_scope_mismatch_invalid.cpp,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x64.log)
+	$(GREP) -F -q "nested fold expression has inconsistent pack lengths" $(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x64.log
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x64.log,1)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-dependent-nested-type/fold-multi-scope-mismatch-x64.ro)
 
 test-cxx-dependent-nested-alias-transitive-invalid: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-nested-alias-transitive)
@@ -11300,6 +11317,7 @@ endif
 .PHONY: test-cxx-class-template-dependent-nested-type \
 	test-cxx-class-template-dependent-nested-type-invalid \
 	test-cxx-class-template-dependent-nested-type-template-pack-invalid \
+	test-cxx-class-template-dependent-nested-type-multi-scope-invalid \
 	test-cxx-dependent-nested-alias-inheritance \
 	test-cxx-dependent-nested-alias-transitive \
 	test-cxx-dependent-nested-alias-transitive-invalid \

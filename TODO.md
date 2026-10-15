@@ -4334,8 +4334,13 @@ remains a separate open item.
   this parser change (exit 0).
 - [x] Re-run the complete native-Windows MinGW GCC `test-debug-info` aggregate
   after this parser change (exit 0).
-- [ ] Extend multi-source substitution to owner packs from multiple enclosing
-  scopes.
+- [x] Expand two owner packs declared in distinct enclosing class-template
+  scopes in one call-pattern fold. Verify matching two-element and empty cases
+  at runtime, plus GCC parity and a single targeted i686/AMD64 mismatch
+  diagnostic with no output object.
+- [x] Re-run the focused nested-owner gate and the complete native-Windows
+  MinGW GCC `test-cxx` and `test-debug-info` aggregates after adding the
+  multiple-owner-scope regression (all exit 0).
 - [ ] Add explicit/partial nested class-template specializations and
   structural NTTP owner packs.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` and
