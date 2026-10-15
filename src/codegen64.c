@@ -2315,6 +2315,20 @@ static bool atomic64_bitwise_returns_new(const char* name) {
            strcmp(name, "__sync_nand_and_fetch") == 0;
 }
 
+typedef enum {
+    ATOMIC64_MINMAX_NONE,
+    ATOMIC64_MINMAX_MIN,
+    ATOMIC64_MINMAX_MAX
+} Atomic64MinMaxOp;
+
+static Atomic64MinMaxOp atomic64_minmax_operation(const char* name) {
+    if (strcmp(name, "__atomic_fetch_min") == 0)
+        return ATOMIC64_MINMAX_MIN;
+    if (strcmp(name, "__atomic_fetch_max") == 0)
+        return ATOMIC64_MINMAX_MAX;
+    return ATOMIC64_MINMAX_NONE;
+}
+
 /* SSE/SSE2 instructions operate on an XMM scratch register while the public
  * RCC ABI carries vectors as 16-byte aggregate addresses. */
 static void emit64_sse128_memory(Module* mod, int xmm, int base, int32_t disp,
@@ -3182,13 +3196,67 @@ static bool gen64_atomic_builtin(Module* mod, Expr* call) {
     bool is_atomic;
     bool is_subtract;
     bool returns_new;
+    Atomic64MinMaxOp minmax_operation;
     Atomic64BitwiseOp bitwise_operation;
     const Type* value_type;
 
     if (!function || function->kind != EXPR_IDENT) return false;
     name = function->ident_name;
     value_type = atomic64_value_type(call);
+    minmax_operation = atomic64_minmax_operation(name);
     if (gen64_atomic_lock_free_query(mod, call)) return true;
+    if (minmax_operation != ATOMIC64_MINMAX_NONE) {
+        int retry_label = new_label64();
+        int failed_compare_exchange_label = new_label64();
+        int use_operand_label = new_label64();
+        int compare_exchange_label = new_label64();
+        int done_label = new_label64();
+        int is_min = minmax_operation == ATOMIC64_MINMAX_MIN;
+        int unsigned_type = value_type && value_type->is_unsigned;
+
+        /* CMPXCHG supplies a sequentially consistent RMW, so it preserves
+         * each weaker requested ordering while keeping the returned value
+         * equal to the value observed before the successful comparison. */
+        gen64_expr(mod, call64_argument(call, 2));
+        gen64_expr(mod, call64_argument(call, 0));
+        emit64_push_reg(mod, RAX); /* Object address. */
+        gen64_expr(mod, call64_argument(call, 1));
+        emit64_normalize_atomic_value(mod, RAX, value_type);
+        emit64_push_reg(mod, RAX); /* Operand. */
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_load_typed(mod, RAX, RCX, 0, value_type);
+
+        emit64_label(mod, retry_label);
+        emit64_mov_reg_mem(mod, RDX, RSP, 0);
+        emit64_cmp_reg_reg(mod, RAX, RDX);
+        if (is_min)
+            emit64_jcc_label(mod, unsigned_type ? CC64_A : CC64_G,
+                             use_operand_label);
+        else
+            emit64_jcc_label(mod, unsigned_type ? CC64_B : CC64_L,
+                             use_operand_label);
+        emit64_mov_reg_reg(mod, RDX, RAX);
+        emit64_jmp_label(mod, compare_exchange_label);
+
+        emit64_label(mod, use_operand_label);
+        emit64_mov_reg_mem(mod, RDX, RSP, 0);
+
+        emit64_label(mod, compare_exchange_label);
+        emit64_mov_reg_mem(mod, RCX, RSP, 8);
+        emit64_atomic_cmpxchg_width(mod, RDX, RCX, value_type);
+        emit64_jcc_label(mod, CC64_NE, failed_compare_exchange_label);
+        emit64_normalize_atomic_value(mod, RAX, value_type);
+        emit64_add_reg_imm(mod, RSP, 16);
+        emit64_jmp_label(mod, done_label);
+
+        /* A byte or word CMPXCHG writes only AL/AX on failure. Extend the
+         * observed value before comparing it again. */
+        emit64_label(mod, failed_compare_exchange_label);
+        emit64_normalize_atomic_value(mod, RAX, value_type);
+        emit64_jmp_label(mod, retry_label);
+        emit64_label(mod, done_label);
+        return true;
+    }
     if (strcmp(name, "__atomic_load") == 0) {
         gen64_expr(mod, call64_argument(call, 2));
         gen64_expr(mod, call64_argument(call, 0));

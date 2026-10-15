@@ -17323,6 +17323,8 @@ static bool sema_atomic_builtin_call(Expr* expr) {
                strcmp(name, "__atomic_fetch_or") == 0 ||
                strcmp(name, "__atomic_fetch_xor") == 0 ||
                strcmp(name, "__atomic_fetch_nand") == 0 ||
+               strcmp(name, "__atomic_fetch_min") == 0 ||
+               strcmp(name, "__atomic_fetch_max") == 0 ||
                strcmp(name, "__atomic_add_fetch") == 0 ||
                strcmp(name, "__atomic_sub_fetch") == 0 ||
                strcmp(name, "__atomic_and_fetch") == 0 ||
