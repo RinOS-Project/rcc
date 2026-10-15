@@ -15498,17 +15498,71 @@ static bool cxx_type_pattern_contains_dependent_component(
     return false;
 }
 
+static bool cxx_nested_owner_value_expression_matches(
+    CxxTemplate* value_context, Expr* pattern, const Type* actual_type,
+    int64_t actual, int64_t* deduced_values, bool* deduced_value_present,
+    int* specificity) {
+    int64_t constant;
+    if (!value_context || !pattern || !deduced_values ||
+        !deduced_value_present) {
+        return false;
+    }
+    if (pattern->kind == EXPR_IDENT && pattern->ident_name) {
+        for (int index = 0; index < value_context->param_count; ++index) {
+            TemplateParam* parameter = &value_context->params[index];
+            if (parameter->kind != TPARAM_NONTYPE || !parameter->name ||
+                strcmp(parameter->name, pattern->ident_name) != 0) {
+                continue;
+            }
+            if (parameter->type && actual_type &&
+                (parameter->type->kind == TYPE_NULLPTR ||
+                 actual_type->kind == TYPE_NULLPTR) &&
+                parameter->type->kind != actual_type->kind) {
+                return false;
+            }
+            if (deduced_value_present[index]) {
+                return deduced_values[index] == actual;
+            }
+            deduced_values[index] = actual;
+            deduced_value_present[index] = true;
+            return true;
+        }
+    }
+    if (cxx_expr_is_nullptr_constant(pattern)) {
+        if (!actual_type || actual_type->kind != TYPE_NULLPTR || actual != 0) {
+            return false;
+        }
+        if (specificity) *specificity += 16;
+        return true;
+    }
+    if (actual_type && actual_type->kind == TYPE_NULLPTR) return false;
+    if (expr_eval_integer_constant(pattern, &constant)) {
+        if (specificity) *specificity += 16;
+        return constant == actual;
+    }
+    if (eval_template_integer_expression(
+            pattern, value_context, deduced_values,
+            deduced_value_present, &constant)) {
+        if (specificity) *specificity += 1;
+        return constant == actual;
+    }
+    return false;
+}
+
 static int cxx_nested_specialization_owner_matches(
     CxxTemplate* specialization, CxxClass* owner_class) {
     Type* pattern = specialization
         ? specialization->specialization_owner_pattern : NULL;
     CxxTemplate* owner_template;
+    CxxTemplate* owner_value_context;
     CxxTemplate* actual_template;
     Type** actual_arguments;
     int actual_argument_count;
     Type** deduced_arguments = NULL;
     int64_t* deduced_values = NULL;
     bool* deduced_value_present = NULL;
+    int64_t* owner_value_context_values = NULL;
+    bool* owner_value_context_present = NULL;
     int pack_index;
     int expansion_index = -1;
     int specificity = 0;
@@ -15520,6 +15574,27 @@ static int cxx_nested_specialization_owner_matches(
         return 0;
     }
     owner_template = pattern->cxx_template;
+    owner_value_context = owner_template;
+    for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
+        Expr* value_expression = pattern->cxx_template_value_args
+            ? pattern->cxx_template_value_args[index] : NULL;
+        if (value_expression && value_expression->cxx_template_context) {
+            owner_value_context = value_expression->cxx_template_context;
+            break;
+        }
+    }
+    {
+        size_t value_context_count = owner_value_context->param_count > 0
+            ? (size_t)owner_value_context->param_count : 1u;
+        owner_value_context_values = ast_arena_alloc(
+            sizeof(*owner_value_context_values) * value_context_count);
+        owner_value_context_present = ast_arena_alloc(
+            sizeof(*owner_value_context_present) * value_context_count);
+        memset(owner_value_context_values, 0,
+               sizeof(*owner_value_context_values) * value_context_count);
+        memset(owner_value_context_present, 0,
+               sizeof(*owner_value_context_present) * value_context_count);
+    }
     if (owner_template->param_count > 0) {
         deduced_arguments = ast_arena_alloc(
             sizeof(*deduced_arguments) * (size_t)owner_template->param_count);
@@ -15599,11 +15674,12 @@ static int cxx_nested_specialization_owner_matches(
             if (!actual_value_present ||
                 !pattern->cxx_template_value_args ||
                 !pattern->cxx_template_value_args[index] ||
-                !deduce_class_specialization_value(
-                    owner_template,
+                !cxx_nested_owner_value_expression_matches(
+                    owner_value_context,
                     pattern->cxx_template_value_args[index],
                     actual_arguments[index], actual_value,
-                    deduced_values, deduced_value_present, &specificity)) {
+                    owner_value_context_values,
+                    owner_value_context_present, &specificity)) {
                 return 0;
             }
         } else if (parameter->kind == TPARAM_TEMPLATE) {
