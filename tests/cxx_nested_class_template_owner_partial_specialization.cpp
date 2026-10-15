@@ -154,7 +154,7 @@ struct NestedNullptrSpecializedOuterOwner<nullptr, OwnerValue>::
     int result() const { return 190 + sizeof(OwnerValue); }
 };
 
-template <typename OuterType, int FirstValue, int LastValue>
+template <typename OwnerType, int FirstValue, int LastValue>
 struct NestedExpressionSpecializedOuterOwner {
     template <typename Value>
     struct Inner {
