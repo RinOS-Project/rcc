@@ -483,6 +483,10 @@ bool cxx_structural_class_pack_member_values(
 bool cxx_structural_class_unpack_member_value(
     const Type* type, int64_t packed_value, const char* member_name,
     int64_t* member_value, Type** member_type);
+bool cxx_structural_class_unpack_member_path(
+    const Type* type, int64_t packed_value,
+    const char* const* member_names, int member_name_count,
+    int64_t* member_value, Type** member_type);
 void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bool is_virtual);
 void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
                                      const char* member_name,

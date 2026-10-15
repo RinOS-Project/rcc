@@ -1862,6 +1862,81 @@ static bool cxx_expr_is_nullptr_constant(const Expr* expression) {
         (expression->is_cxx_nullptr ||
          (expression->type && expression->type->kind == TYPE_NULLPTR));
 }
+static bool cxx_structural_class_collect_member_values(
+    Type* type, ExprList* initializer, bool value_init,
+    int64_t* member_values, int* member_count) {
+    TypeParam* field;
+    bool has_nonstatic_field = false;
+    for (field = type->cxx_class->fields; field; field = field->next) {
+        if (!field->is_static) {
+            has_nonstatic_field = true;
+            break;
+        }
+    }
+    if (!has_nonstatic_field) {
+        int64_t empty_value;
+        return !initializer ||
+            (value_init && !initializer->next &&
+             initializer->designator_kind == INIT_DESIGNATOR_NONE &&
+             initializer->expr &&
+             expr_eval_integer_constant(initializer->expr, &empty_value) &&
+             empty_value == 0);
+    }
+    for (field = type->cxx_class->fields; field; field = field->next) {
+        Expr* field_initializer = NULL;
+        int64_t member_value = 0;
+        if (field->is_static) continue;
+        if (initializer) {
+            if (initializer->designator_kind != INIT_DESIGNATOR_NONE ||
+                !initializer->expr) {
+                return false;
+            }
+            field_initializer = initializer->expr;
+            initializer = initializer->next;
+        } else {
+            field_initializer = field->initializer;
+        }
+        if (field->type->kind == TYPE_STRUCT) {
+            ExprList* nested_initializer = NULL;
+            Type* nested_type = NULL;
+            if (field_initializer) {
+                if (field_initializer->kind != EXPR_COMPOUND) return false;
+                nested_type = field_initializer->compound_type
+                    ? field_initializer->compound_type : field_initializer->type;
+                if (nested_type &&
+                    !type_is_compatible(field->type, nested_type)) {
+                    return false;
+                }
+                nested_initializer = field_initializer->compound_init;
+            }
+            if (!cxx_structural_class_collect_member_values(
+                    field->type, nested_initializer,
+                    field_initializer && field_initializer->compound_value_init,
+                    member_values, member_count)) {
+                return false;
+            }
+            continue;
+        }
+        if (field_initializer) {
+            if (field->type->kind == TYPE_PTR) {
+                if (cxx_expr_is_nullptr_constant(field_initializer)) {
+                    member_value = 0;
+                } else if (!expr_eval_integer_constant(
+                               field_initializer, &member_value) ||
+                           member_value != 0) {
+                    return false;
+                }
+            } else if (!expr_eval_integer_constant(
+                           field_initializer, &member_value)) {
+                return false;
+            }
+        }
+        if (*member_count >= 8) return false;
+        member_values[(*member_count)++] = member_value;
+    }
+    return initializer == NULL;
+}
+
 static bool cxx_template_non_type_constant_value(
     const Expr* expression, int64_t* value_out) {
     if (!expression || !value_out) return false;
@@ -1873,84 +1948,22 @@ static bool cxx_template_non_type_constant_value(
     if (expression->kind == EXPR_COMPOUND) {
         Type* value_type = expression->compound_type
             ? expression->compound_type : expression->type;
-        CxxClass* value_class = value_type ? value_type->cxx_class : NULL;
-        TypeParam* field = value_class ? value_class->fields : NULL;
-        ExprList* initializer = expression->compound_init;
         int64_t member_values[8] = { 0 };
         int member_count = 0;
         if (!cxx_structural_class_value_supported_subset(value_type)) {
             return false;
         }
-        if (!field) {
-            int64_t empty_value;
-            if (!initializer ||
-                (expression->compound_value_init && !initializer->next &&
-                 initializer->designator_kind == INIT_DESIGNATOR_NONE &&
-                 initializer->expr &&
-                 expr_eval_integer_constant(initializer->expr,
-                                            &empty_value) &&
-                 empty_value == 0)) {
-                *value_out = 0;
-                return true;
-            }
+        if (!cxx_structural_class_collect_member_values(
+                value_type, expression->compound_init,
+                expression->compound_value_init, member_values,
+                &member_count)) {
             return false;
         }
-        if (field->type->kind != TYPE_PTR) {
-            TypeParam* current_field;
-            for (current_field = field; current_field;
-                 current_field = current_field->next) {
-                int64_t member_value = 0;
-                if (current_field->is_static) continue;
-                if (member_count >=
-                    (int)(sizeof(member_values) / sizeof(member_values[0]))) {
-                    return false;
-                }
-                if (initializer) {
-                    if (initializer->designator_kind !=
-                            INIT_DESIGNATOR_NONE || !initializer->expr ||
-                        !expr_eval_integer_constant(initializer->expr,
-                                                    &member_value)) {
-                        return false;
-                    }
-                    initializer = initializer->next;
-                } else if (current_field->initializer &&
-                           !expr_eval_integer_constant(
-                               current_field->initializer, &member_value)) {
-                    return false;
-                }
-                member_values[member_count++] = member_value;
-            }
-            if (initializer || !member_count ||
-                !cxx_structural_class_pack_member_values(
-                    value_type, member_values, member_count, value_out)) {
-                return false;
-            }
-            return true;
+        if (!cxx_structural_class_pack_member_values(
+                value_type, member_values, member_count, value_out)) {
+            return false;
         }
-        if (!initializer) {
-            if (field->initializer) {
-                if (field->type->kind == TYPE_PTR &&
-                    cxx_expr_is_nullptr_constant(field->initializer)) {
-                    *value_out = 0;
-                    return true;
-                }
-                return expr_eval_integer_constant(
-                    field->initializer, value_out);
-            }
-            *value_out = 0;
-            return true;
-        }
-        if (field && !initializer->next &&
-            initializer->designator_kind == INIT_DESIGNATOR_NONE &&
-            initializer->expr) {
-            if (field->type->kind == TYPE_PTR &&
-                cxx_expr_is_nullptr_constant(initializer->expr)) {
-                *value_out = 0;
-                return true;
-            }
-            return expr_eval_integer_constant(initializer->expr, value_out);
-        }
-        return false;
+        return true;
     }
     return false;
 }

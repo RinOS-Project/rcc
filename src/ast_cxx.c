@@ -318,33 +318,79 @@ static void cxx_mangle_type_char(char* buf, size_t* pos, char value) {
     buf[(*pos)++] = value;
 }
 
-static bool cxx_mangle_supported_structural_value(
-    char* buf, size_t* pos, Type* value_type, int64_t value,
-    CxxMangleContext* context) {
+static unsigned cxx_structural_type_value_bits(const Type* type);
+static bool cxx_structural_class_measure_fields(
+    const Type* type, unsigned* total_bits, unsigned* leaf_count,
+    unsigned* pointer_count);
+static bool cxx_structural_class_decode_leaf(
+    const Type* field_type, uint64_t packed_value, unsigned bit_offset,
+    int64_t* member_value);
+
+static bool cxx_structural_class_has_only_pointer_member(const Type* type) {
+    unsigned total_bits = 0;
+    unsigned leaf_count = 0;
+    unsigned pointer_count = 0;
+    return cxx_structural_class_measure_fields(
+               type, &total_bits, &leaf_count, &pointer_count) &&
+           total_bits == 64u && leaf_count == 1u && pointer_count == 1u;
+}
+
+static bool cxx_mangle_structural_value_body(
+    char* buf, size_t* pos, Type* value_type, uint64_t packed_value,
+    unsigned* bit_offset, CxxMangleContext* context) {
     TypeParam* field;
-    if (!cxx_structural_class_value_supported_subset(value_type)) {
-        return false;
-    }
-    field = value_type->cxx_class->fields;
-    cxx_mangle_type_char(buf, pos, 'X');
     cxx_mangle_type_char(buf, pos, 't');
     cxx_mangle_type_char(buf, pos, 'l');
     cxx_mangle_type_append_context(buf, pos, value_type, context);
-    for (; field; field = field->next) {
+    for (field = value_type->cxx_class->fields; field; field = field->next) {
         int64_t field_value;
-        Type* field_type;
+        unsigned field_bits;
         if (field->is_static) continue;
-        if (!cxx_structural_class_unpack_member_value(
-                value_type, value, field->name, &field_value,
-                &field_type)) {
+        if (field->type->kind == TYPE_STRUCT) {
+            if (cxx_structural_class_has_only_pointer_member(field->type) &&
+                packed_value == 0u) {
+                *bit_offset += 64u;
+                continue;
+            }
+            if (!cxx_mangle_structural_value_body(
+                    buf, pos, field->type, packed_value, bit_offset,
+                    context)) {
+                return false;
+            }
+            continue;
+        }
+        if (!cxx_structural_class_decode_leaf(
+                field->type, packed_value, *bit_offset, &field_value)) {
             return false;
         }
-        if (field_type->kind == TYPE_PTR && field_value == 0) continue;
+        field_bits = cxx_structural_type_value_bits(field->type);
+        if (field->type->kind == TYPE_PTR) {
+            if (field_value != 0) return false;
+            *bit_offset += field_bits;
+            continue;
+        }
         cxx_mangle_type_char(buf, pos, 'L');
-        cxx_mangle_type_append_context(buf, pos, field_type, context);
-        cxx_mangle_template_value_suffix(buf, pos, field_type, field_value);
+        cxx_mangle_type_append_context(buf, pos, field->type, context);
+        cxx_mangle_template_value_suffix(
+            buf, pos, field->type, field_value);
+        *bit_offset += field_bits;
     }
     cxx_mangle_type_char(buf, pos, 'E');
+    return true;
+}
+
+static bool cxx_mangle_supported_structural_value(
+    char* buf, size_t* pos, Type* value_type, int64_t value,
+    CxxMangleContext* context) {
+    unsigned bit_offset = 0;
+    if (!cxx_structural_class_value_supported_subset(value_type)) {
+        return false;
+    }
+    cxx_mangle_type_char(buf, pos, 'X');
+    if (!cxx_mangle_structural_value_body(
+            buf, pos, value_type, (uint64_t)value, &bit_offset, context)) {
+        return false;
+    }
     cxx_mangle_type_char(buf, pos, 'E');
     return true;
 }
@@ -2147,49 +2193,127 @@ bool cxx_method_override_signature_matches(const CxxMethod* derived,
                               base->decl->type->ret_type);
 }
 
-bool cxx_structural_class_value_supported_subset(const Type* type) {
+static bool cxx_structural_class_has_destructor(const CxxClass* cls) {
+    const struct CxxMember* member;
+    for (member = cls ? cls->members : NULL; member; member = member->next) {
+        if (member->method && member->method->is_destructor) return true;
+    }
+    return false;
+}
+
+static bool cxx_structural_class_measure_fields(
+    const Type* type, unsigned* total_bits, unsigned* leaf_count,
+    unsigned* pointer_count) {
     const CxxClass* cls;
     const TypeParam* field;
-    unsigned total_bits = 0;
-    int field_count = 0;
-    if (!type || type->kind != TYPE_STRUCT || type->cxx_nontrivial ||
-        !(cls = type->cxx_class) || cls->base_count != 0 ||
+    if (!type || type->kind != TYPE_STRUCT || !(cls = type->cxx_class) ||
+        cls->base_count != 0 ||
         cls->has_nonpublic_field || cls->has_user_constructor ||
-        cls->vtable_size != 0 || cls->is_abstract) {
+        cls->vtable_size != 0 || cls->is_abstract ||
+        cxx_structural_class_has_destructor(cls)) {
         return false;
     }
-    field = cls->fields;
-    if (!field) return true;
-    for (; field; field = field->next) {
+    for (field = cls->fields; field; field = field->next) {
         unsigned field_bits;
         if (field->is_static) continue;
         if (field->is_bitfield || field->cxx_access != ACCESS_PUBLIC ||
             !field->name || !field->type) {
             return false;
         }
-        if (field->type->kind == TYPE_PTR) {
-            const TypeParam* remaining;
-            /* Pointer-valued structural members retain the existing
-             * single-null-pointer representation. */
-            if (field_count != 0 ||
-                field->type->cxx_is_member_pointer) {
+        if (field->type->kind == TYPE_STRUCT) {
+            if (!cxx_structural_class_measure_fields(
+                    field->type, total_bits, leaf_count, pointer_count)) {
                 return false;
             }
-            for (remaining = field->next; remaining;
-                 remaining = remaining->next) {
-                if (!remaining->is_static) return false;
+            continue;
+        }
+        if (field->type->kind == TYPE_PTR) {
+            if (field->type->cxx_is_member_pointer ||
+                *total_bits > 0u || 64u > 64u - *total_bits) {
+                return false;
             }
-            return true;
+            field_bits = 64u;
+            ++*pointer_count;
+        } else {
+            if (!type_is_integer(field->type) &&
+                field->type->kind != TYPE_ENUM) {
+                return false;
+            }
+            if (field->type->size <= 0 || field->type->size > 8) {
+                return false;
+            }
+            field_bits = (unsigned)field->type->size * 8u;
         }
-        if (!type_is_integer(field->type) &&
-            field->type->kind != TYPE_ENUM) {
-            return false;
+        if (field_bits > 64u - *total_bits) return false;
+        *total_bits += field_bits;
+        ++*leaf_count;
+    }
+    return true;
+}
+
+bool cxx_structural_class_value_supported_subset(const Type* type) {
+    unsigned total_bits = 0;
+    unsigned leaf_count = 0;
+    unsigned pointer_count = 0;
+    if (!cxx_structural_class_measure_fields(
+            type, &total_bits, &leaf_count, &pointer_count)) {
+        return false;
+    }
+    return pointer_count <= 1u &&
+           (pointer_count == 0u || leaf_count == 1u);
+}
+
+static unsigned cxx_structural_type_value_bits(const Type* type) {
+    unsigned total_bits = 0;
+    unsigned leaf_count = 0;
+    unsigned pointer_count = 0;
+    if (!type) return 0;
+    if (type->kind == TYPE_STRUCT) {
+        if (!cxx_structural_class_measure_fields(
+                type, &total_bits, &leaf_count, &pointer_count)) {
+            return 0;
         }
-        if (field->type->size <= 0 || field->type->size > 8) return false;
-        field_bits = (unsigned)field->type->size * 8u;
-        if (field_bits > 64u - total_bits) return false;
-        total_bits += field_bits;
-        ++field_count;
+        return total_bits;
+    }
+    if (type->kind == TYPE_PTR) return 64u;
+    if ((!type_is_integer((Type*)type) && type->kind != TYPE_ENUM) ||
+        type->size <= 0 || type->size > 8) {
+        return 0;
+    }
+    return (unsigned)type->size * 8u;
+}
+
+static bool cxx_structural_class_pack_fields(
+    const Type* type, const int64_t* member_values, int member_count,
+    int* value_index, uint64_t* packed_value, unsigned* bit_offset) {
+    const TypeParam* field;
+    for (field = type->cxx_class->fields; field; field = field->next) {
+        unsigned field_bits;
+        uint64_t mask;
+        uint64_t field_value;
+        if (field->is_static) continue;
+        if (field->type->kind == TYPE_STRUCT) {
+            if (!cxx_structural_class_pack_fields(
+                    field->type, member_values, member_count, value_index,
+                    packed_value, bit_offset)) {
+                return false;
+            }
+            continue;
+        }
+        if (!member_values || *value_index >= member_count) return false;
+        field_value = (uint64_t)member_values[(*value_index)++];
+        field_bits = cxx_structural_type_value_bits(field->type);
+        if (field->type->kind == TYPE_PTR) {
+            if (field_value != 0u || *bit_offset != 0u) return false;
+            *packed_value = 0;
+            *bit_offset = field_bits;
+            continue;
+        }
+        if (!field_bits || field_bits > 64u - *bit_offset) return false;
+        mask = field_bits == 64u
+            ? UINT64_MAX : (UINT64_C(1) << field_bits) - UINT64_C(1);
+        *packed_value |= (field_value & mask) << *bit_offset;
+        *bit_offset += field_bits;
     }
     return true;
 }
@@ -2197,76 +2321,96 @@ bool cxx_structural_class_value_supported_subset(const Type* type) {
 bool cxx_structural_class_pack_member_values(
     const Type* type, const int64_t* member_values, int member_count,
     int64_t* packed_value) {
-    const TypeParam* field;
     uint64_t packed = 0;
     unsigned bit_offset = 0;
     int index = 0;
     if (!packed_value || member_count < 0 ||
+        !cxx_structural_class_value_supported_subset(type) ||
+        !cxx_structural_class_pack_fields(
+            type, member_values, member_count, &index, &packed,
+            &bit_offset) || index != member_count) {
+        return false;
+    }
+    *packed_value = (int64_t)packed;
+    return true;
+}
+
+static bool cxx_structural_class_decode_leaf(
+    const Type* field_type, uint64_t packed_value, unsigned bit_offset,
+    int64_t* member_value) {
+    unsigned field_bits;
+    uint64_t mask;
+    uint64_t raw_value;
+    if (!field_type || !member_value) return false;
+    field_bits = cxx_structural_type_value_bits(field_type);
+    if (field_type->kind == TYPE_PTR) {
+        raw_value = packed_value;
+    } else {
+        if (!field_bits || field_bits > 64u - bit_offset) return false;
+        mask = field_bits == 64u
+            ? UINT64_MAX : (UINT64_C(1) << field_bits) - UINT64_C(1);
+        raw_value = (packed_value >> bit_offset) & mask;
+        if (!field_type->is_unsigned && field_bits < 64u &&
+            (raw_value & (UINT64_C(1) << (field_bits - 1u)))) {
+            raw_value |= ~mask;
+        }
+    }
+    *member_value = (int64_t)raw_value;
+    return true;
+}
+
+static bool cxx_structural_class_find_member_path(
+    const Type* type, uint64_t packed_value, const char* const* member_names,
+    int member_name_count, int path_index, unsigned bit_offset,
+    int64_t* member_value, Type** member_type) {
+    const TypeParam* field;
+    for (field = type->cxx_class->fields; field; field = field->next) {
+        unsigned field_bits;
+        if (field->is_static) continue;
+        if (strcmp(field->name, member_names[path_index]) == 0) {
+            if (field->type->kind == TYPE_STRUCT) {
+                if (path_index + 1 >= member_name_count) return false;
+                return cxx_structural_class_find_member_path(
+                    field->type, packed_value, member_names,
+                    member_name_count, path_index + 1, bit_offset,
+                    member_value, member_type);
+            }
+            if (path_index + 1 != member_name_count ||
+                !cxx_structural_class_decode_leaf(
+                    field->type, packed_value, bit_offset, member_value)) {
+                return false;
+            }
+            if (member_type) *member_type = field->type;
+            return true;
+        }
+        field_bits = cxx_structural_type_value_bits(field->type);
+        if (field_bits > 64u - bit_offset) return false;
+        bit_offset += field_bits;
+    }
+    return false;
+}
+
+bool cxx_structural_class_unpack_member_path(
+    const Type* type, int64_t packed_value,
+    const char* const* member_names, int member_name_count,
+    int64_t* member_value, Type** member_type) {
+    if (!member_names || member_name_count <= 0 ||
+        !member_names[0] || !member_value ||
         !cxx_structural_class_value_supported_subset(type)) {
         return false;
     }
-    for (field = type->cxx_class->fields; field; field = field->next) {
-        unsigned field_bits;
-        uint64_t mask;
-        uint64_t field_value;
-        if (field->is_static) continue;
-        if (!member_values || index >= member_count ||
-            (!type_is_integer(field->type) &&
-             field->type->kind != TYPE_ENUM)) {
-            return false;
-        }
-        field_bits = (unsigned)field->type->size * 8u;
-        mask = field_bits == 64u
-            ? UINT64_MAX : (UINT64_C(1) << field_bits) - UINT64_C(1);
-        field_value = (uint64_t)member_values[index] & mask;
-        packed |= field_value << bit_offset;
-        bit_offset += field_bits;
-        ++index;
-    }
-    if (index != member_count) return false;
-    *packed_value = (int64_t)packed;
-    return true;
+    return cxx_structural_class_find_member_path(
+        type, (uint64_t)packed_value, member_names, member_name_count, 0, 0,
+        member_value, member_type);
 }
 
 bool cxx_structural_class_unpack_member_value(
     const Type* type, int64_t packed_value, const char* member_name,
     int64_t* member_value, Type** member_type) {
-    const TypeParam* field;
-    unsigned bit_offset = 0;
-    uint64_t packed = (uint64_t)packed_value;
-    if (!member_name || !member_value ||
-        !cxx_structural_class_value_supported_subset(type)) {
-        return false;
-    }
-    for (field = type->cxx_class->fields; field; field = field->next) {
-        unsigned field_bits;
-        uint64_t mask;
-        uint64_t raw_value;
-        int64_t decoded;
-        if (field->is_static) continue;
-        if (!field->name) return false;
-        if (field->type->kind == TYPE_PTR) {
-            raw_value = packed;
-            decoded = (int64_t)raw_value;
-        } else {
-            field_bits = (unsigned)field->type->size * 8u;
-            mask = field_bits == 64u
-                ? UINT64_MAX : (UINT64_C(1) << field_bits) - UINT64_C(1);
-            raw_value = (packed >> bit_offset) & mask;
-            if (!field->type->is_unsigned && field_bits < 64u &&
-                (raw_value & (UINT64_C(1) << (field_bits - 1u)))) {
-                raw_value |= ~mask;
-            }
-            decoded = (int64_t)raw_value;
-            bit_offset += field_bits;
-        }
-        if (strcmp(field->name, member_name) == 0) {
-            *member_value = decoded;
-            if (member_type) *member_type = field->type;
-            return true;
-        }
-    }
-    return false;
+    const char* member_names[1];
+    member_names[0] = member_name;
+    return cxx_structural_class_unpack_member_path(
+        type, packed_value, member_names, 1, member_value, member_type);
 }
 
 CxxClass* cxx_class_alloc(const char* name, bool is_struct) {
@@ -7878,6 +8022,38 @@ static int template_clone_value_parameter_index(
     return -1;
 }
 
+static int template_clone_structural_member_path_capacity(
+    const Expr* expression) {
+    if (!expression) return -1;
+    if (expression->kind == EXPR_IDENT) {
+        return expression->ident_name ? 0 : -1;
+    }
+    if (expression->kind == EXPR_MEMBER && expression->member_base &&
+        expression->member_name) {
+        int count = template_clone_structural_member_path_capacity(
+            expression->member_base);
+        if (count < 0 || count == INT_MAX) return -1;
+        return count + 1;
+    }
+    return -1;
+}
+
+static bool template_clone_collect_structural_member_path(
+    const Expr* expression, const char** member_names, int capacity,
+    int* member_count, const char** parameter_name) {
+    if (expression->kind == EXPR_IDENT) {
+        *parameter_name = expression->ident_name;
+        return true;
+    }
+    if (!template_clone_collect_structural_member_path(
+            expression->member_base, member_names, capacity, member_count,
+            parameter_name) || *member_count >= capacity) {
+        return false;
+    }
+    member_names[(*member_count)++] = expression->member_name;
+    return true;
+}
+
 static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                  Type** args, int arg_count,
                                  const int64_t* value_args,
@@ -7887,21 +8063,31 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
     if (expression->kind == EXPR_MEMBER) {
         int64_t value;
         Type* value_type = NULL;
-        if (expression->member_base &&
-            expression->member_base->kind == EXPR_IDENT &&
-            expression->member_base->ident_name &&
-            expression->member_name && value_args && value_present) {
+        if (value_args && value_present) {
+            int member_capacity =
+                template_clone_structural_member_path_capacity(expression);
+            const char* parameter_name = NULL;
+            const char** member_names = NULL;
+            int member_count = 0;
             TemplateParam* parameter = NULL;
-            int index = template_clone_value_parameter_index(
-                tmpl, expression->member_base->ident_name, arg_count,
-                &parameter);
+            int index = -1;
+            if (member_capacity > 0) {
+                member_names = ast_arena_alloc(
+                    sizeof(*member_names) * (size_t)member_capacity);
+                if (template_clone_collect_structural_member_path(
+                        expression, member_names, member_capacity,
+                        &member_count, &parameter_name)) {
+                    index = template_clone_value_parameter_index(
+                        tmpl, parameter_name, arg_count, &parameter);
+                }
+            }
             if (index >= 0 && parameter &&
                 cxx_structural_class_value_supported_subset(
                     parameter->type) &&
                 value_present[index] &&
-                cxx_structural_class_unpack_member_value(
-                    parameter->type, value_args[index],
-                    expression->member_name, &value, &value_type)) {
+                cxx_structural_class_unpack_member_path(
+                    parameter->type, value_args[index], member_names,
+                    member_count, &value, &value_type)) {
                 copy = expr_int(value, expression->loc);
                 copy->type = value_type ? value_type : type_int;
                 return copy;

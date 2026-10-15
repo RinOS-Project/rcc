@@ -23,6 +23,24 @@ struct NestedStructuralPairKey {
     int second;
 };
 
+struct NestedStructuralLeafKey {
+    signed char first;
+    unsigned short second = 7;
+};
+
+struct NestedStructuralKey {
+    int prefix;
+    NestedStructuralLeafKey leaf;
+};
+
+struct NestedStructuralPointerLeafKey {
+    int* pointer;
+};
+
+struct NestedStructuralPointerKey {
+    NestedStructuralPointerLeafKey leaf;
+};
+
 template <NestedStructuralOwnerKey... Values>
 struct NestedStructuralValueOwnerPack {
     template <typename Element>
@@ -105,6 +123,25 @@ struct NestedStructuralPairOwner {
     };
 };
 
+template <NestedStructuralKey Value>
+struct NestedStructuralNestedOwner {
+    template <typename Element>
+    struct Inner {
+        int result() const {
+            return Value.prefix * 10000 + Value.leaf.first * 100 +
+                   Value.leaf.second;
+        }
+    };
+};
+
+template <NestedStructuralPointerKey Value>
+struct NestedStructuralPointerOwner {
+    template <typename Element>
+    struct Inner {
+        int result() const { return Value.leaf.pointer == nullptr ? 17 : 0; }
+    };
+};
+
 template <typename OwnerType, NestedStructuralOwnerKey OwnerValue>
 struct NestedStructuralReorderedOwner {
     template <typename Element>
@@ -155,6 +192,12 @@ int main() {
     NestedStructuralPairOwner<
         NestedStructuralPairKey{-3, 4}>::Inner<int>
         signed_pair_parameter_object;
+    NestedStructuralNestedOwner<
+        NestedStructuralKey{3, {-2}}>::Inner<int>
+        nested_parameter_object;
+    NestedStructuralPointerOwner<
+        NestedStructuralPointerKey{{nullptr}}>::Inner<int>
+        nested_null_pointer_parameter_object;
     NestedStructuralReorderedOwner<
         int*, NestedStructuralOwnerKey{43}>::Inner<int*>
         reordered_type_first;
@@ -173,7 +216,9 @@ int main() {
     if (empty_parameter_object.result() != 19) return 7;
     if (pair_parameter_object.result() != 102) return 8;
     if (signed_pair_parameter_object.result() != -296) return 9;
-    if (reordered_type_first.result() != 43) return 10;
-    if (reordered_type_second.result() != 47) return 11;
-    return reordered_primary_fallback.result() == 13 ? 0 : 12;
+    if (nested_parameter_object.result() != 29807) return 10;
+    if (nested_null_pointer_parameter_object.result() != 17) return 11;
+    if (reordered_type_first.result() != 43) return 12;
+    if (reordered_type_second.result() != 47) return 13;
+    return reordered_primary_fallback.result() == 13 ? 0 : 14;
 }
