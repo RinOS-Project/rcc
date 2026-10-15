@@ -4690,3 +4690,15 @@ remains a separate open item.
 - [ ] Other dependent owner patterns (including expression, array/reference,
   and template-template forms) and non-null structural pointer NTTP values
   remain open.
+
+## RCC continuation (2026-10-16, nested owner partial ordering)
+
+- [x] Verify nested owner selection with the more-specialized `const T*` outer
+  specialization declared before the less-specialized `T*` form, including
+  each owner's matching nested `Mid<U*>` specialization.
+- [x] Compare all five GCC Itanium symbols against RCC on i686/AMD64 and run
+  generated AMD64 and GCC-host programs. The focused nested-owner target passes
+  (exit 0).
+- [ ] Other dependent owner patterns (including expression, array/reference,
+  and template-template forms) and non-null structural pointer NTTP values
+  remain open.

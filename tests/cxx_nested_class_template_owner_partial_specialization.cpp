@@ -775,6 +775,57 @@ struct NestedMixedPartialOwnerChain<OwnerValue*, 7>::Mid<MidValue*, 11>::
     int result() const { return 1530; }
 };
 
+template <typename OwnerValue>
+struct NestedOwnerPartialOrdering {
+    template <typename MidValue>
+    struct Mid {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 1700; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+struct NestedOwnerPartialOrdering<const OwnerValue*> {
+    template <typename MidValue>
+    struct Mid {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 1710; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+struct NestedOwnerPartialOrdering<const OwnerValue*>::Mid<MidValue*> {
+    template <typename LeafValue>
+    struct Leaf {
+        int result() const { return 1720; }
+    };
+};
+
+template <typename OwnerValue>
+struct NestedOwnerPartialOrdering<OwnerValue*> {
+    template <typename MidValue>
+    struct Mid {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 1730; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+struct NestedOwnerPartialOrdering<OwnerValue*>::Mid<MidValue*> {
+    template <typename LeafValue>
+    struct Leaf {
+        int result() const { return 1740; }
+    };
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -907,6 +958,16 @@ int main() {
         mixed_partial_mid_owner;
     NestedMixedPartialOwnerChain<int*, 7>::Mid<char*, 11>::Leaf<int*, 13>
         mixed_partial_leaf_owner;
+    NestedOwnerPartialOrdering<long>::Mid<char>::Leaf<long>
+        partial_ordering_primary_owner;
+    NestedOwnerPartialOrdering<const int*>::Mid<char>::Leaf<long>
+        partial_ordering_const_owner;
+    NestedOwnerPartialOrdering<const int*>::Mid<char*>::Leaf<long>
+        partial_ordering_const_mid_owner;
+    NestedOwnerPartialOrdering<int*>::Mid<char>::Leaf<long>
+        partial_ordering_pointer_owner;
+    NestedOwnerPartialOrdering<int*>::Mid<char*>::Leaf<long>
+        partial_ordering_pointer_mid_owner;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -976,5 +1037,10 @@ int main() {
     if (mixed_partial_outer_owner.result() != 1510) return 67;
     if (mixed_partial_mid_owner.result() != 1520) return 68;
     if (mixed_partial_leaf_owner.result() != 1530) return 69;
+    if (partial_ordering_primary_owner.result() != 1700) return 70;
+    if (partial_ordering_const_owner.result() != 1710) return 71;
+    if (partial_ordering_const_mid_owner.result() != 1720) return 72;
+    if (partial_ordering_pointer_owner.result() != 1730) return 73;
+    if (partial_ordering_pointer_mid_owner.result() != 1740) return 74;
     return 0;
 }
