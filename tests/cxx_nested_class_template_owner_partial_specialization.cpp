@@ -410,6 +410,63 @@ struct NestedFiveLevelExplicitOwner<int>::First<char>::Second<short>::Third<int>
 };
 
 template <typename OwnerValue>
+struct NestedSixLevelExplicitOwner {
+    template <typename FirstValue>
+    struct First {
+        template <typename SecondValue>
+        struct Second {
+            template <typename ThirdValue>
+            struct Third {
+                template <typename FourthValue>
+                struct Fourth {
+                    template <typename FifthValue>
+                    struct Fifth {
+                        template <typename InnerValue>
+                        struct Inner {
+                            int result() const { return 1440; }
+                        };
+                    };
+                };
+            };
+        };
+    };
+};
+
+template <>
+struct NestedSixLevelExplicitOwner<int> {
+    template <typename FirstValue>
+    struct First {
+        template <typename SecondValue>
+        struct Second {
+            template <typename ThirdValue>
+            struct Third {
+                template <typename FourthValue>
+                struct Fourth {
+                    template <typename FifthValue>
+                    struct Fifth {
+                        template <typename InnerValue>
+                        struct Inner {
+                            int result() const { return 1450; }
+                        };
+                    };
+                };
+            };
+        };
+    };
+};
+
+template <>
+template <>
+template <>
+template <>
+template <>
+template <>
+struct NestedSixLevelExplicitOwner<int>::First<char>::Second<short>::
+    Third<int>::Fourth<float>::Fifth<long>::Inner<double> {
+    int result() const { return 1460; }
+};
+
+template <typename OwnerValue>
 struct NestedFiveLevelSpecializedIntermediateOwner {
     template <typename FirstValue>
     struct First {
@@ -1011,6 +1068,14 @@ int main() {
         ::Fourth<float>::Inner<double> five_level_explicit_owner;
     NestedFiveLevelExplicitOwner<int>::First<char>::Second<short>::Third<int>
         ::Fourth<float>::Inner<double> five_level_explicit_member;
+    NestedSixLevelExplicitOwner<long>::First<char>::Second<short>::Third<int>
+        ::Fourth<float>::Fifth<long>::Inner<double>
+        six_level_explicit_primary_owner;
+    NestedSixLevelExplicitOwner<int>::First<long>::Second<short>::Third<int>
+        ::Fourth<float>::Fifth<long>::Inner<double> six_level_explicit_owner;
+    NestedSixLevelExplicitOwner<int>::First<char>::Second<short>::Third<int>
+        ::Fourth<float>::Fifth<long>::Inner<double>
+        six_level_explicit_member;
     NestedFiveLevelSpecializedIntermediateOwner<long>::First<char>
         ::Second<short>::Third<int>::Fourth<float>::Inner<double>
         five_level_specialized_primary_owner;
@@ -1150,6 +1215,9 @@ int main() {
     if (five_level_explicit_primary_owner.result() != 1300) return 59;
     if (five_level_explicit_owner.result() != 1310) return 60;
     if (five_level_explicit_member.result() != 1320) return 61;
+    if (six_level_explicit_primary_owner.result() != 1440) return 87;
+    if (six_level_explicit_owner.result() != 1450) return 88;
+    if (six_level_explicit_member.result() != 1460) return 89;
     if (five_level_specialized_primary_owner.result() != 1400) return 62;
     if (five_level_specialized_outer_owner.result() != 1410) return 63;
     if (five_level_specialized_intermediate_owner.result() != 1420) return 64;
