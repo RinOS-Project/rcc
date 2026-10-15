@@ -4717,3 +4717,15 @@ remains a separate open item.
 - [ ] Dependent expression, reference/array-reference, and template-template
   owner forms, non-null structural pointer NTTP values, and explicit owner
   specialization chains deeper than five levels remain open.
+
+## RCC continuation (2026-10-16, reference-to-array nested partial owners)
+
+- [x] Preserve lvalue references to constant-bound arrays as complete type-id
+  arguments in outer class-template partial specializations and nested `Mid` /
+  `Leaf` partial specializations.
+- [x] Verify primary, outer, intermediate, and leaf selection; compare all four
+  exact GCC Itanium symbols with RCC on i686/AMD64 and execute generated AMD64
+  and GCC-host programs. The full focused nested-owner gate passes (exit 0).
+- [ ] Other reference categories, dependent array-bound/expression owner
+  patterns, template-template owners, non-null structural pointer NTTP values,
+  and explicit owner-specialization chains deeper than five levels remain open.
