@@ -16,6 +16,8 @@ struct NestedStructuralOwnerNullPointerKey {
     const int* value;
 };
 
+struct NestedStructuralEmptyKey {};
+
 template <NestedStructuralOwnerKey... Values>
 struct NestedStructuralValueOwnerPack {
     template <typename Element>
@@ -82,6 +84,14 @@ struct NestedStructuralNullPointerOwner {
     };
 };
 
+template <NestedStructuralEmptyKey Value>
+struct NestedStructuralEmptyOwner {
+    template <typename Element>
+    struct Inner {
+        int result() const { return 19; }
+    };
+};
+
 template <typename OwnerType, NestedStructuralOwnerKey OwnerValue>
 struct NestedStructuralReorderedOwner {
     template <typename Element>
@@ -125,6 +135,8 @@ int main() {
     NestedStructuralNullPointerOwner<
         NestedStructuralOwnerNullPointerKey{nullptr}>::Inner<int>
         null_pointer_parameter_object;
+    NestedStructuralEmptyOwner<NestedStructuralEmptyKey{}>::Inner<int>
+        empty_parameter_object;
     NestedStructuralReorderedOwner<
         int*, NestedStructuralOwnerKey{43}>::Inner<int*>
         reordered_type_first;
@@ -140,7 +152,8 @@ int main() {
     if (enum_parameter_object.result() != 37) return 4;
     if (null_pointer_partial.result() != 25) return 5;
     if (null_pointer_parameter_object.result() != 41) return 6;
-    if (reordered_type_first.result() != 43) return 7;
-    if (reordered_type_second.result() != 47) return 8;
-    return reordered_primary_fallback.result() == 13 ? 0 : 9;
+    if (empty_parameter_object.result() != 19) return 7;
+    if (reordered_type_first.result() != 43) return 8;
+    if (reordered_type_second.result() != 47) return 9;
+    return reordered_primary_fallback.result() == 13 ? 0 : 10;
 }
