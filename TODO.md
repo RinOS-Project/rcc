@@ -4453,3 +4453,18 @@ remains a separate open item.
   Windows MinGW `test-cxx`, and `test-debug-info` gates all pass (exit 0).
 - [ ] Multi-member/nested structural values, non-null pointer members, and
   remaining standard-valid explicit member specializations remain open.
+
+## RCC continuation (2026-10-15, empty structural NTTP values)
+
+- [x] Accept an empty literal structural class as a class non-type template
+  argument, including its empty-brace value-initialization representation;
+  preserve the existing bounded one-public-member integral/enum/null-pointer
+  subset.
+- [x] Verify exact GCC/RCC Itanium symbols on i686 and AMD64, generated
+  AMD64 runtime behavior, and GCC-host behavior. The focused structural-owner
+  target and full native-Windows MinGW `test-cxx` plus `test-debug-info`
+  aggregates all pass (exit 0).
+- [x] Commit the RCC implementation, regression fixture, and target checks as
+  `5443464` on local RCC `main`; no push.
+- [ ] Multi-member/nested structural values, non-null pointer members, and
+  remaining standard-valid explicit member-specialization forms remain open.
