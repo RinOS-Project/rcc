@@ -69,6 +69,12 @@ int&& return_rvalue_reference(int&& value) {
 using IntArray = int[3];
 using IntArrayLvalueReference = IntArray&;
 using IntArrayRvalueReference = IntArray&&;
+using IntArrayRvalueReferenceFunction =
+        IntArrayRvalueReference (*)(IntArrayRvalueReference);
+
+struct IntArrayRvalueReferenceCallback {
+    IntArrayRvalueReferenceFunction function;
+};
 
 IntArrayLvalueReference return_array_lvalue(
         IntArrayLvalueReference value) {
@@ -528,6 +534,14 @@ int main() {
             static_cast<IntArrayRvalueReference>(array_reference_values));
     array_xvalue_result[1] += 2;
     if (array_reference_values[1] != 16) return 92;
+    IntArrayRvalueReferenceCallback array_reference_callback = {
+        &return_array_xvalue};
+    IntArrayRvalueReference indirect_array_xvalue_result =
+            array_reference_callback.function(
+                    static_cast<IntArrayRvalueReference>(
+                            array_reference_values));
+    indirect_array_xvalue_result[2] += 3;
+    if (array_reference_values[2] != 18) return 93;
     int indirect_value = 70;
     LvalueReferenceFunction lvalue_reference_function =
             &return_lvalue_reference;

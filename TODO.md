@@ -590,9 +590,10 @@
         process-exit finalization exactly once by executing generated AMD64
         code on Windows. i686 remains covered by target-object generation.
   - [x] Cover ordinary array lvalue/rvalue-reference parameters and returns,
-        including xvalue casts and alias-preserving mutation. GCC C++20
-        pedantic syntax checking, i686/AMD64 code generation, and AMD64 host
-        execution pass in `test-cxx-function-template-references`.
+        including xvalue casts, alias-preserving mutation, and the same
+        reference category through a class-held function-pointer callback.
+        GCC C++20 pedantic syntax checking, i686/AMD64 code generation, and
+        AMD64 host execution pass in `test-cxx-function-template-references`.
   - [ ] Finish thread-local reference temporary acceptance. The i686/AMD64
         backends now emit per-thread owner/guard storage and register cleanup
         with `__cxa_thread_atexit`; libc start-return and `pthread_exit` paths
