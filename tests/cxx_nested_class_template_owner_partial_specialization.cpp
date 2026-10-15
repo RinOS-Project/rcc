@@ -318,6 +318,48 @@ struct NestedThreeLevelExplicitOwner<int>::First<char>::Mid<short>::Inner<long> 
     int result() const { return 520; }
 };
 
+template <typename OwnerValue>
+struct NestedFourLevelExplicitOwner {
+    template <typename FirstValue>
+    struct First {
+        template <typename SecondValue>
+        struct Second {
+            template <typename ThirdValue>
+            struct Third {
+                template <typename InnerValue>
+                struct Inner {
+                    int result() const { return 600; }
+                };
+            };
+        };
+    };
+};
+
+template <>
+struct NestedFourLevelExplicitOwner<int> {
+    template <typename FirstValue>
+    struct First {
+        template <typename SecondValue>
+        struct Second {
+            template <typename ThirdValue>
+            struct Third {
+                template <typename InnerValue>
+                struct Inner {
+                    int result() const { return 610; }
+                };
+            };
+        };
+    };
+};
+
+template <>
+template <>
+template <>
+template <>
+struct NestedFourLevelExplicitOwner<int>::First<char>::Second<short>::Third<long>::Inner<double> {
+    int result() const { return 620; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -372,6 +414,12 @@ int main() {
         three_level_explicit_outer;
     NestedThreeLevelExplicitOwner<int>::First<char>::Mid<short>::Inner<long>
         three_level_explicit_member;
+    NestedFourLevelExplicitOwner<long>::First<char>::Second<short>::Third<long>::Inner<double>
+        four_level_primary_outer;
+    NestedFourLevelExplicitOwner<int>::First<long>::Second<short>::Third<long>::Inner<double>
+        four_level_explicit_outer;
+    NestedFourLevelExplicitOwner<int>::First<char>::Second<short>::Third<long>::Inner<double>
+        four_level_explicit_member;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -404,5 +452,8 @@ int main() {
     if (three_level_primary_outer.result() != 500) return 30;
     if (three_level_explicit_outer.result() != 510) return 31;
     if (three_level_explicit_member.result() != 520) return 32;
+    if (four_level_primary_outer.result() != 600) return 33;
+    if (four_level_explicit_outer.result() != 610) return 34;
+    if (four_level_explicit_member.result() != 620) return 35;
     return 0;
 }

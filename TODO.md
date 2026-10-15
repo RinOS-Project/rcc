@@ -4581,5 +4581,17 @@ remains a separate open item.
 - [x] Compare all three GCC Itanium symbols against RCC on i686/AMD64 and run
   generated AMD64 plus GCC-host programs. The focused nested-owner gate and
   full native-Windows MinGW `test-cxx` aggregate pass (exit 0).
-- [ ] Chains deeper than three nested member-template levels and non-null
+
+## RCC continuation (2026-10-16, four-level nested explicit specialization)
+
+- [x] Resolve explicit member specialization through three intermediate
+  nested class-template owners and consume the corresponding four consecutive
+  explicit-specialization template heads, using
+  `Owner<int>::First<char>::Second<short>::Third<long>::Inner<double>` as the
+  regression case.
+- [x] Compare all three GCC Itanium symbols against RCC on i686/AMD64 and run
+  generated AMD64 plus GCC-host programs. The focused nested-owner gate passes;
+  the full native-Windows MinGW `test-cxx` aggregate passes with the same parser
+  implementation (exit 0).
+- [ ] Chains deeper than four nested member-template levels and non-null
   structural pointer NTTP values remain open.
