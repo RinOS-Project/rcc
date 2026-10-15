@@ -1915,6 +1915,10 @@
         `DW_AT_const_value`で保持し、暗黙の`int`互換underlying representationを
         確認したうえで、DWARF constant値とframe locationなしをi686/AMD64で検証。
         `test-debug-info`、`test-optimize`、`test-verified-backend`が成功。
+  - [x] `test-debug-info`でlinked RINのABI v4、単一UNWIND section、
+        `READ | UNWIND_DWARF_DEBUG_FRAME` flagsを両architectureで確認し、
+        `test-format-validation`から同じdebug-frame形式のRINをrinvalidateへ
+        渡して受理を検証。
   - [ ] `.debug_info`の全inline attribution／全scopeの宣言開始・終了に一致する
         location lists、register・piece location追跡、非標準prologueを含む
         完全なCFI/unwind

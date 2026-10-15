@@ -5193,11 +5193,14 @@ static void verify_linked_image_excludes_debug_sections(
     FILE* file = fopen(path, "rb");
     RinHeaderV3 header;
     RinSectionV3* sections;
+    uint32_t unwind_count = 0u;
     assert(file != NULL);
     assert(fread(&header, sizeof(header), 1u, file) == 1u);
     assert(header.magic == RIN_IMAGE_MAGIC &&
            header.version == RIN_IMAGE_VERSION_3 &&
-           header.architecture == architecture);
+           header.architecture == architecture &&
+           header.abi_major == RIN_IMAGE_ABI_MAJOR &&
+           header.abi_minor >= RIN_IMAGE_ABI_MINOR_UNWIND_FORMAT);
     assert(header.section_count > 0u && header.section_count <= 64u);
     sections = calloc(header.section_count, sizeof(*sections));
     assert(sections != NULL);
@@ -5208,7 +5211,14 @@ static void verify_linked_image_excludes_debug_sections(
     for (uint32_t index = 0u; index < header.section_count; ++index) {
         assert(sections[index].type >= RIN_IMAGE_SECTION_CODE &&
                sections[index].type <= RIN_IMAGE_SECTION_FINI_ARRAY);
+        if (sections[index].type == RIN_IMAGE_SECTION_UNWIND) {
+            ++unwind_count;
+            assert(sections[index].flags ==
+                   (RIN_IMAGE_SECTION_READ |
+                    RIN_IMAGE_SECTION_UNWIND_DWARF_DEBUG_FRAME));
+        }
     }
+    assert(unwind_count == 1u);
     free(sections);
     assert(fclose(file) == 0);
 }

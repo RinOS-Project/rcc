@@ -15165,6 +15165,18 @@ test-signing: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 # test-signing because this target is about section/table/ABI conformance.
 test-format-validation: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call MKDIR_P,$(TEST_OUT)/format-validation)
+	$(RCC_TARGET) --target i686-unknown-rinos -g -c \
+		-o $(TEST_OUT)/format-validation/debug-x86.ro tests/debug_info.c
+	$(RCC_TARGET) --target x86_64-unknown-rinos -g -c \
+		-o $(TEST_OUT)/format-validation/debug-x64.ro tests/debug_info.c
+	$(RLD_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-e debug_line_entry \
+		-o $(TEST_OUT)/format-validation/debug-x86.rin \
+		$(TEST_OUT)/format-validation/debug-x86.ro
+	$(RLD_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
+		-e debug_line_entry \
+		-o $(TEST_OUT)/format-validation/debug-x64.rin \
+		$(TEST_OUT)/format-validation/debug-x64.ro
 	$(RCC_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/format-validation/direct-x86.rin tests/hello.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
@@ -15199,6 +15211,10 @@ test-format-validation: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE
 		$(TEST_OUT)/format-validation/driver-x64.drv
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
 		$(TEST_OUT)/format-validation/linked-x64.rin
+	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
+		$(TEST_OUT)/format-validation/debug-x86.rin
+	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
+		$(TEST_OUT)/format-validation/debug-x64.rin
 	@echo "RCC/RCC++/RLD native RIN/RLL/NDRV v3 format validation completed"
 
 test-pic-plt: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
