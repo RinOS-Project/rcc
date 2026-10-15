@@ -4678,6 +4678,7 @@ test-cxx-static-reference-retry: $(RCXX_TARGET)
 	$(GREP) -F -q "__cxa_guard_abort" $(TEST_OUT)/cxx-static-reference-retry/x86.s
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x86.s
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x86.s
+	$(GREP) -F -q "__cxa_atexit" $(TEST_OUT)/cxx-static-reference-retry/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-retry/x86.o $(TEST_OUT)/cxx-static-reference-retry/x86.s
 	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x86.o > $(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
 	$(GREP) -F -q "pe-i386" $(TEST_OUT)/cxx-static-reference-retry/x86-arch.log
@@ -4685,10 +4686,16 @@ test-cxx-static-reference-retry: $(RCXX_TARGET)
 	$(GREP) -F -q "__cxa_guard_abort" $(TEST_OUT)/cxx-static-reference-retry/x64.s
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x64.s
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/cxx-static-reference-retry/x64.s
+	$(GREP) -F -q "__cxa_atexit" $(TEST_OUT)/cxx-static-reference-retry/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-retry/x64.o $(TEST_OUT)/cxx-static-reference-retry/x64.s
 	objdump -f $(TEST_OUT)/cxx-static-reference-retry/x64.o > $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
 	$(CC) $(CFLAGS) -c -o $(TEST_OUT)/cxx-static-reference-retry/guard-runtime.o tests/cxx_static_reference_guard_runtime.c
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-static-reference-retry/x64.o
+	$(CC) -DRCC_STATIC_REFERENCE_RETRY_HOST $(CFLAGS) -c -o $(TEST_OUT)/cxx-static-reference-retry/host-runtime.o tests/cxx_static_reference_guard_runtime.c
+	$(CC) -DRINOS_HOST_RUNTIME -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-static-reference-retry/exception-runtime.o tests/cxx_exceptions_x64_start.s
+	$(CC) -o $(TEST_OUT)/cxx-static-reference-retry/x64-host.exe $(TEST_OUT)/cxx-static-reference-retry/x64.o $(TEST_OUT)/cxx-static-reference-retry/host-runtime.o $(TEST_OUT)/cxx-static-reference-retry/exception-runtime.o
+	$(TEST_OUT)/cxx-static-reference-retry/x64-host.exe
 
 test-cxx-static-local-exception: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-local-exception)

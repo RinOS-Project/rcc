@@ -584,6 +584,11 @@
         later attempt succeeds, and subsequent access reuses the same object.
         The generated target code executed successfully with the test exception
         and guard runtime; RinOS runtime integration remains separate.
+  - [x] Extend reference-initialization retry coverage to a nontrivial class
+        prvalue whose constructor throws once. Verify guard abort, successful
+        retry, stable reference identity, one `__cxa_atexit` registration, and
+        process-exit finalization exactly once by executing generated AMD64
+        code on Windows. i686 remains covered by target-object generation.
   - [ ] Finish thread-local reference temporary acceptance. The i686/AMD64
         backends now emit per-thread owner/guard storage and register cleanup
         with `__cxa_thread_atexit`; libc start-return and `pthread_exit` paths
