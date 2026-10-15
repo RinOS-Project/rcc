@@ -66,6 +66,20 @@ int&& return_rvalue_reference(int&& value) {
     return static_cast<int&&>(value);
 }
 
+using IntArray = int[3];
+using IntArrayLvalueReference = IntArray&;
+using IntArrayRvalueReference = IntArray&&;
+
+IntArrayLvalueReference return_array_lvalue(
+        IntArrayLvalueReference value) {
+    return value;
+}
+
+IntArrayRvalueReference return_array_xvalue(
+        IntArrayRvalueReference value) {
+    return static_cast<IntArrayRvalueReference>(value);
+}
+
 using LvalueReferenceFunction = int& (*)(int&);
 
 struct ReferenceFunctionAliases {
@@ -505,6 +519,15 @@ int main() {
             static_cast<int&&>(mutable_value));
     rvalue_result += 2;
     if (mutable_value != 12) return 7;
+    IntArray array_reference_values = {13, 14, 15};
+    IntArrayLvalueReference array_lvalue_result =
+            return_array_lvalue(array_reference_values);
+    array_lvalue_result[0] += 1;
+    if (array_reference_values[0] != 14) return 91;
+    IntArrayRvalueReference array_xvalue_result = return_array_xvalue(
+            static_cast<IntArrayRvalueReference>(array_reference_values));
+    array_xvalue_result[1] += 2;
+    if (array_reference_values[1] != 16) return 92;
     int indirect_value = 70;
     LvalueReferenceFunction lvalue_reference_function =
             &return_lvalue_reference;

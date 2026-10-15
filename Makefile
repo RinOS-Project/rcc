@@ -4617,6 +4617,7 @@ test-cxx-function-template-overloads: $(RCXX_TARGET)
 
 test-cxx-function-template-references: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-references)
+	g++ -std=c++20 -pedantic-errors -Wall -Wextra -Werror -fsyntax-only tests/cxx_function_template_references.cpp
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-references,cxx_function_template_references.cpp)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/non-template-invalid-x86.ro tests/cxx_reference_binding_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/non-template-invalid-x86.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-function-template-references/non-template-invalid-x64.ro tests/cxx_reference_binding_invalid.cpp,$(TEST_OUT)/cxx-function-template-references/non-template-invalid-x64.log)
