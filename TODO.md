@@ -4677,3 +4677,16 @@ remains a separate open item.
 - [ ] Additional dependent owner forms, explicit-specialization chains deeper
   than five nested levels, and non-null structural pointer NTTP values remain
   open.
+
+## RCC continuation (2026-10-16, mixed type/value nested partial owners)
+
+- [x] Match owner, `Mid`, and `Leaf` partial specializations constrained by
+  both dependent pointer types and integral values (`Owner<T*, 7>`,
+  `Mid<U*, 11>`, and `Leaf<V*, 13>`), retaining primary and each outer-to-leaf
+  selection.
+- [x] Compare all four exact GCC Itanium symbols against RCC on i686/AMD64 and
+  execute generated AMD64 and GCC-host programs. The focused nested-owner
+  target passes (exit 0).
+- [ ] Other dependent owner patterns (including expression, array/reference,
+  and template-template forms) and non-null structural pointer NTTP values
+  remain open.

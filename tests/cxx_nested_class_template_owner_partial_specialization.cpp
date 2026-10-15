@@ -736,6 +736,45 @@ struct NestedFiveLevelPartialOwnerChain<OwnerValue*>::First<FirstValue*>::Second
     int result() const { return 1160; }
 };
 
+template <typename OwnerValue, int OwnerTag>
+struct NestedMixedPartialOwnerChain {
+    template <typename MidValue, int MidTag>
+    struct Mid {
+        template <typename LeafValue, int LeafTag>
+        struct Leaf {
+            int result() const { return 1500; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+struct NestedMixedPartialOwnerChain<OwnerValue*, 7> {
+    template <typename MidValue, int MidTag>
+    struct Mid {
+        template <typename LeafValue, int LeafTag>
+        struct Leaf {
+            int result() const { return 1510; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+struct NestedMixedPartialOwnerChain<OwnerValue*, 7>::Mid<MidValue*, 11> {
+    template <typename LeafValue, int LeafTag>
+    struct Leaf {
+        int result() const { return 1520; }
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+template <typename LeafValue>
+struct NestedMixedPartialOwnerChain<OwnerValue*, 7>::Mid<MidValue*, 11>::
+    Leaf<LeafValue*, 13> {
+    int result() const { return 1530; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -860,6 +899,14 @@ int main() {
         ::Third<int*>::Fourth<float*>::Leaf<double> five_level_fourth_owner;
     NestedFiveLevelPartialOwnerChain<int*>::First<char*>::Second<short*>
         ::Third<int*>::Fourth<float*>::Leaf<double*> five_level_leaf_owner;
+    NestedMixedPartialOwnerChain<long, 6>::Mid<char, 10>::Leaf<int, 12>
+        mixed_partial_primary_owner;
+    NestedMixedPartialOwnerChain<int*, 7>::Mid<char, 10>::Leaf<int, 12>
+        mixed_partial_outer_owner;
+    NestedMixedPartialOwnerChain<int*, 7>::Mid<char*, 11>::Leaf<int, 12>
+        mixed_partial_mid_owner;
+    NestedMixedPartialOwnerChain<int*, 7>::Mid<char*, 11>::Leaf<int*, 13>
+        mixed_partial_leaf_owner;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -925,5 +972,9 @@ int main() {
     if (five_level_third_owner.result() != 1140) return 56;
     if (five_level_fourth_owner.result() != 1150) return 57;
     if (five_level_leaf_owner.result() != 1160) return 58;
+    if (mixed_partial_primary_owner.result() != 1500) return 66;
+    if (mixed_partial_outer_owner.result() != 1510) return 67;
+    if (mixed_partial_mid_owner.result() != 1520) return 68;
+    if (mixed_partial_leaf_owner.result() != 1530) return 69;
     return 0;
 }
