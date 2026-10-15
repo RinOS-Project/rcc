@@ -65,6 +65,54 @@ int read_nested_non_type_owner_chain() {
 }
 
 template <typename T>
+struct NestedTemplateTemplateCarrier {
+    using value_type = T;
+};
+
+template <template <typename> class ValueTemplate>
+struct DirectTemplateTemplateOwner {
+    using value_type = typename ValueTemplate<int>::value_type;
+    value_type payload;
+};
+
+int read_direct_template_template_owner() {
+    DirectTemplateTemplateOwner<NestedTemplateTemplateCarrier> value;
+    return sizeof(value.payload);
+}
+
+template <template <typename> class OuterTemplate>
+struct NestedTemplateTemplateOwner {
+    template <typename InnerType>
+    struct Inner {
+        using value_type =
+            typename OuterTemplate<InnerType>::value_type;
+        value_type payload;
+
+        template <typename LeafType>
+        struct Leaf {
+            using value_type =
+                typename OuterTemplate<LeafType>::value_type;
+            value_type payload;
+        };
+    };
+};
+
+template <typename InnerType>
+int read_nested_template_template_owner_chain() {
+    typename NestedTemplateTemplateOwner<
+        NestedTemplateTemplateCarrier>::template Inner<InnerType> value;
+    return sizeof(value.payload);
+}
+
+template <typename LeafType>
+int read_deep_nested_template_template_owner_chain() {
+    typename NestedTemplateTemplateOwner<
+        NestedTemplateTemplateCarrier>::template Inner<char>::
+        template Leaf<LeafType> value;
+    return sizeof(value.payload);
+}
+
+template <typename T>
 typename T::value_type::value_type function_template_nested_type_chain() {
     return 43;
 }
@@ -137,6 +185,10 @@ int main() {
                    type_parameter.read() == 37 &&
                    chained_type.read() == 41 &&
                    read_nested_non_type_owner_chain<17, char, long long>() == 26 &&
+                   read_direct_template_template_owner() == 4 &&
+                   read_nested_template_template_owner_chain<long long>() == 8 &&
+                   read_deep_nested_template_template_owner_chain<
+                       long long>() == 8 &&
                    function_template_nested_type_chain<
                        NestedTypeChainOuter>() == 43 &&
                    dmi_effect_count == 4 && effects.called == 7 &&

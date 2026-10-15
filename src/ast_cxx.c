@@ -4607,6 +4607,24 @@ static int template_type_parameter_index(CxxTemplate* tmpl, Type* type) {
     return -1;
 }
 
+static TemplateParam* template_template_parameter_at(
+    CxxTemplate* tmpl, int parameter_index) {
+    int offset = 0;
+    if (!tmpl || parameter_index < 0) return NULL;
+    for (CxxTemplate* scope = tmpl; scope;
+         scope = scope->enclosing_template) {
+        if (parameter_index >= offset &&
+            parameter_index - offset < scope->param_count) {
+            TemplateParam* parameter =
+                &scope->params[parameter_index - offset];
+            return parameter->kind == TPARAM_TEMPLATE ? parameter : NULL;
+        }
+        if (scope->param_count > INT_MAX - offset) return NULL;
+        offset += scope->param_count;
+    }
+    return NULL;
+}
+
 /* Parameter packs may be written as a type pattern such as `auto*...`.  The
  * ordinary substitution helper must still distinguish that pattern from a
  * complete dependent type, so only pack-parameter discovery unwraps the
@@ -4908,37 +4926,37 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
     }
     if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
         type->cxx_template_param_index < arg_count && args &&
-        args[type->cxx_template_param_index] && tmpl &&
-        type->cxx_template_param_index < tmpl->param_count &&
-        tmpl->params[type->cxx_template_param_index].kind ==
-            TPARAM_TEMPLATE &&
+        args[type->cxx_template_param_index] &&
         type->cxx_template_arg_count == 0) {
-        TemplateParam* parameter =
-            &tmpl->params[type->cxx_template_param_index];
-        replacement = args[type->cxx_template_param_index];
-        if (replacement->cxx_dependent && !replacement->cxx_template) {
+        TemplateParam* parameter = template_template_parameter_at(
+            tmpl, type->cxx_template_param_index);
+        if (parameter) {
+            replacement = args[type->cxx_template_param_index];
+            if (replacement->cxx_dependent && !replacement->cxx_template) {
+                return replacement;
+            }
+            if (!replacement->cxx_template ||
+                !rcc_parser_cxx_template_template_argument_matches(
+                    parameter, replacement->cxx_template)) {
+                rcc_error((SourceLoc){"<template-template-argument>", 0, 0},
+                          "template-template argument does not match its "
+                          "parameter list");
+                return type_int;
+            }
+            if (type->is_const || type->is_volatile) {
+                Type* qualified = ast_arena_alloc(sizeof(*qualified));
+                *qualified = *replacement;
+                qualified->is_const = qualified->is_const || type->is_const;
+                qualified->is_volatile = qualified->is_volatile ||
+                                         type->is_volatile;
+                return qualified;
+            }
             return replacement;
         }
-        if (!replacement->cxx_template ||
-            !rcc_parser_cxx_template_template_argument_matches(
-                parameter, replacement->cxx_template)) {
-            rcc_error((SourceLoc){"<template-template-argument>", 0, 0},
-                      "template-template argument does not match its "
-                      "parameter list");
-            return type_int;
-        }
-        if (type->is_const || type->is_volatile) {
-            Type* qualified = ast_arena_alloc(sizeof(*qualified));
-            *qualified = *replacement;
-            qualified->is_const = qualified->is_const || type->is_const;
-            qualified->is_volatile = qualified->is_volatile ||
-                                     type->is_volatile;
-            return qualified;
-        }
-        return replacement;
     }
-    if (type->cxx_dependent_member_name && type->cxx_template &&
-        type->cxx_template_arg_count > 0) {
+    if (type->cxx_dependent_member_name &&
+        type->cxx_template_arg_count > 0 &&
+        (type->cxx_template || type->cxx_template_param_index >= 0)) {
         Type* owner_pattern = ast_arena_alloc(sizeof(*owner_pattern));
         Type* owner;
         Type* nested_type = NULL;
@@ -5693,21 +5711,35 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         int64_t nested_values[32] = { 0 };
         bool nested_value_present[32] = { false };
         int nested_count = type->cxx_template_arg_count;
-        if (nested_count > (int)(sizeof(nested_arguments) /
-                                 sizeof(nested_arguments[0])) ||
-            type->cxx_template_param_index >= arg_count || !args ||
-            !(template_argument = args[type->cxx_template_param_index]) ||
-            !(actual_template = template_argument->cxx_template) ||
-            !tmpl || type->cxx_template_param_index >= tmpl->param_count ||
-            (outer_parameter = &tmpl->params[type->cxx_template_param_index])->kind !=
-                TPARAM_TEMPLATE ||
-            !outer_parameter->template_signature ||
+        if (type->cxx_template_param_index >= arg_count || !args)
+            return type;
+        template_argument = args[type->cxx_template_param_index];
+        if (!template_argument || !template_argument->cxx_template) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "template-template parameter index %d has no template "
+                      "argument identity",
+                      type->cxx_template_param_index);
+            return NULL;
+        }
+        actual_template = template_argument->cxx_template;
+        outer_parameter = template_template_parameter_at(
+            tmpl, type->cxx_template_param_index);
+        if (!outer_parameter || !outer_parameter->template_signature ||
             outer_parameter->template_signature->param_count != nested_count ||
             (actual_template->kind != TMPL_CLASS &&
              actual_template->kind != TMPL_ALIAS) ||
             actual_template->param_count != nested_count) {
             rcc_error((SourceLoc){"<template>", 0, 0},
-                      "template-template argument cannot be instantiated");
+                      "template-template argument at parameter index %d "
+                      "does not match its enclosing signature",
+                      type->cxx_template_param_index);
+            return NULL;
+        }
+        if (nested_count > (int)(sizeof(nested_arguments) /
+                                 sizeof(nested_arguments[0]))) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "template-template argument list exceeds the supported "
+                      "limit");
             return NULL;
         }
         for (int nested_index = 0; nested_index < nested_count;

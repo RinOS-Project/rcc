@@ -4302,8 +4302,11 @@ remains a separate open item.
 - [x] Substitute an enclosing integral non-type parameter through a deeper
   nested owner chain into a member-function body; verify GCC C++20, RCC i686
   and AMD64 compilation, and i686 freestanding plus AMD64 host execution.
-- [ ] Capture enclosing template-template parameters and dependent pack
-  expansions in deeper owner chains.
+- [x] Capture enclosing template-template parameters in direct and deeper
+  nested-class owner chains, including an `Inner` member and a third-level
+  `Leaf`. GCC C++20 syntax, RCC i686/AMD64 compilation, and the focused
+  `test-cxx-class-template-dependent-nested-type` gate pass.
+- [ ] Expand dependent type/value packs through deeper nested owner chains.
 - [ ] Add explicit/partial nested class-template specializations and
   structural NTTP owner packs.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` and

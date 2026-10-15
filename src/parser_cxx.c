@@ -11631,11 +11631,11 @@ static int active_template_template_parameter_index(const char* name) {
     return -1;
 }
 
-static const TemplateParam* active_template_template_parameter(
-    int parameter_index) {
-    if (!active_template || parameter_index < 0) return NULL;
+static const TemplateParam* cxx_template_template_parameter_at(
+    CxxTemplate* tmpl, int parameter_index) {
+    if (!tmpl || parameter_index < 0) return NULL;
     int offset = 0;
-    for (CxxTemplate* scope = active_template; scope;
+    for (CxxTemplate* scope = tmpl; scope;
          scope = scope->enclosing_template) {
         if (parameter_index >= offset &&
             parameter_index - offset < scope->param_count) {
@@ -11647,6 +11647,12 @@ static const TemplateParam* active_template_template_parameter(
         offset += scope->param_count;
     }
     return NULL;
+}
+
+static const TemplateParam* active_template_template_parameter(
+    int parameter_index) {
+    return cxx_template_template_parameter_at(active_template,
+                                               parameter_index);
 }
 
 static bool template_template_parameter_signatures_match(
@@ -11802,6 +11808,15 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         type->cxx_template_param_index < argument_count &&
         arguments[type->cxx_template_param_index]) {
         Type* owner = arguments[type->cxx_template_param_index];
+        if (type->cxx_template_arg_count > 0) {
+            Type* owner_pattern = ast_arena_alloc(sizeof(*owner_pattern));
+            *owner_pattern = *type;
+            owner_pattern->cxx_dependent_member_name = NULL;
+            owner = substitute_template_type(
+                tmpl, owner_pattern, arguments, argument_count, value_args,
+                value_present);
+            if (!owner) return NULL;
+        }
         if (owner->cxx_dependent) {
             Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
             *unresolved = *type;
@@ -12424,24 +12439,39 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         type->cxx_template_arg_count > 0) {
         Type* template_argument;
         CxxTemplate* actual_template;
+        const TemplateParam* template_parameter =
+            cxx_template_template_parameter_at(
+                tmpl, type->cxx_template_param_index);
         Type* nested_arguments[32] = { NULL };
         int64_t nested_values[32] = { 0 };
         bool nested_value_present[32] = { false };
         Type* instantiated;
-        if (type->cxx_template_param_index >= argument_count ||
-            !arguments ||
-            !(template_argument = arguments[type->cxx_template_param_index]) ||
-            !(actual_template = template_argument->cxx_template) ||
-            type->cxx_template_arg_count >
-                (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0])) ||
-            !template_template_signature_matches(
-                tmpl && type->cxx_template_param_index < tmpl->param_count
-                    ? &tmpl->params[type->cxx_template_param_index] : NULL,
-                actual_template) ||
+        if (type->cxx_template_param_index >= argument_count || !arguments)
+            return type;
+        template_argument = arguments[type->cxx_template_param_index];
+        if (!template_argument || !template_argument->cxx_template) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "template-template parameter index %d has no template "
+                      "argument identity",
+                      type->cxx_template_param_index);
+            return NULL;
+        }
+        actual_template = template_argument->cxx_template;
+        if (!template_parameter ||
+            !template_template_signature_matches(template_parameter,
+                                                 actual_template) ||
             actual_template->param_count != type->cxx_template_arg_count) {
-            rcc_error(type->cxx_class ? (SourceLoc){"<template>", 0, 0}
-                                      : (SourceLoc){"<template>", 0, 0},
-                      "template-template argument cannot be instantiated");
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "template-template argument at parameter index %d "
+                      "does not match its enclosing signature",
+                      type->cxx_template_param_index);
+            return NULL;
+        }
+        if (type->cxx_template_arg_count >
+            (int)(sizeof(nested_arguments) / sizeof(nested_arguments[0]))) {
+            rcc_error((SourceLoc){"<template>", 0, 0},
+                      "template-template argument list exceeds the supported "
+                      "limit");
             return NULL;
         }
         for (int nested_index = 0;
@@ -14813,6 +14843,7 @@ static Type* parse_class_template_specialization_with_owner_type(
             dependent->cxx_dependent = true;
             dependent->cxx_template = tmpl;
             dependent->cxx_template_param_index = -1;
+            dependent->cxx_dependent_class_template_owner = owner_type;
             dependent->cxx_template_arg_count = argument_count;
             if (argument_count > 0) {
                 dependent->cxx_template_args = ast_arena_alloc(
@@ -14841,6 +14872,7 @@ static Type* parse_class_template_specialization_with_owner_type(
             dependent->cxx_dependent = true;
             dependent->cxx_template = tmpl;
             dependent->cxx_template_param_index = -1;
+            dependent->cxx_dependent_class_template_owner = owner_type;
             dependent->cxx_template_arg_count = argument_count;
             if (argument_count > 0) {
                 dependent->cxx_template_args = ast_arena_alloc(
@@ -15024,7 +15056,7 @@ static Type* parse_class_template_specialization_with_owner_type(
 static Type* parse_class_template_specialization_for_owner(
     CxxTemplate* tmpl, CxxClass* owner_class, SourceLoc loc) {
     return parse_class_template_specialization_with_owner_type(
-        tmpl, owner_class, NULL, loc);
+        tmpl, owner_class, owner_class ? owner_class->type : NULL, loc);
 }
 
 static Type* parse_class_template_specialization_for_dependent_owner(
@@ -24930,7 +24962,9 @@ static Type* parse_cxx_type_spec(void) {
                                           "dependent nested type name is too long");
                                 t = type_int;
                             } else {
-                                t = type_struct(rcc_intern(dependent_name));
+                                t = ast_arena_alloc(sizeof(*t));
+                                *t = *owner_type;
+                                t->tag = rcc_intern(dependent_name);
                                 t->cxx_dependent = true;
                                 t->cxx_template_param_index =
                                     owner_type->cxx_template_param_index;
@@ -25243,8 +25277,8 @@ static Type* parse_cxx_type_spec(void) {
                 t->cxx_template_arg_count = 0;
             }
         } else if (template_template_index >= 0 && check(TOK_LT)) {
-            TemplateParam* parameter = &active_template->params[
-                template_template_index];
+            const TemplateParam* parameter =
+                active_template_template_parameter(template_template_index);
             Type* dependent = type_struct(name);
             int nested_count = 0;
             dependent->cxx_dependent = true;
@@ -25252,7 +25286,8 @@ static Type* parse_cxx_type_spec(void) {
             expect(TOK_LT, "template-template argument list");
             if (!check(TOK_GT)) {
                 do {
-                    if (nested_count >= 32 || !parameter->template_signature ||
+                    if (nested_count >= 32 || !parameter ||
+                        !parameter->template_signature ||
                         nested_count >=
                             parameter->template_signature->param_count) {
                         rcc_error(peek()->loc,
