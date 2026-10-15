@@ -1876,7 +1876,8 @@ static bool cxx_template_non_type_constant_value(
         CxxClass* value_class = value_type ? value_type->cxx_class : NULL;
         TypeParam* field = value_class ? value_class->fields : NULL;
         ExprList* initializer = expression->compound_init;
-        if (!cxx_structural_class_has_single_integer_field(value_type)) {
+        if (!cxx_structural_class_has_single_integral_or_enum_field(
+                value_type)) {
             return false;
         }
         if (!initializer) {
@@ -13851,7 +13852,7 @@ static Type* instantiate_class_template_for_owner(
              (!type_is_integer(non_type_argument_type) &&
              non_type_argument_type->kind != TYPE_ENUM &&
              non_type_argument_type->kind != TYPE_NULLPTR &&
-             !cxx_structural_class_has_single_integer_field(
+             !cxx_structural_class_has_single_integral_or_enum_field(
                  non_type_argument_type)))) {
             rcc_error(loc,
                       "class template non-type argument %d has an "
