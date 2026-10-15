@@ -4855,6 +4855,20 @@ remains a separate open item.
   generated AMD64 plus GCC-host programs. The focused nested-owner target and
   aggregate `test-cxx test-debug-info` both pass (exit 0).
 - [ ] Add explicit diagnostics/regressions for overflowing dependent
-  constant expressions and cover remaining expression/type-conversion forms;
-  non-null structural pointer NTTP values and explicit-specialization chains
-  deeper than eight nested levels remain open.
+  constant expressions and cover integral conversions beyond the tested
+  unsigned-byte narrowing; non-null structural pointer NTTP values and
+  explicit-specialization chains deeper than eight nested levels remain open.
+
+## RCC continuation (2026-10-16, narrowing casts in dependent array bounds)
+
+- [x] Apply the target-width conversion for dependent integral
+  `static_cast<unsigned char>(N)` before evaluating an array-bound expression;
+  test `N == 256` wrapping to zero and the resulting `int[1]` partial match.
+- [x] Verify mismatched primary fallback and nested `Inner<Value*>` selection,
+  compare exact GCC Itanium symbols on i686/AMD64, and run generated AMD64 plus
+  GCC-host programs. The focused nested-owner target and aggregate
+  `test-cxx test-debug-info` both pass (exit 0).
+- [ ] Add regressions for signed narrowing, bool/enum casts, and unsigned
+  conversions outside the evaluator's signed 64-bit range; floating casts,
+  overflow diagnostics, non-null structural pointer NTTP values, and
+  specialization chains deeper than eight nested levels remain open.

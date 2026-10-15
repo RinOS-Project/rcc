@@ -2446,6 +2446,48 @@ static bool cxx_eval_i64_mul(int64_t left, int64_t right,
 #endif
 }
 
+static bool cxx_eval_i64_integral_cast(Type* target, int64_t value,
+                                       int64_t* result) {
+    Type* representation = target;
+    unsigned bit_width;
+    uint64_t mask;
+    uint64_t converted;
+
+    if (!target || !result) return false;
+    if (target->kind == TYPE_BOOL) {
+        *result = value != 0;
+        return true;
+    }
+    if (target->kind == TYPE_ENUM && target->enum_underlying_type) {
+        representation = target->enum_underlying_type;
+    }
+    if (!type_is_integer(target) || !representation ||
+        representation->size <= 0 ||
+        representation->size > (int)sizeof(uint64_t)) {
+        return false;
+    }
+
+    bit_width = (unsigned)representation->size * 8u;
+    mask = bit_width >= 64u
+        ? UINT64_MAX : (UINT64_C(1) << bit_width) - 1u;
+    converted = (uint64_t)value & mask;
+    if (representation->is_unsigned) {
+        if (converted > (uint64_t)INT64_MAX) return false;
+        *result = (int64_t)converted;
+        return true;
+    }
+    if (bit_width < 64u &&
+        (converted & (UINT64_C(1) << (bit_width - 1u))) != 0u) {
+        *result = -1 - (int64_t)(mask - converted);
+    } else if (bit_width == 64u &&
+               (converted & (UINT64_C(1) << 63u)) != 0u) {
+        *result = -1 - (int64_t)(mask - converted);
+    } else {
+        *result = (int64_t)converted;
+    }
+    return true;
+}
+
 static bool eval_template_integer_expression(Expr* expression,
                                               CxxTemplate* tmpl,
                                               const int64_t* values,
@@ -19132,8 +19174,11 @@ static bool eval_template_integer_expression(Expr* expression,
             *result = rcc_sema_cxx_requires_satisfied(expression) ? 1 : 0;
             return true;
         case EXPR_CAST:
-            return eval_template_integer_expression(
-                expression->cast_expr, tmpl, values, value_present, result);
+            if (!eval_template_integer_expression(
+                    expression->cast_expr, tmpl, values, value_present,
+                    &left)) return false;
+            return cxx_eval_i64_integral_cast(
+                expression->cast_type, left, result);
         default:
             return false;
     }

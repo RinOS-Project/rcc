@@ -1283,6 +1283,31 @@ struct NestedArrayUnaryNegationBoundOwner<
     int result() const { return 2810; }
 };
 
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayIntegralCastBoundOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2820; }
+    };
+};
+
+template <int OwnerExtent>
+struct NestedArrayIntegralCastBoundOwner<
+    int[static_cast<unsigned char>(OwnerExtent) + 1], OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2830; }
+    };
+};
+
+template <int OwnerExtent>
+template <typename Value>
+struct NestedArrayIntegralCastBoundOwner<
+    int[static_cast<unsigned char>(OwnerExtent) + 1], OwnerExtent>::
+    Inner<Value*> {
+    int result() const { return 2840; }
+};
+
 template <typename OwnerValue, int OwnerTag>
 struct NestedArrayDeducedExtentOwner {
     template <typename Value>
@@ -1663,6 +1688,12 @@ int main() {
         array_bound_unary_negation_outer;
     NestedArrayUnaryNegationBoundOwner<int[4], -4>::Inner<char*>
         array_bound_unary_negation_inner;
+    NestedArrayIntegralCastBoundOwner<int[2], 256>::Inner<char>
+        array_bound_integral_cast_primary;
+    NestedArrayIntegralCastBoundOwner<int[1], 256>::Inner<char>
+        array_bound_integral_cast_outer;
+    NestedArrayIntegralCastBoundOwner<int[1], 256>::Inner<char*>
+        array_bound_integral_cast_inner;
     NestedArrayDeducedExtentOwner<int[4], 7>::Inner<char>
         array_bound_deduced_extent_partial;
     NestedArrayDeducedExtentOwner<int[4], 8>::Inner<char>
@@ -1828,6 +1859,9 @@ int main() {
     if (array_bound_unary_negation_primary.result() != 2790) return 133;
     if (array_bound_unary_negation_outer.result() != 2800) return 134;
     if (array_bound_unary_negation_inner.result() != 2810) return 135;
+    if (array_bound_integral_cast_primary.result() != 2820) return 136;
+    if (array_bound_integral_cast_outer.result() != 2830) return 137;
+    if (array_bound_integral_cast_inner.result() != 2840) return 138;
     if (array_bound_deduced_extent_partial.result() != 2210) return 94;
     if (array_bound_deduced_extent_primary.result() != 2200) return 95;
     if (array_bound_conditional_primary.result() != 2300) return 96;
