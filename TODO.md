@@ -4814,7 +4814,7 @@ remains a separate open item.
   eight consecutive explicit specialization template heads; retain primary and
   explicitly specialized outer-owner cases, compare all three exact GCC
   Itanium symbols on i686/AMD64, and run generated AMD64 plus GCC-host programs.
-- [ ] Explicit-specialization chains deeper than nine nested levels and
+- [ ] Explicit-specialization chains deeper than ten nested levels and
   non-null structural pointer NTTP values remain open.
 
 ## RCC continuation (2026-10-16, eight-level nested explicit specialization)
@@ -4824,7 +4824,7 @@ remains a separate open item.
   `::Fifth<long>::Sixth<char>::Seventh<float>::Inner<double>`.
 - [x] Verify all three exact GCC Itanium symbols against RCC for i686/AMD64 and
   run the focused generated AMD64 and GCC-host programs.
-- [ ] Chains deeper than nine levels and non-null structural pointer NTTP
+- [ ] Chains deeper than ten levels and non-null structural pointer NTTP
   values remain open.
 
 ## RCC continuation (2026-10-16, logical short-circuit in dependent array bounds)
@@ -4838,7 +4838,7 @@ remains a separate open item.
   GCC-host programs. The focused nested-owner target passes (exit 0).
 - [ ] Other dependent array-bound expression operators, type-conversion and
   overflow-diagnostic cases, non-null structural pointer NTTP values, and
-  explicit-specialization chains deeper than nine nested levels remain open.
+  explicit-specialization chains deeper than ten nested levels remain open.
 
 ## RCC continuation (2026-10-16, checked arithmetic in dependent array bounds)
 
@@ -4856,7 +4856,7 @@ remains a separate open item.
   aggregate `test-cxx test-debug-info` both pass (exit 0).
 - [ ] Cover unsigned conversions outside the evaluator's signed 64-bit range
   plus floating casts; non-null structural pointer NTTP values and
-  explicit-specialization chains deeper than nine nested levels remain open.
+  explicit-specialization chains deeper than ten nested levels remain open.
 
 ## RCC continuation (2026-10-16, narrowing casts in dependent array bounds)
 
@@ -4873,7 +4873,7 @@ remains a separate open item.
   GCC-host programs. The focused nested-owner target passes (exit 0).
 - [ ] Cover unsigned conversions outside the evaluator's signed 64-bit range
   and floating casts; non-null structural pointer NTTP values and
-  specialization chains deeper than nine nested levels remain open.
+  specialization chains deeper than ten nested levels remain open.
 
 ## RCC continuation (2026-10-16, nine-level nested explicit specialization)
 
@@ -4884,7 +4884,7 @@ remains a separate open item.
 - [x] Compare all three exact GCC Itanium symbols against RCC for i686 and
   AMD64, and run the generated AMD64 and GCC-host programs. The focused
   nested-owner target passes (exit 0).
-- [ ] Chains deeper than nine levels and non-null structural pointer NTTP
+- [ ] Chains deeper than ten levels and non-null structural pointer NTTP
   values remain open.
 
 ## RCC continuation (2026-10-16, dependent array-bound overflow diagnostics)
@@ -4898,7 +4898,7 @@ remains a separate open item.
   no `.ro` artifact, and GCC rejection. The focused overflow target passes.
 - [ ] Unsigned conversions outside the evaluator's signed 64-bit range,
   floating casts, non-null structural pointer NTTP values, specialization
-  chains deeper than nine levels, and overflow contexts outside this array-
+  chains deeper than ten levels, and overflow contexts outside this array-
   bound substitution path remain open.
 
 ## RCC continuation (2026-10-16, unsigned-64 dependent array bounds)
@@ -4930,3 +4930,16 @@ remains a separate open item.
   `test-cxx`/`test-ci` regression path.
 - [ ] Other direct values above `INT64_MAX`, full unsigned expression and
   conversion coverage, and floating casts remain open.
+
+## RCC continuation (2026-10-16, ten-level nested explicit specialization)
+
+- [x] Add primary-owner, explicitly specialized outer-owner, and explicitly
+  specialized deepest-member cases through `First<char>::Second<short>`
+  `::Third<int>::Fourth<float>::Fifth<long>::Sixth<char>::Seventh<float>`
+  `::Eighth<long>::Ninth<short>::Inner<double>`.
+- [x] Compare all three exact GCC Itanium symbols against RCC for i686 and
+  AMD64; compile both target objects, execute the generated AMD64 entry and the
+  GCC-host program. `test-cxx-nested-class-template-owner-explicit-chain-10`
+  passes (exit 0) and is a dependency of the aggregate nested-class suite.
+- [ ] Chains deeper than ten levels and non-null structural pointer NTTP
+  values remain open.

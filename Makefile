@@ -477,6 +477,7 @@ endif
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
 .PHONY: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-posix
+.PHONY: test-cxx-nested-class-template-owner-explicit-chain-10
 .PHONY: test-cxx-dependent-array-bound-overflow
 .PHONY: test-cxx-dependent-array-unsigned64-bound
 .PHONY: test-cxx-dependent-array-unsigned64-expressions
@@ -5188,6 +5189,7 @@ test-cxx-nested-class-templates: test-cxx-nested-class-template-specializations
 test-cxx-nested-class-templates: test-cxx-nested-class-template-template-owner-specialization
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-partial-specialization
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-structural-value-pack
+test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-explicit-chain-10
 
 test-cxx-nested-class-template-specializations: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-specializations)
@@ -5685,6 +5687,22 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_nested_member_explicit_specialization_missing_owner_header_invalid.cpp,$(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-gcc.log)
 	$(GREP) -F -q "too few template-parameter-lists" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/missing-owner-head-gcc.log
+
+test-cxx-nested-class-template-owner-explicit-chain-10: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nested-class-template-owner-explicit-chain-10,cxx_nested_explicit_chain_ten_levels.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/gcc.s tests/cxx_nested_explicit_chain_ten_levels.cpp
+	$(GREP) -F -q "_ZNK26TenLevelExplicitChainOwnerIlE5FirstIcE6SecondIsE5ThirdIiE6FourthIfE5FifthIlE5SixthIcE7SeventhIfE6EighthIlE5NinthIsE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/gcc.s
+	$(GREP) -F -q "_ZNK26TenLevelExplicitChainOwnerIiE5FirstIlE6SecondIsE5ThirdIiE6FourthIfE5FifthIlE5SixthIcE7SeventhIfE6EighthIlE5NinthIsE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/gcc.s
+	$(GREP) -F -q "_ZNK26TenLevelExplicitChainOwnerIiE5FirstIcE6SecondIsE5ThirdIiE6FourthIfE5FifthIlE5SixthIcE7SeventhIfE6EighthIlE5NinthIsE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/gcc.s
+	$(GREP) -F -q "_ZNK26TenLevelExplicitChainOwnerIlE5FirstIcE6SecondIsE5ThirdIiE6FourthIfE5FifthIlE5SixthIcE7SeventhIfE6EighthIlE5NinthIsE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/x86.s
+	$(GREP) -F -q "_ZNK26TenLevelExplicitChainOwnerIiE5FirstIlE6SecondIsE5ThirdIiE6FourthIfE5FifthIlE5SixthIcE7SeventhIfE6EighthIlE5NinthIsE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/x86.s
+	$(GREP) -F -q "_ZNK26TenLevelExplicitChainOwnerIiE5FirstIcE6SecondIsE5ThirdIiE6FourthIfE5FifthIlE5SixthIcE7SeventhIfE6EighthIlE5NinthIsE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/x86.s
+	$(GREP) -F -q "_ZNK26TenLevelExplicitChainOwnerIlE5FirstIcE6SecondIsE5ThirdIiE6FourthIfE5FifthIlE5SixthIcE7SeventhIfE6EighthIlE5NinthIsE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/x64.s
+	$(GREP) -F -q "_ZNK26TenLevelExplicitChainOwnerIiE5FirstIlE6SecondIsE5ThirdIiE6FourthIfE5FifthIlE5SixthIcE7SeventhIfE6EighthIlE5NinthIsE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/x64.s
+	$(GREP) -F -q "_ZNK26TenLevelExplicitChainOwnerIiE5FirstIcE6SecondIsE5ThirdIiE6FourthIfE5FifthIlE5SixthIcE7SeventhIfE6EighthIlE5NinthIsE5InnerIdE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/x64.s
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/gcc-host.exe tests/cxx_nested_explicit_chain_ten_levels.cpp
+	$(TEST_OUT)/cxx-nested-class-template-owner-explicit-chain-10/gcc-host.exe
 
 test-cxx-dependent-array-bound-overflow: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-dependent-array-bound-overflow)
