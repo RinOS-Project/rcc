@@ -19016,6 +19016,32 @@ static bool eval_template_integer_expression(Expr* expression,
                     &left)) return false;
             *result = ~left;
             return true;
+        case EXPR_AND:
+            if (!eval_template_integer_expression(
+                    expression->binary_lhs, tmpl, values, value_present,
+                    &left)) return false;
+            if (!left) {
+                *result = 0;
+                return true;
+            }
+            if (!eval_template_integer_expression(
+                    expression->binary_rhs, tmpl, values, value_present,
+                    &right)) return false;
+            *result = right != 0;
+            return true;
+        case EXPR_OR:
+            if (!eval_template_integer_expression(
+                    expression->binary_lhs, tmpl, values, value_present,
+                    &left)) return false;
+            if (left) {
+                *result = 1;
+                return true;
+            }
+            if (!eval_template_integer_expression(
+                    expression->binary_rhs, tmpl, values, value_present,
+                    &right)) return false;
+            *result = right != 0;
+            return true;
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:
@@ -19032,8 +19058,6 @@ static bool eval_template_integer_expression(Expr* expression,
         case EXPR_GT:
         case EXPR_LE:
         case EXPR_GE:
-        case EXPR_AND:
-        case EXPR_OR:
             if (!eval_template_integer_expression(
                     expression->binary_lhs, tmpl, values, value_present,
                     &left) ||
@@ -19069,8 +19093,6 @@ static bool eval_template_integer_expression(Expr* expression,
                 case EXPR_GT: *result = left > right; break;
                 case EXPR_LE: *result = left <= right; break;
                 case EXPR_GE: *result = left >= right; break;
-                case EXPR_AND: *result = left && right; break;
-                case EXPR_OR: *result = left || right; break;
                 default: return false;
             }
             return true;

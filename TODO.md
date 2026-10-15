@@ -4715,7 +4715,8 @@ remains a separate open item.
 - [x] Correct array type mangling to include the Itanium ABI separator after
   the dimension; RCC's names now match GCC for all four tested instantiations.
 - [ ] Additional dependent array-bound expressions beyond the verified `+`,
-  `*`, `<<`, and conditional-comparison forms, reference/array-reference and
+  `*`, `<<`, conditional-comparison, and logical short-circuit forms;
+  reference/array-reference and
   template-template owner forms, non-null structural pointer NTTP values, and
   explicit owner-specialization chains deeper than seven levels remain open.
 
@@ -4728,7 +4729,8 @@ remains a separate open item.
   exact GCC Itanium symbols with RCC on i686/AMD64 and execute generated AMD64
   and GCC-host programs. The full focused nested-owner gate passes (exit 0).
 - [ ] Other reference type-id combinations, additional dependent array-bound
-  expressions beyond the verified arithmetic and conditional forms,
+  expressions beyond the verified arithmetic, conditional, and logical
+  short-circuit forms,
   template-template owners, non-null structural pointer NTTP values, and
   explicit owner-specialization chains deeper than seven levels remain open.
 
@@ -4741,7 +4743,8 @@ remains a separate open item.
   and GCC-host programs. The focused target and aggregate `test-cxx`
   / `test-debug-info` gates pass (exit 0).
 - [ ] Other reference type-id combinations, additional dependent array-bound
-  expressions beyond the verified arithmetic and conditional forms,
+  expressions beyond the verified arithmetic, conditional, and logical
+  short-circuit forms,
   template-template owners, non-null structural pointer NTTP values, and
   explicit owner-specialization chains deeper than seven levels remain open.
 
@@ -4774,7 +4777,8 @@ remains a separate open item.
   execute generated AMD64 plus GCC-host programs; the focused nested-owner
   gate passes (exit 0).
 - [ ] Additional dependent array-bound operators/forms beyond the verified
-  addition, multiplication, left-shift, and conditional-comparison cases,
+  addition, multiplication, left-shift, conditional-comparison, and logical
+  short-circuit cases,
   other reference type-id and template-template owner forms, non-null
   structural pointer NTTP values, and explicit owner-specialization chains
   deeper than seven levels remain open.
@@ -4791,3 +4795,16 @@ remains a separate open item.
   (exit 0).
 - [ ] Explicit-specialization chains deeper than seven nested levels and
   non-null structural pointer NTTP values remain open.
+
+## RCC continuation (2026-10-16, logical short-circuit in dependent array bounds)
+
+- [x] Evaluate `&&` and `||` in dependent array-bound expressions with C++
+  short-circuit semantics, skipping an unsupported non-constant call in an
+  unselected operand while evaluating supported selected paths.
+- [x] Cover zero/nonzero extents, matching outer and nested `Inner<Value*>`
+  partial specializations, and primary fallback; compare all eight exact GCC
+  Itanium symbols against RCC on i686/AMD64 and execute generated AMD64 plus
+  GCC-host programs. The focused nested-owner target passes (exit 0).
+- [ ] Additional dependent array-bound operators beyond addition,
+  multiplication, left-shift, conditional comparison, and logical
+  short-circuit forms remain open.

@@ -1151,6 +1151,64 @@ struct NestedArrayConditionalBoundOwner<
     int result() const { return 2320; }
 };
 
+int rcc_nonconstant_array_bound_value();
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayShortCircuitOrOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2400; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayShortCircuitOrOwner<
+    OwnerValue[((OwnerExtent == 0) || ((OwnerExtent != 0)
+        ? (OwnerExtent == 1) : rcc_nonconstant_array_bound_value())) + 1],
+    OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2410; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+template <typename Value>
+struct NestedArrayShortCircuitOrOwner<
+    OwnerValue[((OwnerExtent == 0) || ((OwnerExtent != 0)
+        ? (OwnerExtent == 1) : rcc_nonconstant_array_bound_value())) + 1],
+    OwnerExtent>::Inner<Value*> {
+    int result() const { return 2420; }
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayShortCircuitAndOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2500; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayShortCircuitAndOwner<
+    OwnerValue[((OwnerExtent != 0) && ((OwnerExtent == 0)
+        ? rcc_nonconstant_array_bound_value() : (OwnerExtent == 1))) + 1],
+    OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2510; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+template <typename Value>
+struct NestedArrayShortCircuitAndOwner<
+    OwnerValue[((OwnerExtent != 0) && ((OwnerExtent == 0)
+        ? rcc_nonconstant_array_bound_value() : (OwnerExtent == 1))) + 1],
+    OwnerExtent>::Inner<Value*> {
+    int result() const { return 2520; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -1357,6 +1415,22 @@ int main() {
         array_bound_conditional_inner;
     NestedArrayConditionalBoundOwner<int[1], 0>::Inner<char*>
         array_bound_conditional_zero_extent;
+    NestedArrayShortCircuitOrOwner<int[2], 0>::Inner<char>
+        array_bound_short_circuit_or_zero;
+    NestedArrayShortCircuitOrOwner<int[2], 0>::Inner<char*>
+        array_bound_short_circuit_or_zero_inner;
+    NestedArrayShortCircuitOrOwner<int[2], 1>::Inner<char>
+        array_bound_short_circuit_or_nonzero;
+    NestedArrayShortCircuitOrOwner<int[2], 2>::Inner<char*>
+        array_bound_short_circuit_or_primary;
+    NestedArrayShortCircuitAndOwner<int[1], 0>::Inner<char>
+        array_bound_short_circuit_and_zero;
+    NestedArrayShortCircuitAndOwner<int[1], 0>::Inner<char*>
+        array_bound_short_circuit_and_zero_inner;
+    NestedArrayShortCircuitAndOwner<int[2], 1>::Inner<char>
+        array_bound_short_circuit_and_nonzero;
+    NestedArrayShortCircuitAndOwner<int[2], 2>::Inner<char*>
+        array_bound_short_circuit_and_primary;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -1463,5 +1537,13 @@ int main() {
     if (array_bound_conditional_outer.result() != 2310) return 97;
     if (array_bound_conditional_inner.result() != 2320) return 98;
     if (array_bound_conditional_zero_extent.result() != 2320) return 99;
+    if (array_bound_short_circuit_or_zero.result() != 2410) return 103;
+    if (array_bound_short_circuit_or_zero_inner.result() != 2420) return 104;
+    if (array_bound_short_circuit_or_nonzero.result() != 2410) return 105;
+    if (array_bound_short_circuit_or_primary.result() != 2400) return 106;
+    if (array_bound_short_circuit_and_zero.result() != 2510) return 107;
+    if (array_bound_short_circuit_and_zero_inner.result() != 2520) return 108;
+    if (array_bound_short_circuit_and_nonzero.result() != 2510) return 109;
+    if (array_bound_short_circuit_and_primary.result() != 2500) return 110;
     return 0;
 }
