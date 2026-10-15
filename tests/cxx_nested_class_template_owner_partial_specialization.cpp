@@ -1029,7 +1029,7 @@ template <typename OwnerValue, int OwnerExtent>
 template <typename MidValue, int MidExtent>
 struct NestedArrayBoundExpressionOwnerChain<
     OwnerValue[OwnerExtent + 1], OwnerExtent>::
-    Mid<MidValue[MidExtent + 1], MidExtent> {
+    Mid<MidValue[(MidExtent * 2) + 1], MidExtent> {
     template <typename LeafValue, int LeafExtent>
     struct Leaf {
         int result() const { return 2020; }
@@ -1041,8 +1041,8 @@ template <typename MidValue, int MidExtent>
 template <typename LeafValue, int LeafExtent>
 struct NestedArrayBoundExpressionOwnerChain<
     OwnerValue[OwnerExtent + 1], OwnerExtent>::
-    Mid<MidValue[MidExtent + 1], MidExtent>::
-    Leaf<LeafValue[LeafExtent + 1], LeafExtent> {
+    Mid<MidValue[(MidExtent * 2) + 1], MidExtent>::
+    Leaf<LeafValue[(LeafExtent << 1) + 1], LeafExtent> {
     int result() const { return 2030; }
 };
 
@@ -1238,14 +1238,14 @@ int main() {
         Mid<char (&&)[2]>::Leaf<long (&&)[1]>
         rvalue_reference_array_partial_leaf_owner;
     NestedArrayBoundExpressionOwnerChain<int[5], 3>::
-        Mid<char[3], 2>::Leaf<long[2], 1> array_bound_expression_primary;
+        Mid<char[3], 1>::Leaf<long[1], 0> array_bound_expression_primary;
     NestedArrayBoundExpressionOwnerChain<int[4], 3>::
-        Mid<char[3], 2>::Leaf<long[2], 1> array_bound_expression_outer;
+        Mid<char[3], 1>::Leaf<long[1], 0> array_bound_expression_outer;
     NestedArrayBoundExpressionOwnerChain<int[4], 3>::
-        Mid<char[4], 2>::Leaf<long[2], 1>
+        Mid<char[4], 1>::Leaf<long[1], 0>
         array_bound_expression_wrong_mid_extent;
     NestedArrayBoundExpressionOwnerChain<int[4], 3>::
-        Mid<char[3], 2>::Leaf<long[3], 1>
+        Mid<char[3], 1>::Leaf<long[3], 0>
         array_bound_expression_wrong_leaf_extent;
     NestedArrayDeducedExtentOwner<int[4], 7>::Inner<char>
         array_bound_deduced_extent_partial;
