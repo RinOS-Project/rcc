@@ -4915,6 +4915,18 @@ remains a separate open item.
       negation, unsigned comparison, and later narrowing to `unsigned char`.
       Both valid and invalid forms pass the GCC comparison and the focused
       i686/AMD64 regressions.
-- [ ] Direct non-type template argument values above `INT64_MAX`, the full
-      remaining unsigned-expression/type-conversion matrix, and floating casts
-      remain open.
+- [ ] Other direct non-type template argument values above `INT64_MAX`, the
+      full remaining unsigned-expression/type-conversion matrix, and floating
+      casts remain open.
+
+## RCC continuation (2026-10-16, direct unsigned-64 template arguments)
+
+- [x] Instantiate a dependent member array from direct `ULLONG_MAX` non-type
+  template arguments. Verify equality and unsigned wraparound select the GCC-
+  matching extents on i686 and AMD64; GCC C++20 accepts the same fixture.
+- [x] Reject direct `ULLONG_MAX` as an array extent on both targets, require
+  exactly four out-of-range diagnostics including this case, verify no `.ro`
+  artifact, and compare against GCC rejection. Both focused tests are in the
+  `test-cxx`/`test-ci` regression path.
+- [ ] Other direct values above `INT64_MAX`, full unsigned expression and
+  conversion coverage, and floating casts remain open.
