@@ -4350,5 +4350,15 @@ remains a separate open item.
   on i686/AMD64; execute the RCC-generated AMD64 program and the GCC C++20
   program; pass `test-cxx-nested-class-templates` and the full `test-cxx` plus
   `test-debug-info` aggregates (exit 0).
-- [ ] Extend nested class-template specializations to class-template or
-  dependent owners, and add structural NTTP owner-pack specializations.
+- [x] Parse and select an explicit member class-template specialization on a
+  concrete class-template owner (`template<> template<> struct
+  Outer<int>::Inner<char>`). Keep the specialization owner-specific so
+  `Outer<long>::Inner<char>` still selects the primary. Verify exact GCC
+  Itanium symbols on i686/AMD64 and execute both RCC- and GCC-generated host
+  programs.
+- [x] Pass `test-cxx-nested-class-templates`, the complete native-Windows
+  MinGW GCC `test-cxx` aggregate, and `test-debug-info` after the owner-aware
+  specialization-selection change (all exit 0).
+- [ ] Add partial nested specializations for class-template owners, explicit/
+  partial nested specializations for dependent owners, and structural NTTP
+  owner-pack specializations.

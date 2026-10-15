@@ -1901,6 +1901,8 @@ static Expr* parse_cxx_requires_clause_expression(void) {
     return constraint;
 }
 static CxxTemplate* find_class_template(const char* qualified_name);
+static Type* parse_class_template_specialization(CxxTemplate* tmpl,
+                                                 SourceLoc loc);
 static CxxTemplate* find_alias_template(const char* qualified_name);
 static CxxTemplate* find_template_template_argument(
     const char* qualified_name);
@@ -9996,10 +9998,50 @@ static CxxTemplate* parse_cxx_template_template_signature(SourceLoc loc) {
     return signature;
 }
 
+static bool cxx_explicit_nested_template_owner_specialization_starts(void) {
+    Token* token = parser.cur;
+    int angle_depth = 0;
+
+    if (!token || token->type != TOK_TEMPLATE) return false;
+    token = token->next;
+    if (!token || token->type != TOK_LT || !token->next ||
+        token->next->type != TOK_GT) {
+        return false;
+    }
+    token = token->next->next;
+    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT)) {
+        return false;
+    }
+    token = token->next;
+    if (!token || token->type != TOK_IDENT ||
+        !find_class_template(token->value.str_val)) {
+        return false;
+    }
+    token = token->next;
+    if (!token || token->type != TOK_LT) return false;
+    angle_depth = 1;
+    for (token = token->next; token; token = token->next) {
+        if (token->type == TOK_LT) {
+            ++angle_depth;
+        } else if (token->type == TOK_GT) {
+            if (--angle_depth == 0) break;
+        } else if (token->type == TOK_RSHIFT) {
+            angle_depth -= 2;
+            if (angle_depth <= 0) break;
+        }
+    }
+    if (!token || angle_depth > 0) return false;
+    token = token->next;
+    return token && token->type == TOK_SCOPE && token->next &&
+           token->next->type == TOK_IDENT && token->next->next &&
+           token->next->next->type == TOK_LT;
+}
+
 CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     SourceLoc loc = previous()->loc;
     CxxTemplate* parameter_outer_template = active_template;
     int explicit_class_alignment = 0;
+    bool nested_member_template_explicit_specialization = false;
     expect(TOK_LT, "<");
 
     CxxTemplate* tmpl = cxx_template_new(loc);
@@ -10221,6 +10263,18 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         }
     }
 
+    /* A fully specialized enclosing class-template owner uses two explicit
+     * template heads: `template<> template<> struct Outer<int>::Inner<char>`.
+     * Consume this bounded form here so it reaches the same specialization
+     * registry used by ordinary nested class-template instantiation. */
+    if (tmpl->param_count == 0 &&
+        cxx_explicit_nested_template_owner_specialization_starts()) {
+        advance(); /* second `template` */
+        expect(TOK_LT, "< in nested member specialization header");
+        expect(TOK_GT, "> in nested member specialization header");
+        nested_member_template_explicit_specialization = true;
+    }
+
     /* A friend function template declared in a class is a namespace
      * template.  Preserve the granting class on the template so every
      * specialization receives precisely this access during semantic
@@ -10395,15 +10449,14 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
      * ordinary class-template matching and instantiation path. */
     if ((check(TOK_CLASS) || check(TOK_STRUCT)) && parser.cur->next &&
         parser.cur->next->type == TOK_IDENT && parser.cur->next->next &&
-        parser.cur->next->next->type == TOK_SCOPE &&
-        parser.cur->next->next->next &&
-        parser.cur->next->next->next->type == TOK_IDENT &&
-        parser.cur->next->next->next->next &&
-        parser.cur->next->next->next->next->type == TOK_LT) {
+        (parser.cur->next->next->type == TOK_SCOPE ||
+         (nested_member_template_explicit_specialization &&
+          parser.cur->next->next->type == TOK_LT))) {
         bool is_struct = match(TOK_STRUCT);
         Token* owner_token;
         Token* name_token;
         CxxClass* owner_class;
+        Type* owner_type = NULL;
         CxxNestedClassTemplate* nested_template;
         CxxTemplate* primary;
         Type* arguments[32] = { NULL };
@@ -10416,10 +10469,23 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
 
         if (!is_struct) expect(TOK_CLASS, "class or struct");
         owner_token = expect(TOK_IDENT, "nested specialization owner");
+        if (check(TOK_LT) && nested_member_template_explicit_specialization) {
+            CxxTemplate* owner_template = owner_token
+                ? find_class_template(owner_token->value.str_val) : NULL;
+            if (!owner_template || owner_template->kind != TMPL_CLASS) {
+                rcc_error(loc,
+                          "nested specialization owner must be a class template");
+            } else {
+                owner_type = parse_class_template_specialization(
+                    owner_template, loc);
+            }
+            owner_class = owner_type ? owner_type->cxx_class : NULL;
+        } else {
+            owner_class = owner_token
+                ? find_class(owner_token->value.str_val) : NULL;
+        }
         expect(TOK_SCOPE, ":: before nested class template name");
         name_token = expect(TOK_IDENT, "nested class template name");
-        owner_class = owner_token
-            ? find_class(owner_token->value.str_val) : NULL;
         nested_template = owner_class && name_token
             ? cxx_class_find_nested_template(
                   owner_class, name_token->value.str_val)
@@ -15115,6 +15181,10 @@ static Type* parse_class_template_specialization_with_owner_type(
     int selected_ranks[32] = { 0 };
     for (int index = 0; index < tmpl->specialization_count; ++index) {
         CxxTemplate* specialization = tmpl->specializations[index];
+        if (specialization && specialization->enclosing_class &&
+            specialization->enclosing_class != owner_class) {
+            continue;
+        }
         bool matches = specialization &&
             specialization->specialization_arg_count == argument_count;
         Type* specialization_arguments[32] = { NULL };
