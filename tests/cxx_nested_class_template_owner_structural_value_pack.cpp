@@ -16,9 +16,20 @@ struct NestedStructuralValueOwnerPack<Values...>::Inner<Element*> {
     int result() const { return 22; }
 };
 
+template <NestedStructuralOwnerKey Value>
+struct NestedStructuralValueOwner {
+    template <typename Element>
+    struct Inner {
+        int result() const { return Value.value; }
+    };
+};
+
 int main() {
     NestedStructuralValueOwnerPack<
         NestedStructuralOwnerKey{3}, NestedStructuralOwnerKey{7}>
         ::Inner<int*> partial;
-    return partial.result() == 22 ? 0 : 1;
+    NestedStructuralValueOwner<NestedStructuralOwnerKey{37}>::Inner<int>
+        parameter_object;
+    if (partial.result() != 22) return 1;
+    return parameter_object.result() == 37 ? 0 : 2;
 }

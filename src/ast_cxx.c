@@ -7704,6 +7704,26 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
     if (expression->kind == EXPR_MEMBER) {
         int64_t value;
         Type* value_type = NULL;
+        if (expression->member_base &&
+            expression->member_base->kind == EXPR_IDENT &&
+            expression->member_base->ident_name &&
+            expression->member_name && value_args && value_present) {
+            TemplateParam* parameter = NULL;
+            int index = template_clone_value_parameter_index(
+                tmpl, expression->member_base->ident_name, arg_count,
+                &parameter);
+            if (index >= 0 && parameter &&
+                cxx_structural_class_has_single_integer_field(
+                    parameter->type) &&
+                parameter->type->cxx_class->fields->name &&
+                strcmp(parameter->type->cxx_class->fields->name,
+                       expression->member_name) == 0 &&
+                value_present[index]) {
+                copy = expr_int(value_args[index], expression->loc);
+                copy->type = parameter->type->cxx_class->fields->type;
+                return copy;
+            }
+        }
         if (template_eval_dependent_static_member(
                 tmpl, expression, args, arg_count, &value, &value_type)) {
             copy = expr_int(value, expression->loc);
