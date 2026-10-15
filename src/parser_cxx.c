@@ -1041,6 +1041,13 @@ static int cxx_parser_template_parameter_pack_index(
     CxxTemplate* tmpl, Type* pattern);
 static int cxx_parser_template_value_pack_index_expression(
     CxxTemplate* tmpl, const Expr* expression);
+static bool cxx_parser_template_pack_parameter_in_scopes(
+    CxxTemplate* tmpl, Type* type_pattern, const Expr* value_pattern,
+    int parameter_kind);
+static bool cxx_parser_find_enclosing_pack_source(
+    CxxTemplate* tmpl, Type* type_pattern, const Expr* value_pattern,
+    CxxTemplate** pack_scope_out, int* pack_index_out,
+    int* pack_argument_offset_out, int* trailing_argument_count_out);
 static void cxx_parser_replace_pack_value_identifier(
     Expr* expression, const char* parameter_name,
     Expr* replacement_expression);
@@ -11631,7 +11638,7 @@ static int active_template_template_parameter_index(const char* name) {
     return -1;
 }
 
-static const TemplateParam* cxx_template_template_parameter_at(
+static const TemplateParam* cxx_template_parameter_at(
     CxxTemplate* tmpl, int parameter_index) {
     if (!tmpl || parameter_index < 0) return NULL;
     int offset = 0;
@@ -11639,14 +11646,20 @@ static const TemplateParam* cxx_template_template_parameter_at(
          scope = scope->enclosing_template) {
         if (parameter_index >= offset &&
             parameter_index - offset < scope->param_count) {
-            const TemplateParam* parameter =
-                &scope->params[parameter_index - offset];
-            return parameter->kind == TPARAM_TEMPLATE ? parameter : NULL;
+            return &scope->params[parameter_index - offset];
         }
         if (scope->param_count > INT_MAX - offset) return NULL;
         offset += scope->param_count;
     }
     return NULL;
+}
+
+static const TemplateParam* cxx_template_template_parameter_at(
+    CxxTemplate* tmpl, int parameter_index) {
+    const TemplateParam* parameter = cxx_template_parameter_at(
+        tmpl, parameter_index);
+    return parameter && parameter->kind == TPARAM_TEMPLATE
+        ? parameter : NULL;
 }
 
 static const TemplateParam* active_template_template_parameter(
@@ -12061,32 +12074,46 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                value_expansion_pack_index) {
                     expansion_pack_index = -2;
                 }
+                CxxTemplate* enclosing_pack_scope = NULL;
+                int enclosing_pack_index = -1;
+                int enclosing_pack_offset = -1;
+                int enclosing_pack_trailing_count = 0;
+                bool expands_enclosing_pack = expansion_pack_index == -1 &&
+                    cxx_parser_find_enclosing_pack_source(
+                        tmpl, pattern_argument, pattern_value_expression,
+                        &enclosing_pack_scope, &enclosing_pack_index,
+                        &enclosing_pack_offset,
+                        &enclosing_pack_trailing_count);
+                TemplateParam* expansion_parameter = expands_enclosing_pack
+                    ? &enclosing_pack_scope->params[enclosing_pack_index]
+                    : expansion_pack_index >= 0 && tmpl &&
+                              expansion_pack_index < tmpl->param_count
+                    ? &tmpl->params[expansion_pack_index] : NULL;
                 if (nested_index < pack_index || !parameter ||
                     (parameter->kind != TPARAM_TYPE &&
                      parameter->kind != TPARAM_NONTYPE &&
                      parameter->kind != TPARAM_TEMPLATE) ||
                     !parameter->is_pack ||
-                    expansion_pack_index < 0 || !tmpl ||
-                    expansion_pack_index >= tmpl->param_count ||
-                    !tmpl->params[expansion_pack_index].is_pack) {
+                    !tmpl || !expansion_parameter ||
+                    !expansion_parameter->is_pack) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
                               "dependent class-template pack expansion has "
                               "an invalid parameter-pack pattern");
                     return NULL;
                 }
-                bool value_pack = tmpl->params[expansion_pack_index].kind ==
+                bool value_pack = expansion_parameter->kind ==
                     TPARAM_NONTYPE;
-                bool template_pack =
-                    tmpl->params[expansion_pack_index].kind ==
+                bool template_pack = expansion_parameter->kind ==
                     TPARAM_TEMPLATE;
-                if (tmpl->params[expansion_pack_index].kind != TPARAM_TYPE &&
+                if (expansion_parameter->kind != TPARAM_TYPE &&
                     !value_pack && !template_pack) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
                               "dependent class-template pack expansion has "
                               "an unsupported parameter kind");
                     return NULL;
                 }
-                if (tmpl->pending_pack_count < 0) {
+                if (tmpl->pending_pack_count < 0 &&
+                    !expands_enclosing_pack) {
                     if (nested_count >=
                         (int)(sizeof(nested_arguments) /
                               sizeof(nested_arguments[0]))) {
@@ -12116,7 +12143,8 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     ++nested_count;
                     continue;
                 }
-                if (tmpl->pending_pack_count > 0 &&
+                if (!expands_enclosing_pack &&
+                    tmpl->pending_pack_count > 0 &&
                     (value_pack
                          ? (!tmpl->pending_pack_values ||
                             !tmpl->pending_pack_value_present)
@@ -12129,43 +12157,37 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                     "its deduced type arguments");
                     return NULL;
                 }
-                int enclosing_pack_index =
-                    tmpl->enclosing_template
-                        ? cxx_parser_template_parameter_pack_index(
-                              tmpl->enclosing_template, pattern_argument)
-                        : -1;
-                bool expands_enclosing_pack =
-                    enclosing_pack_index >= 0 &&
-                    enclosing_pack_index <
-                        tmpl->enclosing_template->param_count &&
-                    tmpl->enclosing_template
-                        ->params[enclosing_pack_index].is_pack &&
-                    (tmpl->enclosing_template
-                             ->params[enclosing_pack_index].kind ==
-                         TPARAM_TYPE ||
-                     tmpl->enclosing_template
-                             ->params[enclosing_pack_index].kind ==
-                         TPARAM_NONTYPE);
-                int enclosing_pack_offset =
-                    expands_enclosing_pack
-                        ? tmpl->param_count + enclosing_pack_index
-                        : -1;
+                int expansion_count = tmpl->pending_pack_count;
                 if (expands_enclosing_pack) {
-                    int enclosing_pack_count =
-                        argument_count - enclosing_pack_offset;
                     if (enclosing_pack_offset < 0 ||
-                        enclosing_pack_count < 0 ||
-                        enclosing_pack_count !=
-                            tmpl->pending_pack_count) {
+                        enclosing_pack_trailing_count < 0 ||
+                        enclosing_pack_offset >
+                            INT_MAX - enclosing_pack_trailing_count) {
                         rcc_error((SourceLoc){"<template>", 0, 0},
-                                  "nested alias pack expansion requires its "
-                                  "enclosing pack to have the same "
-                                  "number of arguments");
+                                  "nested class-template pack expansion has "
+                                  "an invalid enclosing argument range");
+                        return NULL;
+                    }
+                    int enclosing_pack_end = enclosing_pack_offset +
+                        enclosing_pack_trailing_count;
+                    if (enclosing_pack_end > argument_count ||
+                        (argument_count > 0 && !arguments)) {
+                        rcc_error((SourceLoc){"<template>", 0, 0},
+                                  "nested class-template pack expansion has "
+                                  "an incomplete enclosing argument list");
+                        return NULL;
+                    }
+                    expansion_count = argument_count - enclosing_pack_end;
+                    if (tmpl->pending_pack_count >= 0 &&
+                        tmpl->pending_pack_count != expansion_count) {
+                        rcc_error((SourceLoc){"<template>", 0, 0},
+                                  "nested class-template pack expansion has "
+                                  "inconsistent pack lengths");
                         return NULL;
                     }
                 }
                 for (int pack_value = 0;
-                     pack_value < tmpl->pending_pack_count; ++pack_value) {
+                     pack_value < expansion_count; ++pack_value) {
                     Type* expanded_arguments[32] = { NULL };
                     int64_t expanded_values[32] = { 0 };
                     bool expanded_value_present[32] = { false };
@@ -12190,19 +12212,23 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                         memcpy(expanded_value_present, value_present,
                                sizeof(bool) * (size_t)argument_count);
                     }
-                    if (value_pack) {
-                        expanded_values[expansion_pack_index] =
-                            tmpl->pending_pack_values[pack_value];
-                        expanded_value_present[expansion_pack_index] =
-                            tmpl->pending_pack_value_present[pack_value];
-                    } else {
-                        expanded_arguments[expansion_pack_index] =
-                            tmpl->pending_pack_args[pack_value];
+                    if (!expands_enclosing_pack) {
+                        if (value_pack) {
+                            expanded_values[expansion_pack_index] =
+                                tmpl->pending_pack_values[pack_value];
+                            expanded_value_present[expansion_pack_index] =
+                                tmpl->pending_pack_value_present[pack_value];
+                        } else {
+                            expanded_arguments[expansion_pack_index] =
+                                tmpl->pending_pack_args[pack_value];
+                        }
                     }
                     if (expands_enclosing_pack) {
                         int owner_argument_index =
                             enclosing_pack_offset + pack_value;
-                        if (owner_argument_index >= argument_count ||
+                        if (owner_argument_index >=
+                                argument_count -
+                                    enclosing_pack_trailing_count ||
                             !arguments || !arguments[owner_argument_index]) {
                             rcc_error(
                                 (SourceLoc){"<template>", 0, 0},
@@ -12210,9 +12236,7 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                 "enclosing pack argument");
                             return NULL;
                         }
-                        if (tmpl->enclosing_template
-                                ->params[enclosing_pack_index].kind ==
-                            TPARAM_NONTYPE) {
+                        if (expansion_parameter->kind == TPARAM_NONTYPE) {
                             if (!value_args || !value_present ||
                                 !value_present[owner_argument_index]) {
                                 rcc_error(
@@ -12236,13 +12260,22 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                         expanded_value_present);
                     if (!nested_arguments[nested_count]) return NULL;
                     if (value_pack) {
+                        int owner_argument_index = expands_enclosing_pack
+                            ? enclosing_pack_offset + pack_value : -1;
                         bool pending_value_expansion =
+                            !expands_enclosing_pack &&
                             tmpl->pending_pack_expansions &&
                             tmpl->pending_pack_expansions[pack_value];
                         bool pending_value_present =
-                            tmpl->pending_pack_value_present[pack_value];
+                            expands_enclosing_pack
+                                ? value_args && value_present &&
+                                      value_present[owner_argument_index]
+                                : tmpl->pending_pack_value_present[pack_value];
                         nested_values[nested_count] =
-                            tmpl->pending_pack_values[pack_value];
+                            expands_enclosing_pack
+                                ? (pending_value_present
+                                       ? value_args[owner_argument_index] : 0)
+                                : tmpl->pending_pack_values[pack_value];
                         nested_value_present[nested_count] =
                             pending_value_present;
                         if (pending_value_present &&
@@ -12283,11 +12316,13 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                     : (SourceLoc){"<template>", 0, 0});
                         } else {
                             Expr* pending_value_expression =
-                                tmpl->pending_pack_value_expressions
-                                    ? tmpl->pending_pack_value_expressions[
-                                          pack_value]
-                                    : NULL;
-                            if (pending_value_expression &&
+                                expands_enclosing_pack
+                                    ? NULL
+                                    : tmpl->pending_pack_value_expressions
+                                        ? tmpl->pending_pack_value_expressions[
+                                              pack_value]
+                                        : NULL;
+                            if (expands_enclosing_pack &&
                                 pattern_value_expression) {
                                 nested_value_expressions[nested_count] =
                                     cxx_template_clone_expr_with_values(
@@ -12295,8 +12330,16 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                         expanded_arguments, argument_count,
                                         expanded_values,
                                         expanded_value_present);
+                            } else if (pending_value_expression &&
+                                       pattern_value_expression) {
+                                nested_value_expressions[nested_count] =
+                                    cxx_template_clone_expr_with_values(
+                                        tmpl, pattern_value_expression,
+                                        expanded_arguments, argument_count,
+                                        expanded_values,
+                                        expanded_value_present);
                                 if (nested_value_expressions[nested_count] &&
-                                    tmpl->params[expansion_pack_index].name) {
+                                    expansion_parameter->name) {
                                     cxx_parser_replace_pack_value_identifier(
                                         nested_value_expressions[nested_count],
                                         tmpl->params[expansion_pack_index].name,
@@ -14562,12 +14605,9 @@ static Type* parse_class_template_specialization_with_owner_type(
                 int argument_index = argument_count++;
                 arguments[argument_index] = argument;
                 if (match(TOK_ELLIPSIS)) {
-                    int template_pack_index = active_template
-                        ? cxx_parser_template_parameter_pack_index(
-                              active_template, argument)
-                        : -1;
                     if (!parameter->is_pack || pack_index < 0 ||
-                        template_pack_index < 0) {
+                        !cxx_parser_template_pack_parameter_in_scopes(
+                            active_template, argument, NULL, -1)) {
                         rcc_error(loc,
                                   "class-template-id pack expansion must name "
                                   "a type parameter pack and expand a class "
@@ -14614,16 +14654,10 @@ static Type* parse_class_template_specialization_with_owner_type(
                     arguments[argument_count] = parameter->type;
                 }
                 if (match(TOK_ELLIPSIS)) {
-                    int value_pack_index = active_template
-                        ? cxx_parser_template_value_pack_index_expression(
-                              active_template, value_expression)
-                        : -1;
                     if (!parameter->is_pack || pack_index < 0 ||
-                        value_pack_index < 0 ||
-                        value_pack_index >= active_template->param_count ||
-                        active_template->params[value_pack_index].kind !=
-                            TPARAM_NONTYPE ||
-                        !active_template->params[value_pack_index].is_pack) {
+                        !cxx_parser_template_pack_parameter_in_scopes(
+                            active_template, NULL, value_expression,
+                            TPARAM_NONTYPE)) {
                         rcc_error(loc,
                                   "class-template-id non-type pack expansion "
                                   "must name a non-type parameter pack");
@@ -14693,19 +14727,12 @@ static Type* parse_class_template_specialization_with_owner_type(
                 int argument_index = argument_count++;
                 arguments[argument_index] = template_carrier;
                 if (match(TOK_ELLIPSIS)) {
-                    int template_pack_index =
-                        !invalid_current_template_argument && active_template
-                        ? cxx_parser_template_parameter_pack_index(
-                              active_template, template_carrier)
-                        : -1;
                     if (invalid_current_template_argument) {
                         /* Keep the primary signature-mismatch diagnostic. */
                     } else if (!parameter->is_pack || pack_index < 0 ||
-                        template_pack_index < 0 ||
-                        template_pack_index >= active_template->param_count ||
-                        active_template->params[template_pack_index].kind !=
-                            TPARAM_TEMPLATE ||
-                        !active_template->params[template_pack_index].is_pack) {
+                        !cxx_parser_template_pack_parameter_in_scopes(
+                            active_template, template_carrier, NULL,
+                            TPARAM_TEMPLATE)) {
                         rcc_error(loc,
                                   "class-template-id template argument pack "
                                   "expansion must use template-template packs");
@@ -21585,6 +21612,131 @@ static int cxx_parser_template_parameter_pack_index(CxxTemplate* tmpl,
                                   : NULL));
     }
     return result;
+}
+
+static bool cxx_parser_template_pack_parameter_in_scopes(
+    CxxTemplate* tmpl, Type* type_pattern, const Expr* value_pattern,
+    int parameter_kind) {
+    if (!tmpl) return false;
+    if (type_pattern && type_pattern->kind == TYPE_STRUCT &&
+        type_pattern->tag) {
+        if (type_pattern->cxx_dependent &&
+            type_pattern->cxx_template_param_index >= 0) {
+            const TemplateParam* parameter = cxx_template_parameter_at(
+                tmpl, type_pattern->cxx_template_param_index);
+            if (parameter && parameter->name &&
+                strcmp(parameter->name, type_pattern->tag) == 0) {
+                return parameter->is_pack &&
+                    (parameter_kind < 0 ||
+                     (int)parameter->kind == parameter_kind);
+            }
+        }
+        for (CxxTemplate* scope = tmpl; scope;
+             scope = scope->enclosing_template) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                const TemplateParam* parameter = &scope->params[index];
+                if ((parameter->kind == TPARAM_TYPE ||
+                     parameter->kind == TPARAM_TEMPLATE) &&
+                    parameter->name &&
+                    strcmp(parameter->name, type_pattern->tag) == 0) {
+                    return parameter->is_pack &&
+                        (parameter_kind < 0 ||
+                         (int)parameter->kind == parameter_kind);
+                }
+            }
+        }
+    }
+    if (value_pattern && value_pattern->kind == EXPR_IDENT &&
+        value_pattern->ident_name) {
+        for (CxxTemplate* scope = tmpl; scope;
+             scope = scope->enclosing_template) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                const TemplateParam* parameter = &scope->params[index];
+                if (parameter->name &&
+                    strcmp(parameter->name,
+                           value_pattern->ident_name) == 0) {
+                    return parameter->kind == TPARAM_NONTYPE &&
+                        parameter->is_pack &&
+                        (parameter_kind < 0 ||
+                         (int)parameter->kind == parameter_kind);
+                }
+            }
+        }
+    }
+    for (CxxTemplate* scope = tmpl; scope;
+         scope = scope->enclosing_template) {
+        int pack_index = type_pattern
+            ? cxx_parser_template_parameter_pack_index(scope, type_pattern)
+            : cxx_parser_template_value_pack_index_expression(
+                  scope, value_pattern);
+        if (pack_index >= 0 && pack_index < scope->param_count) {
+            const TemplateParam* parameter = &scope->params[pack_index];
+            if (parameter->is_pack &&
+                (parameter_kind < 0 ||
+                 (int)parameter->kind == parameter_kind)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool cxx_parser_find_enclosing_pack_source(
+    CxxTemplate* tmpl, Type* type_pattern, const Expr* value_pattern,
+    CxxTemplate** pack_scope_out, int* pack_index_out,
+    int* pack_argument_offset_out, int* trailing_argument_count_out) {
+    int argument_offset;
+    if (!tmpl || (!type_pattern && !value_pattern)) return false;
+    argument_offset = tmpl->param_count;
+    for (CxxTemplate* scope = tmpl->enclosing_template; scope;
+         scope = scope->enclosing_template) {
+        int type_pack_index = type_pattern
+            ? cxx_parser_template_parameter_pack_index(scope, type_pattern)
+            : -1;
+        int value_pack_index = value_pattern
+            ? cxx_parser_template_value_pack_index_expression(
+                  scope, value_pattern)
+            : -1;
+        int pack_index = type_pack_index >= 0
+            ? type_pack_index : value_pack_index;
+        if (type_pack_index >= 0 && value_pack_index >= 0 &&
+            type_pack_index != value_pack_index) {
+            return false;
+        }
+        if (pack_index < 0 && type_pattern &&
+            type_pattern->kind == TYPE_STRUCT && type_pattern->tag) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                TemplateParam* parameter = &scope->params[index];
+                if (parameter->kind == TPARAM_TEMPLATE &&
+                    parameter->is_pack && parameter->name &&
+                    strcmp(parameter->name, type_pattern->tag) == 0) {
+                    pack_index = index;
+                    break;
+                }
+            }
+        }
+        if (pack_index >= 0 && pack_index < scope->param_count &&
+            scope->params[pack_index].is_pack) {
+            int trailing_argument_count = 0;
+            for (CxxTemplate* trailing = scope->enclosing_template; trailing;
+                 trailing = trailing->enclosing_template) {
+                if (trailing->param_count > INT_MAX -
+                        trailing_argument_count) {
+                    return false;
+                }
+                trailing_argument_count += trailing->param_count;
+            }
+            if (argument_offset > INT_MAX - pack_index) return false;
+            *pack_scope_out = scope;
+            *pack_index_out = pack_index;
+            *pack_argument_offset_out = argument_offset + pack_index;
+            *trailing_argument_count_out = trailing_argument_count;
+            return true;
+        }
+        if (scope->param_count > INT_MAX - argument_offset) return false;
+        argument_offset += scope->param_count;
+    }
+    return false;
 }
 
 static int cxx_parser_template_pack_parameter_index(CxxTemplate* tmpl) {

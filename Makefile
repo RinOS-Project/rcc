@@ -5325,6 +5325,7 @@ test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-d
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86-freestanding,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86.s)
 test-cxx-class-template-dependent-nested-type: $(RCXX_TARGET) test-cxx-class-template-dependent-nested-type-invalid test-cxx-dependent-nested-alias-inheritance test-cxx-dependent-nested-alias-transitive test-cxx-dependent-nested-alias-transitive-invalid test-cxx-function-template-dependent-nested-type
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-nested-type)
+	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_dependent_nested_type.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s tests/cxx_class_template_dependent_nested_type.cpp
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-class-template-dependent-nested-type,cxx_class_template_dependent_nested_type.cpp)
@@ -5382,6 +5383,7 @@ test-cxx-class-template-dependent-base: $(RCXX_TARGET) test-cxx-class-template-d
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86-freestanding,$(TEST_OUT)/cxx-dependent-dmi-parameter/x86.s)
 test-cxx-class-template-dependent-nested-type: $(RCXX_TARGET) test-cxx-class-template-dependent-nested-type-invalid test-cxx-dependent-nested-alias-inheritance test-cxx-dependent-nested-alias-transitive test-cxx-dependent-nested-alias-transitive-invalid test-cxx-function-template-dependent-nested-type
 	$(call MKDIR_P,$(TEST_OUT)/cxx-class-template-dependent-nested-type)
+	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_class_template_dependent_nested_type.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s tests/cxx_class_template_dependent_nested_type.cpp
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding,$(TEST_OUT)/cxx-class-template-dependent-nested-type/x86-freestanding.s)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-class-template-dependent-nested-type,cxx_class_template_dependent_nested_type.cpp)

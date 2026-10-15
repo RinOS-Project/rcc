@@ -112,6 +112,83 @@ int read_deep_nested_template_template_owner_chain() {
     return sizeof(value.payload);
 }
 
+template <typename... Types>
+struct NestedOwnerTypePackStorage {
+    unsigned char elements[sizeof...(Types) + 1];
+};
+
+template <typename OwnerType, typename LocalType>
+struct NestedOwnerTypePackElement {
+    OwnerType owner;
+    LocalType local;
+};
+
+template <typename... OuterTypes>
+struct NestedOwnerTypePack {
+    template <typename InnerType>
+    struct Inner {
+        using value_type = NestedOwnerTypePackStorage<
+            NestedOwnerTypePackElement<OuterTypes, InnerType>...>;
+        value_type payload;
+
+        template <typename LeafType>
+        struct Leaf {
+            using value_type = NestedOwnerTypePackStorage<
+                NestedOwnerTypePackElement<OuterTypes, LeafType>...>;
+            value_type payload;
+        };
+    };
+};
+
+template <typename... OuterTypes>
+int read_nested_owner_type_pack() {
+    typename NestedOwnerTypePack<OuterTypes...>::template Inner<char> value;
+    return sizeof(value.payload);
+}
+
+template <typename... OuterTypes>
+int read_deep_nested_owner_type_pack() {
+    typename NestedOwnerTypePack<OuterTypes...>::template Inner<char>::
+        template Leaf<long long> value;
+    return sizeof(value.payload);
+}
+
+template <int Base, int... Values>
+struct NestedOwnerValuePackStorage {
+    unsigned char elements[Base + sizeof...(Values) + 1];
+};
+
+template <int... OuterValues>
+struct NestedOwnerValuePack {
+    template <typename InnerType>
+    struct Inner {
+        using value_type = NestedOwnerValuePackStorage<1, OuterValues...>;
+        value_type payload;
+
+        template <typename LeafType>
+        struct Leaf {
+            using value_type = NestedOwnerValuePackStorage<1, OuterValues...>;
+            value_type payload;
+        };
+    };
+};
+
+template <int... OuterValues>
+int read_nested_owner_value_pack() {
+    using inner_type = typename NestedOwnerValuePack<
+        OuterValues...>::template Inner<short>;
+    using value_type = typename inner_type::value_type;
+    return sizeof(value_type);
+}
+
+template <int... OuterValues>
+int read_deep_nested_owner_value_pack() {
+    using leaf_type = typename NestedOwnerValuePack<
+        OuterValues...>::template Inner<char>::template Leaf<long long>;
+    using value_type = typename leaf_type::value_type;
+    return sizeof(value_type);
+}
+
 template <typename T>
 typename T::value_type::value_type function_template_nested_type_chain() {
     return 43;
@@ -189,6 +266,15 @@ int main() {
                    read_nested_template_template_owner_chain<long long>() == 8 &&
                    read_deep_nested_template_template_owner_chain<
                        long long>() == 8 &&
+                   read_nested_owner_type_pack<>() == 1 &&
+                   read_nested_owner_type_pack<int, char, long long>() == 4 &&
+                   read_deep_nested_owner_type_pack<>() == 1 &&
+                   read_deep_nested_owner_type_pack<int, char, long long>() ==
+                       4 &&
+                   read_nested_owner_value_pack<>() == 2 &&
+                   read_nested_owner_value_pack<3, 5, 8>() == 5 &&
+                   read_deep_nested_owner_value_pack<>() == 2 &&
+                   read_deep_nested_owner_value_pack<3, 5, 8>() == 5 &&
                    function_template_nested_type_chain<
                        NestedTypeChainOuter>() == 43 &&
                    dmi_effect_count == 4 && effects.called == 7 &&

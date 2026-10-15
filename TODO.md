@@ -4306,7 +4306,12 @@ remains a separate open item.
   nested-class owner chains, including an `Inner` member and a third-level
   `Leaf`. GCC C++20 syntax, RCC i686/AMD64 compilation, and the focused
   `test-cxx-class-template-dependent-nested-type` gate pass.
-- [ ] Expand dependent type/value packs through deeper nested owner chains.
+- [x] Expand enclosing type packs and integral non-type packs into trailing
+  arguments of dependent class-template-ids in both `Inner` and `Leaf` owner
+  scopes. Verify empty and three-element packs by the resulting payload size;
+  GCC C++20 syntax and the focused dual-target runtime gate pass.
+- [ ] Extend deeper-owner pack expansion to transformed value expressions,
+  fold/call-expression contexts, multiple source packs, and mixed pack kinds.
 - [ ] Add explicit/partial nested class-template specializations and
   structural NTTP owner packs.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` and
