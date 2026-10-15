@@ -1002,6 +1002,66 @@ struct NestedRvalueReferenceArrayPartialOwnerChain<OwnerValue (&&)[3]>::
     int result() const { return 1970; }
 };
 
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayBoundExpressionOwnerChain {
+    template <typename MidValue, int MidExtent>
+    struct Mid {
+        template <typename LeafValue, int LeafExtent>
+        struct Leaf {
+            int result() const { return 2000; }
+        };
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArrayBoundExpressionOwnerChain<
+    OwnerValue[OwnerExtent + 1], OwnerExtent> {
+    template <typename MidValue, int MidExtent>
+    struct Mid {
+        template <typename LeafValue, int LeafExtent>
+        struct Leaf {
+            int result() const { return 2010; }
+        };
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+template <typename MidValue, int MidExtent>
+struct NestedArrayBoundExpressionOwnerChain<
+    OwnerValue[OwnerExtent + 1], OwnerExtent>::
+    Mid<MidValue[MidExtent + 1], MidExtent> {
+    template <typename LeafValue, int LeafExtent>
+    struct Leaf {
+        int result() const { return 2020; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+template <typename MidValue, int MidExtent>
+template <typename LeafValue, int LeafExtent>
+struct NestedArrayBoundExpressionOwnerChain<
+    OwnerValue[OwnerExtent + 1], OwnerExtent>::
+    Mid<MidValue[MidExtent + 1], MidExtent>::
+    Leaf<LeafValue[LeafExtent + 1], LeafExtent> {
+    int result() const { return 2030; }
+};
+
+template <typename OwnerValue, int OwnerTag>
+struct NestedArrayDeducedExtentOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2200; }
+    };
+};
+
+template <typename OwnerValue, int Extent>
+struct NestedArrayDeducedExtentOwner<OwnerValue[Extent], 7> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2210; }
+    };
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -1177,6 +1237,20 @@ int main() {
     NestedRvalueReferenceArrayPartialOwnerChain<int (&&)[3]>::
         Mid<char (&&)[2]>::Leaf<long (&&)[1]>
         rvalue_reference_array_partial_leaf_owner;
+    NestedArrayBoundExpressionOwnerChain<int[5], 3>::
+        Mid<char[3], 2>::Leaf<long[2], 1> array_bound_expression_primary;
+    NestedArrayBoundExpressionOwnerChain<int[4], 3>::
+        Mid<char[3], 2>::Leaf<long[2], 1> array_bound_expression_outer;
+    NestedArrayBoundExpressionOwnerChain<int[4], 3>::
+        Mid<char[4], 2>::Leaf<long[2], 1>
+        array_bound_expression_wrong_mid_extent;
+    NestedArrayBoundExpressionOwnerChain<int[4], 3>::
+        Mid<char[3], 2>::Leaf<long[3], 1>
+        array_bound_expression_wrong_leaf_extent;
+    NestedArrayDeducedExtentOwner<int[4], 7>::Inner<char>
+        array_bound_deduced_extent_partial;
+    NestedArrayDeducedExtentOwner<int[4], 8>::Inner<char>
+        array_bound_deduced_extent_primary;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -1270,5 +1344,11 @@ int main() {
         return 85;
     if (rvalue_reference_array_partial_leaf_owner.result() != 1970)
         return 86;
+    if (array_bound_expression_primary.result() != 2000) return 90;
+    if (array_bound_expression_outer.result() != 2030) return 91;
+    if (array_bound_expression_wrong_mid_extent.result() != 2010) return 92;
+    if (array_bound_expression_wrong_leaf_extent.result() != 2020) return 93;
+    if (array_bound_deduced_extent_partial.result() != 2210) return 94;
+    if (array_bound_deduced_extent_primary.result() != 2200) return 95;
     return 0;
 }

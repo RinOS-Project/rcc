@@ -15251,6 +15251,72 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
     return true;
 }
 
+static bool cxx_deduce_class_specialization_array_bounds(
+    CxxTemplate* tmpl, Type* pattern, Type* actual, int64_t* values,
+    bool* value_present, bool require_resolved, int* specificity) {
+    if (!pattern || !actual) return pattern == actual;
+    if (pattern->kind != actual->kind) return true;
+    if (pattern->kind == TYPE_PTR) {
+        return cxx_deduce_class_specialization_array_bounds(
+            tmpl, pattern->base, actual->base, values, value_present,
+            require_resolved, specificity);
+    }
+    if (pattern->kind != TYPE_ARRAY) return true;
+
+    if (pattern->array_bound) {
+        if (actual->array_len <= 0) {
+            if (require_resolved) {
+                rcc_error(pattern->array_bound->loc,
+                          "dependent array bound in class-template partial specialization requires a fixed actual extent");
+                return false;
+            }
+            return true;
+        }
+        int64_t expected = 0;
+        bool has_expected = expr_eval_integer_constant(
+            pattern->array_bound, &expected) ||
+            (values && value_present && eval_template_integer_expression(
+                pattern->array_bound, tmpl, values, value_present,
+                &expected));
+        if (!has_expected && pattern->array_bound->kind == EXPR_IDENT &&
+            pattern->array_bound->ident_name && tmpl && values &&
+            value_present) {
+            for (int index = 0; index < tmpl->param_count; ++index) {
+                TemplateParam* parameter = &tmpl->params[index];
+                if (parameter->kind != TPARAM_NONTYPE || !parameter->name ||
+                    strcmp(parameter->name,
+                           pattern->array_bound->ident_name) != 0) {
+                    continue;
+                }
+                if (value_present[index]) {
+                    expected = values[index];
+                } else {
+                    expected = actual->array_len;
+                    values[index] = expected;
+                    value_present[index] = true;
+                }
+                has_expected = true;
+                break;
+            }
+        }
+        if (has_expected) {
+            if (expected <= 0 || expected != actual->array_len) return false;
+            if (specificity) *specificity += 4;
+        } else if (require_resolved) {
+            rcc_error(pattern->array_bound->loc,
+                      "dependent array bound in class-template partial specialization could not be evaluated");
+            return false;
+        }
+    } else if (pattern->array_len >= 0 &&
+               pattern->array_len != actual->array_len) {
+        return false;
+    }
+
+    return cxx_deduce_class_specialization_array_bounds(
+        tmpl, pattern->base, actual->base, values, value_present,
+        require_resolved, specificity);
+}
+
 static bool cxx_partial_owner_expression_equal(
     const Expr* left, const Expr* right, unsigned depth) {
     if (left == right) return true;
@@ -16736,8 +16802,25 @@ static Type* parse_class_template_specialization_with_owner_type(
                     specialization->specialization_args[argument_index],
                     arguments[argument_index], specialization_arguments,
                     &specificity);
+                if (matches) {
+                    matches = cxx_deduce_class_specialization_array_bounds(
+                        specialization,
+                        specialization->specialization_args[argument_index],
+                        arguments[argument_index], specialization_values,
+                        specialization_value_present, false, &specificity);
+                }
             } else {
                 matches = false;
+            }
+        }
+        for (int argument_index = 0;
+             matches && argument_index < argument_count; ++argument_index) {
+            if (tmpl->params[argument_index].kind == TPARAM_TYPE) {
+                matches = cxx_deduce_class_specialization_array_bounds(
+                    specialization,
+                    specialization->specialization_args[argument_index],
+                    arguments[argument_index], specialization_values,
+                    specialization_value_present, true, &specificity);
             }
         }
         if (matches && specialization->templated_class) {
