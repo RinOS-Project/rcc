@@ -4310,8 +4310,11 @@ remains a separate open item.
   arguments of dependent class-template-ids in both `Inner` and `Leaf` owner
   scopes. Verify empty and three-element packs by the resulting payload size;
   GCC C++20 syntax and the focused dual-target runtime gate pass.
-- [ ] Extend deeper-owner pack expansion to transformed value expressions,
-  fold/call-expression contexts, multiple source packs, and mixed pack kinds.
+- [x] Substitute arithmetic-transformed integral pack expressions such as
+  `OuterValues + 1` through both `Inner` and `Leaf`; verify the transformed
+  values affect the resulting payload size for empty and three-element packs.
+- [ ] Extend deeper-owner pack expansion to fold/call-expression contexts,
+  multiple source packs, and mixed pack kinds.
 - [ ] Add explicit/partial nested class-template specializations and
   structural NTTP owner packs.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` and

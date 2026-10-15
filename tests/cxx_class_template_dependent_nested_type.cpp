@@ -158,6 +158,14 @@ struct NestedOwnerValuePackStorage {
     unsigned char elements[Base + sizeof...(Values) + 1];
 };
 
+template <int ByteCount>
+struct NestedOwnerValuePackBytes {
+    unsigned char elements[ByteCount];
+};
+
+template <typename... Elements>
+struct NestedOwnerValuePackAggregate : Elements... {};
+
 template <int... OuterValues>
 struct NestedOwnerValuePack {
     template <typename InnerType>
@@ -168,6 +176,23 @@ struct NestedOwnerValuePack {
         template <typename LeafType>
         struct Leaf {
             using value_type = NestedOwnerValuePackStorage<1, OuterValues...>;
+            value_type payload;
+        };
+    };
+};
+
+template <int... OuterValues>
+struct NestedOwnerTransformedValuePack {
+    template <typename InnerType>
+    struct Inner {
+        using value_type = NestedOwnerValuePackAggregate<
+            NestedOwnerValuePackBytes<OuterValues + 1>...>;
+        value_type payload;
+
+        template <typename LeafType>
+        struct Leaf {
+            using value_type = NestedOwnerValuePackAggregate<
+                NestedOwnerValuePackBytes<OuterValues + 1>...>;
             value_type payload;
         };
     };
@@ -187,6 +212,20 @@ int read_deep_nested_owner_value_pack() {
         OuterValues...>::template Inner<char>::template Leaf<long long>;
     using value_type = typename leaf_type::value_type;
     return sizeof(value_type);
+}
+
+template <int... OuterValues>
+int read_nested_owner_transformed_value_pack() {
+    typename NestedOwnerTransformedValuePack<OuterValues...>::template
+        Inner<short> value;
+    return sizeof(value.payload);
+}
+
+template <int... OuterValues>
+int read_deep_nested_owner_transformed_value_pack() {
+    typename NestedOwnerTransformedValuePack<OuterValues...>::template
+        Inner<char>::template Leaf<long long> value;
+    return sizeof(value.payload);
 }
 
 template <typename T>
@@ -275,6 +314,11 @@ int main() {
                    read_nested_owner_value_pack<3, 5, 8>() == 5 &&
                    read_deep_nested_owner_value_pack<>() == 2 &&
                    read_deep_nested_owner_value_pack<3, 5, 8>() == 5 &&
+                   read_nested_owner_transformed_value_pack<>() == 1 &&
+                   read_nested_owner_transformed_value_pack<1, 2, 3>() == 9 &&
+                   read_deep_nested_owner_transformed_value_pack<>() == 1 &&
+                   read_deep_nested_owner_transformed_value_pack<1, 2, 3>() ==
+                       9 &&
                    function_template_nested_type_chain<
                        NestedTypeChainOuter>() == 43 &&
                    dmi_effect_count == 4 && effects.called == 7 &&
