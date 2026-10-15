@@ -4409,5 +4409,23 @@ remains a separate open item.
 - [x] Commit implementation, fixtures, and target checks as `0e32d07` on local
   RCC `main`; no push.
 - [ ] Extend to structural classes with multiple or nested members and
-  pointer-valued members; cover dependent owner-head reordering and remaining
-  standard-valid explicit member specializations on these owner shapes.
+  non-null pointer-valued members; cover dependent owner-head reordering and
+  remaining standard-valid explicit member specializations on these owner
+  shapes.
+
+## RCC continuation (2026-10-15, null pointer structural NTTP members)
+
+- [x] Accept structural classes with exactly one public ordinary pointer data
+  member when its value is null, including `nullptr` and integer null-pointer
+  constant initialization; retain the existing integral/enum cases and exclude
+  member pointers from this bounded representation.
+- [x] Omit the null pointer member literal in Itanium structural-value
+  mangling, matching GCC; cover equal null values in owner packs, nested
+  partial-specialization selection, and reads from a class template parameter
+  object.
+- [x] Verify exact GCC/RCC symbols on i686 and AMD64 and execute generated
+  AMD64 and GCC-host programs. Focused owner regression plus full native
+  Windows MinGW `test-cxx` and `test-debug-info` aggregates pass (exit 0).
+- [ ] Extend to structural classes with multiple or nested members and
+  non-null pointer-valued members, and cover remaining standard-valid explicit
+  member specializations on these owner shapes.

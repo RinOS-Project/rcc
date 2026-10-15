@@ -12,6 +12,10 @@ struct NestedStructuralOwnerEnumKey {
     NestedStructuralOwnerCode value;
 };
 
+struct NestedStructuralOwnerNullPointerKey {
+    const int* value;
+};
+
 template <NestedStructuralOwnerKey... Values>
 struct NestedStructuralValueOwnerPack {
     template <typename Element>
@@ -40,6 +44,20 @@ struct NestedStructuralEnumValueOwnerPack<Values...>::Inner<Element*> {
     int result() const { return 24; }
 };
 
+template <NestedStructuralOwnerNullPointerKey... Values>
+struct NestedStructuralNullPointerOwnerPack {
+    template <typename Element>
+    struct Inner {
+        int result() const { return 12; }
+    };
+};
+
+template <NestedStructuralOwnerNullPointerKey... Values>
+template <typename Element>
+struct NestedStructuralNullPointerOwnerPack<Values...>::Inner<Element*> {
+    int result() const { return 25; }
+};
+
 template <NestedStructuralOwnerKey Value>
 struct NestedStructuralValueOwner {
     template <typename Element>
@@ -53,6 +71,14 @@ struct NestedStructuralEnumValueOwner {
     template <typename Element>
     struct Inner {
         int result() const { return static_cast<int>(Value.value); }
+    };
+};
+
+template <NestedStructuralOwnerNullPointerKey Value>
+struct NestedStructuralNullPointerOwner {
+    template <typename Element>
+    struct Inner {
+        int result() const { return Value.value == nullptr ? 41 : 0; }
     };
 };
 
@@ -70,8 +96,17 @@ int main() {
         NestedStructuralOwnerEnumKey{
             NestedStructuralOwnerCode::thirty_seven}>::Inner<int>
         enum_parameter_object;
+    NestedStructuralNullPointerOwnerPack<
+        NestedStructuralOwnerNullPointerKey{nullptr},
+        NestedStructuralOwnerNullPointerKey{0}>::Inner<int*>
+        null_pointer_partial;
+    NestedStructuralNullPointerOwner<
+        NestedStructuralOwnerNullPointerKey{nullptr}>::Inner<int>
+        null_pointer_parameter_object;
     if (partial.result() != 22) return 1;
     if (parameter_object.result() != 37) return 2;
     if (enum_partial.result() != 24) return 3;
-    return enum_parameter_object.result() == 37 ? 0 : 4;
+    if (enum_parameter_object.result() != 37) return 4;
+    if (null_pointer_partial.result() != 25) return 5;
+    return null_pointer_parameter_object.result() == 41 ? 0 : 6;
 }

@@ -315,11 +315,11 @@ static void cxx_mangle_type_char(char* buf, size_t* pos, char value) {
     buf[(*pos)++] = value;
 }
 
-static bool cxx_mangle_single_integral_or_enum_structural_value(
+static bool cxx_mangle_single_field_structural_value(
     char* buf, size_t* pos, Type* value_type, int64_t value,
     CxxMangleContext* context) {
     TypeParam* field;
-    if (!cxx_structural_class_has_single_integral_or_enum_field(value_type)) {
+    if (!cxx_structural_class_has_single_supported_field(value_type)) {
         return false;
     }
     field = value_type->cxx_class->fields;
@@ -327,9 +327,12 @@ static bool cxx_mangle_single_integral_or_enum_structural_value(
     cxx_mangle_type_char(buf, pos, 't');
     cxx_mangle_type_char(buf, pos, 'l');
     cxx_mangle_type_append_context(buf, pos, value_type, context);
-    cxx_mangle_type_char(buf, pos, 'L');
-    cxx_mangle_type_append_context(buf, pos, field->type, context);
-    cxx_mangle_template_value_suffix(buf, pos, field->type, value);
+    if (field->type->kind != TYPE_PTR || field->type->cxx_is_member_pointer ||
+        value != 0) {
+        cxx_mangle_type_char(buf, pos, 'L');
+        cxx_mangle_type_append_context(buf, pos, field->type, context);
+        cxx_mangle_template_value_suffix(buf, pos, field->type, value);
+    }
     cxx_mangle_type_char(buf, pos, 'E');
     cxx_mangle_type_char(buf, pos, 'E');
     return true;
@@ -338,7 +341,7 @@ static bool cxx_mangle_single_integral_or_enum_structural_value(
 static void cxx_mangle_template_class_value_argument(
     char* buf, size_t* pos, Type* value_type, int64_t value,
     CxxMangleContext* context) {
-    if (cxx_mangle_single_integral_or_enum_structural_value(
+    if (cxx_mangle_single_field_structural_value(
             buf, pos, value_type, value, context)) {
         return;
     }
@@ -2071,8 +2074,7 @@ bool cxx_method_override_signature_matches(const CxxMethod* derived,
                               base->decl->type->ret_type);
 }
 
-bool cxx_structural_class_has_single_integral_or_enum_field(
-    const Type* type) {
+bool cxx_structural_class_has_single_supported_field(const Type* type) {
     const CxxClass* cls;
     const TypeParam* field;
     if (!type || type->kind != TYPE_STRUCT || type->cxx_nontrivial ||
@@ -2082,7 +2084,9 @@ bool cxx_structural_class_has_single_integral_or_enum_field(
         !(field = cls->fields) || field->next || field->is_bitfield ||
         field->cxx_access != ACCESS_PUBLIC || !field->type ||
         !(type_is_integer(field->type) ||
-          field->type->kind == TYPE_ENUM)) {
+          field->type->kind == TYPE_ENUM ||
+          (field->type->kind == TYPE_PTR &&
+           !field->type->cxx_is_member_pointer))) {
         return false;
     }
     return true;
@@ -7715,7 +7719,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 tmpl, expression->member_base->ident_name, arg_count,
                 &parameter);
             if (index >= 0 && parameter &&
-                cxx_structural_class_has_single_integral_or_enum_field(
+                cxx_structural_class_has_single_supported_field(
                     parameter->type) &&
                 parameter->type->cxx_class->fields->name &&
                 strcmp(parameter->type->cxx_class->fields->name,
