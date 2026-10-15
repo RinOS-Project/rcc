@@ -10167,21 +10167,28 @@ static bool cxx_partial_nested_template_owner_specialization_starts(void) {
         token->next->type != TOK_LT) {
         return false;
     }
-    token = token->next->next;
-    if (!token || token->type == TOK_GT) return false;
-    angle_depth = 1;
-    for (; token; token = token->next) {
-        if (token->type == TOK_LT) {
-            ++angle_depth;
-        } else if (token->type == TOK_GT) {
-            if (--angle_depth == 0) break;
-        } else if (token->type == TOK_RSHIFT) {
-            angle_depth -= 2;
-            if (angle_depth <= 0) break;
+    token = token->next;
+    while (token && token->type == TOK_LT) {
+        angle_depth = 1;
+        for (token = token->next; token; token = token->next) {
+            if (token->type == TOK_LT) {
+                ++angle_depth;
+            } else if (token->type == TOK_GT) {
+                if (--angle_depth == 0) break;
+            } else if (token->type == TOK_RSHIFT) {
+                angle_depth -= 2;
+                if (angle_depth <= 0) break;
+            }
+        }
+        if (!token || angle_depth > 0) return false;
+        token = token->next;
+        if (token && token->type == TOK_TEMPLATE) {
+            if (!token->next || token->next->type != TOK_LT) return false;
+            token = token->next;
+        } else {
+            break;
         }
     }
-    if (!token || angle_depth > 0) return false;
-    token = token->next;
     if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT) ||
         !token->next || token->next->type != TOK_IDENT || !token->next->next ||
         token->next->next->type != TOK_LT) {
@@ -10275,6 +10282,9 @@ static bool cxx_template_argument_list_followed_by_scope(void) {
 
 static CxxNestedClassTemplate* cxx_find_nested_template_for_owner_pattern(
     CxxTemplate* owner_template, Type* owner_pattern, const char* name);
+static CxxNestedClassTemplate*
+cxx_find_nested_template_for_dependent_owner_pattern(
+    Type* owner_pattern, const char* name);
 
 static CxxTemplate* parse_cxx_nested_template_parameter_head(
     CxxTemplate* enclosing_template) {
@@ -10366,6 +10376,15 @@ static CxxTemplate* parse_cxx_nested_template_parameter_head(
         }
     }
     return tmpl;
+}
+
+static CxxTemplate* cxx_nested_template_parameter_scope_child(
+    CxxTemplate* template_scope, CxxTemplate* parent_scope) {
+    for (CxxTemplate* scope = template_scope;
+         scope && scope != parent_scope; scope = scope->enclosing_template) {
+        if (scope->enclosing_template == parent_scope) return scope;
+    }
+    return NULL;
 }
 
 CxxTemplate* parse_cxx_template(AccessSpec member_access) {
@@ -10614,15 +10633,18 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         nested_member_template_explicit_specialization = true;
         nested_member_template_requires_explicit_owner = true;
     }
-    if (tmpl->param_count > 0 &&
-        cxx_partial_nested_template_owner_specialization_starts()) {
-        CxxTemplate* owner_parameters = tmpl;
-        CxxTemplate* specialization =
-            parse_cxx_nested_template_parameter_head(owner_parameters);
-        nested_member_template_owner_parameters = owner_parameters;
-        nested_member_template_partial_specialization = true;
-        tmpl = specialization;
-        active_template = tmpl;
+    if (tmpl->param_count > 0) {
+        while (cxx_partial_nested_template_owner_specialization_starts()) {
+            CxxTemplate* owner_parameters = tmpl;
+            CxxTemplate* specialization =
+                parse_cxx_nested_template_parameter_head(owner_parameters);
+            if (!nested_member_template_partial_specialization) {
+                nested_member_template_owner_parameters = owner_parameters;
+            }
+            nested_member_template_partial_specialization = true;
+            tmpl = specialization;
+            active_template = tmpl;
+        }
     }
 
     /* A friend function template declared in a class is a namespace
@@ -10811,6 +10833,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         Type* owner_type = NULL;
         CxxNestedClassTemplate* nested_template;
         CxxTemplate* primary;
+        CxxTemplate* partial_owner_parameter_parent = NULL;
         Type* arguments[32] = { NULL };
         Expr* value_arguments[32] = { NULL };
         int argument_count = 0;
@@ -10888,6 +10911,8 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                      * than the inner member-template scope. */
                     active_template =
                         nested_member_template_owner_parameters;
+                    partial_owner_parameter_parent =
+                        nested_member_template_owner_parameters;
                 }
                 owner_type = parse_class_template_specialization(
                     owner_template, loc);
@@ -10932,15 +10957,19 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                 ? find_class(owner_token->value.str_val) : NULL;
         }
         for (;;) {
+            CxxTemplate* lookup_owner_template = owner_type &&
+                    owner_type->cxx_template
+                ? owner_type->cxx_template : owner_template;
             expect(TOK_SCOPE, ":: before nested class template name");
             name_token = expect(TOK_IDENT, "nested class template name");
             nested_template = owner_class && name_token
                 ? cxx_class_find_nested_template(
                       owner_class, name_token->value.str_val)
-                : owner_template && owner_template->templated_class &&
+                : lookup_owner_template &&
+                          lookup_owner_template->templated_class &&
                           name_token
                       ? cxx_find_nested_template_for_owner_pattern(
-                            owner_template, owner_type,
+                            lookup_owner_template, owner_type,
                             name_token->value.str_val)
                       : NULL;
             primary = nested_template ? nested_template->declaration : NULL;
@@ -10949,21 +10978,47 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                           "nested class-template specialization has no matching primary template");
                 break;
             }
-            if (!nested_member_template_explicit_specialization ||
+            if ((!nested_member_template_explicit_specialization &&
+                 !nested_member_template_partial_specialization) ||
                 !check(TOK_LT) ||
                 !cxx_template_argument_list_followed_by_scope()) {
                 break;
             }
 
-            /* An explicit member specialization can pass through one or more
+            if (nested_member_template_partial_specialization) {
+                partial_owner_parameter_parent =
+                    cxx_nested_template_parameter_scope_child(
+                        tmpl, partial_owner_parameter_parent);
+                if (!partial_owner_parameter_parent) {
+                    rcc_error(loc,
+                              "nested partial specialization owner template "
+                              "head is missing");
+                    break;
+                }
+                active_template = partial_owner_parameter_parent;
+            }
+
+            /* A member specialization can pass through one or more
              * specialized nested class-template owners before reaching its
-             * final member template, e.g. Owner<int>::Mid<char>::Inner<long>.
-             * Materialize each intermediate owner with its lexical owner so
-             * the next lookup is performed in that specialization's class. */
-            owner_type = parse_class_template_specialization_for_owner(
-                primary, owner_class, loc);
+             * final member template. Materialize each intermediate owner with
+             * its lexical owner so the next lookup is performed in that
+             * specialization's class. */
+            if (nested_member_template_partial_specialization &&
+                !owner_class && owner_type && owner_type->cxx_dependent) {
+                Type* dependent_owner = owner_type;
+                owner_type = parse_class_template_specialization_for_dependent_owner(
+                    primary, dependent_owner, loc);
+            } else {
+                owner_type = parse_class_template_specialization_for_owner(
+                    primary, owner_class, loc);
+            }
+            if (nested_member_template_partial_specialization) {
+                active_template = tmpl;
+            }
             owner_class = owner_type ? owner_type->cxx_class : NULL;
-            if (!owner_class) {
+            if (!owner_class &&
+                !(nested_member_template_partial_specialization &&
+                  owner_type && owner_type->cxx_dependent)) {
                 rcc_error(loc,
                           "nested member specialization owner could not be resolved");
                 break;
@@ -15513,6 +15568,11 @@ static CxxNestedClassTemplate* cxx_find_nested_template_for_owner_pattern(
     CxxNestedClassTemplate* result = NULL;
     int best_specificity = -1;
     if (!owner_template || !name) return NULL;
+    if (owner_pattern && owner_pattern->cxx_template != owner_template &&
+        owner_pattern->cxx_dependent_class_template_owner) {
+        return cxx_find_nested_template_for_dependent_owner_pattern(
+            owner_pattern, name);
+    }
     for (int index = 0; index < owner_template->specialization_count; ++index) {
         CxxTemplate* specialization = owner_template->specializations[index];
         CxxNestedClassTemplate* candidate;
@@ -15857,6 +15917,108 @@ static bool cxx_nested_owner_type_expression_matches(
             deduced_arguments, specificity, depth + 1u);
     }
     return cxx_class_specialization_type_equal(pattern, actual);
+}
+
+static CxxNestedClassTemplate*
+cxx_find_nested_template_for_dependent_owner_pattern(
+    Type* owner_pattern, const char* name) {
+    CxxTemplate* owner_template = owner_pattern
+        ? owner_pattern->cxx_template : NULL;
+    CxxClass* owner_definition = owner_template
+        ? owner_template->templated_class : NULL;
+    CxxTemplate* selected_specialization = NULL;
+    int best_specificity = -1;
+
+    if (!owner_template || !owner_pattern || !name ||
+        owner_pattern->cxx_template_arg_count < 0 ||
+        owner_pattern->cxx_template_arg_count > 32) {
+        return NULL;
+    }
+    for (int specialization_index = 0;
+         specialization_index < owner_template->specialization_count;
+         ++specialization_index) {
+        CxxTemplate* specialization =
+            owner_template->specializations[specialization_index];
+        Type* lexical_owner_pattern = specialization
+            ? specialization->specialization_owner_pattern : NULL;
+        Type* lexical_owner_actual =
+            owner_pattern->cxx_dependent_class_template_owner;
+        Type* deduced_arguments[32] = { NULL };
+        Expr* deduced_values[32] = { NULL };
+        bool deduced_value_present[32] = { false };
+        Type* deduced_template_arguments[32] = { NULL };
+        bool deduced_template_present[32] = { false };
+        int specificity = 0;
+        int argument_count = owner_pattern->cxx_template_arg_count;
+        bool matches = specialization && specialization->templated_class &&
+            specialization->param_count > 0 &&
+            specialization->specialization_arg_count == argument_count &&
+            owner_template->param_count == argument_count;
+
+        if (!matches) continue;
+        if (lexical_owner_pattern &&
+            (!lexical_owner_actual ||
+             !cxx_class_specialization_type_equal(
+                 lexical_owner_pattern, lexical_owner_actual))) {
+            continue;
+        }
+        for (int argument_index = 0; matches &&
+             argument_index < argument_count; ++argument_index) {
+            TemplateParam* primary_parameter =
+                &owner_template->params[argument_index];
+            if (primary_parameter->kind == TPARAM_TYPE) {
+                matches = specialization->specialization_args &&
+                    owner_pattern->cxx_template_args &&
+                    deduce_class_specialization_type(
+                        specialization,
+                        specialization->specialization_args[argument_index],
+                        owner_pattern->cxx_template_args[argument_index],
+                        deduced_arguments, &specificity);
+            } else if (primary_parameter->kind == TPARAM_NONTYPE) {
+                matches = specialization->specialization_value_args &&
+                    owner_pattern->cxx_template_value_args &&
+                    cxx_partial_owner_expression_matches(
+                        specialization,
+                        specialization->specialization_value_args[
+                            argument_index],
+                        owner_pattern->cxx_template_value_args[argument_index],
+                        deduced_values, deduced_value_present, &specificity,
+                        0u);
+            } else if (primary_parameter->kind == TPARAM_TEMPLATE) {
+                matches = specialization->specialization_args &&
+                    owner_pattern->cxx_template_args &&
+                    cxx_partial_owner_template_argument_matches(
+                        owner_template, argument_index, specialization,
+                        specialization->specialization_args[argument_index],
+                        owner_pattern->cxx_template_args[argument_index],
+                        deduced_template_arguments,
+                        deduced_template_present, &specificity);
+            } else {
+                matches = false;
+            }
+        }
+        for (int parameter_index = 0;
+             matches && parameter_index < specialization->param_count;
+             ++parameter_index) {
+            TemplateParam* parameter =
+                &specialization->params[parameter_index];
+            if (parameter->kind == TPARAM_TYPE) {
+                if (!deduced_arguments[parameter_index]) matches = false;
+            } else if (parameter->kind == TPARAM_NONTYPE) {
+                if (!deduced_value_present[parameter_index]) matches = false;
+            } else if (parameter->kind == TPARAM_TEMPLATE) {
+                if (!deduced_template_present[parameter_index]) matches = false;
+            }
+        }
+        if (matches && specificity >= best_specificity) {
+            selected_specialization = specialization;
+            best_specificity = specificity;
+        }
+    }
+    if (selected_specialization) {
+        owner_definition = selected_specialization->templated_class;
+    }
+    return cxx_class_find_nested_template(owner_definition, name);
 }
 
 static int cxx_nested_specialization_owner_matches(

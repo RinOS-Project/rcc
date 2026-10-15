@@ -415,6 +415,44 @@ struct NestedPartialOwnerChain<int*>::Mid<char>::Leaf<long> {
     int result() const { return 820; }
 };
 
+template <typename OwnerValue>
+struct NestedPartialNestedOwnerChain {
+    template <typename MidValue>
+    struct Mid {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 900; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+struct NestedPartialNestedOwnerChain<OwnerValue*> {
+    template <typename MidValue>
+    struct Mid {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 910; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+struct NestedPartialNestedOwnerChain<OwnerValue*>::Mid<MidValue*> {
+    template <typename LeafValue>
+    struct Leaf {
+        int result() const { return 915; }
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+template <typename LeafValue>
+struct NestedPartialNestedOwnerChain<OwnerValue*>::Mid<MidValue*>::Leaf<LeafValue*> {
+    int result() const { return 920; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -489,6 +527,14 @@ int main() {
         partial_chain_unspecialized_leaf;
     NestedPartialOwnerChain<int*>::Mid<char>::Leaf<long>
         partial_chain_explicit_leaf;
+    NestedPartialNestedOwnerChain<long>::Mid<char*>::Leaf<int*>
+        nested_partial_chain_primary_owner;
+    NestedPartialNestedOwnerChain<int*>::Mid<char>::Leaf<int*>
+        nested_partial_chain_outer_owner;
+    NestedPartialNestedOwnerChain<int*>::Mid<char*>::Leaf<int>
+        nested_partial_chain_mid_specialization;
+    NestedPartialNestedOwnerChain<int*>::Mid<char*>::Leaf<int*>
+        nested_partial_chain_leaf_specialization;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -531,5 +577,9 @@ int main() {
     if (partial_chain_unspecialized_mid.result() != 810) return 40;
     if (partial_chain_unspecialized_leaf.result() != 810) return 41;
     if (partial_chain_explicit_leaf.result() != 820) return 42;
+    if (nested_partial_chain_primary_owner.result() != 900) return 43;
+    if (nested_partial_chain_outer_owner.result() != 910) return 44;
+    if (nested_partial_chain_mid_specialization.result() != 915) return 45;
+    if (nested_partial_chain_leaf_specialization.result() != 920) return 46;
     return 0;
 }
