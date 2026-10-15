@@ -1663,11 +1663,12 @@ Expr* rcc_parse_cxx_fold_expression(void) {
     Token* saved_prev;
 
     if (!check(TOK_LPAREN) || !parser.cur->next) return NULL;
-    /* A unary fold may use an expression pattern, for example
-     * `((args + 1) + ...)`.  Try the parenthesized pattern first, then restore
-     * the token cursor so ordinary parenthesized expressions keep the common
-     * parser path. */
-    if (parser.cur->next->type == TOK_LPAREN) {
+    /* A unary fold may use any unary-expression pattern, including calls such
+     * as `(check(args) && ...)`.  Parse speculatively, then restore the token
+     * cursor unless the operand is followed by the fold operator and ellipsis;
+     * ordinary expressions and binary folds continue through their usual
+     * parser paths. */
+    if (parser.cur->next->type != TOK_ELLIPSIS) {
         Expr* pattern;
         Expr* fold;
         saved_cur = parser.cur;

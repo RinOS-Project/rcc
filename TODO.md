@@ -4321,9 +4321,17 @@ remains a separate open item.
   enclosing type or integral non-type packs. Check matching two-element and
   empty `&&` folds at runtime; reject unequal pack lengths with one targeted
   diagnostic on i686 and AMD64.
-- [ ] Extend multi-source substitution to call-expression pack expansions,
-  template-template pack sources, and owner packs from multiple enclosing
-  scopes.
+- [x] Expand two enclosing integral packs as arguments to a call expression
+  inside a nested class-template fold; verify GCC C++20, RCC i686/AMD64 output,
+  i686 freestanding execution, and AMD64 host execution.
+- [x] Pass the focused `test-cxx-class-template-dependent-nested-type` gate
+  after extending fold parsing to recognize call-expression patterns.
+- [x] Re-run the complete native-Windows MinGW GCC `test-cxx` aggregate after
+  this parser change (exit 0).
+- [x] Re-run the complete native-Windows MinGW GCC `test-debug-info` aggregate
+  after this parser change (exit 0).
+- [ ] Extend multi-source substitution to template-template pack sources and
+  owner packs from multiple enclosing scopes.
 - [ ] Add explicit/partial nested class-template specializations and
   structural NTTP owner packs.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` and

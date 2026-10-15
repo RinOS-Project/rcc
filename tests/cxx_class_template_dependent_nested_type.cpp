@@ -206,12 +206,21 @@ struct NestedOwnerMixedPack {
     };
 };
 
+bool nested_owner_fold_values_equal(int left, int right) {
+    return left == right;
+}
+
 template <int... OuterValues>
 struct NestedOwnerValueFold {
     template <int... InnerValues>
     struct Inner {
         bool values_match() const {
             return ((OuterValues == InnerValues) && ...);
+        }
+
+        bool values_match_via_call() const {
+            return (nested_owner_fold_values_equal(OuterValues, InnerValues) &&
+                    ...);
         }
     };
 };
@@ -379,6 +388,7 @@ int main() {
                     two_element_mixed_pack.inner_payload_size() == 8 &&
                     matching_mixed_pack.packed_widths_match() &&
                     matching_value_fold.values_match() &&
+                    matching_value_fold.values_match_via_call() &&
                     empty_value_fold.values_match() &&
                     read_explicit_nested_owner_mixed_pack_layout() == 8 &&
                    function_template_nested_type_chain<
