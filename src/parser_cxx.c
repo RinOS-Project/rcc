@@ -2494,10 +2494,20 @@ static bool eval_template_integer_expression(Expr* expression,
                                               const int64_t* values,
                                               const bool* value_present,
                                               int64_t* result);
-static bool cxx_template_integer_expression_overflows(
+/* The general template evaluator above uses int64_t for historical callers.
+ * Dependent array bounds also need unsigned values above INT64_MAX, so this
+ * scoped evaluator carries the target-width bit pattern and its source type. */
+typedef struct {
+    uint64_t bits;
+    Type* type;
+} CxxTemplateIntegerBits;
+static bool eval_template_integer_expression_bits(
     Expr* expression, CxxTemplate* tmpl, const int64_t* values,
-    const bool* value_present);
-static bool cxx_template_unsigned64_array_bound_exceeds_range(
+    const bool* value_present, CxxTemplateIntegerBits* result);
+static bool cxx_template_integer_type_is_unsigned(Type* type);
+static bool cxx_template_integer_bits_to_i64(
+    const CxxTemplateIntegerBits* value, int64_t* result);
+static bool cxx_template_integer_expression_overflows(
     Expr* expression, CxxTemplate* tmpl, const int64_t* values,
     const bool* value_present);
 static bool cxx_expression_is_dependent(
@@ -13515,12 +13525,33 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                 rcc_error(type->array_bound->loc,
                           "overflow in dependent array bound constant expression");
                 return NULL;
-            } else if (cxx_template_unsigned64_array_bound_exceeds_range(
-                           type->array_bound, tmpl, value_args,
-                           value_present)) {
-                rcc_error(type->array_bound->loc,
-                          "template array bound is out of range");
-                return NULL;
+            } else {
+                CxxTemplateIntegerBits evaluated;
+                int64_t signed_value;
+                if (eval_template_integer_expression_bits(
+                        type->array_bound, tmpl, value_args, value_present,
+                        &evaluated)) {
+                    if (cxx_template_integer_type_is_unsigned(
+                            evaluated.type)) {
+                        if (evaluated.bits == 0 ||
+                            evaluated.bits > (uint64_t)INT_MAX) {
+                            rcc_error(type->array_bound->loc,
+                                      "template array bound is out of range");
+                            return NULL;
+                        }
+                        array_len = (int)evaluated.bits;
+                    } else {
+                        if (!cxx_template_integer_bits_to_i64(
+                                &evaluated, &signed_value) ||
+                            signed_value <= 0 || signed_value > INT_MAX) {
+                            rcc_error(type->array_bound->loc,
+                                      "template array bound is out of range");
+                            return NULL;
+                        }
+                        array_len = (int)signed_value;
+                    }
+                    array_bound = NULL;
+                }
             }
         }
         if (base != type->base || array_len != type->array_len ||
@@ -19203,6 +19234,530 @@ static bool eval_template_integer_expression(Expr* expression,
     }
 }
 
+static Type* cxx_template_integer_representation(Type* type) {
+    if (type && type->kind == TYPE_ENUM && type->enum_underlying_type) {
+        return type->enum_underlying_type;
+    }
+    return type;
+}
+
+static bool cxx_template_integer_type_is_unsigned(Type* type) {
+    Type* representation = cxx_template_integer_representation(type);
+    return representation && (type->kind == TYPE_BOOL ||
+                              representation->is_unsigned);
+}
+
+static bool cxx_template_integer_type_mask(Type* type, uint64_t* mask) {
+    Type* representation = cxx_template_integer_representation(type);
+    unsigned bit_width;
+    if (!representation ||
+        (!type_is_integer(type) && type->kind != TYPE_ENUM) ||
+        representation->size <= 0 ||
+        representation->size > (int)sizeof(uint64_t)) {
+        return false;
+    }
+    bit_width = (unsigned)representation->size * 8u;
+    *mask = bit_width == 64u
+        ? UINT64_MAX : (UINT64_C(1) << bit_width) - 1u;
+    return true;
+}
+
+static bool cxx_template_integer_bits_from_i64(
+    Type* type, int64_t value, CxxTemplateIntegerBits* result) {
+    uint64_t mask;
+    if (!result || !cxx_template_integer_type_mask(type, &mask)) {
+        return false;
+    }
+    result->bits = type && type->kind == TYPE_BOOL
+        ? (value != 0) : (uint64_t)value & mask;
+    result->type = type;
+    return true;
+}
+
+static bool cxx_template_integer_bits_convert(
+    const CxxTemplateIntegerBits* source, Type* target,
+    CxxTemplateIntegerBits* result) {
+    Type* source_representation;
+    uint64_t source_mask;
+    uint64_t target_mask;
+    uint64_t converted;
+    unsigned source_width;
+    if (!source || !result ||
+        !cxx_template_integer_type_mask(source->type, &source_mask) ||
+        !cxx_template_integer_type_mask(target, &target_mask)) {
+        return false;
+    }
+    source_representation = cxx_template_integer_representation(source->type);
+    source_width = (unsigned)source_representation->size * 8u;
+    converted = source->bits & source_mask;
+    if (!cxx_template_integer_type_is_unsigned(source->type) &&
+        (converted & (UINT64_C(1) << (source_width - 1u))) != 0u) {
+        converted |= ~source_mask;
+    }
+    result->bits = target && target->kind == TYPE_BOOL
+        ? (converted != 0) : converted & target_mask;
+    result->type = target;
+    return true;
+}
+
+static bool cxx_template_integer_bits_to_i64(
+    const CxxTemplateIntegerBits* value, int64_t* result) {
+    Type* representation;
+    uint64_t mask;
+    uint64_t bits;
+    unsigned bit_width;
+    if (!value || !result ||
+        !cxx_template_integer_type_mask(value->type, &mask)) {
+        return false;
+    }
+    representation = cxx_template_integer_representation(value->type);
+    bits = value->bits & mask;
+    if (cxx_template_integer_type_is_unsigned(value->type)) {
+        if (bits > (uint64_t)INT64_MAX) return false;
+        *result = (int64_t)bits;
+        return true;
+    }
+    bit_width = (unsigned)representation->size * 8u;
+    if ((bits & (UINT64_C(1) << (bit_width - 1u))) != 0u) {
+        *result = -1 - (int64_t)(mask - bits);
+    } else {
+        *result = (int64_t)bits;
+    }
+    return true;
+}
+
+static Type* cxx_template_integer_promoted_type(Type* type) {
+    Type* representation = cxx_template_integer_representation(type);
+    if (!representation ||
+        (!type_is_integer(type) && type->kind != TYPE_ENUM)) {
+        return NULL;
+    }
+    if (representation->size < type_int->size) return type_int;
+    return representation;
+}
+
+static bool cxx_template_integer_comparison_type(
+    Type* left, Type* right, Type** common_type) {
+    left = cxx_template_integer_promoted_type(left);
+    right = cxx_template_integer_promoted_type(right);
+    Type* left_representation = cxx_template_integer_representation(left);
+    Type* right_representation = cxx_template_integer_representation(right);
+    bool left_unsigned;
+    bool right_unsigned;
+    if (!left_representation || !right_representation || !common_type ||
+        !cxx_template_integer_type_mask(left, &(uint64_t){0}) ||
+        !cxx_template_integer_type_mask(right, &(uint64_t){0})) {
+        return false;
+    }
+    left_unsigned = cxx_template_integer_type_is_unsigned(left);
+    right_unsigned = cxx_template_integer_type_is_unsigned(right);
+    if (left_unsigned == right_unsigned) {
+        *common_type = left_representation->size >=
+                               right_representation->size
+            ? left : right;
+    } else if (left_unsigned) {
+        *common_type = left_representation->size >=
+                               right_representation->size
+            ? left : right;
+    } else {
+        *common_type = right_representation->size >=
+                               left_representation->size
+            ? right : left;
+    }
+    return true;
+}
+
+static Type* cxx_template_integer_expression_type(
+    Expr* expression, CxxTemplate* tmpl) {
+    if (!expression) return NULL;
+    if (expression->type) return expression->type;
+    if (expression->kind == EXPR_IDENT && expression->ident_name && tmpl) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                strcmp(parameter->name, expression->ident_name) == 0) {
+                return parameter->type ? parameter->type : type_int;
+            }
+        }
+        if (tmpl->enclosing_template) {
+            CxxTemplate* enclosing = tmpl->enclosing_template;
+            for (int index = 0; index < enclosing->param_count; ++index) {
+                TemplateParam* parameter = &enclosing->params[index];
+                if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                    strcmp(parameter->name, expression->ident_name) == 0) {
+                    return parameter->type ? parameter->type : type_int;
+                }
+            }
+        }
+        return NULL;
+    }
+    if (expression->kind == EXPR_NEG || expression->kind == EXPR_BITNOT ||
+        expression->kind == EXPR_LSHIFT || expression->kind == EXPR_RSHIFT) {
+        Type* operand_type = cxx_template_integer_expression_type(
+            expression->kind == EXPR_LSHIFT ||
+                    expression->kind == EXPR_RSHIFT
+                ? expression->binary_lhs : expression->unary_operand,
+            tmpl);
+        return cxx_template_integer_promoted_type(operand_type);
+    }
+    if (expression->kind == EXPR_NOT || expression->kind == EXPR_AND ||
+        expression->kind == EXPR_OR || expression->kind == EXPR_EQ ||
+        expression->kind == EXPR_NE || expression->kind == EXPR_LT ||
+        expression->kind == EXPR_GT || expression->kind == EXPR_LE ||
+        expression->kind == EXPR_GE) {
+        return type_bool;
+    }
+    if (expression->kind == EXPR_COND) {
+        Type* then_type = cxx_template_integer_expression_type(
+            expression->cond_then, tmpl);
+        Type* else_type = cxx_template_integer_expression_type(
+            expression->cond_else, tmpl);
+        Type* common_type = NULL;
+        if (then_type == else_type) return then_type;
+        if (cxx_template_integer_comparison_type(
+                then_type, else_type, &common_type)) {
+            return common_type;
+        }
+        return then_type;
+    }
+    if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB ||
+        expression->kind == EXPR_MUL || expression->kind == EXPR_DIV ||
+        expression->kind == EXPR_MOD || expression->kind == EXPR_BITAND ||
+        expression->kind == EXPR_BITOR || expression->kind == EXPR_BITXOR) {
+        Type* left_type = cxx_template_integer_expression_type(
+            expression->binary_lhs, tmpl);
+        Type* right_type = cxx_template_integer_expression_type(
+            expression->binary_rhs, tmpl);
+        Type* common_type = NULL;
+        if (cxx_template_integer_comparison_type(
+                left_type, right_type, &common_type)) {
+            return common_type;
+        }
+    }
+    return NULL;
+}
+
+static bool eval_template_integer_expression_bits(
+    Expr* expression, CxxTemplate* tmpl, const int64_t* values,
+    const bool* value_present, CxxTemplateIntegerBits* result) {
+    CxxTemplateIntegerBits left;
+    CxxTemplateIntegerBits right;
+    CxxTemplateIntegerBits common_left;
+    CxxTemplateIntegerBits common_right;
+    int64_t signed_left;
+    int64_t signed_right;
+    int64_t signed_result;
+    uint64_t mask;
+    Type* common_type;
+    Type* result_type;
+    if (!expression || !result) return false;
+    result_type = cxx_template_integer_expression_type(expression, tmpl);
+    if (eval_template_integer_expression(
+            expression, tmpl, values, value_present, &signed_result)) {
+        return cxx_template_integer_bits_from_i64(
+            result_type, signed_result, result);
+    }
+
+    switch (expression->kind) {
+        case EXPR_CAST:
+            if (!eval_template_integer_expression_bits(
+                    expression->cast_expr, tmpl, values, value_present,
+                    &left)) {
+                return false;
+            }
+            return cxx_template_integer_bits_convert(
+                &left, expression->cast_type, result);
+        case EXPR_NEG:
+            if (!eval_template_integer_expression_bits(
+                    expression->unary_operand, tmpl, values, value_present,
+                    &left) ||
+                !cxx_template_integer_bits_convert(
+                    &left, result_type ? result_type : left.type,
+                    &common_left) ||
+                !cxx_template_integer_type_mask(
+                    result_type ? result_type : left.type, &mask)) {
+                return false;
+            }
+            result_type = result_type ? result_type : left.type;
+            if (cxx_template_integer_type_is_unsigned(result_type)) {
+                result->bits = (UINT64_C(0) - common_left.bits) & mask;
+                result->type = result_type;
+                return true;
+            }
+            if (!cxx_template_integer_bits_to_i64(
+                    &common_left, &signed_left) || signed_left == INT64_MIN) {
+                return false;
+            }
+            return cxx_template_integer_bits_from_i64(
+                result_type, -signed_left, result);
+        case EXPR_NOT:
+            if (!eval_template_integer_expression_bits(
+                    expression->unary_operand, tmpl, values, value_present,
+                    &left)) {
+                return false;
+            }
+            return cxx_template_integer_bits_from_i64(
+                result_type ? result_type : type_bool, left.bits == 0,
+                result);
+        case EXPR_BITNOT:
+            if (!eval_template_integer_expression_bits(
+                    expression->unary_operand, tmpl, values, value_present,
+                    &left) ||
+                !cxx_template_integer_bits_convert(
+                    &left, result_type ? result_type : left.type,
+                    &common_left) ||
+                !cxx_template_integer_type_mask(
+                    result_type ? result_type : left.type, &mask)) {
+                return false;
+            }
+            result_type = result_type ? result_type : left.type;
+            result->bits = ~common_left.bits & mask;
+            result->type = result_type;
+            return true;
+        case EXPR_AND:
+        case EXPR_OR:
+            if (!eval_template_integer_expression_bits(
+                    expression->binary_lhs, tmpl, values, value_present,
+                    &left)) {
+                return false;
+            }
+            if ((expression->kind == EXPR_AND && left.bits == 0) ||
+                (expression->kind == EXPR_OR && left.bits != 0)) {
+                return cxx_template_integer_bits_from_i64(
+                    result_type ? result_type : type_bool,
+                    expression->kind == EXPR_OR, result);
+            }
+            if (!eval_template_integer_expression_bits(
+                    expression->binary_rhs, tmpl, values, value_present,
+                    &right)) {
+                return false;
+            }
+            return cxx_template_integer_bits_from_i64(
+                result_type ? result_type : type_bool,
+                right.bits != 0, result);
+        case EXPR_COND:
+            if (!eval_template_integer_expression_bits(
+                    expression->cond_test, tmpl, values, value_present,
+                    &left)) {
+                return false;
+            }
+            if (!eval_template_integer_expression_bits(
+                    left.bits != 0 ? expression->cond_then
+                                   : expression->cond_else,
+                    tmpl, values, value_present, &right)) {
+                return false;
+            }
+            return cxx_template_integer_bits_convert(
+                &right, result_type ? result_type : right.type, result);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+            if (!eval_template_integer_expression_bits(
+                    expression->binary_lhs, tmpl, values, value_present,
+                    &left) ||
+                !eval_template_integer_expression_bits(
+                    expression->binary_rhs, tmpl, values, value_present,
+                    &right)) {
+                return false;
+            }
+            if (expression->kind == EXPR_EQ || expression->kind == EXPR_NE ||
+                expression->kind == EXPR_LT || expression->kind == EXPR_GT ||
+                expression->kind == EXPR_LE || expression->kind == EXPR_GE) {
+                if (!cxx_template_integer_comparison_type(
+                        left.type, right.type, &common_type)) {
+                    return false;
+                }
+            } else if (expression->kind == EXPR_LSHIFT ||
+                       expression->kind == EXPR_RSHIFT) {
+                common_type = cxx_template_integer_promoted_type(left.type);
+            } else {
+                common_type = result_type;
+            }
+            if (!cxx_template_integer_bits_convert(
+                    &left, common_type, &common_left) ||
+                !cxx_template_integer_bits_convert(
+                    &right, common_type, &common_right) ||
+                !cxx_template_integer_type_mask(common_type, &mask)) {
+                return false;
+            }
+            if (expression->kind == EXPR_EQ || expression->kind == EXPR_NE ||
+                expression->kind == EXPR_LT || expression->kind == EXPR_GT ||
+                expression->kind == EXPR_LE || expression->kind == EXPR_GE) {
+                bool comparison;
+                if (cxx_template_integer_type_is_unsigned(common_type)) {
+                    switch (expression->kind) {
+                        case EXPR_EQ:
+                            comparison = common_left.bits == common_right.bits;
+                            break;
+                        case EXPR_NE:
+                            comparison = common_left.bits != common_right.bits;
+                            break;
+                        case EXPR_LT:
+                            comparison = common_left.bits < common_right.bits;
+                            break;
+                        case EXPR_GT:
+                            comparison = common_left.bits > common_right.bits;
+                            break;
+                        case EXPR_LE:
+                            comparison = common_left.bits <= common_right.bits;
+                            break;
+                        default:
+                            comparison = common_left.bits >= common_right.bits;
+                            break;
+                    }
+                } else {
+                    if (!cxx_template_integer_bits_to_i64(
+                            &common_left, &signed_left) ||
+                        !cxx_template_integer_bits_to_i64(
+                            &common_right, &signed_right)) {
+                        return false;
+                    }
+                    switch (expression->kind) {
+                        case EXPR_EQ: comparison = signed_left == signed_right; break;
+                        case EXPR_NE: comparison = signed_left != signed_right; break;
+                        case EXPR_LT: comparison = signed_left < signed_right; break;
+                        case EXPR_GT: comparison = signed_left > signed_right; break;
+                        case EXPR_LE: comparison = signed_left <= signed_right; break;
+                        default: comparison = signed_left >= signed_right; break;
+                    }
+                }
+                return cxx_template_integer_bits_from_i64(
+                    result_type ? result_type : type_bool,
+                    comparison, result);
+            }
+            if (expression->kind == EXPR_LSHIFT ||
+                expression->kind == EXPR_RSHIFT) {
+                if (!cxx_template_integer_bits_to_i64(
+                        &common_right, &signed_right) ||
+                    signed_right < 0 || signed_right >= 64) {
+                    return false;
+                }
+                if (expression->kind == EXPR_LSHIFT) {
+                    result->bits = (common_left.bits <<
+                                    (unsigned)signed_right) & mask;
+                } else if (cxx_template_integer_type_is_unsigned(common_type)) {
+                    result->bits = common_left.bits >> (unsigned)signed_right;
+                } else {
+                    if (!cxx_template_integer_bits_to_i64(
+                            &common_left, &signed_left)) {
+                        return false;
+                    }
+                    if (signed_left >= 0) {
+                        result->bits = (uint64_t)signed_left >>
+                                       (unsigned)signed_right;
+                    } else {
+                        uint64_t magnitude = (uint64_t)(-(signed_left + 1));
+                        int64_t shifted = -1 - (int64_t)(
+                            magnitude >> (unsigned)signed_right);
+                        return cxx_template_integer_bits_from_i64(
+                            result_type ? result_type : common_type,
+                            shifted, result);
+                    }
+                }
+                result->bits &= mask;
+                result->type = result_type ? result_type : common_type;
+                return true;
+            }
+            if (cxx_template_integer_type_is_unsigned(common_type)) {
+                uint64_t unsigned_result;
+                switch (expression->kind) {
+                    case EXPR_ADD:
+                        unsigned_result = common_left.bits + common_right.bits;
+                        break;
+                    case EXPR_SUB:
+                        unsigned_result = common_left.bits - common_right.bits;
+                        break;
+                    case EXPR_MUL:
+                        unsigned_result = common_left.bits * common_right.bits;
+                        break;
+                    case EXPR_DIV:
+                        if (!common_right.bits) return false;
+                        unsigned_result = common_left.bits / common_right.bits;
+                        break;
+                    case EXPR_MOD:
+                        if (!common_right.bits) return false;
+                        unsigned_result = common_left.bits % common_right.bits;
+                        break;
+                    case EXPR_BITAND:
+                        unsigned_result = common_left.bits & common_right.bits;
+                        break;
+                    case EXPR_BITOR:
+                        unsigned_result = common_left.bits | common_right.bits;
+                        break;
+                    default:
+                        unsigned_result = common_left.bits ^ common_right.bits;
+                        break;
+                }
+                result->bits = unsigned_result & mask;
+                result->type = result_type ? result_type : common_type;
+                return true;
+            }
+            if (!cxx_template_integer_bits_to_i64(
+                    &common_left, &signed_left) ||
+                !cxx_template_integer_bits_to_i64(
+                    &common_right, &signed_right)) {
+                return false;
+            }
+            switch (expression->kind) {
+                case EXPR_ADD:
+                    if (!cxx_eval_i64_add(signed_left, signed_right,
+                                          &signed_result)) return false;
+                    break;
+                case EXPR_SUB:
+                    if (!cxx_eval_i64_sub(signed_left, signed_right,
+                                          &signed_result)) return false;
+                    break;
+                case EXPR_MUL:
+                    if (!cxx_eval_i64_mul(signed_left, signed_right,
+                                          &signed_result)) return false;
+                    break;
+                case EXPR_DIV:
+                    if (!signed_right ||
+                        (signed_left == INT64_MIN && signed_right == -1)) {
+                        return false;
+                    }
+                    signed_result = signed_left / signed_right;
+                    break;
+                case EXPR_MOD:
+                    if (!signed_right ||
+                        (signed_left == INT64_MIN && signed_right == -1)) {
+                        return false;
+                    }
+                    signed_result = signed_left % signed_right;
+                    break;
+                case EXPR_BITAND:
+                    signed_result = signed_left & signed_right;
+                    break;
+                case EXPR_BITOR:
+                    signed_result = signed_left | signed_right;
+                    break;
+                case EXPR_BITXOR:
+                    signed_result = signed_left ^ signed_right;
+                    break;
+                default:
+                    return false;
+            }
+            return cxx_template_integer_bits_from_i64(
+                result_type ? result_type : common_type,
+                signed_result, result);
+        default:
+            return false;
+    }
+}
+
 static bool cxx_template_integer_expression_overflows(
     Expr* expression, CxxTemplate* tmpl, const int64_t* values,
     const bool* value_present) {
@@ -19325,36 +19880,6 @@ static bool cxx_template_integer_expression_overflows(
         default:
             return false;
     }
-}
-
-static bool cxx_template_unsigned64_array_bound_exceeds_range(
-    Expr* expression, CxxTemplate* tmpl, const int64_t* values,
-    const bool* value_present) {
-    Type* representation;
-    int64_t source_value;
-    uint64_t converted;
-    if (!expression || expression->kind != EXPR_CAST ||
-        !expression->cast_type || !expression->cast_expr) {
-        return false;
-    }
-    representation = expression->cast_type;
-    if (representation->kind == TYPE_ENUM &&
-        representation->enum_underlying_type) {
-        representation = representation->enum_underlying_type;
-    }
-    if (!type_is_integer(expression->cast_type) &&
-        expression->cast_type->kind != TYPE_ENUM) {
-        return false;
-    }
-    if (!representation || !representation->is_unsigned ||
-        representation->size != (int)sizeof(uint64_t) ||
-        !eval_template_integer_expression(
-            expression->cast_expr, tmpl, values, value_present,
-            &source_value)) {
-        return false;
-    }
-    converted = (uint64_t)source_value;
-    return converted > (uint64_t)INT_MAX;
 }
 
 bool rcc_parser_cxx_eval_template_integer_expression(

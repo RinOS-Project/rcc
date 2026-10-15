@@ -4909,6 +4909,12 @@ remains a separate open item.
 - [x] Compare the invalid case against GCC, check the diagnostic and absence
   of `.ro` output for both i686 and AMD64. The focused unsigned-64 bound target
   passes.
-- [ ] General unsigned evaluation beyond the signed 64-bit range, including
-  casts nested inside larger expressions or later narrowed conversions, and
-  floating casts remain open.
+- [x] Preserve the target-width unsigned bit pattern while evaluating dependent
+      member array bounds through nested casts and larger integer expressions.
+      Verify unsigned addition/subtraction, modulo wrap to a zero bound, unary
+      negation, unsigned comparison, and later narrowing to `unsigned char`.
+      Both valid and invalid forms pass the GCC comparison and the focused
+      i686/AMD64 regressions.
+- [ ] Direct non-type template argument values above `INT64_MAX`, the full
+      remaining unsigned-expression/type-conversion matrix, and floating casts
+      remain open.
