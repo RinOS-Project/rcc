@@ -4383,6 +4383,12 @@ remains a separate open item.
   uses an explicitly declared `decltype(nullptr)` non-type argument. Preserve
   nullptr's distinct Itanium `LDnE` encoding, and verify GCC/RCC symbol
   equality for i686/AMD64 plus generated AMD64 runtime behavior.
+- [x] Match a nested member partial specialization whose outer owner contains
+  the dependent NTTP expression `OwnerValue * 3 + 2`. Evaluate the expression
+  in the owner-head parameter context even when that parameter has a different
+  name from the primary's parameter; verify a matching owner selects the
+  partial, a nonmatching owner keeps the primary, exact GCC/RCC i686/AMD64
+  symbols, and AMD64 runtime behavior.
 - [ ] Add structural non-integral NTTP owner-pack specializations and cover
   more complex dependent NTTP expressions plus any remaining standard-valid
   explicit member specialization forms on these owner shapes.

@@ -15584,8 +15584,16 @@ static int cxx_nested_specialization_owner_matches(
         }
     }
     {
-        size_t value_context_count = owner_value_context->param_count > 0
-            ? (size_t)owner_value_context->param_count : 1u;
+        size_t value_context_count =
+            (size_t)owner_value_context->param_count;
+        if (owner_value_context->enclosing_template &&
+            owner_value_context->enclosing_template->param_count > 0 &&
+            value_context_count <= SIZE_MAX -
+                (size_t)owner_value_context->enclosing_template->param_count) {
+            value_context_count += (size_t)
+                owner_value_context->enclosing_template->param_count;
+        }
+        if (value_context_count == 0) value_context_count = 1u;
         owner_value_context_values = ast_arena_alloc(
             sizeof(*owner_value_context_values) * value_context_count);
         owner_value_context_present = ast_arena_alloc(
