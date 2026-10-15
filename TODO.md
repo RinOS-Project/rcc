@@ -4715,7 +4715,8 @@ remains a separate open item.
 - [x] Correct array type mangling to include the Itanium ABI separator after
   the dimension; RCC's names now match GCC for all four tested instantiations.
 - [ ] Additional dependent array-bound expressions beyond the verified `+`,
-  `*`, `<<`, conditional-comparison, and logical short-circuit forms;
+  `*`, `<<`, signed `>>`, conditional-comparison, and logical short-circuit
+  forms;
   reference/array-reference and
   template-template owner forms, non-null structural pointer NTTP values, and
   explicit owner-specialization chains deeper than seven levels remain open.
@@ -4729,8 +4730,8 @@ remains a separate open item.
   exact GCC Itanium symbols with RCC on i686/AMD64 and execute generated AMD64
   and GCC-host programs. The full focused nested-owner gate passes (exit 0).
 - [ ] Other reference type-id combinations, additional dependent array-bound
-  expressions beyond the verified arithmetic, conditional, and logical
-  short-circuit forms,
+  expressions beyond the verified arithmetic (including signed `>>`),
+  conditional, and logical short-circuit forms,
   template-template owners, non-null structural pointer NTTP values, and
   explicit owner-specialization chains deeper than seven levels remain open.
 
@@ -4743,8 +4744,8 @@ remains a separate open item.
   and GCC-host programs. The focused target and aggregate `test-cxx`
   / `test-debug-info` gates pass (exit 0).
 - [ ] Other reference type-id combinations, additional dependent array-bound
-  expressions beyond the verified arithmetic, conditional, and logical
-  short-circuit forms,
+  expressions beyond the verified arithmetic (including signed `>>`),
+  conditional, and logical short-circuit forms,
   template-template owners, non-null structural pointer NTTP values, and
   explicit owner-specialization chains deeper than seven levels remain open.
 
@@ -4777,11 +4778,27 @@ remains a separate open item.
   execute generated AMD64 plus GCC-host programs; the focused nested-owner
   gate passes (exit 0).
 - [ ] Additional dependent array-bound operators/forms beyond the verified
-  addition, multiplication, left-shift, conditional-comparison, and logical
-  short-circuit cases,
+  addition, multiplication, left-shift, signed right-shift, conditional-
+  comparison, and logical short-circuit cases,
   other reference type-id and template-template owner forms, non-null
   structural pointer NTTP values, and explicit owner-specialization chains
   deeper than seven levels remain open.
+
+## RCC continuation (2026-10-16, signed right-shift in dependent array bounds)
+
+- [x] Evaluate negative signed right-shift operands arithmetically as required
+  by C++20 without relying on the host's implementation-defined signed shift
+  behavior or overflowing when the left operand is `INT64_MIN`.
+- [x] Cover `-1`, `-3`, and positive right-shift operands at dependent array
+  bounds, including nested member partial selection and primary fallback;
+  test `LLONG_MIN` shifted by 63 without signed overflow; compare all seven
+  exact GCC Itanium symbols against RCC on i686/AMD64 and run the focused
+  generated AMD64 and GCC-host programs.
+- [ ] Additional dependent array-bound operators beyond the verified
+  addition, multiplication, left-shift, signed right-shift, conditional-
+  comparison, and logical short-circuit cases, other reference type-id and
+  template-template owner forms, non-null structural pointer NTTP values, and
+  explicit owner-specialization chains deeper than seven levels remain open.
 
 ## RCC continuation (2026-10-16, seven-level nested explicit specialization)
 
@@ -4806,5 +4823,5 @@ remains a separate open item.
   Itanium symbols against RCC on i686/AMD64 and execute generated AMD64 plus
   GCC-host programs. The focused nested-owner target passes (exit 0).
 - [ ] Additional dependent array-bound operators beyond addition,
-  multiplication, left-shift, conditional comparison, and logical
-  short-circuit forms remain open.
+  multiplication, left-shift, signed right-shift, conditional comparison, and
+  logical short-circuit forms remain open.

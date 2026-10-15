@@ -1209,6 +1209,54 @@ struct NestedArrayShortCircuitAndOwner<
     int result() const { return 2520; }
 };
 
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArraySignedRightShiftBoundOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2600; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+struct NestedArraySignedRightShiftBoundOwner<
+    OwnerValue[(OwnerExtent >> 1) + 3], OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2610; }
+    };
+};
+
+template <typename OwnerValue, int OwnerExtent>
+template <typename Value>
+struct NestedArraySignedRightShiftBoundOwner<
+    OwnerValue[(OwnerExtent >> 1) + 3], OwnerExtent>::Inner<Value*> {
+    int result() const { return 2620; }
+};
+
+template <typename OwnerValue, long long OwnerExtent>
+struct NestedArrayInt64MinRightShiftBoundOwner {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2630; }
+    };
+};
+
+template <typename OwnerValue, long long OwnerExtent>
+struct NestedArrayInt64MinRightShiftBoundOwner<
+    OwnerValue[(OwnerExtent >> 63) + 3], OwnerExtent> {
+    template <typename Value>
+    struct Inner {
+        int result() const { return 2640; }
+    };
+};
+
+template <typename OwnerValue, long long OwnerExtent>
+template <typename Value>
+struct NestedArrayInt64MinRightShiftBoundOwner<
+    OwnerValue[(OwnerExtent >> 63) + 3], OwnerExtent>::Inner<Value*> {
+    int result() const { return 2650; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -1431,6 +1479,22 @@ int main() {
         array_bound_short_circuit_and_nonzero;
     NestedArrayShortCircuitAndOwner<int[2], 2>::Inner<char*>
         array_bound_short_circuit_and_primary;
+    NestedArraySignedRightShiftBoundOwner<int[2], -1>::Inner<char>
+        array_bound_signed_right_shift_negative_one;
+    NestedArraySignedRightShiftBoundOwner<int[2], -1>::Inner<char*>
+        array_bound_signed_right_shift_negative_one_inner;
+    NestedArraySignedRightShiftBoundOwner<int[1], -3>::Inner<char>
+        array_bound_signed_right_shift_negative_three;
+    NestedArraySignedRightShiftBoundOwner<int[4], 3>::Inner<char>
+        array_bound_signed_right_shift_positive;
+    NestedArraySignedRightShiftBoundOwner<int[4], -1>::Inner<char*>
+        array_bound_signed_right_shift_primary;
+    NestedArrayInt64MinRightShiftBoundOwner<
+        int[2], (-9223372036854775807LL - 1)>::Inner<char>
+        array_bound_signed_right_shift_int64_min;
+    NestedArrayInt64MinRightShiftBoundOwner<
+        int[2], (-9223372036854775807LL - 1)>::Inner<char*>
+        array_bound_signed_right_shift_int64_min_inner;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -1545,5 +1609,16 @@ int main() {
     if (array_bound_short_circuit_and_zero_inner.result() != 2520) return 108;
     if (array_bound_short_circuit_and_nonzero.result() != 2510) return 109;
     if (array_bound_short_circuit_and_primary.result() != 2500) return 110;
+    if (array_bound_signed_right_shift_negative_one.result() != 2610)
+        return 111;
+    if (array_bound_signed_right_shift_negative_one_inner.result() != 2620)
+        return 112;
+    if (array_bound_signed_right_shift_negative_three.result() != 2610)
+        return 113;
+    if (array_bound_signed_right_shift_positive.result() != 2610) return 114;
+    if (array_bound_signed_right_shift_primary.result() != 2600) return 115;
+    if (array_bound_signed_right_shift_int64_min.result() != 2640) return 116;
+    if (array_bound_signed_right_shift_int64_min_inner.result() != 2650)
+        return 117;
     return 0;
 }

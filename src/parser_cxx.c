@@ -10123,132 +10123,13 @@ static bool cxx_empty_template_head_starts_at(Token* token) {
            token->next->next->type == TOK_GT;
 }
 
-static bool cxx_explicit_nested_template_owner_specialization_starts(void) {
-    Token* token = parser.cur;
-    int angle_depth = 0;
-
-    if (!cxx_empty_template_head_starts_at(token)) return false;
-    while (cxx_empty_template_head_starts_at(token)) {
-        token = token->next->next->next;
-    }
-    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT)) {
-        return false;
-    }
-    token = token->next;
-    if (!token || token->type != TOK_IDENT ||
-        !find_class_template(token->value.str_val)) {
-        return false;
-    }
-    token = token->next;
-    if (!token || token->type != TOK_LT) return false;
-    angle_depth = 1;
-    for (token = token->next; token; token = token->next) {
-        if (token->type == TOK_LT) {
-            ++angle_depth;
-        } else if (token->type == TOK_GT) {
-            if (--angle_depth == 0) break;
-        } else if (token->type == TOK_RSHIFT) {
-            angle_depth -= 2;
-            if (angle_depth <= 0) break;
-        }
-    }
-    if (!token || angle_depth > 0) return false;
-    token = token->next;
-    return token && token->type == TOK_SCOPE && token->next &&
-           token->next->type == TOK_IDENT && token->next->next &&
-           token->next->next->type == TOK_LT;
-}
-
-static bool cxx_partial_nested_template_owner_specialization_starts(void) {
-    Token* token = parser.cur;
-    int angle_depth = 0;
-
-    if (!token || token->type != TOK_TEMPLATE || !token->next ||
-        token->next->type != TOK_LT) {
-        return false;
-    }
-    token = token->next;
-    while (token && token->type == TOK_LT) {
-        angle_depth = 1;
-        for (token = token->next; token; token = token->next) {
-            if (token->type == TOK_LT) {
-                ++angle_depth;
-            } else if (token->type == TOK_GT) {
-                if (--angle_depth == 0) break;
-            } else if (token->type == TOK_RSHIFT) {
-                angle_depth -= 2;
-                if (angle_depth <= 0) break;
-            }
-        }
-        if (!token || angle_depth > 0) return false;
-        token = token->next;
-        if (token && token->type == TOK_TEMPLATE) {
-            if (!token->next || token->next->type != TOK_LT) return false;
-            token = token->next;
-        } else {
-            break;
-        }
-    }
-    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT) ||
-        !token->next || token->next->type != TOK_IDENT || !token->next->next ||
-        token->next->next->type != TOK_LT) {
-        return false;
-    }
-    angle_depth = 1;
-    for (token = token->next->next->next; token; token = token->next) {
-        if (token->type == TOK_LT) {
-            ++angle_depth;
-        } else if (token->type == TOK_GT) {
-            if (--angle_depth == 0) break;
-        } else if (token->type == TOK_RSHIFT) {
-            angle_depth -= 2;
-            if (angle_depth <= 0) break;
-        }
-    }
-    if (!token || angle_depth > 0) return false;
-    token = token->next;
-    return token && token->type == TOK_SCOPE && token->next &&
-           token->next->type == TOK_IDENT && token->next->next &&
-           token->next->next->type == TOK_LT;
-}
-
-static bool cxx_single_header_nested_member_specialization_starts(void) {
-    Token* token = parser.cur;
-    int angle_depth = 0;
-
-    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT) ||
-        !token->next || token->next->type != TOK_IDENT ||
-        !find_class_template(token->next->value.str_val)) {
-        return false;
-    }
-    token = token->next->next;
-    if (!token || token->type != TOK_LT) return false;
-    angle_depth = 1;
-    for (token = token->next; token; token = token->next) {
-        if (token->type == TOK_LT) {
-            ++angle_depth;
-        } else if (token->type == TOK_GT) {
-            if (--angle_depth == 0) break;
-        } else if (token->type == TOK_RSHIFT) {
-            angle_depth -= 2;
-            if (angle_depth <= 0) break;
-        }
-    }
-    if (!token || angle_depth > 0) return false;
-    token = token->next;
-    return token && token->type == TOK_SCOPE && token->next &&
-           token->next->type == TOK_IDENT && token->next->next &&
-           token->next->next->type == TOK_LT;
-}
-
-static bool cxx_template_argument_list_followed_by_scope(void) {
-    Token* token = parser.cur;
+static Token* cxx_find_template_argument_list_end(Token* token) {
     int angle_depth = 0;
     int parentheses = 0;
     int brackets = 0;
     int braces = 0;
 
-    if (!token || token->type != TOK_LT) return false;
+    if (!token || token->type != TOK_LT) return NULL;
     for (; token; token = token->next) {
         if (token->type == TOK_LPAREN) {
             ++parentheses;
@@ -10266,18 +10147,96 @@ static bool cxx_template_argument_list_followed_by_scope(void) {
             if (token->type == TOK_LT) {
                 ++angle_depth;
             } else if (token->type == TOK_GT) {
-                if (--angle_depth == 0) {
-                    return token->next && token->next->type == TOK_SCOPE;
-                }
+                if (--angle_depth == 0) return token;
             } else if (token->type == TOK_RSHIFT) {
                 angle_depth -= 2;
-                if (angle_depth <= 0) {
-                    return token->next && token->next->type == TOK_SCOPE;
-                }
+                if (angle_depth <= 0) return token;
             }
         }
     }
-    return false;
+    return NULL;
+}
+
+static bool cxx_explicit_nested_template_owner_specialization_starts(void) {
+    Token* token = parser.cur;
+
+    if (!cxx_empty_template_head_starts_at(token)) return false;
+    while (cxx_empty_template_head_starts_at(token)) {
+        token = token->next->next->next;
+    }
+    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT)) {
+        return false;
+    }
+    token = token->next;
+    if (!token || token->type != TOK_IDENT ||
+        !find_class_template(token->value.str_val)) {
+        return false;
+    }
+    token = token->next;
+    if (!token || token->type != TOK_LT) return false;
+    token = cxx_find_template_argument_list_end(token);
+    if (!token) return false;
+    token = token->next;
+    return token && token->type == TOK_SCOPE && token->next &&
+           token->next->type == TOK_IDENT && token->next->next &&
+           token->next->next->type == TOK_LT;
+}
+
+static bool cxx_partial_nested_template_owner_specialization_starts(void) {
+    Token* token = parser.cur;
+
+    if (!token || token->type != TOK_TEMPLATE || !token->next ||
+        token->next->type != TOK_LT) {
+        return false;
+    }
+    token = token->next;
+    while (token && token->type == TOK_LT) {
+        token = cxx_find_template_argument_list_end(token);
+        if (!token) return false;
+        token = token->next;
+        if (token && token->type == TOK_TEMPLATE) {
+            if (!token->next || token->next->type != TOK_LT) return false;
+            token = token->next;
+        } else {
+            break;
+        }
+    }
+    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT) ||
+        !token->next || token->next->type != TOK_IDENT || !token->next->next ||
+        token->next->next->type != TOK_LT) {
+        return false;
+    }
+    token = cxx_find_template_argument_list_end(token->next->next);
+    if (!token) return false;
+    token = token->next;
+    return token && token->type == TOK_SCOPE && token->next &&
+           token->next->type == TOK_IDENT && token->next->next &&
+           token->next->next->type == TOK_LT;
+}
+
+static bool cxx_single_header_nested_member_specialization_starts(void) {
+    Token* token = parser.cur;
+
+    if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT) ||
+        !token->next || token->next->type != TOK_IDENT ||
+        !find_class_template(token->next->value.str_val)) {
+        return false;
+    }
+    token = token->next->next;
+    if (!token || token->type != TOK_LT) return false;
+    token = cxx_find_template_argument_list_end(token);
+    if (!token) return false;
+    token = token->next;
+    return token && token->type == TOK_SCOPE && token->next &&
+           token->next->type == TOK_IDENT && token->next->next &&
+           token->next->next->type == TOK_LT;
+}
+
+static bool cxx_template_argument_list_followed_by_scope(void) {
+    Token* token;
+
+    token = cxx_find_template_argument_list_end(parser.cur);
+    return token && token->next && token->next->type == TOK_SCOPE;
 }
 
 static CxxNestedClassTemplate* cxx_find_nested_template_for_owner_pattern(
@@ -19085,7 +19044,18 @@ static bool eval_template_integer_expression(Expr* expression,
                     break;
                 case EXPR_RSHIFT:
                     if (right < 0 || right >= 64) return false;
-                    *result = (int64_t)((uint64_t)left >> (unsigned)right);
+                    if (left >= 0) {
+                        *result = (int64_t)((uint64_t)left >>
+                                            (unsigned)right);
+                    } else {
+                        /* C++20 right-shifts negative signed values
+                         * arithmetically. Avoid relying on the host's
+                         * implementation-defined signed shift, and keep the
+                         * INT64_MIN case representable by negating left+1. */
+                        uint64_t magnitude = (uint64_t)(-(left + 1));
+                        *result = -1 - (int64_t)(magnitude >>
+                                                  (unsigned)right);
+                    }
                     break;
                 case EXPR_EQ: *result = left == right; break;
                 case EXPR_NE: *result = left != right; break;
