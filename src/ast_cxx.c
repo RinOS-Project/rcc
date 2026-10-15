@@ -7027,6 +7027,10 @@ static void template_replace_pack_identifier(Expr* expression,
     }
 }
 
+static int template_clone_value_parameter_index(
+    CxxTemplate* tmpl, const char* name, int argument_count,
+    TemplateParam** result_parameter);
+
 static Expr* template_clone_pack_pattern(
     CxxTemplate* tmpl, Expr* pattern, const char* pack_name, int index,
     Type** args, int arg_count, const int64_t* value_args,
@@ -7147,12 +7151,15 @@ static Expr* template_clone_pack_pattern(
                 clone_args = expanded_type_args;
             } else if (enclosing_parameter->kind == TPARAM_NONTYPE) {
                 int owner_argument_index = enclosing_pack_offset + index;
+                int value_parameter_offset =
+                    template_clone_value_parameter_index(
+                        tmpl, enclosing_parameter->name, arg_count, NULL);
                 if (!value_args || !value_present ||
                     owner_argument_index < 0 ||
                     owner_argument_index >= arg_count ||
                     !value_present[owner_argument_index] ||
-                    enclosing_pack_parameter_offset < 0 ||
-                    enclosing_pack_parameter_offset >= arg_count) {
+                    value_parameter_offset < 0 ||
+                    value_parameter_offset >= arg_count) {
                     rcc_error(pattern->loc,
                               "nested fold expression is missing its enclosing non-type pack value");
                     return NULL;
@@ -7168,9 +7175,9 @@ static Expr* template_clone_pack_pattern(
                            sizeof(*expanded_value_present) *
                                (size_t)arg_count);
                 }
-                expanded_value_args[enclosing_pack_parameter_offset] =
+                expanded_value_args[value_parameter_offset] =
                     value_args[owner_argument_index];
-                expanded_value_present[enclosing_pack_parameter_offset] =
+                expanded_value_present[value_parameter_offset] =
                     true;
                 clone_value_args = expanded_value_args;
                 clone_value_present = expanded_value_present;
@@ -7193,14 +7200,16 @@ static Expr* template_clone_pack_pattern(
                       "C++ non-type parameter pack metadata is invalid");
             return NULL;
         }
-        expanded_value_args = ast_arena_alloc(
-            sizeof(*expanded_value_args) * (size_t)arg_count);
-        expanded_value_present = ast_arena_alloc(
-            sizeof(*expanded_value_present) * (size_t)arg_count);
-        memcpy(expanded_value_args, value_args,
-               sizeof(*expanded_value_args) * (size_t)arg_count);
-        memcpy(expanded_value_present, value_present,
-               sizeof(*expanded_value_present) * (size_t)arg_count);
+        if (!expanded_value_args) {
+            expanded_value_args = ast_arena_alloc(
+                sizeof(*expanded_value_args) * (size_t)arg_count);
+            expanded_value_present = ast_arena_alloc(
+                sizeof(*expanded_value_present) * (size_t)arg_count);
+            memcpy(expanded_value_args, clone_value_args,
+                   sizeof(*expanded_value_args) * (size_t)arg_count);
+            memcpy(expanded_value_present, clone_value_present,
+                   sizeof(*expanded_value_present) * (size_t)arg_count);
+        }
         expanded_value_args[parameter_index] =
             tmpl->pending_pack_values[index];
         expanded_value_present[parameter_index] = true;

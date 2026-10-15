@@ -4317,9 +4317,9 @@ remains a separate open item.
   dependent class-template-id pattern. Store the outer type in each element so
   both packs affect layout; verify the empty (1-byte) and two-element (8-byte)
   payloads plus an explicit 8-byte baseline for the nested `Inner` owner.
-- [x] Expand a nested class-template fold across both its local integral pack
-  and an enclosing type pack. Check a width-matching two-element expansion at
-  runtime and reject unequal owner/local pack lengths with one targeted
+- [x] Expand a nested class-template fold across a local integral pack and
+  enclosing type or integral non-type packs. Check matching two-element and
+  empty `&&` folds at runtime; reject unequal pack lengths with one targeted
   diagnostic on i686 and AMD64.
 - [ ] Extend multi-source substitution to call-expression pack expansions,
   template-template pack sources, and owner packs from multiple enclosing
