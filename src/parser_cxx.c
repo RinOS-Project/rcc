@@ -15507,6 +15507,22 @@ static bool cxx_nested_owner_value_expression_matches(
         !deduced_value_present) {
         return false;
     }
+    if (pattern->kind == EXPR_MUL || pattern->kind == EXPR_ADD) {
+        fprintf(stderr,
+                "DBG expr=%d ctx=%p n=%d first=%s second=%s vals=%lld/%d,%lld/%d actual=%lld\n",
+                (int)pattern->kind, (void*)value_context,
+                value_context->param_count,
+                value_context->param_count > 0 &&
+                        value_context->params[0].name
+                    ? value_context->params[0].name : "-",
+                value_context->param_count > 1 &&
+                        value_context->params[1].name
+                    ? value_context->params[1].name : "-",
+                (long long)deduced_values[0],
+                (int)deduced_value_present[0],
+                (long long)deduced_values[1],
+                (int)deduced_value_present[1], (long long)actual);
+    }
     if (pattern->kind == EXPR_IDENT && pattern->ident_name) {
         for (int index = 0; index < value_context->param_count; ++index) {
             TemplateParam* parameter = &value_context->params[index];
@@ -15543,6 +15559,10 @@ static bool cxx_nested_owner_value_expression_matches(
     if (eval_template_integer_expression(
             pattern, value_context, deduced_values,
             deduced_value_present, &constant)) {
+        if (pattern->kind == EXPR_MUL || pattern->kind == EXPR_ADD) {
+            fprintf(stderr, "DBG evaluated=%lld actual=%lld\n",
+                    (long long)constant, (long long)actual);
+        }
         if (specificity) *specificity += 1;
         return constant == actual;
     }
