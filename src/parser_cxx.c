@@ -10389,8 +10389,147 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
         }
     }
 
+    /* A member class-template specialization is declared at namespace scope
+     * with a qualified-id, for example `Owner::Inner<T*>`.  Resolve the
+     * nested primary on its lexical owner so these specializations share the
+     * ordinary class-template matching and instantiation path. */
+    if ((check(TOK_CLASS) || check(TOK_STRUCT)) && parser.cur->next &&
+        parser.cur->next->type == TOK_IDENT && parser.cur->next->next &&
+        parser.cur->next->next->type == TOK_SCOPE &&
+        parser.cur->next->next->next &&
+        parser.cur->next->next->next->type == TOK_IDENT &&
+        parser.cur->next->next->next->next &&
+        parser.cur->next->next->next->next->type == TOK_LT) {
+        bool is_struct = match(TOK_STRUCT);
+        Token* owner_token;
+        Token* name_token;
+        CxxClass* owner_class;
+        CxxNestedClassTemplate* nested_template;
+        CxxTemplate* primary;
+        Type* arguments[32] = { NULL };
+        Expr* value_arguments[32] = { NULL };
+        int argument_count = 0;
+        CxxClass* specialized_class;
+        CxxClass* outer_template_class_definition =
+            active_template_class_definition;
+        CxxTemplate* outer_template = active_template;
+
+        if (!is_struct) expect(TOK_CLASS, "class or struct");
+        owner_token = expect(TOK_IDENT, "nested specialization owner");
+        expect(TOK_SCOPE, ":: before nested class template name");
+        name_token = expect(TOK_IDENT, "nested class template name");
+        owner_class = owner_token
+            ? find_class(owner_token->value.str_val) : NULL;
+        nested_template = owner_class && name_token
+            ? cxx_class_find_nested_template(
+                  owner_class, name_token->value.str_val)
+            : NULL;
+        primary = nested_template ? nested_template->declaration : NULL;
+        if (!primary || primary->kind != TMPL_CLASS) {
+            rcc_error(loc,
+                      "nested class-template specialization has no matching primary template");
+        }
+        tmpl->enclosing_class = owner_class;
+        active_template = tmpl;
+        expect(TOK_LT, "<");
+        if (!check(TOK_GT)) {
+            do {
+                int parameter_index;
+                if (argument_count == (int)(sizeof(arguments) /
+                                            sizeof(arguments[0]))) {
+                    rcc_error(loc,
+                              "nested class-template specialization argument limit exceeded");
+                    while (!check(TOK_GT) && !at_end()) advance();
+                    break;
+                }
+                parameter_index = primary && primary->param_count > 0
+                    ? (argument_count < primary->param_count
+                           ? argument_count : primary->param_count - 1)
+                    : argument_count;
+                if (primary && parameter_index < primary->param_count &&
+                    primary->params[parameter_index].kind == TPARAM_NONTYPE) {
+                    rcc_parser_set_cxx_template_default_mode(true);
+                    value_arguments[argument_count] =
+                        parse_assignment_expression();
+                    rcc_parser_set_cxx_template_default_mode(false);
+                } else {
+                    arguments[argument_count] = parse_cxx_type_spec();
+                }
+                ++argument_count;
+            } while (match(TOK_COMMA));
+        }
+        expect(TOK_GT, ">");
+        if (primary && argument_count != primary->param_count) {
+            rcc_error(loc,
+                      "nested class-template specialization has the wrong number of arguments");
+        }
+        tmpl->name = ast_arena_strdup(name_token
+                                          ? name_token->value.str_val
+                                          : "nested-specialization");
+        tmpl->kind = TMPL_CLASS;
+        tmpl->primary_template = primary;
+        tmpl->templated_class = NULL;
+        active_template_class_definition = NULL;
+        specialized_class = parse_cxx_class_named(
+            loc, is_struct,
+            name_token ? name_token->value.str_val : "nested-specialization",
+            NULL);
+        if (specialized_class && owner_class) {
+            specialized_class->enclosing_class = owner_class;
+        }
+        active_template_class_definition = outer_template_class_definition;
+        if (specialized_class && explicit_class_alignment > 0) {
+            cxx_class_apply_explicit_alignment(
+                specialized_class, explicit_class_alignment, loc);
+        }
+        active_template = outer_template;
+        tmpl->templated_class = specialized_class;
+        if (specialized_class) {
+            int64_t identity_values[32] = { 0 };
+            bool identity_present[32] = { false };
+            if (primary && argument_count == primary->param_count) {
+                for (int argument_index = 0;
+                     argument_index < argument_count; ++argument_index) {
+                    if (primary->params[argument_index].kind ==
+                            TPARAM_NONTYPE &&
+                        value_arguments[argument_index] &&
+                        expr_eval_integer_constant(
+                            value_arguments[argument_index],
+                            &identity_values[argument_index])) {
+                        identity_present[argument_index] = true;
+                    }
+                }
+                cxx_set_template_identity(
+                    specialized_class, primary, arguments,
+                    identity_values, identity_present, argument_count);
+            }
+            if (tmpl->param_count == 0) {
+                register_class_static_fields(specialized_class);
+                register_ordinary_class_methods(specialized_class);
+            }
+            specialized_class->templ = tmpl;
+            if (primary && argument_count == primary->param_count) {
+                tmpl->specialization_args = ast_arena_alloc(
+                    sizeof(Type*) * (size_t)argument_count);
+                memcpy(tmpl->specialization_args, arguments,
+                       sizeof(Type*) * (size_t)argument_count);
+                tmpl->specialization_value_args = ast_arena_alloc(
+                    sizeof(Expr*) * (size_t)argument_count);
+                memcpy(tmpl->specialization_value_args, value_arguments,
+                       sizeof(Expr*) * (size_t)argument_count);
+                tmpl->specialization_arg_count = argument_count;
+                primary->specializations = ast_arena_grow(
+                    primary->specializations,
+                    sizeof(CxxTemplate*) *
+                        (size_t)primary->specialization_count,
+                    sizeof(CxxTemplate*) *
+                        (size_t)(primary->specialization_count + 1));
+                primary->specializations[primary->specialization_count++] =
+                    tmpl;
+            }
+        }
     /* Template body */
-    if ((check(TOK_CLASS) || check(TOK_STRUCT)) &&
+    } else if ((check(TOK_CLASS) || check(TOK_STRUCT)) &&
         parser.cur->next && parser.cur->next->type == TOK_IDENT &&
         parser.cur->next->next &&
         parser.cur->next->next->type == TOK_LT) {
@@ -24920,12 +25059,12 @@ static Type* parse_cxx_type_spec(void) {
                           nested_template->declaration->name,
                           nested_owner && nested_owner->name
                               ? nested_owner->name : "<unnamed>");
-                (void)parse_class_template_specialization(
-                    nested_template->declaration, loc);
+                (void)parse_class_template_specialization_for_owner(
+                    nested_template->declaration, nested_owner, loc);
                 t = type_int;
             } else {
-                t = parse_class_template_specialization(
-                    nested_template->declaration, loc);
+                t = parse_class_template_specialization_for_owner(
+                    nested_template->declaration, nested_owner, loc);
             }
             typename_resolved = true;
         } else if (cxx_dependent_alias_template_starts()) {
@@ -25581,8 +25720,9 @@ static Type* parse_cxx_type_spec(void) {
             }
         } else if (nested_class_template &&
                    nested_class_template->declaration) {
-            Type* specialization = parse_class_template_specialization(
-                nested_class_template->declaration, loc);
+            Type* specialization = parse_class_template_specialization_for_owner(
+                nested_class_template->declaration,
+                nested_class_template_owner, loc);
             bool accessible = cxx_nested_class_template_accessible(
                 nested_class_template, nested_class_template_owner,
                 active_class);

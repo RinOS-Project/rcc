@@ -4341,7 +4341,14 @@ remains a separate open item.
 - [x] Re-run the focused nested-owner gate and the complete native-Windows
   MinGW GCC `test-cxx` and `test-debug-info` aggregates after adding the
   multiple-owner-scope regression (all exit 0).
-- [ ] Add explicit/partial nested class-template specializations and
-  structural NTTP owner packs.
 - [x] Pass the complete native-Windows MinGW GCC `test-cxx` and
   `test-debug-info` aggregates after this parser change.
+- [x] Register and select partial `Owner::Inner<T*>` and explicit
+  `Owner::Inner<char>` class-template specializations for concrete non-template
+  owners. Preserve the lexical owner in all specialization Itanium names.
+- [x] Compare primary, partial, and explicit-specialization symbols with GCC
+  on i686/AMD64; execute the RCC-generated AMD64 program and the GCC C++20
+  program; pass `test-cxx-nested-class-templates` and the full `test-cxx` plus
+  `test-debug-info` aggregates (exit 0).
+- [ ] Extend nested class-template specializations to class-template or
+  dependent owners, and add structural NTTP owner-pack specializations.

@@ -476,7 +476,7 @@ endif
 .PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
-.PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix test-cxx-nested-class-template-owner test-cxx-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner test-cxx-dependent-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner-chain test-cxx-dependent-nested-class-template-owner-chain-posix
+.PHONY: test-cxx-requires-expression test-cxx-requires-type test-cxx-named-concepts test-cxx-alias-templates test-cxx-nested-class-templates test-cxx-nested-class-templates-posix test-cxx-nested-class-template-specializations test-cxx-nested-class-template-owner test-cxx-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner test-cxx-dependent-nested-class-template-owner-posix test-cxx-dependent-nested-class-template-owner-chain test-cxx-dependent-nested-class-template-owner-chain-posix
 .PHONY: test-assignment-constraints
 .PHONY: test-cxx-inline-variables
 .PHONY: test-cxx-inline-namespace test-cxx-nested-namespace test-cxx-namespace-alias test-cxx-namespace-extension test-cxx-namespace-extension-posix test-cxx-friend-function test-cxx-nodiscard test-cxx-deprecated test-cxx-friend-class
@@ -5151,6 +5151,24 @@ test-cxx-nested-class-templates: $(RCXX_TARGET)
 	$(GREP) -F -q "nested class template 'HiddenLeaf' is inaccessible" $(TEST_OUT)/cxx-nested-class-templates/private-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-templates/private-x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_nested_class_templates_access_invalid.cpp,$(TEST_OUT)/cxx-nested-class-templates/private-gcc.log)
+
+test-cxx-nested-class-templates: test-cxx-nested-class-template-specializations
+
+test-cxx-nested-class-template-specializations: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-specializations)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nested-class-template-specializations,cxx_nested_class_template_specializations.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-template-specializations/gcc.s tests/cxx_nested_class_template_specializations.cpp
+	$(GREP) -F -q "_ZNK25NestedSpecializationOwner5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-specializations/gcc.s
+	$(GREP) -F -q "_ZNK25NestedSpecializationOwner5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-specializations/gcc.s
+	$(GREP) -F -q "_ZNK25NestedSpecializationOwner5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-specializations/gcc.s
+	$(GREP) -F -q "_ZNK25NestedSpecializationOwner5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-specializations/x86.s
+	$(GREP) -F -q "_ZNK25NestedSpecializationOwner5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-specializations/x86.s
+	$(GREP) -F -q "_ZNK25NestedSpecializationOwner5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-specializations/x86.s
+	$(GREP) -F -q "_ZNK25NestedSpecializationOwner5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-specializations/x64.s
+	$(GREP) -F -q "_ZNK25NestedSpecializationOwner5InnerIPcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-specializations/x64.s
+	$(GREP) -F -q "_ZNK25NestedSpecializationOwner5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-specializations/x64.s
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-specializations/gcc-host.exe tests/cxx_nested_class_template_specializations.cpp
+	$(TEST_OUT)/cxx-nested-class-template-specializations/gcc-host.exe
 
 test-cxx-nested-class-template-owner: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner)
