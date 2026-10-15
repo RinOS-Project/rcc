@@ -4902,11 +4902,29 @@ static int template_parameter_pack_index_nested(CxxTemplate* tmpl,
 
 static bool template_find_enclosing_pack_source(
     CxxTemplate* tmpl, Type* type_pattern, Expr* value_pattern,
+    int local_pack_index,
     CxxTemplate** pack_scope_out, int* pack_index_out,
-    int* pack_argument_offset_out, int* trailing_argument_count_out) {
+    int* pack_argument_offset_out, int* pack_parameter_offset_out,
+    int* trailing_argument_count_out) {
     int argument_offset;
+    int parameter_offset;
     if (!tmpl || (!type_pattern && !value_pattern)) return false;
     argument_offset = tmpl->param_count;
+    /* Instantiated non-alias templates flatten expanded local pack elements
+     * in the argument vector. Alias substitution retains its pack slot and
+     * appends owner arguments after the formal parameters. */
+    if (tmpl->kind != TMPL_ALIAS && local_pack_index >= 0 &&
+        local_pack_index < tmpl->param_count &&
+        tmpl->params[local_pack_index].is_pack &&
+        tmpl->pending_pack_count >= 0) {
+        int fixed_argument_count = argument_offset - 1;
+        if (fixed_argument_count < 0 ||
+            tmpl->pending_pack_count > INT_MAX - fixed_argument_count) {
+            return false;
+        }
+        argument_offset = fixed_argument_count + tmpl->pending_pack_count;
+    }
+    parameter_offset = tmpl->param_count;
     for (CxxTemplate* scope = tmpl->enclosing_template; scope;
          scope = scope->enclosing_template) {
         int type_pack_index = type_pattern
@@ -4945,15 +4963,23 @@ static bool template_find_enclosing_pack_source(
                 }
                 trailing_argument_count += trailing->param_count;
             }
-            if (argument_offset > INT_MAX - pack_index) return false;
+            if (argument_offset > INT_MAX - pack_index ||
+                parameter_offset > INT_MAX - pack_index) {
+                return false;
+            }
             *pack_scope_out = scope;
             *pack_index_out = pack_index;
             *pack_argument_offset_out = argument_offset + pack_index;
+            *pack_parameter_offset_out = parameter_offset + pack_index;
             *trailing_argument_count_out = trailing_argument_count;
             return true;
         }
-        if (scope->param_count > INT_MAX - argument_offset) return false;
+        if (scope->param_count > INT_MAX - argument_offset ||
+            scope->param_count > INT_MAX - parameter_offset) {
+            return false;
+        }
         argument_offset += scope->param_count;
+        parameter_offset += scope->param_count;
     }
     return false;
 }
@@ -5427,18 +5453,29 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 CxxTemplate* enclosing_pack_scope = NULL;
                 int enclosing_pack_index = -1;
                 int enclosing_pack_offset = -1;
+                int enclosing_pack_parameter_offset = -1;
                 int enclosing_pack_trailing_count = 0;
-                bool expands_enclosing_pack = expansion_pack_index == -1 &&
+                bool has_local_pack_source = expansion_pack_index >= 0 &&
+                    tmpl && expansion_pack_index < tmpl->param_count;
+                bool expands_enclosing_pack =
                     template_find_enclosing_pack_source(
                         tmpl, pattern_argument, pattern_value_expression,
+                        has_local_pack_source ? expansion_pack_index : -1,
                         &enclosing_pack_scope, &enclosing_pack_index,
                         &enclosing_pack_offset,
+                        &enclosing_pack_parameter_offset,
                         &enclosing_pack_trailing_count);
-                TemplateParam* expansion_parameter = expands_enclosing_pack
-                    ? &enclosing_pack_scope->params[enclosing_pack_index]
-                    : expansion_pack_index >= 0 && tmpl &&
-                              expansion_pack_index < tmpl->param_count
-                    ? &tmpl->params[expansion_pack_index] : NULL;
+                TemplateParam* local_expansion_parameter =
+                    has_local_pack_source
+                        ? &tmpl->params[expansion_pack_index] : NULL;
+                TemplateParam* enclosing_expansion_parameter =
+                    expands_enclosing_pack
+                        ? &enclosing_pack_scope->params[enclosing_pack_index]
+                        : NULL;
+                TemplateParam* expansion_parameter =
+                    local_expansion_parameter
+                        ? local_expansion_parameter
+                        : enclosing_expansion_parameter;
                 if (pack_index < 0 || nested_index < pack_index ||
                     nested_index != type->cxx_template_arg_count - 1 ||
                     !parameter ||
@@ -5446,7 +5483,7 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                      parameter->kind != TPARAM_NONTYPE &&
                      parameter->kind != TPARAM_TEMPLATE) ||
                     !parameter->is_pack || !tmpl ||
-                    !expansion_parameter ||
+                    !expansion_parameter || expansion_pack_index == -2 ||
                     !expansion_parameter->is_pack) {
                     rcc_error((SourceLoc){"<template>", 0, 0},
                               "dependent class-template pack expansion has "
@@ -5465,7 +5502,7 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                     return NULL;
                 }
                 if (tmpl->pending_pack_count < 0 &&
-                    !expands_enclosing_pack) {
+                    (has_local_pack_source || !expands_enclosing_pack)) {
                     if (nested_count >=
                         (int)(sizeof(nested_arguments) /
                               sizeof(nested_arguments[0]))) {
@@ -5495,7 +5532,7 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                     ++nested_count;
                     continue;
                 }
-                if (!expands_enclosing_pack &&
+                if (has_local_pack_source &&
                     tmpl->pending_pack_count > 0 &&
                     (value_pack
                          ? (!tmpl->pending_pack_values ||
@@ -5530,11 +5567,21 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                         return NULL;
                     }
                     expansion_count = arg_count - enclosing_pack_end;
-                    if (tmpl->pending_pack_count >= 0 &&
+                    if (has_local_pack_source &&
+                        tmpl->pending_pack_count >= 0 &&
                         tmpl->pending_pack_count != expansion_count) {
-                        rcc_error((SourceLoc){"<template>", 0, 0},
-                                  "nested class-template pack expansion has "
-                                  "inconsistent pack lengths");
+                        if (tmpl->kind == TMPL_ALIAS) {
+                            rcc_error(
+                                (SourceLoc){"<template>", 0, 0},
+                                "nested alias pack expansion requires its "
+                                "enclosing pack to have the same number of "
+                                "arguments");
+                        } else {
+                            rcc_error(
+                                (SourceLoc){"<template>", 0, 0},
+                                "nested class-template pack expansion has "
+                                "inconsistent pack lengths");
+                        }
                         return NULL;
                     }
                 }
@@ -5565,7 +5612,7 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                    sizeof(bool) * (size_t)arg_count);
                         }
                     }
-                    if (!expands_enclosing_pack) {
+                    if (has_local_pack_source) {
                         if (value_pack) {
                             expanded_values[expansion_pack_index] =
                                 tmpl->pending_pack_values[pack_value];
@@ -5588,7 +5635,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                 "enclosing pack argument");
                             return NULL;
                         }
-                        if (expansion_parameter->kind == TPARAM_NONTYPE &&
+                        if (enclosing_expansion_parameter->kind ==
+                                TPARAM_NONTYPE &&
                             (!value_args || !value_present ||
                              !value_present[owner_argument_index])) {
                             rcc_error(
@@ -5597,13 +5645,17 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                 "enclosing non-type pack value");
                             return NULL;
                         }
-                        if (expansion_parameter->kind == TPARAM_NONTYPE) {
-                            expanded_values[enclosing_pack_offset] =
+                        if (enclosing_expansion_parameter->kind ==
+                            TPARAM_NONTYPE) {
+                            expanded_values[
+                                enclosing_pack_parameter_offset] =
                                 value_args[owner_argument_index];
-                            expanded_value_present[enclosing_pack_offset] =
+                            expanded_value_present[
+                                enclosing_pack_parameter_offset] =
                                 true;
                         } else {
-                            expanded_arguments[enclosing_pack_offset] =
+                            expanded_arguments[
+                                enclosing_pack_parameter_offset] =
                                 args[owner_argument_index];
                         }
                     }
@@ -5612,21 +5664,29 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                         expanded_values, expanded_value_present);
                     if (!nested_arguments[nested_count]) return NULL;
                     if (value_pack) {
-                        int owner_argument_index = expands_enclosing_pack
+                        int owner_argument_index =
+                            !has_local_pack_source && expands_enclosing_pack
                             ? enclosing_pack_offset + pack_value : -1;
                         bool pending_value_present =
-                            expands_enclosing_pack
+                            !has_local_pack_source && expands_enclosing_pack
                                 ? value_args && value_present &&
                                       value_present[owner_argument_index]
-                                : tmpl->pending_pack_value_present[pack_value];
+                                : has_local_pack_source &&
+                                      tmpl->pending_pack_value_present &&
+                                      tmpl->pending_pack_value_present[
+                                          pack_value];
                         bool pending_value_expansion =
-                            !expands_enclosing_pack &&
+                            has_local_pack_source &&
                             tmpl->pending_pack_expansions &&
                             tmpl->pending_pack_expansions[pack_value];
-                        nested_values[nested_count] = expands_enclosing_pack
+                        nested_values[nested_count] =
+                            !has_local_pack_source && expands_enclosing_pack
                             ? (pending_value_present
                                    ? value_args[owner_argument_index] : 0)
-                            : tmpl->pending_pack_values[pack_value];
+                            : has_local_pack_source &&
+                                      tmpl->pending_pack_values
+                                  ? tmpl->pending_pack_values[pack_value]
+                                  : 0;
                         nested_value_present[nested_count] =
                             pending_value_present;
                         if (pending_value_present &&
@@ -5666,13 +5726,15 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                     : (SourceLoc){"<template>", 0, 0});
                         } else {
                             nested_value_expressions[nested_count] =
-                                expands_enclosing_pack
+                                !has_local_pack_source &&
+                                        expands_enclosing_pack
                                     ? template_clone_expr(
                                           tmpl, pattern_value_expression,
                                           expanded_arguments, arg_count,
                                           expanded_values,
                                           expanded_value_present)
-                                    : tmpl->pending_pack_value_expressions
+                                    : has_local_pack_source &&
+                                              tmpl->pending_pack_value_expressions
                                         ? tmpl->pending_pack_value_expressions[
                                               pack_value]
                                         : NULL;

@@ -4314,8 +4314,9 @@ remains a separate open item.
   `OuterValues + 1` through both `Inner` and `Leaf`; verify the transformed
   values affect the resulting payload size for empty and three-element packs.
 - [x] Expand outer type and inner integral non-type packs together in one
-  dependent class-template-id pattern; verify empty and two-element payload
-  sizes for the nested `Inner` owner.
+  dependent class-template-id pattern. Store the outer type in each element so
+  both packs affect layout; verify the empty (1-byte) and two-element (8-byte)
+  payloads plus an explicit 8-byte baseline for the nested `Inner` owner.
 - [ ] Extend multi-source pack expansion to fold/call-expression contexts,
   template-template sources, and mismatched-pack diagnostics.
 - [ ] Add explicit/partial nested class-template specializations and

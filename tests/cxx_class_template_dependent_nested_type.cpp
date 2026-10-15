@@ -168,6 +168,7 @@ struct NestedOwnerValuePackAggregate : Elements... {};
 
 template <typename OwnerType, int ByteCount>
 struct NestedOwnerMixedPackElement {
+    OwnerType owner;
     unsigned char elements[ByteCount];
 };
 
@@ -200,6 +201,13 @@ struct NestedOwnerMixedPack {
         int inner_payload_size() const { return sizeof(payload); }
     };
 };
+
+int read_explicit_nested_owner_mixed_pack_layout() {
+    using value_type = NestedOwnerMixedPackAggregate<
+        NestedOwnerMixedPackElement<short, 1>,
+        NestedOwnerMixedPackElement<char, 2>>;
+    return sizeof(value_type);
+}
 
 template <int... OuterValues>
 struct NestedOwnerTransformedValuePack {
@@ -346,7 +354,8 @@ int main() {
                    read_deep_nested_owner_transformed_value_pack<1, 2, 3>() ==
                        9 &&
                     empty_mixed_pack.inner_payload_size() == 1 &&
-                    two_element_mixed_pack.inner_payload_size() == 3 &&
+                    two_element_mixed_pack.inner_payload_size() == 8 &&
+                    read_explicit_nested_owner_mixed_pack_layout() == 8 &&
                    function_template_nested_type_chain<
                        NestedTypeChainOuter>() == 43 &&
                    dmi_effect_count == 4 && effects.called == 7 &&
