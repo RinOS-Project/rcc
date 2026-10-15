@@ -4729,3 +4729,15 @@ remains a separate open item.
 - [ ] Other reference categories, dependent array-bound/expression owner
   patterns, template-template owners, non-null structural pointer NTTP values,
   and explicit owner-specialization chains deeper than five levels remain open.
+
+## RCC continuation (2026-10-16, rvalue-reference-to-array nested partial owners)
+
+- [x] Parse rvalue references to constant-bound arrays in nested owner partial
+  specializations, including the outer owner, `Mid`, and `Leaf` patterns.
+- [x] Verify primary, outer, intermediate, and leaf selection; compare all four
+  exact GCC Itanium symbols with RCC on i686/AMD64 and execute generated AMD64
+  and GCC-host programs. The focused target and aggregate `test-cxx`
+  / `test-debug-info` gates pass (exit 0).
+- [ ] Other reference categories, dependent array-bound/expression owner
+  patterns, template-template owners, non-null structural pointer NTTP values,
+  and explicit owner-specialization chains deeper than five levels remain open.

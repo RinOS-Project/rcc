@@ -905,6 +905,46 @@ struct NestedReferenceArrayPartialOwnerChain<OwnerValue (&)[3]>::
     int result() const { return 1930; }
 };
 
+template <typename OwnerValue>
+struct NestedRvalueReferenceArrayPartialOwnerChain {
+    template <typename MidValue>
+    struct Mid {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 1940; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+struct NestedRvalueReferenceArrayPartialOwnerChain<OwnerValue (&&)[3]> {
+    template <typename MidValue>
+    struct Mid {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 1950; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+struct NestedRvalueReferenceArrayPartialOwnerChain<OwnerValue (&&)[3]>::
+    Mid<MidValue (&&)[2]> {
+    template <typename LeafValue>
+    struct Leaf {
+        int result() const { return 1960; }
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+template <typename LeafValue>
+struct NestedRvalueReferenceArrayPartialOwnerChain<OwnerValue (&&)[3]>::
+    Mid<MidValue (&&)[2]>::Leaf<LeafValue (&&)[1]> {
+    int result() const { return 1970; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -1063,6 +1103,15 @@ int main() {
         Leaf<int> reference_array_partial_mid_owner;
     NestedReferenceArrayPartialOwnerChain<int (&)[3]>::Mid<char (&)[2]>::
         Leaf<long (&)[1]> reference_array_partial_leaf_owner;
+    NestedRvalueReferenceArrayPartialOwnerChain<long (&&)[4]>::Mid<char>::
+        Leaf<int> rvalue_reference_array_partial_primary_owner;
+    NestedRvalueReferenceArrayPartialOwnerChain<int (&&)[3]>::Mid<char>::
+        Leaf<int> rvalue_reference_array_partial_outer_owner;
+    NestedRvalueReferenceArrayPartialOwnerChain<int (&&)[3]>::
+        Mid<char (&&)[2]>::Leaf<int> rvalue_reference_array_partial_mid_owner;
+    NestedRvalueReferenceArrayPartialOwnerChain<int (&&)[3]>::
+        Mid<char (&&)[2]>::Leaf<long (&&)[1]>
+        rvalue_reference_array_partial_leaf_owner;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -1145,5 +1194,13 @@ int main() {
     if (reference_array_partial_outer_owner.result() != 1910) return 80;
     if (reference_array_partial_mid_owner.result() != 1920) return 81;
     if (reference_array_partial_leaf_owner.result() != 1930) return 82;
+    if (rvalue_reference_array_partial_primary_owner.result() != 1940)
+        return 83;
+    if (rvalue_reference_array_partial_outer_owner.result() != 1950)
+        return 84;
+    if (rvalue_reference_array_partial_mid_owner.result() != 1960)
+        return 85;
+    if (rvalue_reference_array_partial_leaf_owner.result() != 1970)
+        return 86;
     return 0;
 }

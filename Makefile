@@ -5275,6 +5275,10 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK37NestedReferenceArrayPartialOwnerChainIRA3_iE3MidIcE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
 	$(GREP) -F -q "_ZNK37NestedReferenceArrayPartialOwnerChainIRA3_iE3MidIRA2_cE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
 	$(GREP) -F -q "_ZNK37NestedReferenceArrayPartialOwnerChainIRA3_iE3MidIRA2_cE4LeafIRA1_lE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA4_lE3MidIcE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA3_iE3MidIcE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA3_iE3MidIOA2_cE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA3_iE3MidIOA2_cE4LeafIOA1_lE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
 	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
 	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIlE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
 	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/gcc.s
@@ -5357,6 +5361,10 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK37NestedReferenceArrayPartialOwnerChainIRA3_iE3MidIcE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK37NestedReferenceArrayPartialOwnerChainIRA3_iE3MidIRA2_cE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK37NestedReferenceArrayPartialOwnerChainIRA3_iE3MidIRA2_cE4LeafIRA1_lE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA4_lE3MidIcE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA3_iE3MidIcE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA3_iE3MidIOA2_cE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA3_iE3MidIOA2_cE4LeafIOA1_lE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIlE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
 	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x86.s
@@ -5439,6 +5447,10 @@ test-cxx-nested-class-template-owner-partial-specialization: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK37NestedReferenceArrayPartialOwnerChainIRA3_iE3MidIcE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK37NestedReferenceArrayPartialOwnerChainIRA3_iE3MidIRA2_cE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK37NestedReferenceArrayPartialOwnerChainIRA3_iE3MidIRA2_cE4LeafIRA1_lE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA4_lE3MidIcE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA3_iE3MidIcE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA3_iE3MidIOA2_cE4LeafIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
+	$(GREP) -F -q "_ZNK43NestedRvalueReferenceArrayPartialOwnerChainIOA3_iE3MidIOA2_cE4LeafIOA1_lE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIlE3MidIcE5InnerIlE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s
 	$(GREP) -F -q "_ZNK25NestedMidSpecializedOwnerIiE3MidIcE5InnerIcE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-partial-specialization/x64.s

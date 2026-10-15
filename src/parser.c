@@ -4102,6 +4102,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
     if (check(TOK_LPAREN) && parser.cur->next &&
         (parser.cur->next->type == TOK_STAR ||
          (parser_cxx_mode && parser.cur->next->type == TOK_AMP) ||
+         (parser_cxx_mode && parser.cur->next->type == TOK_AND) ||
          parser_parenthesized_declarator_starts_member_pointer())) {
         advance();
         if (!parse_member_pointer_level(&parenthesized_pointers)) {
