@@ -4407,8 +4407,11 @@ remains a separate open item.
 - [x] Extend the structural NTTP subset from one integral/enum field to
   multiple public integral/enum fields with a bounded 64-bit representation,
   declaration-order member decoding, and multi-literal Itanium mangling.
-- [ ] Nested structural fields, non-null pointer-valued fields, and remaining
-  standard-valid explicit member-specialization forms remain open.
+- [x] Nested structural subobjects containing public, non-bit-field integer or
+  enum leaves are supported within the bounded 64-bit representation; a sole
+  null ordinary-pointer leaf is also supported when nested.
+- [ ] Non-null pointer-valued members and remaining standard-valid explicit
+  member-specialization forms remain open.
 
 ## RCC continuation (2026-10-15, enum structural NTTP nested owners)
 
@@ -4422,9 +4425,12 @@ remains a separate open item.
   RCC `main`; no push.
 - [x] Add support for multiple public integral/enum data members in a
   structural class owner value.
-- [ ] Nested structural fields, non-null pointer-valued fields, additional
-  dependent owner-head patterns, and remaining standard-valid explicit member
-  specializations on these owner shapes remain open.
+- [x] Nested structural subobjects containing public, non-bit-field integer or
+  enum leaves are supported within the bounded 64-bit representation; a sole
+  null ordinary-pointer leaf is also supported when nested.
+- [ ] Non-null pointer-valued members, additional dependent owner-head
+  patterns, and remaining standard-valid explicit member specializations on
+  these owner shapes remain open.
 
 ## RCC continuation (2026-10-15, null pointer structural NTTP members)
 
@@ -4441,9 +4447,11 @@ remains a separate open item.
   Windows MinGW `test-cxx` and `test-debug-info` aggregates pass (exit 0).
 - [x] Add support for multiple public integral/enum data members in a
   structural class owner value.
-- [ ] Nested structural fields, non-null pointer-valued fields, and remaining
-  standard-valid explicit member specializations on these owner shapes remain
-  open.
+- [x] Nested structural subobjects containing public, non-bit-field integer or
+  enum leaves are supported within the bounded 64-bit representation; a sole
+  null ordinary-pointer leaf is also supported when nested.
+- [ ] Non-null pointer-valued members and remaining standard-valid explicit
+  member specializations on these owner shapes remain open.
 
 ## RCC continuation (2026-10-15, reordered structural NTTP owner heads)
 
@@ -4457,8 +4465,11 @@ remains a separate open item.
   Windows MinGW `test-cxx`, and `test-debug-info` gates all pass (exit 0).
 - [x] Multi-member public integral/enum structural values are supported
   within the bounded flat 64-bit representation.
-- [ ] Nested structural values, non-null pointer members, and remaining
-  standard-valid explicit member specializations remain open.
+- [x] Nested structural subobjects containing public, non-bit-field integer or
+  enum leaves are supported within the bounded 64-bit representation; a sole
+  null ordinary-pointer leaf is also supported when nested.
+- [ ] Non-null pointer-valued members and remaining standard-valid explicit
+  member specializations remain open.
 
 ## RCC continuation (2026-10-15, empty structural NTTP values)
 
@@ -4474,8 +4485,11 @@ remains a separate open item.
   `5443464` on local RCC `main`; no push.
 - [x] Multi-member public integral/enum structural values are supported
   within the bounded flat 64-bit representation.
-- [ ] Nested structural values, non-null pointer members, and remaining
-  standard-valid explicit member-specialization forms remain open.
+- [x] Nested structural subobjects containing public, non-bit-field integer or
+  enum leaves are supported within the bounded 64-bit representation; a sole
+  null ordinary-pointer leaf is also supported when nested.
+- [ ] Non-null pointer-valued members and remaining standard-valid explicit
+  member-specialization forms remain open.
 
 ## RCC continuation (2026-10-15, multi-member structural NTTP values)
 
@@ -4490,5 +4504,26 @@ remains a separate open item.
   without make errors.
 - [x] Commit implementation, fixture, and target checks as `afd7a9b` on local
   RCC `main`; no push.
-- [ ] Nested structural values, non-null pointer-valued members, and remaining
-  standard-valid explicit member-specialization forms remain open.
+- [x] Nested structural subobjects containing public, non-bit-field integer or
+  enum leaves are supported within the bounded 64-bit representation; a sole
+  null ordinary-pointer leaf is also supported when nested.
+- [ ] Non-null pointer-valued members and remaining standard-valid explicit
+  member-specialization forms remain open.
+
+## RCC continuation (2026-10-15, nested structural NTTP values)
+
+- [x] Recursively pack nested public, non-bit-field integer/enum data members
+  in declaration order within the bounded 64-bit value. Honor constant default
+  member initializers and zero-initialize omitted fields.
+- [x] Substitute nested parameter-object member reads such as `Value.leaf.first`
+  through arbitrary nested paths; support a sole null ordinary-pointer leaf
+  inside nested structural subobjects and match GCC's omitted null-literal
+  wrapper encoding.
+- [x] Compare exact GCC/RCC Itanium symbols on i686 and AMD64 and execute both
+  generated AMD64 and GCC-host programs. The focused structural-owner target
+  and full native-Windows MinGW `test-cxx` and `test-debug-info` aggregates
+  pass with exit 0.
+- [x] Commit implementation and regressions as `b59660d` on local RCC `main`;
+  no push.
+- [ ] Non-null pointer-valued members and remaining standard-valid explicit
+  member-specialization forms remain open.
