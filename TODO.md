@@ -4389,6 +4389,10 @@ remains a separate open item.
   name from the primary's parameter; verify a matching owner selects the
   partial, a nonmatching owner keeps the primary, exact GCC/RCC i686/AMD64
   symbols, and AMD64 runtime behavior.
+- [x] Re-run the focused nested-owner gate and full native-Windows MinGW GCC
+  `test-cxx` and `test-debug-info` aggregates after dependent-expression owner
+  matching; all completed with exit 0.
 - [ ] Add structural non-integral NTTP owner-pack specializations and cover
-  more complex dependent NTTP expressions plus any remaining standard-valid
-  explicit member specialization forms on these owner shapes.
+  non-integral class/pointer values, parameter-identity mapping when partial
+  owner heads rename or reorder type parameters, and remaining standard-valid
+  explicit member-specialization forms on these owner shapes.
