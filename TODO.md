@@ -4372,7 +4372,13 @@ remains a separate open item.
   i686/AMD64; execute RCC-generated AMD64 and GCC C++20 programs. Pass the
   focused nested owner-partial target and the full `test-cxx` and
   `test-debug-info` aggregates on native Windows (all exit 0).
-- [ ] Extend outer partial-owner matching to dependent non-type and
-  template-template patterns; add structural non-integral NTTP owner-pack
-  specializations. Investigate any additional standard-valid explicit member
-  specialization forms on these owner shapes.
+- [x] Match outer partial owners with dependent integral non-type and
+  template-template arguments. Select the nested template declared by the
+  matching outer partial, carry the selected template-template argument into
+  the primary-template identity, and preserve GCC Itanium names. The fixture
+  checks runtime values, `sizeof` substitution, PE-i386 generation, and exact
+  i686/AMD64 symbols; focused, full `test-cxx`, and `test-debug-info` gates
+  pass.
+- [ ] Add structural non-integral NTTP owner-pack specializations and cover
+  more complex dependent NTTP expressions plus any remaining standard-valid
+  explicit member specialization forms on these owner shapes.

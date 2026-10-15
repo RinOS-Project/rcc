@@ -1920,6 +1920,12 @@ static void add_namespace_declaration(AST* ast, CxxNamespace* ns,
 static void parse_cxx_language_linkage(AST* ast, CxxNamespace* ns);
 static int active_template_type_index(const char* name);
 static int active_template_template_parameter_index(const char* name);
+static const TemplateParam* active_template_template_parameter(
+    int parameter_index);
+static bool template_template_parameter_signatures_match(
+    const CxxTemplate* expected, const CxxTemplate* actual, int depth);
+static bool template_template_signature_matches(
+    const TemplateParam* parameter, const CxxTemplate* actual);
 static int cxx_parser_function_template_overload_conversion_rank(
     Expr* argument, Type* target, TypeMethod** conversion_method);
 static bool cxx_dependent_integer_call_constant_argument_supported(
@@ -10835,6 +10841,55 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                     value_arguments[argument_count] =
                         parse_assignment_expression();
                     rcc_parser_set_cxx_template_default_mode(false);
+                } else if (primary &&
+                           argument_count < primary->param_count &&
+                           primary->params[argument_count].kind ==
+                               TPARAM_TEMPLATE) {
+                    TemplateParam* parameter =
+                        &primary->params[argument_count];
+                    const char* argument_name = check(TOK_IDENT) ||
+                            check(TOK_SCOPE)
+                        ? parse_qualified_name() : NULL;
+                    int source_parameter_index = argument_name
+                        ? active_template_template_parameter_index(
+                              argument_name) : -1;
+                    Type* template_carrier = NULL;
+                    if (source_parameter_index >= 0 && active_template) {
+                        const TemplateParam* source_parameter =
+                            active_template_template_parameter(
+                                source_parameter_index);
+                        if (!source_parameter ||
+                            !template_template_parameter_signatures_match(
+                                parameter->template_signature,
+                                source_parameter->template_signature, 0)) {
+                            rcc_error(loc,
+                                      "template-template argument does not "
+                                      "match its parameter list");
+                            template_carrier = type_int;
+                        } else {
+                            template_carrier = type_struct(argument_name);
+                            template_carrier->cxx_dependent = true;
+                            template_carrier->cxx_template_param_index =
+                                source_parameter_index;
+                        }
+                    } else {
+                        CxxTemplate* argument_template = argument_name
+                            ? find_template_template_argument(argument_name)
+                            : NULL;
+                        if (!argument_template ||
+                            !template_template_signature_matches(
+                                parameter, argument_template)) {
+                            rcc_error(loc,
+                                      "template-template argument does not "
+                                      "match its parameter list");
+                            template_carrier = type_int;
+                        } else {
+                            template_carrier = type_struct(argument_name);
+                            template_carrier->cxx_template =
+                                argument_template;
+                        }
+                    }
+                    arguments[argument_count] = template_carrier;
                 } else {
                     arguments[argument_count] = parse_cxx_type_spec();
                 }
@@ -14062,6 +14117,10 @@ static Type* instantiate_class_template_for_owner(
                 identity_arguments[identity_index] = substitute_template_type(
                     tmpl, tmpl->specialization_args[identity_index],
                     arguments, argument_count, value_args, value_present);
+            } else if (parameter->kind == TPARAM_TEMPLATE) {
+                identity_arguments[identity_index] = substitute_template_type(
+                    tmpl, tmpl->specialization_args[identity_index],
+                    arguments, argument_count, value_args, value_present);
             } else if (parameter->kind == TPARAM_NONTYPE &&
                        tmpl->specialization_value_args &&
                        tmpl->specialization_value_args[identity_index]) {
@@ -14834,10 +14893,234 @@ static bool deduce_class_specialization_type(CxxTemplate* tmpl,
     return true;
 }
 
+static bool cxx_partial_owner_expression_equal(
+    const Expr* left, const Expr* right, unsigned depth) {
+    if (left == right) return true;
+    if (!left || !right || depth >= 128u || left->kind != right->kind ||
+        left->is_cxx_nullptr != right->is_cxx_nullptr) {
+        return false;
+    }
+    switch (left->kind) {
+        case EXPR_INT_LIT:
+            return left->int_val == right->int_val;
+        case EXPR_CHAR_LIT:
+            return left->char_val == right->char_val;
+        case EXPR_IDENT:
+            return left->ident_name && right->ident_name &&
+                strcmp(left->ident_name, right->ident_name) == 0;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+            return cxx_partial_owner_expression_equal(
+                left->unary_operand, right->unary_operand, depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+            return cxx_partial_owner_expression_equal(
+                       left->binary_lhs, right->binary_lhs, depth + 1u) &&
+                cxx_partial_owner_expression_equal(
+                       left->binary_rhs, right->binary_rhs, depth + 1u);
+        case EXPR_COND:
+            return cxx_partial_owner_expression_equal(
+                       left->cond_test, right->cond_test, depth + 1u) &&
+                cxx_partial_owner_expression_equal(
+                       left->cond_then, right->cond_then, depth + 1u) &&
+                cxx_partial_owner_expression_equal(
+                       left->cond_else, right->cond_else, depth + 1u);
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            if (left->sizeof_pack_name || right->sizeof_pack_name) {
+                return left->sizeof_pack_name && right->sizeof_pack_name &&
+                    strcmp(left->sizeof_pack_name,
+                           right->sizeof_pack_name) == 0;
+            }
+            return cxx_class_specialization_type_equal(
+                left->sizeof_type, right->sizeof_type);
+        default:
+            return false;
+    }
+}
+
+static bool cxx_partial_owner_expression_matches(
+    CxxTemplate* specialization, const Expr* pattern, const Expr* actual,
+    Expr** deduced_values, bool* deduced_value_present, int* specificity,
+    unsigned depth) {
+    if (!pattern || !actual || depth >= 128u ||
+        pattern->kind != actual->kind) {
+        return false;
+    }
+    if (pattern->kind == EXPR_IDENT && pattern->ident_name) {
+        for (int index = 0; specialization &&
+             index < specialization->param_count; ++index) {
+            TemplateParam* parameter = &specialization->params[index];
+            if (parameter->kind != TPARAM_NONTYPE || !parameter->name ||
+                strcmp(parameter->name, pattern->ident_name) != 0) {
+                continue;
+            }
+            if (deduced_value_present[index]) {
+                return cxx_partial_owner_expression_equal(
+                    deduced_values[index], actual, 0u);
+            }
+            deduced_values[index] = (Expr*)actual;
+            deduced_value_present[index] = true;
+            return true;
+        }
+    }
+    if (pattern->kind == EXPR_INT_LIT || pattern->kind == EXPR_CHAR_LIT ||
+        pattern->kind == EXPR_IDENT) {
+        if (specificity) *specificity += 8;
+        return cxx_partial_owner_expression_equal(pattern, actual, 0u);
+    }
+    if (pattern->kind == EXPR_NEG || pattern->kind == EXPR_NOT ||
+        pattern->kind == EXPR_BITNOT || pattern->kind == EXPR_ADDR ||
+        pattern->kind == EXPR_DEREF || pattern->kind == EXPR_PREINC ||
+        pattern->kind == EXPR_PREDEC || pattern->kind == EXPR_POSTINC ||
+        pattern->kind == EXPR_POSTDEC) {
+        if (specificity) *specificity += 1;
+        return cxx_partial_owner_expression_matches(
+            specialization, pattern->unary_operand, actual->unary_operand,
+            deduced_values, deduced_value_present, specificity, depth + 1u);
+    }
+    if (pattern->kind >= EXPR_ADD && pattern->kind <= EXPR_OR) {
+        if (specificity) *specificity += 1;
+        return cxx_partial_owner_expression_matches(
+                   specialization, pattern->binary_lhs, actual->binary_lhs,
+                   deduced_values, deduced_value_present, specificity,
+                   depth + 1u) &&
+            cxx_partial_owner_expression_matches(
+                   specialization, pattern->binary_rhs, actual->binary_rhs,
+                   deduced_values, deduced_value_present, specificity,
+                   depth + 1u);
+    }
+    if (pattern->kind == EXPR_COND) {
+        if (specificity) *specificity += 1;
+        return cxx_partial_owner_expression_matches(
+                   specialization, pattern->cond_test, actual->cond_test,
+                   deduced_values, deduced_value_present, specificity,
+                   depth + 1u) &&
+            cxx_partial_owner_expression_matches(
+                   specialization, pattern->cond_then, actual->cond_then,
+                   deduced_values, deduced_value_present, specificity,
+                   depth + 1u) &&
+            cxx_partial_owner_expression_matches(
+                   specialization, pattern->cond_else, actual->cond_else,
+                   deduced_values, deduced_value_present, specificity,
+                   depth + 1u);
+    }
+    return cxx_partial_owner_expression_equal(pattern, actual, 0u);
+}
+
+static int cxx_partial_owner_template_parameter_index(
+    CxxTemplate* scope, const Type* carrier) {
+    const TemplateParam* parameter;
+    if (!scope || !carrier || !carrier->cxx_dependent ||
+        carrier->cxx_template_param_index < 0) {
+        return -1;
+    }
+    parameter = cxx_template_parameter_at(
+        scope, carrier->cxx_template_param_index);
+    return parameter && parameter->kind == TPARAM_TEMPLATE
+        ? carrier->cxx_template_param_index : -1;
+}
+
+static bool cxx_partial_owner_template_argument_matches(
+    CxxTemplate* primary, int primary_parameter_index,
+    CxxTemplate* specialization,
+    const Type* pattern, const Type* actual, Type** deduced_arguments,
+    bool* deduced_argument_present, int* specificity) {
+    CxxTemplate* pattern_template = pattern ? pattern->cxx_template : NULL;
+    CxxTemplate* actual_template = actual ? actual->cxx_template : NULL;
+    int pattern_parameter_index = cxx_partial_owner_template_parameter_index(
+        specialization, pattern);
+    int actual_parameter_index = cxx_partial_owner_template_parameter_index(
+        primary, actual);
+    if (!pattern || !actual) return false;
+    if (pattern_parameter_index >= 0) {
+        if (pattern_parameter_index >= specialization->param_count ||
+            actual_parameter_index >= primary->param_count) {
+            return false;
+        }
+        const TemplateParam* pattern_parameter =
+            cxx_template_parameter_at(specialization,
+                                      pattern_parameter_index);
+        const TemplateParam* actual_parameter = actual_parameter_index >= 0
+            ? cxx_template_parameter_at(primary, actual_parameter_index)
+            : NULL;
+        const TemplateParam* primary_parameter =
+            primary_parameter_index >= 0 &&
+                    primary_parameter_index < primary->param_count
+                ? &primary->params[primary_parameter_index] : NULL;
+        if (!pattern_parameter || !primary_parameter ||
+            (actual_parameter
+                 ? !template_template_parameter_signatures_match(
+                       primary_parameter->template_signature,
+                       actual_parameter->template_signature, 0)
+                 : !template_template_signature_matches(
+                       primary_parameter, actual_template)) ||
+            (actual_parameter
+                 ? !template_template_parameter_signatures_match(
+                       pattern_parameter->template_signature,
+                       actual_parameter->template_signature, 0)
+                 : !template_template_signature_matches(
+                       pattern_parameter, actual_template))) {
+            return false;
+        }
+        if (deduced_argument_present[pattern_parameter_index]) {
+            Type* previous = deduced_arguments[pattern_parameter_index];
+            if (!previous->cxx_template || !actual->cxx_template) {
+                return previous->cxx_template_param_index >= 0 &&
+                    actual_parameter_index >= 0 &&
+                    previous->cxx_template_param_index ==
+                        actual_parameter_index;
+            }
+            return previous->cxx_template == actual->cxx_template;
+        }
+        deduced_arguments[pattern_parameter_index] = (Type*)actual;
+        deduced_argument_present[pattern_parameter_index] = true;
+        return true;
+    }
+    if (pattern_parameter_index < 0 && pattern_template &&
+        actual_parameter_index < 0 && actual_template == pattern_template &&
+        primary_parameter_index >= 0 &&
+        primary_parameter_index < primary->param_count &&
+        template_template_signature_matches(
+            &primary->params[primary_parameter_index], actual_template)) {
+        if (specificity) *specificity += 8;
+        return true;
+    }
+    return false;
+}
+
 static bool cxx_class_partial_owner_pattern_matches(
     CxxTemplate* primary, CxxTemplate* specialization, Type* owner_pattern,
     int* specificity_out) {
     Type** deduced_arguments;
+    Expr** deduced_value_expressions;
+    bool* deduced_value_present;
+    Type** deduced_template_arguments;
+    bool* deduced_template_present;
     int specificity = 0;
     if (!primary || !specialization || !owner_pattern ||
         owner_pattern->cxx_template != primary ||
@@ -14851,23 +15134,75 @@ static bool cxx_class_partial_owner_pattern_matches(
         owner_pattern->cxx_template_arg_pack_expansions) {
         return false;
     }
+    for (int index = 0; index < specialization->param_count; ++index) {
+        if (specialization->params[index].is_pack) return false;
+    }
     deduced_arguments = ast_arena_alloc(
         sizeof(*deduced_arguments) * (size_t)specialization->param_count);
+    deduced_value_expressions = ast_arena_alloc(
+        sizeof(*deduced_value_expressions) *
+        (size_t)specialization->param_count);
+    deduced_value_present = ast_arena_alloc(
+        sizeof(*deduced_value_present) *
+        (size_t)specialization->param_count);
+    deduced_template_arguments = ast_arena_alloc(
+        sizeof(*deduced_template_arguments) *
+        (size_t)specialization->param_count);
+    deduced_template_present = ast_arena_alloc(
+        sizeof(*deduced_template_present) *
+        (size_t)specialization->param_count);
     memset(deduced_arguments, 0,
            sizeof(*deduced_arguments) * (size_t)specialization->param_count);
+    memset(deduced_value_expressions, 0,
+           sizeof(*deduced_value_expressions) *
+               (size_t)specialization->param_count);
+    memset(deduced_value_present, 0,
+           sizeof(*deduced_value_present) *
+               (size_t)specialization->param_count);
+    memset(deduced_template_arguments, 0,
+           sizeof(*deduced_template_arguments) *
+               (size_t)specialization->param_count);
+    memset(deduced_template_present, 0,
+           sizeof(*deduced_template_present) *
+               (size_t)specialization->param_count);
     for (int index = 0; index < primary->param_count; ++index) {
-        if (primary->params[index].kind != TPARAM_TYPE ||
-            !deduce_class_specialization_type(
-                specialization, specialization->specialization_args[index],
-                owner_pattern->cxx_template_args[index], deduced_arguments,
-                &specificity)) {
-            return false;
+        if (primary->params[index].kind == TPARAM_TYPE) {
+            if (!deduce_class_specialization_type(
+                    specialization,
+                    specialization->specialization_args[index],
+                    owner_pattern->cxx_template_args[index],
+                    deduced_arguments, &specificity)) {
+                return false;
+            }
+        } else if (primary->params[index].kind == TPARAM_NONTYPE) {
+            Expr* value_pattern = specialization->specialization_value_args
+                ? specialization->specialization_value_args[index] : NULL;
+            Expr* owner_value = owner_pattern->cxx_template_value_args
+                ? owner_pattern->cxx_template_value_args[index] : NULL;
+            if (!cxx_partial_owner_expression_matches(
+                    specialization, value_pattern, owner_value,
+                    deduced_value_expressions, deduced_value_present,
+                    &specificity, 0u)) {
+                return false;
+            }
+        } else if (primary->params[index].kind == TPARAM_TEMPLATE) {
+            if (!cxx_partial_owner_template_argument_matches(
+                    primary, index, specialization,
+                    specialization->specialization_args[index],
+                    owner_pattern->cxx_template_args[index],
+                    deduced_template_arguments, deduced_template_present,
+                    &specificity)) {
+                return false;
+            }
         }
     }
     for (int index = 0; index < specialization->param_count; ++index) {
-        if (specialization->params[index].kind == TPARAM_TYPE &&
-            !deduced_arguments[index]) {
-            return false;
+        if (specialization->params[index].kind == TPARAM_TYPE) {
+            if (!deduced_arguments[index]) return false;
+        } else if (specialization->params[index].kind == TPARAM_NONTYPE) {
+            if (!deduced_value_present[index]) return false;
+        } else if (specialization->params[index].kind == TPARAM_TEMPLATE) {
+            if (!deduced_template_present[index]) return false;
         }
     }
     if (specificity_out) *specificity_out = specificity;
@@ -15685,6 +16020,7 @@ static Type* parse_class_template_specialization_with_owner_type(
         Type* specialization_arguments[32] = { NULL };
         int64_t specialization_values[32] = { 0 };
         bool specialization_value_present[32] = { false };
+        bool specialization_template_present[32] = { false };
         int specialization_ranks[32] = { 0 };
         int specificity = specialization && specialization->param_count == 0
             ? 100000 : 0;
@@ -15708,6 +16044,20 @@ static Type* parse_class_template_specialization_with_owner_type(
                         values[argument_index],
                         specialization_values,
                         specialization_value_present, &specificity);
+            } else if (tmpl->params[argument_index].kind == TPARAM_TEMPLATE) {
+                Type* template_pattern = specialization->specialization_args
+                    ? specialization->specialization_args[argument_index]
+                    : NULL;
+                specialization_ranks[argument_index] =
+                    specialization->param_count == 0 ? 100000 :
+                    cxx_class_specialization_type_rank(template_pattern);
+                matches = specialization->param_count <=
+                        (int)(sizeof(specialization_arguments) /
+                              sizeof(specialization_arguments[0])) &&
+                    cxx_partial_owner_template_argument_matches(
+                        tmpl, argument_index, specialization, template_pattern,
+                        arguments[argument_index], specialization_arguments,
+                        specialization_template_present, &specificity);
             } else if (specialization->param_count == 0) {
                 specialization_ranks[argument_index] = 100000;
                 matches = specialization->specialization_args &&
