@@ -283,6 +283,41 @@ struct NestedMultiLevelExplicitOwner<int>::Mid<char>::Inner<long> {
     int result() const { return 420; }
 };
 
+template <typename OwnerValue>
+struct NestedThreeLevelExplicitOwner {
+    template <typename FirstValue>
+    struct First {
+        template <typename MidValue>
+        struct Mid {
+            template <typename InnerValue>
+            struct Inner {
+                int result() const { return 500; }
+            };
+        };
+    };
+};
+
+template <>
+struct NestedThreeLevelExplicitOwner<int> {
+    template <typename FirstValue>
+    struct First {
+        template <typename MidValue>
+        struct Mid {
+            template <typename InnerValue>
+            struct Inner {
+                int result() const { return 510; }
+            };
+        };
+    };
+};
+
+template <>
+template <>
+template <>
+struct NestedThreeLevelExplicitOwner<int>::First<char>::Mid<short>::Inner<long> {
+    int result() const { return 520; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -331,6 +366,12 @@ int main() {
         multilevel_explicit_outer;
     NestedMultiLevelExplicitOwner<int>::Mid<char>::Inner<long>
         multilevel_explicit_member;
+    NestedThreeLevelExplicitOwner<long>::First<char>::Mid<short>::Inner<long>
+        three_level_primary_outer;
+    NestedThreeLevelExplicitOwner<int>::First<long>::Mid<short>::Inner<long>
+        three_level_explicit_outer;
+    NestedThreeLevelExplicitOwner<int>::First<char>::Mid<short>::Inner<long>
+        three_level_explicit_member;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -360,5 +401,8 @@ int main() {
     if (multilevel_primary_outer.result() != 400) return 27;
     if (multilevel_explicit_outer.result() != 410) return 28;
     if (multilevel_explicit_member.result() != 420) return 29;
+    if (three_level_primary_outer.result() != 500) return 30;
+    if (three_level_explicit_outer.result() != 510) return 31;
+    if (three_level_explicit_member.result() != 520) return 32;
     return 0;
 }

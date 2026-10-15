@@ -10117,17 +10117,20 @@ static CxxTemplate* parse_cxx_template_template_signature(SourceLoc loc) {
     return signature;
 }
 
+static bool cxx_empty_template_head_starts_at(Token* token) {
+    return token && token->type == TOK_TEMPLATE && token->next &&
+           token->next->type == TOK_LT && token->next->next &&
+           token->next->next->type == TOK_GT;
+}
+
 static bool cxx_explicit_nested_template_owner_specialization_starts(void) {
     Token* token = parser.cur;
     int angle_depth = 0;
 
-    if (!token || token->type != TOK_TEMPLATE) return false;
-    token = token->next;
-    if (!token || token->type != TOK_LT || !token->next ||
-        token->next->type != TOK_GT) {
-        return false;
+    if (!cxx_empty_template_head_starts_at(token)) return false;
+    while (cxx_empty_template_head_starts_at(token)) {
+        token = token->next->next->next;
     }
-    token = token->next->next;
     if (!token || (token->type != TOK_CLASS && token->type != TOK_STRUCT)) {
         return false;
     }
@@ -10600,10 +10603,12 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
      * registry used by ordinary nested class-template instantiation. */
     if (tmpl->param_count == 0 &&
         cxx_explicit_nested_template_owner_specialization_starts()) {
-        advance(); /* second `template` */
-        expect(TOK_LT, "< in nested member specialization header");
-        expect(TOK_GT, "> in nested member specialization header");
-        nested_member_template_explicit_specialization = true;
+        while (cxx_empty_template_head_starts_at(parser.cur)) {
+            advance(); /* additional explicit-specialization template head */
+            expect(TOK_LT, "< in nested member specialization header");
+            expect(TOK_GT, "> in nested member specialization header");
+            nested_member_template_explicit_specialization = true;
+        }
     } else if (tmpl->param_count == 0 &&
                cxx_single_header_nested_member_specialization_starts()) {
         nested_member_template_explicit_specialization = true;
