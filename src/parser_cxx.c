@@ -15603,6 +15603,19 @@ static int cxx_nested_specialization_owner_matches(
             break;
         }
     }
+    if (pattern->cxx_template_arg_count == 3 &&
+        pattern->cxx_template_value_args &&
+        pattern->cxx_template_value_args[2] &&
+        pattern->cxx_template_value_args[2]->kind == EXPR_ADD) {
+        fprintf(stderr,
+                "DBG owner=%s ownerparams=%d ctx=%p ctxparams=%d values=%s,%s,%s\n",
+                specialization->name ? specialization->name : "-",
+                owner_template->param_count, (void*)owner_value_context,
+                owner_value_context->param_count,
+                owner_value_context->param_count > 0 && owner_value_context->params[0].name ? owner_value_context->params[0].name : "-",
+                owner_value_context->param_count > 1 && owner_value_context->params[1].name ? owner_value_context->params[1].name : "-",
+                owner_value_context->param_count > 2 && owner_value_context->params[2].name ? owner_value_context->params[2].name : "-");
+    }
     {
         size_t value_context_count = owner_value_context->param_count > 0
             ? (size_t)owner_value_context->param_count : 1u;
@@ -15658,6 +15671,16 @@ static int cxx_nested_specialization_owner_matches(
          (pack_index != expansion_index ||
           pattern->cxx_template_arg_count != owner_template->param_count ||
           actual_argument_count < pack_index))) {
+        if (pattern->cxx_template_arg_count == 3 &&
+            pattern->cxx_template_value_args &&
+            pattern->cxx_template_value_args[2] &&
+            pattern->cxx_template_value_args[2]->kind == EXPR_ADD) {
+            fprintf(stderr,
+                    "DBG shape actual=%p primary=%p args=%d pattern=%d params=%d pack=%d expand=%d\n",
+                    (void*)actual_template, (void*)owner_template,
+                    actual_argument_count, pattern->cxx_template_arg_count,
+                    owner_template->param_count, pack_index, expansion_index);
+        }
         return 0;
     }
     for (int index = 0;
@@ -15665,6 +15688,13 @@ static int cxx_nested_specialization_owner_matches(
                                       : actual_argument_count);
          ++index) {
         TemplateParam* parameter = &owner_template->params[index];
+        if (pattern->cxx_template_arg_count == 3 &&
+            pattern->cxx_template_value_args &&
+            pattern->cxx_template_value_args[2] &&
+            pattern->cxx_template_value_args[2]->kind == EXPR_ADD) {
+            fprintf(stderr, "DBG loop index=%d kind=%d\n", index,
+                    (int)parameter->kind);
+        }
         if (parameter->kind == TPARAM_TYPE) {
             if (!pattern->cxx_template_args || !actual_arguments[index] ||
                 !deduce_class_specialization_type(
@@ -15690,6 +15720,19 @@ static int cxx_nested_specialization_owner_matches(
                        owner_class->template_value_present[index]) {
                 actual_value = owner_class->template_value_args[index];
                 actual_value_present = true;
+            }
+            if (pattern->cxx_template_arg_count == 3 && index < 3 &&
+                pattern->cxx_template_value_args &&
+                pattern->cxx_template_value_args[2] &&
+                pattern->cxx_template_value_args[2]->kind == EXPR_ADD) {
+                fprintf(stderr, "DBG idx=%d present=%d actual=%lld expr=%p kind=%d context=%p\n",
+                        index, (int)actual_value_present,
+                        actual_value_present ? (long long)actual_value : -1LL,
+                        (void*)pattern->cxx_template_value_args[index],
+                        pattern->cxx_template_value_args[index]
+                            ? (int)pattern->cxx_template_value_args[index]->kind : -1,
+                        pattern->cxx_template_value_args[index]
+                            ? (void*)pattern->cxx_template_value_args[index]->cxx_template_context : NULL);
             }
             if (!actual_value_present ||
                 !pattern->cxx_template_value_args ||
