@@ -4810,8 +4810,22 @@ remains a separate open item.
   all three exact GCC Itanium symbols against RCC on i686/AMD64 and execute the
   generated AMD64 and GCC-host programs. The focused nested-owner target passes
   (exit 0).
-- [ ] Explicit-specialization chains deeper than seven nested levels and
+- [x] Extend explicit nested member specialization beyond seven levels with
+  eight consecutive explicit specialization template heads; retain primary and
+  explicitly specialized outer-owner cases, compare all three exact GCC
+  Itanium symbols on i686/AMD64, and run generated AMD64 plus GCC-host programs.
+- [ ] Explicit-specialization chains deeper than eight nested levels and
   non-null structural pointer NTTP values remain open.
+
+## RCC continuation (2026-10-16, eight-level nested explicit specialization)
+
+- [x] Add primary-owner, explicit outer-owner, and explicit deepest-member cases
+  through `Owner<int>::First<char>::Second<short>::Third<int>::Fourth<float>`
+  `::Fifth<long>::Sixth<char>::Seventh<float>::Inner<double>`.
+- [x] Verify all three exact GCC Itanium symbols against RCC for i686/AMD64 and
+  run the focused generated AMD64 and GCC-host programs.
+- [ ] Chains deeper than eight levels and non-null structural pointer NTTP
+  values remain open.
 
 ## RCC continuation (2026-10-16, logical short-circuit in dependent array bounds)
 
