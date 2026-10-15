@@ -18,6 +18,11 @@ struct NestedStructuralOwnerNullPointerKey {
 
 struct NestedStructuralEmptyKey {};
 
+struct NestedStructuralPairKey {
+    int first;
+    int second;
+};
+
 template <NestedStructuralOwnerKey... Values>
 struct NestedStructuralValueOwnerPack {
     template <typename Element>
@@ -92,6 +97,14 @@ struct NestedStructuralEmptyOwner {
     };
 };
 
+template <NestedStructuralPairKey Value>
+struct NestedStructuralPairOwner {
+    template <typename Element>
+    struct Inner {
+        int result() const { return Value.first * 100 + Value.second; }
+    };
+};
+
 template <typename OwnerType, NestedStructuralOwnerKey OwnerValue>
 struct NestedStructuralReorderedOwner {
     template <typename Element>
@@ -137,6 +150,11 @@ int main() {
         null_pointer_parameter_object;
     NestedStructuralEmptyOwner<NestedStructuralEmptyKey{}>::Inner<int>
         empty_parameter_object;
+    NestedStructuralPairOwner<
+        NestedStructuralPairKey{1, 2}>::Inner<int> pair_parameter_object;
+    NestedStructuralPairOwner<
+        NestedStructuralPairKey{-3, 4}>::Inner<int>
+        signed_pair_parameter_object;
     NestedStructuralReorderedOwner<
         int*, NestedStructuralOwnerKey{43}>::Inner<int*>
         reordered_type_first;
@@ -153,7 +171,9 @@ int main() {
     if (null_pointer_partial.result() != 25) return 5;
     if (null_pointer_parameter_object.result() != 41) return 6;
     if (empty_parameter_object.result() != 19) return 7;
-    if (reordered_type_first.result() != 43) return 8;
-    if (reordered_type_second.result() != 47) return 9;
-    return reordered_primary_fallback.result() == 13 ? 0 : 10;
+    if (pair_parameter_object.result() != 102) return 8;
+    if (signed_pair_parameter_object.result() != -296) return 9;
+    if (reordered_type_first.result() != 43) return 10;
+    if (reordered_type_second.result() != 47) return 11;
+    return reordered_primary_fallback.result() == 13 ? 0 : 12;
 }

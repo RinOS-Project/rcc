@@ -477,6 +477,12 @@ char* cxx_mangle_type(Type* type);
 /* Class operations (core API) */
 CxxClass* cxx_class_alloc(const char* name, bool is_struct);
 bool cxx_structural_class_value_supported_subset(const Type* type);
+bool cxx_structural_class_pack_member_values(
+    const Type* type, const int64_t* member_values, int member_count,
+    int64_t* packed_value);
+bool cxx_structural_class_unpack_member_value(
+    const Type* type, int64_t packed_value, const char* member_name,
+    int64_t* member_value, Type** member_type);
 void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bool is_virtual);
 void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
                                      const char* member_name,

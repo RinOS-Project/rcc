@@ -1876,6 +1876,8 @@ static bool cxx_template_non_type_constant_value(
         CxxClass* value_class = value_type ? value_type->cxx_class : NULL;
         TypeParam* field = value_class ? value_class->fields : NULL;
         ExprList* initializer = expression->compound_init;
+        int64_t member_values[8] = { 0 };
+        int member_count = 0;
         if (!cxx_structural_class_value_supported_subset(value_type)) {
             return false;
         }
@@ -1893,8 +1895,40 @@ static bool cxx_template_non_type_constant_value(
             }
             return false;
         }
+        if (field->type->kind != TYPE_PTR) {
+            TypeParam* current_field;
+            for (current_field = field; current_field;
+                 current_field = current_field->next) {
+                int64_t member_value = 0;
+                if (current_field->is_static) continue;
+                if (member_count >=
+                    (int)(sizeof(member_values) / sizeof(member_values[0]))) {
+                    return false;
+                }
+                if (initializer) {
+                    if (initializer->designator_kind !=
+                            INIT_DESIGNATOR_NONE || !initializer->expr ||
+                        !expr_eval_integer_constant(initializer->expr,
+                                                    &member_value)) {
+                        return false;
+                    }
+                    initializer = initializer->next;
+                } else if (current_field->initializer &&
+                           !expr_eval_integer_constant(
+                               current_field->initializer, &member_value)) {
+                    return false;
+                }
+                member_values[member_count++] = member_value;
+            }
+            if (initializer || !member_count ||
+                !cxx_structural_class_pack_member_values(
+                    value_type, member_values, member_count, value_out)) {
+                return false;
+            }
+            return true;
+        }
         if (!initializer) {
-            if (field && field->initializer) {
+            if (field->initializer) {
                 if (field->type->kind == TYPE_PTR &&
                     cxx_expr_is_nullptr_constant(field->initializer)) {
                     *value_out = 0;
