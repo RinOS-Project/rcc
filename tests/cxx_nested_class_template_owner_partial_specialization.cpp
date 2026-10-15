@@ -453,6 +453,64 @@ struct NestedPartialNestedOwnerChain<OwnerValue*>::Mid<MidValue*>::Leaf<LeafValu
     int result() const { return 920; }
 };
 
+template <typename OwnerValue>
+struct NestedDeepPartialOwnerChain {
+    template <typename MidValue>
+    struct Mid {
+        template <typename SubValue>
+        struct Sub {
+            template <typename LeafValue>
+            struct Leaf {
+                int result() const { return 1000; }
+            };
+        };
+    };
+};
+
+template <typename OwnerValue>
+struct NestedDeepPartialOwnerChain<OwnerValue*> {
+    template <typename MidValue>
+    struct Mid {
+        template <typename SubValue>
+        struct Sub {
+            template <typename LeafValue>
+            struct Leaf {
+                int result() const { return 1010; }
+            };
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+struct NestedDeepPartialOwnerChain<OwnerValue*>::Mid<MidValue*> {
+    template <typename SubValue>
+    struct Sub {
+        template <typename LeafValue>
+        struct Leaf {
+            int result() const { return 1015; }
+        };
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+template <typename SubValue>
+struct NestedDeepPartialOwnerChain<OwnerValue*>::Mid<MidValue*>::Sub<SubValue*> {
+    template <typename LeafValue>
+    struct Leaf {
+        int result() const { return 1020; }
+    };
+};
+
+template <typename OwnerValue>
+template <typename MidValue>
+template <typename SubValue>
+template <typename LeafValue>
+struct NestedDeepPartialOwnerChain<OwnerValue*>::Mid<MidValue*>::Sub<SubValue*>::Leaf<LeafValue*> {
+    int result() const { return 1030; }
+};
+
 int main() {
     NestedPartialTemplateOwner<int>::Inner<char> primary_int;
     NestedPartialTemplateOwner<long>::Inner<char*> partial_long;
@@ -535,6 +593,16 @@ int main() {
         nested_partial_chain_mid_specialization;
     NestedPartialNestedOwnerChain<int*>::Mid<char*>::Leaf<int*>
         nested_partial_chain_leaf_specialization;
+    NestedDeepPartialOwnerChain<long>::Mid<char*>::Sub<short*>::Leaf<int*>
+        deep_partial_chain_primary_owner;
+    NestedDeepPartialOwnerChain<int*>::Mid<char>::Sub<short*>::Leaf<int*>
+        deep_partial_chain_outer_owner;
+    NestedDeepPartialOwnerChain<int*>::Mid<char*>::Sub<short>::Leaf<int*>
+        deep_partial_chain_mid_owner;
+    NestedDeepPartialOwnerChain<int*>::Mid<char*>::Sub<short*>::Leaf<int>
+        deep_partial_chain_sub_owner;
+    NestedDeepPartialOwnerChain<int*>::Mid<char*>::Sub<short*>::Leaf<int*>
+        deep_partial_chain_leaf_owner;
     if (primary_int.result() != 10) return 1;
     if (partial_long.result() != 20) return 2;
     if (partial_unsigned.result() != 20) return 3;
@@ -581,5 +649,10 @@ int main() {
     if (nested_partial_chain_outer_owner.result() != 910) return 44;
     if (nested_partial_chain_mid_specialization.result() != 915) return 45;
     if (nested_partial_chain_leaf_specialization.result() != 920) return 46;
+    if (deep_partial_chain_primary_owner.result() != 1000) return 47;
+    if (deep_partial_chain_outer_owner.result() != 1010) return 48;
+    if (deep_partial_chain_mid_owner.result() != 1015) return 49;
+    if (deep_partial_chain_sub_owner.result() != 1020) return 50;
+    if (deep_partial_chain_leaf_owner.result() != 1030) return 51;
     return 0;
 }

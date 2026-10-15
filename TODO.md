@@ -4610,6 +4610,17 @@ remains a separate open item.
   member-template levels, and non-null structural pointer NTTP values remain
   open.
 
+## RCC continuation (2026-10-16, deeper nested partial owner chain)
+
+- [x] Extend nested partial owner matching through
+  `Owner<T*>::Mid<U*>::Sub<V*>::Leaf<W*>`, covering primary, outer-,
+  intermediate-, deeper-intermediate-, and leaf-partial selections.
+- [x] Compare all five exact GCC Itanium symbols against RCC on i686/AMD64 and
+  execute the generated AMD64 and GCC-host programs. The focused nested-owner
+  target passes (exit 0).
+- [ ] Chains deeper than this verified four-class chain, additional dependent
+  owner forms, and non-null structural pointer NTTP values remain open.
+
 ## RCC continuation (2026-10-16, explicit member specialization below a specialized intermediate owner)
 
 - [x] Specialize `Inner<long>` after explicitly specializing its enclosing
