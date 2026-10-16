@@ -101,6 +101,42 @@ for source in "${sources[@]}"; do
 	printf 'nested class template regression passed: %s\n' "$source"
 done
 
+nested_array_source=tests/cxx_structural_pointer_nested_array_nttp.cpp
+nested_array_dir="$out/cxx_structural_pointer_nested_array_nttp"
+mkdir -p "$nested_array_dir"
+./rcc++ --target i686-unknown-rinos -std=c++20 -S \
+	-o "$nested_array_dir/rcc-x86.s" "$nested_array_source"
+"$host_cc" -m32 -c -o "$nested_array_dir/rcc-x86.o" \
+	"$nested_array_dir/rcc-x86.s"
+./rcc++ --target x86_64-unknown-rinos -std=c++20 -S \
+	-o "$nested_array_dir/rcc-x64.s" "$nested_array_source"
+"$host_cc" -no-pie -Wl,-z,noexecstack \
+	-o "$nested_array_dir/rcc-x64" "$nested_array_dir/rcc-x64.s"
+"$nested_array_dir/rcc-x64"
+
+for assembly in "$nested_array_dir/rcc-x86.s" \
+	"$nested_array_dir/rcc-x64.s"; do
+	for symbol in \
+		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE4EEEE3getEv' \
+		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE20EEEE3getEv' \
+		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE12pEEEE7addressEv' \
+		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE24pEEEE7addressEv'; do
+		if [[ $(grep -F -c "$symbol" "$assembly") -ne 2 ]]; then
+			printf 'nested array pointer mangling mismatch in %s: %s\n' \
+				"$assembly" "$symbol" >&2
+			exit 1
+		fi
+	done
+done
+
+nested_array_invalid=tests/cxx_structural_pointer_nested_array_bounds_invalid.cpp
+for target in i686-unknown-rinos x86_64-unknown-rinos; do
+	expect_rcc_failure "$nested_array_invalid" "$target" \
+		"class template non-type argument must be an integer constant expression" \
+		"nested-array-out-of-bounds-$target"
+done
+printf 'nested structural pointer array regression passed\n'
+
 private_source=tests/cxx_nested_class_templates_access_invalid.cpp
 for target in i686-unknown-rinos x86_64-unknown-rinos; do
 	label="private-access-$target"

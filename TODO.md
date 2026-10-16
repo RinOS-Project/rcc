@@ -5084,7 +5084,12 @@ remains a separate open item.
   focused Windows and WSL POSIX gates plus related structural NTTP regressions.
 - [x] Commit implementation, fixture, and Makefile gate as `1ad666d` on RCC
   `main`; do not push or stage the parent repository's gitlink.
-- [ ] Extend the location model to multidimensional/nested arrays, aggregate
+- [x] Extend the location model to nested static/global array index paths and
+  constrain pointer arithmetic to the immediately selected inner array,
+  including its one-past position. The nested-array regression checks distinct
+  Itanium encodings, i686/AMD64 output, AMD64 execution, and rejection of
+  arithmetic beyond the selected row.
+- [ ] Support nested-array decay and pointer-to-array declarators, aggregate
   member subobjects, and additional pointer constant-expression forms.
 - [ ] Add a compiler-to-compiler differential oracle for offset encodings when
   an independent implementation accepts these standard-valid arguments;

@@ -1867,8 +1867,13 @@ static bool cxx_expr_is_nullptr_constant(const Expr* expression) {
 typedef struct CxxStructuralPointerLocation {
     Decl* declaration;
     int64_t byte_offset;
+    int64_t array_start_offset;
+    int64_t array_byte_size;
+    int64_t array_element_size;
     bool has_subobject_path;
     bool one_past;
+    int64_t* array_path;
+    size_t array_path_length;
 } CxxStructuralPointerLocation;
 
 static Decl* cxx_structural_pointer_member_identifier_declaration(
@@ -1980,17 +1985,152 @@ static bool cxx_structural_pointer_member_array_location(
         expression, &namespace_scope_target);
     if (!declaration || declaration->kind != DECL_VAR ||
         !declaration->type || declaration->type->kind != TYPE_ARRAY ||
-        declaration->type->array_len < 0 ||
+        declaration->type->array_len <= 0 ||
         !declaration->type->base || declaration->type->base->size <= 0 ||
         !type_is_compatible(pointer_type->base, declaration->type->base) ||
+        (int64_t)declaration->type->array_len >
+            INT64_MAX / declaration->type->base->size ||
         !cxx_structural_pointer_member_declaration_has_static_storage(
             declaration, namespace_scope_target) || !decl_link_name(declaration)) {
         return false;
     }
+    location->array_path = ast_arena_alloc(sizeof(*location->array_path));
+    if (!location->array_path) return false;
+    location->array_path[0] = 0;
+    location->array_path_length = 1u;
     location->declaration = declaration;
     location->byte_offset = 0;
+    location->array_start_offset = 0;
+    location->array_element_size = declaration->type->base->size;
+    location->array_byte_size =
+        (int64_t)declaration->type->array_len * location->array_element_size;
     location->has_subobject_path = true;
     location->one_past = false;
+    return true;
+}
+
+static bool cxx_structural_pointer_member_indexed_location(
+    const Expr* indexed_expression, Type* pointer_type, bool decay_array,
+    CxxStructuralPointerLocation* location) {
+    const Expr* current;
+    const Expr** indices;
+    Decl* declaration;
+    Type* array_type;
+    bool namespace_scope_target = false;
+    size_t index_count = 0u;
+    size_t index_position;
+    size_t path_length;
+    int64_t offset = 0;
+    int64_t active_start = 0;
+    int64_t active_size = 0;
+    int64_t active_element_size = 0;
+    bool one_past = false;
+    if (!indexed_expression || !pointer_type ||
+        pointer_type->kind != TYPE_PTR || !pointer_type->base || !location) {
+        return false;
+    }
+    for (current = indexed_expression;
+         current && current->kind == EXPR_INDEX;
+         current = current->index_base) {
+        if (index_count == SIZE_MAX / sizeof(*indices)) return false;
+        ++index_count;
+    }
+    if (index_count == 0u || !current || current->kind != EXPR_IDENT ||
+        !current->ident_name ||
+        index_count > (SIZE_MAX / sizeof(int64_t)) -
+            (decay_array ? 1u : 0u)) {
+        return false;
+    }
+    indices = ast_arena_alloc(index_count * sizeof(*indices));
+    if (!indices) return false;
+    current = indexed_expression;
+    for (index_position = index_count; index_position > 0u; --index_position) {
+        indices[index_position - 1u] = current;
+        current = current->index_base;
+    }
+    declaration = cxx_structural_pointer_member_identifier_declaration(
+        current, &namespace_scope_target);
+    array_type = declaration ? declaration->type : NULL;
+    if (!declaration || declaration->kind != DECL_VAR || !array_type ||
+        array_type->kind != TYPE_ARRAY || array_type->array_len <= 0 ||
+        !cxx_structural_pointer_member_declaration_has_static_storage(
+            declaration, namespace_scope_target) ||
+        !decl_link_name(declaration)) {
+        return false;
+    }
+    path_length = index_count + (decay_array ? 1u : 0u);
+    if (path_length > SIZE_MAX / sizeof(*location->array_path)) {
+        return false;
+    }
+    location->array_path = ast_arena_alloc(
+        path_length * sizeof(*location->array_path));
+    if (!location->array_path) return false;
+    for (index_position = 0u; index_position < index_count; ++index_position) {
+        const Expr* index_expression = indices[index_position]->index_expr;
+        int64_t index;
+        int64_t element_size;
+        bool final_index = index_position + 1u == index_count;
+        if (!array_type || array_type->kind != TYPE_ARRAY ||
+            array_type->array_len <= 0 || !array_type->base ||
+            array_type->base->size <= 0 || !index_expression ||
+            !expr_eval_integer_constant((Expr*)index_expression, &index) ||
+            index < 0 || index > array_type->array_len ||
+            (!final_index && index == array_type->array_len)) {
+            return false;
+        }
+        element_size = array_type->base->size;
+        if ((int64_t)array_type->array_len > INT64_MAX / element_size ||
+            index > INT64_MAX / element_size ||
+            offset > INT64_MAX - index * element_size) {
+            return false;
+        }
+        active_start = offset;
+        active_element_size = element_size;
+        active_size = (int64_t)array_type->array_len * element_size;
+        offset += index * element_size;
+        location->array_path[index_position] = index;
+        if (final_index && index == array_type->array_len) {
+            one_past = true;
+        }
+        array_type = array_type->base;
+    }
+    if (decay_array) {
+        Type* selected_array = indexed_expression->type;
+        if (!selected_array || selected_array->kind != TYPE_ARRAY ||
+            !selected_array->base || selected_array->array_len <= 0 ||
+            !type_is_compatible(pointer_type->base, selected_array->base) ||
+            selected_array->base->size <= 0 ||
+            (int64_t)selected_array->array_len >
+                INT64_MAX / selected_array->base->size) {
+            return false;
+        }
+        location->array_path[index_count] = 0;
+        active_start = offset;
+        active_element_size = selected_array->base->size;
+        active_size =
+            (int64_t)selected_array->array_len * active_element_size;
+        one_past = false;
+    } else {
+        if (!array_type ||
+            !type_is_compatible(pointer_type->base, array_type) ||
+            pointer_type->base->size <= 0 ||
+            active_element_size != pointer_type->base->size) {
+            return false;
+        }
+    }
+    if (active_size <= 0 || active_start < 0 ||
+        active_start > INT64_MAX - active_size ||
+        offset < active_start || offset > active_start + active_size) {
+        return false;
+    }
+    location->declaration = declaration;
+    location->byte_offset = offset;
+    location->array_start_offset = active_start;
+    location->array_byte_size = active_size;
+    location->array_element_size = active_element_size;
+    location->has_subobject_path = true;
+    location->one_past = one_past;
+    location->array_path_length = path_length;
     return true;
 }
 
@@ -2023,37 +2163,16 @@ static bool cxx_structural_pointer_member_location(
             expression, pointer_type, location)) {
         return true;
     }
+    if (expression->kind == EXPR_INDEX && expression->type &&
+        expression->type->kind == TYPE_ARRAY &&
+        cxx_structural_pointer_member_indexed_location(
+            expression, pointer_type, true, location)) {
+        return true;
+    }
     if (expression->kind == EXPR_ADDR && expression->unary_operand &&
         expression->unary_operand->kind == EXPR_INDEX) {
-        const Expr* indexed = expression->unary_operand;
-        const Expr* base = indexed->index_base;
-        Type* array_type = NULL;
-        bool namespace_scope_target = false;
-        int64_t index;
-        if (!base || !expr_eval_integer_constant(
-                indexed->index_expr, &index)) {
-            return false;
-        }
-        location->declaration = cxx_structural_pointer_member_identifier_declaration(
-            base, &namespace_scope_target);
-        array_type = location->declaration
-            ? location->declaration->type : NULL;
-        if (!location->declaration ||
-            location->declaration->kind != DECL_VAR || !array_type ||
-            array_type->kind != TYPE_ARRAY || array_type->array_len < 0 ||
-            !array_type->base || array_type->base->size <= 0 ||
-            !type_is_compatible(pointer_type->base, array_type->base) ||
-            !cxx_structural_pointer_member_declaration_has_static_storage(
-                location->declaration, namespace_scope_target) || index < 0 ||
-            index > array_type->array_len ||
-            index > INT64_MAX / array_type->base->size ||
-            !decl_link_name(location->declaration)) {
-            return false;
-        }
-        location->byte_offset = index * array_type->base->size;
-        location->has_subobject_path = true;
-        location->one_past = index == array_type->array_len;
-        return true;
+        return cxx_structural_pointer_member_indexed_location(
+            expression->unary_operand, pointer_type, false, location);
     }
     if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB) {
         const Expr* pointer_expression = expression->binary_lhs;
@@ -2065,6 +2184,9 @@ static bool cxx_structural_pointer_member_location(
         int64_t object_bytes;
         int64_t byte_delta;
         int64_t new_offset;
+        int64_t relative_offset;
+        int64_t relative_new_offset;
+        int64_t* updated_path = NULL;
         if (expression->kind == EXPR_ADD && pointer_expression &&
             expr_eval_integer_constant(
                 (Expr*)pointer_expression, &element_offset)) {
@@ -2082,16 +2204,27 @@ static bool cxx_structural_pointer_member_location(
             return false;
         }
         if (base_location.has_subobject_path) {
-            if (object_type->kind != TYPE_ARRAY || !object_type->base ||
-                object_type->array_len <= 0 ||
-                object_type->base->size <= 0 ||
-                !type_is_compatible(pointer_type->base, object_type->base) ||
-                (int64_t)object_type->array_len >
-                    INT64_MAX / object_type->base->size) {
+            if (base_location.array_element_size <= 0 ||
+                base_location.array_byte_size <= 0 ||
+                base_location.array_path_length == 0u ||
+                !base_location.array_path ||
+                !pointer_type->base ||
+                pointer_type->base->size !=
+                    base_location.array_element_size ||
+                base_location.array_start_offset < 0 ||
+                base_location.array_start_offset >
+                    INT64_MAX - base_location.array_byte_size ||
+                base_location.byte_offset <
+                    base_location.array_start_offset ||
+                base_location.byte_offset >
+                    base_location.array_start_offset +
+                        base_location.array_byte_size) {
                 return false;
             }
-            element_size = object_type->base->size;
-            object_bytes = (int64_t)object_type->array_len * element_size;
+            element_size = base_location.array_element_size;
+            object_bytes = base_location.array_byte_size;
+            relative_offset = base_location.byte_offset -
+                base_location.array_start_offset;
         } else {
             if (object_type->size <= 0 || !pointer_type->base ||
                 pointer_type->base->size <= 0 ||
@@ -2101,6 +2234,7 @@ static bool cxx_structural_pointer_member_location(
             }
             element_size = pointer_type->base->size;
             object_bytes = object_type->size;
+            relative_offset = base_location.byte_offset;
         }
         if (expression->kind == EXPR_SUB) {
             if (element_offset == INT64_MIN) return false;
@@ -2111,17 +2245,34 @@ static bool cxx_structural_pointer_member_location(
             return false;
         }
         byte_delta = element_offset * element_size;
-        if ((byte_delta > 0 && base_location.byte_offset >
+        if ((byte_delta > 0 && relative_offset >
                 INT64_MAX - byte_delta) ||
-            (byte_delta < 0 && base_location.byte_offset <
+            (byte_delta < 0 && relative_offset <
                 INT64_MIN - byte_delta)) {
             return false;
         }
-        new_offset = base_location.byte_offset + byte_delta;
-        if (new_offset < 0 || new_offset > object_bytes) return false;
+        relative_new_offset = relative_offset + byte_delta;
+        if (relative_new_offset < 0 ||
+            relative_new_offset > object_bytes ||
+            base_location.array_start_offset >
+                INT64_MAX - relative_new_offset) {
+            return false;
+        }
+        new_offset = base_location.array_start_offset +
+            relative_new_offset;
         *location = base_location;
         location->byte_offset = new_offset;
-        location->one_past = new_offset == object_bytes;
+        location->one_past = relative_new_offset == object_bytes;
+        if (location->has_subobject_path) {
+            updated_path = ast_arena_alloc(
+                location->array_path_length * sizeof(*updated_path));
+            if (!updated_path) return false;
+            memcpy(updated_path, location->array_path,
+                   location->array_path_length * sizeof(*updated_path));
+            updated_path[location->array_path_length - 1u] =
+                relative_new_offset / element_size;
+            location->array_path = updated_path;
+        }
         return true;
     }
     if (expression->kind == EXPR_ADDR) {
@@ -2130,8 +2281,13 @@ static bool cxx_structural_pointer_member_location(
         if (!declaration) return false;
         location->declaration = declaration;
         location->byte_offset = 0;
+        location->array_start_offset = 0;
+        location->array_byte_size = 0;
+        location->array_element_size = 0;
         location->has_subobject_path = false;
         location->one_past = false;
+        location->array_path = NULL;
+        location->array_path_length = 0u;
         return true;
     }
     return false;
@@ -2203,7 +2359,8 @@ static bool cxx_structural_pointer_member_value(
     }
     return cxx_structural_pointer_value_register(
         location.declaration, location.byte_offset,
-        location.has_subobject_path, location.one_past, value_out);
+        location.has_subobject_path, location.one_past,
+        location.array_path, location.array_path_length, value_out);
 }
 
 static bool cxx_structural_class_collect_member_values(
