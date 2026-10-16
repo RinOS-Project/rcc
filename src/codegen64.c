@@ -9205,6 +9205,29 @@ static void codegen64_release_named_labels(void) {
     }
 }
 
+static void emit64_member_pointer_to_bool(Module* mod, int reg,
+                                          const Type* source_type) {
+    const Type* source_object = source_type;
+    if (source_object && source_object->is_reference) {
+        source_object = source_object->base;
+    }
+    if (!source_object || source_object->kind != TYPE_PTR ||
+        !source_object->cxx_is_member_pointer) {
+        return;
+    }
+    if (type_is_cxx_member_function_pointer(source_object)) {
+        /* The expression value for the ABI aggregate is its address; the
+         * first word is zero exactly for a null member-function pointer. */
+        emit64_mov_reg_mem(mod, reg, reg, 0);
+        emit64_test_reg_reg(mod, reg, reg);
+    } else {
+        /* Itanium data-member pointers use -1 as their null value. */
+        emit64_compare_constant(mod, reg, -1);
+    }
+    emit64_setcc(mod, CC64_NE, reg);
+    emit64_movzx_r64_r8(mod, reg, reg);
+}
+
 static void gen64_expr(Module* mod, Expr* expr) {
     const Decl* caller = NULL;
     const Decl* callee = NULL;
@@ -9358,6 +9381,13 @@ static void gen64_expr_impl(Module* mod, Expr* expr) {
         } else {
             emit64_add_reg_imm(mod, RAX, expr->cxx_pointer_adjustment);
         }
+    }
+    if (expr->kind == EXPR_CAST && expr->type &&
+        expr->type->kind == TYPE_BOOL && expr->cast_expr &&
+        expr->cast_expr->type &&
+        expr->cast_expr->type->kind == TYPE_PTR &&
+        expr->cast_expr->type->cxx_is_member_pointer) {
+        emit64_member_pointer_to_bool(mod, RAX, expr->cast_expr->type);
     }
     if (type_is_integer(expr->type) || expr->type->kind == TYPE_ENUM) {
         emit64_normalize_atomic_value(mod, RAX, expr->type);

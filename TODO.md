@@ -5431,5 +5431,12 @@ remains a separate open item.
       to `const bool&` and `bool&&`, with runtime coverage and mutable-reference
       negative checks. The focused overload gate and full native-Windows
       `test-cxx` aggregate pass (exit 0).
+- [x] Convert data-member and member-function pointers to `bool` using their
+      distinct ABI null representations. Cover implicit and explicit value
+      conversion, return/local initialization, `const bool&` and `bool&&`
+      binding, true/null values, and rejection for mutable `bool&`; GCC C++20,
+      both RCC target architectures, and generated host execution pass in the
+      focused overload and invalid-reference gates, and the full native-Windows
+      `test-cxx` aggregate passes (exit 0).
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.

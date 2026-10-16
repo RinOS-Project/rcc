@@ -15,6 +15,17 @@ using ConversionThrowingIntPointerFunction = int (*)(int*);
 using ConversionIntFunction = int (*)(int);
 using ConversionIntPairFunction = int (*)(int, int);
 
+struct ConversionMemberPointerBoolOwner {
+    int value;
+
+    bool is_positive() const { return value > 0; }
+};
+
+using ConversionDataMemberBoolPointer =
+    int ConversionMemberPointerBoolOwner::*;
+using ConversionFunctionMemberBoolPointer =
+    bool (ConversionMemberPointerBoolOwner::*)() const;
+
 double cxx_integer_return_as_double(int value) { return value; }
 int cxx_free_variadic(int value, ...) { return value; }
 
@@ -2032,6 +2043,29 @@ int choose_pointer_to_bool_rvalue_reference(bool&& value) {
     return value ? 259 : 260;
 }
 
+int choose_member_pointer_to_bool(bool value) {
+    return value ? 261 : 262;
+}
+
+int choose_member_pointer_to_bool_reference(const bool& value) {
+    return value ? 263 : 264;
+}
+
+int choose_member_pointer_to_bool_rvalue_reference(bool&& value) {
+    return value ? 265 : 266;
+}
+
+static bool convert_data_member_pointer_to_bool(
+    ConversionDataMemberBoolPointer pointer) {
+    bool result = pointer;
+    return result;
+}
+
+static bool convert_function_member_pointer_to_bool(
+    ConversionFunctionMemberBoolPointer pointer) {
+    return pointer;
+}
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Waddress"
 static int verify_array_to_bool_decay() {
@@ -2085,6 +2119,36 @@ static int verify_function_pointer_to_bool_rvalue_reference() {
     ConversionNoexceptFunctionPointer pointer =
         conversion_noexcept_function;
     return choose_pointer_to_bool_rvalue_reference(pointer);
+}
+
+static bool verify_data_member_pointer_to_bool() {
+    ConversionDataMemberBoolPointer value =
+        &ConversionMemberPointerBoolOwner::value;
+    ConversionDataMemberBoolPointer null_value = nullptr;
+    return choose_member_pointer_to_bool(value) == 261 &&
+           choose_member_pointer_to_bool(null_value) == 262 &&
+           choose_member_pointer_to_bool_reference(value) == 263 &&
+           choose_member_pointer_to_bool_reference(null_value) == 264 &&
+           choose_member_pointer_to_bool_rvalue_reference(value) == 265 &&
+           choose_member_pointer_to_bool_rvalue_reference(null_value) == 266 &&
+           convert_data_member_pointer_to_bool(value) &&
+           !convert_data_member_pointer_to_bool(null_value) &&
+           static_cast<bool>(value) && !static_cast<bool>(null_value);
+}
+
+static bool verify_function_member_pointer_to_bool() {
+    ConversionFunctionMemberBoolPointer value =
+        &ConversionMemberPointerBoolOwner::is_positive;
+    ConversionFunctionMemberBoolPointer null_value = nullptr;
+    return choose_member_pointer_to_bool(value) == 261 &&
+           choose_member_pointer_to_bool(null_value) == 262 &&
+           choose_member_pointer_to_bool_reference(value) == 263 &&
+           choose_member_pointer_to_bool_reference(null_value) == 264 &&
+           choose_member_pointer_to_bool_rvalue_reference(value) == 265 &&
+           choose_member_pointer_to_bool_rvalue_reference(null_value) == 266 &&
+           convert_function_member_pointer_to_bool(value) &&
+           !convert_function_member_pointer_to_bool(null_value) &&
+           static_cast<bool>(value) && !static_cast<bool>(null_value);
 }
 #pragma GCC diagnostic pop
 
@@ -3426,6 +3490,8 @@ int main(void) {
                    verify_function_pointer_to_bool_reference() == 257 &&
                    verify_object_pointer_to_bool_rvalue_reference() == 259 &&
                    verify_function_pointer_to_bool_rvalue_reference() == 259 &&
+                   verify_data_member_pointer_to_bool() &&
+                   verify_function_member_pointer_to_bool() &&
                    choose_nullptr_to_bool_non_template(nullptr) == 218 &&
                    choose_nullptr_to_bool_template(value, nullptr) == 220 &&
                    !static_cast<bool>(nullptr) &&

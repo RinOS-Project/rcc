@@ -3158,7 +3158,9 @@ reference_binding_source:
         if (rcc_parser_is_cxx_mode() && referred->kind == TYPE_BOOL &&
             (source_object->kind == TYPE_ARRAY ||
              source_object->kind == TYPE_FUNC ||
-             type_is_pointer(source_object)) &&
+             type_is_pointer(source_object) ||
+             (source_object->kind == TYPE_PTR &&
+              source_object->cxx_is_member_pointer)) &&
             (target->is_rvalue_reference || referred->is_const)) {
             Expr* source_expression = ast_arena_alloc(sizeof(*source_expression));
             Expr* converted;
@@ -3245,6 +3247,19 @@ reference_binding_validated:
 
     /* Same type */
     if (e->type == target) return target;
+
+    /* Pointer-to-member converts to a prvalue bool. Keep the conversion in
+     * the expression tree so data-member and member-function pointers use
+     * their respective ABI null representations during lowering. */
+    if (rcc_parser_is_cxx_mode() && e->type->kind == TYPE_PTR &&
+        e->type->cxx_is_member_pointer && target->kind == TYPE_BOOL) {
+        Expr* source_expression = ast_arena_alloc(sizeof(*source_expression));
+        Expr* converted;
+        *source_expression = *e;
+        converted = expr_cast(target, source_expression, e->loc);
+        *e = *converted;
+        return target;
+    }
 
     /* Data-member pointers are not ordinary object pointers: keep them out
      * of void-pointer and integer conversions, but allow the standard
@@ -8260,7 +8275,8 @@ static int cxx_conversion_rank_detail_at_context(
         if (!target_base || !source) return -1;
         if (target_base->kind == TYPE_BOOL &&
             (source->kind == TYPE_ARRAY || source->kind == TYPE_FUNC ||
-             type_is_pointer(source)) &&
+             type_is_pointer(source) ||
+             (source->kind == TYPE_PTR && source->cxx_is_member_pointer)) &&
             (target->is_rvalue_reference || target_base->is_const)) {
             /* Array/function decay or pointer-to-bool produces a temporary
              * bool; binding it is viable for const lvalue and rvalue refs. */
@@ -8340,6 +8356,11 @@ static int cxx_conversion_rank_detail_at_context(
      * conversion sequence whose rank is Conversion. */
     if (target->kind == TYPE_BOOL &&
         (source->kind == TYPE_ARRAY || source->kind == TYPE_FUNC)) {
+        return 2;
+    }
+
+    if (source->kind == TYPE_PTR && source->cxx_is_member_pointer &&
+        target->kind == TYPE_BOOL) {
         return 2;
     }
 
@@ -13593,6 +13614,9 @@ static Type* sema_expr(Expr* expr) {
                 bool target_member = target->kind == TYPE_PTR &&
                                      target->cxx_is_member_pointer &&
                                      !target->is_reference;
+                if (source_member && target->kind == TYPE_BOOL) {
+                    break;
+                }
                 if (expr->cxx_cast_kind != CXX_CAST_STATIC ||
                     !target_member) {
                     rcc_error(expr->loc,

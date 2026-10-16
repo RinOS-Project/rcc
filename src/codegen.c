@@ -15815,6 +15815,28 @@ static void codegen_release_named_labels(void) {
 static void emit_convert_integer_value(Module* mod, int reg,
                                        const Type* source_type,
                                        const Type* target_type) {
+    const Type* source_object = source_type;
+    if (source_object && source_object->is_reference) {
+        source_object = source_object->base;
+    }
+    if (reg == EAX && target_type && target_type->kind == TYPE_BOOL &&
+        source_object && source_object->kind == TYPE_PTR &&
+        source_object->cxx_is_member_pointer) {
+        if (type_is_cxx_member_function_pointer(source_object)) {
+            /* The expression value for the ABI aggregate is its address; its
+             * first word is zero exactly for a null member-function pointer. */
+            emit_mov_reg_mem(mod, reg, reg, 0);
+            emit_test_reg_reg(mod, reg, reg);
+        } else {
+            /* Itanium data-member pointers use -1 as their null value. */
+            emit_cmp_reg_imm(mod, reg, -1);
+        }
+        emit_setcc(mod, CC_NE, reg);
+        emit_byte(mod, 0x0F);
+        emit_byte(mod, 0xB6);
+        emit_byte(mod, modrm(3, reg, reg));
+        return;
+    }
     if (reg == EAX && target_type && target_type->kind == TYPE_BOOL &&
         gen_is_integer64(source_type)) {
         emit_or_reg_reg(mod, EAX, EDX);
