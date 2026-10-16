@@ -2032,14 +2032,29 @@ static int cxx_function_template_type_parameter_index(
         return -1;
     }
     for (int index = 0; index < tmpl->param_count; ++index) {
-        if ((tmpl->params[index].kind == TPARAM_TYPE ||
-             tmpl->params[index].kind == TPARAM_TEMPLATE) &&
+        if (tmpl->params[index].kind == TPARAM_TYPE &&
             tmpl->params[index].name &&
             strcmp(type->tag, tmpl->params[index].name) == 0) {
             return index;
         }
     }
     return -1;
+}
+
+static int cxx_function_template_template_id_parameter_index(
+    CxxTemplate* tmpl, Type* type) {
+    int parameter_index;
+    if (!tmpl || !type || type->kind != TYPE_STRUCT ||
+        !type->cxx_dependent || type->cxx_template_arg_count <= 0 ||
+        !type->cxx_template_args || type->cxx_template_param_index < 0) {
+        return -1;
+    }
+    parameter_index = type->cxx_template_param_index;
+    if (parameter_index >= tmpl->param_count ||
+        tmpl->params[parameter_index].kind != TPARAM_TEMPLATE) {
+        return -1;
+    }
+    return parameter_index;
 }
 
 typedef struct CxxMemberTemplateMangleContext {
@@ -2094,6 +2109,8 @@ static bool cxx_member_template_expression_supported(
     }
     if (expression->kind == EXPR_SIZEOF && expression->sizeof_type) {
         return cxx_function_template_type_parameter_index(
+                   tmpl, expression->sizeof_type) >= 0 ||
+               cxx_function_template_template_id_parameter_index(
                    tmpl, expression->sizeof_type) >= 0;
     }
     if (expression->kind == EXPR_NEG || expression->kind == EXPR_NOT ||
@@ -2216,6 +2233,8 @@ static void cxx_member_template_expression_append(
     }
     if (expression->kind == EXPR_SIZEOF && expression->sizeof_type) {
         if (cxx_function_template_type_parameter_index(
+                tmpl, expression->sizeof_type) >= 0 ||
+            cxx_function_template_template_id_parameter_index(
                 tmpl, expression->sizeof_type) >= 0) {
             if (*pos + 2u >= CXX_MANGLE_BUFFER_SIZE) {
                 rcc_fatal("C++ member template expression is too long");
@@ -2623,26 +2642,29 @@ static void cxx_mangle_template_type_append_impl(
         type->cxx_template_param_index >= 0 &&
         type->cxx_template_arg_count > 0 && type->cxx_template_args) {
         int parameter_index = type->cxx_template_param_index;
-        CxxTemplate* signature = parameter_index < tmpl->param_count
+        CxxTemplate* signature = tmpl && parameter_index < tmpl->param_count
             ? tmpl->params[parameter_index].template_signature : NULL;
         int64_t nested_values[32] = { 0 };
         int nested_value_parameter_indices[32];
         Expr* nested_value_expressions[32] = { NULL };
         bool encodable = parameter_index >= 0 &&
-            parameter_index < tmpl->param_count &&
+            tmpl && parameter_index < tmpl->param_count &&
             tmpl->params[parameter_index].kind == TPARAM_TEMPLATE &&
             signature && type->cxx_template_arg_count <= 32 &&
-            type->cxx_template_arg_count == signature->param_count &&
-            type->cxx_template_value_args;
+            type->cxx_template_arg_count == signature->param_count;
         for (int index = 0; index < 32; ++index) {
             nested_value_parameter_indices[index] = -1;
         }
         for (int index = 0; encodable &&
              index < type->cxx_template_arg_count; ++index) {
             TemplateParam* nested_parameter = &signature->params[index];
-            if (nested_parameter->kind == TPARAM_TYPE) continue;
+            if (nested_parameter->kind == TPARAM_TYPE) {
+                if (!type->cxx_template_args[index]) encodable = false;
+                continue;
+            }
             if (nested_parameter->kind != TPARAM_NONTYPE ||
-                !nested_parameter->type) {
+                !nested_parameter->type ||
+                !type->cxx_template_value_args) {
                 encodable = false;
                 break;
             }
@@ -2682,20 +2704,31 @@ static void cxx_mangle_template_type_append_impl(
             }
         }
         if (encodable) {
-            CXX_MANGLE_TEMPLATE_APPEND('T');
-            if (parameter_index > 0) {
-                int written = snprintf(buf + *pos,
-                                       CXX_MANGLE_BUFFER_SIZE - *pos,
-                                       "%d", parameter_index - 1);
-                if (written < 0 ||
-                    (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
-                    rcc_fatal(
-                        "C++ dependent template-template parameter is too long");
-                    return;
+            if (context && context->parameter_substitutions &&
+                context->parameter_substitutions[parameter_index] >= 0) {
+                cxx_mangle_member_template_substitution(
+                    buf, pos, (size_t)context->parameter_substitutions[
+                                  parameter_index]);
+            } else {
+                CXX_MANGLE_TEMPLATE_APPEND('T');
+                if (parameter_index > 0) {
+                    int written = snprintf(buf + *pos,
+                                           CXX_MANGLE_BUFFER_SIZE - *pos,
+                                           "%d", parameter_index - 1);
+                    if (written < 0 ||
+                        (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
+                        rcc_fatal(
+                            "C++ dependent template-template parameter is too long");
+                        return;
+                    }
+                    *pos += (size_t)written;
                 }
-                *pos += (size_t)written;
+                CXX_MANGLE_TEMPLATE_APPEND('_');
+                if (context && context->parameter_substitutions) {
+                    context->parameter_substitutions[parameter_index] =
+                        (int)context->next_substitution++;
+                }
             }
-            CXX_MANGLE_TEMPLATE_APPEND('_');
             CXX_MANGLE_TEMPLATE_APPEND('I');
             for (int index = 0; index < type->cxx_template_arg_count;
                  ++index) {

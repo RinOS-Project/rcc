@@ -5368,3 +5368,17 @@ remains a separate open item.
 - [x] Run the complete native-Windows `test-cxx` aggregate after both fixes
       (exit 0).
 - [ ] Broader C++20 partial-ordering cases remain open.
+
+## RCC continuation (2026-10-17, dependent template-template ABI names)
+
+- [x] Distinguish a dependent template-id formed from a template-template
+      parameter from a plain type parameter. Emit the parameter substitution
+      followed by its nested template arguments, including type-only signatures
+      where no non-type argument array exists; guard absent template context.
+- [x] Compare GCC/RCC Itanium symbols in the C++ debug template fixture for
+      both target widths. `test-debug-info` passes, including exact template
+      symbol checks and relocatable DWARF line/info/location-list/frame checks.
+- [x] Run the complete native-Windows `test-cxx` aggregate after the ABI fix
+      (exit 0).
+- [ ] Broader Itanium substitution cases and C++20 partial-ordering remain
+      open. No push or parent RCC gitlink update was made.
