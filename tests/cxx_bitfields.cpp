@@ -8,14 +8,23 @@ struct cxx_bitfield_value {
     unsigned char byte_high : 4;
 };
 
+struct cxx_bitfield_zero_width_barrier {
+    unsigned before : 3;
+    unsigned : 0;
+    unsigned after : 3;
+};
+
 extern "C" int main() {
     cxx_bitfield_value value;
+    cxx_bitfield_zero_width_barrier barrier;
     value.low = 5;
     value.signed_value = -7;
     value.high = 0xa5;
     value.tail = 0x1234;
     value.byte_low = 0xf;
     value.byte_high = 0xa;
+    barrier.before = 5;
+    barrier.after = 6;
     if (sizeof(cxx_bitfield_value) != 8 || value.low != 5 ||
         value.signed_value != -7 || value.high != 0xa5 ||
         value.tail != 0x1234 || value.byte_low != 0xf ||
@@ -27,6 +36,10 @@ extern "C" int main() {
     value.high ^= 1;
     if (value.low != 6 || value.signed_value != -8 || value.high != 0xa4) {
         return 2;
+    }
+    if (sizeof(cxx_bitfield_zero_width_barrier) != 8 ||
+        barrier.before != 5 || barrier.after != 6) {
+        return 3;
     }
     return 0;
 }

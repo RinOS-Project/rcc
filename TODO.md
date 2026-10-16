@@ -5277,8 +5277,11 @@ remains a separate open item.
 - [x] Compare complete GCC/RCC symbol sets, assemble i686 and AMD64 output,
       and execute both AMD64 programs through
       `scripts/ci_nested_class_templates.sh`; the full WSL POSIX gate passes.
+- [x] Cover C++ unnamed zero-width bit-fields as allocation-unit alignment
+      barriers. GCC's C++20 `-Werror` execution and `test-cxx-bitfields` pass,
+      including i686/AMD64 generation and the RCC-generated x64 host runner.
 - [ ] Bit-fields with base types wider than the parser's current four-byte
-      storage profile and unnamed zero-width fields remain open.
+      storage profile remain open.
 
 ## RCC continuation (2026-10-16, structural NTTP nullptr members)
 
