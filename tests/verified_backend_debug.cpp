@@ -43,6 +43,19 @@ extern "C" int verified_cpp_debug_inline_host(int value)
     return verified_cpp_debug_inline_middle(value) * 2;
 }
 
+struct VerifiedCppDebugInlineMember
+{
+    static int call(int value)
+    {
+        return value + 11;
+    }
+};
+
+extern "C" int verified_cpp_debug_inline_member_host(int value)
+{
+    return VerifiedCppDebugInlineMember::call(value);
+}
+
 extern "C" int verified_cpp_debug_const_local(int value)
 {
     const int verified_cpp_optimized_constant = 31;

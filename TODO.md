@@ -1929,6 +1929,11 @@
         `DW_TAG_inlined_subroutine`親子構造、両call-siteのsource line/column、
         relocation先、child PC rangeのparent containmentをi686/AMD64
         `test-debug-info`で検証
+  - [x] verified backendでqualified static member callのinline callee source
+        columnを呼び出し式先頭と照合し、DWARF call-siteのline/columnをi686/AMD64
+        `test-debug-info`で検証
+  - [ ] bounded scalar inlinerの対象をdirect identifier call以外へ広げる場合は、
+        indexed/indirect callableのcallee解決とsource locationを別々に検証する
   - [x] 最適化でstorageが除去されたimmutable unsigned scalar localの値を
         `DW_AT_const_value`の`DW_FORM_udata`で保持し、符号付き負値からunsigned型への
         modulo変換と`UINT64_MAX`をi686/AMD64で検証。signed localには`sdata`を使い、

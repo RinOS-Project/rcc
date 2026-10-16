@@ -3178,6 +3178,78 @@ static void verify_debug_abbreviation(const ObjSection* abbrev,
     assert(0 && "expected DWARF abbreviation was not emitted");
 }
 
+static void verify_verified_cpp_inline_call_site(
+    const char* path, uint16_t architecture, const char* host_name,
+    const char* inline_name, uint32_t expected_line,
+    uint32_t expected_column)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* line;
+    ObjSymbol* function;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    bool found = false;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    line = objfile_get_section(object, ".debug_line");
+    function = objfile_find_symbol(object, host_name);
+    assert(info != NULL && strings != NULL && line != NULL);
+    assert(function != NULL && function->size != 0u);
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 16u <= info->size; ++die) {
+        uint32_t origin_offset;
+        uint32_t name_offset;
+        uint32_t call_file;
+        uint32_t call_line;
+        uint32_t call_column;
+        uint64_t low_pc_offset;
+        uint64_t call_length;
+        bool has_relocation = false;
+        if (info->data[die] != 41u) continue;
+        origin_offset = read_u32(info->data, die + 1u);
+        if ((uint64_t)origin_offset + 25u > info->size ||
+            info->data[origin_offset] != 40u) continue;
+        name_offset = read_u32(info->data, origin_offset + 1u);
+        if (name_offset >= strings->size ||
+            strcmp((const char*)strings->data + name_offset,
+                   inline_name) != 0) continue;
+        low_pc_offset = die + 1u + 4u;
+        call_length = read_u32(
+            info->data, low_pc_offset + address_size);
+        call_file = read_u32(
+            info->data, low_pc_offset + address_size + 4u);
+        call_line = read_u32(
+            info->data, low_pc_offset + address_size + 8u);
+        call_column = read_u32(
+            info->data, low_pc_offset + address_size + 12u);
+        assert(call_length != 0u && call_file != 0u &&
+               call_line == expected_line &&
+               call_column == expected_column);
+        assert(line_table_file_matches(
+            line, call_file, "tests/verified_backend_debug.cpp"));
+        for (const ObjReloc* relocation = info->relocs;
+             relocation; relocation = relocation->next) {
+            if (relocation->offset != low_pc_offset) continue;
+            if (relocation->symbol_name == NULL ||
+                strcmp(relocation->symbol_name, host_name) != 0) {
+                break;
+            }
+            assert(relocation->addend >= 0);
+            assert((uint64_t)relocation->addend <= function->size &&
+                   call_length <=
+                       function->size - (uint64_t)relocation->addend);
+            found = true;
+            has_relocation = true;
+            break;
+        }
+        if (has_relocation) break;
+    }
+    assert(found);
+    objfile_free(object);
+}
+
 static void verify_verified_cpp_inline_debug(
     const char* path, uint16_t architecture)
 {
@@ -3284,6 +3356,9 @@ static void verify_verified_cpp_inline_debug(
            info->data[leaf_children_end] == 0u &&
            info->data[leaf_children_end + 1u] == 0u);
     objfile_free(object);
+    verify_verified_cpp_inline_call_site(
+        path, architecture, "verified_cpp_debug_inline_member_host",
+        "VerifiedCppDebugInlineMember::call", 56u, 12u);
 }
 
 static void verify_inline_debug_object(const char* path,
