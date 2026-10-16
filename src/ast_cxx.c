@@ -1353,6 +1353,142 @@ static void mangle_class_name_context(
     --template_argument_context->class_name_depth;
 }
 
+static bool cxx_mangle_template_value_expr_matches(
+    Expr* left, Expr* right, unsigned depth) {
+    int64_t left_value;
+    int64_t right_value;
+    if (left == right) return true;
+    if (!left || !right || depth > 64u || left->kind != right->kind ||
+        left->cxx_template_context != right->cxx_template_context ||
+        left->cxx_pack_expansion != right->cxx_pack_expansion ||
+        (!!left->cxx_pack_expansion_name !=
+         !!right->cxx_pack_expansion_name) ||
+        (left->cxx_pack_expansion_name &&
+         strcmp(left->cxx_pack_expansion_name,
+                right->cxx_pack_expansion_name) != 0)) {
+        return false;
+    }
+    if (expr_eval_integer_constant(left, &left_value) &&
+        expr_eval_integer_constant(right, &right_value)) {
+        return left_value == right_value;
+    }
+    switch (left->kind) {
+        case EXPR_IDENT:
+            return left->ident_name && right->ident_name &&
+                strcmp(left->ident_name, right->ident_name) == 0 &&
+                (!left->ident_decl || !right->ident_decl ||
+                 left->ident_decl == right->ident_decl);
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+            if (!!left->sizeof_pack_name != !!right->sizeof_pack_name ||
+                (left->sizeof_pack_name &&
+                 strcmp(left->sizeof_pack_name,
+                        right->sizeof_pack_name) != 0) ||
+                (!!left->sizeof_type != !!right->sizeof_type)) {
+                return false;
+            }
+            if (left->sizeof_type) {
+                return type_is_same_template_argument(
+                    left->sizeof_type, right->sizeof_type);
+            }
+            return cxx_mangle_template_value_expr_matches(
+                left->unary_operand, right->unary_operand, depth + 1u);
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_ADDR:
+        case EXPR_DEREF:
+        case EXPR_PREINC:
+        case EXPR_PREDEC:
+        case EXPR_POSTINC:
+        case EXPR_POSTDEC:
+        case EXPR_NOEXCEPT:
+            return cxx_mangle_template_value_expr_matches(
+                left->unary_operand, right->unary_operand, depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_SPACESHIP:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+            return cxx_mangle_template_value_expr_matches(
+                       left->binary_lhs, right->binary_lhs, depth + 1u) &&
+                   cxx_mangle_template_value_expr_matches(
+                       left->binary_rhs, right->binary_rhs, depth + 1u);
+        case EXPR_COND:
+            return cxx_mangle_template_value_expr_matches(
+                       left->cond_test, right->cond_test, depth + 1u) &&
+                   cxx_mangle_template_value_expr_matches(
+                       left->cond_then, right->cond_then, depth + 1u) &&
+                   cxx_mangle_template_value_expr_matches(
+                       left->cond_else, right->cond_else, depth + 1u);
+        case EXPR_CAST:
+            return type_is_same_template_argument(
+                       left->cast_type, right->cast_type) &&
+                   cxx_mangle_template_value_expr_matches(
+                       left->cast_expr, right->cast_expr, depth + 1u);
+        default:
+            return false;
+    }
+}
+
+static bool cxx_mangle_template_value_args_match(Type* left, Type* right) {
+    bool left_has_dependent_value = false;
+    bool right_has_dependent_value = false;
+    int64_t ignored_value;
+    if (left == right) return true;
+    if (!left || !right || left->kind != right->kind) return false;
+    for (int index = 0; left->cxx_template_value_args &&
+         index < left->cxx_template_arg_count; ++index) {
+        Expr* expression = left->cxx_template_value_args[index];
+        if (expression &&
+            !expr_eval_integer_constant(expression, &ignored_value)) {
+            left_has_dependent_value = true;
+            break;
+        }
+    }
+    for (int index = 0; right->cxx_template_value_args &&
+         index < right->cxx_template_arg_count; ++index) {
+        Expr* expression = right->cxx_template_value_args[index];
+        if (expression &&
+            !expr_eval_integer_constant(expression, &ignored_value)) {
+            right_has_dependent_value = true;
+            break;
+        }
+    }
+    if (left_has_dependent_value || right_has_dependent_value) {
+        if (!left_has_dependent_value || !right_has_dependent_value ||
+            !left->cxx_template_value_args ||
+            !right->cxx_template_value_args ||
+            left->cxx_template != right->cxx_template ||
+            left->cxx_template_arg_count != right->cxx_template_arg_count) {
+            return false;
+        }
+        for (int index = 0; index < left->cxx_template_arg_count; ++index) {
+            if (!cxx_mangle_template_value_expr_matches(
+                    left->cxx_template_value_args[index],
+                    right->cxx_template_value_args[index], 0u)) {
+                return false;
+            }
+        }
+    }
+    return type_is_same_template_argument(left, right);
+}
+
 static size_t cxx_mangle_find_class_substitution(
     const CxxMangleContext* context, Type* type) {
     if (!context || !type) return (size_t)-1;
@@ -2867,7 +3003,7 @@ static void cxx_mangle_template_type_append(
     if (context && is_substitutable_type) {
         for (size_t index = 0; index < context->type_substitution_count;
              ++index) {
-            if (type_is_same_template_argument(
+            if (cxx_mangle_template_value_args_match(
                     context->type_substitutions[index], type)) {
                 cxx_mangle_member_template_substitution(
                     buf, pos, context->type_substitution_indices[index]);

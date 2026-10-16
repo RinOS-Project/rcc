@@ -5318,5 +5318,9 @@ remains a separate open item.
       regression gate. Also distinguish `1+1`, `2+0`, and `0+2` pack
       partitions that share the same flattened type-argument sequence; runtime
       results and exact GCC/RCC symbols verify the cache key retains boundaries.
-- [ ] Other independent pack interactions and broader C++20 partial-ordering
-      cases remain open.
+- [x] Extend independent partition preservation to non-type and
+      template-template packs. Exercise `1+1`, `2+0`, and `0+2` partitions,
+      require exact GCC/RCC i686/AMD64 Itanium symbols, and execute the POSIX
+      and native MinGW runtime regressions.
+- [ ] Other independent pack combinations (including mixed pack kinds) and
+      broader C++20 partial-ordering cases remain open.

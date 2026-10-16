@@ -34,6 +34,14 @@ int repeat_value_pack_expansion(
     return static_cast<int>(sizeof...(Values));
 }
 
+template<int... FirstValues, int... SecondValues>
+int independent_value_pack_partition(
+    RepeatedValuePackExpansionBox<FirstValues...>,
+    RepeatedValuePackExpansionBox<SecondValues...>) {
+    return static_cast<int>(sizeof...(FirstValues) * 10 +
+                            sizeof...(SecondValues));
+}
+
 template<template<typename> class... Templates>
 struct RepeatedTemplatePackExpansionBox {};
 
@@ -49,6 +57,15 @@ int repeat_template_template_pack_expansion(
         Templates..., RepeatedTemplatePackExpansionFixed, Templates...>,
     RepeatedTemplatePackExpansionBox<Templates...>) {
     return static_cast<int>(sizeof...(Templates));
+}
+
+template<template<typename> class... FirstTemplates,
+         template<typename> class... SecondTemplates>
+int independent_template_template_pack_partition(
+    RepeatedTemplatePackExpansionBox<FirstTemplates...>,
+    RepeatedTemplatePackExpansionBox<SecondTemplates...>) {
+    return static_cast<int>(sizeof...(FirstTemplates) * 10 +
+                            sizeof...(SecondTemplates));
 }
 
 int main() {
@@ -98,6 +115,21 @@ int main() {
                                     RepeatedValuePackExpansionBox<>{}) != 0) {
         return 10;
     }
+    if (independent_value_pack_partition(RepeatedValuePackExpansionBox<1>{},
+                                         RepeatedValuePackExpansionBox<2>{}) !=
+        11) {
+        return 11;
+    }
+    if (independent_value_pack_partition(
+            RepeatedValuePackExpansionBox<1, 2>{},
+            RepeatedValuePackExpansionBox<>{}) != 20) {
+        return 12;
+    }
+    if (independent_value_pack_partition(
+            RepeatedValuePackExpansionBox<>{},
+            RepeatedValuePackExpansionBox<1, 2>{}) != 2) {
+        return 13;
+    }
     if (repeat_template_template_pack_expansion(
             RepeatedTemplatePackExpansionBox<
                 RepeatedTemplatePackExpansionItem,
@@ -105,13 +137,34 @@ int main() {
                 RepeatedTemplatePackExpansionItem>{},
             RepeatedTemplatePackExpansionBox<
                 RepeatedTemplatePackExpansionItem>{}) != 1) {
-        return 11;
+        return 14;
     }
     if (repeat_template_template_pack_expansion(
             RepeatedTemplatePackExpansionBox<
                 RepeatedTemplatePackExpansionFixed>{},
             RepeatedTemplatePackExpansionBox<>{}) != 0) {
-        return 12;
+        return 15;
+    }
+    if (independent_template_template_pack_partition(
+            RepeatedTemplatePackExpansionBox<
+                RepeatedTemplatePackExpansionItem>{},
+            RepeatedTemplatePackExpansionBox<
+                RepeatedTemplatePackExpansionFixed>{}) != 11) {
+        return 16;
+    }
+    if (independent_template_template_pack_partition(
+            RepeatedTemplatePackExpansionBox<
+                RepeatedTemplatePackExpansionItem,
+                RepeatedTemplatePackExpansionFixed>{},
+            RepeatedTemplatePackExpansionBox<>{}) != 20) {
+        return 17;
+    }
+    if (independent_template_template_pack_partition(
+            RepeatedTemplatePackExpansionBox<>{},
+            RepeatedTemplatePackExpansionBox<
+                RepeatedTemplatePackExpansionItem,
+                RepeatedTemplatePackExpansionFixed>{}) != 2) {
+        return 18;
     }
     return 0;
 }

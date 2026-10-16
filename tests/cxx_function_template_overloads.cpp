@@ -829,6 +829,23 @@ int choose_independent_class_template_pack_partition(
                             sizeof...(SecondTypes));
 }
 
+template<int... FirstValues, int... SecondValues>
+int choose_independent_non_type_class_pack_partition(
+    FunctionTemplateNonTypePackBox<FirstValues...>,
+    FunctionTemplateNonTypePackBox<SecondValues...>) {
+    return static_cast<int>(sizeof...(FirstValues) * 10 +
+                            sizeof...(SecondValues));
+}
+
+template<template<typename> class... FirstTemplates,
+         template<typename> class... SecondTemplates>
+int choose_independent_template_template_class_pack_partition(
+    FunctionTemplateTemplatePackBox<FirstTemplates...>,
+    FunctionTemplateTemplatePackBox<SecondTemplates...>) {
+    return static_cast<int>(sizeof...(FirstTemplates) * 10 +
+                            sizeof...(SecondTemplates));
+}
+
 template<int... Values>
 int choose_nontrailing_non_type_pack_order(
     FunctionTemplateNonTypePackBox<Values..., 7>) {
@@ -3037,6 +3054,30 @@ int main(void) {
                        FunctionTemplatePackPartialOrderBox<>{},
                        FunctionTemplatePackPartialOrderBox<char, short>{}) ==
                        2 &&
+                   choose_independent_non_type_class_pack_partition(
+                       FunctionTemplateNonTypePackBox<1>{},
+                       FunctionTemplateNonTypePackBox<2>{}) == 11 &&
+                   choose_independent_non_type_class_pack_partition(
+                       FunctionTemplateNonTypePackBox<1, 2>{},
+                       FunctionTemplateNonTypePackBox<>{}) == 20 &&
+                   choose_independent_non_type_class_pack_partition(
+                       FunctionTemplateNonTypePackBox<>{},
+                       FunctionTemplateNonTypePackBox<1, 2>{}) == 2 &&
+                   choose_independent_template_template_class_pack_partition(
+                       FunctionTemplateTemplatePackBox<
+                           FunctionTemplateTemplatePackItem>{},
+                       FunctionTemplateTemplatePackBox<
+                           FunctionTemplateTemplatePackFixed>{}) == 11 &&
+                   choose_independent_template_template_class_pack_partition(
+                       FunctionTemplateTemplatePackBox<
+                           FunctionTemplateTemplatePackItem,
+                           FunctionTemplateTemplatePackFixed>{},
+                       FunctionTemplateTemplatePackBox<>{}) == 20 &&
+                   choose_independent_template_template_class_pack_partition(
+                       FunctionTemplateTemplatePackBox<>{},
+                       FunctionTemplateTemplatePackBox<
+                           FunctionTemplateTemplatePackItem,
+                           FunctionTemplateTemplatePackFixed>{}) == 2 &&
                    choose_nontrailing_template_template_pack_order<
                        FunctionTemplateTemplatePackItem>(
                        FunctionTemplateTemplatePackBox<
