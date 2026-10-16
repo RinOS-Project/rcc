@@ -6097,8 +6097,6 @@ static void optimize_stmt(Stmt* statement) {
 void rcc_optimize(AST* ast) {
     char ir_error[256];
     size_t lowered_functions = 0u;
-    enum { OPTIMIZE_INLINE_PASSES = 8 };
-    unsigned pass;
     inline_debug_origins_clear();
     inline_caller_budgets_clear();
     optimize_inline_caller = NULL;
@@ -6106,7 +6104,11 @@ void rcc_optimize(AST* ast) {
     inline_debug_clone_caller = NULL;
     if (!ast || g_opts.opt_level <= 0) return;
     optimize_inline_ast = ast;
-    for (pass = 0u; pass < OPTIMIZE_INLINE_PASSES; ++pass) {
+    /* A successful rewrite removes an eligible call and the supported scalar
+     * expansion cannot introduce another eligible call. Iterate to the actual
+     * fixed point instead of imposing a source-order-dependent chain depth.
+     * Per-caller and per-expansion budgets bound code growth independently. */
+    for (;;) {
         optimize_inline_changed = false;
         for (DeclList* item = ast->decls; item; item = item->next) {
             Decl* declaration = item->decl;

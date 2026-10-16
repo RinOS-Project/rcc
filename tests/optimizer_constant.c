@@ -535,6 +535,84 @@ static int inline_forward_leaf(int value)
     return value + 9;
 }
 
+static int inline_deep_forward_00(int value);
+static int inline_deep_forward_01(int value);
+static int inline_deep_forward_02(int value);
+static int inline_deep_forward_03(int value);
+static int inline_deep_forward_04(int value);
+static int inline_deep_forward_05(int value);
+static int inline_deep_forward_06(int value);
+static int inline_deep_forward_07(int value);
+static int inline_deep_forward_08(int value);
+static int inline_deep_forward_09(int value);
+static int inline_deep_forward_10(int value);
+static int inline_deep_forward_11(int value);
+
+int inlined_deep_forward_chain(int value)
+{
+    return inline_deep_forward_00(value);
+}
+
+static int inline_deep_forward_00(int value)
+{
+    return inline_deep_forward_01(value);
+}
+
+static int inline_deep_forward_01(int value)
+{
+    return inline_deep_forward_02(value);
+}
+
+static int inline_deep_forward_02(int value)
+{
+    return inline_deep_forward_03(value);
+}
+
+static int inline_deep_forward_03(int value)
+{
+    return inline_deep_forward_04(value);
+}
+
+static int inline_deep_forward_04(int value)
+{
+    return inline_deep_forward_05(value);
+}
+
+static int inline_deep_forward_05(int value)
+{
+    return inline_deep_forward_06(value);
+}
+
+static int inline_deep_forward_06(int value)
+{
+    return inline_deep_forward_07(value);
+}
+
+static int inline_deep_forward_07(int value)
+{
+    return inline_deep_forward_08(value);
+}
+
+static int inline_deep_forward_08(int value)
+{
+    return inline_deep_forward_09(value);
+}
+
+static int inline_deep_forward_09(int value)
+{
+    return inline_deep_forward_10(value);
+}
+
+static int inline_deep_forward_10(int value)
+{
+    return inline_deep_forward_11(value);
+}
+
+static int inline_deep_forward_11(int value)
+{
+    return value + 9;
+}
+
 static int inline_duplicate_value(int value)
 {
     return value + value;

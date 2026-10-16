@@ -400,6 +400,10 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_byte(optimized, "inlined_forward_chain",
                                    0xe8u));
     assert(function_contains_byte(unoptimized,
+                                  "inlined_deep_forward_chain", 0xe8u));
+    assert(!function_contains_byte(optimized,
+                                   "inlined_deep_forward_chain", 0xe8u));
+    assert(function_contains_byte(unoptimized,
                                   "inlined_repeated_argument_call", 0xe8u));
     assert(!function_contains_byte(optimized,
                                    "inlined_repeated_argument_call", 0xe8u));
@@ -1566,6 +1570,8 @@ int main(int argc, char** argv)
             function_symbol(object, "inlined_repeated_complex_argument_call");
         ObjSymbol* inlined_forward_chain_symbol = function_symbol(
             object, "inlined_forward_chain");
+        ObjSymbol* inlined_deep_forward_chain_symbol = function_symbol(
+            object, "inlined_deep_forward_chain");
         ObjSymbol* preserved_algebraic_side_effect_symbol = function_symbol(
             object, "preserved_algebraic_side_effect");
         ObjSymbol* preserved_algebraic_mod_one_side_effect_symbol =
@@ -1773,6 +1779,7 @@ int main(int argc, char** argv)
         int (*inlined_conditional_cast_call)(int);
         int (*preserved_large_inline_call)(int);
         int (*inlined_forward_chain)(int);
+        int (*inlined_deep_forward_chain)(int);
         int (*inlined_two_argument_call)(int, int);
         uint32_t (*inlined_three_argument_call)(uint32_t, uint32_t,
                                                 uint32_t);
@@ -2388,6 +2395,9 @@ int main(int argc, char** argv)
         address = mapping + inlined_forward_chain_symbol->value;
         memcpy(&inlined_forward_chain, &address,
                sizeof(inlined_forward_chain));
+        address = mapping + inlined_deep_forward_chain_symbol->value;
+        memcpy(&inlined_deep_forward_chain, &address,
+               sizeof(inlined_deep_forward_chain));
         {
             ObjSymbol* inlined_two_argument_call_symbol = function_symbol(
                 object, "inlined_two_argument_call");
@@ -3015,6 +3025,7 @@ int main(int argc, char** argv)
         assert(inlined_conditional_cast_call(8) == 12);
         assert(preserved_large_inline_call(2) == 32);
         assert(inlined_forward_chain(-8) == 1);
+        assert(inlined_deep_forward_chain(-8) == 1);
         assert(inlined_two_argument_call(-8, 13) == 5);
         assert(inlined_three_argument_call(UINT32_C(0x55),
                                            UINT32_C(0x0f),

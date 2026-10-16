@@ -1414,9 +1414,11 @@
   - [x] 副作用のない単純整数識別子／リテラル引数が関数本体で複数回参照される
         場合も、複雑式のAST共有は行わず安全にO1 inlineし、両archでcall除去と
         実行結果を回帰検証
-  - [x] 宣言順に依存しない最大8回の限定固定点で、純粋スカラーinline候補の
-        前方呼出しチェーンを解決し、再帰・aggregate・exception callはこのpassの
-        対象外として明示的に保持
+  - [x] 宣言順に依存しない固定点反復で純粋スカラーinline候補の前方呼出し
+        チェーンを解決する。成功したscalar expansionはeligible callを新生せず、
+        caller単位の累積予算でcode growthを制限するため、固定8回の上限は不要。
+        12段forward-wrapper chainの全call除去と両arch実行を`test-optimize`で検証。
+        再帰・aggregate・exception callはこのpassの対象外として保持。
   - [x] 固定点反復を通じたcaller単位の累積展開予算を32 AST nodesに制限し、
         多数の小さなinline callでもcaller全体のcode growthを抑制。48 call-siteの
         fixtureでbudget内外の部分展開と残存callをi686/AMD64 objectで検査し、
