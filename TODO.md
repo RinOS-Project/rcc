@@ -1944,6 +1944,11 @@
         持つlocal function-pointer arrayについて、直接の関数初期化子と互換型を確認
         できるscalar callをinline化。i686/AMD64の最適化objectを生成し、AMD64でlocal
         function relocationを適用してpointerと定数添字配列の結果を検証
+  - [x] namespace-scopeの非constexpr `const` function pointerとconst要素配列も、
+        非dynamic initializer・直接の関数target・互換型・定数添字を確認して対象化。
+        i686/AMD64 -O0/-O1 objectを生成し、AMD64では間接call比較と実行で検証。
+        `test-optimize`は成功。compiler sourceは`8582d8c`から未変更で、同commitの後に
+        `test-debug-info`と完全な`test-cxx`も成功済み
   - [ ] mutable local pointer/array、mutable alias、可変添字など一般のaliased/indirect
         callは未実装。calleeを静的に安全確定できない呼び出しは引き続き対象外
   - [x] 最適化でstorageが除去されたimmutable unsigned scalar localの値を

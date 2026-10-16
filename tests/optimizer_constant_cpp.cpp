@@ -51,6 +51,14 @@ static constexpr int (*inline_constexpr_function_array[])(int) = {
     &inline_constexpr_array_second
 };
 
+static int (*const inline_const_function_pointer)(int) =
+    &inline_constexpr_array_first;
+
+static int (*const inline_const_function_pointer_array[])(int) = {
+    &inline_constexpr_array_first,
+    &inline_constexpr_array_second
+};
+
 extern "C" int inline_constexpr_array_first_call(int value)
 {
     return inline_constexpr_function_array[0](value);
@@ -64,6 +72,16 @@ extern "C" int inline_constexpr_array_second_call(int value)
 extern "C" int inline_constexpr_array_dynamic_call(int index, int value)
 {
     return inline_constexpr_function_array[index](value);
+}
+
+extern "C" int inline_const_function_pointer_call(int value)
+{
+    return inline_const_function_pointer(value);
+}
+
+extern "C" int inline_const_function_pointer_array_call(int value)
+{
+    return inline_const_function_pointer_array[1](value);
 }
 
 extern "C" int inline_local_constexpr_function_pointer_call(int value)

@@ -188,6 +188,8 @@ static void verify_smaller(const char* unoptimized_path,
         objfile_find_symbol(optimized,
                             "inline_local_constexpr_function_pointer_call")) {
         static const char* const immutable_pointer_calls[] = {
+            "inline_const_function_pointer_call",
+            "inline_const_function_pointer_array_call",
             "inline_local_constexpr_function_pointer_call",
             "inline_local_const_function_pointer_call",
             "inline_local_const_function_pointer_array_call"
@@ -980,6 +982,8 @@ static void execute_inline_namespace_case(const char* path)
     SysvIntUnary function;
     SysvIntUnary array_first;
     SysvIntUnary array_second;
+    SysvIntUnary global_const_pointer;
+    SysvIntUnary global_const_pointer_array;
     SysvIntUnary local_constexpr_pointer;
     SysvIntUnary local_const_pointer;
     SysvIntUnary local_const_pointer_array;
@@ -1010,6 +1014,14 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&array_second, &address, sizeof(array_second));
     assert(array_first(5) == 28);
     assert(array_second(5) == 11);
+    symbol = function_symbol(object, "inline_const_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&global_const_pointer, &address, sizeof(global_const_pointer));
+    symbol = function_symbol(
+        object, "inline_const_function_pointer_array_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&global_const_pointer_array, &address,
+           sizeof(global_const_pointer_array));
     symbol = function_symbol(
         object, "inline_local_const_function_pointer_array_call");
     address = (uintptr_t)mapping + symbol->value;
@@ -1027,6 +1039,8 @@ static void execute_inline_namespace_case(const char* path)
     assert(local_constexpr_pointer(5) == 28);
     assert(local_const_pointer(5) == 11);
     assert(local_const_pointer_array(5) == 11);
+    assert(global_const_pointer(5) == 28);
+    assert(global_const_pointer_array(5) == 11);
     assert(VirtualFree(mapping, 0u, MEM_RELEASE));
     objfile_free(object);
     puts("Windows AMD64 C++ inline namespace identity execution passed");
@@ -1211,6 +1225,8 @@ static void execute_inline_namespace_case(const char* path)
     int (*function)(int);
     int (*array_first)(int);
     int (*array_second)(int);
+    int (*global_const_pointer)(int);
+    int (*global_const_pointer_array)(int);
     int (*local_constexpr_pointer)(int);
     int (*local_const_pointer)(int);
     int (*local_const_pointer_array)(int);
@@ -1239,6 +1255,14 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&array_second, &address, sizeof(array_second));
     assert(array_first(5) == 28);
     assert(array_second(5) == 11);
+    symbol = function_symbol(object, "inline_const_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&global_const_pointer, &address, sizeof(global_const_pointer));
+    symbol = function_symbol(
+        object, "inline_const_function_pointer_array_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&global_const_pointer_array, &address,
+           sizeof(global_const_pointer_array));
     symbol = function_symbol(
         object, "inline_local_const_function_pointer_array_call");
     address = (uintptr_t)mapping + symbol->value;
@@ -1256,6 +1280,8 @@ static void execute_inline_namespace_case(const char* path)
     assert(local_constexpr_pointer(5) == 28);
     assert(local_const_pointer(5) == 11);
     assert(local_const_pointer_array(5) == 11);
+    assert(global_const_pointer(5) == 28);
+    assert(global_const_pointer_array(5) == 11);
     assert(munmap(mapping, code->size) == 0);
     objfile_free(object);
     puts("AMD64 C++ inline namespace identity execution passed");
