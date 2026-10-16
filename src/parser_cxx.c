@@ -1863,17 +1863,17 @@ static bool cxx_expr_is_nullptr_constant(const Expr* expression) {
         (expression->is_cxx_nullptr ||
          (expression->type && expression->type->kind == TYPE_NULLPTR));
 }
-static bool cxx_structural_pointer_member_value(
-    const Expr* expression, Type* pointer_type, int64_t* value_out) {
+static Decl* cxx_structural_pointer_member_address_declaration(
+    const Expr* expression, Type* pointer_type) {
     const Expr* operand;
     Decl* declaration;
     Symbol* symbol;
     bool namespace_scope_target = false;
     CxxNamespace* lookup_namespace;
-    if (!expression || expression->kind != EXPR_ADDR || !value_out ||
+    if (!expression || expression->kind != EXPR_ADDR ||
         !(operand = expression->unary_operand) ||
         operand->kind != EXPR_IDENT || !operand->ident_name) {
-        return false;
+        return NULL;
     }
     declaration = operand->ident_decl;
     symbol = g_symtab
@@ -1916,23 +1916,80 @@ static bool cxx_structural_pointer_member_value(
         pointer_type->kind != TYPE_PTR ||
         !type_is_compatible(pointer_type->base, declaration->type) ||
         !decl_link_name(declaration)) {
-        return false;
+        return NULL;
     }
     if (declaration->kind == DECL_VAR) {
         if ((!declaration->var_is_global && !namespace_scope_target &&
              (!symbol || symbol->decl != declaration || !symbol->is_global)) ||
             declaration->var_is_thread_local || declaration->var_is_vla) {
-            return false;
+            return NULL;
         }
     } else if (declaration->kind == DECL_FUNC) {
         if (!namespace_scope_target &&
             (!symbol || symbol->decl != declaration || !symbol->is_global)) {
-            return false;
+            return NULL;
         }
     } else {
+        return NULL;
+    }
+    return declaration;
+}
+
+static bool cxx_structural_pointer_member_value(
+    const Expr* expression, Type* pointer_type, int64_t* value_out) {
+    Decl* declaration;
+    int64_t offset;
+    if (!expression || !pointer_type || pointer_type->kind != TYPE_PTR ||
+        !value_out) {
         return false;
     }
-    return cxx_structural_pointer_value_register(declaration, value_out);
+    if (cxx_expr_is_nullptr_constant(expression) ||
+        (expr_eval_integer_constant((Expr*)expression, &offset) &&
+         offset == 0)) {
+        *value_out = 0;
+        return true;
+    }
+    if (expression->kind == EXPR_COND) {
+        int64_t condition;
+        if (!expr_eval_integer_constant(expression->cond_test, &condition)) {
+            return false;
+        }
+        return cxx_structural_pointer_member_value(
+            condition ? expression->cond_then : expression->cond_else,
+            pointer_type, value_out);
+    }
+    if (expression->kind == EXPR_CAST && expression->cast_expr &&
+        expression->cast_type && expression->cast_type->kind == TYPE_PTR &&
+        type_is_compatible(expression->cast_type, pointer_type) &&
+        (expression->cxx_cast_kind == CXX_CAST_STATIC ||
+         expression->cxx_cast_kind == CXX_CAST_CONST)) {
+        return cxx_structural_pointer_member_value(
+            expression->cast_expr, pointer_type, value_out);
+    }
+    if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB) {
+        const Expr* lhs = expression->binary_lhs;
+        const Expr* rhs = expression->binary_rhs;
+        if (!pointer_type->base || pointer_type->base->kind == TYPE_FUNC) {
+            return false;
+        }
+        if (rhs && expr_eval_integer_constant((Expr*)rhs, &offset) &&
+            offset == 0 &&
+            cxx_structural_pointer_member_value(
+                lhs, pointer_type, value_out)) {
+            return true;
+        }
+        if (expression->kind == EXPR_ADD && lhs &&
+            expr_eval_integer_constant((Expr*)lhs, &offset) && offset == 0 &&
+            cxx_structural_pointer_member_value(
+                rhs, pointer_type, value_out)) {
+            return true;
+        }
+        return false;
+    }
+    declaration = cxx_structural_pointer_member_address_declaration(
+        expression, pointer_type);
+    return declaration && cxx_structural_pointer_value_register(
+                              declaration, value_out);
 }
 
 static bool cxx_structural_class_collect_member_values(

@@ -5025,5 +5025,30 @@ remains a separate open item.
   Itanium-prefixed fixture symbol with GCC on i686/AMD64, assemble both RCC
   outputs, and execute RCC AMD64 plus the GCC-host program; the complete
   `scripts/ci_nested_class_templates.sh` gate passes in WSL.
-- [ ] Computed pointer constant expressions, overloaded-function address
-  selection, pointer-to-member values, and reference members remain open.
+- [ ] Nonzero pointer offsets and other computed pointer constants,
+      overloaded-function address selection, pointer-to-member values, and
+      reference members remain open.
+
+## RCC continuation (2026-10-16, computed structural pointer NTTP expressions)
+
+- [x] Preserve pointer values selected by integral constant conditional
+      expressions, including a selected null pointer; accept identity-preserving
+      `&object + 0`, `0 + &object`, and `&object - 0` forms and same-type
+      `static_cast` expressions.
+- [x] Add nested structural object- and function-pointer regressions. Compare
+      the complete GCC/RCC Itanium symbol sets on i686 and AMD64, assemble both
+      outputs, execute RCC AMD64 and GCC-host programs, and pass the full POSIX
+      nested-class CI gate.
+- [x] Correct the C++ global-variable linkage expectation and use the portable
+      expected-failure macro in debug-info tests; `test-cxx-language-linkage`
+      and `test-debug-info` pass.
+- [x] Keep `rinvalidate` host objects separate under `obj/windows` and
+      `obj/posix`; build both variants and validate current RCC-generated RIN,
+      RLL, and DRV artifacts.
+- [ ] Re-run the complete `test-cxx` aggregate after the existing uncommitted
+      codegen cleanup-registration changes are paired with their runtime
+      definitions; the current member-lifetime link fails on those missing
+      symbols. Do not fold those unrelated changes into this commit.
+- [ ] Nonzero pointer arithmetic and other pointer constant-expression forms,
+      overloaded-function address selection, pointer-to-member values, and
+      reference members remain open.
