@@ -5086,11 +5086,16 @@ remains a separate open item.
   `main`; do not push or stage the parent repository's gitlink.
 - [x] Extend the location model to nested static/global array index paths and
   constrain pointer arithmetic to the immediately selected inner array,
-  including its one-past position. The nested-array regression checks distinct
-  Itanium encodings, i686/AMD64 output, AMD64 execution, and rejection of
-  arithmetic beyond the selected row.
-- [ ] Support nested-array decay and pointer-to-array declarators, aggregate
-  member subobjects, and additional pointer constant-expression forms.
+  including its one-past position. Support decay of a selected static/global
+  row to an element pointer while retaining that row's bounds and subobject
+  identity through pointer arithmetic.
+- [x] Check row-decay start and one-past values, distinct Itanium encodings,
+  i686/AMD64 output, AMD64 execution, and rejection of both direct and decayed
+  pointer arithmetic beyond the selected row in Windows and WSL CI.
+- [x] Re-run native-Windows `mingw32-make SHELL=cmd.exe test-cxx` after the
+  array-decay parser change; the full aggregate passes.
+- [ ] Support pointer-to-array declarators, aggregate member subobjects, and
+  additional pointer constant-expression forms.
 - [ ] Add a compiler-to-compiler differential oracle for offset encodings when
   an independent implementation accepts these standard-valid arguments;
   GCC 13 currently rejects array-element pointer NTTPs and Itanium ABI issue
@@ -5109,5 +5114,5 @@ remains a separate open item.
   gate; the Windows build also compiles both target outputs and runs AMD64.
 - [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate after the
   parser change; it passes (exit 0).
-- [ ] Deeper specialization chains, multidimensional structural-pointer
-  subobject paths, and the other forms listed above remain open.
+- [ ] Deeper specialization chains and the other structural pointer forms
+  listed above remain open.

@@ -2075,7 +2075,8 @@ static bool cxx_structural_pointer_member_indexed_location(
             array_type->base->size <= 0 || !index_expression ||
             !expr_eval_integer_constant((Expr*)index_expression, &index) ||
             index < 0 || index > array_type->array_len ||
-            (!final_index && index == array_type->array_len)) {
+            ((!final_index || decay_array) &&
+             index == array_type->array_len)) {
             return false;
         }
         element_size = array_type->base->size;
@@ -2095,7 +2096,7 @@ static bool cxx_structural_pointer_member_indexed_location(
         array_type = array_type->base;
     }
     if (decay_array) {
-        Type* selected_array = indexed_expression->type;
+        Type* selected_array = array_type;
         if (!selected_array || selected_array->kind != TYPE_ARRAY ||
             !selected_array->base || selected_array->array_len <= 0 ||
             !type_is_compatible(pointer_type->base, selected_array->base) ||
@@ -2152,19 +2153,28 @@ static bool cxx_structural_pointer_member_location(
     }
     if (expression->kind == EXPR_CAST && expression->cast_expr &&
         expression->cast_type && expression->cast_type->kind == TYPE_PTR &&
-        type_is_compatible(expression->cast_type, pointer_type) &&
-        (expression->cxx_cast_kind == CXX_CAST_STATIC ||
-         expression->cxx_cast_kind == CXX_CAST_CONST)) {
-        return cxx_structural_pointer_member_location(
-            expression->cast_expr, pointer_type, location);
+        type_is_compatible(expression->cast_type, pointer_type)) {
+        Type* source_type = expression->cast_expr->type;
+        bool explicit_pointer_cast =
+            expression->cxx_cast_kind == CXX_CAST_STATIC ||
+            expression->cxx_cast_kind == CXX_CAST_CONST;
+        bool array_to_pointer_decay =
+            expression->cxx_cast_kind == CXX_CAST_NONE && source_type &&
+            source_type->kind == TYPE_ARRAY && source_type->base &&
+            expression->cast_type->base &&
+            type_is_compatible(source_type->base,
+                               expression->cast_type->base);
+        if (explicit_pointer_cast || array_to_pointer_decay) {
+            return cxx_structural_pointer_member_location(
+                expression->cast_expr, pointer_type, location);
+        }
     }
     if (expression->kind == EXPR_IDENT &&
         cxx_structural_pointer_member_array_location(
             expression, pointer_type, location)) {
         return true;
     }
-    if (expression->kind == EXPR_INDEX && expression->type &&
-        expression->type->kind == TYPE_ARRAY &&
+    if (expression->kind == EXPR_INDEX &&
         cxx_structural_pointer_member_indexed_location(
             expression, pointer_type, true, location)) {
         return true;

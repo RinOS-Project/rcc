@@ -117,6 +117,7 @@ mkdir -p "$nested_array_dir"
 for assembly in "$nested_array_dir/rcc-x86.s" \
 	"$nested_array_dir/rcc-x64.s"; do
 	for symbol in \
+		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE12EEEE7addressEv' \
 		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE4EEEE3getEv' \
 		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE20EEEE3getEv' \
 		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE12pEEEE7addressEv' \
@@ -134,6 +135,11 @@ for target in i686-unknown-rinos x86_64-unknown-rinos; do
 	expect_rcc_failure "$nested_array_invalid" "$target" \
 		"class template non-type argument must be an integer constant expression" \
 		"nested-array-out-of-bounds-$target"
+	expect_rcc_failure \
+		tests/cxx_structural_pointer_nested_array_decay_bounds_invalid.cpp \
+		"$target" \
+		"class template non-type argument must be an integer constant expression" \
+		"nested-array-decay-out-of-bounds-$target"
 done
 printf 'nested structural pointer array regression passed\n'
 
