@@ -5163,13 +5163,15 @@ remains a separate open item.
 ## RCC continuation (2026-10-16, structural class NTTP reference members)
 
 - [x] Preserve reference members bound to namespace-scope constant objects and
-      named aggregate subobjects inside nested structural class NTTP values.
-      Restore the referent as an lvalue when cloning template member access,
-      while keeping reference identity distinct from pointer values.
+      named aggregate subobjects and array elements inside nested structural
+      class NTTP values. Restore the referent as an lvalue when cloning
+      template member access, while keeping reference identity distinct from
+      pointer values.
 - [x] Add direct-object and aggregate-subobject references to
       `tests/cxx_structural_reference_members_nttp.cpp`; compare complete
       GCC/RCC Itanium symbols on i686/AMD64, assemble both targets, and execute
-      RCC/GCC AMD64 programs.
+      RCC/GCC AMD64 programs. Array-element reference paths pass the same
+      differential and runtime checks.
 - [x] Add the regression to `scripts/ci_nested_class_templates.sh`; the full
       WSL POSIX gate passes.
 - [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate after the
