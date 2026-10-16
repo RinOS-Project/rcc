@@ -3204,7 +3204,20 @@ test-cxx-variable-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-variable-templates/invalid-x64.log
 	@echo "RCC++ variable-template specialization tests completed"
 
-test-cxx-function-template-overloads-posix: $(RCXX_TARGET)
+test-cxx-array-function-bool-reference-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-array-function-bool-reference)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-array-function-bool-reference/x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-array-function-bool-reference/x86.ro tests/cxx_array_function_to_mutable_bool_reference_invalid.cpp,$(TEST_OUT)/cxx-array-function-bool-reference/x86.log)
+	$(call CHECK_COUNT,incompatible type for argument 1 to 'mutable_bool_reference_sink',$(TEST_OUT)/cxx-array-function-bool-reference/x86.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-array-function-bool-reference/x86.ro)
+	$(call REMOVE_FILE,$(TEST_OUT)/cxx-array-function-bool-reference/x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-array-function-bool-reference/x64.ro tests/cxx_array_function_to_mutable_bool_reference_invalid.cpp,$(TEST_OUT)/cxx-array-function-bool-reference/x64.log)
+	$(call CHECK_COUNT,incompatible type for argument 1 to 'mutable_bool_reference_sink',$(TEST_OUT)/cxx-array-function-bool-reference/x64.log,3)
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-array-function-bool-reference/x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_array_function_to_mutable_bool_reference_invalid.cpp,$(TEST_OUT)/cxx-array-function-bool-reference/gcc.log)
+	$(call CHECK_COUNT,cannot bind non-const lvalue reference of type 'bool&',$(TEST_OUT)/cxx-array-function-bool-reference/gcc.log,2)
+
+test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
@@ -4483,7 +4496,7 @@ test-cxx-variable-templates: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -c -o $(TEST_OUT)/cxx-variable-templates/invalid-x64.ro tests/cxx_variable_templates_invalid.cpp,$(TEST_OUT)/cxx-variable-templates/invalid-x64.log)
 	$(GREP) -F -q "variable templates require C++14 or newer" $(TEST_OUT)/cxx-variable-templates/invalid-x64.log
 
-test-cxx-function-template-overloads: $(RCXX_TARGET)
+test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-type-pattern)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-function-template-type-pattern,cxx_function_template_type_pattern_partial_order.cpp)
