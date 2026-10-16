@@ -1860,6 +1860,16 @@ static Decl* resolve_inline_function_definition(Decl* function) {
             !candidate->name ||
             strcmp(candidate->name, function->name) != 0 ||
             candidate->func_has_cxx_linkage != function->func_has_cxx_linkage ||
+            candidate->func_cxx_namespace_scope !=
+                function->func_cxx_namespace_scope ||
+            ((candidate->func_cxx_namespace == NULL) !=
+             (function->func_cxx_namespace == NULL)) ||
+            (candidate->func_cxx_namespace &&
+             strcmp(candidate->func_cxx_namespace,
+                    function->func_cxx_namespace) != 0) ||
+            candidate->func_is_cxx_method != function->func_is_cxx_method ||
+            (candidate->func_is_cxx_method &&
+             candidate->func_method_owner != function->func_method_owner) ||
             !type_is_compatible(candidate->type, function->type)) {
             continue;
         }
@@ -1872,6 +1882,37 @@ static Decl* resolve_inline_function_definition(Decl* function) {
             continue;
         }
         return candidate;
+    }
+    return function;
+}
+
+static Decl* resolve_inline_constexpr_function_pointer(Decl* variable) {
+    Expr* initializer;
+    Expr* target;
+    Decl* function;
+    if (!variable || variable->kind != DECL_VAR ||
+        !variable->var_is_global || !variable->var_is_constexpr ||
+        variable->var_is_thread_local || variable->var_dynamic_initializer ||
+        !variable->type || variable->type->kind != TYPE_PTR ||
+        !variable->type->base || variable->type->base->kind != TYPE_FUNC ||
+        !variable->var_init) {
+        return NULL;
+    }
+    initializer = variable->var_init;
+    while (initializer->kind == EXPR_CAST &&
+           initializer->unary_operand &&
+           type_is_compatible(initializer->type, variable->type)) {
+        initializer = initializer->unary_operand;
+    }
+    target = initializer->kind == EXPR_ADDR
+        ? initializer->unary_operand : initializer;
+    if (!target || target->kind != EXPR_IDENT || !target->ident_decl ||
+        target->ident_decl->kind != DECL_FUNC) {
+        return NULL;
+    }
+    function = target->ident_decl;
+    if (!type_is_compatible(variable->type->base, function->type)) {
+        return NULL;
     }
     return function;
 }
@@ -1902,6 +1943,10 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         return false;
     }
     function = expression->call_func->ident_decl;
+    if (function->kind != DECL_FUNC) {
+        function = resolve_inline_constexpr_function_pointer(function);
+        if (!function) return false;
+    }
     function = resolve_inline_function_definition(function);
     if (function->kind != DECL_FUNC || !function->func_body ||
         function->func_this_param != NULL || !type_is_scalar(expression->type)) {

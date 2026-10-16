@@ -1932,8 +1932,11 @@
   - [x] verified backendでqualified static member callのinline callee source
         columnを呼び出し式先頭と照合し、DWARF call-siteのline/columnをi686/AMD64
         `test-debug-info`で検証
-  - [ ] bounded scalar inlinerの対象をdirect identifier call以外へ広げる場合は、
-        indexed/indirect callableのcallee解決とsource locationを別々に検証する
+  - [x] namespace-scope `constexpr` function-pointer変数が互換な関数を直接指す
+        場合に限りcalleeを解決し、既存のpure-scalar・副作用・予算条件を通るcallを
+        inline化。i686/AMD64 DWARFのcall-site line/columnとhost relocationを検証
+  - [ ] constant-index callable arrays、および一般のaliased/indirect callの
+        optimization coverageは未実装。calleeを安全に確定できる場合だけ対象化する
   - [x] 最適化でstorageが除去されたimmutable unsigned scalar localの値を
         `DW_AT_const_value`の`DW_FORM_udata`で保持し、符号付き負値からunsigned型への
         modulo変換と`UINT64_MAX`をi686/AMD64で検証。signed localには`sdata`を使い、

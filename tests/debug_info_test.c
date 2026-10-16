@@ -3359,6 +3359,9 @@ static void verify_verified_cpp_inline_debug(
     verify_verified_cpp_inline_call_site(
         path, architecture, "verified_cpp_debug_inline_member_host",
         "VerifiedCppDebugInlineMember::call", 56u, 12u);
+    verify_verified_cpp_inline_call_site(
+        path, architecture, "verified_cpp_debug_inline_pointer_host",
+        "verified_cpp_debug_inline_pointer_target", 69u, 12u);
 }
 
 static void verify_inline_debug_object(const char* path,
