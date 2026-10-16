@@ -296,6 +296,15 @@ int take_member_pointer_conversion_bool(bool value) {
     return value ? 149 : 151;
 }
 
+int consume_void_pointer_reference(const void* const& value) {
+    return value ? 157 : 163;
+}
+
+int consume_base_pointer_reference(
+    const ConversionBasePointerTarget* const& value) {
+    return value ? value->value + 100 : 167;
+}
+
 template<typename T>
 int choose_template_pointer_conversion(T, ConversionBasePointerTarget*) {
     return 79;
@@ -402,7 +411,10 @@ int main() {
         take_pointer_conversion_bool(function_designator_bool_source) != 109 ||
         take_pointer_conversion_bool_reference(
             function_designator_bool_source) != 127 ||
-        take_member_pointer_conversion_bool(member_pointer_bool_source) != 149) {
+        take_member_pointer_conversion_bool(member_pointer_bool_source) != 149 ||
+        consume_void_pointer_reference(pointer_bool_source) != 157 ||
+        consume_void_pointer_reference(null_pointer_bool_source) != 163 ||
+        consume_base_pointer_reference(pointer_source) != 167) {
         return 1;
     }
     return 0;

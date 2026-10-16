@@ -5464,3 +5464,17 @@ remains a separate open item.
       `test-cxx` aggregate also passes (exit 0).
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-17, converted pointer references)
+
+- [x] Apply the standard pointer conversion after an implicit conversion
+      function returns an object pointer, then bind the resulting target-typed
+      temporary to a const pointer reference. Cover `int*` to `const void*`
+      for null and non-null values and derived-to-base pointer adjustment.
+- [x] Reject binding that conversion result temporary to mutable `int*&` with
+      a dedicated negative fixture. GCC C++20 and the focused native-Windows
+      conversion-operator gate pass; i686/AMD64 compile and runtime checks and
+      the invalid-reference diagnostic/no-output checks pass. Full native-
+      Windows `test-cxx` passes (exit 0).
+- [ ] Other multi-step standard conversions, remaining cv/reference binding
+      shapes, and general C++20 conversion-sequence ordering remain open.

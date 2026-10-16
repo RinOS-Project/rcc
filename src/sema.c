@@ -3223,7 +3223,9 @@ reference_binding_source:
             (referred->kind == TYPE_STRUCT ||
              referred->kind == TYPE_UNION ||
              referred->kind == TYPE_FUNC ||
-             referred->kind == TYPE_BOOL) &&
+             referred->kind == TYPE_BOOL ||
+             (referred->kind == TYPE_PTR &&
+              !referred->cxx_is_member_pointer)) &&
             (source_object->kind == TYPE_STRUCT ||
              source_object->kind == TYPE_UNION)) {
             bool ambiguous = false;
@@ -3239,8 +3241,20 @@ reference_binding_source:
                                      e->loc);
                 call = expr_call(member, NULL, e->loc);
                 call->call_method = conversion;
-                *e = *call;
-                sema_expr(e);
+                if (referred->kind == TYPE_PTR &&
+                    !referred->cxx_is_member_pointer) {
+                    Expr* conversion_result =
+                        ast_arena_alloc(sizeof(*conversion_result));
+                    Expr* converted;
+                    *conversion_result = *call;
+                    converted = expr_cast(referred, conversion_result,
+                                          e->loc);
+                    sema_expr(converted);
+                    *e = *converted;
+                } else {
+                    *e = *call;
+                    sema_expr(e);
+                }
                 conversion_attempted = true;
                 goto reference_binding_source;
             }
