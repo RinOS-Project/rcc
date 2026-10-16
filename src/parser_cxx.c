@@ -8242,7 +8242,16 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         name = rcc_intern("operator conversion");
     } else {
         type = parse_cxx_type_spec();
-        if (check(TOK_IDENT)) {
+        if (check(TOK_LPAREN) && parser.cur->next &&
+            (parser.cur->next->type == TOK_STAR ||
+             parser.cur->next->type == TOK_AMP ||
+             parser.cur->next->type == TOK_AND)) {
+            /* Class fields with parenthesized pointer/reference declarators
+             * (notably `T (*rows)[N]`) use the shared declarator grammar so
+             * their suffix arrays bind to the pointee before the pointer
+             * layer. Ordinary `name(...)` members remain on the method path. */
+            type = rcc_parser_parse_cxx_declarator(type, &name, NULL);
+        } else if (check(TOK_IDENT)) {
             name = advance()->value.str_val;
         } else if (match(TOK_OPERATOR)) {
             name = parse_operator_name();

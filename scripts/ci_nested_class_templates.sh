@@ -128,6 +128,17 @@ for assembly in "$nested_array_dir/rcc-x86.s" \
 			exit 1
 		fi
 	done
+	for symbol in \
+		'_ZN33StructuralNestedArrayPointerOwnerIXtl31StructuralNestedArrayPointerKeyadsoA3_iL_Z32structural_pointer_nested_valuesE12EEEE5firstEv' \
+		'_ZN33StructuralNestedArrayPointerOwnerIXtl31StructuralNestedArrayPointerKeyadsoA3_iL_Z32structural_pointer_nested_valuesE12EEEE7matchesEPA3_i' \
+		'_ZN33StructuralNestedArrayPointerOwnerIXtl31StructuralNestedArrayPointerKeyadsoA3_iL_Z32structural_pointer_nested_valuesE24pEEEE5firstEv' \
+		'_ZN33StructuralNestedArrayPointerOwnerIXtl31StructuralNestedArrayPointerKeyadsoA3_iL_Z32structural_pointer_nested_valuesE24pEEEE7matchesEPA3_i'; do
+		if [[ $(grep -F -c "$symbol" "$assembly") -ne 2 ]]; then
+			printf 'pointer-to-array NTTP mangling mismatch in %s: %s\n' \
+				"$assembly" "$symbol" >&2
+			exit 1
+		fi
+	done
 done
 
 nested_array_invalid=tests/cxx_structural_pointer_nested_array_bounds_invalid.cpp
@@ -140,6 +151,11 @@ for target in i686-unknown-rinos x86_64-unknown-rinos; do
 		"$target" \
 		"class template non-type argument must be an integer constant expression" \
 		"nested-array-decay-out-of-bounds-$target"
+	expect_rcc_failure \
+		tests/cxx_structural_pointer_nested_array_pointer_bounds_invalid.cpp \
+		"$target" \
+		"class template non-type argument must be an integer constant expression" \
+		"pointer-to-array-out-of-bounds-$target"
 done
 printf 'nested structural pointer array regression passed\n'
 

@@ -7,6 +7,10 @@ struct StructuralNestedIntPointerKey {
     int* pointer;
 };
 
+struct StructuralNestedArrayPointerKey {
+    int (*pointer)[3];
+};
+
 template <StructuralNestedIntPointerKey Value>
 struct StructuralNestedIntPointerOwner {
     static int get() {
@@ -15,6 +19,17 @@ struct StructuralNestedIntPointerOwner {
 
     static int* address() {
         return Value.pointer;
+    }
+};
+
+template <StructuralNestedArrayPointerKey Value>
+struct StructuralNestedArrayPointerOwner {
+    static int first() {
+        return (*Value.pointer)[0];
+    }
+
+    static int matches(int (*expected)[3]) {
+        return Value.pointer == expected;
     }
 };
 
@@ -44,6 +59,19 @@ int main() {
         StructuralNestedIntPointerKey{
             structural_pointer_nested_values[1] + 3}>::address() ==
         &structural_pointer_nested_values[1][3];
+    int row_array_first = StructuralNestedArrayPointerOwner<
+        StructuralNestedArrayPointerKey{
+            &structural_pointer_nested_values[1]}>::first();
+    int row_array_address = StructuralNestedArrayPointerOwner<
+        StructuralNestedArrayPointerKey{
+            &structural_pointer_nested_values[0] + 1}>::matches(
+                &structural_pointer_nested_values[1]);
+    int matrix_one_past = StructuralNestedArrayPointerOwner<
+        StructuralNestedArrayPointerKey{
+            &structural_pointer_nested_values[1] + 1}>::matches(
+                &structural_pointer_nested_values[2]);
     return row_first == 41 && row_start && first == 23 && last == 67 &&
-        row_one_past && final_one_past && final_decay_one_past ? 0 : 1;
+        row_one_past && final_one_past && final_decay_one_past &&
+        row_array_first == 41 && row_array_address && matrix_one_past
+        ? 0 : 1;
 }

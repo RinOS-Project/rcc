@@ -5094,8 +5094,15 @@ remains a separate open item.
   pointer arithmetic beyond the selected row in Windows and WSL CI.
 - [x] Re-run native-Windows `mingw32-make SHELL=cmd.exe test-cxx` after the
   array-decay parser change; the full aggregate passes.
-- [ ] Support pointer-to-array declarators, aggregate member subobjects, and
-  additional pointer constant-expression forms.
+- [x] Parse pointer-to-array declarators on C++ class fields and preserve
+  structural NTTP pointers to nested static/global row arrays, including the
+  one-past position of the containing matrix. Verify A3_i Itanium encodings,
+  i686/AMD64 generation, AMD64 execution, and out-of-matrix rejection in the
+  Windows fixture and WSL POSIX gate.
+- [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate after the
+  pointer-to-array class-field parser change; it passes (exit 0).
+- [ ] Support aggregate member subobjects and additional structural pointer
+  constant-expression forms.
 - [ ] Add a compiler-to-compiler differential oracle for offset encodings when
   an independent implementation accepts these standard-valid arguments;
   GCC 13 currently rejects array-element pointer NTTPs and Itanium ABI issue
