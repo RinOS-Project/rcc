@@ -1879,6 +1879,24 @@ static Expr* parse_primary(void) {
     return expr_int(0, loc);
 }
 
+static SourceLoc parse_postfix_call_location(const Expr* callee,
+                                            SourceLoc fallback) {
+    while (callee) {
+        switch (callee->kind) {
+            case EXPR_MEMBER:
+            case EXPR_PTR_MEMBER:
+                callee = callee->member_base;
+                continue;
+            case EXPR_INDEX:
+                callee = callee->index_base;
+                continue;
+            default:
+                return callee->loc;
+        }
+    }
+    return fallback;
+}
+
 /* Postfix: a[i], a.m, a->m, a++, a--, f(args) */
 static Expr* parse_postfix_tail(Expr* e) {
     while (1) {
@@ -1916,6 +1934,7 @@ static Expr* parse_postfix_tail(Expr* e) {
             e = expr_unary(EXPR_POSTDEC, e, loc);
         } else if (match(TOK_LPAREN)) {
             /* Function call */
+            SourceLoc call_loc = parse_postfix_call_location(e, loc);
             ExprList* args = NULL;
             if (!check(TOK_RPAREN)) {
                 do {
@@ -1937,7 +1956,7 @@ static Expr* parse_postfix_tail(Expr* e) {
                 } while (match(TOK_COMMA));
             }
             expect(TOK_RPAREN, ")");
-            e = expr_call(e, args, loc);
+            e = expr_call(e, args, call_loc);
         } else {
             break;
         }

@@ -3195,7 +3195,9 @@ static void verify_verified_cpp_inline_debug(
     uint64_t leaf_start = 0u;
     uint64_t leaf_end = 0u;
     uint32_t middle_call_line = 0u;
+    uint32_t middle_call_column = 0u;
     uint32_t leaf_call_line = 0u;
+    uint32_t leaf_call_column = 0u;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -3258,6 +3260,7 @@ static void verify_verified_cpp_inline_debug(
                 middle_start = range_start;
                 middle_end = range_end;
                 middle_call_line = call_line;
+                middle_call_column = call_column;
             } else {
                 leaf_die = die;
                 leaf_children_end =
@@ -3265,6 +3268,7 @@ static void verify_verified_cpp_inline_debug(
                 leaf_start = range_start;
                 leaf_end = range_end;
                 leaf_call_line = call_line;
+                leaf_call_column = call_column;
             }
             has_relocation = true;
             break;
@@ -3273,7 +3277,8 @@ static void verify_verified_cpp_inline_debug(
     }
     assert(middle_end > middle_start && leaf_end > leaf_start);
     assert(middle_start <= leaf_start && leaf_end <= middle_end);
-    assert(middle_call_line == 43u && leaf_call_line == 38u);
+    assert(middle_call_line == 43u && middle_call_column == 12u &&
+           leaf_call_line == 38u && leaf_call_column == 12u);
     assert(middle_die < leaf_die);
     assert(leaf_children_end + 1u < info->size &&
            info->data[leaf_children_end] == 0u &&

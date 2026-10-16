@@ -1923,10 +1923,12 @@
   - [x] verified backendで最適化inlineのorigin／呼出し位置をIRからMIR・x86
         legalization・encoded PC rangeまで伝播し、relocation付きDWARF inline DIEを
         出力。C++ inline host/leafのabstract origin、call-site file/line/column、
-        function内PC rangeをi686/AMD64 `-g -O2 -fverified-backend`で検証
+        function内PC rangeをi686/AMD64 `-g -O2 -fverified-backend`で検証。nested
+        `host -> middle -> leaf` call-siteのline/columnもfixture上の正確な位置と照合
   - [x] verified C++ inlineを`host -> middle -> leaf`の2段へ拡張し、host内の
-        `DW_TAG_inlined_subroutine`親子構造、両call-siteのsource line、relocation先、
-        child PC rangeのparent containmentをi686/AMD64 `test-debug-info`で検証
+        `DW_TAG_inlined_subroutine`親子構造、両call-siteのsource line/column、
+        relocation先、child PC rangeのparent containmentをi686/AMD64
+        `test-debug-info`で検証
   - [x] 最適化でstorageが除去されたimmutable unsigned scalar localの値を
         `DW_AT_const_value`の`DW_FORM_udata`で保持し、符号付き負値からunsigned型への
         modulo変換と`UINT64_MAX`をi686/AMD64で検証。signed localには`sdata`を使い、
