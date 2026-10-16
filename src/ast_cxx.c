@@ -635,11 +635,14 @@ static void cxx_mangle_type_char(char* buf, size_t* pos, char value) {
 }
 
 static unsigned cxx_structural_type_value_bits(const Type* type);
+static unsigned cxx_structural_field_value_bits(const TypeParam* field);
+static Type* cxx_structural_field_mangled_type(
+    const TypeParam* field);
 static bool cxx_structural_class_measure_fields(
     const Type* type, unsigned* total_bits, unsigned* leaf_count,
     unsigned* pointer_count);
 static bool cxx_structural_class_decode_leaf(
-    const Type* field_type, uint64_t packed_value, unsigned bit_offset,
+    const TypeParam* field, uint64_t packed_value, unsigned bit_offset,
     int64_t* member_value);
 
 static bool cxx_mangle_structural_member_function_designator(
@@ -1042,11 +1045,11 @@ static bool cxx_mangle_structural_value_body(
             field_value = recorded_values[(*recorded_index)++];
         } else {
             if (!cxx_structural_class_decode_leaf(
-                    field->type, packed_value, *bit_offset, &field_value)) {
+                    field, packed_value, *bit_offset, &field_value)) {
                 return false;
             }
         }
-        field_bits = cxx_structural_type_value_bits(field->type);
+        field_bits = cxx_structural_field_value_bits(field);
         if (field->type->kind == TYPE_PTR) {
             if (field->type->cxx_is_member_pointer) {
                 if (field_value != -1 &&
@@ -1068,9 +1071,10 @@ static bool cxx_mangle_structural_value_body(
             continue;
         }
         cxx_mangle_type_char(buf, pos, 'L');
-        cxx_mangle_type_append_context(buf, pos, field->type, context);
+        cxx_mangle_type_append_context(
+            buf, pos, cxx_structural_field_mangled_type(field), context);
         cxx_mangle_template_value_suffix(
-            buf, pos, field->type, field_value);
+            buf, pos, cxx_structural_field_mangled_type(field), field_value);
         if (!recorded_values) *bit_offset += field_bits;
     }
     cxx_mangle_type_char(buf, pos, 'E');
@@ -1352,7 +1356,7 @@ static void cxx_mangle_record_structural_member_pointer_owner_types_in_value(
             }
             field_value = recorded_values[(*recorded_index)++];
         } else if (!cxx_structural_class_decode_leaf(
-                       field->type, packed_value, *bit_offset,
+                       field, packed_value, *bit_offset,
                        &field_value)) {
             return;
         }
@@ -1365,7 +1369,7 @@ static void cxx_mangle_record_structural_member_pointer_owner_types_in_value(
                 cxx_mangle_record_class_type(context, owner->type);
             }
         }
-        field_bits = cxx_structural_type_value_bits(field->type);
+        field_bits = cxx_structural_field_value_bits(field);
         if (!recorded_values) *bit_offset += field_bits;
     }
 }
@@ -3034,18 +3038,26 @@ static bool cxx_structural_class_measure_fields(
     for (field = cls->fields; field; field = field->next) {
         unsigned field_bits;
         if (field->is_static) continue;
-        if (field->is_bitfield || field->cxx_access != ACCESS_PUBLIC ||
-            !field->name || !field->type) {
+        if (field->cxx_access != ACCESS_PUBLIC || !field->name ||
+            !field->type) {
             return false;
         }
-        if (field->type->kind == TYPE_STRUCT) {
+        if (field->is_bitfield) {
+            if ((!type_is_integer(field->type) &&
+                 field->type->kind != TYPE_ENUM) ||
+                field->type->size <= 0 || field->type->size > 8 ||
+                field->bit_width == 0u ||
+                field->bit_width > (unsigned)field->type->size * 8u) {
+                return false;
+            }
+            field_bits = field->bit_width;
+        } else if (field->type->kind == TYPE_STRUCT) {
             if (!cxx_structural_class_measure_fields(
                     field->type, total_bits, leaf_count, pointer_count)) {
                 return false;
             }
             continue;
-        }
-        if (field->type->kind == TYPE_PTR) {
+        } else if (field->type->kind == TYPE_PTR) {
             if ((field->type->cxx_is_member_pointer &&
                  !field->type->base) ||
                 *total_bits > UINT_MAX - 64u) {
@@ -3106,6 +3118,50 @@ static unsigned cxx_structural_type_value_bits(const Type* type) {
     return (unsigned)type->size * 8u;
 }
 
+static unsigned cxx_structural_field_value_bits(const TypeParam* field) {
+    if (!field || !field->type) return 0u;
+    if (field->is_bitfield) {
+        if ((!type_is_integer(field->type) &&
+             field->type->kind != TYPE_ENUM) ||
+            field->type->size <= 0 || field->type->size > 8 ||
+            field->bit_width == 0u ||
+            field->bit_width > (unsigned)field->type->size * 8u) {
+            return 0u;
+        }
+        return field->bit_width;
+    }
+    return cxx_structural_type_value_bits(field->type);
+}
+
+static Type* cxx_structural_field_mangled_type(
+    const TypeParam* field) {
+    Type* field_type;
+    unsigned bit_width;
+    if (!field || !field->type) return NULL;
+    field_type = field->type;
+    if (!field->is_bitfield || field_type->kind == TYPE_BOOL ||
+        (!type_is_integer(field_type) && field_type->kind != TYPE_ENUM)) {
+        return field_type;
+    }
+    bit_width = field->bit_width;
+    if (bit_width <= (unsigned)type_uchar->size * 8u) {
+        return field_type->is_unsigned ? type_uchar : type_schar;
+    }
+    if (bit_width <= (unsigned)type_ushort->size * 8u) {
+        return field_type->is_unsigned ? type_ushort : type_short;
+    }
+    if (bit_width <= (unsigned)type_uint->size * 8u) {
+        return field_type->is_unsigned ? type_uint : type_int;
+    }
+    if (bit_width <= (unsigned)type_ulong->size * 8u) {
+        return field_type->is_unsigned ? type_ulong : type_long;
+    }
+    if (bit_width <= (unsigned)type_ullong->size * 8u) {
+        return field_type->is_unsigned ? type_ullong : type_llong;
+    }
+    return field_type;
+}
+
 static bool cxx_structural_class_pack_fields(
     const Type* type, const int64_t* member_values, int member_count,
     int* value_index, uint64_t* packed_value, unsigned* bit_offset) {
@@ -3115,7 +3171,7 @@ static bool cxx_structural_class_pack_fields(
         uint64_t mask;
         uint64_t field_value;
         if (field->is_static) continue;
-        if (field->type->kind == TYPE_STRUCT) {
+        if (!field->is_bitfield && field->type->kind == TYPE_STRUCT) {
             if (!cxx_structural_class_pack_fields(
                     field->type, member_values, member_count, value_index,
                     packed_value, bit_offset)) {
@@ -3125,7 +3181,7 @@ static bool cxx_structural_class_pack_fields(
         }
         if (!member_values || *value_index >= member_count) return false;
         field_value = (uint64_t)member_values[(*value_index)++];
-        field_bits = cxx_structural_type_value_bits(field->type);
+        field_bits = cxx_structural_field_value_bits(field);
         if (field->type->kind == TYPE_PTR) {
             if (*bit_offset != 0u) return false;
             *packed_value = field_value;
@@ -3176,13 +3232,14 @@ bool cxx_structural_class_pack_member_values(
 }
 
 static bool cxx_structural_class_decode_leaf(
-    const Type* field_type, uint64_t packed_value, unsigned bit_offset,
+    const TypeParam* field, uint64_t packed_value, unsigned bit_offset,
     int64_t* member_value) {
+    const Type* field_type = field ? field->type : NULL;
     unsigned field_bits;
     uint64_t mask;
     uint64_t raw_value;
     if (!field_type || !member_value) return false;
-    field_bits = cxx_structural_type_value_bits(field_type);
+    field_bits = cxx_structural_field_value_bits(field);
     if (field_type->kind == TYPE_PTR) {
         raw_value = packed_value;
     } else {
@@ -3226,7 +3283,7 @@ static bool cxx_structural_class_find_member_path(
                 }
                 *member_value = recorded_values[*value_index];
             } else if (!cxx_structural_class_decode_leaf(
-                           field->type, packed_value, bit_offset,
+                           field, packed_value, bit_offset,
                            member_value)) {
                 return false;
             }
@@ -3251,7 +3308,7 @@ static bool cxx_structural_class_find_member_path(
             }
             continue;
         }
-        field_bits = cxx_structural_type_value_bits(field->type);
+        field_bits = cxx_structural_field_value_bits(field);
         if (field_bits > 64u - bit_offset) return false;
         bit_offset += field_bits;
     }

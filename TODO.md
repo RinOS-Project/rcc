@@ -5225,3 +5225,14 @@ remains a separate open item.
       parser change; it passes (exit 0).
 - [ ] Other structural NTTP pack member shapes and multi-pack expression
       expansions remain open.
+
+## RCC continuation (2026-10-16, structural NTTP bit-fields)
+
+- [x] Pack and unpack named signed, unsigned, and enum bit-field values inside
+      structural class NTTPs; preserve sign extension and match GCC's
+      bit-width-specific Itanium value types.
+- [x] Compare complete GCC/RCC symbol sets, assemble i686 and AMD64 output,
+      and execute both AMD64 programs through
+      `scripts/ci_nested_class_templates.sh`; the full WSL POSIX gate passes.
+- [ ] Bit-fields with base types wider than the parser's current four-byte
+      storage profile and unnamed zero-width fields remain open.
