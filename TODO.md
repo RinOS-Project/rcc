@@ -5423,9 +5423,13 @@ remains a separate open item.
       `bool&&` from both arrays and function designators. GCC C++20
       `-Werror` and the focused native-Windows overload gate pass, including
       i686/AMD64 generation and execution.
-- [x] Reject both array and function-designator decay when it would have to
-      bind a temporary `bool` to mutable `bool&`; a dedicated invalid fixture
-      checks RCC diagnostics on i686/AMD64 and GCC diagnostics in the overload
-      gate.
+- [x] Reject array/function decay and object/function pointers when the
+      resulting temporary `bool` would bind to mutable `bool&`; a dedicated
+      invalid fixture checks RCC diagnostics on i686/AMD64 and GCC diagnostics
+      in the overload gate.
+- [x] Bind object-pointer and function-pointer-to-`bool` conversion results
+      to `const bool&` and `bool&&`, with runtime coverage and mutable-reference
+      negative checks. The focused overload gate and full native-Windows
+      `test-cxx` aggregate pass (exit 0).
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.

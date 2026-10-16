@@ -3157,7 +3157,8 @@ reference_binding_source:
         if (!source_object) return NULL;
         if (rcc_parser_is_cxx_mode() && referred->kind == TYPE_BOOL &&
             (source_object->kind == TYPE_ARRAY ||
-             source_object->kind == TYPE_FUNC) &&
+             source_object->kind == TYPE_FUNC ||
+             type_is_pointer(source_object)) &&
             (target->is_rvalue_reference || referred->is_const)) {
             Expr* source_expression = ast_arena_alloc(sizeof(*source_expression));
             Expr* converted;
@@ -8258,11 +8259,11 @@ static int cxx_conversion_rank_detail_at_context(
         }
         if (!target_base || !source) return -1;
         if (target_base->kind == TYPE_BOOL &&
-            (source->kind == TYPE_ARRAY || source->kind == TYPE_FUNC) &&
+            (source->kind == TYPE_ARRAY || source->kind == TYPE_FUNC ||
+             type_is_pointer(source)) &&
             (target->is_rvalue_reference || target_base->is_const)) {
-            /* Decay followed by pointer-to-bool produces a temporary bool;
-             * binding that temporary is viable for const lvalue and rvalue
-             * references. */
+            /* Array/function decay or pointer-to-bool produces a temporary
+             * bool; binding it is viable for const lvalue and rvalue refs. */
             return 2;
         }
         direct_binding_viable =
