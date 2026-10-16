@@ -1940,11 +1940,11 @@
         function-pointer arrayの定数添字を安全に解決し、既存のpure-scalar・副作用・
         予算条件を通るcallだけinline化。verified DWARF call-site (`89:12`) とhost
         relocationをi686/AMD64、結果実行をAMD64で検証
-  - [x] 関数本体内で初期化された `constexpr` function pointerと `const` function
-        pointerについて、直接の関数初期化子と互換型を確認できるscalar callをinline化。
-        i686/AMD64の最適化objectを生成し、AMD64でlocal function relocationを適用して
-        両pointer経由の実行結果を検証
-  - [ ] mutable local pointer、mutable alias、可変添字など一般のaliased/indirect
+  - [x] 関数本体内で初期化された `constexpr` / `const` function pointerと、const要素を
+        持つlocal function-pointer arrayについて、直接の関数初期化子と互換型を確認
+        できるscalar callをinline化。i686/AMD64の最適化objectを生成し、AMD64でlocal
+        function relocationを適用してpointerと定数添字配列の結果を検証
+  - [ ] mutable local pointer/array、mutable alias、可変添字など一般のaliased/indirect
         callは未実装。calleeを静的に安全確定できない呼び出しは引き続き対象外
   - [x] 最適化でstorageが除去されたimmutable unsigned scalar localの値を
         `DW_AT_const_value`の`DW_FORM_udata`で保持し、符号付き負値からunsigned型への

@@ -1919,7 +1919,10 @@ static bool inline_readonly_initialized_variable(Decl* variable) {
            !variable->var_dynamic_initializer &&
            (variable->var_is_constexpr ||
             (variable->type && variable->type->is_const &&
-             !variable->type->is_volatile));
+             !variable->type->is_volatile) ||
+            (variable->type && variable->type->kind == TYPE_ARRAY &&
+             variable->type->base && variable->type->base->is_const &&
+             !variable->type->base->is_volatile));
 }
 
 static Decl* resolve_inline_readonly_function_pointer(Decl* variable) {

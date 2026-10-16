@@ -77,3 +77,12 @@ extern "C" int inline_local_const_function_pointer_call(int value)
     int (*const callback)(int) = &inline_constexpr_array_second;
     return callback(value);
 }
+
+extern "C" int inline_local_const_function_pointer_array_call(int value)
+{
+    int (*const callbacks[])(int) = {
+        &inline_constexpr_array_first,
+        &inline_constexpr_array_second
+    };
+    return callbacks[1](value);
+}
