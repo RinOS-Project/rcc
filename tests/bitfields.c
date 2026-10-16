@@ -13,6 +13,15 @@ union bitfield_union {
     unsigned char byte : 4;
 };
 
+struct bitfield_wide_storage {
+    unsigned long long low : 3;
+    unsigned long long wide : 40;
+    unsigned long long upper : 20;
+    unsigned long long full : 64;
+    long long signed_wide : 40;
+    long long signed_high : 20;
+};
+
 static struct bitfield_value initialized_value = {
     .low = 3,
     .signed_value = -2,
@@ -20,6 +29,11 @@ static struct bitfield_value initialized_value = {
     .tail = 0x1234,
     .byte_low = 0xf,
     .byte_high = 0xa
+};
+
+static struct bitfield_wide_storage initialized_wide = {
+    3, 0x23456789abULL, 0xabcdeULL, 0x0123456789abcdefULL,
+    -0x23456789aLL, -0x54321LL
 };
 
 int bitfield_static(void) {
@@ -33,11 +47,24 @@ int bitfield_static(void) {
     if (initialized_value.byte_low != 0xf || initialized_value.byte_high != 0xa) {
         return 4;
     }
+    if (sizeof(struct bitfield_wide_storage) != 24 ||
+        initialized_wide.low != 3 ||
+        initialized_wide.wide != 0x23456789abULL ||
+        initialized_wide.upper != 0xabcdeULL ||
+        initialized_wide.full != 0x0123456789abcdefULL ||
+        initialized_wide.signed_wide != -0x23456789aLL ||
+        initialized_wide.signed_high != -0x54321LL) {
+        return 5;
+    }
     return 0;
 }
 
 int bitfield_runtime(void) {
     struct bitfield_value value = {0};
+    struct bitfield_wide_storage wide = {
+        2, 0x3456789abcULL, 0x54321ULL, 0x1020304050607080ULL,
+        -0x3456789abLL, -0x12345LL
+    };
     union bitfield_union alternate;
 
     value.low = 5;
@@ -71,6 +98,32 @@ int bitfield_runtime(void) {
     if (alternate.value != 0xa) return 15;
     alternate.byte = 5;
     if (alternate.byte != 5) return 16;
+    if (wide.low != 2 || wide.wide != 0x3456789abcULL ||
+        wide.upper != 0x54321ULL ||
+        wide.full != 0x1020304050607080ULL ||
+        wide.signed_wide != -0x3456789abLL ||
+        wide.signed_high != -0x12345LL) return 17;
+    wide.low = 5;
+    wide.wide = 0x123456789aULL;
+    wide.upper = 0xabcdeULL;
+    wide.full = 0xfedcba9876543210ULL;
+    wide.signed_wide = -0x123456789LL;
+    wide.signed_high = -0x54321LL;
+    wide.wide += 2;
+    wide.wide *= 2;
+    wide.wide /= 2;
+    wide.wide <<= 1;
+    wide.wide >>= 1;
+    wide.signed_wide += 1;
+    wide.signed_high += 1;
+    wide.low++;
+    unsigned long long previous_full = wide.full++;
+    if (wide.low != 6 || wide.wide != 0x123456789cULL ||
+        wide.upper != 0xabcdeULL ||
+        wide.signed_wide != -0x123456788LL ||
+        wide.signed_high != -0x54320LL ||
+        previous_full != 0xfedcba9876543210ULL ||
+        wide.full != 0xfedcba9876543211ULL) return 18;
     return 0;
 }
 

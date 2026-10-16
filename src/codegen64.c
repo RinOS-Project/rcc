@@ -4076,6 +4076,7 @@ static const Type* gen64_bitfield_storage_type(const TypeField* field) {
     switch (field->type->size) {
         case 1: return type_uchar;
         case 2: return type_ushort;
+        case 8: return type_ullong;
         default: return type_uint;
     }
 }

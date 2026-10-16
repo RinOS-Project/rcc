@@ -6854,7 +6854,7 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                       field->type->kind == TYPE_FLOAT ||
                       field->type->kind == TYPE_DOUBLE) ||
                     field->type->size <= 0 ||
-                    (g_opts.target_arch == ARCH_X86 && field->type->size > 4) ||
+                    (g_opts.target_arch == ARCH_X86 && field->type->size > 8) ||
                     (g_opts.target_arch == ARCH_X64 && field->type->size > 8)) {
                     supported = false;
                     break;
@@ -8883,7 +8883,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
                           type->kind != TYPE_ENUM)) {
                 rcc_error(loc,
                           "C++ bit-field type must be an integer or enum type");
-            } else if (type->size <= 0 || type->size > 4) {
+            } else if (type->size <= 0 || type->size > 8) {
                 rcc_error(loc,
                           "C++ bit-field type width of %d bytes is not supported",
                           type->size);

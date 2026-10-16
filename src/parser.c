@@ -3068,7 +3068,7 @@ static void parser_append_bitfield(Type* aggregate,
         return;
     }
     size = type->size;
-    if (size <= 0 || size > 4) {
+    if (size <= 0 || size > 8) {
         rcc_error(loc,
                   "bit-field type width of %d bytes is not supported",
                   size);

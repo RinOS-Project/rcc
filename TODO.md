@@ -5280,8 +5280,13 @@ remains a separate open item.
 - [x] Cover C++ unnamed zero-width bit-fields as allocation-unit alignment
       barriers. GCC's C++20 `-Werror` execution and `test-cxx-bitfields` pass,
       including i686/AMD64 generation and the RCC-generated x64 host runner.
-- [ ] Bit-fields with base types wider than the parser's current four-byte
-      storage profile remain open.
+- [x] Extend C and C++ bit-field allocation units and read/modify/write code
+      generation through eight-byte base types on i686 and AMD64. Cover fields
+      crossing bit 32, signed extension, 40-bit and full 64-bit widths, static
+      and local aggregate initialization, compound arithmetic, shifts, and
+      post-increment. GCC strict C17/C++20 oracles, `test-bitfields`,
+      `test-cxx-bitfields`, and the full native-Windows `test-cxx` aggregate
+      pass; both target runtime paths are exercised.
 
 ## RCC continuation (2026-10-16, structural NTTP nullptr members)
 
