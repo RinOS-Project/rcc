@@ -519,6 +519,26 @@ static Type* cxx_mangle_template_value_type(
 static void cxx_mangle_template_value_suffix(
     char* buf, size_t* pos, const Type* value_type, int64_t value) {
     int written;
+    if (value_type && value_type->kind == TYPE_FLOAT) {
+        written = snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                           "%08xE", (unsigned)(uint32_t)value);
+        if (written < 0 ||
+            (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
+            rcc_fatal("C++ floating non-type template argument is too long");
+        }
+        *pos += (size_t)written;
+        return;
+    }
+    if (value_type && value_type->kind == TYPE_DOUBLE) {
+        written = snprintf(buf + *pos, CXX_MANGLE_BUFFER_SIZE - *pos,
+                           "%016llxE", (unsigned long long)(uint64_t)value);
+        if (written < 0 ||
+            (size_t)written >= CXX_MANGLE_BUFFER_SIZE - *pos) {
+            rcc_fatal("C++ floating non-type template argument is too long");
+        }
+        *pos += (size_t)written;
+        return;
+    }
     if (value_type && value_type->kind == TYPE_NULLPTR) {
         cxx_mangle_type_char(buf, pos, 'E');
         return;
@@ -3067,6 +3087,15 @@ static bool cxx_structural_class_measure_fields(
             ++*pointer_count;
         } else if (field->type->kind == TYPE_NULLPTR) {
             field_bits = 1u;
+        } else if (type_is_floating(field->type)) {
+            if ((field->type->kind != TYPE_FLOAT &&
+                 field->type->kind != TYPE_DOUBLE) ||
+                field->type->size <= 0 || field->type->size > 8 ||
+                *total_bits > UINT_MAX -
+                    (unsigned)field->type->size * 8u) {
+                return false;
+            }
+            field_bits = (unsigned)field->type->size * 8u;
         } else {
             if (!type_is_integer(field->type) &&
                 field->type->kind != TYPE_ENUM) {
@@ -3114,6 +3143,11 @@ static unsigned cxx_structural_type_value_bits(const Type* type) {
     }
     if (type->kind == TYPE_PTR) return 64u;
     if (type->kind == TYPE_NULLPTR) return 1u;
+    if (type_is_floating((Type*)type) &&
+        (type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE) &&
+        type->size > 0 && type->size <= 8) {
+        return (unsigned)type->size * 8u;
+    }
     if ((!type_is_integer((Type*)type) && type->kind != TYPE_ENUM) ||
         type->size <= 0 || type->size > 8) {
         return 0;
@@ -3230,7 +3264,7 @@ bool cxx_structural_class_pack_member_values(
             &bit_offset) || index != member_count) {
         return false;
     }
-    *packed_value = (int64_t)packed;
+    memcpy(packed_value, &packed, sizeof(packed));
     return true;
 }
 
@@ -3252,12 +3286,17 @@ static bool cxx_structural_class_decode_leaf(
         mask = field_bits == 64u
             ? UINT64_MAX : (UINT64_C(1) << field_bits) - UINT64_C(1);
         raw_value = (packed_value >> bit_offset) & mask;
-        if (!field_type->is_unsigned && field_bits < 64u &&
+        if (!type_is_floating((Type*)field_type) &&
+            !field_type->is_unsigned && field_bits < 64u &&
             (raw_value & (UINT64_C(1) << (field_bits - 1u)))) {
             raw_value |= ~mask;
         }
     }
-    *member_value = (int64_t)raw_value;
+    if (field_type->kind == TYPE_DOUBLE) {
+        memcpy(member_value, &raw_value, sizeof(raw_value));
+    } else {
+        *member_value = (int64_t)raw_value;
+    }
     return true;
 }
 
@@ -9234,6 +9273,33 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 cxx_structural_class_unpack_member_path(
                     parameter->type, value_args[index], member_names,
                     member_count, &value, &value_type)) {
+                if (value_type && type_is_floating(value_type)) {
+                    double floating_value;
+                    if (value_type->kind == TYPE_FLOAT) {
+                        uint32_t bits = (uint32_t)(uint64_t)value;
+                        float narrowed;
+                        if (sizeof(narrowed) != (size_t)value_type->size) {
+                            rcc_fatal(
+                                "C++ structural float template member has an unsupported size");
+                        }
+                        memcpy(&narrowed, &bits, sizeof(bits));
+                        floating_value = narrowed;
+                    } else if (value_type->kind == TYPE_DOUBLE) {
+                        uint64_t bits = (uint64_t)value;
+                        if (sizeof(floating_value) !=
+                            (size_t)value_type->size) {
+                            rcc_fatal(
+                                "C++ structural double template member has an unsupported size");
+                        }
+                        memcpy(&floating_value, &bits, sizeof(bits));
+                    } else {
+                        rcc_fatal(
+                            "C++ structural floating template member has an unsupported type");
+                    }
+                    copy = expr_float(floating_value, expression->loc);
+                    copy->type = value_type;
+                    return copy;
+                }
                 if (value_type && value_type->kind == TYPE_PTR &&
                     value_type->cxx_is_member_pointer && value > 0) {
                     CxxClass* member_owner = NULL;

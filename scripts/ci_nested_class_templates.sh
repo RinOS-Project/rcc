@@ -102,6 +102,7 @@ sources=(
 	tests/cxx_structural_class_pointer_value_pack.cpp
 	tests/cxx_structural_bitfield_nttp.cpp
 	tests/cxx_structural_nullptr_member_nttp.cpp
+	tests/cxx_structural_floating_member_nttp.cpp
 	tests/cxx_nested_explicit_chain_ten_levels.cpp
 	tests/cxx_nested_explicit_chain_twelve_levels.cpp
 	tests/cxx_nested_explicit_chain_thirteen_levels.cpp
@@ -184,6 +185,15 @@ compare_symbols_subset "$aggregate_dir/gcc-x64.s" \
 
 nested_array_invalid=tests/cxx_structural_pointer_nested_array_bounds_invalid.cpp
 for target in i686-unknown-rinos x86_64-unknown-rinos; do
+	expect_rcc_failure \
+		tests/cxx_structural_floating_narrowing_invalid.cpp "$target" \
+		"narrowing conversion in structural class non-type template argument" \
+		"structural-floating-narrowing-$target"
+	expect_rcc_failure \
+		tests/cxx_structural_integer_to_floating_narrowing_invalid.cpp \
+		"$target" \
+		"narrowing conversion in structural class non-type template argument" \
+		"structural-integer-floating-narrowing-$target"
 	expect_rcc_failure "$nested_array_invalid" "$target" \
 		"class template non-type argument must be an integer constant expression" \
 		"nested-array-out-of-bounds-$target"
@@ -198,6 +208,9 @@ for target in i686-unknown-rinos x86_64-unknown-rinos; do
 		"class template non-type argument must be an integer constant expression" \
 		"pointer-to-array-out-of-bounds-$target"
 done
+expect_gcc_failure \
+	tests/cxx_structural_integer_to_floating_narrowing_invalid.cpp \
+	"narrowing conversion" structural-floating-narrowing
 printf 'nested structural pointer array regression passed\n'
 
 private_source=tests/cxx_nested_class_templates_access_invalid.cpp

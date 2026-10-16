@@ -5247,3 +5247,17 @@ remains a separate open item.
 - [x] Rebuild the MinGW compiler, assemble its i686 output, and execute both
       RCC-generated and GCC-generated AMD64 programs on native Windows.
 - [ ] Other standard-valid structural class member types remain open.
+
+## RCC continuation (2026-10-16, structural NTTP floating members)
+
+- [x] Preserve public `float` and `double` data-member values in structural
+      class NTTPs, including template member access and GCC-compatible
+      floating-value Itanium mangling.
+- [x] Enforce exact-value rules for integer/floating conversions in aggregate
+      initialization; reject non-exact narrowing and retain exact conversions.
+- [x] Compare GCC/RCC symbols, assemble i686 and AMD64 output, and execute
+      both AMD64 programs through the complete WSL nested-class gate.
+- [x] Rebuild the MinGW compiler, assemble its i686 output, and execute both
+      RCC-generated and GCC-generated AMD64 programs natively on Windows.
+- [ ] Non-finite values, `long double`, extended precision/rounding cases,
+      and broader floating constant-expression conversions remain open.

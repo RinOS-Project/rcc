@@ -1901,6 +1901,12 @@ static DeclList* parse_cxx_parameter_declarations(bool* is_variadic);
 static Type* parse_cxx_type_spec(void);
 static Type* parse_class_template_specialization(CxxTemplate* tmpl,
                                                  SourceLoc loc);
+static bool eval_template_floating_expression(
+    Expr* expression, CxxTemplate* tmpl, const int64_t* values,
+    const bool* value_present, double* result);
+static bool cxx_structural_floating_member_conversion_is_valid(
+    Expr* expression, Type* target_type, double source_value);
+static bool cxx_template_expression_is_floating(const Expr* expression);
 static bool cxx_class_partial_owner_pattern_matches(
     CxxTemplate* primary, CxxTemplate* specialization, Type* owner_pattern,
     int* specificity_out);
@@ -2623,7 +2629,39 @@ static bool cxx_structural_class_collect_member_values(
             continue;
         }
         if (field_initializer) {
-            if (field->type->kind == TYPE_NULLPTR) {
+            if (type_is_floating(field->type)) {
+                double floating_value;
+                if (!eval_template_floating_expression(
+                        field_initializer, NULL, NULL, NULL,
+                        &floating_value)) {
+                    return false;
+                }
+                if (!cxx_structural_floating_member_conversion_is_valid(
+                        field_initializer, field->type, floating_value)) {
+                    rcc_error(field_initializer->loc,
+                              "narrowing conversion in structural class non-type template argument");
+                    return false;
+                }
+                if (field->type->kind == TYPE_FLOAT) {
+                    float narrowed = (float)floating_value;
+                    uint32_t bits;
+                    if (sizeof(narrowed) != (size_t)field->type->size) {
+                        return false;
+                    }
+                    memcpy(&bits, &narrowed, sizeof(bits));
+                    member_value = (int64_t)bits;
+                } else if (field->type->kind == TYPE_DOUBLE) {
+                    uint64_t bits;
+                    if (sizeof(floating_value) !=
+                        (size_t)field->type->size) {
+                        return false;
+                    }
+                    memcpy(&bits, &floating_value, sizeof(bits));
+                    memcpy(&member_value, &bits, sizeof(member_value));
+                } else {
+                    return false;
+                }
+            } else if (field->type->kind == TYPE_NULLPTR) {
                 if (!cxx_expr_is_nullptr_constant(field_initializer)) {
                     return false;
                 }
@@ -20548,6 +20586,60 @@ static bool cxx_template_integer_bits_from_floating(
         }
         return cxx_template_integer_bits_from_i64(
             target, truncated, result);
+    }
+}
+
+static bool cxx_structural_floating_member_conversion_is_valid(
+    Expr* expression, Type* target_type, double source_value) {
+    Type* source_type;
+    double converted_value;
+    bool source_is_floating;
+    if (!expression || !target_type ||
+        (target_type->kind != TYPE_FLOAT &&
+         target_type->kind != TYPE_DOUBLE)) {
+        return false;
+    }
+    source_type = expression->type;
+    source_is_floating = type_is_floating(source_type) ||
+        cxx_template_expression_is_floating(expression);
+    if (target_type->kind == TYPE_FLOAT) {
+        float converted = (float)source_value;
+        converted_value = (double)converted;
+        if (!cxx_template_floating_value_is_finite(converted_value)) {
+            return false;
+        }
+        if (source_is_floating) {
+            return converted_value == source_value;
+        }
+    } else {
+        converted_value = source_value;
+        if (source_is_floating) return true;
+    }
+    {
+        CxxTemplateIntegerBits source_integer;
+        CxxTemplateIntegerBits roundtrip_integer;
+        uint64_t source_mask;
+        uint64_t roundtrip_mask;
+        double integer_value;
+        if (!eval_template_integer_expression_bits(
+                expression, NULL, NULL, NULL, &source_integer) ||
+            !cxx_template_integer_bits_to_double(
+                &source_integer, &integer_value)) {
+            return false;
+        }
+        converted_value = target_type->kind == TYPE_FLOAT
+            ? (double)(float)integer_value : integer_value;
+        if (!cxx_template_floating_value_is_finite(converted_value) ||
+            !cxx_template_integer_bits_from_floating(
+                converted_value, source_integer.type, &roundtrip_integer) ||
+            !cxx_template_integer_type_mask(
+                source_integer.type, &source_mask) ||
+            !cxx_template_integer_type_mask(
+                roundtrip_integer.type, &roundtrip_mask)) {
+            return false;
+        }
+        return (source_integer.bits & source_mask) ==
+            (roundtrip_integer.bits & roundtrip_mask);
     }
 }
 
