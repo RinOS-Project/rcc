@@ -79,10 +79,54 @@ struct DependentUnsignedFloatingCastArrayBound {
 static_assert(sizeof(DependentUnsignedFloatingCastArrayBound<2>) ==
               11u * sizeof(int));
 
+template <int Value>
+struct DependentSignedLeftShiftArrayBound {
+    int items[((Value << 30) == -1073741824) ? 5 : 1];
+};
+
+static_assert(sizeof(DependentSignedLeftShiftArrayBound<3>) ==
+              5u * sizeof(int));
+
+template <unsigned long long Shift>
+struct DependentWideShiftCountArrayBound {
+    int items[((1 << Shift) == 8) ? 7 : 1];
+};
+
+static_assert(sizeof(DependentWideShiftCountArrayBound<3ULL>) ==
+              7u * sizeof(int));
+
 #if defined(RCC_TEST_INVALID_FLOAT_TO_INTEGER_BOUND)
 template <int Value>
 struct InvalidDependentFloatingToIntegerBound {
     int items[static_cast<int>(Value * 1.0e20)];
 };
 static_assert(sizeof(InvalidDependentFloatingToIntegerBound<1>) > 0u);
+#endif
+
+#if defined(RCC_TEST_INVALID_DEPENDENT_ARRAY_SHIFT)
+template <unsigned long long Shift>
+struct InvalidDependentWideShiftCountArrayBound {
+    int items[(1 << Shift) + 1];
+};
+static_assert(sizeof(InvalidDependentWideShiftCountArrayBound<32ULL>) > 0u);
+static_assert(sizeof(InvalidDependentWideShiftCountArrayBound<4294967296ULL>) >
+              0u);
+
+template <int Shift>
+struct InvalidDependentNegativeShiftCountArrayBound {
+    int items[(1 << Shift) + 1];
+};
+static_assert(sizeof(InvalidDependentNegativeShiftCountArrayBound<-1>) > 0u);
+
+template <int Value>
+struct InvalidDependentNegativeLeftShiftArrayBound {
+    int items[Value << 1];
+};
+static_assert(sizeof(InvalidDependentNegativeLeftShiftArrayBound<-1>) > 0u);
+
+template <int Value>
+struct InvalidDependentOverflowingLeftShiftArrayBound {
+    int items[Value << 30];
+};
+static_assert(sizeof(InvalidDependentOverflowingLeftShiftArrayBound<7>) > 0u);
 #endif

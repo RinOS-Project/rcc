@@ -4955,10 +4955,10 @@ remains a separate open item.
 - [x] Run `make test-cxx test-debug-info` with the expanded direct-argument
   fixture and evaluator changes. The complete C++ and debug-info aggregates
   pass (exit 0).
-- [ ] Other unsigned argument types/conversion paths, signed shift and
-  overflow rules, and constant-expression contexts outside dependent array
-  bounds remain open; non-null structural pointer NTTP values and
-  specialization chains deeper than ten levels also remain open.
+- [ ] Other unsigned argument types/conversion paths and constant-expression
+      contexts outside dependent array bounds remain open; non-null structural
+      pointer NTTP values and specialization chains deeper than ten levels also
+      remain open.
 
 ## RCC continuation (2026-10-16, floating conversions in dependent array bounds)
 
@@ -4973,3 +4973,15 @@ remains a separate open item.
 - [ ] Extend floating constant evaluation and conversion coverage to other
   constant-expression contexts; structural pointer NTTP values and
   specialization chains deeper than ten levels remain open.
+
+## RCC continuation (2026-10-16, dependent signed shift validation)
+
+- [x] Evaluate dependent signed shifts using the promoted left operand width,
+      while independently promoting and preserving the right operand width.
+- [x] Reject invalid counts, negative signed left operands, and signed
+      left-shift results that are not representable in the corresponding
+      unsigned type; compare invalid cases with GCC C++20 on both targets.
+- [x] Run the complete `test-cxx` and `test-debug-info` aggregate targets; both
+      pass (exit 0).
+- [ ] Other constant-expression contexts, non-null structural pointer NTTP
+      values, and specialization chains deeper than ten levels remain open.

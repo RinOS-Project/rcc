@@ -2645,6 +2645,80 @@ static bool cxx_eval_template_unsigned_binary(
     return true;
 }
 
+static bool cxx_eval_template_signed_shift(
+    Expr* expression, CxxTemplate* tmpl, int64_t left, int64_t right,
+    int64_t* result) {
+    CxxTemplateIntegerBits left_bits;
+    CxxTemplateIntegerBits right_bits;
+    CxxTemplateIntegerBits promoted_left;
+    CxxTemplateIntegerBits promoted_right;
+    Type* left_type;
+    Type* right_type;
+    Type* promoted_left_type;
+    Type* promoted_right_type;
+    Type* representation;
+    uint64_t mask;
+    uint64_t shift_bits;
+    unsigned bit_width;
+    unsigned shift_amount;
+    int64_t signed_left;
+    int64_t signed_shift;
+    if (!expression || !result) return false;
+    left_type = cxx_template_integer_expression_type(
+        expression->binary_lhs, tmpl);
+    right_type = cxx_template_integer_expression_type(
+        expression->binary_rhs, tmpl);
+    promoted_left_type = cxx_template_integer_promoted_type(left_type);
+    promoted_right_type = cxx_template_integer_promoted_type(right_type);
+    representation =
+        cxx_template_integer_representation(promoted_left_type);
+    if (!promoted_left_type || !promoted_right_type ||
+        cxx_template_integer_type_is_unsigned(promoted_left_type) ||
+        !representation || representation->size <= 0 ||
+        representation->size > (int)sizeof(uint64_t) ||
+        !cxx_template_integer_bits_from_i64(left_type, left, &left_bits) ||
+        !cxx_template_integer_bits_from_i64(right_type, right, &right_bits) ||
+        !cxx_template_integer_bits_convert(
+            &left_bits, promoted_left_type, &promoted_left) ||
+        !cxx_template_integer_bits_convert(
+            &right_bits, promoted_right_type, &promoted_right) ||
+        !cxx_template_integer_type_mask(promoted_left_type, &mask) ||
+        !cxx_template_integer_bits_to_i64(&promoted_left, &signed_left)) {
+        return false;
+    }
+    bit_width = (unsigned)representation->size * 8u;
+    if (cxx_template_integer_type_is_unsigned(promoted_right_type)) {
+        shift_bits = promoted_right.bits;
+        if (shift_bits >= bit_width) return false;
+        shift_amount = (unsigned)shift_bits;
+    } else {
+        if (!cxx_template_integer_bits_to_i64(
+                &promoted_right, &signed_shift) ||
+            signed_shift < 0 || (uint64_t)signed_shift >= bit_width) {
+            return false;
+        }
+        shift_amount = (unsigned)signed_shift;
+    }
+    if (expression->kind == EXPR_LSHIFT) {
+        uint64_t shifted;
+        if (signed_left < 0 ||
+            (uint64_t)signed_left > (mask >> shift_amount)) {
+            return false;
+        }
+        shifted = ((uint64_t)signed_left << shift_amount) & mask;
+        promoted_left.bits = shifted;
+        return cxx_template_integer_bits_to_i64(
+            &promoted_left, result);
+    }
+    if (signed_left >= 0) {
+        *result = (int64_t)((uint64_t)signed_left >> shift_amount);
+    } else {
+        uint64_t magnitude = (uint64_t)(-(signed_left + 1));
+        *result = -1 - (int64_t)(magnitude >> shift_amount);
+    }
+    return true;
+}
+
 static bool cxx_template_integer_expression_overflows(
     Expr* expression, CxxTemplate* tmpl, const int64_t* values,
     const bool* value_present);
@@ -13661,7 +13735,8 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                            type->array_bound, tmpl, value_args,
                            value_present)) {
                 rcc_error(type->array_bound->loc,
-                          "overflow in dependent array bound constant expression");
+                          "invalid shift or overflow in dependent array bound "
+                          "constant expression");
                 return NULL;
             } else {
                 CxxTemplateIntegerBits evaluated;
@@ -19303,6 +19378,20 @@ static bool eval_template_integer_expression(Expr* expression,
                 !eval_template_integer_expression(
                     expression->binary_rhs, tmpl, values, value_present,
                     &right)) return false;
+            if (expression->kind == EXPR_LSHIFT ||
+                expression->kind == EXPR_RSHIFT) {
+                Type* left_type = cxx_template_integer_expression_type(
+                    expression->binary_lhs, tmpl);
+                Type* promoted_left_type =
+                    cxx_template_integer_promoted_type(left_type);
+                if (cxx_template_integer_type_is_unsigned(
+                        promoted_left_type)) {
+                    return cxx_eval_template_unsigned_binary(
+                        expression, tmpl, left, right, result);
+                }
+                return cxx_eval_template_signed_shift(
+                    expression, tmpl, left, right, result);
+            }
             if (cxx_eval_template_unsigned_binary(
                     expression, tmpl, left, right, result)) {
                 return true;
@@ -19815,8 +19904,13 @@ static bool eval_template_integer_expression_bits(
     int64_t signed_right;
     int64_t signed_result;
     uint64_t mask;
+    uint64_t shift_bits;
+    unsigned shift_amount;
+    unsigned shift_width;
     Type* common_type;
     Type* result_type;
+    Type* promoted_right;
+    Type* representation;
     if (!expression || !result) return false;
     result_type = cxx_template_integer_expression_type(expression, tmpl);
     if (eval_template_integer_expression(
@@ -19969,9 +20063,21 @@ static bool eval_template_integer_expression_bits(
             }
             if (!cxx_template_integer_bits_convert(
                     &left, common_type, &common_left) ||
-                !cxx_template_integer_bits_convert(
-                    &right, common_type, &common_right) ||
                 !cxx_template_integer_type_mask(common_type, &mask)) {
+                return false;
+            }
+            promoted_right = NULL;
+            if (expression->kind == EXPR_LSHIFT ||
+                expression->kind == EXPR_RSHIFT) {
+                promoted_right =
+                    cxx_template_integer_promoted_type(right.type);
+                if (!promoted_right ||
+                    !cxx_template_integer_bits_convert(
+                        &right, promoted_right, &common_right)) {
+                    return false;
+                }
+            } else if (!cxx_template_integer_bits_convert(
+                           &right, common_type, &common_right)) {
                 return false;
             }
             if (expression->kind == EXPR_EQ || expression->kind == EXPR_NE ||
@@ -20021,16 +20127,30 @@ static bool eval_template_integer_expression_bits(
             }
             if (expression->kind == EXPR_LSHIFT ||
                 expression->kind == EXPR_RSHIFT) {
-                if (!cxx_template_integer_bits_to_i64(
-                        &common_right, &signed_right) ||
-                    signed_right < 0 || signed_right >= 64) {
+                representation =
+                    cxx_template_integer_representation(common_type);
+                if (!representation || representation->size <= 0 ||
+                    representation->size > (int)sizeof(uint64_t)) {
                     return false;
                 }
+                shift_width = (unsigned)representation->size * 8u;
+                if (cxx_template_integer_type_is_unsigned(promoted_right)) {
+                    shift_bits = common_right.bits;
+                    if (shift_bits >= shift_width) return false;
+                    shift_amount = (unsigned)shift_bits;
+                } else {
+                    if (!cxx_template_integer_bits_to_i64(
+                            &common_right, &signed_right) ||
+                        signed_right < 0 ||
+                        (uint64_t)signed_right >= shift_width) {
+                        return false;
+                    }
+                    shift_amount = (unsigned)signed_right;
+                }
                 if (expression->kind == EXPR_LSHIFT) {
-                    result->bits = (common_left.bits <<
-                                    (unsigned)signed_right) & mask;
+                    result->bits = (common_left.bits << shift_amount) & mask;
                 } else if (cxx_template_integer_type_is_unsigned(common_type)) {
-                    result->bits = common_left.bits >> (unsigned)signed_right;
+                    result->bits = common_left.bits >> shift_amount;
                 } else {
                     if (!cxx_template_integer_bits_to_i64(
                             &common_left, &signed_left)) {
@@ -20038,11 +20158,11 @@ static bool eval_template_integer_expression_bits(
                     }
                     if (signed_left >= 0) {
                         result->bits = (uint64_t)signed_left >>
-                                       (unsigned)signed_right;
+                                       shift_amount;
                     } else {
                         uint64_t magnitude = (uint64_t)(-(signed_left + 1));
                         int64_t shifted = -1 - (int64_t)(
-                            magnitude >> (unsigned)signed_right);
+                            magnitude >> shift_amount);
                         return cxx_template_integer_bits_from_i64(
                             result_type ? result_type : common_type,
                             shifted, result);
@@ -20221,11 +20341,81 @@ static bool cxx_template_integer_expression_overflows(
         case EXPR_DEREF:
             return cxx_template_integer_expression_overflows(
                 expression->unary_operand, tmpl, values, value_present);
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT: {
+            CxxTemplateIntegerBits left_bits;
+            CxxTemplateIntegerBits right_bits;
+            CxxTemplateIntegerBits promoted_left;
+            CxxTemplateIntegerBits promoted_right_bits;
+            Type* promoted_left_type;
+            Type* promoted_right_type;
+            Type* representation;
+            uint64_t mask;
+            uint64_t shift_bits;
+            unsigned bit_width;
+            unsigned shift_amount;
+            int64_t shift_count;
+            if (!eval_template_integer_expression_bits(
+                    expression->binary_lhs, tmpl, values, value_present,
+                    &left_bits) ||
+                !eval_template_integer_expression_bits(
+                    expression->binary_rhs, tmpl, values, value_present,
+                    &right_bits)) {
+                return cxx_template_integer_expression_overflows(
+                           expression->binary_lhs, tmpl, values,
+                           value_present) ||
+                    cxx_template_integer_expression_overflows(
+                        expression->binary_rhs, tmpl, values,
+                        value_present);
+            }
+            promoted_left_type =
+                cxx_template_integer_promoted_type(left_bits.type);
+            promoted_right_type =
+                cxx_template_integer_promoted_type(right_bits.type);
+            representation =
+                cxx_template_integer_representation(promoted_left_type);
+            if (!promoted_left_type || !promoted_right_type ||
+                !representation || representation->size <= 0 ||
+                representation->size > (int)sizeof(uint64_t) ||
+                !cxx_template_integer_bits_convert(
+                    &left_bits, promoted_left_type, &promoted_left) ||
+                !cxx_template_integer_bits_convert(
+                    &right_bits, promoted_right_type,
+                    &promoted_right_bits) ||
+                !cxx_template_integer_type_mask(
+                    promoted_left_type, &mask)) {
+                return false;
+            }
+            bit_width = (unsigned)representation->size * 8u;
+            if (cxx_template_integer_type_is_unsigned(
+                    promoted_right_type)) {
+                shift_bits = promoted_right_bits.bits;
+                if (shift_bits >= bit_width) return true;
+                shift_amount = (unsigned)shift_bits;
+            } else {
+                if (!cxx_template_integer_bits_to_i64(
+                        &promoted_right_bits, &shift_count) ||
+                    shift_count < 0 ||
+                    (uint64_t)shift_count >= bit_width) {
+                    return true;
+                }
+                shift_amount = (unsigned)shift_count;
+            }
+            if (expression->kind == EXPR_LSHIFT &&
+                !cxx_template_integer_type_is_unsigned(
+                    promoted_left_type)) {
+                int64_t signed_left;
+                if (!cxx_template_integer_bits_to_i64(
+                        &promoted_left, &signed_left) || signed_left < 0 ||
+                    (uint64_t)signed_left > (mask >> shift_amount)) {
+                    return true;
+                }
+            }
+            return false;
+        }
         case EXPR_BITAND:
         case EXPR_BITOR:
         case EXPR_BITXOR:
-        case EXPR_LSHIFT:
-        case EXPR_RSHIFT:
         case EXPR_EQ:
         case EXPR_NE:
         case EXPR_LT:
