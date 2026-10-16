@@ -5449,3 +5449,18 @@ remains a separate open item.
       `test-cxx` aggregate pass (exit 0).
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-17, conversion-function result to bool)
+
+- [x] Complete an implicit conversion-function sequence when its result is an
+      object pointer, member pointer, or function reference and the requested
+      destination is `bool`; retain the one-user-defined-conversion limit and
+      do not admit `nullptr_t` as an implicit `bool` source.
+- [x] Exercise by-value, `const bool&`, and `bool&&` destinations, including
+      non-null and null object-pointer results, a member-pointer result, and a
+      function-reference result. GCC C++20 `-Wall -Wextra -Werror` and the
+      focused native-Windows `test-cxx-conversion-operator` gate pass with
+      i686/AMD64 generation and runtime execution; the complete native-Windows
+      `test-cxx` aggregate also passes (exit 0).
+- [ ] Other multi-step standard conversions, remaining cv/reference binding
+      shapes, and general C++20 conversion-sequence ordering remain open.

@@ -2713,6 +2713,16 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
         return -1;
     }
     if (type_is_compatible(source, target)) return 0;
+    /* A conversion function may return a pointer-like value that completes
+     * its implicit conversion sequence with pointer-to-bool. Function and
+     * array references first undergo their standard decay, just as they do
+     * in an ordinary argument conversion. nullptr_t remains excluded: its
+     * implicit conversion to bool is not permitted. */
+    if (target->kind == TYPE_BOOL &&
+        (source->kind == TYPE_PTR || source->kind == TYPE_ARRAY ||
+         source->kind == TYPE_FUNC)) {
+        return 2;
+    }
     if (!reference_target &&
         sema_cxx_derived_to_base_value_conversion(
             NULL, source, target, NULL, NULL, NULL, true)) {
@@ -3212,7 +3222,8 @@ reference_binding_source:
         if (!conversion_attempted && rcc_parser_is_cxx_mode() &&
             (referred->kind == TYPE_STRUCT ||
              referred->kind == TYPE_UNION ||
-             referred->kind == TYPE_FUNC) &&
+             referred->kind == TYPE_FUNC ||
+             referred->kind == TYPE_BOOL) &&
             (source_object->kind == TYPE_STRUCT ||
              source_object->kind == TYPE_UNION)) {
             bool ambiguous = false;

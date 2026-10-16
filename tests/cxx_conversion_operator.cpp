@@ -122,6 +122,31 @@ public:
     }
 };
 
+class ConversionPointerToBoolSource {
+public:
+    int* value;
+
+    operator int*() const {
+        return value;
+    }
+};
+
+struct ConversionMemberPointerToBoolTarget {
+    int value;
+};
+
+using ConversionMemberPointerToBool =
+    int ConversionMemberPointerToBoolTarget::*;
+
+class ConversionMemberPointerToBoolSource {
+public:
+    ConversionMemberPointerToBool value;
+
+    operator ConversionMemberPointerToBool() const {
+        return value;
+    }
+};
+
 class ReferenceConversionSource {
 public:
     operator ReferenceConversionResult() && {
@@ -160,6 +185,13 @@ int call_lvalue_function_conversion() {
 int call_rvalue_function_conversion() {
     return 101;
 }
+
+class FunctionDesignatorToBoolSource {
+public:
+    operator FunctionReferenceConversionTarget&() const {
+        return call_lvalue_function_conversion;
+    }
+};
 
 class FunctionReferenceConversionSource {
 public:
@@ -248,6 +280,22 @@ int choose_pointer_conversion(void*) {
     return 73;
 }
 
+int take_pointer_conversion_bool(bool value) {
+    return value ? 109 : 113;
+}
+
+int take_pointer_conversion_bool_reference(const bool& value) {
+    return value ? 127 : 131;
+}
+
+int take_pointer_conversion_bool_rvalue_reference(bool&& value) {
+    return value ? 137 : 139;
+}
+
+int take_member_pointer_conversion_bool(bool value) {
+    return value ? 149 : 151;
+}
+
 template<typename T>
 int choose_template_pointer_conversion(T, ConversionBasePointerTarget*) {
     return 79;
@@ -288,6 +336,7 @@ int main() {
     RefQualifiedConversionSource ref_qualified_source;
     const CvRefQualifiedConversionSource const_ref_qualified_source{};
     FunctionReferenceConversionSource function_reference_source;
+    FunctionDesignatorToBoolSource function_designator_bool_source;
     FunctionReferenceConversionTarget& lvalue_function =
         function_reference_source;
     FunctionReferenceConversionTarget&& rvalue_function =
@@ -300,6 +349,12 @@ int main() {
         lvalue_function_reference_source;
     ConversionDerivedPointerTarget derived_pointer_target{67};
     ConversionPointerSource pointer_source{&derived_pointer_target};
+    int pointer_bool_value = 1;
+    ConversionPointerToBoolSource pointer_bool_source{&pointer_bool_value};
+    ConversionPointerToBoolSource null_pointer_bool_source{nullptr};
+    ConversionMemberPointerToBoolSource member_pointer_bool_source;
+    member_pointer_bool_source.value =
+        &ConversionMemberPointerToBoolTarget::value;
     ConversionReferenceRankingSource reference_ranking_source;
     ConversionObjectVsResultSource object_vs_result_source;
     Flag flag{1};
@@ -338,7 +393,16 @@ int main() {
         read_conversion_reference_base(reference_ranking_source) != 83 ||
         take_long(object_vs_result_source) != 103 ||
         choose_pointer_conversion(pointer_source) != 71 ||
-        choose_template_pointer_conversion(0, pointer_source) != 79) {
+        choose_template_pointer_conversion(0, pointer_source) != 79 ||
+        take_pointer_conversion_bool(pointer_bool_source) != 109 ||
+        take_pointer_conversion_bool(null_pointer_bool_source) != 113 ||
+        take_pointer_conversion_bool_reference(pointer_bool_source) != 127 ||
+        take_pointer_conversion_bool_rvalue_reference(
+            null_pointer_bool_source) != 139 ||
+        take_pointer_conversion_bool(function_designator_bool_source) != 109 ||
+        take_pointer_conversion_bool_reference(
+            function_designator_bool_source) != 127 ||
+        take_member_pointer_conversion_bool(member_pointer_bool_source) != 149) {
         return 1;
     }
     return 0;
