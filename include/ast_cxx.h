@@ -483,6 +483,13 @@ bool cxx_structural_class_pack_member_values(
 bool cxx_structural_class_unpack_member_value(
     const Type* type, int64_t packed_value, const char* member_name,
     int64_t* member_value, Type** member_type);
+/* Structural pointer members are represented in the parser's packed value
+ * by a translation-unit-local token.  The token resolves to the declaration
+ * whose address is the actual template argument; it is never a host pointer
+ * or a target-machine address. */
+bool cxx_structural_pointer_value_register(Decl* declaration,
+                                           int64_t* token_out);
+Decl* cxx_structural_pointer_value_declaration(int64_t token);
 bool cxx_structural_class_unpack_member_path(
     const Type* type, int64_t packed_value,
     const char* const* member_names, int member_name_count,

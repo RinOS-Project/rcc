@@ -66,6 +66,7 @@ sources=(
 	tests/cxx_nested_class_template_template_owner_specialization.cpp
 	tests/cxx_nested_class_template_owner_partial_specialization.cpp
 	tests/cxx_nested_class_template_owner_structural_value_pack.cpp
+	tests/cxx_structural_nonnull_pointer_nttp.cpp
 	tests/cxx_nested_explicit_chain_ten_levels.cpp
 	tests/cxx_nested_explicit_chain_twelve_levels.cpp
 )

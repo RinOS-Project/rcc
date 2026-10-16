@@ -1863,6 +1863,78 @@ static bool cxx_expr_is_nullptr_constant(const Expr* expression) {
         (expression->is_cxx_nullptr ||
          (expression->type && expression->type->kind == TYPE_NULLPTR));
 }
+static bool cxx_structural_pointer_member_value(
+    const Expr* expression, Type* pointer_type, int64_t* value_out) {
+    const Expr* operand;
+    Decl* declaration;
+    Symbol* symbol;
+    bool namespace_scope_target = false;
+    CxxNamespace* lookup_namespace;
+    if (!expression || expression->kind != EXPR_ADDR || !value_out ||
+        !(operand = expression->unary_operand) ||
+        operand->kind != EXPR_IDENT || !operand->ident_name) {
+        return false;
+    }
+    declaration = operand->ident_decl;
+    symbol = g_symtab
+        ? symtab_lookup(g_symtab, operand->ident_name) : NULL;
+    if (!declaration) declaration = symbol ? symbol->decl : NULL;
+    lookup_namespace = active_namespace
+        ? active_namespace : g_global_namespace;
+    if (lookup_namespace) {
+        for (DeclList* item = lookup_namespace->decls; item;
+             item = item->next) {
+            Decl* candidate = item->decl;
+            if (candidate &&
+                (candidate->kind == DECL_VAR ||
+                 candidate->kind == DECL_FUNC) &&
+                ((declaration && candidate == declaration) ||
+                 (!declaration && cxx_decl_leaf_matches(
+                     candidate->name, operand->ident_name)))) {
+                declaration = candidate;
+                namespace_scope_target = true;
+                break;
+            }
+        }
+    }
+    if (active_ast) {
+        for (DeclList* item = active_ast->decls; item; item = item->next) {
+            Decl* candidate = item->decl;
+            if (candidate &&
+                (candidate->kind == DECL_VAR ||
+                 candidate->kind == DECL_FUNC) &&
+                ((declaration && candidate == declaration) ||
+                 (!declaration && candidate->name &&
+                  strcmp(candidate->name, operand->ident_name) == 0))) {
+                declaration = candidate;
+                namespace_scope_target = true;
+                break;
+            }
+        }
+    }
+    if (!declaration || !declaration->type || !pointer_type ||
+        pointer_type->kind != TYPE_PTR ||
+        !type_is_compatible(pointer_type->base, declaration->type) ||
+        !decl_link_name(declaration)) {
+        return false;
+    }
+    if (declaration->kind == DECL_VAR) {
+        if ((!declaration->var_is_global && !namespace_scope_target &&
+             (!symbol || symbol->decl != declaration || !symbol->is_global)) ||
+            declaration->var_is_thread_local || declaration->var_is_vla) {
+            return false;
+        }
+    } else if (declaration->kind == DECL_FUNC) {
+        if (!namespace_scope_target &&
+            (!symbol || symbol->decl != declaration || !symbol->is_global)) {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    return cxx_structural_pointer_value_register(declaration, value_out);
+}
+
 static bool cxx_structural_class_collect_member_values(
     Type* type, ExprList* initializer, bool value_init,
     int64_t* member_values, int* member_count) {
@@ -1922,9 +1994,12 @@ static bool cxx_structural_class_collect_member_values(
             if (field->type->kind == TYPE_PTR) {
                 if (cxx_expr_is_nullptr_constant(field_initializer)) {
                     member_value = 0;
-                } else if (!expr_eval_integer_constant(
-                               field_initializer, &member_value) ||
-                           member_value != 0) {
+                } else if (expr_eval_integer_constant(
+                               field_initializer, &member_value)) {
+                    if (member_value != 0) return false;
+                } else if (!cxx_structural_pointer_member_value(
+                               field_initializer, field->type,
+                               &member_value)) {
                     return false;
                 }
             } else if (!expr_eval_integer_constant(
@@ -8773,8 +8848,32 @@ static void set_cxx_link_name(Decl* declaration, CxxNamespace* ns,
         declaration->link_name = rcc_intern(
             cxx_mangle_function(declaration, ns, NULL));
     } else if (declaration->kind == DECL_VAR) {
-        declaration->link_name = rcc_intern(
-            cxx_mangle_name(declaration->name, ns, NULL));
+        char* mangled_name;
+        if (!ns && declaration->storage != STORAGE_STATIC) {
+            /* The Itanium ABI leaves ordinary global data symbols unmangled;
+             * their source name is still encoded as `_Z<len><name>` when it
+             * appears inside a template argument expression. */
+            declaration->link_name = declaration->name;
+            return;
+        }
+        mangled_name = cxx_mangle_name(declaration->name, ns, NULL);
+        if (!ns && declaration->storage == STORAGE_STATIC) {
+            size_t mangled_length;
+            char* local_name;
+            if (!mangled_name || strncmp(mangled_name, "_Z", 2u) != 0) {
+                rcc_fatal("C++ internal variable name cannot be mangled");
+            }
+            mangled_length = strlen(mangled_name);
+            local_name = ast_arena_alloc(mangled_length + 2u);
+            memcpy(local_name, mangled_name, 2u);
+            local_name[2] = 'L';
+            memcpy(local_name + 3u, mangled_name + 2u,
+                   mangled_length - 2u);
+            local_name[mangled_length + 1u] = '\0';
+            declaration->link_name = rcc_intern(local_name);
+        } else {
+            declaration->link_name = rcc_intern(mangled_name);
+        }
     }
 }
 

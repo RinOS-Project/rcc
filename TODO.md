@@ -5011,3 +5011,19 @@ remains a separate open item.
       GCC-host programs in the POSIX CI regression script.
 - [ ] Chains deeper than twelve levels and non-null structural pointer NTTP
       values remain open.
+
+## RCC continuation (2026-10-16, structural pointer NTTP values)
+
+- [x] Preserve non-null object and function addresses in structural class
+  non-type template arguments using translation-unit-local declaration tokens;
+  restore them as relocatable address expressions during nested template
+  cloning instead of treating host addresses as target values.
+- [x] Emit GCC-compatible Itanium encodings for external and internal-linkage
+  object targets, preserve `nullptr` and integer-zero null pointer values, and
+  distinguish separate object/function-pointer specializations.
+- [x] Add the regression to the POSIX nested-class CI gate. Compare every
+  Itanium-prefixed fixture symbol with GCC on i686/AMD64, assemble both RCC
+  outputs, and execute RCC AMD64 plus the GCC-host program; the complete
+  `scripts/ci_nested_class_templates.sh` gate passes in WSL.
+- [ ] Computed pointer constant expressions, overloaded-function address
+  selection, pointer-to-member values, and reference members remain open.

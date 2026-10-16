@@ -12,6 +12,62 @@
 #define rcc_alloc ast_arena_alloc
 #define rcc_strdup ast_arena_strdup
 
+static Decl** cxx_structural_pointer_value_declarations;
+static size_t cxx_structural_pointer_value_count;
+static size_t cxx_structural_pointer_value_capacity;
+
+bool cxx_structural_pointer_value_register(Decl* declaration,
+                                          int64_t* token_out) {
+    const char* link_name;
+    size_t index;
+    if (!declaration || !token_out) return false;
+    link_name = decl_link_name(declaration);
+    for (index = 0; index < cxx_structural_pointer_value_count; ++index) {
+        Decl* registered = cxx_structural_pointer_value_declarations[index];
+        const char* registered_link_name = decl_link_name(registered);
+        if (registered == declaration ||
+            (link_name && registered_link_name &&
+             strcmp(link_name, registered_link_name) == 0)) {
+            *token_out = (int64_t)(index + 1u);
+            return true;
+        }
+    }
+    if (cxx_structural_pointer_value_count >= (size_t)INT64_MAX) {
+        return false;
+    }
+    if (cxx_structural_pointer_value_count ==
+        cxx_structural_pointer_value_capacity) {
+        size_t new_capacity = cxx_structural_pointer_value_capacity
+            ? cxx_structural_pointer_value_capacity * 2u : 16u;
+        Decl** declarations;
+        if (new_capacity < cxx_structural_pointer_value_capacity ||
+            new_capacity > SIZE_MAX / sizeof(*declarations)) {
+            return false;
+        }
+        declarations = rcc_alloc(new_capacity * sizeof(*declarations));
+        if (cxx_structural_pointer_value_count != 0u) {
+            memcpy(declarations, cxx_structural_pointer_value_declarations,
+                   cxx_structural_pointer_value_count *
+                       sizeof(*declarations));
+        }
+        cxx_structural_pointer_value_declarations = declarations;
+        cxx_structural_pointer_value_capacity = new_capacity;
+    }
+    cxx_structural_pointer_value_declarations[
+        cxx_structural_pointer_value_count] = declaration;
+    ++cxx_structural_pointer_value_count;
+    *token_out = (int64_t)cxx_structural_pointer_value_count;
+    return true;
+}
+
+Decl* cxx_structural_pointer_value_declaration(int64_t token) {
+    if (token <= 0 || (uint64_t)token >
+            (uint64_t)cxx_structural_pointer_value_count) {
+        return NULL;
+    }
+    return cxx_structural_pointer_value_declarations[(size_t)token - 1u];
+}
+
 /* Global namespace */
 CxxNamespace* g_global_namespace = NULL;
 
@@ -337,7 +393,8 @@ static bool cxx_structural_class_has_only_pointer_member(const Type* type) {
 
 static bool cxx_mangle_structural_value_body(
     char* buf, size_t* pos, Type* value_type, uint64_t packed_value,
-    unsigned* bit_offset, CxxMangleContext* context) {
+    unsigned* bit_offset, CxxMangleContext* context,
+    Decl* pointer_declaration) {
     TypeParam* field;
     cxx_mangle_type_char(buf, pos, 't');
     cxx_mangle_type_char(buf, pos, 'l');
@@ -354,7 +411,7 @@ static bool cxx_mangle_structural_value_body(
             }
             if (!cxx_mangle_structural_value_body(
                     buf, pos, field->type, packed_value, bit_offset,
-                    context)) {
+                    context, pointer_declaration)) {
                 return false;
             }
             continue;
@@ -365,7 +422,44 @@ static bool cxx_mangle_structural_value_body(
         }
         field_bits = cxx_structural_type_value_bits(field->type);
         if (field->type->kind == TYPE_PTR) {
-            if (field_value != 0) return false;
+            if (field_value != 0) {
+                const char* link_name;
+                size_t link_length;
+                char digits[32];
+                int digit_count;
+                if (!pointer_declaration ||
+                    !(link_name = decl_link_name(pointer_declaration))) {
+                    return false;
+                }
+                cxx_mangle_type_char(buf, pos, 'a');
+                cxx_mangle_type_char(buf, pos, 'd');
+                cxx_mangle_type_char(buf, pos, 'L');
+                cxx_mangle_type_char(buf, pos, '_');
+                if (link_name[0] == '_' && link_name[1] == 'Z') {
+                    size_t length = strlen(link_name + 1u);
+                    if (*pos + length >= CXX_MANGLE_BUFFER_SIZE) {
+                        rcc_fatal("C++ template class name is too long");
+                    }
+                    memcpy(buf + *pos, link_name + 1u, length);
+                    *pos += length;
+                } else {
+                    cxx_mangle_type_char(buf, pos, 'Z');
+                    link_length = strlen(link_name);
+                    digit_count = snprintf(digits, sizeof(digits), "%llu",
+                                          (unsigned long long)link_length);
+                    if (digit_count < 0 ||
+                        (size_t)digit_count >= sizeof(digits) ||
+                        *pos + (size_t)digit_count + link_length >=
+                            CXX_MANGLE_BUFFER_SIZE) {
+                        rcc_fatal("C++ template class name is too long");
+                    }
+                    memcpy(buf + *pos, digits, (size_t)digit_count);
+                    *pos += (size_t)digit_count;
+                    memcpy(buf + *pos, link_name, link_length);
+                    *pos += link_length;
+                }
+                cxx_mangle_type_char(buf, pos, 'E');
+            }
             *bit_offset += field_bits;
             continue;
         }
@@ -381,14 +475,15 @@ static bool cxx_mangle_structural_value_body(
 
 static bool cxx_mangle_supported_structural_value(
     char* buf, size_t* pos, Type* value_type, int64_t value,
-    CxxMangleContext* context) {
+    CxxMangleContext* context, Decl* pointer_declaration) {
     unsigned bit_offset = 0;
     if (!cxx_structural_class_value_supported_subset(value_type)) {
         return false;
     }
     cxx_mangle_type_char(buf, pos, 'X');
     if (!cxx_mangle_structural_value_body(
-            buf, pos, value_type, (uint64_t)value, &bit_offset, context)) {
+            buf, pos, value_type, (uint64_t)value, &bit_offset, context,
+            pointer_declaration)) {
         return false;
     }
     cxx_mangle_type_char(buf, pos, 'E');
@@ -398,8 +493,10 @@ static bool cxx_mangle_supported_structural_value(
 static void cxx_mangle_template_class_value_argument(
     char* buf, size_t* pos, Type* value_type, int64_t value,
     CxxMangleContext* context) {
+    Decl* pointer_declaration = value != 0
+        ? cxx_structural_pointer_value_declaration(value) : NULL;
     if (cxx_mangle_supported_structural_value(
-            buf, pos, value_type, value, context)) {
+            buf, pos, value_type, value, context, pointer_declaration)) {
         return;
     }
     cxx_mangle_type_char(buf, pos, 'L');
@@ -2304,8 +2401,8 @@ static bool cxx_structural_class_pack_fields(
         field_value = (uint64_t)member_values[(*value_index)++];
         field_bits = cxx_structural_type_value_bits(field->type);
         if (field->type->kind == TYPE_PTR) {
-            if (field_value != 0u || *bit_offset != 0u) return false;
-            *packed_value = 0;
+            if (*bit_offset != 0u) return false;
+            *packed_value = field_value;
             *bit_offset = field_bits;
             continue;
         }
@@ -3179,8 +3276,24 @@ static void cxx_typeinfo_identity_append_class(
                     rcc_fatal("C++ typeinfo value argument is missing");
                 }
                 cxx_typeinfo_identity_append_char(builder, 'V');
-                cxx_typeinfo_identity_append_signed(
-                    builder, value_arguments[index]);
+                if (parameter->type &&
+                    cxx_structural_class_has_only_pointer_member(
+                        parameter->type) && value_arguments[index] != 0) {
+                    Decl* pointer_declaration =
+                        cxx_structural_pointer_value_declaration(
+                            value_arguments[index]);
+                    if (!pointer_declaration ||
+                        !decl_link_name(pointer_declaration)) {
+                        rcc_fatal(
+                            "C++ typeinfo structural pointer argument is missing");
+                    }
+                    cxx_typeinfo_identity_append_char(builder, 'P');
+                    cxx_typeinfo_identity_append_text(
+                        builder, decl_link_name(pointer_declaration));
+                } else {
+                    cxx_typeinfo_identity_append_signed(
+                        builder, value_arguments[index]);
+                }
                 break;
             case TPARAM_TEMPLATE:
                 if (!arguments || !arguments[index] ||
@@ -8088,6 +8201,23 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 cxx_structural_class_unpack_member_path(
                     parameter->type, value_args[index], member_names,
                     member_count, &value, &value_type)) {
+                if (value_type && value_type->kind == TYPE_PTR &&
+                    value != 0) {
+                    Decl* pointer_declaration =
+                        cxx_structural_pointer_value_declaration(value);
+                    Expr* identifier;
+                    if (!pointer_declaration || !pointer_declaration->name) {
+                        rcc_fatal(
+                            "C++ structural pointer template argument is missing");
+                    }
+                    identifier = expr_ident(
+                        pointer_declaration->name, expression->loc);
+                    identifier->ident_decl = pointer_declaration;
+                    identifier->type = pointer_declaration->type;
+                    copy = expr_unary(EXPR_ADDR, identifier, expression->loc);
+                    copy->type = value_type;
+                    return copy;
+                }
                 copy = expr_int(value, expression->loc);
                 copy->type = value_type ? value_type : type_int;
                 return copy;
@@ -9450,6 +9580,9 @@ void* cxx_template_instantiate(CxxTemplate* tmpl, Type** args, int arg_count) {
  * ═══════════════════════════════════════ */
 
 void cxx_init(void) {
+    cxx_structural_pointer_value_declarations = NULL;
+    cxx_structural_pointer_value_count = 0u;
+    cxx_structural_pointer_value_capacity = 0u;
     if (!g_global_namespace) {
         g_global_namespace = cxx_namespace_alloc(NULL, NULL);
     }
