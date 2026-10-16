@@ -12,7 +12,13 @@
 #define rcc_alloc ast_arena_alloc
 #define rcc_strdup ast_arena_strdup
 
-static Decl** cxx_structural_pointer_value_declarations;
+typedef struct CxxStructuralPointerValue {
+    Decl* declaration;
+    int64_t byte_offset;
+    bool has_subobject_path;
+    bool one_past;
+} CxxStructuralPointerValue;
+static CxxStructuralPointerValue* cxx_structural_pointer_values;
 static size_t cxx_structural_pointer_value_count;
 static size_t cxx_structural_pointer_value_capacity;
 typedef struct CxxStructuralMemberPointerValue {
@@ -25,18 +31,25 @@ static CxxStructuralMemberPointerValue*
 static size_t cxx_structural_member_pointer_value_count;
 static size_t cxx_structural_member_pointer_value_capacity;
 
-bool cxx_structural_pointer_value_register(Decl* declaration,
-                                          int64_t* token_out) {
+bool cxx_structural_pointer_value_register(
+    Decl* declaration, int64_t byte_offset, bool has_subobject_path,
+    bool one_past, int64_t* token_out) {
     const char* link_name;
     size_t index;
-    if (!declaration || !token_out) return false;
+    if (!declaration || byte_offset < 0 || !token_out ||
+        (one_past && byte_offset == 0)) return false;
     link_name = decl_link_name(declaration);
     for (index = 0; index < cxx_structural_pointer_value_count; ++index) {
-        Decl* registered = cxx_structural_pointer_value_declarations[index];
+        CxxStructuralPointerValue* value =
+            &cxx_structural_pointer_values[index];
+        Decl* registered = value->declaration;
         const char* registered_link_name = decl_link_name(registered);
-        if (registered == declaration ||
-            (link_name && registered_link_name &&
-             strcmp(link_name, registered_link_name) == 0)) {
+        if ((registered == declaration ||
+             (link_name && registered_link_name &&
+              strcmp(link_name, registered_link_name) == 0)) &&
+            value->byte_offset == byte_offset &&
+            value->has_subobject_path == has_subobject_path &&
+            value->one_past == one_past) {
             *token_out = (int64_t)(index + 1u);
             return true;
         }
@@ -48,22 +61,22 @@ bool cxx_structural_pointer_value_register(Decl* declaration,
         cxx_structural_pointer_value_capacity) {
         size_t new_capacity = cxx_structural_pointer_value_capacity
             ? cxx_structural_pointer_value_capacity * 2u : 16u;
-        Decl** declarations;
+        CxxStructuralPointerValue* values;
         if (new_capacity < cxx_structural_pointer_value_capacity ||
-            new_capacity > SIZE_MAX / sizeof(*declarations)) {
+            new_capacity > SIZE_MAX / sizeof(*values)) {
             return false;
         }
-        declarations = rcc_alloc(new_capacity * sizeof(*declarations));
+        values = rcc_alloc(new_capacity * sizeof(*values));
         if (cxx_structural_pointer_value_count != 0u) {
-            memcpy(declarations, cxx_structural_pointer_value_declarations,
-                   cxx_structural_pointer_value_count *
-                       sizeof(*declarations));
+            memcpy(values, cxx_structural_pointer_values,
+                   cxx_structural_pointer_value_count * sizeof(*values));
         }
-        cxx_structural_pointer_value_declarations = declarations;
+        cxx_structural_pointer_values = values;
         cxx_structural_pointer_value_capacity = new_capacity;
     }
-    cxx_structural_pointer_value_declarations[
-        cxx_structural_pointer_value_count] = declaration;
+    cxx_structural_pointer_values[cxx_structural_pointer_value_count] =
+        (CxxStructuralPointerValue){
+            declaration, byte_offset, has_subobject_path, one_past};
     ++cxx_structural_pointer_value_count;
     *token_out = (int64_t)cxx_structural_pointer_value_count;
     return true;
@@ -74,7 +87,24 @@ Decl* cxx_structural_pointer_value_declaration(int64_t token) {
             (uint64_t)cxx_structural_pointer_value_count) {
         return NULL;
     }
-    return cxx_structural_pointer_value_declarations[(size_t)token - 1u];
+    return cxx_structural_pointer_values[(size_t)token - 1u].declaration;
+}
+
+bool cxx_structural_pointer_value_location(
+    int64_t token, int64_t* byte_offset, bool* has_subobject_path,
+    bool* one_past) {
+    CxxStructuralPointerValue* value;
+    if (token <= 0 || (uint64_t)token >
+            (uint64_t)cxx_structural_pointer_value_count) {
+        return false;
+    }
+    value = &cxx_structural_pointer_values[(size_t)token - 1u];
+    if (byte_offset) *byte_offset = value->byte_offset;
+    if (has_subobject_path) {
+        *has_subobject_path = value->has_subobject_path;
+    }
+    if (one_past) *one_past = value->one_past;
+    return true;
 }
 
 bool cxx_structural_member_pointer_value_register(
@@ -481,6 +511,117 @@ static bool cxx_mangle_structural_member_pointer_value(
     cxx_mangle_type_char(buf, pos, 'E');
     return true;
 }
+
+static bool cxx_mangle_structural_pointer_value(
+    char* buf, size_t* pos, Type* pointer_type, int64_t token,
+    CxxMangleContext* context) {
+    Decl* declaration = cxx_structural_pointer_value_declaration(token);
+    const char* link_name;
+    int64_t byte_offset = 0;
+    bool has_subobject_path = false;
+    bool one_past = false;
+    if (!declaration || !(link_name = decl_link_name(declaration)) ||
+        !cxx_structural_pointer_value_location(
+            token, &byte_offset, &has_subobject_path, &one_past)) {
+        return false;
+    }
+    cxx_mangle_type_char(buf, pos, 'a');
+    cxx_mangle_type_char(buf, pos, 'd');
+    if (has_subobject_path) {
+        if (!pointer_type || pointer_type->kind != TYPE_PTR ||
+            !pointer_type->base || byte_offset < 0 ||
+            (one_past && byte_offset == 0)) {
+            return false;
+        }
+        cxx_mangle_type_char(buf, pos, 's');
+        cxx_mangle_type_char(buf, pos, 'o');
+        cxx_mangle_type_append_context(
+            buf, pos, pointer_type->base, context);
+    } else if (byte_offset != 0) {
+        if (!pointer_type || pointer_type->kind != TYPE_PTR ||
+            !pointer_type->base || !one_past) {
+            return false;
+        }
+        cxx_mangle_type_char(buf, pos, 'c');
+        cxx_mangle_type_char(buf, pos, 'v');
+        cxx_mangle_type_append_context(buf, pos, pointer_type, context);
+        cxx_mangle_type_char(buf, pos, 'p');
+        cxx_mangle_type_char(buf, pos, 'l');
+        cxx_mangle_type_char(buf, pos, 'c');
+        cxx_mangle_type_char(buf, pos, 'v');
+        cxx_mangle_type_char(buf, pos, 'P');
+        cxx_mangle_type_char(buf, pos, 'c');
+        cxx_mangle_type_char(buf, pos, 'a');
+        cxx_mangle_type_char(buf, pos, 'd');
+    }
+    cxx_mangle_type_char(buf, pos, 'L');
+    cxx_mangle_type_char(buf, pos, '_');
+    if (link_name[0] == '_' && link_name[1] == 'Z') {
+        size_t length = strlen(link_name + 1u);
+        if (*pos + length >= CXX_MANGLE_BUFFER_SIZE) {
+            rcc_fatal("C++ template class name is too long");
+        }
+        memcpy(buf + *pos, link_name + 1u, length);
+        *pos += length;
+    } else {
+        char digits[32];
+        int digit_count;
+        cxx_mangle_type_char(buf, pos, 'Z');
+        size_t link_length = strlen(link_name);
+        digit_count = snprintf(digits, sizeof(digits), "%llu",
+                               (unsigned long long)link_length);
+        if (digit_count < 0 ||
+            (size_t)digit_count >= sizeof(digits) ||
+            *pos + (size_t)digit_count + link_length >=
+                CXX_MANGLE_BUFFER_SIZE) {
+            rcc_fatal("C++ template class name is too long");
+        }
+        memcpy(buf + *pos, digits, (size_t)digit_count);
+        *pos += (size_t)digit_count;
+        memcpy(buf + *pos, link_name, link_length);
+        *pos += link_length;
+    }
+    cxx_mangle_type_char(buf, pos, 'E');
+    if (!has_subobject_path && byte_offset != 0) {
+        char digits[32];
+        int written = snprintf(digits, sizeof(digits), "%llu",
+                               (unsigned long long)byte_offset);
+        if (written < 0 || (size_t)written >= sizeof(digits) ||
+            *pos + (size_t)written + 2u >= CXX_MANGLE_BUFFER_SIZE) {
+            rcc_fatal("C++ template class name is too long");
+        }
+        cxx_mangle_type_char(buf, pos, 'L');
+        cxx_mangle_type_append_context(buf, pos, type_long, context);
+        memcpy(buf + *pos, digits, (size_t)written);
+        *pos += (size_t)written;
+        cxx_mangle_type_char(buf, pos, 'E');
+        return true;
+    }
+    if (has_subobject_path) {
+        if (byte_offset != 0) {
+            char digits[32];
+            int written;
+            if (byte_offset < 0) {
+                uint64_t magnitude = (uint64_t)(-(byte_offset + 1)) + 1u;
+                written = snprintf(digits, sizeof(digits), "n%llu",
+                                   (unsigned long long)magnitude);
+            } else {
+                written = snprintf(digits, sizeof(digits), "%llu",
+                                   (unsigned long long)byte_offset);
+            }
+            if (written < 0 || (size_t)written >= sizeof(digits) ||
+                *pos + (size_t)written >= CXX_MANGLE_BUFFER_SIZE) {
+                rcc_fatal("C++ template class name is too long");
+            }
+            memcpy(buf + *pos, digits, (size_t)written);
+            *pos += (size_t)written;
+        }
+        if (one_past) cxx_mangle_type_char(buf, pos, 'p');
+        cxx_mangle_type_char(buf, pos, 'E');
+    }
+    return true;
+}
+
 static bool cxx_structural_class_single_pointer_kind(
     const Type* type, bool member_pointer) {
     for (const TypeParam* field = type && type->cxx_class
@@ -525,7 +666,7 @@ static bool cxx_structural_class_has_only_member_pointer_member(
 static bool cxx_mangle_structural_value_body(
     char* buf, size_t* pos, Type* value_type, uint64_t packed_value,
     unsigned* bit_offset, CxxMangleContext* context,
-    Decl* pointer_declaration) {
+    int64_t pointer_token) {
     TypeParam* field;
     cxx_mangle_type_char(buf, pos, 't');
     cxx_mangle_type_char(buf, pos, 'l');
@@ -542,7 +683,7 @@ static bool cxx_mangle_structural_value_body(
             }
             if (!cxx_mangle_structural_value_body(
                     buf, pos, field->type, packed_value, bit_offset,
-                    context, pointer_declaration)) {
+                    context, pointer_token)) {
                 return false;
             }
             continue;
@@ -563,42 +704,11 @@ static bool cxx_mangle_structural_value_body(
                 continue;
             }
             if (field_value != 0) {
-                const char* link_name;
-                size_t link_length;
-                char digits[32];
-                int digit_count;
-                if (!pointer_declaration ||
-                    !(link_name = decl_link_name(pointer_declaration))) {
+                if (field_value != pointer_token ||
+                    !cxx_mangle_structural_pointer_value(
+                        buf, pos, field->type, pointer_token, context)) {
                     return false;
                 }
-                cxx_mangle_type_char(buf, pos, 'a');
-                cxx_mangle_type_char(buf, pos, 'd');
-                cxx_mangle_type_char(buf, pos, 'L');
-                cxx_mangle_type_char(buf, pos, '_');
-                if (link_name[0] == '_' && link_name[1] == 'Z') {
-                    size_t length = strlen(link_name + 1u);
-                    if (*pos + length >= CXX_MANGLE_BUFFER_SIZE) {
-                        rcc_fatal("C++ template class name is too long");
-                    }
-                    memcpy(buf + *pos, link_name + 1u, length);
-                    *pos += length;
-                } else {
-                    cxx_mangle_type_char(buf, pos, 'Z');
-                    link_length = strlen(link_name);
-                    digit_count = snprintf(digits, sizeof(digits), "%llu",
-                                          (unsigned long long)link_length);
-                    if (digit_count < 0 ||
-                        (size_t)digit_count >= sizeof(digits) ||
-                        *pos + (size_t)digit_count + link_length >=
-                            CXX_MANGLE_BUFFER_SIZE) {
-                        rcc_fatal("C++ template class name is too long");
-                    }
-                    memcpy(buf + *pos, digits, (size_t)digit_count);
-                    *pos += (size_t)digit_count;
-                    memcpy(buf + *pos, link_name, link_length);
-                    *pos += link_length;
-                }
-                cxx_mangle_type_char(buf, pos, 'E');
             }
             *bit_offset += field_bits;
             continue;
@@ -615,7 +725,7 @@ static bool cxx_mangle_structural_value_body(
 
 static bool cxx_mangle_supported_structural_value(
     char* buf, size_t* pos, Type* value_type, int64_t value,
-    CxxMangleContext* context, Decl* pointer_declaration) {
+    CxxMangleContext* context, int64_t pointer_token) {
     unsigned bit_offset = 0;
     if (!cxx_structural_class_value_supported_subset(value_type)) {
         return false;
@@ -623,7 +733,7 @@ static bool cxx_mangle_supported_structural_value(
     cxx_mangle_type_char(buf, pos, 'X');
     if (!cxx_mangle_structural_value_body(
             buf, pos, value_type, (uint64_t)value, &bit_offset, context,
-            pointer_declaration)) {
+            pointer_token)) {
         return false;
     }
     cxx_mangle_type_char(buf, pos, 'E');
@@ -633,11 +743,11 @@ static bool cxx_mangle_supported_structural_value(
 static void cxx_mangle_template_class_value_argument(
     char* buf, size_t* pos, Type* value_type, int64_t value,
     CxxMangleContext* context) {
-    Decl* pointer_declaration = value != 0 &&
+    int64_t pointer_token = value != 0 &&
             cxx_structural_class_has_only_pointer_member(value_type)
-        ? cxx_structural_pointer_value_declaration(value) : NULL;
+        ? value : 0;
     if (cxx_mangle_supported_structural_value(
-            buf, pos, value_type, value, context, pointer_declaration)) {
+            buf, pos, value_type, value, context, pointer_token)) {
         return;
     }
     cxx_mangle_type_char(buf, pos, 'L');
@@ -3468,17 +3578,28 @@ static void cxx_typeinfo_identity_append_class(
                 if (parameter->type &&
                     cxx_structural_class_has_only_pointer_member(
                         parameter->type) && value_arguments[index] != 0) {
+                    int64_t byte_offset = 0;
+                    bool has_subobject_path = false;
+                    bool one_past = false;
                     Decl* pointer_declaration =
                         cxx_structural_pointer_value_declaration(
                             value_arguments[index]);
                     if (!pointer_declaration ||
-                        !decl_link_name(pointer_declaration)) {
+                        !decl_link_name(pointer_declaration) ||
+                        !cxx_structural_pointer_value_location(
+                            value_arguments[index], &byte_offset,
+                            &has_subobject_path, &one_past)) {
                         rcc_fatal(
                             "C++ typeinfo structural pointer argument is missing");
                     }
                     cxx_typeinfo_identity_append_char(builder, 'P');
                     cxx_typeinfo_identity_append_text(
                         builder, decl_link_name(pointer_declaration));
+                    cxx_typeinfo_identity_append_signed(builder, byte_offset);
+                    cxx_typeinfo_identity_append_char(
+                        builder, has_subobject_path ? 'S' : 'B');
+                    cxx_typeinfo_identity_append_char(
+                        builder, one_past ? 'P' : 'I');
                 } else if (parameter->type &&
                            cxx_structural_class_has_only_member_pointer_member(
                                parameter->type) &&
@@ -8431,8 +8552,14 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                     !value_type->cxx_is_member_pointer && value != 0) {
                     Decl* pointer_declaration =
                         cxx_structural_pointer_value_declaration(value);
+                    int64_t byte_offset = 0;
+                    bool has_subobject_path = false;
+                    bool one_past = false;
                     Expr* identifier;
-                    if (!pointer_declaration || !pointer_declaration->name) {
+                    if (!pointer_declaration || !pointer_declaration->name ||
+                        !cxx_structural_pointer_value_location(
+                            value, &byte_offset, &has_subobject_path,
+                            &one_past)) {
                         rcc_fatal(
                             "C++ structural pointer template argument is missing");
                     }
@@ -8440,7 +8567,68 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                         pointer_declaration->name, expression->loc);
                     identifier->ident_decl = pointer_declaration;
                     identifier->type = pointer_declaration->type;
-                    copy = expr_unary(EXPR_ADDR, identifier, expression->loc);
+                    if (has_subobject_path) {
+                        Type* array_type = pointer_declaration->type;
+                        int64_t element_size;
+                        int64_t element_index;
+                        Expr* subobject;
+                        Expr* subscript;
+                        if (!array_type || array_type->kind != TYPE_ARRAY ||
+                            !array_type->base ||
+                            array_type->base->size <= 0 || byte_offset < 0 ||
+                            byte_offset % array_type->base->size != 0 ||
+                            (one_past &&
+                             byte_offset == 0)) {
+                            rcc_fatal(
+                                "C++ structural pointer array location is invalid");
+                        }
+                        element_size = array_type->base->size;
+                        element_index = byte_offset / element_size;
+                        if (element_index < 0 ||
+                            element_index > array_type->array_len ||
+                            (one_past &&
+                             element_index != array_type->array_len)) {
+                            rcc_fatal(
+                                "C++ structural pointer array index is invalid");
+                        }
+                        subscript = expr_int(element_index, expression->loc);
+                        subscript->type = type_int;
+                        if (one_past) {
+                            copy = expr_binary(
+                                EXPR_ADD, identifier, subscript,
+                                expression->loc);
+                            copy->type = value_type;
+                            return copy;
+                        }
+                        subobject = expr_index(
+                            identifier, subscript, expression->loc);
+                        subobject->type = array_type->base;
+                        copy = expr_unary(
+                            EXPR_ADDR, subobject, expression->loc);
+                    } else {
+                        if (byte_offset != 0) {
+                            Expr* address;
+                            Expr* one;
+                            if (!one_past || !pointer_declaration->type ||
+                                pointer_declaration->type->size <= 0 ||
+                                byte_offset !=
+                                    pointer_declaration->type->size) {
+                                rcc_fatal(
+                                    "C++ structural pointer object offset is invalid");
+                            }
+                            address = expr_unary(
+                                EXPR_ADDR, identifier, expression->loc);
+                            address->type = value_type;
+                            one = expr_int(1, expression->loc);
+                            one->type = type_int;
+                            copy = expr_binary(
+                                EXPR_ADD, address, one, expression->loc);
+                            copy->type = value_type;
+                            return copy;
+                        }
+                        copy = expr_unary(EXPR_ADDR, identifier,
+                                          expression->loc);
+                    }
                     copy->type = value_type;
                     return copy;
                 }
@@ -9806,7 +9994,7 @@ void* cxx_template_instantiate(CxxTemplate* tmpl, Type** args, int arg_count) {
  * ═══════════════════════════════════════ */
 
 void cxx_init(void) {
-    cxx_structural_pointer_value_declarations = NULL;
+    cxx_structural_pointer_values = NULL;
     cxx_structural_pointer_value_count = 0u;
     cxx_structural_pointer_value_capacity = 0u;
     cxx_structural_member_pointer_values = NULL;

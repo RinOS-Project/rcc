@@ -1864,21 +1864,26 @@ static bool cxx_expr_is_nullptr_constant(const Expr* expression) {
         (expression->is_cxx_nullptr ||
          (expression->type && expression->type->kind == TYPE_NULLPTR));
 }
-static Decl* cxx_structural_pointer_member_address_declaration(
-    const Expr* expression, Type* pointer_type) {
-    const Expr* operand;
+typedef struct CxxStructuralPointerLocation {
+    Decl* declaration;
+    int64_t byte_offset;
+    bool has_subobject_path;
+    bool one_past;
+} CxxStructuralPointerLocation;
+
+static Decl* cxx_structural_pointer_member_identifier_declaration(
+    const Expr* expression, bool* namespace_scope_out) {
     Decl* declaration;
     Symbol* symbol;
     bool namespace_scope_target = false;
     CxxNamespace* lookup_namespace;
-    if (!expression || expression->kind != EXPR_ADDR ||
-        !(operand = expression->unary_operand) ||
-        operand->kind != EXPR_IDENT || !operand->ident_name) {
+    if (!expression || expression->kind != EXPR_IDENT ||
+        !expression->ident_name) {
         return NULL;
     }
-    declaration = operand->ident_decl;
+    declaration = expression->ident_decl;
     symbol = g_symtab
-        ? symtab_lookup(g_symtab, operand->ident_name) : NULL;
+        ? symtab_lookup(g_symtab, expression->ident_name) : NULL;
     if (!declaration) declaration = symbol ? symbol->decl : NULL;
     lookup_namespace = active_namespace
         ? active_namespace : g_global_namespace;
@@ -1891,7 +1896,7 @@ static Decl* cxx_structural_pointer_member_address_declaration(
                  candidate->kind == DECL_FUNC) &&
                 ((declaration && candidate == declaration) ||
                  (!declaration && cxx_decl_leaf_matches(
-                     candidate->name, operand->ident_name)))) {
+                     candidate->name, expression->ident_name)))) {
                 declaration = candidate;
                 namespace_scope_target = true;
                 break;
@@ -1906,39 +1911,235 @@ static Decl* cxx_structural_pointer_member_address_declaration(
                  candidate->kind == DECL_FUNC) &&
                 ((declaration && candidate == declaration) ||
                  (!declaration && candidate->name &&
-                  strcmp(candidate->name, operand->ident_name) == 0))) {
+                  strcmp(candidate->name, expression->ident_name) == 0))) {
                 declaration = candidate;
                 namespace_scope_target = true;
                 break;
             }
         }
     }
+    if (namespace_scope_out) {
+        *namespace_scope_out = namespace_scope_target;
+    }
+    return declaration;
+}
+
+static bool cxx_structural_pointer_member_declaration_has_static_storage(
+    Decl* declaration, bool namespace_scope_target) {
+    Symbol* symbol = declaration && declaration->name && g_symtab
+        ? symtab_lookup(g_symtab, declaration->name) : NULL;
+    if (!declaration) return false;
+    if (declaration->kind == DECL_VAR) {
+        return (declaration->var_is_global || namespace_scope_target ||
+                (symbol && symbol->decl == declaration && symbol->is_global)) &&
+            !declaration->var_is_thread_local && !declaration->var_is_vla;
+    }
+    if (declaration->kind == DECL_FUNC) {
+        return declaration->var_is_global || namespace_scope_target ||
+            (symbol && symbol->decl == declaration && symbol->is_global);
+    }
+    return false;
+}
+
+static Decl* cxx_structural_pointer_member_address_declaration(
+    const Expr* expression, Type* pointer_type) {
+    const Expr* operand;
+    Decl* declaration;
+    bool namespace_scope_target = false;
+    if (!expression || expression->kind != EXPR_ADDR ||
+        !(operand = expression->unary_operand) ||
+        operand->kind != EXPR_IDENT || !operand->ident_name) {
+        return NULL;
+    }
+    declaration = cxx_structural_pointer_member_identifier_declaration(
+        operand, &namespace_scope_target);
     if (!declaration || !declaration->type || !pointer_type ||
         pointer_type->kind != TYPE_PTR ||
         !type_is_compatible(pointer_type->base, declaration->type) ||
         !decl_link_name(declaration)) {
         return NULL;
     }
-    if (declaration->kind == DECL_VAR) {
-        if ((!declaration->var_is_global && !namespace_scope_target &&
-             (!symbol || symbol->decl != declaration || !symbol->is_global)) ||
-            declaration->var_is_thread_local || declaration->var_is_vla) {
-            return NULL;
-        }
-    } else if (declaration->kind == DECL_FUNC) {
-        if (!namespace_scope_target &&
-            (!symbol || symbol->decl != declaration || !symbol->is_global)) {
-            return NULL;
-        }
-    } else {
+    if (!cxx_structural_pointer_member_declaration_has_static_storage(
+            declaration, namespace_scope_target)) {
         return NULL;
     }
     return declaration;
 }
 
+static bool cxx_structural_pointer_member_array_location(
+    const Expr* expression, Type* pointer_type,
+    CxxStructuralPointerLocation* location) {
+    Decl* declaration;
+    bool namespace_scope_target = false;
+    if (!expression || expression->kind != EXPR_IDENT ||
+        !pointer_type || pointer_type->kind != TYPE_PTR ||
+        !pointer_type->base || !location) {
+        return false;
+    }
+    declaration = cxx_structural_pointer_member_identifier_declaration(
+        expression, &namespace_scope_target);
+    if (!declaration || declaration->kind != DECL_VAR ||
+        !declaration->type || declaration->type->kind != TYPE_ARRAY ||
+        declaration->type->array_len < 0 ||
+        !declaration->type->base || declaration->type->base->size <= 0 ||
+        !type_is_compatible(pointer_type->base, declaration->type->base) ||
+        !cxx_structural_pointer_member_declaration_has_static_storage(
+            declaration, namespace_scope_target) || !decl_link_name(declaration)) {
+        return false;
+    }
+    location->declaration = declaration;
+    location->byte_offset = 0;
+    location->has_subobject_path = true;
+    location->one_past = false;
+    return true;
+}
+
+static bool cxx_structural_pointer_member_location(
+    const Expr* expression, Type* pointer_type,
+    CxxStructuralPointerLocation* location) {
+    if (!expression || !pointer_type || pointer_type->kind != TYPE_PTR ||
+        !pointer_type->base || !location) {
+        return false;
+    }
+    if (expression->kind == EXPR_COND) {
+        int64_t condition;
+        if (!expr_eval_integer_constant(expression->cond_test, &condition)) {
+            return false;
+        }
+        return cxx_structural_pointer_member_location(
+            condition ? expression->cond_then : expression->cond_else,
+            pointer_type, location);
+    }
+    if (expression->kind == EXPR_CAST && expression->cast_expr &&
+        expression->cast_type && expression->cast_type->kind == TYPE_PTR &&
+        type_is_compatible(expression->cast_type, pointer_type) &&
+        (expression->cxx_cast_kind == CXX_CAST_STATIC ||
+         expression->cxx_cast_kind == CXX_CAST_CONST)) {
+        return cxx_structural_pointer_member_location(
+            expression->cast_expr, pointer_type, location);
+    }
+    if (expression->kind == EXPR_IDENT &&
+        cxx_structural_pointer_member_array_location(
+            expression, pointer_type, location)) {
+        return true;
+    }
+    if (expression->kind == EXPR_ADDR && expression->unary_operand &&
+        expression->unary_operand->kind == EXPR_INDEX) {
+        const Expr* indexed = expression->unary_operand;
+        const Expr* base = indexed->index_base;
+        Type* array_type = NULL;
+        bool namespace_scope_target = false;
+        int64_t index;
+        if (!base || !expr_eval_integer_constant(
+                indexed->index_expr, &index)) {
+            return false;
+        }
+        location->declaration = cxx_structural_pointer_member_identifier_declaration(
+            base, &namespace_scope_target);
+        array_type = location->declaration
+            ? location->declaration->type : NULL;
+        if (!location->declaration ||
+            location->declaration->kind != DECL_VAR || !array_type ||
+            array_type->kind != TYPE_ARRAY || array_type->array_len < 0 ||
+            !array_type->base || array_type->base->size <= 0 ||
+            !type_is_compatible(pointer_type->base, array_type->base) ||
+            !cxx_structural_pointer_member_declaration_has_static_storage(
+                location->declaration, namespace_scope_target) || index < 0 ||
+            index > array_type->array_len ||
+            index > INT64_MAX / array_type->base->size ||
+            !decl_link_name(location->declaration)) {
+            return false;
+        }
+        location->byte_offset = index * array_type->base->size;
+        location->has_subobject_path = true;
+        location->one_past = index == array_type->array_len;
+        return true;
+    }
+    if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB) {
+        const Expr* pointer_expression = expression->binary_lhs;
+        const Expr* integer_expression = expression->binary_rhs;
+        int64_t element_offset;
+        CxxStructuralPointerLocation base_location;
+        Type* object_type;
+        int64_t element_size;
+        int64_t object_bytes;
+        int64_t byte_delta;
+        int64_t new_offset;
+        if (expression->kind == EXPR_ADD && pointer_expression &&
+            expr_eval_integer_constant(
+                (Expr*)pointer_expression, &element_offset)) {
+            const Expr* temporary = pointer_expression;
+            pointer_expression = integer_expression;
+            integer_expression = temporary;
+        }
+        if (!integer_expression ||
+            !expr_eval_integer_constant(
+                (Expr*)integer_expression, &element_offset) ||
+            !cxx_structural_pointer_member_location(
+                pointer_expression, pointer_type, &base_location) ||
+            !base_location.declaration ||
+            !(object_type = base_location.declaration->type)) {
+            return false;
+        }
+        if (base_location.has_subobject_path) {
+            if (object_type->kind != TYPE_ARRAY || !object_type->base ||
+                object_type->array_len <= 0 ||
+                object_type->base->size <= 0 ||
+                !type_is_compatible(pointer_type->base, object_type->base) ||
+                (int64_t)object_type->array_len >
+                    INT64_MAX / object_type->base->size) {
+                return false;
+            }
+            element_size = object_type->base->size;
+            object_bytes = (int64_t)object_type->array_len * element_size;
+        } else {
+            if (object_type->size <= 0 || !pointer_type->base ||
+                pointer_type->base->size <= 0 ||
+                !type_is_compatible(pointer_type->base, object_type) ||
+                pointer_type->base->size != object_type->size) {
+                return false;
+            }
+            element_size = pointer_type->base->size;
+            object_bytes = object_type->size;
+        }
+        if (expression->kind == EXPR_SUB) {
+            if (element_offset == INT64_MIN) return false;
+            element_offset = -element_offset;
+        }
+        if (element_offset > INT64_MAX / element_size ||
+            element_offset < INT64_MIN / element_size) {
+            return false;
+        }
+        byte_delta = element_offset * element_size;
+        if ((byte_delta > 0 && base_location.byte_offset >
+                INT64_MAX - byte_delta) ||
+            (byte_delta < 0 && base_location.byte_offset <
+                INT64_MIN - byte_delta)) {
+            return false;
+        }
+        new_offset = base_location.byte_offset + byte_delta;
+        if (new_offset < 0 || new_offset > object_bytes) return false;
+        *location = base_location;
+        location->byte_offset = new_offset;
+        location->one_past = new_offset == object_bytes;
+        return true;
+    }
+    if (expression->kind == EXPR_ADDR) {
+        Decl* declaration = cxx_structural_pointer_member_address_declaration(
+            expression, pointer_type);
+        if (!declaration) return false;
+        location->declaration = declaration;
+        location->byte_offset = 0;
+        location->has_subobject_path = false;
+        location->one_past = false;
+        return true;
+    }
+    return false;
+}
+
 static bool cxx_structural_pointer_member_value(
     const Expr* expression, Type* pointer_type, int64_t* value_out) {
-    Decl* declaration;
+    CxxStructuralPointerLocation location;
     int64_t offset;
     if (!expression || !pointer_type || pointer_type->kind != TYPE_PTR ||
         !value_out) {
@@ -1969,23 +2170,6 @@ static bool cxx_structural_pointer_member_value(
         *value_out = 0;
         return true;
     }
-    if (expression->kind == EXPR_COND) {
-        int64_t condition;
-        if (!expr_eval_integer_constant(expression->cond_test, &condition)) {
-            return false;
-        }
-        return cxx_structural_pointer_member_value(
-            condition ? expression->cond_then : expression->cond_else,
-            pointer_type, value_out);
-    }
-    if (expression->kind == EXPR_CAST && expression->cast_expr &&
-        expression->cast_type && expression->cast_type->kind == TYPE_PTR &&
-        type_is_compatible(expression->cast_type, pointer_type) &&
-        (expression->cxx_cast_kind == CXX_CAST_STATIC ||
-         expression->cxx_cast_kind == CXX_CAST_CONST)) {
-        return cxx_structural_pointer_member_value(
-            expression->cast_expr, pointer_type, value_out);
-    }
     if (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB) {
         const Expr* lhs = expression->binary_lhs;
         const Expr* rhs = expression->binary_rhs;
@@ -1993,23 +2177,24 @@ static bool cxx_structural_pointer_member_value(
             return false;
         }
         if (rhs && expr_eval_integer_constant((Expr*)rhs, &offset) &&
-            offset == 0 &&
-            cxx_structural_pointer_member_value(
-                lhs, pointer_type, value_out)) {
-            return true;
+            offset == 0) {
+            if (cxx_structural_pointer_member_value(
+                    lhs, pointer_type, value_out)) return true;
         }
         if (expression->kind == EXPR_ADD && lhs &&
-            expr_eval_integer_constant((Expr*)lhs, &offset) && offset == 0 &&
-            cxx_structural_pointer_member_value(
-                rhs, pointer_type, value_out)) {
-            return true;
+            expr_eval_integer_constant((Expr*)lhs, &offset) && offset == 0) {
+            if (cxx_structural_pointer_member_value(
+                    rhs, pointer_type, value_out)) return true;
         }
+    }
+    if (!cxx_structural_pointer_member_location(
+            expression, pointer_type, &location) ||
+        !location.declaration) {
         return false;
     }
-    declaration = cxx_structural_pointer_member_address_declaration(
-        expression, pointer_type);
-    return declaration && cxx_structural_pointer_value_register(
-                              declaration, value_out);
+    return cxx_structural_pointer_value_register(
+        location.declaration, location.byte_offset,
+        location.has_subobject_path, location.one_past, value_out);
 }
 
 static bool cxx_structural_class_collect_member_values(

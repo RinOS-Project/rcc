@@ -477,6 +477,7 @@ endif
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
 .PHONY: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-posix
+.PHONY: test-cxx-structural-pointer-offset test-cxx-structural-pointer-offset-posix
 .PHONY: test-cxx-nested-class-template-owner-explicit-chain-10
 .PHONY: test-cxx-dependent-array-bound-overflow
 .PHONY: test-cxx-dependent-array-unsigned64-bound
@@ -649,6 +650,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-static-reference-subobjects \
 	test-cxx-static-reference-conversions \
 	test-cxx-member-pointer-data \
+	test-cxx-structural-pointer-offset \
 	test-cxx-member-pointer-functions \
 	test-cxx-member-pointer-reference-lifetime \
 	test-cxx-class-template-methods \
@@ -3729,6 +3731,24 @@ test-cxx-static-reference-conversions-posix: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-static-reference-conversions/x64-host
 	@echo "C++ static reference conversion lifetime tests passed for i686 and AMD64"
 
+test-cxx-structural-pointer-offset: test-cxx-structural-pointer-offset-posix
+
+test-cxx-structural-pointer-offset-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-pointer-offset)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-structural-pointer-offset,cxx_structural_pointer_offset_nttp.cpp)
+	objdump -f $(TEST_OUT)/cxx-structural-pointer-offset/x86.o > $(TEST_OUT)/cxx-structural-pointer-offset/x86-arch.log
+	$(GREP) -F -q "$(if $(filter Windows_NT,$(OS)),pe-i386,elf32-i386)" $(TEST_OUT)/cxx-structural-pointer-offset/x86-arch.log
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesEEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE4EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE8EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE12pEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadcvPiplcvPcadL_Z32structural_pointer_offset_scalarELl4EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesEEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE4EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE8EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE12pEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadcvPiplcvPcadL_Z32structural_pointer_offset_scalarELl4EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	@echo "C++ structural pointer array-offset NTTP tests completed"
 test-cxx-member-pointer-data-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-data)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
