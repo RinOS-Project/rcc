@@ -506,7 +506,9 @@ static void verify_artifact(const char* object_path, const char* image_path,
         uint64_t unwind_size = unwind ? unwind->file_size : 0u;
         assert(rodata != NULL);
         if (unwind) {
-            assert(unwind->flags == RIN_IMAGE_SECTION_READ &&
+            assert(unwind->flags ==
+                       (RIN_IMAGE_SECTION_READ |
+                        RIN_IMAGE_SECTION_UNWIND_DWARF_DEBUG_FRAME) &&
                    unwind->file_size == unwind->memory_size &&
                    unwind->file_offset ==
                        code->file_offset + object_code->size &&

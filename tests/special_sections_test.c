@@ -123,7 +123,9 @@ static void verify_image(const char* path, uint16_t expected_arch)
             seen |= 1u << 1;
             break;
         case RIN_IMAGE_SECTION_UNWIND:
-            assert(section->flags == RIN_IMAGE_SECTION_READ);
+            assert(section->flags ==
+                   (RIN_IMAGE_SECTION_READ |
+                    RIN_IMAGE_SECTION_UNWIND_DWARF_DEBUG_FRAME));
             seen |= 1u << 2;
             break;
         case RIN_IMAGE_SECTION_INIT_ARRAY:

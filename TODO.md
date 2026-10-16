@@ -5397,8 +5397,13 @@ remains a separate open item.
 - [x] Regenerate deterministic golden hashes after confirming each of the
       ten C/C++ cases produces identical bytes on two consecutive builds;
       the regular `test-golden-artifacts` check passes for RIN/RLL/DRV and RO.
-- [ ] Rerun the complete `test-ci` aggregate after the golden refresh; the
-      prior run stopped at the now-corrected stale golden hashes.
+- [x] Accept unscoped enum values as integral array subscripts while keeping
+      scoped-enum subscripts ill-formed; the focused C++ enum-class tests and
+      reproducible dual-architecture stage0/stage1/stage2 bootstrap pass.
+- [x] Rerun the complete native-Windows `test-ci` aggregate after the golden
+      refresh with Clang 18.1.4 (exit 0), including image-format,
+      deterministic/golden/property/fuzz, relocation, and stage1-to-stage2
+      bootstrap checks.
 - [ ] Broader C++20 partial ordering, optimizer profitability, and remaining
       language/ABI gaps remain open. Do not push or change the parent RCC
       gitlink without an explicit request.

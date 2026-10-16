@@ -15372,7 +15372,7 @@ static Type* sema_expr(Expr* expr) {
                 rcc_error(expr->loc, "subscript requires array or pointer");
                 expr->type = type_int;
             } else {
-                if (!type_is_integer(it)) {
+                if (!sema_is_integer_type(it) || sema_is_scoped_enum(it)) {
                     rcc_error(expr->loc, "array subscript must be integer");
                 }
                 expr->type = base;

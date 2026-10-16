@@ -96,6 +96,9 @@ static_assert(inferred_full_unsigned == 18446744073709551615ULL,
 int cxx_enum_class_probe() {
     Color color = Color::blue;
     Mode mode = Mode::hot;
+    int enumerator_index_values[8] = {};
+    enumerator_index_values[first] = 73;
+    if (enumerator_index_values[first] != 73) return 16;
     if (color != Color::blue) return 1;
     if (mode != Mode::hot) return 2;
     if (first != 7) return 3;

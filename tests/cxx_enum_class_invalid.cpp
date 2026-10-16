@@ -25,3 +25,8 @@ int branch_enum() {
     if (Color::red) return 1;
     return 0;
 }
+
+int subscript_enum() {
+    int values[8] = {};
+    return values[Color::red];
+}
