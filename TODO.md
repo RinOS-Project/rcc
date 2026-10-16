@@ -5177,3 +5177,17 @@ remains a separate open item.
 - [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate after the
       parser and template-cloning changes; it passes (exit 0).
 - [ ] Other standard-valid structural class NTTP forms remain open.
+
+## RCC continuation (2026-10-16, structural NTTP function references)
+
+- [x] Accept a structural class NTTP reference member bound directly to a
+      namespace-scope function, preserving the function designator and
+      invocation through nested template member access.
+- [x] Correct global-scope Itanium name mangling when the parser supplies the
+      root namespace node; retain nested names for named namespaces and class
+      scopes. Compare GCC/RCC symbols on i686 and AMD64 and assemble both.
+- [x] Add `tests/cxx_structural_function_reference_nttp.cpp` to
+      `scripts/ci_nested_class_templates.sh`; the full WSL POSIX gate passes.
+- [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate; it passes
+      (exit 0).
+- [ ] Other standard-valid structural class NTTP forms remain open.

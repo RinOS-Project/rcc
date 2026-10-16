@@ -569,6 +569,14 @@ static void mangle_template_argument_name(char* buf, size_t* pos,
     if (namespace_count > 0) cxx_mangle_type_char(buf, pos, 'E');
 }
 
+static bool cxx_mangle_has_nested_scope(CxxNamespace* ns, CxxClass* cls) {
+    if (cls) return true;
+    for (CxxNamespace* current = ns; current; current = current->parent) {
+        if (current->name) return true;
+    }
+    return false;
+}
+
 static void mangle_nested_prefix(char* buf, size_t* pos,
                                   CxxNamespace* ns, CxxClass* cls) {
     CxxNamespace* ns_stack[32];
@@ -576,7 +584,7 @@ static void mangle_nested_prefix(char* buf, size_t* pos,
 
     buf[(*pos)++] = '_';
     buf[(*pos)++] = 'Z';
-    if (!ns && !cls) return;
+    if (!cxx_mangle_has_nested_scope(ns, cls)) return;
     buf[(*pos)++] = 'N';
     for (CxxNamespace* current = ns; current && current->name;
          current = current->parent) {
@@ -601,7 +609,7 @@ static void mangle_nested_method_prefix(char* buf, size_t* pos,
     int ns_count = 0;
     buf[(*pos)++] = '_';
     buf[(*pos)++] = 'Z';
-    if (!ns && !cls) return;
+    if (!cxx_mangle_has_nested_scope(ns, cls)) return;
     buf[(*pos)++] = 'N';
     if (is_volatile) buf[(*pos)++] = 'V';
     if (is_const) buf[(*pos)++] = 'K';
@@ -1640,7 +1648,7 @@ char* cxx_mangle_name(const char* name, CxxNamespace* ns, CxxClass* cls) {
     mangle_nested_prefix(buf, &pos, ns, cls);
 
     /* Nested name indicator */
-    if (ns || cls) {
+    if (cxx_mangle_has_nested_scope(ns, cls)) {
         /* Member name */
         mangle_name(buf, &pos, name);
 

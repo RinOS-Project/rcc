@@ -2010,6 +2010,7 @@ static bool cxx_structural_pointer_member_path_location(
     Decl* declaration;
     Type* current_type;
     bool namespace_scope_target = false;
+    bool function_reference = false;
     size_t step_count = 0u;
     size_t path_position = 0u;
     int64_t offset = 0;
@@ -2042,7 +2043,11 @@ static bool cxx_structural_pointer_member_path_location(
     }
     declaration = cxx_structural_pointer_member_identifier_declaration(
         current, &namespace_scope_target);
-    if (!declaration || declaration->kind != DECL_VAR ||
+    function_reference = pointer_type->is_reference && pointer_type->base &&
+        pointer_type->base->kind == TYPE_FUNC && declaration &&
+        declaration->kind == DECL_FUNC && step_count == 0u;
+    if (!declaration ||
+        (declaration->kind != DECL_VAR && !function_reference) ||
         !declaration->type || !decl_link_name(declaration) ||
         !cxx_structural_pointer_member_declaration_has_static_storage(
             declaration, namespace_scope_target)) {
@@ -2143,7 +2148,10 @@ static bool cxx_structural_pointer_member_path_location(
         location->array_decay = true;
         location->one_past = false;
     } else if (!type_is_compatible(pointer_type->base, current_type) ||
-               pointer_type->base->size <= 0) {
+               (pointer_type->base->kind != TYPE_FUNC &&
+                pointer_type->base->size <= 0) ||
+               (pointer_type->base->kind == TYPE_FUNC &&
+                !function_reference)) {
         return false;
     }
     if (location->array_byte_size > 0 &&
