@@ -3065,6 +3065,8 @@ static bool cxx_structural_class_measure_fields(
             }
             field_bits = 64u;
             ++*pointer_count;
+        } else if (field->type->kind == TYPE_NULLPTR) {
+            field_bits = 1u;
         } else {
             if (!type_is_integer(field->type) &&
                 field->type->kind != TYPE_ENUM) {
@@ -3111,6 +3113,7 @@ static unsigned cxx_structural_type_value_bits(const Type* type) {
         return total_bits;
     }
     if (type->kind == TYPE_PTR) return 64u;
+    if (type->kind == TYPE_NULLPTR) return 1u;
     if ((!type_is_integer((Type*)type) && type->kind != TYPE_ENUM) ||
         type->size <= 0 || type->size > 8) {
         return 0;
@@ -3240,7 +3243,9 @@ static bool cxx_structural_class_decode_leaf(
     uint64_t raw_value;
     if (!field_type || !member_value) return false;
     field_bits = cxx_structural_field_value_bits(field);
-    if (field_type->kind == TYPE_PTR) {
+    if (field_type->kind == TYPE_NULLPTR) {
+        raw_value = 0u;
+    } else if (field_type->kind == TYPE_PTR) {
         raw_value = packed_value;
     } else {
         if (!field_bits || field_bits > 64u - bit_offset) return false;

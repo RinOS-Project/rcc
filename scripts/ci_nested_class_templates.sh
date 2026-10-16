@@ -101,6 +101,7 @@ sources=(
 	tests/cxx_structural_array_reference_nttp.cpp
 	tests/cxx_structural_class_pointer_value_pack.cpp
 	tests/cxx_structural_bitfield_nttp.cpp
+	tests/cxx_structural_nullptr_member_nttp.cpp
 	tests/cxx_nested_explicit_chain_ten_levels.cpp
 	tests/cxx_nested_explicit_chain_twelve_levels.cpp
 	tests/cxx_nested_explicit_chain_thirteen_levels.cpp

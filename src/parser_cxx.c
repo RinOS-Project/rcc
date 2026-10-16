@@ -2623,7 +2623,11 @@ static bool cxx_structural_class_collect_member_values(
             continue;
         }
         if (field_initializer) {
-            if (field->type->kind == TYPE_PTR) {
+            if (field->type->kind == TYPE_NULLPTR) {
+                if (!cxx_expr_is_nullptr_constant(field_initializer)) {
+                    return false;
+                }
+            } else if (field->type->kind == TYPE_PTR) {
                 if (field->type->cxx_is_member_pointer) {
                     int64_t null_pointer_constant;
                     if (field_initializer->cxx_member_pointer_form) {

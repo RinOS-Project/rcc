@@ -5236,3 +5236,14 @@ remains a separate open item.
       `scripts/ci_nested_class_templates.sh`; the full WSL POSIX gate passes.
 - [ ] Bit-fields with base types wider than the parser's current four-byte
       storage profile and unnamed zero-width fields remain open.
+
+## RCC continuation (2026-10-16, structural NTTP nullptr members)
+
+- [x] Accept a `decltype(nullptr)` member in a structural class NTTP, preserve
+      the null value through packing and member access, and emit the GCC
+      Itanium representation.
+- [x] Compare GCC/RCC symbols, assemble i686 and AMD64 output, and execute
+      both AMD64 programs through the complete WSL nested-class gate.
+- [x] Rebuild the MinGW compiler, assemble its i686 output, and execute both
+      RCC-generated and GCC-generated AMD64 programs on native Windows.
+- [ ] Other standard-valid structural class member types remain open.
