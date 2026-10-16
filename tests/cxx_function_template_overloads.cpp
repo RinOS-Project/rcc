@@ -411,6 +411,18 @@ int choose_non_type_pack_partial_order(
     return 171;
 }
 
+template<int... Values>
+int choose_non_type_class_pack_partial_order(
+    FunctionTemplateNonTypePackBox<Values...>) {
+    return 182;
+}
+
+template<int Value, int... Rest>
+int choose_non_type_class_pack_partial_order(
+    FunctionTemplateNonTypePackBox<Value, Rest...>) {
+    return 183;
+}
+
 template<int Value>
 struct FunctionTemplateExpressionValuePackTag {};
 
@@ -2380,6 +2392,12 @@ static int consume_conversion_value_virtual_cleanup_root(
 }
 
 int main(void) {
+    if (choose_non_type_class_pack_partial_order(
+            FunctionTemplateNonTypePackBox<>{}) != 182) return 201;
+    if (choose_non_type_class_pack_partial_order(
+            FunctionTemplateNonTypePackBox<1>{}) != 183) return 202;
+    if (choose_non_type_class_pack_partial_order(
+            FunctionTemplateNonTypePackBox<1, 2>{}) != 183) return 203;
     CxxFunctionTemplateAdl::Payload adl_payload{2};
     if (select_better_template(&adl_payload, 5) != 607) {
         return 164;
@@ -2958,6 +2976,12 @@ int main(void) {
                    choose_non_type_pack_partial_order<1, 2>(
                        FunctionTemplateValuePackTag<1>{},
                        FunctionTemplateValuePackTag<2>{}) == 171 &&
+                    choose_non_type_class_pack_partial_order(
+                        FunctionTemplateNonTypePackBox<>{}) == 182 &&
+                    choose_non_type_class_pack_partial_order(
+                        FunctionTemplateNonTypePackBox<1>{}) == 183 &&
+                    choose_non_type_class_pack_partial_order(
+                        FunctionTemplateNonTypePackBox<1, 2>{}) == 183 &&
                    choose_expression_non_type_pack_partial_order<1>(
                        FunctionTemplateExpressionValuePackTag<2>{}) == 181 &&
                    choose_expression_non_type_pack_partial_order<1, 2>(

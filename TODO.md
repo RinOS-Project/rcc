@@ -514,6 +514,13 @@
         For `int[1]`, `T (&)[1]` now wins over `T (&)[N]`; GCC C++20, RCC++
         i686/AMD64 generation, AMD64 execution, and the full native-Windows
         `test-cxx` aggregate pass.
+  - [x] Deduce and order function-template candidates whose class-template
+        parameter expands an integral non-type pack after a fixed prefix.
+        Read the actual sequence from the class's expanded NTTP-pack storage,
+        deduce the fixed prefix before the remainder, and keep per-element
+        transformed-template pack mappings independent. Empty, one-element,
+        and multi-element cases agree with GCC; RCC i686/AMD64 generated
+        execution and the native-Windows overload regression target pass.
   - [ ] full partial ordering, all parameter-pack deduction rules, and
         unsupported constexpr evaluation required for complete standard
         conformance
