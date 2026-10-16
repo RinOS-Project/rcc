@@ -3738,17 +3738,28 @@ test-cxx-structural-pointer-offset-posix: $(RCXX_TARGET)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-structural-pointer-offset,cxx_structural_pointer_offset_nttp.cpp)
 	objdump -f $(TEST_OUT)/cxx-structural-pointer-offset/x86.o > $(TEST_OUT)/cxx-structural-pointer-offset/x86-arch.log
 	$(GREP) -F -q "$(if $(filter Windows_NT,$(OS)),pe-i386,elf32-i386)" $(TEST_OUT)/cxx-structural-pointer-offset/x86-arch.log
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesEEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE4EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE8EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE12pEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadL_Z32structural_pointer_offset_valuesEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELi0EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELi1EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELi2EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELi3EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
 	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadcvPiplcvPcadL_Z32structural_pointer_offset_scalarELl4EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x86.s,2)
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesEEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE4EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE8EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
-	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadsoiL_Z32structural_pointer_offset_valuesE12pEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadL_Z32structural_pointer_offset_valuesEEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELl0EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELl1EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELl2EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadixL_Z32structural_pointer_offset_valuesELl3EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
 	$(call CHECK_COUNT,_ZN28StructuralPointerOffsetOwnerIXtl26StructuralPointerOffsetKeyadcvPiplcvPcadL_Z32structural_pointer_offset_scalarELl4EEEE3getEv,$(TEST_OUT)/cxx-structural-pointer-offset/x64.s,2)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-pointer-nested-array)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-structural-pointer-nested-array,cxx_structural_pointer_nested_array_nttp.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-structural-pointer-nested-array/gcc-host tests/cxx_structural_pointer_nested_array_nttp.cpp
+	$(TEST_OUT)/cxx-structural-pointer-nested-array/gcc-host
+	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-pointer-aggregate-member)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-structural-pointer-aggregate-member,cxx_structural_pointer_aggregate_member_nttp.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-structural-pointer-aggregate-member/gcc-host tests/cxx_structural_pointer_aggregate_member_nttp.cpp
+	$(TEST_OUT)/cxx-structural-pointer-aggregate-member/gcc-host
 	@echo "C++ structural pointer array-offset NTTP tests completed"
+
 test-cxx-member-pointer-data-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-data)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \

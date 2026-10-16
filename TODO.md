@@ -5096,17 +5096,25 @@ remains a separate open item.
   array-decay parser change; the full aggregate passes.
 - [x] Parse pointer-to-array declarators on C++ class fields and preserve
   structural NTTP pointers to nested static/global row arrays, including the
-  one-past position of the containing matrix. Verify A3_i Itanium encodings,
-  i686/AMD64 generation, AMD64 execution, and out-of-matrix rejection in the
-  Windows fixture and WSL POSIX gate.
+  one-past position of the containing matrix. Verify typed array-path Itanium
+  encodings, i686/AMD64 generation, AMD64 execution, and out-of-matrix
+  rejection in the Windows fixture and WSL POSIX gate.
 - [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate after the
   pointer-to-array class-field parser change; it passes (exit 0).
-- [ ] Support aggregate member subobjects and additional structural pointer
-  constant-expression forms.
-- [ ] Add a compiler-to-compiler differential oracle for offset encodings when
-  an independent implementation accepts these standard-valid arguments;
-  GCC 13 currently rejects array-element pointer NTTPs and Itanium ABI issue
-  #47 remains open.
+- [x] Support recursively selected named global aggregate members and array
+  elements with typed member/index paths, including member arrays and arrays
+  of aggregates; use Itanium `dt`/`ix` expression encodings rather than the
+  previous byte-offset extension. Normalize pointer arithmetic that crosses
+  a selected row to the enclosing array element when it matches GCC's
+  accepted structural-pointer value.
+- [x] Differentially compare every GCC-emitted structural-pointer symbol on
+  i686 and AMD64 for nested-array and aggregate-member fixtures; assemble both
+  RCC targets and execute the RCC and GCC AMD64 programs in Windows and WSL.
+  The subset check accounts for RCC currently emitting unused member functions
+  of an instantiated class template.
+- [ ] Extend compiler-to-compiler comparisons to computed pointer expressions
+  GCC rejects (including some flat-array and aggregate-member pointer
+  arithmetic); Itanium ABI issue #47 remains open.
 
 ## RCC continuation (2026-10-16, selected null pointer conditions and 13-level chains)
 

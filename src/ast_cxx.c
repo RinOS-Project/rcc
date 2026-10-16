@@ -17,8 +17,9 @@ typedef struct CxxStructuralPointerValue {
     int64_t byte_offset;
     bool has_subobject_path;
     bool one_past;
-    const int64_t* array_path;
-    size_t array_path_length;
+    bool array_decay;
+    const CxxStructuralPointerPathElement* subobject_path;
+    size_t subobject_path_length;
 } CxxStructuralPointerValue;
 static CxxStructuralPointerValue* cxx_structural_pointer_values;
 static size_t cxx_structural_pointer_value_count;
@@ -35,16 +36,38 @@ static size_t cxx_structural_member_pointer_value_capacity;
 
 bool cxx_structural_pointer_value_register(
     Decl* declaration, int64_t byte_offset, bool has_subobject_path,
-    bool one_past, const int64_t* array_path, size_t array_path_length,
-    int64_t* token_out) {
+    bool one_past, bool array_decay,
+    const CxxStructuralPointerPathElement* subobject_path,
+    size_t subobject_path_length, int64_t* token_out) {
     const char* link_name;
     size_t index;
     if (!declaration || byte_offset < 0 || !token_out ||
-        array_path_length > SIZE_MAX / sizeof(*array_path) ||
-        (array_path_length != 0u && !array_path) ||
-        (has_subobject_path && array_path_length == 0u) ||
-        (!has_subobject_path && array_path_length != 0u) ||
-        (one_past && byte_offset == 0)) return false;
+        subobject_path_length > SIZE_MAX / sizeof(*subobject_path) ||
+        (subobject_path_length != 0u && !subobject_path) ||
+        (has_subobject_path && subobject_path_length == 0u && !array_decay) ||
+        (!has_subobject_path &&
+         (subobject_path_length != 0u || array_decay)) ||
+        (one_past && byte_offset == 0)) {
+        return false;
+    }
+    for (index = 0u; index < subobject_path_length; ++index) {
+        const CxxStructuralPointerPathElement* element =
+            &subobject_path[index];
+        if (element->kind == CXX_STRUCTURAL_POINTER_PATH_ARRAY_INDEX) {
+            if (element->array_index < 0 || !element->owner_type ||
+                element->owner_type->kind != TYPE_ARRAY ||
+                element->member_field) {
+                return false;
+            }
+        } else if (element->kind == CXX_STRUCTURAL_POINTER_PATH_MEMBER) {
+            if (element->array_index != 0 || !element->owner_type ||
+                !element->member_field || !element->member_field->name) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
     link_name = decl_link_name(declaration);
     for (index = 0; index < cxx_structural_pointer_value_count; ++index) {
         CxxStructuralPointerValue* value =
@@ -56,13 +79,32 @@ bool cxx_structural_pointer_value_register(
               strcmp(link_name, registered_link_name) == 0)) &&
             value->byte_offset == byte_offset &&
             value->has_subobject_path == has_subobject_path &&
-            value->one_past == one_past) {
-            if (value->array_path_length != array_path_length ||
-                (array_path_length != 0u &&
-                 memcmp(value->array_path, array_path,
-                        array_path_length * sizeof(*array_path)) != 0)) {
+            value->one_past == one_past &&
+            value->array_decay == array_decay) {
+            size_t path_index;
+            if (value->subobject_path_length != subobject_path_length) {
                 continue;
             }
+            for (path_index = 0u;
+                 path_index < subobject_path_length; ++path_index) {
+                const CxxStructuralPointerPathElement* left =
+                    &value->subobject_path[path_index];
+                const CxxStructuralPointerPathElement* right =
+                    &subobject_path[path_index];
+                if (left->kind != right->kind ||
+                    (left->kind ==
+                         CXX_STRUCTURAL_POINTER_PATH_ARRAY_INDEX &&
+                     left->array_index != right->array_index) ||
+                    (left->kind == CXX_STRUCTURAL_POINTER_PATH_MEMBER &&
+                     (!type_is_compatible(
+                          (Type*)left->owner_type,
+                          (Type*)right->owner_type) ||
+                      strcmp(left->member_field->name,
+                             right->member_field->name) != 0))) {
+                    break;
+                }
+            }
+            if (path_index != subobject_path_length) continue;
             *token_out = (int64_t)(index + 1u);
             return true;
         }
@@ -90,7 +132,7 @@ bool cxx_structural_pointer_value_register(
     cxx_structural_pointer_values[cxx_structural_pointer_value_count] =
         (CxxStructuralPointerValue){
             declaration, byte_offset, has_subobject_path, one_past,
-            array_path, array_path_length};
+            array_decay, subobject_path, subobject_path_length};
     ++cxx_structural_pointer_value_count;
     *token_out = (int64_t)cxx_structural_pointer_value_count;
     return true;
@@ -106,8 +148,9 @@ Decl* cxx_structural_pointer_value_declaration(int64_t token) {
 
 bool cxx_structural_pointer_value_location(
     int64_t token, int64_t* byte_offset, bool* has_subobject_path,
-    bool* one_past, const int64_t** array_path_out,
-    size_t* array_path_length_out) {
+    bool* one_past, bool* array_decay_out,
+    const CxxStructuralPointerPathElement** subobject_path_out,
+    size_t* subobject_path_length_out) {
     CxxStructuralPointerValue* value;
     if (token <= 0 || (uint64_t)token >
             (uint64_t)cxx_structural_pointer_value_count) {
@@ -119,9 +162,10 @@ bool cxx_structural_pointer_value_location(
         *has_subobject_path = value->has_subobject_path;
     }
     if (one_past) *one_past = value->one_past;
-    if (array_path_out) *array_path_out = value->array_path;
-    if (array_path_length_out) {
-        *array_path_length_out = value->array_path_length;
+    if (array_decay_out) *array_decay_out = value->array_decay;
+    if (subobject_path_out) *subobject_path_out = value->subobject_path;
+    if (subobject_path_length_out) {
+        *subobject_path_length_out = value->subobject_path_length;
     }
     return true;
 }
@@ -531,6 +575,115 @@ static bool cxx_mangle_structural_member_pointer_value(
     return true;
 }
 
+static bool cxx_mangle_structural_pointer_root_expression(
+    char* buf, size_t* pos, const char* link_name) {
+    cxx_mangle_type_char(buf, pos, 'L');
+    cxx_mangle_type_char(buf, pos, '_');
+    if (link_name[0] == '_' && link_name[1] == 'Z') {
+        size_t length = strlen(link_name + 1u);
+        if (*pos + length >= CXX_MANGLE_BUFFER_SIZE) return false;
+        memcpy(buf + *pos, link_name + 1u, length);
+        *pos += length;
+    } else {
+        char digits[32];
+        size_t link_length = strlen(link_name);
+        int digit_count = snprintf(digits, sizeof(digits), "%llu",
+                                   (unsigned long long)link_length);
+        if (digit_count < 0 ||
+            (size_t)digit_count >= sizeof(digits) ||
+            *pos + (size_t)digit_count + link_length + 1u >=
+                CXX_MANGLE_BUFFER_SIZE) {
+            return false;
+        }
+        cxx_mangle_type_char(buf, pos, 'Z');
+        memcpy(buf + *pos, digits, (size_t)digit_count);
+        *pos += (size_t)digit_count;
+        memcpy(buf + *pos, link_name, link_length);
+        *pos += link_length;
+    }
+    cxx_mangle_type_char(buf, pos, 'E');
+    return true;
+}
+
+static bool cxx_mangle_structural_pointer_path_expression(
+    char* buf, size_t* pos, const char* link_name, Type* root_type,
+    const CxxStructuralPointerPathElement* path, size_t path_length,
+    size_t full_path_length, bool one_past, CxxMangleContext* context,
+    Type** result_type) {
+    Type* base_type;
+    const CxxStructuralPointerPathElement* element;
+    if (path_length == 0u) {
+        if (!cxx_mangle_structural_pointer_root_expression(
+                buf, pos, link_name)) {
+            return false;
+        }
+        if (result_type) *result_type = root_type;
+        return true;
+    }
+    element = &path[path_length - 1u];
+    if (!element->owner_type) {
+        return false;
+    }
+    if (element->kind == CXX_STRUCTURAL_POINTER_PATH_MEMBER) {
+        const TypeField* field = element->member_field;
+        bool found = false;
+        if (!field || !field->name ||
+            (element->owner_type->kind != TYPE_STRUCT &&
+             element->owner_type->kind != TYPE_UNION)) {
+            return false;
+        }
+        for (const TypeField* candidate = element->owner_type->fields;
+             candidate; candidate = candidate->next) {
+            if (candidate == field) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) return false;
+        cxx_mangle_type_char(buf, pos, 'd');
+        cxx_mangle_type_char(buf, pos, 't');
+        if (!cxx_mangle_structural_pointer_path_expression(
+                buf, pos, link_name, root_type, path, path_length - 1u,
+                full_path_length, one_past, context, &base_type) ||
+            !base_type || !type_is_compatible(
+                base_type, (Type*)element->owner_type)) {
+            return false;
+        }
+        mangle_name(buf, pos, field->name);
+        if (result_type) *result_type = field->type;
+        return field->type != NULL;
+    }
+    if (element->kind == CXX_STRUCTURAL_POINTER_PATH_ARRAY_INDEX) {
+        Type* array_type = (Type*)element->owner_type;
+        Type* index_type = g_opts.target_arch == ARCH_X64
+            ? type_long : type_int;
+        int64_t index = element->array_index;
+        if (!array_type || array_type->kind != TYPE_ARRAY ||
+            !array_type->base || array_type->array_len <= 0 || index < 0 ||
+            index > array_type->array_len ||
+            (index == array_type->array_len &&
+             (!one_past || path_length != full_path_length))) {
+            return false;
+        }
+        cxx_mangle_type_char(buf, pos, 'i');
+        cxx_mangle_type_char(buf, pos, 'x');
+        if (!cxx_mangle_structural_pointer_path_expression(
+                buf, pos, link_name, root_type, path, path_length - 1u,
+                full_path_length, one_past, context, &base_type) ||
+            !base_type || !type_is_compatible(
+                base_type, (Type*)element->owner_type)) {
+            return false;
+        }
+        cxx_mangle_type_char(buf, pos, 'L');
+        cxx_mangle_type_append_context(buf, pos, index_type, context);
+        cxx_mangle_template_value_suffix(
+            buf, pos, index_type, index);
+        if (result_type) *result_type = array_type->base;
+        return true;
+    }
+    return false;
+}
+
 static bool cxx_mangle_structural_pointer_value(
     char* buf, size_t* pos, Type* pointer_type, int64_t token,
     CxxMangleContext* context) {
@@ -539,25 +692,50 @@ static bool cxx_mangle_structural_pointer_value(
     int64_t byte_offset = 0;
     bool has_subobject_path = false;
     bool one_past = false;
+    bool array_decay = false;
+    const CxxStructuralPointerPathElement* subobject_path = NULL;
+    size_t subobject_path_length = 0u;
+    Type* resolved_type = NULL;
     if (!declaration || !(link_name = decl_link_name(declaration)) ||
         !cxx_structural_pointer_value_location(
             token, &byte_offset, &has_subobject_path, &one_past,
-            NULL, NULL)) {
+            &array_decay, &subobject_path, &subobject_path_length)) {
         return false;
     }
     cxx_mangle_type_char(buf, pos, 'a');
     cxx_mangle_type_char(buf, pos, 'd');
     if (has_subobject_path) {
         if (!pointer_type || pointer_type->kind != TYPE_PTR ||
-            !pointer_type->base || byte_offset < 0 ||
-            (one_past && byte_offset == 0)) {
+            !pointer_type->base ||
+            !cxx_mangle_structural_pointer_path_expression(
+                buf, pos, link_name, declaration->type, subobject_path,
+                subobject_path_length, subobject_path_length, one_past,
+                context, &resolved_type) ||
+            !resolved_type) {
             return false;
         }
-        cxx_mangle_type_char(buf, pos, 's');
-        cxx_mangle_type_char(buf, pos, 'o');
-        cxx_mangle_type_append_context(
-            buf, pos, pointer_type->base, context);
-    } else if (byte_offset != 0) {
+        if (array_decay) {
+            if (resolved_type->kind != TYPE_ARRAY || !resolved_type->base ||
+                !type_is_compatible(pointer_type->base,
+                                    resolved_type->base) ||
+                (one_past &&
+                 (subobject_path_length == 0u || !subobject_path ||
+                  subobject_path[subobject_path_length - 1u].kind !=
+                      CXX_STRUCTURAL_POINTER_PATH_ARRAY_INDEX ||
+                  !subobject_path[subobject_path_length - 1u].owner_type ||
+                  subobject_path[subobject_path_length - 1u]
+                          .owner_type->kind != TYPE_ARRAY ||
+                  subobject_path[subobject_path_length - 1u].array_index !=
+                      subobject_path[subobject_path_length - 1u]
+                          .owner_type->array_len))) {
+                return false;
+            }
+        } else if (!type_is_compatible(pointer_type->base, resolved_type)) {
+            return false;
+        }
+        return true;
+    }
+    if (byte_offset != 0) {
         if (!pointer_type || pointer_type->kind != TYPE_PTR ||
             !pointer_type->base || !one_past) {
             return false;
@@ -574,35 +752,11 @@ static bool cxx_mangle_structural_pointer_value(
         cxx_mangle_type_char(buf, pos, 'a');
         cxx_mangle_type_char(buf, pos, 'd');
     }
-    cxx_mangle_type_char(buf, pos, 'L');
-    cxx_mangle_type_char(buf, pos, '_');
-    if (link_name[0] == '_' && link_name[1] == 'Z') {
-        size_t length = strlen(link_name + 1u);
-        if (*pos + length >= CXX_MANGLE_BUFFER_SIZE) {
-            rcc_fatal("C++ template class name is too long");
-        }
-        memcpy(buf + *pos, link_name + 1u, length);
-        *pos += length;
-    } else {
-        char digits[32];
-        int digit_count;
-        cxx_mangle_type_char(buf, pos, 'Z');
-        size_t link_length = strlen(link_name);
-        digit_count = snprintf(digits, sizeof(digits), "%llu",
-                               (unsigned long long)link_length);
-        if (digit_count < 0 ||
-            (size_t)digit_count >= sizeof(digits) ||
-            *pos + (size_t)digit_count + link_length >=
-                CXX_MANGLE_BUFFER_SIZE) {
-            rcc_fatal("C++ template class name is too long");
-        }
-        memcpy(buf + *pos, digits, (size_t)digit_count);
-        *pos += (size_t)digit_count;
-        memcpy(buf + *pos, link_name, link_length);
-        *pos += link_length;
+    if (!cxx_mangle_structural_pointer_root_expression(
+            buf, pos, link_name)) {
+        return false;
     }
-    cxx_mangle_type_char(buf, pos, 'E');
-    if (!has_subobject_path && byte_offset != 0) {
+    if (byte_offset != 0) {
         char digits[32];
         int written = snprintf(digits, sizeof(digits), "%llu",
                                (unsigned long long)byte_offset);
@@ -616,28 +770,6 @@ static bool cxx_mangle_structural_pointer_value(
         *pos += (size_t)written;
         cxx_mangle_type_char(buf, pos, 'E');
         return true;
-    }
-    if (has_subobject_path) {
-        if (byte_offset != 0) {
-            char digits[32];
-            int written;
-            if (byte_offset < 0) {
-                uint64_t magnitude = (uint64_t)(-(byte_offset + 1)) + 1u;
-                written = snprintf(digits, sizeof(digits), "n%llu",
-                                   (unsigned long long)magnitude);
-            } else {
-                written = snprintf(digits, sizeof(digits), "%llu",
-                                   (unsigned long long)byte_offset);
-            }
-            if (written < 0 || (size_t)written >= sizeof(digits) ||
-                *pos + (size_t)written >= CXX_MANGLE_BUFFER_SIZE) {
-                rcc_fatal("C++ template class name is too long");
-            }
-            memcpy(buf + *pos, digits, (size_t)written);
-            *pos += (size_t)written;
-        }
-        if (one_past) cxx_mangle_type_char(buf, pos, 'p');
-        cxx_mangle_type_char(buf, pos, 'E');
     }
     return true;
 }
@@ -3601,6 +3733,10 @@ static void cxx_typeinfo_identity_append_class(
                     int64_t byte_offset = 0;
                     bool has_subobject_path = false;
                     bool one_past = false;
+                    bool array_decay = false;
+                    const CxxStructuralPointerPathElement* subobject_path =
+                        NULL;
+                    size_t subobject_path_length = 0u;
                     Decl* pointer_declaration =
                         cxx_structural_pointer_value_declaration(
                             value_arguments[index]);
@@ -3608,7 +3744,8 @@ static void cxx_typeinfo_identity_append_class(
                         !decl_link_name(pointer_declaration) ||
                         !cxx_structural_pointer_value_location(
                             value_arguments[index], &byte_offset,
-                            &has_subobject_path, &one_past, NULL, NULL)) {
+                            &has_subobject_path, &one_past, &array_decay,
+                            &subobject_path, &subobject_path_length)) {
                         rcc_fatal(
                             "C++ typeinfo structural pointer argument is missing");
                     }
@@ -3620,6 +3757,29 @@ static void cxx_typeinfo_identity_append_class(
                         builder, has_subobject_path ? 'S' : 'B');
                     cxx_typeinfo_identity_append_char(
                         builder, one_past ? 'P' : 'I');
+                    cxx_typeinfo_identity_append_char(
+                        builder, array_decay ? 'D' : 'N');
+                    cxx_typeinfo_identity_append_number(
+                        builder, subobject_path_length);
+                    for (size_t path_index = 0u;
+                         path_index < subobject_path_length; ++path_index) {
+                        const CxxStructuralPointerPathElement* element =
+                            &subobject_path[path_index];
+                        if (element->kind ==
+                            CXX_STRUCTURAL_POINTER_PATH_ARRAY_INDEX) {
+                            cxx_typeinfo_identity_append_char(builder, 'A');
+                            cxx_typeinfo_identity_append_signed(
+                                builder, element->array_index);
+                        } else {
+                            cxx_typeinfo_identity_append_char(builder, 'M');
+                            cxx_typeinfo_identity_append_type(
+                                builder, element->owner_type);
+                            cxx_typeinfo_identity_append_text(
+                                builder, element->member_field->name);
+                            cxx_typeinfo_identity_append_signed(
+                                builder, element->member_field->offset);
+                        }
+                    }
                 } else if (parameter->type &&
                            cxx_structural_class_has_only_member_pointer_member(
                                parameter->type) &&
@@ -8575,14 +8735,16 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                     int64_t byte_offset = 0;
                     bool has_subobject_path = false;
                     bool one_past = false;
-                    const int64_t* array_path = NULL;
-                    size_t array_path_length = 0u;
+                    bool array_decay = false;
+                    const CxxStructuralPointerPathElement* subobject_path =
+                        NULL;
+                    size_t subobject_path_length = 0u;
                     Expr* identifier;
                     if (!pointer_declaration || !pointer_declaration->name ||
                         !cxx_structural_pointer_value_location(
                             value, &byte_offset, &has_subobject_path,
-                            &one_past, &array_path,
-                            &array_path_length)) {
+                            &one_past, &array_decay, &subobject_path,
+                            &subobject_path_length)) {
                         rcc_fatal(
                             "C++ structural pointer template argument is missing");
                     }
@@ -8591,71 +8753,112 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                     identifier->ident_decl = pointer_declaration;
                     identifier->type = pointer_declaration->type;
                     if (has_subobject_path) {
-                        Type* array_type = pointer_declaration->type;
-                        Expr* array_expression = identifier;
-                        size_t path_index;
-                        Expr* subobject;
-                        Expr* subscript;
-                        if (!array_path || array_path_length == 0u ||
-                            !array_type || array_type->kind != TYPE_ARRAY ||
-                            byte_offset < 0 || (one_past && byte_offset == 0)) {
+                        Type* current_type = pointer_declaration->type;
+                        Expr* current_expression = identifier;
+                        if (byte_offset < 0 ||
+                            (one_past && byte_offset == 0) ||
+                            (subobject_path_length != 0u &&
+                             !subobject_path) ||
+                            (!array_decay && subobject_path_length == 0u)) {
                             rcc_fatal(
-                                "C++ structural pointer array location is invalid");
+                                "C++ structural pointer subobject path is invalid");
                         }
-                        for (path_index = 0u;
-                             path_index + 1u < array_path_length;
+                        for (size_t path_index = 0u;
+                             path_index < subobject_path_length;
                              ++path_index) {
-                            int64_t element_index = array_path[path_index];
-                            if (!array_type ||
-                                array_type->kind != TYPE_ARRAY ||
-                                !array_type->base || element_index < 0 ||
-                                element_index >= array_type->array_len) {
+                            const CxxStructuralPointerPathElement* element =
+                                &subobject_path[path_index];
+                            if (element->kind ==
+                                CXX_STRUCTURAL_POINTER_PATH_MEMBER) {
+                                Expr* member;
+                                if (!element->member_field ||
+                                    !element->member_field->name ||
+                                    !type_is_compatible(
+                                        current_type,
+                                        (Type*)element->owner_type)) {
+                                    rcc_fatal(
+                                        "C++ structural pointer member path is invalid");
+                                }
+                                member = expr_member(
+                                    current_expression,
+                                    element->member_field->name,
+                                    expression->loc);
+                                member->member_field =
+                                    (TypeField*)element->member_field;
+                                member->type = element->member_field->type;
+                                current_expression = member;
+                                current_type = element->member_field->type;
+                                continue;
+                            }
+                            if (element->kind !=
+                                    CXX_STRUCTURAL_POINTER_PATH_ARRAY_INDEX ||
+                                !current_type ||
+                                current_type->kind != TYPE_ARRAY ||
+                                !current_type->base ||
+                                !type_is_compatible(
+                                    current_type,
+                                    (Type*)element->owner_type) ||
+                                element->array_index < 0 ||
+                                element->array_index > current_type->array_len ||
+                                (element->array_index ==
+                                     current_type->array_len &&
+                                 (!one_past || path_index + 1u !=
+                                     subobject_path_length)) ||
+                                (one_past && path_index + 1u ==
+                                     subobject_path_length &&
+                                 element->array_index !=
+                                     current_type->array_len)) {
                                 rcc_fatal(
                                     "C++ structural pointer array path is invalid");
                             }
-                            subscript = expr_int(
-                                element_index, expression->loc);
+                            Expr* subscript = expr_int(
+                                element->array_index, expression->loc);
                             subscript->type = type_int;
-                            subobject = expr_index(
-                                array_expression, subscript,
-                                expression->loc);
-                            subobject->type = array_type->base;
-                            array_expression = subobject;
-                            array_type = array_type->base;
-                        }
-                        {
-                            int64_t element_index =
-                                array_path[array_path_length - 1u];
-                            if (!array_type ||
-                                array_type->kind != TYPE_ARRAY ||
-                                !array_type->base || element_index < 0 ||
-                                element_index > array_type->array_len ||
-                                !value_type->base ||
-                                (one_past &&
-                                 element_index != array_type->array_len) ||
-                                (!one_past &&
-                                 element_index >= array_type->array_len) ||
-                                !type_is_compatible(
-                                    value_type->base, array_type->base)) {
-                                rcc_fatal(
-                                    "C++ structural pointer array index is invalid");
+                            if (one_past && !array_decay &&
+                                path_index + 1u == subobject_path_length) {
+                                copy = expr_binary(
+                                    EXPR_ADD, current_expression, subscript,
+                                    expression->loc);
+                                copy->type = value_type;
+                                return copy;
                             }
-                            subscript = expr_int(
-                                element_index, expression->loc);
-                        }
-                        subscript->type = type_int;
-                        if (one_past) {
-                            copy = expr_binary(
-                                EXPR_ADD, array_expression, subscript,
+                            Expr* subobject = expr_index(
+                                current_expression, subscript,
                                 expression->loc);
-                            copy->type = value_type;
-                            return copy;
+                            subobject->type = current_type->base;
+                            current_expression = subobject;
+                            current_type = current_type->base;
                         }
-                        subobject = expr_index(
-                            array_expression, subscript, expression->loc);
-                        subobject->type = array_type->base;
-                        copy = expr_unary(
-                            EXPR_ADDR, subobject, expression->loc);
+                        if (array_decay) {
+                            Expr* subscript;
+                            Expr* first_element;
+                            if (!current_type ||
+                                current_type->kind != TYPE_ARRAY ||
+                                !current_type->base || !value_type->base ||
+                                !type_is_compatible(
+                                    value_type->base, current_type->base)) {
+                                rcc_fatal(
+                                    "C++ structural pointer array decay is invalid");
+                            }
+                            subscript = expr_int(0, expression->loc);
+                            subscript->type = type_int;
+                            first_element = expr_index(
+                                current_expression, subscript,
+                                expression->loc);
+                            first_element->type = current_type->base;
+                            copy = expr_unary(
+                                EXPR_ADDR, first_element, expression->loc);
+                        } else {
+                            if (!current_type || !value_type->base ||
+                                !type_is_compatible(
+                                    value_type->base, current_type)) {
+                                rcc_fatal(
+                                    "C++ structural pointer target type is invalid");
+                            }
+                            copy = expr_unary(
+                                EXPR_ADDR, current_expression,
+                                expression->loc);
+                        }
                     } else {
                         if (byte_offset != 0) {
                             Expr* address;

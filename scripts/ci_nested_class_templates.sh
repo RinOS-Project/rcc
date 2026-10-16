@@ -28,6 +28,30 @@ compare_symbols() {
 	diff -u "$expected" "$actual"
 }
 
+compare_symbols_subset() {
+	local gcc_asm=$1
+	local rcc_asm=$2
+	local label=$3
+	local expected="$out/$label.gcc-symbols"
+	local actual="$out/$label.rcc-symbols"
+	local missing="$out/$label.missing-symbols"
+
+	extract_itanium_symbols "$gcc_asm" > "$expected"
+	extract_itanium_symbols "$rcc_asm" > "$actual"
+	if [[ ! -s "$expected" ]]; then
+		printf 'GCC emitted no Itanium symbols for %s\n' "$label" >&2
+		exit 1
+	fi
+	# RCC currently emits unused members for an instantiated class template;
+	# every symbol GCC does emit must nevertheless match exactly.
+	comm -23 "$expected" "$actual" > "$missing"
+	if [[ -s "$missing" ]]; then
+		printf 'RCC is missing GCC Itanium symbols for %s:\n' "$label" >&2
+		sed -n '1,40p' "$missing" >&2
+		exit 1
+	fi
+}
+
 expect_rcc_failure() {
 	local source=$1
 	local target=$2
@@ -113,33 +137,41 @@ mkdir -p "$nested_array_dir"
 "$host_cc" -no-pie -Wl,-z,noexecstack \
 	-o "$nested_array_dir/rcc-x64" "$nested_array_dir/rcc-x64.s"
 "$nested_array_dir/rcc-x64"
+"$host_cxx" -m32 -std=c++20 -Wall -Wextra -Werror -S \
+	-o "$nested_array_dir/gcc-x86.s" "$nested_array_source"
+"$host_cxx" -std=c++20 -Wall -Wextra -Werror -S \
+	-o "$nested_array_dir/gcc-x64.s" "$nested_array_source"
+"$host_cxx" -std=c++20 -Wall -Wextra -Werror \
+	-o "$nested_array_dir/gcc-host" "$nested_array_source"
+"$nested_array_dir/gcc-host"
+compare_symbols_subset "$nested_array_dir/gcc-x86.s" \
+	"$nested_array_dir/rcc-x86.s" nested-array-pointer-x86
+compare_symbols_subset "$nested_array_dir/gcc-x64.s" \
+	"$nested_array_dir/rcc-x64.s" nested-array-pointer-x64
 
-for assembly in "$nested_array_dir/rcc-x86.s" \
-	"$nested_array_dir/rcc-x64.s"; do
-	for symbol in \
-		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE12EEEE7addressEv' \
-		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE4EEEE3getEv' \
-		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE20EEEE3getEv' \
-		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE12pEEEE7addressEv' \
-		'_ZN31StructuralNestedIntPointerOwnerIXtl29StructuralNestedIntPointerKeyadsoiL_Z32structural_pointer_nested_valuesE24pEEEE7addressEv'; do
-		if [[ $(grep -F -c "$symbol" "$assembly") -ne 2 ]]; then
-			printf 'nested array pointer mangling mismatch in %s: %s\n' \
-				"$assembly" "$symbol" >&2
-			exit 1
-		fi
-	done
-	for symbol in \
-		'_ZN33StructuralNestedArrayPointerOwnerIXtl31StructuralNestedArrayPointerKeyadsoA3_iL_Z32structural_pointer_nested_valuesE12EEEE5firstEv' \
-		'_ZN33StructuralNestedArrayPointerOwnerIXtl31StructuralNestedArrayPointerKeyadsoA3_iL_Z32structural_pointer_nested_valuesE12EEEE7matchesEPA3_i' \
-		'_ZN33StructuralNestedArrayPointerOwnerIXtl31StructuralNestedArrayPointerKeyadsoA3_iL_Z32structural_pointer_nested_valuesE24pEEEE5firstEv' \
-		'_ZN33StructuralNestedArrayPointerOwnerIXtl31StructuralNestedArrayPointerKeyadsoA3_iL_Z32structural_pointer_nested_valuesE24pEEEE7matchesEPA3_i'; do
-		if [[ $(grep -F -c "$symbol" "$assembly") -ne 2 ]]; then
-			printf 'pointer-to-array NTTP mangling mismatch in %s: %s\n' \
-				"$assembly" "$symbol" >&2
-			exit 1
-		fi
-	done
-done
+aggregate_source=tests/cxx_structural_pointer_aggregate_member_nttp.cpp
+aggregate_dir="$out/cxx_structural_pointer_aggregate_member_nttp"
+mkdir -p "$aggregate_dir"
+./rcc++ --target i686-unknown-rinos -std=c++20 -S \
+	-o "$aggregate_dir/rcc-x86.s" "$aggregate_source"
+"$host_cc" -m32 -c -o "$aggregate_dir/rcc-x86.o" \
+	"$aggregate_dir/rcc-x86.s"
+./rcc++ --target x86_64-unknown-rinos -std=c++20 -S \
+	-o "$aggregate_dir/rcc-x64.s" "$aggregate_source"
+"$host_cc" -no-pie -Wl,-z,noexecstack \
+	-o "$aggregate_dir/rcc-x64" "$aggregate_dir/rcc-x64.s"
+"$aggregate_dir/rcc-x64"
+"$host_cxx" -m32 -std=c++20 -Wall -Wextra -Werror -S \
+	-o "$aggregate_dir/gcc-x86.s" "$aggregate_source"
+"$host_cxx" -std=c++20 -Wall -Wextra -Werror -S \
+	-o "$aggregate_dir/gcc-x64.s" "$aggregate_source"
+"$host_cxx" -std=c++20 -Wall -Wextra -Werror \
+	-o "$aggregate_dir/gcc-host" "$aggregate_source"
+"$aggregate_dir/gcc-host"
+compare_symbols_subset "$aggregate_dir/gcc-x86.s" \
+	"$aggregate_dir/rcc-x86.s" aggregate-member-pointer-x86
+compare_symbols_subset "$aggregate_dir/gcc-x64.s" \
+	"$aggregate_dir/rcc-x64.s" aggregate-member-pointer-x64
 
 nested_array_invalid=tests/cxx_structural_pointer_nested_array_bounds_invalid.cpp
 for target in i686-unknown-rinos x86_64-unknown-rinos; do

@@ -59,6 +59,10 @@ int main() {
         StructuralNestedIntPointerKey{
             structural_pointer_nested_values[1] + 3}>::address() ==
         &structural_pointer_nested_values[1][3];
+    int row_transition = StructuralNestedIntPointerOwner<
+        StructuralNestedIntPointerKey{
+            structural_pointer_nested_values[0] + 3}>::address() ==
+        &structural_pointer_nested_values[1][0];
     int row_array_first = StructuralNestedArrayPointerOwner<
         StructuralNestedArrayPointerKey{
             &structural_pointer_nested_values[1]}>::first();
@@ -72,6 +76,7 @@ int main() {
                 &structural_pointer_nested_values[2]);
     return row_first == 41 && row_start && first == 23 && last == 67 &&
         row_one_past && final_one_past && final_decay_one_past &&
+        row_transition &&
         row_array_first == 41 && row_array_address && matrix_one_past
         ? 0 : 1;
 }

@@ -483,19 +483,33 @@ bool cxx_structural_class_pack_member_values(
 bool cxx_structural_class_unpack_member_value(
     const Type* type, int64_t packed_value, const char* member_name,
     int64_t* member_value, Type** member_type);
+typedef enum {
+    CXX_STRUCTURAL_POINTER_PATH_ARRAY_INDEX,
+    CXX_STRUCTURAL_POINTER_PATH_MEMBER
+} CxxStructuralPointerPathKind;
+
+typedef struct CxxStructuralPointerPathElement {
+    CxxStructuralPointerPathKind kind;
+    int64_t array_index;
+    const Type* owner_type;
+    const TypeField* member_field;
+} CxxStructuralPointerPathElement;
+
 /* Structural pointer members are represented in the parser's packed value
- * by a translation-unit-local token. The token resolves to the declaration,
- * byte offset, and array index path of the actual template argument; it is
- * never a host pointer or a target-machine address. */
+ * by a translation-unit-local token. The token resolves to a declaration,
+ * byte offset, and typed member/array subobject path; it is never a host
+ * pointer or a target-machine address. */
 bool cxx_structural_pointer_value_register(
     Decl* declaration, int64_t byte_offset, bool has_subobject_path,
-    bool one_past, const int64_t* array_path, size_t array_path_length,
-    int64_t* token_out);
+    bool one_past, bool array_decay,
+    const CxxStructuralPointerPathElement* subobject_path,
+    size_t subobject_path_length, int64_t* token_out);
 Decl* cxx_structural_pointer_value_declaration(int64_t token);
 bool cxx_structural_pointer_value_location(
     int64_t token, int64_t* byte_offset, bool* has_subobject_path,
-    bool* one_past, const int64_t** array_path_out,
-    size_t* array_path_length_out);
+    bool* one_past, bool* array_decay_out,
+    const CxxStructuralPointerPathElement** subobject_path_out,
+    size_t* subobject_path_length_out);
 bool cxx_structural_member_pointer_value_register(
     CxxClass* owner, const char* member_name, int64_t offset,
     int64_t* token_out);
