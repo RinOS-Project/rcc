@@ -5217,5 +5217,11 @@ remains a separate open item.
       pointers and integral fields, including a nested class-template partial
       specialization. Compare emitted Itanium symbols and execute GCC/RCC
       outputs for i686 and AMD64 through `scripts/ci_nested_class_templates.sh`.
-- [ ] Other structural NTTP pack member shapes and expression expansions remain
-      open.
+- [x] Support a parenthesized expression pattern in a binary right fold over
+      a structural class NTTP pack; verify member access, per-element
+      substitution, GCC/RCC symbol parity, i686 assembly, and AMD64 execution
+      in the WSL POSIX gate.
+- [x] Run the complete native-Windows MinGW `test-cxx` aggregate after the
+      parser change; it passes (exit 0).
+- [ ] Other structural NTTP pack member shapes and multi-pack expression
+      expansions remain open.

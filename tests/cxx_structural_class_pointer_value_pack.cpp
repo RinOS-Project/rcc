@@ -8,6 +8,10 @@ struct StructuralClassPointerPackValue {
 
 template <StructuralClassPointerPackValue... Values>
 struct StructuralClassPointerPack {
+    static constexpr int sum_values() {
+        return ((*Values.pointer + Values.bias) + ... + 0);
+    }
+
     template <typename Element>
     struct Inner {
         int result() const { return 11; }
@@ -26,6 +30,11 @@ int main() {
             &structural_class_pointer_pack_left, 2},
         StructuralClassPointerPackValue{
             &structural_class_pointer_pack_right, 3}>::Inner<int*> instance;
-    return instance.result() == 47
+    return instance.result() == 47 &&
+           StructuralClassPointerPack<
+               StructuralClassPointerPackValue{
+                   &structural_class_pointer_pack_left, 2},
+               StructuralClassPointerPackValue{
+                   &structural_class_pointer_pack_right, 3}>::sum_values() == 47
         ? 0 : 1;
 }

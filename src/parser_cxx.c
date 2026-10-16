@@ -1773,6 +1773,50 @@ Expr* rcc_parse_cxx_fold_expression(void) {
         }
     }
 
+    /* A binary right fold may use a parenthesized expression pattern, for
+     * example `((pack.member + 1) + ... + 0)`.  The existing identifier-only
+     * path below remains the compact form for `(pack op ... op init)`. */
+    if (parser.cur->next->type != TOK_ELLIPSIS) {
+        Expr* pattern;
+        Expr* initializer;
+        Expr* fold;
+        ExprKind second_operator_kind;
+        saved_cur = parser.cur;
+        saved_prev = parser.prev;
+        loc = peek()->loc;
+        advance(); /* ( */
+        pattern = rcc_parse_cxx_fold_operand();
+        operator_kind = cxx_fold_operator_kind(peek()->type);
+        if (pattern && operator_kind != EXPR_INT_LIT) {
+            advance();
+            if (match(TOK_ELLIPSIS)) {
+                second_operator_kind = cxx_fold_operator_kind(peek()->type);
+                if (second_operator_kind == EXPR_INT_LIT) {
+                    rcc_error(peek()->loc,
+                              "unsupported C++ fold operator; expected a binary operator");
+                    if (!at_end()) advance();
+                } else {
+                    advance();
+                }
+                if (second_operator_kind != operator_kind) {
+                    rcc_error(peek()->loc,
+                              "C++ binary fold requires the same operator on both sides of ...");
+                }
+                initializer = rcc_parse_cxx_fold_operand();
+                expect(TOK_RPAREN, ")");
+                fold = expr_cxx_fold(NULL, operator_kind, false, loc);
+                fold->cxx_fold_pattern = pattern;
+                fold->cxx_fold_init = initializer;
+                if (!rcc_parser_cxx_standard_at_least(17)) {
+                    rcc_error(loc, "fold expressions require C++17 or newer");
+                }
+                return fold;
+            }
+        }
+        parser.cur = saved_cur;
+        parser.prev = saved_prev;
+    }
+
     /* A unary right fold has the spelling `(pack op ...)`.  Require the
      * ellipsis immediately before the closing parenthesis so ordinary
      * parenthesized expressions are left to the normal parser. */
