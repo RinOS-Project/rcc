@@ -15,6 +15,25 @@ struct ScalarReferenceConversionSource {
     }
 };
 
+struct MemberPointerReferencePadding {
+    int padding;
+};
+
+struct MemberPointerReferenceBase {
+    int value;
+};
+
+struct MemberPointerReferenceDerived : MemberPointerReferencePadding,
+                                       MemberPointerReferenceBase {};
+
+struct MemberPointerReferenceSource {
+    int MemberPointerReferenceBase::*member;
+
+    operator int MemberPointerReferenceBase::*() const {
+        return member;
+    }
+};
+
 class Flag {
 public:
     int value;
@@ -240,6 +259,17 @@ int increment_scalar_conversion_reference(int& value) {
     return ++value;
 }
 
+int read_member_pointer_conversion_reference(
+    MemberPointerReferenceDerived& object,
+    int MemberPointerReferenceDerived::* const& member) {
+    return object.*member;
+}
+
+int is_null_member_pointer_conversion_reference(
+    int MemberPointerReferenceDerived::* const& member) {
+    return member == nullptr;
+}
+
 int take_ranked_integer(int value) {
     return value;
 }
@@ -401,8 +431,19 @@ int main() {
     TemplatedConversionSource templated_source;
     ConstrainedTemplatedConversionSource constrained_templated_source;
     ScalarReferenceConversionSource scalar_reference_source{71};
+    MemberPointerReferenceDerived member_pointer_reference_object;
+    int MemberPointerReferenceBase::* member_pointer_reference_value =
+        &MemberPointerReferenceBase::value;
+    int MemberPointerReferenceBase::* null_member_pointer_reference_value =
+        nullptr;
+    MemberPointerReferenceSource member_pointer_reference_source{
+        member_pointer_reference_value};
+    MemberPointerReferenceSource null_member_pointer_reference_source{
+        null_member_pointer_reference_value};
     reference_ranking_source.middle.value = 83;
     reference_ranking_source.leaf.value = 89;
+    member_pointer_reference_object.padding = 197;
+    member_pointer_reference_object.value = 211;
     int direct = meter;
     int templated_direct = templated_source;
     int argument = take_integer(meter);
@@ -420,6 +461,11 @@ int main() {
         read_scalar_conversion_reference(scalar_reference_source) != 71 ||
         increment_scalar_conversion_reference(scalar_reference_source) != 72 ||
         scalar_reference_source.value != 72 ||
+        read_member_pointer_conversion_reference(
+            member_pointer_reference_object,
+            member_pointer_reference_source) != 211 ||
+        !is_null_member_pointer_conversion_reference(
+            null_member_pointer_reference_source) ||
         choose_constrained_conversion(constrained_templated_source) != 101 ||
         return_integer() != 9 || return_long() != 11 ||
         choose_conversion(meter) != 107 ||

@@ -5494,3 +5494,19 @@ remains a separate open item.
       targets.
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-17, member-pointer conversion references)
+
+- [x] Complete the standard owner conversion after a conversion function
+      returns a data-member pointer, then bind the converted member-pointer
+      temporary to a const reference. Route the already-ranked implicit
+      conversion through the existing owner-adjustment lowering and preserve
+      the null member-pointer sentinel.
+- [x] Cover a base-to-derived member-pointer conversion across a nonzero
+      multiple-inheritance offset, a null result, and rejection of a converted
+      temporary for a mutable member-pointer reference. GCC C++20 and native-
+      Windows `test-cxx-conversion-operator` pass with i686/AMD64 generation and
+      execution; member-pointer data/function ABI gates also pass. Both target
+      diagnostics and absence of `.ro` are checked for the negative fixture.
+- [ ] Other multi-step standard conversions, remaining cv/reference binding
+      shapes, and general C++20 conversion-sequence ordering remain open.

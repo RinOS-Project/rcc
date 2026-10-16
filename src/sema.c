@@ -3253,9 +3253,23 @@ reference_binding_source:
                 call = expr_call(member, NULL, e->loc);
                 call->call_method = conversion;
                 if (apply_standard_conversion &&
+                    referred->kind == TYPE_PTR &&
+                    referred->cxx_is_member_pointer) {
+                    Expr* conversion_result =
+                        ast_arena_alloc(sizeof(*conversion_result));
+                    Expr* converted;
+                    *conversion_result = *call;
+                    converted = expr_cast(referred, conversion_result,
+                                          e->loc);
+                    /* The candidate rank has already restricted this to an
+                     * implicit owner conversion. Reuse static_cast's existing
+                     * member-pointer adjustment lowering for that conversion. */
+                    converted->cxx_cast_kind = CXX_CAST_STATIC;
+                    sema_expr(converted);
+                    *e = *converted;
+                } else if (apply_standard_conversion &&
                     (type_is_arithmetic(referred) ||
-                     (referred->kind == TYPE_PTR &&
-                      !referred->cxx_is_member_pointer))) {
+                     referred->kind == TYPE_PTR)) {
                     Expr* conversion_result =
                         ast_arena_alloc(sizeof(*conversion_result));
                     Expr* converted;
