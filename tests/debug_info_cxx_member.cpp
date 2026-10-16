@@ -107,3 +107,9 @@ extern "C" int debug_cxx_for_initializer_scope(int limit) {
     }
     return outer_value;
 }
+
+using DebugDataMemberPointer = int DebugMemberObject::*;
+using DebugFunctionMemberPointer = int (DebugMemberObject::*)() const;
+
+DebugDataMemberPointer debug_data_member_pointer;
+DebugFunctionMemberPointer debug_function_member_pointer;

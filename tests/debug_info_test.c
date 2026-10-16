@@ -3601,6 +3601,59 @@ static unsigned count_global_variable_dies(const ObjSection* info,
     return count;
 }
 
+static void verify_cxx_member_pointer_type(const char* path,
+                                          uint16_t architecture,
+                                          const char* variable_name,
+                                          bool function_member)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    uint64_t variable_die;
+    uint64_t member_pointer_die;
+    uint32_t member_type;
+    uint32_t containing_type;
+    uint64_t expected_size;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && abbrev != NULL && strings != NULL);
+    assert(contains_byte_pair(abbrev->data, abbrev->size, 57u, 0x1fu));
+    variable_die = find_global_variable_die(info, strings, variable_name);
+    assert(variable_die != UINT64_MAX && variable_die + 9u <= info->size);
+    member_pointer_die = read_u32(info->data, variable_die + 5u);
+    assert(member_pointer_die + 10u <= info->size &&
+           info->data[member_pointer_die] == 57u);
+    expected_size = function_member
+        ? (architecture == ARCH_X64 ? 16u : 8u)
+        : (architecture == ARCH_X64 ? 8u : 4u);
+    assert(info->data[member_pointer_die + 1u] == expected_size);
+    member_type = read_u32(info->data, member_pointer_die + 2u);
+    containing_type = read_u32(info->data, member_pointer_die + 6u);
+    assert(member_type < info->size && containing_type < info->size);
+    if (function_member) {
+        /* C++ cv-qualification on a member-function type is represented by
+         * a qualifier DIE wrapping the subroutine type. */
+        if (info->data[member_type] == 20u) {
+            uint32_t qualified_type;
+            assert(member_type + 5u <= info->size);
+            qualified_type = read_u32(info->data, member_type + 1u);
+            assert(qualified_type < info->size &&
+                   info->data[qualified_type] == 18u);
+        } else {
+            assert(info->data[member_type] == 18u);
+        }
+    } else {
+        assert(info->data[member_type] == 5u);
+    }
+    assert(containing_type == find_structure_type_die(
+        info, strings, "DebugMemberObject"));
+    objfile_free(object);
+}
+
 static bool has_relocation(const ObjSection* section, uint64_t offset,
                            const char* symbol_name, RelocType type)
 {
@@ -5496,6 +5549,14 @@ int main(int argc, char** argv)
     verify_verified_global_debug_object(argv[13], ARCH_X64);
     verify_object_pointer_parameter(argv[14], ARCH_X86);
     verify_object_pointer_parameter(argv[15], ARCH_X64);
+    verify_cxx_member_pointer_type(argv[14], ARCH_X86,
+                                   "debug_data_member_pointer", false);
+    verify_cxx_member_pointer_type(argv[15], ARCH_X64,
+                                   "debug_data_member_pointer", false);
+    verify_cxx_member_pointer_type(argv[14], ARCH_X86,
+                                   "debug_function_member_pointer", true);
+    verify_cxx_member_pointer_type(argv[15], ARCH_X64,
+                                   "debug_function_member_pointer", true);
     verify_static_member_containing_type(argv[14], ARCH_X86);
     verify_static_member_containing_type(argv[15], ARCH_X64);
     verify_cxx_member_accessibility(argv[14], ARCH_X86);

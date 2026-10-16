@@ -1874,6 +1874,9 @@
         `DW_TAG_rvalue_reference_type` DIEから参照先型への`DW_AT_type`を
         出力。lvalue/rvalue reference parameterのDIEと参照先base typeを
         i686/AMD64の`test-debug-info`で検証
+  - [x] C++ data/function member-pointer型を`DW_TAG_ptr_to_member_type`と
+        実メンバー型・containing class型参照で出力し、member-functionの
+        cv-qualified type DIEも含めてbyte sizeと参照先をi686/AMD64で検証
   - [x] nested compound statementへ`DW_TAG_lexical_block`を出力し、実際の
         `DW_AT_decl_file`／`DW_AT_decl_line`／`DW_AT_decl_column`とblock内
         local DIEの親子関係をi686/AMD64のdebug-info回帰で検証。block-to-PC

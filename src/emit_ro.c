@@ -1062,8 +1062,13 @@ static bool debug_type_is_dependent(const Type* type, unsigned depth) {
         type->cxx_dependent_member_name) {
         return true;
     }
-    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
-        type->kind == TYPE_VECTOR) {
+    if (type->kind == TYPE_PTR) {
+        return debug_type_is_dependent(type->base, depth + 1u) ||
+            (type->cxx_is_member_pointer &&
+             debug_type_is_dependent(type->cxx_member_pointer_owner,
+                                     depth + 1u));
+    }
+    if (type->kind == TYPE_ARRAY || type->kind == TYPE_VECTOR) {
         return debug_type_is_dependent(type->base, depth + 1u);
     }
     if (type->kind == TYPE_FUNC) {
@@ -1340,6 +1345,9 @@ static void debug_type_collect(DebugTypeContext* context, const Type* type) {
     if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
         type->kind == TYPE_VECTOR) {
         debug_type_collect(context, type->base);
+        if (type->kind == TYPE_PTR && type->cxx_is_member_pointer) {
+            debug_type_collect(context, type->cxx_member_pointer_owner);
+        }
     }
     debug_type_add(context, type);
 }
@@ -1797,6 +1805,19 @@ static void debug_emit_type_dies(ObjSection* info, ObjSection* strings,
             }
             section_add_byte(info, type->is_rvalue_reference ? 38u : 37u);
             debug_type_ref(info, patches, base);
+        } else if (type->kind == TYPE_PTR && type->cxx_is_member_pointer) {
+            DebugTypeEntry* member_type = debug_type_find(context, type->base);
+            DebugTypeEntry* owner_type = debug_type_find(
+                context, type->cxx_member_pointer_owner);
+            if (!member_type || !owner_type) {
+                rcc_fatal("DWARF member-pointer component type was not collected");
+                return;
+            }
+            section_add_byte(info, 57u); /* DW_TAG_ptr_to_member_type */
+            section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
+                                             (type->size < 0 ? 0 : type->size)));
+            debug_type_ref(info, patches, member_type);
+            debug_type_ref(info, patches, owner_type);
         } else if (type->kind == TYPE_PTR) {
             section_add_byte(info, 6u);        /* DW_TAG_pointer_type */
             section_add_byte(info, (uint8_t)(type->size > 255 ? 255 :
@@ -4957,6 +4978,17 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     section_add_byte(abbrev, 0u);
     debug_line_uleb(abbrev, 0x2110u); /* DW_AT_GNU_template_name */
     debug_line_uleb(abbrev, 0x0eu);   /* DW_FORM_strp */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 57u);
+    debug_line_uleb(abbrev, 0x1fu);   /* DW_TAG_ptr_to_member_type */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x0bu);   /* DW_AT_byte_size */
+    debug_line_uleb(abbrev, 0x0bu);   /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x49u);   /* DW_AT_type */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1du);   /* DW_AT_containing_type */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
