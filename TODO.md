@@ -5407,3 +5407,17 @@ remains a separate open item.
 - [ ] Broader C++20 partial ordering, optimizer profitability, and remaining
       language/ABI gaps remain open. Do not push or change the parent RCC
       gitlink without an explicit request.
+
+## RCC continuation (2026-10-17, array/function decay to bool)
+
+- [x] Rank array/function-to-pointer decay followed by pointer-to-bool as a
+      standard conversion for overload arguments; preserve array/function
+      expressions for lowering, and materialize the converted `bool` when it
+      binds to `const bool&`.
+- [x] Regress arrays and function designators for by-value and const-reference
+      parameters. GCC C++20 `-Wall -Wextra -Werror`, the focused
+      `test-cxx-function-template-overloads` gate, and full native-Windows
+      `test-cxx` all pass (exit 0), including i686/AMD64 generation and runtime
+      execution.
+- [ ] Other multi-step standard conversions, reference/cv binding shapes, and
+      general C++20 conversion-sequence ordering remain open.

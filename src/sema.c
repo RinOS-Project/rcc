@@ -3155,6 +3155,17 @@ reference_binding_source:
         source_object = source && source->is_reference
             ? source->base : source;
         if (!source_object) return NULL;
+        if (rcc_parser_is_cxx_mode() && referred->kind == TYPE_BOOL &&
+            (source_object->kind == TYPE_ARRAY ||
+             source_object->kind == TYPE_FUNC) &&
+            (target->is_rvalue_reference || referred->is_const)) {
+            Expr* source_expression = ast_arena_alloc(sizeof(*source_expression));
+            Expr* converted;
+            *source_expression = *e;
+            converted = expr_cast(referred, source_expression, e->loc);
+            *e = *converted;
+            goto reference_binding_source;
+        }
         if (rcc_parser_is_cxx_mode() &&
             (source_object->kind == TYPE_STRUCT ||
              source_object->kind == TYPE_UNION) &&
@@ -3386,6 +3397,13 @@ reference_binding_validated:
      * integer literal equal to zero in C++. */
     if (type_is_pointer(e->type) && type_is_integer(target)) {
         return target->kind == TYPE_BOOL ? target : NULL;
+    }
+    /* Array/function-to-pointer is an lvalue transformation; the resulting
+     * pointer may then use the standard pointer-to-bool conversion. Keep the
+     * source expression intact so lowering still obtains its address. */
+    if (target->kind == TYPE_BOOL &&
+        (type_is_array(e->type) || type_is_function(e->type))) {
+        return target;
     }
     if (type_is_integer(e->type) && type_is_pointer(target)) {
         return sema_is_null_pointer_constant(e) ? target : NULL;
@@ -8239,6 +8257,14 @@ static int cxx_conversion_rank_detail_at_context(
             source = source->base;
         }
         if (!target_base || !source) return -1;
+        if (target_base->kind == TYPE_BOOL &&
+            (source->kind == TYPE_ARRAY || source->kind == TYPE_FUNC) &&
+            (target->is_rvalue_reference || target_base->is_const)) {
+            /* Decay followed by pointer-to-bool produces a temporary bool;
+             * binding that temporary is viable for const lvalue and rvalue
+             * references. */
+            return 2;
+        }
         direct_binding_viable =
             (!source->is_const || target_base->is_const) &&
             (!source->is_volatile || target_base->is_volatile) &&
@@ -8307,6 +8333,13 @@ static int cxx_conversion_rank_detail_at_context(
     if (source->kind == TYPE_FUNC && target->kind == TYPE_PTR &&
         target->base && target->base->kind == TYPE_FUNC) {
         return sema_cxx_function_type_conversion_rank(source, target->base);
+    }
+
+    /* Array/function decay followed by pointer-to-bool is a standard
+     * conversion sequence whose rank is Conversion. */
+    if (target->kind == TYPE_BOOL &&
+        (source->kind == TYPE_ARRAY || source->kind == TYPE_FUNC)) {
+        return 2;
     }
 
     if (sema_cxx_derived_to_base_value_conversion(

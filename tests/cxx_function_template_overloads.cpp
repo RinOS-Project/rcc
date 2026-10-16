@@ -2000,6 +2000,44 @@ int choose_pointer_to_bool_non_template(void*) {
     return 216;
 }
 
+int choose_array_to_bool(bool value) {
+    return value ? 245 : 246;
+}
+
+int choose_function_to_bool(bool value) {
+    return value ? 247 : 248;
+}
+
+int choose_array_to_bool_reference(const bool& value) {
+    return value ? 249 : 250;
+}
+
+int choose_function_to_bool_reference(const bool& value) {
+    return value ? 251 : 252;
+}
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Waddress"
+static int verify_array_to_bool_decay() {
+    int value[1] = { 1 };
+    return choose_array_to_bool(value);
+}
+
+static int verify_array_to_bool_reference_decay() {
+    int value[1] = { 1 };
+    return choose_array_to_bool_reference(value);
+}
+
+static int verify_function_to_bool_decay() {
+    return choose_function_to_bool(conversion_noexcept_function);
+}
+
+static int verify_function_to_bool_reference_decay() {
+    return choose_function_to_bool_reference(
+        conversion_noexcept_function);
+}
+#pragma GCC diagnostic pop
+
 int choose_nullptr_to_bool_non_template(bool) {
     return 217;
 }
@@ -3328,6 +3366,10 @@ int main(void) {
                    choose_fixed_enum_template(
                        value, conversion_fixed_byte_value) == 213 &&
                    choose_pointer_to_bool_non_template(pointer) == 216 &&
+                   verify_array_to_bool_decay() == 245 &&
+                   verify_array_to_bool_reference_decay() == 249 &&
+                   verify_function_to_bool_decay() == 247 &&
+                   verify_function_to_bool_reference_decay() == 251 &&
                    choose_nullptr_to_bool_non_template(nullptr) == 218 &&
                    choose_nullptr_to_bool_template(value, nullptr) == 220 &&
                    !static_cast<bool>(nullptr) &&
