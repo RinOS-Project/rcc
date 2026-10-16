@@ -5191,3 +5191,16 @@ remains a separate open item.
 - [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate; it passes
       (exit 0).
 - [ ] Other standard-valid structural class NTTP forms remain open.
+
+## RCC continuation (2026-10-16, structural NTTP array references)
+
+- [x] Accept a structural class NTTP reference member bound to a complete
+      namespace-scope array, preserve its identity through nested template
+      access, and index the referenced array in instantiated member functions.
+- [x] Add `tests/cxx_structural_array_reference_nttp.cpp` to
+      `scripts/ci_nested_class_templates.sh`; compare GCC/RCC symbols, assemble
+      i686 and AMD64 outputs, and execute RCC/GCC AMD64 programs in the full
+      WSL POSIX gate.
+- [x] Assemble the generated i686 and AMD64 outputs with native MinGW and run
+      both RCC- and GCC-generated AMD64 programs on Windows.
+- [ ] Other standard-valid structural class NTTP forms remain open.
