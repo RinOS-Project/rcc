@@ -41,6 +41,39 @@ static ObjSymbol* function_symbol(ObjectFile* object, const char* name)
     return symbol;
 }
 
+static void relocate_local_function_addresses(ObjectFile* object,
+                                              ObjSection* code,
+                                              uint8_t* mapping)
+{
+    int code_index = 0;
+    int section_index = 0;
+    for (ObjSection* section = object->sections; section;
+         section = section->next, ++section_index) {
+        if (section == code) {
+            code_index = section_index;
+            break;
+        }
+    }
+    for (ObjReloc* relocation = code->relocs; relocation;
+         relocation = relocation->next) {
+        ObjSymbol* symbol;
+        uint64_t address;
+        if (relocation->type != RELOC_ABS64 || !relocation->symbol_name) {
+            continue;
+        }
+        symbol = objfile_find_symbol(object, relocation->symbol_name);
+        if (!symbol || symbol->binding != BIND_CODE ||
+            symbol->section != code_index) {
+            continue;
+        }
+        assert(relocation->offset <= code->size &&
+               code->size - relocation->offset >= sizeof(address));
+        address = (uint64_t)(uintptr_t)mapping + symbol->value +
+                  (uint64_t)relocation->addend;
+        memcpy(mapping + relocation->offset, &address, sizeof(address));
+    }
+}
+
 static uint64_t function_extent(ObjectFile* object, const char* name)
 {
     ObjSection* code = code_section(object);
@@ -142,6 +175,7 @@ static void verify_smaller(const char* unoptimized_path,
     static const uint8_t hardware_div[] = {0xF7u, 0xF1u};
     static const uint8_t signed_div_ecx[] = {0xF7u, 0xF9u};
     static const uint8_t signed64_div_ecx[] = {0x48u, 0xF7u, 0xF9u};
+    static const uint8_t indirect_call_r11[] = {0x41u, 0xFFu, 0xD3u};
     static const char* const signed64_high_power_functions[] = {
         "strength_reduce_signed_64_div_high_power",
         "strength_reduce_signed_64_mod_high_power",
@@ -150,6 +184,25 @@ static void verify_smaller(const char* unoptimized_path,
     };
     assert(unoptimized != NULL && optimized != NULL);
     assert(unoptimized->arch == architecture && optimized->arch == architecture);
+    if (architecture == ARCH_X64 &&
+        objfile_find_symbol(optimized,
+                            "inline_local_constexpr_function_pointer_call")) {
+        static const char* const immutable_pointer_calls[] = {
+            "inline_local_constexpr_function_pointer_call",
+            "inline_local_const_function_pointer_call"
+        };
+        for (size_t index = 0u;
+             index < sizeof(immutable_pointer_calls) /
+                         sizeof(immutable_pointer_calls[0]);
+             ++index) {
+            assert(function_contains_sequence(
+                unoptimized, immutable_pointer_calls[index],
+                indirect_call_r11, sizeof(indirect_call_r11)));
+            assert(!function_contains_sequence(
+                optimized, immutable_pointer_calls[index],
+                indirect_call_r11, sizeof(indirect_call_r11)));
+        }
+    }
     unoptimized_code = code_section(unoptimized);
     optimized_code = code_section(optimized);
     assert(optimized_code->size < unoptimized_code->size);
@@ -926,6 +979,8 @@ static void execute_inline_namespace_case(const char* path)
     SysvIntUnary function;
     SysvIntUnary array_first;
     SysvIntUnary array_second;
+    SysvIntUnary local_constexpr_pointer;
+    SysvIntUnary local_const_pointer;
     assert(object != NULL && object->arch == ARCH_X64);
     if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
         objfile_free(object);
@@ -938,6 +993,7 @@ static void execute_inline_namespace_case(const char* path)
                            PAGE_READWRITE);
     assert(mapping != NULL);
     memcpy(mapping, code->data, code->size);
+    relocate_local_function_addresses(object, code, mapping);
     assert(VirtualProtect(mapping, code->size, PAGE_EXECUTE_READ,
                           &previous_protection));
     assert(FlushInstructionCache(GetCurrentProcess(), mapping, code->size));
@@ -952,6 +1008,17 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&array_second, &address, sizeof(array_second));
     assert(array_first(5) == 28);
     assert(array_second(5) == 11);
+    symbol = function_symbol(object,
+                             "inline_local_constexpr_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_constexpr_pointer, &address,
+           sizeof(local_constexpr_pointer));
+    symbol = function_symbol(object,
+                             "inline_local_const_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_const_pointer, &address, sizeof(local_const_pointer));
+    assert(local_constexpr_pointer(5) == 28);
+    assert(local_const_pointer(5) == 11);
     assert(VirtualFree(mapping, 0u, MEM_RELEASE));
     objfile_free(object);
     puts("Windows AMD64 C++ inline namespace identity execution passed");
@@ -1136,6 +1203,8 @@ static void execute_inline_namespace_case(const char* path)
     int (*function)(int);
     int (*array_first)(int);
     int (*array_second)(int);
+    int (*local_constexpr_pointer)(int);
+    int (*local_const_pointer)(int);
     assert(object != NULL && object->arch == ARCH_X64);
     if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
         objfile_free(object);
@@ -1148,6 +1217,7 @@ static void execute_inline_namespace_case(const char* path)
                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     assert(mapping != MAP_FAILED);
     memcpy(mapping, code->data, code->size);
+    relocate_local_function_addresses(object, code, mapping);
     assert(mprotect(mapping, code->size, PROT_READ | PROT_EXEC) == 0);
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&function, &address, sizeof(function));
@@ -1160,6 +1230,17 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&array_second, &address, sizeof(array_second));
     assert(array_first(5) == 28);
     assert(array_second(5) == 11);
+    symbol = function_symbol(object,
+                             "inline_local_constexpr_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_constexpr_pointer, &address,
+           sizeof(local_constexpr_pointer));
+    symbol = function_symbol(object,
+                             "inline_local_const_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_const_pointer, &address, sizeof(local_const_pointer));
+    assert(local_constexpr_pointer(5) == 28);
+    assert(local_const_pointer(5) == 11);
     assert(munmap(mapping, code->size) == 0);
     objfile_free(object);
     puts("AMD64 C++ inline namespace identity execution passed");

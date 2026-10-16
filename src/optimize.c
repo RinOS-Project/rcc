@@ -1913,23 +1913,26 @@ static Decl* resolve_inline_function_pointer_initializer(
     return function;
 }
 
-static bool inline_constexpr_function_pointer_variable(Decl* variable) {
+static bool inline_readonly_initialized_variable(Decl* variable) {
     return variable && variable->kind == DECL_VAR &&
-           variable->var_is_global && variable->var_is_constexpr &&
            !variable->var_is_thread_local &&
-           !variable->var_dynamic_initializer;
+           !variable->var_dynamic_initializer &&
+           (variable->var_is_constexpr ||
+            (variable->type && variable->type->is_const &&
+             !variable->type->is_volatile));
 }
 
-static Decl* resolve_inline_constexpr_function_pointer(Decl* variable) {
-    if (!inline_constexpr_function_pointer_variable(variable)) {
+static Decl* resolve_inline_readonly_function_pointer(Decl* variable) {
+    if (!inline_readonly_initialized_variable(variable) ||
+        !variable->type || variable->type->kind != TYPE_PTR ||
+        !variable->type->base || variable->type->base->kind != TYPE_FUNC) {
         return NULL;
     }
     return resolve_inline_function_pointer_initializer(
         variable->type, variable->var_init);
 }
 
-static Decl* resolve_inline_constexpr_function_pointer_array(
-    Expr* callee) {
+static Decl* resolve_inline_readonly_function_pointer_array(Expr* callee) {
     Expr* initializer;
     ExprList* element;
     Decl* variable;
@@ -1943,12 +1946,14 @@ static Decl* resolve_inline_constexpr_function_pointer_array(
         return NULL;
     }
     variable = callee->index_base->ident_decl;
-    if (!inline_constexpr_function_pointer_variable(variable) ||
+    if (!inline_readonly_initialized_variable(variable) ||
         !variable->type || variable->type->kind != TYPE_ARRAY ||
         variable->type->array_len < 0 || index >= variable->type->array_len ||
         !variable->type->base || variable->type->base->kind != TYPE_PTR ||
         !variable->type->base->base ||
-        variable->type->base->base->kind != TYPE_FUNC) {
+        variable->type->base->base->kind != TYPE_FUNC ||
+        (!variable->var_is_constexpr &&
+         !variable->type->base->is_const && !variable->type->is_const)) {
         return NULL;
     }
     initializer = variable->var_init;
@@ -1976,12 +1981,12 @@ static Decl* resolve_inline_indirect_call_target(Expr* callee) {
     Decl* declaration;
     if (!callee) return NULL;
     if (callee->kind == EXPR_INDEX) {
-        return resolve_inline_constexpr_function_pointer_array(callee);
+        return resolve_inline_readonly_function_pointer_array(callee);
     }
     if (callee->kind != EXPR_IDENT || !callee->ident_decl) return NULL;
     declaration = callee->ident_decl;
     if (declaration->kind == DECL_FUNC) return declaration;
-    return resolve_inline_constexpr_function_pointer(declaration);
+    return resolve_inline_readonly_function_pointer(declaration);
 }
 
 static bool inline_side_effect_free_scalar_call(Expr** expression_out) {

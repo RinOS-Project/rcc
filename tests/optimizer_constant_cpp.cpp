@@ -65,3 +65,15 @@ extern "C" int inline_constexpr_array_dynamic_call(int index, int value)
 {
     return inline_constexpr_function_array[index](value);
 }
+
+extern "C" int inline_local_constexpr_function_pointer_call(int value)
+{
+    constexpr int (*callback)(int) = &inline_constexpr_array_first;
+    return callback(value);
+}
+
+extern "C" int inline_local_const_function_pointer_call(int value)
+{
+    int (*const callback)(int) = &inline_constexpr_array_second;
+    return callback(value);
+}
