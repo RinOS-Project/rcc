@@ -5315,6 +5315,8 @@ remains a separate open item.
       `sizeof...`, specialization caching, instantiation, and mangling; verify
       explicit, empty, and inferred partitions with GCC-identical i686/AMD64
       symbols, AMD64 execution in the POSIX gate, and the native MinGW overload
-      regression gate.
+      regression gate. Also distinguish `1+1`, `2+0`, and `0+2` pack
+      partitions that share the same flattened type-argument sequence; runtime
+      results and exact GCC/RCC symbols verify the cache key retains boundaries.
 - [ ] Other independent pack interactions and broader C++20 partial-ordering
       cases remain open.

@@ -16,6 +16,14 @@ int interleave_pack_sources(
                             sizeof...(SecondTypes));
 }
 
+template<typename... FirstTypes, typename... SecondTypes>
+int independent_pack_partition(
+    RepeatedPackExpansionBox<FirstTypes...>,
+    RepeatedPackExpansionBox<SecondTypes...>) {
+    return static_cast<int>(sizeof...(FirstTypes) * 10 +
+                            sizeof...(SecondTypes));
+}
+
 template<int... Values>
 struct RepeatedValuePackExpansionBox {};
 
@@ -67,14 +75,28 @@ int main() {
             RepeatedPackExpansionBox<short, double>{}) != 2) {
         return 5;
     }
+    if (independent_pack_partition(RepeatedPackExpansionBox<char>{},
+                                   RepeatedPackExpansionBox<short>{}) != 11) {
+        return 6;
+    }
+    if (independent_pack_partition(
+            RepeatedPackExpansionBox<char, short>{},
+            RepeatedPackExpansionBox<>{}) != 20) {
+        return 7;
+    }
+    if (independent_pack_partition(
+            RepeatedPackExpansionBox<>{},
+            RepeatedPackExpansionBox<char, short>{}) != 2) {
+        return 8;
+    }
     if (repeat_value_pack_expansion(
             RepeatedValuePackExpansionBox<1, 2, 7, 1, 2>{},
             RepeatedValuePackExpansionBox<1, 2>{}) != 2) {
-        return 6;
+        return 9;
     }
     if (repeat_value_pack_expansion(RepeatedValuePackExpansionBox<7>{},
                                     RepeatedValuePackExpansionBox<>{}) != 0) {
-        return 7;
+        return 10;
     }
     if (repeat_template_template_pack_expansion(
             RepeatedTemplatePackExpansionBox<
@@ -83,13 +105,13 @@ int main() {
                 RepeatedTemplatePackExpansionItem>{},
             RepeatedTemplatePackExpansionBox<
                 RepeatedTemplatePackExpansionItem>{}) != 1) {
-        return 8;
+        return 11;
     }
     if (repeat_template_template_pack_expansion(
             RepeatedTemplatePackExpansionBox<
                 RepeatedTemplatePackExpansionFixed>{},
             RepeatedTemplatePackExpansionBox<>{}) != 0) {
-        return 9;
+        return 12;
     }
     return 0;
 }
