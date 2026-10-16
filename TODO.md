@@ -5051,8 +5051,7 @@ remains a separate open item.
       current compiler tree; `test-cxx-member-lifetime` and the full aggregate
       both pass (exit 0).
 - [ ] Nonzero pointer arithmetic and other pointer constant-expression forms,
-      overloaded-function template/conversion cases, and reference members
-      remain open.
+      and overloaded-function template/conversion cases remain open.
 
 ## RCC continuation (2026-10-16, structural data-member-pointer NTTP values)
 
@@ -5066,8 +5065,7 @@ remains a separate open item.
   and execute RCC AMD64 and GCC-host programs.
 - [x] Add the regression to `scripts/ci_nested_class_templates.sh`; the complete
   POSIX nested-class CI gate passes in WSL.
-- [ ] Reference members and additional standard-valid structural class NTTP
-  forms remain open.
+- [ ] Additional standard-valid structural class NTTP forms remain open.
 
 ## RCC continuation (2026-10-16, structural pointer subobject offsets)
 
@@ -5145,8 +5143,7 @@ remains a separate open item.
   The complete POSIX nested-class CI gate passes in WSL.
 - [x] Re-run native-Windows MinGW `test-cxx` after the parser and structural
   NTTP changes; the full aggregate passes (exit 0).
-- [ ] Reference members and other standard-valid structural class NTTP forms
-  remain open.
+- [ ] Other standard-valid structural class NTTP forms remain open.
 
 ## RCC continuation (2026-10-16, multiple structural member-pointer NTTP leaves)
 
@@ -5161,5 +5158,20 @@ remains a separate open item.
   POSIX gate passes.
 - [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate; it passes
   (exit 0).
-- [ ] Reference members and other standard-valid structural class NTTP forms
-  remain open.
+- [ ] Other standard-valid structural class NTTP forms remain open.
+
+## RCC continuation (2026-10-16, structural class NTTP reference members)
+
+- [x] Preserve reference members bound to namespace-scope constant objects and
+      named aggregate subobjects inside nested structural class NTTP values.
+      Restore the referent as an lvalue when cloning template member access,
+      while keeping reference identity distinct from pointer values.
+- [x] Add direct-object and aggregate-subobject references to
+      `tests/cxx_structural_reference_members_nttp.cpp`; compare complete
+      GCC/RCC Itanium symbols on i686/AMD64, assemble both targets, and execute
+      RCC/GCC AMD64 programs.
+- [x] Add the regression to `scripts/ci_nested_class_templates.sh`; the full
+      WSL POSIX gate passes.
+- [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate after the
+      parser and template-cloning changes; it passes (exit 0).
+- [ ] Other standard-valid structural class NTTP forms remain open.

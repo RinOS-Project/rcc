@@ -9327,9 +9327,14 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                 rcc_fatal(
                                     "C++ structural pointer target type is invalid");
                             }
-                            copy = expr_unary(
-                                EXPR_ADDR, current_expression,
-                                expression->loc);
+                            if (value_type->is_reference) {
+                                copy = current_expression;
+                                copy->type = current_type;
+                            } else {
+                                copy = expr_unary(
+                                    EXPR_ADDR, current_expression,
+                                    expression->loc);
+                            }
                         }
                     } else {
                         if (byte_offset != 0) {
@@ -9352,10 +9357,13 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                             copy->type = value_type;
                             return copy;
                         }
-                        copy = expr_unary(EXPR_ADDR, identifier,
-                                          expression->loc);
+                        copy = value_type->is_reference
+                            ? identifier
+                            : expr_unary(EXPR_ADDR, identifier,
+                                         expression->loc);
                     }
-                    copy->type = value_type;
+                    copy->type = value_type->is_reference
+                        ? pointer_declaration->type : value_type;
                     return copy;
                 }
                 copy = expr_int(value, expression->loc);

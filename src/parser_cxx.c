@@ -2159,7 +2159,9 @@ static bool cxx_structural_pointer_member_path_location(
     location->byte_offset = offset;
     location->has_subobject_path = path_position != 0u || decay_array;
     location->subobject_path_length = path_position;
-    if (!location->has_subobject_path) return false;
+    if (!location->has_subobject_path && !pointer_type->is_reference) {
+        return false;
+    }
     return true;
 }
 
@@ -2203,6 +2205,14 @@ static bool cxx_structural_pointer_member_location(
             return cxx_structural_pointer_member_location(
                 expression->cast_expr, pointer_type, location);
         }
+    }
+    if (pointer_type->is_reference &&
+        (expression->kind == EXPR_IDENT ||
+         expression->kind == EXPR_INDEX ||
+         expression->kind == EXPR_MEMBER) &&
+        cxx_structural_pointer_member_indexed_location(
+            expression, pointer_type, false, location)) {
+        return true;
     }
     if ((expression->kind == EXPR_IDENT ||
          expression->kind == EXPR_INDEX ||
@@ -2432,6 +2442,18 @@ static bool cxx_structural_pointer_member_value(
             condition ? expression->cond_then : expression->cond_else,
             pointer_type, value_out);
     }
+    if (pointer_type->is_reference) {
+        if (!cxx_structural_pointer_member_location(
+                expression, pointer_type, &location) ||
+            !location.declaration) {
+            return false;
+        }
+        return cxx_structural_pointer_value_register(
+            location.declaration, location.byte_offset,
+            location.has_subobject_path, location.one_past,
+            location.array_decay, location.subobject_path,
+            location.subobject_path_length, value_out);
+    }
     if (pointer_type->cxx_is_member_pointer) {
         CxxClass* owner = pointer_type->cxx_member_pointer_owner
             ? pointer_type->cxx_member_pointer_owner->cxx_class : NULL;
@@ -2522,6 +2544,10 @@ static bool cxx_structural_class_collect_member_values(
             initializer = initializer->next;
         } else {
             field_initializer = field->initializer;
+        }
+        if (field->type->kind == TYPE_PTR && field->type->is_reference &&
+            !field_initializer) {
+            return false;
         }
         if (field->type->kind == TYPE_STRUCT) {
             ExprList* nested_initializer = NULL;
