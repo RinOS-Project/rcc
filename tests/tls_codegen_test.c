@@ -70,16 +70,30 @@ static void verify_object(const char* path, uint16_t arch, int cxx)
     assert(tls != NULL && text != NULL);
     assert(tls->type == SECT_TLS && tls->size == tls->memory_size);
     initialized = objfile_find_symbol(
-        object, cxx ? "_Z15tls_cpp_counter" : "tls_counter");
+        object, cxx ? "tls_cpp_counter" : "tls_counter");
+    if (!initialized || initialized->binding != BIND_TLS ||
+        initialized->section < 0 ||
+        initialized->value + 4u > tls->size) {
+        fprintf(stderr,
+                "%s: TLS symbol check failed: symbol=%s binding=%d "
+                "section=%d value=%llu tls-size=%llu\n",
+                path, cxx ? "tls_cpp_counter" : "tls_counter",
+                initialized ? (int)initialized->binding : -1,
+                initialized ? initialized->section : -1,
+                (unsigned long long)(initialized ? initialized->value : 0u),
+                (unsigned long long)tls->size);
+    }
     assert(initialized != NULL && initialized->binding == BIND_TLS &&
            initialized->section >= 0 && initialized->value + 4u <= tls->size);
     assert(read_u32(tls->data + initialized->value) == (cxx ? 11u : 7u));
     if (cxx) {
         ObjSection* data = objfile_get_section(object, ".data");
         ObjSymbol* tls_pointer = objfile_find_symbol(
-            object, "_Z20tls_cpp_null_pointer");
+            object, "tls_cpp_null_pointer");
         ObjSymbol* global_pointer = objfile_find_symbol(
-            object, "_Z16cpp_null_pointer");
+            object, "cpp_null_pointer");
+        ObjSymbol* namespace_counter = objfile_find_symbol(
+            object, "_ZN13tls_namespace7counterE");
         assert(data != NULL);
         assert(tls_pointer != NULL && tls_pointer->binding == BIND_TLS &&
                tls_pointer->section == section_index(object, tls) &&
@@ -90,6 +104,11 @@ static void verify_object(const char* path, uint16_t arch, int cxx)
                global_pointer->value + pointer_size <= data->size &&
                bytes_are_zero(data->data + global_pointer->value,
                               pointer_size));
+        assert(namespace_counter != NULL &&
+               namespace_counter->binding == BIND_TLS &&
+               namespace_counter->section == section_index(object, tls) &&
+               namespace_counter->value + 4u <= tls->size &&
+               read_u32(tls->data + namespace_counter->value) == 13u);
     } else {
         ObjSymbol* zero = NULL;
         for (ObjSymbol* symbol = object->symbols; symbol;

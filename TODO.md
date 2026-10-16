@@ -5383,3 +5383,22 @@ remains a separate open item.
       (exit 0).
 - [ ] Broader Itanium substitution cases and C++20 partial-ordering remain
       open. No push or parent RCC gitlink update was made.
+
+## RCC continuation (2026-10-17, TLS ABI and deterministic image goldens)
+
+- [x] Correct the C++ TLS object fixture to expect unmangled global-variable
+      names and add a namespaced `thread_local` symbol check for its Itanium
+      mangled name, TLS binding, section offset, and initialized value. The
+      native-Windows `test-tls` target passes for C/C++, both architectures,
+      and linked RIN/RLL outputs.
+- [x] Add the missing `rinwire/include` directory to the parent RinRuntime
+      dynamic-TLS integration test. The signed i686 and x86_64 runtime RLLs,
+      RCC consumer RINs, and strict `rinvalidate` checks pass.
+- [x] Regenerate deterministic golden hashes after confirming each of the
+      ten C/C++ cases produces identical bytes on two consecutive builds;
+      the regular `test-golden-artifacts` check passes for RIN/RLL/DRV and RO.
+- [ ] Rerun the complete `test-ci` aggregate after the golden refresh; the
+      prior run stopped at the now-corrected stale golden hashes.
+- [ ] Broader C++20 partial ordering, optimizer profitability, and remaining
+      language/ABI gaps remain open. Do not push or change the parent RCC
+      gitlink without an explicit request.
