@@ -490,6 +490,12 @@ bool cxx_structural_class_unpack_member_value(
 bool cxx_structural_pointer_value_register(Decl* declaration,
                                            int64_t* token_out);
 Decl* cxx_structural_pointer_value_declaration(int64_t token);
+bool cxx_structural_member_pointer_value_register(
+    CxxClass* owner, const char* member_name, int64_t offset,
+    int64_t* token_out);
+bool cxx_structural_member_pointer_value_resolve(
+    int64_t token, CxxClass** owner_out, const char** member_name_out,
+    int64_t* offset_out);
 bool cxx_structural_class_unpack_member_path(
     const Type* type, int64_t packed_value,
     const char* const* member_names, int member_name_count,

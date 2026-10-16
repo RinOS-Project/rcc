@@ -5026,8 +5026,8 @@ remains a separate open item.
   outputs, and execute RCC AMD64 plus the GCC-host program; the complete
   `scripts/ci_nested_class_templates.sh` gate passes in WSL.
 - [ ] Nonzero pointer offsets and other computed pointer constants,
-      overloaded-function template/conversion cases, pointer-to-member values,
-      and reference members remain open.
+      overloaded-function template/conversion cases, and reference members
+      remain open.
 
 ## RCC continuation (2026-10-16, computed structural pointer NTTP expressions)
 
@@ -5052,5 +5052,21 @@ remains a separate open item.
       definitions; the current member-lifetime link fails on those missing
       symbols. Do not fold those unrelated changes into this commit.
 - [ ] Nonzero pointer arithmetic and other pointer constant-expression forms,
-      overloaded-function template/conversion cases, pointer-to-member values,
-      and reference members remain open.
+      overloaded-function template/conversion cases, and reference members
+      remain open.
+
+## RCC continuation (2026-10-16, structural data-member-pointer NTTP values)
+
+- [x] Preserve null and non-null data-member-pointer values inside a structural
+  class NTTP with translation-unit-local owner/member/offset tokens; restore
+  member designators in nested template instantiations without host pointer
+  addresses.
+- [x] Match GCC Itanium encodings for data-member addresses and null values,
+  including the class-type substitution contributed by a nested structural
+  NTTP owner. Compare complete symbols on i686/AMD64, assemble both targets,
+  and execute RCC AMD64 and GCC-host programs.
+- [x] Add the regression to `scripts/ci_nested_class_templates.sh`; the complete
+  POSIX nested-class CI gate passes in WSL.
+- [ ] Multiple member-pointer leaves, member-function-pointer structural
+  values, reference members, and additional standard-valid structural class
+  NTTP forms remain open.

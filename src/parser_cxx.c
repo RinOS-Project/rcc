@@ -975,6 +975,7 @@ Expr* rcc_parse_cxx_member_pointer_address(void) {
     type_cxx_member_pointer(member_pointer_type, member_owner);
     value->type = member_pointer_type;
     value->cxx_member_pointer_form = true;
+    value->cxx_member_pointer_form_name = declaring_field->name;
     value->cxx_member_pointer_form_access = used_base_member
         ? (unsigned char)lookup_access
         : declaring_field->cxx_access;
@@ -1943,6 +1944,25 @@ static bool cxx_structural_pointer_member_value(
         !value_out) {
         return false;
     }
+    if (pointer_type->cxx_is_member_pointer) {
+        CxxClass* owner = pointer_type->cxx_member_pointer_owner
+            ? pointer_type->cxx_member_pointer_owner->cxx_class : NULL;
+        if (cxx_expr_is_nullptr_constant(expression) ||
+            (expr_eval_integer_constant((Expr*)expression, &offset) &&
+             offset == 0 && !expression->cxx_member_pointer_form)) {
+            *value_out = -1;
+            return true;
+        }
+        if (!expression->cxx_member_pointer_form ||
+            expression->cxx_member_pointer_form_deferred ||
+            expression->cxx_member_pointer_form_overload_set || !owner ||
+            !expression->cxx_member_pointer_form_name) {
+            return false;
+        }
+        return cxx_structural_member_pointer_value_register(
+            owner, expression->cxx_member_pointer_form_name,
+            expression->int_val, value_out);
+    }
     if (cxx_expr_is_nullptr_constant(expression) ||
         (expr_eval_integer_constant((Expr*)expression, &offset) &&
          offset == 0)) {
@@ -2049,7 +2069,26 @@ static bool cxx_structural_class_collect_member_values(
         }
         if (field_initializer) {
             if (field->type->kind == TYPE_PTR) {
-                if (cxx_expr_is_nullptr_constant(field_initializer)) {
+                if (field->type->cxx_is_member_pointer) {
+                    int64_t null_pointer_constant;
+                    if (field_initializer->cxx_member_pointer_form) {
+                        if (!cxx_structural_pointer_member_value(
+                                field_initializer, field->type,
+                                &member_value)) {
+                            return false;
+                        }
+                    } else if (cxx_expr_is_nullptr_constant(
+                                   field_initializer)) {
+                        member_value = -1;
+                    } else if (expr_eval_integer_constant(
+                                   field_initializer,
+                                   &null_pointer_constant) &&
+                               null_pointer_constant == 0) {
+                        member_value = -1;
+                    } else {
+                        return false;
+                    }
+                } else if (cxx_expr_is_nullptr_constant(field_initializer)) {
                     member_value = 0;
                 } else if (expr_eval_integer_constant(
                                field_initializer, &member_value)) {
