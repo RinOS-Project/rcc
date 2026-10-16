@@ -9,6 +9,14 @@ int nested_computed_pointer_function_b(int value) {
     return value + 9;
 }
 
+double nested_computed_pointer_overloaded_target(double value) {
+    return value + 1.5;
+}
+
+int nested_computed_pointer_overloaded_target(int value) {
+    return value + 6;
+}
+
 struct NestedComputedPointerLeafKey {
     int* pointer;
 };
@@ -74,9 +82,11 @@ int main() {
     NestedComputedFunctionOwner<NestedComputedFunctionKey{
         false ? &nested_computed_pointer_function_a
               : &nested_computed_pointer_function_b}>::Inner<int> function;
+    NestedComputedFunctionOwner<NestedComputedFunctionKey{
+        &nested_computed_pointer_overloaded_target}>::Inner<int> overloaded;
     return add_zero.result() == 47 &&
         reverse_add_zero.result() == 47 &&
         subtract_zero.result() == 47 && conditional.result() == 89 &&
         cast.result() == 47 && null.is_null() && integer_null.is_null() &&
-        function.result() == 46 ? 0 : 1;
+        function.result() == 46 && overloaded.result() == 43 ? 0 : 1;
 }

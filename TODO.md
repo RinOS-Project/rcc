@@ -5026,8 +5026,8 @@ remains a separate open item.
   outputs, and execute RCC AMD64 plus the GCC-host program; the complete
   `scripts/ci_nested_class_templates.sh` gate passes in WSL.
 - [ ] Nonzero pointer offsets and other computed pointer constants,
-      overloaded-function address selection, pointer-to-member values, and
-      reference members remain open.
+      overloaded-function template/conversion cases, pointer-to-member values,
+      and reference members remain open.
 
 ## RCC continuation (2026-10-16, computed structural pointer NTTP expressions)
 
@@ -5039,6 +5039,8 @@ remains a separate open item.
       the complete GCC/RCC Itanium symbol sets on i686 and AMD64, assemble both
       outputs, execute RCC AMD64 and GCC-host programs, and pass the full POSIX
       nested-class CI gate.
+- [x] Select an exact-match non-template overload from the structural member's
+      function-pointer type; verify GCC-compatible symbols and runtime result.
 - [x] Correct the C++ global-variable linkage expectation and use the portable
       expected-failure macro in debug-info tests; `test-cxx-language-linkage`
       and `test-debug-info` pass.
@@ -5050,5 +5052,5 @@ remains a separate open item.
       definitions; the current member-lifetime link fails on those missing
       symbols. Do not fold those unrelated changes into this commit.
 - [ ] Nonzero pointer arithmetic and other pointer constant-expression forms,
-      overloaded-function address selection, pointer-to-member values, and
-      reference members remain open.
+      overloaded-function template/conversion cases, pointer-to-member values,
+      and reference members remain open.
