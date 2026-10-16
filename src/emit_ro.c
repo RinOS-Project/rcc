@@ -1447,22 +1447,26 @@ static void debug_collect_function_types(DebugTypeContext* context,
             Type* argument_type = NULL;
             Type* value_type = NULL;
             if (parameter->is_pack) {
-                if (index == templ->param_count - 1 &&
-                    parameter->kind == TPARAM_TYPE &&
+                int pack_length = function->func_template_pack_counts
+                    ? function->func_template_pack_counts[index]
+                    : function->func_template_pack_count;
+                int pack_offset = function->func_template_pack_offsets
+                    ? function->func_template_pack_offsets[index] : 0;
+                if (parameter->kind == TPARAM_TYPE &&
                     function->func_template_pack_count >= 0 &&
                     function->func_template_pack_args) {
                     for (int pack_index = 0;
-                         pack_index < function->func_template_pack_count;
+                         pack_index < pack_length;
                          ++pack_index) {
                         argument_type = function->func_template_pack_args[
-                            pack_index];
+                            pack_offset + pack_index];
                         if (argument_type && !debug_type_is_dependent(
                                 argument_type, 0u)) {
                             debug_type_collect(context, argument_type);
                         }
                     }
-                } else if (index == templ->param_count - 1 &&
-                           parameter->kind == TPARAM_NONTYPE) {
+                } else if (parameter->kind == TPARAM_NONTYPE &&
+                           function->func_template_pack_count >= 0) {
                     value_type = debug_template_value_parameter_type(
                         templ, parameter, function->func_template_args,
                         function->func_template_arg_count);
@@ -5220,19 +5224,25 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                 DebugTypeEntry* parameter_type = NULL;
                 if (!parameter->name) continue;
                 if (parameter->is_pack) {
-                    if (parameter_index == templ->param_count - 1 &&
-                        parameter->kind == TPARAM_TYPE &&
+                    int pack_length = function_decl->func_template_pack_counts
+                        ? function_decl->func_template_pack_counts[
+                              parameter_index]
+                        : function_decl->func_template_pack_count;
+                    int pack_offset = function_decl->func_template_pack_offsets
+                        ? function_decl->func_template_pack_offsets[
+                              parameter_index]
+                        : 0;
+                    if (parameter->kind == TPARAM_TYPE &&
                         function_decl->func_template_pack_count >= 0) {
                         section_add_byte(info, 50u);
                         debug_line_u32(
                             info, debug_str_add(strings, parameter->name));
                         for (int pack_index = 0;
-                             pack_index <
-                                 function_decl->func_template_pack_count;
+                             pack_index < pack_length;
                              ++pack_index) {
                             Type* argument_type =
                                 function_decl->func_template_pack_args[
-                                    pack_index];
+                                    pack_offset + pack_index];
                             if (!argument_type || debug_type_is_dependent(
                                     argument_type, 0u)) {
                                 continue;
@@ -5245,7 +5255,6 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                         }
                         section_add_byte(info, 0u);
                     } else if (
-                        parameter_index == templ->param_count - 1 &&
                         parameter->kind == TPARAM_NONTYPE &&
                         function_decl->func_template_pack_count >= 0) {
                         Type* value_type =
@@ -5268,13 +5277,12 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                         debug_line_u32(
                             info, debug_str_add(strings, parameter->name));
                         for (int value_index = 0;
-                             value_index <
-                                 function_decl->func_template_pack_count;
+                             value_index < pack_length;
                              ++value_index) {
                             if (!function_decl->func_template_pack_values ||
                                 !function_decl->func_template_pack_value_present ||
                                 !function_decl->func_template_pack_value_present[
-                                    value_index]) {
+                                    pack_offset + value_index]) {
                                 continue;
                             }
                             section_add_byte(
@@ -5285,12 +5293,12 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
                                 debug_line_uleb(
                                     info, (uint64_t)
                                         function_decl->func_template_pack_values[
-                                            value_index]);
+                                            pack_offset + value_index]);
                             } else {
                                 debug_line_sleb(
                                     info,
                                     function_decl->func_template_pack_values[
-                                        value_index]);
+                                        pack_offset + value_index]);
                             }
                         }
                         section_add_byte(info, 0u);

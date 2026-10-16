@@ -813,6 +813,14 @@ int choose_repeated_class_template_template_pack_expansions(
     return static_cast<int>(sizeof...(Templates));
 }
 
+template<typename... FirstTypes, typename... SecondTypes>
+int choose_interleaved_class_template_pack_sources(
+    FunctionTemplatePackPartialOrderBox<FirstTypes..., int, SecondTypes...>,
+    FunctionTemplatePackPartialOrderBox<SecondTypes...>) {
+    return static_cast<int>(sizeof...(FirstTypes) * 10 +
+                            sizeof...(SecondTypes));
+}
+
 template<int... Values>
 int choose_nontrailing_non_type_pack_order(
     FunctionTemplateNonTypePackBox<Values..., 7>) {
@@ -2998,6 +3006,19 @@ int main(void) {
                        FunctionTemplateTemplatePackBox<
                            FunctionTemplateTemplatePackFixed>{},
                        FunctionTemplateTemplatePackBox<>{}) == 0 &&
+                   choose_interleaved_class_template_pack_sources<char>(
+                       FunctionTemplatePackPartialOrderBox<
+                           char, int, short, double>{},
+                       FunctionTemplatePackPartialOrderBox<short,
+                                                           double>{}) == 12 &&
+                   choose_interleaved_class_template_pack_sources<>(
+                       FunctionTemplatePackPartialOrderBox<int>{},
+                       FunctionTemplatePackPartialOrderBox<>{}) == 0 &&
+                   choose_interleaved_class_template_pack_sources(
+                       FunctionTemplatePackPartialOrderBox<int, short,
+                                                           double>{},
+                       FunctionTemplatePackPartialOrderBox<short,
+                                                           double>{}) == 2 &&
                    choose_nontrailing_template_template_pack_order<
                        FunctionTemplateTemplatePackItem>(
                        FunctionTemplateTemplatePackBox<

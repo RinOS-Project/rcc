@@ -391,6 +391,8 @@ struct CxxTemplate {
         Type** pack_args;
         int64_t* pack_values;
         bool* pack_value_present;
+        int* pack_offsets;
+        int* pack_counts;
         int pack_count;
         int arg_count;
         CxxClass* owner_class;
@@ -411,6 +413,11 @@ struct CxxTemplate {
     bool* pending_pack_value_present;
     Expr** pending_pack_value_expressions;
     int pending_pack_count;
+    /* Function-template deduction may keep several parameter packs in one
+     * contiguous argument buffer. These optional per-parameter ranges let
+     * substitution expand each pack from its own slice. */
+    int* pending_pack_offsets;
+    int* pending_pack_counts;
     /* While cloning a local class method, this names the method's own
      * parameter list so pack expressions bind to that method's parameter pack. */
     DeclList* active_pack_parameters;

@@ -13654,6 +13654,28 @@ static Type* parse_template_template_default(SourceLoc loc) {
     return carrier;
 }
 
+static int cxx_template_pending_pack_offset(const CxxTemplate* tmpl,
+                                            int parameter_index) {
+    if (!tmpl || parameter_index < 0 ||
+        parameter_index >= tmpl->param_count ||
+        !tmpl->pending_pack_offsets) {
+        return 0;
+    }
+    return tmpl->pending_pack_offsets[parameter_index];
+}
+
+static int cxx_template_pending_pack_length(const CxxTemplate* tmpl,
+                                            int parameter_index) {
+    if (!tmpl || parameter_index < 0 ||
+        parameter_index >= tmpl->param_count) {
+        return tmpl ? tmpl->pending_pack_count : -1;
+    }
+    if (tmpl->pending_pack_counts) {
+        return tmpl->pending_pack_counts[parameter_index];
+    }
+    return tmpl->pending_pack_count;
+}
+
 static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                       Type** arguments, int argument_count,
                                       const int64_t* value_args,
@@ -14019,6 +14041,14 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     local_expansion_parameter
                         ? local_expansion_parameter
                         : enclosing_expansion_parameter;
+                int local_expansion_count = has_local_pack_source
+                    ? cxx_template_pending_pack_length(
+                          tmpl, expansion_pack_index)
+                    : -1;
+                int local_expansion_offset = has_local_pack_source
+                    ? cxx_template_pending_pack_offset(
+                          tmpl, expansion_pack_index)
+                    : 0;
                 if (nested_index < pack_index || !parameter ||
                     (parameter->kind != TPARAM_TYPE &&
                      parameter->kind != TPARAM_NONTYPE &&
@@ -14043,7 +14073,7 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                               "an unsupported parameter kind");
                     return NULL;
                 }
-                if (tmpl->pending_pack_count < 0 &&
+                if (local_expansion_count < 0 &&
                     (has_local_pack_source || !expands_enclosing_pack)) {
                     if (nested_count >=
                         (int)(sizeof(nested_arguments) /
@@ -14075,7 +14105,7 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     continue;
                 }
                 if (has_local_pack_source &&
-                    tmpl->pending_pack_count > 0 &&
+                    local_expansion_count > 0 &&
                     (value_pack
                          ? (!tmpl->pending_pack_values ||
                             !tmpl->pending_pack_value_present)
@@ -14088,7 +14118,8 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                                     "its deduced type arguments");
                     return NULL;
                 }
-                int expansion_count = tmpl->pending_pack_count;
+                int expansion_count = has_local_pack_source
+                    ? local_expansion_count : tmpl->pending_pack_count;
                 if (expands_enclosing_pack) {
                     if (enclosing_pack_offset < 0 ||
                         enclosing_pack_trailing_count < 0 ||
@@ -14110,8 +14141,8 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     }
                     expansion_count = argument_count - enclosing_pack_end;
                     if (has_local_pack_source &&
-                        tmpl->pending_pack_count >= 0 &&
-                        tmpl->pending_pack_count != expansion_count) {
+                        local_expansion_count >= 0 &&
+                        local_expansion_count != expansion_count) {
                         if (tmpl->kind == TMPL_ALIAS) {
                             rcc_error(
                                 (SourceLoc){"<template>", 0, 0},
@@ -14156,12 +14187,15 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
                     if (has_local_pack_source) {
                         if (value_pack) {
                             expanded_values[expansion_pack_index] =
-                                tmpl->pending_pack_values[pack_value];
+                                tmpl->pending_pack_values[
+                                    local_expansion_offset + pack_value];
                             expanded_value_present[expansion_pack_index] =
-                                tmpl->pending_pack_value_present[pack_value];
+                                tmpl->pending_pack_value_present[
+                                    local_expansion_offset + pack_value];
                         } else {
                             expanded_arguments[expansion_pack_index] =
-                                tmpl->pending_pack_args[pack_value];
+                                tmpl->pending_pack_args[
+                                    local_expansion_offset + pack_value];
                         }
                     }
                     if (expands_enclosing_pack) {
@@ -16169,6 +16203,8 @@ static Type* instantiate_class_template_for_owner(
     tmpl->instances[tmpl->instance_count].pack_args = NULL;
     tmpl->instances[tmpl->instance_count].pack_values = NULL;
     tmpl->instances[tmpl->instance_count].pack_value_present = NULL;
+    tmpl->instances[tmpl->instance_count].pack_offsets = NULL;
+    tmpl->instances[tmpl->instance_count].pack_counts = NULL;
     tmpl->instances[tmpl->instance_count].pack_count = 0;
     if (has_value_parameters) {
         tmpl->instances[tmpl->instance_count].value_args = ast_arena_alloc(
@@ -18652,10 +18688,17 @@ static bool deduce_function_template_type_with_pack(
                             if (!element_value_present[function_pack_index]) {
                                 return false;
                             }
-                            tmpl->pending_pack_values[*deduced_pack_count] =
+                            int pack_offset = cxx_template_pending_pack_offset(
+                                tmpl, function_pack_index);
+                            if (pack_offset < 0 || pack_offset >= 32 ||
+                                *deduced_pack_count >= 32 - pack_offset) {
+                                return false;
+                            }
+                            tmpl->pending_pack_values[
+                                pack_offset + *deduced_pack_count] =
                                 element_values[function_pack_index];
                             tmpl->pending_pack_value_present[
-                                *deduced_pack_count] = true;
+                                pack_offset + *deduced_pack_count] = true;
                         } else {
                             pack_element =
                                 element_arguments[function_pack_index];
@@ -18693,9 +18736,17 @@ static bool deduce_function_template_type_with_pack(
                     }
                     int saved_pending_pack_count =
                         tmpl->pending_pack_count;
+                    int saved_pending_pack_length =
+                        tmpl->pending_pack_counts
+                            ? tmpl->pending_pack_counts[function_pack_index]
+                            : -1;
                     bool fixed_values_match = true;
                     tmpl->pending_pack_count =
                         actual_argument_count - expansion_index;
+                    if (tmpl->pending_pack_counts) {
+                        tmpl->pending_pack_counts[function_pack_index] =
+                            *deduced_pack_count;
+                    }
                     for (int index = 0; index < expansion_index; ++index) {
                         TemplateParam* class_parameter =
                             &pattern_template->params[index];
@@ -18712,6 +18763,11 @@ static bool deduce_function_template_type_with_pack(
                         }
                     }
                     tmpl->pending_pack_count = saved_pending_pack_count;
+                    if (tmpl->pending_pack_counts &&
+                        saved_pending_pack_length >= 0) {
+                        tmpl->pending_pack_counts[function_pack_index] =
+                            saved_pending_pack_length;
+                    }
                     if (!fixed_values_match) return false;
                     if (specificity) *specificity += 16;
                     return true;
@@ -19713,6 +19769,8 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                                                int64_t* pack_values,
                                                bool* pack_value_present,
                                                int* pack_count,
+                                               int* pack_offsets,
+                                               int* pack_counts,
                                                bool* pack_seen) {
     DeclList* parameter;
     ExprList* argument;
@@ -19741,8 +19799,11 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                 }
                 return false;
             }
-            if (pack_seen && *pack_seen) return false;
-            if (pack_seen) *pack_seen = true;
+            if (pack_seen && pack_seen[pack_index]) return false;
+            if (pack_seen) pack_seen[pack_index] = true;
+            if (pack_offsets && pack_counts) {
+                pack_offsets[pack_index] = *pack_count;
+            }
             int function_pack_count = 0;
             for (ExprList* remaining = argument; remaining;
                  remaining = remaining->next) {
@@ -19836,10 +19897,12 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                 if (value_pack) {
                     pack_values[*pack_count] = element_values[pack_index];
                     pack_value_present[*pack_count] = true;
+                    if (pack_counts) ++pack_counts[pack_index];
                     ++*pack_count;
                 } else {
                     pack_arguments[*pack_count] =
                         element_arguments[pack_index];
+                    if (pack_counts) ++pack_counts[pack_index];
                     ++*pack_count;
                 }
                 if (specificity) *specificity += element_specificity;
@@ -19869,12 +19932,54 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
             !actual->is_reference) {
             deduction_actual = type_reference(actual, false);
         }
-        if (!deduce_function_template_type_with_pack(
+        int pattern_pack_index = cxx_parser_template_parameter_pack_index(
+            tmpl, parameter->decl ? parameter->decl->type : NULL);
+        if (pattern_pack_index == -2) {
+            parameter = parameter->next;
+            argument = argument->next;
+            continue;
+        }
+        if (pattern_pack_index >= 0 && pack_offsets && pack_counts &&
+            pack_arguments) {
+            int pack_offset = pack_offsets[pattern_pack_index];
+            int pack_local_count = pack_counts[pattern_pack_index];
+            bool deduced_pack_seen = pack_seen
+                ? pack_seen[pattern_pack_index] : false;
+            if (pack_local_count == 0) {
+                pack_offset = *pack_count;
+                pack_offsets[pattern_pack_index] = pack_offset;
+            }
+            if (!deduce_function_template_type_with_pack(
+                    tmpl, parameter->decl->type,
+                    cxx_parser_template_deduction_argument(
+                        parameter->decl->type, deduction_actual),
+                    template_arguments, template_values,
+                    template_value_present, specificity,
+                    pack_arguments + pack_offset, &pack_local_count,
+                    &deduced_pack_seen) &&
+                (cxx_function_template_type_contains_parameter(
+                     tmpl, parameter->decl->type) ||
+                 cxx_parser_function_template_overload_conversion_rank(
+                     argument->expr, parameter->decl->type, NULL) < 0)) {
+                if (report_errors) {
+                    rcc_error(argument->expr->loc,
+                              "function template argument type does not match its parameter pattern");
+                }
+                return false;
+            }
+            pack_counts[pattern_pack_index] = pack_local_count;
+            if (pack_seen) pack_seen[pattern_pack_index] = deduced_pack_seen;
+            if (pack_offset + pack_local_count > *pack_count) {
+                *pack_count = pack_offset + pack_local_count;
+            }
+        } else if (!deduce_function_template_type_with_pack(
                 tmpl, parameter->decl->type,
                 cxx_parser_template_deduction_argument(
                     parameter->decl->type, deduction_actual), template_arguments,
                 template_values, template_value_present, specificity,
-                pack_arguments, pack_count, pack_seen) &&
+                pack_arguments, pack_count,
+                pattern_pack_index >= 0 && pack_seen
+                    ? &pack_seen[pattern_pack_index] : pack_seen) &&
             (cxx_function_template_type_contains_parameter(
                  tmpl, parameter->decl->type) ||
              cxx_parser_function_template_overload_conversion_rank(
@@ -19925,12 +20030,14 @@ static bool eval_template_integer_expression(Expr* expression,
     if (!expression || !result) return false;
     if (expr_eval_integer_constant(expression, result)) return true;
     if (expression->kind == EXPR_SIZEOF && expression->sizeof_pack_name &&
-        tmpl && tmpl->pending_pack_count >= 0) {
+        tmpl) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
+            int pack_length = cxx_template_pending_pack_length(tmpl, index);
             if (parameter->is_pack && parameter->name &&
+                pack_length >= 0 &&
                 strcmp(parameter->name, expression->sizeof_pack_name) == 0) {
-                *result = tmpl->pending_pack_count;
+                *result = pack_length;
                 return true;
             }
         }
@@ -23185,6 +23292,9 @@ typedef struct CxxFunctionTemplateMatch {
     Type* pack_arguments[32];
     int64_t pack_values[32];
     bool pack_value_present[32];
+    int pack_offsets[32];
+    int pack_counts[32];
+    bool pack_seen[32];
     int pack_count;
     int64_t values[32];
     bool value_present[32];
@@ -26773,6 +26883,9 @@ static bool prepare_cxx_function_template_match(
             if (parameter->is_pack) {
                 int64_t explicit_value = explicit_arguments[index].value;
                 if (match->pack_count >= 32) return false;
+                if (match->pack_counts[parameter_index] == 0) {
+                    match->pack_offsets[parameter_index] = match->pack_count;
+                }
                 if (parameter->kind == TPARAM_TYPE ||
                     parameter->kind == TPARAM_TEMPLATE) {
                     if (!explicit_arguments[index].is_type ||
@@ -26803,6 +26916,7 @@ static bool prepare_cxx_function_template_match(
                         explicit_value;
                     match->pack_value_present[match->pack_count] = true;
                 }
+                ++match->pack_counts[parameter_index];
                 ++match->pack_count;
             } else if (parameter->kind == TPARAM_TYPE) {
                 match->arguments[parameter_index] =
@@ -26882,6 +26996,8 @@ static bool prepare_cxx_function_template_match(
             }
             while (argument && index-- > 0) argument = argument->next;
             if (parameter->decl && parameter->decl->param_is_pack) {
+                int pack_index = cxx_parser_template_parameter_pack_index(
+                    tmpl, parameter->decl->type);
                 if (parameter->next) {
                     /* A function parameter pack before a later parameter is
                      * a non-deduced context. Its elements come only from
@@ -26890,10 +27006,9 @@ static bool prepare_cxx_function_template_match(
                      * argument as if the pack were trailing. */
                     continue;
                 }
-                if (match->pack_count == 0) {
-                    int pack_index =
-                        cxx_parser_template_parameter_pack_index(
-                        tmpl, parameter->decl->type);
+                if (pack_index < 0) return false;
+                if (match->pack_counts[pack_index] == 0) {
+                    match->pack_offsets[pack_index] = match->pack_count;
                     bool value_pack = pack_index >= 0 &&
                         tmpl->params[pack_index].kind == TPARAM_NONTYPE;
                     int function_pack_count = 0;
@@ -26983,8 +27098,10 @@ static bool prepare_cxx_function_template_match(
                                 element_values[pack_index];
                             match->pack_value_present[match->pack_count] =
                                 true;
+                            ++match->pack_counts[pack_index];
                             ++match->pack_count;
                         } else {
+                            ++match->pack_counts[pack_index];
                             match->pack_arguments[match->pack_count++] =
                                 element_arguments[pack_index];
                         }
@@ -27000,6 +27117,76 @@ static bool prepare_cxx_function_template_match(
                     cxx_function_template_find_dependent_nested_type(
                         parameter->decl->type, 0u, false);
                 if (!actual) return false;
+                int template_pack_index =
+                    cxx_parser_template_parameter_pack_index(
+                        tmpl, parameter->decl->type);
+                if (template_pack_index == -2) {
+                    /* Defer this complete sequence until all packs have
+                     * been deduced; a partial substitution would treat later
+                     * packs as empty and reject valid independent packs. */
+                    continue;
+                }
+                if (template_pack_index >= 0 &&
+                    template_pack_index < tmpl->param_count &&
+                    tmpl->params[template_pack_index].is_pack) {
+                    Type** saved_pending_pack_args =
+                        tmpl->pending_pack_args;
+                    int* saved_pending_pack_offsets =
+                        tmpl->pending_pack_offsets;
+                    int* saved_pending_pack_counts =
+                        tmpl->pending_pack_counts;
+                    int64_t* saved_pending_pack_values =
+                        tmpl->pending_pack_values;
+                    bool* saved_pending_pack_value_present =
+                        tmpl->pending_pack_value_present;
+                    int saved_pending_pack_count = tmpl->pending_pack_count;
+                    int pack_offset = match->pack_offsets[template_pack_index];
+                    int pack_count = match->pack_counts[template_pack_index];
+                    int original_pack_count = pack_count;
+                    bool deduced_pack_seen =
+                        match->pack_seen[template_pack_index];
+                    bool deduced;
+                    if (pack_count == 0) {
+                        pack_offset = match->pack_count;
+                        match->pack_offsets[template_pack_index] = pack_offset;
+                    }
+                    tmpl->pending_pack_args = match->pack_arguments;
+                    tmpl->pending_pack_values = match->pack_values;
+                    tmpl->pending_pack_value_present =
+                        match->pack_value_present;
+                    tmpl->pending_pack_offsets = match->pack_offsets;
+                    tmpl->pending_pack_counts = match->pack_counts;
+                    tmpl->pending_pack_count = match->pack_count;
+                    deduced = deduce_function_template_type_with_pack(
+                        tmpl, parameter->decl->type,
+                        cxx_parser_template_deduction_argument(
+                            parameter->decl->type, actual),
+                        match->arguments, match->values,
+                        match->value_present, &specificity,
+                        match->pack_arguments + pack_offset, &pack_count,
+                        &deduced_pack_seen);
+                    tmpl->pending_pack_args = saved_pending_pack_args;
+                    tmpl->pending_pack_offsets = saved_pending_pack_offsets;
+                    tmpl->pending_pack_counts = saved_pending_pack_counts;
+                    tmpl->pending_pack_values = saved_pending_pack_values;
+                    tmpl->pending_pack_value_present =
+                        saved_pending_pack_value_present;
+                    tmpl->pending_pack_count = saved_pending_pack_count;
+                    if (!deduced) {
+                        if (has_dependent_nested_type) continue;
+                        return false;
+                    }
+                    match->pack_counts[template_pack_index] = pack_count;
+                    match->pack_seen[template_pack_index] =
+                        deduced_pack_seen;
+                    if (pack_count > original_pack_count) {
+                        int range_end = pack_offset + pack_count;
+                        if (range_end > match->pack_count) {
+                            match->pack_count = range_end;
+                        }
+                    }
+                    continue;
+                }
                 if (has_dependent_nested_type) {
                     (void)deduce_function_template_type(
                         tmpl, parameter->decl->type,
@@ -27009,10 +27196,36 @@ static bool prepare_cxx_function_template_match(
                         match->value_present, &specificity);
                     continue;
                 }
+                Type** saved_parameter_pack_args = tmpl->pending_pack_args;
+                int64_t* saved_parameter_pack_values =
+                    tmpl->pending_pack_values;
+                bool* saved_parameter_pack_value_present =
+                    tmpl->pending_pack_value_present;
+                int saved_parameter_pack_count = tmpl->pending_pack_count;
+                int* saved_pending_pack_offsets =
+                    tmpl->pending_pack_offsets;
+                int* saved_pending_pack_counts =
+                    tmpl->pending_pack_counts;
+                tmpl->pending_pack_offsets = match->pack_offsets;
+                tmpl->pending_pack_counts = match->pack_counts;
+                tmpl->pending_pack_args = has_type_pack
+                    ? match->pack_arguments : NULL;
+                tmpl->pending_pack_values = has_value_pack
+                    ? match->pack_values : NULL;
+                tmpl->pending_pack_value_present = has_value_pack
+                    ? match->pack_value_present : NULL;
+                tmpl->pending_pack_count = match->pack_count;
                 Type* parameter_type = substitute_template_type(
                     tmpl, parameter->decl->type, match->arguments,
                     tmpl->param_count, match->values,
                     match->value_present);
+                tmpl->pending_pack_offsets = saved_pending_pack_offsets;
+                tmpl->pending_pack_counts = saved_pending_pack_counts;
+                tmpl->pending_pack_args = saved_parameter_pack_args;
+                tmpl->pending_pack_values = saved_parameter_pack_values;
+                tmpl->pending_pack_value_present =
+                    saved_parameter_pack_value_present;
+                tmpl->pending_pack_count = saved_parameter_pack_count;
                 bool has_undeduced_parameter =
                     cxx_function_template_type_contains_parameter(
                         tmpl, parameter_type);
@@ -27069,8 +27282,9 @@ static bool prepare_cxx_function_template_match(
         for (int index = 0; index < tmpl->param_count; ++index) {
             if (tmpl->params[index].is_pack) {
                 if (tmpl->params[index].kind == TPARAM_TYPE) {
-                    match->arguments[index] = match->pack_count > 0
-                        ? match->pack_arguments[0] : type_void;
+                    int pack_offset = match->pack_offsets[index];
+                    match->arguments[index] = match->pack_counts[index] > 0
+                        ? match->pack_arguments[pack_offset] : type_void;
                 } else {
                     match->arguments[index] = tmpl->params[index].type;
                 }
@@ -27086,18 +27300,22 @@ static bool prepare_cxx_function_template_match(
         Expr** saved_pending_pack_value_expressions =
             tmpl->pending_pack_value_expressions;
         int saved_pending_pack_count = tmpl->pending_pack_count;
+        int* saved_pending_pack_offsets = tmpl->pending_pack_offsets;
+        int* saved_pending_pack_counts = tmpl->pending_pack_counts;
         bool arguments_deduced;
         tmpl->pending_pack_args = match->pack_arguments;
         tmpl->pending_pack_expansions = NULL;
         tmpl->pending_pack_values = match->pack_values;
         tmpl->pending_pack_value_present = match->pack_value_present;
         tmpl->pending_pack_value_expressions = NULL;
+        tmpl->pending_pack_offsets = match->pack_offsets;
+        tmpl->pending_pack_counts = match->pack_counts;
         arguments_deduced = deduce_function_template_arguments(
             tmpl, call_arguments, match->arguments, match->values,
             match->value_present, &specificity, false,
             match->pack_arguments, match->pack_values,
             match->pack_value_present, &match->pack_count,
-            &pack_seen);
+            match->pack_offsets, match->pack_counts, match->pack_seen);
         tmpl->pending_pack_args = saved_pending_pack_args;
         tmpl->pending_pack_expansions = saved_pending_pack_expansions;
         tmpl->pending_pack_values = saved_pending_pack_values;
@@ -27106,6 +27324,8 @@ static bool prepare_cxx_function_template_match(
         tmpl->pending_pack_value_expressions =
             saved_pending_pack_value_expressions;
         tmpl->pending_pack_count = saved_pending_pack_count;
+        tmpl->pending_pack_offsets = saved_pending_pack_offsets;
+        tmpl->pending_pack_counts = saved_pending_pack_counts;
         if (!arguments_deduced) {
             return false;
         }
@@ -27113,8 +27333,9 @@ static bool prepare_cxx_function_template_match(
             TemplateParam* parameter = &tmpl->params[index];
             if (parameter->is_pack) {
                 if (parameter->kind == TPARAM_TYPE &&
-                    match->pack_count > 0) {
-                    match->arguments[index] = match->pack_arguments[0];
+                    match->pack_counts[index] > 0) {
+                    match->arguments[index] =
+                        match->pack_arguments[match->pack_offsets[index]];
                 } else if (parameter->kind == TPARAM_TYPE) {
                     /* The argument slot is only a cache key placeholder;
                      * the expanded parameter list carries the actual ABI. */
@@ -27122,8 +27343,9 @@ static bool prepare_cxx_function_template_match(
                 } else if (parameter->kind == TPARAM_NONTYPE) {
                     match->arguments[index] = parameter->type;
                 } else if (parameter->kind == TPARAM_TEMPLATE) {
-                    if (match->pack_count > 0) {
-                        match->arguments[index] = match->pack_arguments[0];
+                    if (match->pack_counts[index] > 0) {
+                        match->arguments[index] = match->pack_arguments[
+                            match->pack_offsets[index]];
                     } else {
                         Type* pack_placeholder = type_struct(
                             parameter->name ? parameter->name
@@ -27173,6 +27395,8 @@ static bool prepare_cxx_function_template_match(
         Expr** saved_pending_pack_value_expressions =
             tmpl->pending_pack_value_expressions;
         int saved_pending_pack_count = tmpl->pending_pack_count;
+        int* saved_pending_pack_offsets = tmpl->pending_pack_offsets;
+        int* saved_pending_pack_counts = tmpl->pending_pack_counts;
         bool constraint_satisfied;
         tmpl->pending_pack_args = has_type_pack
             ? match->pack_arguments : NULL;
@@ -27182,6 +27406,8 @@ static bool prepare_cxx_function_template_match(
         tmpl->pending_pack_value_present = has_value_pack
             ? match->pack_value_present : NULL;
         tmpl->pending_pack_value_expressions = NULL;
+        tmpl->pending_pack_offsets = match->pack_offsets;
+        tmpl->pending_pack_counts = match->pack_counts;
         tmpl->pending_pack_count = has_type_pack || has_value_pack
             ? match->pack_count : -1;
         constraint_satisfied = cxx_template_constraint_satisfied(
@@ -27194,6 +27420,8 @@ static bool prepare_cxx_function_template_match(
             saved_pending_pack_value_present;
         tmpl->pending_pack_value_expressions =
             saved_pending_pack_value_expressions;
+        tmpl->pending_pack_offsets = saved_pending_pack_offsets;
+        tmpl->pending_pack_counts = saved_pending_pack_counts;
         tmpl->pending_pack_count = saved_pending_pack_count;
         if (!constraint_satisfied) {
             if (constraint_invalid) *constraint_invalid = true;
@@ -27204,24 +27432,35 @@ static bool prepare_cxx_function_template_match(
     bool* saved_pending_pack_expansions = tmpl->pending_pack_expansions;
     Expr** saved_pending_pack_value_expressions =
         tmpl->pending_pack_value_expressions;
+    Type** saved_pending_pack_args = tmpl->pending_pack_args;
+    int64_t* saved_pending_pack_values = tmpl->pending_pack_values;
+    bool* saved_pending_pack_value_present =
+        tmpl->pending_pack_value_present;
+    int saved_pending_pack_count = tmpl->pending_pack_count;
+    int* saved_pending_pack_offsets = tmpl->pending_pack_offsets;
+    int* saved_pending_pack_counts = tmpl->pending_pack_counts;
     tmpl->pending_pack_args = has_type_pack ? match->pack_arguments : NULL;
     tmpl->pending_pack_expansions = NULL;
     tmpl->pending_pack_values = has_value_pack ? match->pack_values : NULL;
     tmpl->pending_pack_value_present = has_value_pack
         ? match->pack_value_present : NULL;
     tmpl->pending_pack_value_expressions = NULL;
+    tmpl->pending_pack_offsets = match->pack_offsets;
+    tmpl->pending_pack_counts = match->pack_counts;
     tmpl->pending_pack_count = has_type_pack ? match->pack_count : -1;
     if (has_value_pack) tmpl->pending_pack_count = match->pack_count;
     match->instance = (Decl*)cxx_template_instantiate_with_values(
         tmpl, match->arguments, match->values, match->value_present,
         match->argument_count);
-    tmpl->pending_pack_args = NULL;
-    tmpl->pending_pack_values = NULL;
-    tmpl->pending_pack_value_present = NULL;
+    tmpl->pending_pack_args = saved_pending_pack_args;
+    tmpl->pending_pack_values = saved_pending_pack_values;
+    tmpl->pending_pack_value_present = saved_pending_pack_value_present;
     tmpl->pending_pack_expansions = saved_pending_pack_expansions;
     tmpl->pending_pack_value_expressions =
         saved_pending_pack_value_expressions;
-    tmpl->pending_pack_count = -1;
+    tmpl->pending_pack_count = saved_pending_pack_count;
+    tmpl->pending_pack_offsets = saved_pending_pack_offsets;
+    tmpl->pending_pack_counts = saved_pending_pack_counts;
     if (match->instance && match->instance->type &&
         match->instance->type->kind == TYPE_FUNC) {
         match->substitution_failure_type =
@@ -28336,14 +28575,17 @@ Expr* rcc_parse_cxx_template_call(void) {
                 Type* diagnostic_pack[32] = { NULL };
                 int64_t diagnostic_pack_values[32] = { 0 };
                 bool diagnostic_pack_value_present[32] = { false };
+                int diagnostic_pack_offsets[32] = { 0 };
+                int diagnostic_pack_counts[32] = { 0 };
+                bool diagnostic_pack_seen[32] = { false };
                 int diagnostic_pack_count = 0;
-                bool diagnostic_pack_seen = false;
                 (void)deduce_function_template_arguments(
                     tmpl, call_arguments, diagnostic_arguments,
                     diagnostic_values, diagnostic_present, NULL, true,
                     diagnostic_pack, diagnostic_pack_values,
                     diagnostic_pack_value_present, &diagnostic_pack_count,
-                    &diagnostic_pack_seen);
+                    diagnostic_pack_offsets, diagnostic_pack_counts,
+                    diagnostic_pack_seen);
                 rcc_error(loc, "no matching function template overload for '%s'",
                           name);
             } else {

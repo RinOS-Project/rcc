@@ -8,6 +8,14 @@ int repeat_pack_expansion(
     return static_cast<int>(sizeof...(Types));
 }
 
+template<typename... FirstTypes, typename... SecondTypes>
+int interleave_pack_sources(
+    RepeatedPackExpansionBox<FirstTypes..., int, SecondTypes...>,
+    RepeatedPackExpansionBox<SecondTypes...>) {
+    return static_cast<int>(sizeof...(FirstTypes) * 10 +
+                            sizeof...(SecondTypes));
+}
+
 template<int... Values>
 struct RepeatedValuePackExpansionBox {};
 
@@ -45,14 +53,28 @@ int main() {
                               RepeatedPackExpansionBox<>{}) != 0) {
         return 2;
     }
+    if (interleave_pack_sources<char>(
+            RepeatedPackExpansionBox<char, int, short, double>{},
+            RepeatedPackExpansionBox<short, double>{}) != 12) {
+        return 3;
+    }
+    if (interleave_pack_sources<>(RepeatedPackExpansionBox<int>{},
+                                  RepeatedPackExpansionBox<>{}) != 0) {
+        return 4;
+    }
+    if (interleave_pack_sources(
+            RepeatedPackExpansionBox<int, short, double>{},
+            RepeatedPackExpansionBox<short, double>{}) != 2) {
+        return 5;
+    }
     if (repeat_value_pack_expansion(
             RepeatedValuePackExpansionBox<1, 2, 7, 1, 2>{},
             RepeatedValuePackExpansionBox<1, 2>{}) != 2) {
-        return 3;
+        return 6;
     }
     if (repeat_value_pack_expansion(RepeatedValuePackExpansionBox<7>{},
                                     RepeatedValuePackExpansionBox<>{}) != 0) {
-        return 4;
+        return 7;
     }
     if (repeat_template_template_pack_expansion(
             RepeatedTemplatePackExpansionBox<
@@ -61,13 +83,13 @@ int main() {
                 RepeatedTemplatePackExpansionItem>{},
             RepeatedTemplatePackExpansionBox<
                 RepeatedTemplatePackExpansionItem>{}) != 1) {
-        return 5;
+        return 8;
     }
     if (repeat_template_template_pack_expansion(
             RepeatedTemplatePackExpansionBox<
                 RepeatedTemplatePackExpansionFixed>{},
             RepeatedTemplatePackExpansionBox<>{}) != 0) {
-        return 6;
+        return 9;
     }
     return 0;
 }

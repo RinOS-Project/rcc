@@ -5306,3 +5306,15 @@ remains a separate open item.
       substitution changes (exit 0).
 - [ ] Interactions between independent template parameter packs and broader
       C++20 partial-ordering cases remain open.
+
+## RCC continuation (2026-10-17, independent function-template packs)
+
+- [x] Deduce independent `FirstTypes...` and `SecondTypes...` ranges in a
+      non-final class-template-id function parameter when another parameter
+      supplies the second pack's deduction source. Preserve each range through
+      `sizeof...`, specialization caching, instantiation, and mangling; verify
+      explicit, empty, and inferred partitions with GCC-identical i686/AMD64
+      symbols, AMD64 execution in the POSIX gate, and the native MinGW overload
+      regression gate.
+- [ ] Other independent pack interactions and broader C++20 partial-ordering
+      cases remain open.
