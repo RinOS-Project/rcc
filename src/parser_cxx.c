@@ -2145,6 +2145,15 @@ static bool cxx_structural_pointer_member_value(
         !value_out) {
         return false;
     }
+    if (expression->kind == EXPR_COND) {
+        int64_t condition;
+        if (!expr_eval_integer_constant(expression->cond_test, &condition)) {
+            return false;
+        }
+        return cxx_structural_pointer_member_value(
+            condition ? expression->cond_then : expression->cond_else,
+            pointer_type, value_out);
+    }
     if (pointer_type->cxx_is_member_pointer) {
         CxxClass* owner = pointer_type->cxx_member_pointer_owner
             ? pointer_type->cxx_member_pointer_owner->cxx_class : NULL;

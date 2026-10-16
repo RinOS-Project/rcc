@@ -5090,3 +5090,19 @@ remains a separate open item.
   an independent implementation accepts these standard-valid arguments;
   GCC 13 currently rejects array-element pointer NTTPs and Itanium ABI issue
   #47 remains open.
+
+## RCC continuation (2026-10-16, selected null pointer conditions and 13-level chains)
+
+- [x] Recursively evaluate the selected arm of a structural pointer NTTP
+  conditional, including selected `nullptr` and integer-zero null values. The
+  existing computed-pointer regression passes in the Windows native build and
+  the WSL POSIX nested-class CI gate.
+- [x] Add a 13-level nested explicit-specialization regression covering the
+  primary owner, an explicitly specialized owner, and an explicitly
+  specialized deepest member. Compare GCC/RCC symbols on i686 and AMD64,
+  assemble both outputs, and execute both generated AMD64 programs in the POSIX
+  gate; the Windows build also compiles both target outputs and runs AMD64.
+- [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate after the
+  parser change; it passes (exit 0).
+- [ ] Deeper specialization chains, multidimensional structural-pointer
+  subobject paths, and the other forms listed above remain open.
