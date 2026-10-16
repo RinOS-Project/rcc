@@ -608,10 +608,13 @@
         GCC/Clang C++20 syntax checks and RCC i686/AMD64 assembly and legacy
         `.ro` generation pass; the POSIX assembly gate now checks the helper is
         present on both targets.
-  - [ ] Run the POSIX pthread host assertions for the new block-scope case,
-        including one-time per-thread initialization and thread-exit cleanup
-        order. The current Windows host cannot assemble the emitted ELF TLS;
-        WSL returns `E_ACCESSDENIED`.
+  - [x] Run the POSIX pthread host assertions for the new block-scope case,
+        including one-time per-thread initialization despite a changed second
+        argument, stable per-thread reference identity, and thread-exit cleanup
+        order. `make test-cxx-static-reference-temporaries-posix` passes in WSL
+        with i686/AMD64 ELF assembly and the AMD64 pthread host assertions.
+        Native Windows cannot execute this ELF-TLS host target; RinOS runtime
+        integration remains a separate open item.
   - [x] Verify namespace-scope `thread_local const T&` bindings to direct and
         derived-to-base class prvalues: i686/AMD64 generation must emit
         `__cxa_thread_atexit`, repeated access in one thread must reuse its
