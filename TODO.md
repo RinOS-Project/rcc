@@ -5069,3 +5069,24 @@ remains a separate open item.
 - [ ] Multiple member-pointer leaves, member-function-pointer structural
   values, reference members, and additional standard-valid structural class
   NTTP forms remain open.
+
+## RCC continuation (2026-10-16, structural pointer subobject offsets)
+
+- [x] Preserve byte offsets, array-subobject identity, and one-past state for
+  structural class pointer NTTPs; keep distinct locations distinct in
+  specialization and typeinfo identity, and reconstruct target-relocatable
+  expressions when cloning nested template arguments.
+- [x] Support named static/global one-dimensional array elements and array
+  one-past pointers formed by indexing, pointer arithmetic, and equivalent
+  address spellings; support one-past pointers to a named scalar object.
+- [x] Check expected Itanium encodings and add a regression for i686 and AMD64
+  symbols, assembly of both target outputs, and AMD64 execution. Verify the
+  focused Windows and WSL POSIX gates plus related structural NTTP regressions.
+- [x] Commit implementation, fixture, and Makefile gate as `1ad666d` on RCC
+  `main`; do not push or stage the parent repository's gitlink.
+- [ ] Extend the location model to multidimensional/nested arrays, aggregate
+  member subobjects, and additional pointer constant-expression forms.
+- [ ] Add a compiler-to-compiler differential oracle for offset encodings when
+  an independent implementation accepts these standard-valid arguments;
+  GCC 13 currently rejects array-element pointer NTTPs and Itanium ABI issue
+  #47 remains open.
