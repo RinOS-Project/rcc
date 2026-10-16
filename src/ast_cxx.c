@@ -9574,6 +9574,27 @@ static bool template_pack_is_deferred_member_pack(
     return tmpl && tmpl->kind == TMPL_CLASS && pack_name;
 }
 
+static int template_function_parameter_pack_index(
+    CxxTemplate* tmpl, const char* pack_name) {
+    if (!tmpl || !pack_name) return -1;
+    for (DeclList* parameter = template_pack_parameter_list(tmpl);
+         parameter; parameter = parameter->next) {
+        int pack_index;
+        if (!parameter->decl || !parameter->decl->param_is_pack ||
+            !parameter->decl->name ||
+            strcmp(parameter->decl->name, pack_name) != 0) {
+            continue;
+        }
+        pack_index = template_parameter_pack_index_nested(
+            tmpl, parameter->decl->type);
+        if (pack_index >= 0 && pack_index < tmpl->param_count &&
+            tmpl->params[pack_index].is_pack) {
+            return pack_index;
+        }
+    }
+    return -1;
+}
+
 static GenericAssociation* template_clone_associations(
         CxxTemplate* tmpl, GenericAssociation* list, Type** args,
     int arg_count, const int64_t* value_args, const bool* value_present) {
@@ -10061,20 +10082,29 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                       "sizeof... requires a function-template pack specialization");
             return expression;
         }
+        int pack_index = -1;
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
-            int pack_length = template_pending_pack_length(tmpl, index);
             if (parameter->is_pack && parameter->name &&
                 strcmp(parameter->name, expression->sizeof_pack_name) == 0) {
-                if (pack_length < 0) {
-                    rcc_error(expression->loc,
-                              "sizeof... requires a function-template pack specialization");
-                    return expression;
-                }
-                copy = expr_int(pack_length, expression->loc);
-                copy->type = type_uint;
-                return copy;
+                pack_index = index;
+                break;
             }
+        }
+        if (pack_index < 0) {
+            pack_index = template_function_parameter_pack_index(
+                tmpl, expression->sizeof_pack_name);
+        }
+        if (pack_index >= 0) {
+            int pack_length = template_pending_pack_length(tmpl, pack_index);
+            if (pack_length < 0) {
+                rcc_error(expression->loc,
+                          "sizeof... requires a function-template pack specialization");
+                return expression;
+            }
+            copy = expr_int(pack_length, expression->loc);
+            copy->type = type_uint;
+            return copy;
         }
         rcc_error(expression->loc,
                   "sizeof... names an unknown function-template parameter pack '%s'",

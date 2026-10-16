@@ -19998,9 +19998,15 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                     cxx_parser_template_deduction_argument(
                         parameter->decl->type, actual);
                 int saved_pending_pack_count = tmpl->pending_pack_count;
+                int saved_pending_pack_length = tmpl->pending_pack_counts
+                    ? tmpl->pending_pack_counts[pack_index] : -1;
                 bool element_deduced;
                 if (has_dependent_pack_size) {
                     tmpl->pending_pack_count = function_pack_count;
+                    if (tmpl->pending_pack_counts) {
+                        tmpl->pending_pack_counts[pack_index] =
+                            function_pack_count;
+                    }
                 }
                 element_deduced = pack_index < tmpl->param_count &&
                     deduce_function_template_type(
@@ -20011,6 +20017,10 @@ static bool deduce_function_template_arguments(CxxTemplate* tmpl,
                          ? element_value_present[pack_index]
                          : element_arguments[pack_index] != NULL);
                 tmpl->pending_pack_count = saved_pending_pack_count;
+                if (tmpl->pending_pack_counts) {
+                    tmpl->pending_pack_counts[pack_index] =
+                        saved_pending_pack_length;
+                }
                 if (!element_deduced) {
                     if (report_errors) {
                         rcc_error(argument->expr->loc,

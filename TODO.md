@@ -5357,8 +5357,12 @@ remains a separate open item.
       generated programs pass these checks; the enclosing GCC host fixture
       later exits 23 at its conversion-value cleanup assertion, so the full
       POSIX target is not recorded as passing.
-- [ ] Complete the native-Windows `test-cxx` aggregate. It currently stops in
-      `test-cxx-class-template-member-function-templates` because RCC rejects
-      the `count_tagged_pack_size` calls at source line 244; determine the cause
-      and pass the full aggregate before marking this item complete.
+- [x] Synchronize the per-template-parameter pack length while deducing
+      `sizeof...(Args)` in a trailing function-parameter-pack expansion; the
+      native-Windows class-template member-function-template target passes.
+- [x] Resolve source parameter-pack names such as `values` to generated
+      generic-lambda template packs when substituting `sizeof...`; the native-
+      Windows generic-lambda target passes on i686 and AMD64.
+- [x] Run the complete native-Windows `test-cxx` aggregate after both fixes
+      (exit 0).
 - [ ] Broader C++20 partial-ordering cases remain open.
