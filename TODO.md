@@ -5210,3 +5210,12 @@ remains a separate open item.
 - [x] Assemble the generated i686 and AMD64 outputs with native MinGW and run
       both RCC- and GCC-generated AMD64 programs on Windows.
 - [ ] Other standard-valid structural class NTTP forms remain open.
+
+## RCC continuation (2026-10-16, pointer-bearing structural NTTP packs)
+
+- [x] Cover a structural class NTTP pack whose values contain non-null object
+      pointers and integral fields, including a nested class-template partial
+      specialization. Compare emitted Itanium symbols and execute GCC/RCC
+      outputs for i686 and AMD64 through `scripts/ci_nested_class_templates.sh`.
+- [ ] Other structural NTTP pack member shapes and expression expansions remain
+      open.
