@@ -34,6 +34,14 @@ static CxxStructuralMemberPointerValue*
     cxx_structural_member_pointer_values;
 static size_t cxx_structural_member_pointer_value_count;
 static size_t cxx_structural_member_pointer_value_capacity;
+typedef struct CxxStructuralClassValueRecord {
+    const Type* type;
+    int64_t* member_values;
+    int member_count;
+} CxxStructuralClassValueRecord;
+static CxxStructuralClassValueRecord* cxx_structural_class_value_records;
+static size_t cxx_structural_class_value_record_count;
+static size_t cxx_structural_class_value_record_capacity;
 
 bool cxx_structural_pointer_value_register(
     Decl* declaration, int64_t byte_offset, bool has_subobject_path,
@@ -234,6 +242,79 @@ bool cxx_structural_member_pointer_value_resolve(
     if (member_name_out) *member_name_out = value->member_name;
     if (offset_out) *offset_out = value->offset;
     if (method_out) *method_out = value->method;
+    return true;
+}
+
+static bool cxx_structural_class_value_record_register(
+    const Type* type, const int64_t* member_values, int member_count,
+    int64_t* token_out) {
+    size_t index;
+    if (!type || !member_values || member_count <= 0 || !token_out ||
+        (size_t)member_count > SIZE_MAX / sizeof(*member_values)) {
+        return false;
+    }
+    for (index = 0u; index < cxx_structural_class_value_record_count;
+         ++index) {
+        CxxStructuralClassValueRecord* record =
+            &cxx_structural_class_value_records[index];
+        if (record->member_count == member_count &&
+            type_is_compatible((Type*)record->type, (Type*)type) &&
+            memcmp(record->member_values, member_values,
+                   (size_t)member_count * sizeof(*member_values)) == 0) {
+            *token_out = (int64_t)(index + 1u);
+            return true;
+        }
+    }
+    if (cxx_structural_class_value_record_count >= (size_t)INT64_MAX) {
+        return false;
+    }
+    if (cxx_structural_class_value_record_count ==
+        cxx_structural_class_value_record_capacity) {
+        size_t new_capacity = cxx_structural_class_value_record_capacity
+            ? cxx_structural_class_value_record_capacity * 2u : 16u;
+        CxxStructuralClassValueRecord* records;
+        if (new_capacity < cxx_structural_class_value_record_capacity ||
+            new_capacity > SIZE_MAX / sizeof(*records)) {
+            return false;
+        }
+        records = rcc_alloc(new_capacity * sizeof(*records));
+        if (cxx_structural_class_value_record_count != 0u) {
+            memcpy(records, cxx_structural_class_value_records,
+                   cxx_structural_class_value_record_count *
+                       sizeof(*records));
+        }
+        cxx_structural_class_value_records = records;
+        cxx_structural_class_value_record_capacity = new_capacity;
+    }
+    {
+        int64_t* values = rcc_alloc(
+            (size_t)member_count * sizeof(*values));
+        memcpy(values, member_values,
+               (size_t)member_count * sizeof(*values));
+        cxx_structural_class_value_records[
+            cxx_structural_class_value_record_count] =
+            (CxxStructuralClassValueRecord){type, values, member_count};
+    }
+    ++cxx_structural_class_value_record_count;
+    *token_out = (int64_t)cxx_structural_class_value_record_count;
+    return true;
+}
+
+bool cxx_structural_class_value_record_resolve(
+    const Type* type, int64_t token, const int64_t** member_values_out,
+    int* member_count_out) {
+    CxxStructuralClassValueRecord* record;
+    if (!type || token <= 0 ||
+        (uint64_t)token >
+            (uint64_t)cxx_structural_class_value_record_count) {
+        return false;
+    }
+    record = &cxx_structural_class_value_records[(size_t)token - 1u];
+    if (!type_is_compatible((Type*)record->type, (Type*)type)) {
+        return false;
+    }
+    if (member_values_out) *member_values_out = record->member_values;
+    if (member_count_out) *member_count_out = record->member_count;
     return true;
 }
 
@@ -621,8 +702,6 @@ static bool cxx_mangle_structural_member_pointer_value(
     CxxClass* owner = NULL;
     const char* member_name = NULL;
     TypeMethod* method = NULL;
-    char member_link[CXX_MANGLE_BUFFER_SIZE];
-    size_t member_link_pos = 0u;
     if (!cxx_structural_member_pointer_value_resolve(
             token, &owner, &member_name, NULL, &method) || !owner ||
         !member_name) {
@@ -643,21 +722,38 @@ static bool cxx_mangle_structural_member_pointer_value(
         cxx_mangle_type_char(buf, pos, 'E');
         return true;
     }
-    mangle_nested_prefix(
-        member_link, &member_link_pos, owner->ns, owner);
-    mangle_name(member_link, &member_link_pos, member_name);
-    cxx_mangle_type_char(member_link, &member_link_pos, 'E');
-    if (member_link_pos < 3u || member_link[0] != '_' ||
-        member_link[1] != 'Z' ||
-        *pos + member_link_pos >= CXX_MANGLE_BUFFER_SIZE) {
-        return false;
-    }
     cxx_mangle_type_char(buf, pos, 'a');
     cxx_mangle_type_char(buf, pos, 'd');
     cxx_mangle_type_char(buf, pos, 'L');
     cxx_mangle_type_char(buf, pos, '_');
-    memcpy(buf + *pos, member_link + 1u, member_link_pos - 1u);
-    *pos += member_link_pos - 1u;
+    cxx_mangle_type_char(buf, pos, 'Z');
+    cxx_mangle_type_char(buf, pos, 'N');
+    {
+        CxxNamespace* namespaces[32];
+        int namespace_count = 0;
+        size_t owner_substitution;
+        for (CxxNamespace* current = owner->ns;
+             current && current->name; current = current->parent) {
+            if (namespace_count <
+                (int)(sizeof(namespaces) / sizeof(namespaces[0]))) {
+                namespaces[namespace_count++] = current;
+            }
+        }
+        for (int index = namespace_count - 1; index >= 0; --index) {
+            mangle_name(buf, pos, namespaces[index]->name);
+        }
+        owner_substitution = cxx_mangle_find_class_substitution(
+            context, owner->type);
+        if (owner_substitution != (size_t)-1) {
+            cxx_mangle_append_substitution(
+                buf, pos, owner_substitution);
+        } else {
+            mangle_class_name_context(buf, pos, owner, context);
+            cxx_mangle_record_class_type(context, owner->type);
+        }
+    }
+    mangle_name(buf, pos, member_name);
+    cxx_mangle_type_char(buf, pos, 'E');
     cxx_mangle_type_char(buf, pos, 'E');
     return true;
 }
@@ -905,7 +1001,8 @@ static bool cxx_structural_class_has_only_member_pointer_member(
 static bool cxx_mangle_structural_value_body(
     char* buf, size_t* pos, Type* value_type, uint64_t packed_value,
     unsigned* bit_offset, CxxMangleContext* context,
-    int64_t pointer_token) {
+    int64_t pointer_token, const int64_t* recorded_values,
+    int recorded_count, int* recorded_index) {
     TypeParam* field;
     cxx_mangle_type_char(buf, pos, 't');
     cxx_mangle_type_char(buf, pos, 'l');
@@ -915,21 +1012,31 @@ static bool cxx_mangle_structural_value_body(
         unsigned field_bits;
         if (field->is_static) continue;
         if (field->type->kind == TYPE_STRUCT) {
-            if (cxx_structural_class_has_only_pointer_member(field->type) &&
+            if (!recorded_values &&
+                cxx_structural_class_has_only_pointer_member(field->type) &&
                 packed_value == 0u) {
                 *bit_offset += 64u;
                 continue;
             }
             if (!cxx_mangle_structural_value_body(
                     buf, pos, field->type, packed_value, bit_offset,
-                    context, pointer_token)) {
+                    context, pointer_token, recorded_values,
+                    recorded_count, recorded_index)) {
                 return false;
             }
             continue;
         }
-        if (!cxx_structural_class_decode_leaf(
-                field->type, packed_value, *bit_offset, &field_value)) {
-            return false;
+        if (recorded_values) {
+            if (!recorded_index || *recorded_index < 0 ||
+                *recorded_index >= recorded_count) {
+                return false;
+            }
+            field_value = recorded_values[(*recorded_index)++];
+        } else {
+            if (!cxx_structural_class_decode_leaf(
+                    field->type, packed_value, *bit_offset, &field_value)) {
+                return false;
+            }
         }
         field_bits = cxx_structural_type_value_bits(field->type);
         if (field->type->kind == TYPE_PTR) {
@@ -939,24 +1046,24 @@ static bool cxx_mangle_structural_value_body(
                         buf, pos, field_value, field->type, context)) {
                     return false;
                 }
-                *bit_offset += field_bits;
+                if (!recorded_values) *bit_offset += field_bits;
                 continue;
             }
             if (field_value != 0) {
-                if (field_value != pointer_token ||
+                if ((!recorded_values && field_value != pointer_token) ||
                     !cxx_mangle_structural_pointer_value(
-                        buf, pos, field->type, pointer_token, context)) {
+                        buf, pos, field->type, field_value, context)) {
                     return false;
                 }
             }
-            *bit_offset += field_bits;
+            if (!recorded_values) *bit_offset += field_bits;
             continue;
         }
         cxx_mangle_type_char(buf, pos, 'L');
         cxx_mangle_type_append_context(buf, pos, field->type, context);
         cxx_mangle_template_value_suffix(
             buf, pos, field->type, field_value);
-        *bit_offset += field_bits;
+        if (!recorded_values) *bit_offset += field_bits;
     }
     cxx_mangle_type_char(buf, pos, 'E');
     return true;
@@ -966,13 +1073,23 @@ static bool cxx_mangle_supported_structural_value(
     char* buf, size_t* pos, Type* value_type, int64_t value,
     CxxMangleContext* context, int64_t pointer_token) {
     unsigned bit_offset = 0;
+    const int64_t* recorded_values = NULL;
+    int recorded_count = 0;
+    int recorded_index = 0;
     if (!cxx_structural_class_value_supported_subset(value_type)) {
         return false;
+    }
+    if (!cxx_structural_class_value_record_resolve(
+            value_type, value, &recorded_values, &recorded_count)) {
+        recorded_values = NULL;
+        recorded_count = 0;
     }
     cxx_mangle_type_char(buf, pos, 'X');
     if (!cxx_mangle_structural_value_body(
             buf, pos, value_type, (uint64_t)value, &bit_offset, context,
-            pointer_token)) {
+            pointer_token, recorded_values, recorded_count,
+            &recorded_index) ||
+        (recorded_values && recorded_index != recorded_count)) {
         return false;
     }
     cxx_mangle_type_char(buf, pos, 'E');
@@ -1204,6 +1321,47 @@ static void cxx_mangle_record_class_type(CxxMangleContext* context,
     context->class_types[context->class_type_count++] = type;
 }
 
+static void cxx_mangle_record_structural_member_pointer_owner_types_in_value(
+    CxxMangleContext* context, const Type* type, uint64_t packed_value,
+    const int64_t* recorded_values, int recorded_count,
+    int* recorded_index, unsigned* bit_offset) {
+    const TypeParam* field;
+    for (field = type->cxx_class->fields; field; field = field->next) {
+        int64_t field_value;
+        unsigned field_bits;
+        if (field->is_static) continue;
+        if (field->type->kind == TYPE_STRUCT) {
+            cxx_mangle_record_class_type(context, field->type);
+            cxx_mangle_record_structural_member_pointer_owner_types_in_value(
+                context, field->type, packed_value, recorded_values,
+                recorded_count, recorded_index, bit_offset);
+            continue;
+        }
+        if (recorded_values) {
+            if (!recorded_index || *recorded_index < 0 ||
+                *recorded_index >= recorded_count) {
+                return;
+            }
+            field_value = recorded_values[(*recorded_index)++];
+        } else if (!cxx_structural_class_decode_leaf(
+                       field->type, packed_value, *bit_offset,
+                       &field_value)) {
+            return;
+        }
+        if (field->type->kind == TYPE_PTR &&
+            field->type->cxx_is_member_pointer && field_value > 0) {
+            CxxClass* owner = NULL;
+            if (cxx_structural_member_pointer_value_resolve(
+                    field_value, &owner, NULL, NULL, NULL) &&
+                owner && owner->type) {
+                cxx_mangle_record_class_type(context, owner->type);
+            }
+        }
+        field_bits = cxx_structural_type_value_bits(field->type);
+        if (!recorded_values) *bit_offset += field_bits;
+    }
+}
+
 static void cxx_mangle_record_structural_member_pointer_owner_types(
     CxxMangleContext* context, CxxClass* cls) {
     for (CxxClass* class_scope = cls; class_scope;
@@ -1227,7 +1385,6 @@ static void cxx_mangle_record_structural_member_pointer_owner_types(
             int parameter_index = index < tmpl->param_count
                 ? index : tmpl->param_count - 1;
             TemplateParam* parameter;
-            CxxClass* owner = NULL;
             if (parameter_index < 0 ||
                 (index >= tmpl->param_count &&
                  !tmpl->params[parameter_index].is_pack)) {
@@ -1235,15 +1392,27 @@ static void cxx_mangle_record_structural_member_pointer_owner_types(
             }
             parameter = &tmpl->params[parameter_index];
             if (parameter->kind != TPARAM_NONTYPE || !parameter->type ||
-                !cxx_structural_class_has_only_member_pointer_member(
-                    parameter->type) || !value_present[index] ||
-                value_arguments[index] <= 0 ||
-                !cxx_structural_member_pointer_value_resolve(
-                    value_arguments[index], &owner, NULL, NULL, NULL) ||
-                !owner || !owner->type) {
+                parameter->type->kind != TYPE_STRUCT ||
+                !cxx_structural_class_value_supported_subset(
+                    parameter->type) || !value_present[index]) {
                 continue;
             }
-            cxx_mangle_record_class_type(context, owner->type);
+            {
+                const int64_t* recorded_values = NULL;
+                int recorded_count = 0;
+                int recorded_index = 0;
+                unsigned bit_offset = 0u;
+                if (!cxx_structural_class_value_record_resolve(
+                        parameter->type, value_arguments[index],
+                        &recorded_values, &recorded_count)) {
+                    recorded_values = NULL;
+                    recorded_count = 0;
+                }
+                cxx_mangle_record_structural_member_pointer_owner_types_in_value(
+                    context, parameter->type,
+                    (uint64_t)value_arguments[index], recorded_values,
+                    recorded_count, &recorded_index, &bit_offset);
+            }
         }
     }
 }
@@ -1278,8 +1447,14 @@ static void cxx_mangle_type_append_context(
     }
 
     if (type->kind == TYPE_PTR && type->cxx_is_member_pointer) {
+        size_t pointer_substitution = cxx_mangle_find_class_substitution(
+            context, type);
         size_t owner_substitution = cxx_mangle_find_class_substitution(
             context, type->cxx_member_pointer_owner);
+        if (pointer_substitution != (size_t)-1) {
+            cxx_mangle_append_substitution(buf, pos, pointer_substitution);
+            return;
+        }
         cxx_mangle_type_char(buf, pos, 'M');
         if (owner_substitution != (size_t)-1) {
             cxx_mangle_append_substitution(buf, pos, owner_substitution);
@@ -1288,6 +1463,8 @@ static void cxx_mangle_type_append_context(
                 buf, pos, type->cxx_member_pointer_owner, context);
         }
         cxx_mangle_type_append_context(buf, pos, type->base, context);
+        cxx_mangle_record_class_type(context, type->base);
+        cxx_mangle_record_class_type(context, type);
         return;
     }
 
@@ -2863,7 +3040,7 @@ static bool cxx_structural_class_measure_fields(
         if (field->type->kind == TYPE_PTR) {
             if ((field->type->cxx_is_member_pointer &&
                  !field->type->base) ||
-                *total_bits > 0u || 64u > 64u - *total_bits) {
+                *total_bits > UINT_MAX - 64u) {
                 return false;
             }
             field_bits = 64u;
@@ -2873,12 +3050,17 @@ static bool cxx_structural_class_measure_fields(
                 field->type->kind != TYPE_ENUM) {
                 return false;
             }
-            if (field->type->size <= 0 || field->type->size > 8) {
+            if (field->type->size <= 0 || field->type->size > 8 ||
+                *total_bits > UINT_MAX -
+                    (unsigned)field->type->size * 8u) {
                 return false;
             }
             field_bits = (unsigned)field->type->size * 8u;
         }
-        if (field_bits > 64u - *total_bits) return false;
+        if (field_bits > UINT_MAX - *total_bits ||
+            *leaf_count == UINT_MAX) {
+            return false;
+        }
         *total_bits += field_bits;
         ++*leaf_count;
     }
@@ -2893,8 +3075,7 @@ bool cxx_structural_class_value_supported_subset(const Type* type) {
             type, &total_bits, &leaf_count, &pointer_count)) {
         return false;
     }
-    return pointer_count <= 1u &&
-           (pointer_count == 0u || leaf_count == 1u);
+    return true;
 }
 
 static unsigned cxx_structural_type_value_bits(const Type* type) {
@@ -2958,9 +3139,26 @@ bool cxx_structural_class_pack_member_values(
     uint64_t packed = 0;
     unsigned bit_offset = 0;
     int index = 0;
+    unsigned total_bits = 0u;
+    unsigned leaf_count = 0u;
+    unsigned pointer_count = 0u;
+    bool needs_record;
     if (!packed_value || member_count < 0 ||
         !cxx_structural_class_value_supported_subset(type) ||
-        !cxx_structural_class_pack_fields(
+        !cxx_structural_class_measure_fields(
+            type, &total_bits, &leaf_count, &pointer_count) ||
+        leaf_count > (unsigned)INT_MAX ||
+        member_count != (int)leaf_count) {
+        return false;
+    }
+    needs_record = total_bits > 64u ||
+        (pointer_count != 0u &&
+         (pointer_count != 1u || leaf_count != 1u));
+    if (needs_record) {
+        return cxx_structural_class_value_record_register(
+            type, member_values, member_count, packed_value);
+    }
+    if (!cxx_structural_class_pack_fields(
             type, member_values, member_count, &index, &packed,
             &bit_offset) || index != member_count) {
         return false;
@@ -2996,6 +3194,7 @@ static bool cxx_structural_class_decode_leaf(
 static bool cxx_structural_class_find_member_path(
     const Type* type, uint64_t packed_value, const char* const* member_names,
     int member_name_count, int path_index, unsigned bit_offset,
+    const int64_t* recorded_values, int recorded_count, int* value_index,
     int64_t* member_value, Type** member_type) {
     const TypeParam* field;
     for (field = type->cxx_class->fields; field; field = field->next) {
@@ -3007,15 +3206,42 @@ static bool cxx_structural_class_find_member_path(
                 return cxx_structural_class_find_member_path(
                     field->type, packed_value, member_names,
                     member_name_count, path_index + 1, bit_offset,
+                    recorded_values, recorded_count, value_index,
                     member_value, member_type);
             }
-            if (path_index + 1 != member_name_count ||
-                !cxx_structural_class_decode_leaf(
-                    field->type, packed_value, bit_offset, member_value)) {
+            if (path_index + 1 != member_name_count) {
+                return false;
+            }
+            if (recorded_values) {
+                if (*value_index < 0 || *value_index >= recorded_count) {
+                    return false;
+                }
+                *member_value = recorded_values[*value_index];
+            } else if (!cxx_structural_class_decode_leaf(
+                           field->type, packed_value, bit_offset,
+                           member_value)) {
                 return false;
             }
             if (member_type) *member_type = field->type;
             return true;
+        }
+        if (recorded_values) {
+            if (field->type->kind == TYPE_STRUCT) {
+                unsigned nested_bits = 0u;
+                unsigned nested_leaf_count = 0u;
+                unsigned nested_pointer_count = 0u;
+                if (!cxx_structural_class_measure_fields(
+                        field->type, &nested_bits, &nested_leaf_count,
+                        &nested_pointer_count) ||
+                    nested_leaf_count > (unsigned)(INT_MAX - *value_index)) {
+                    return false;
+                }
+                *value_index += (int)nested_leaf_count;
+            } else {
+                if (*value_index >= recorded_count) return false;
+                ++*value_index;
+            }
+            continue;
         }
         field_bits = cxx_structural_type_value_bits(field->type);
         if (field_bits > 64u - bit_offset) return false;
@@ -3028,13 +3254,22 @@ bool cxx_structural_class_unpack_member_path(
     const Type* type, int64_t packed_value,
     const char* const* member_names, int member_name_count,
     int64_t* member_value, Type** member_type) {
+    const int64_t* recorded_values = NULL;
+    int recorded_count = 0;
+    int value_index = 0;
     if (!member_names || member_name_count <= 0 ||
         !member_names[0] || !member_value ||
         !cxx_structural_class_value_supported_subset(type)) {
         return false;
     }
+    if (!cxx_structural_class_value_record_resolve(
+            type, packed_value, &recorded_values, &recorded_count)) {
+        recorded_values = NULL;
+        recorded_count = 0;
+    }
     return cxx_structural_class_find_member_path(
         type, (uint64_t)packed_value, member_names, member_name_count, 0, 0,
+        recorded_values, recorded_count, &value_index,
         member_value, member_type);
 }
 
@@ -3748,6 +3983,9 @@ static void cxx_typeinfo_identity_append_class(
 
 static void cxx_typeinfo_identity_append_type(
     CxxTypeInfoIdentityBuilder* builder, const Type* type);
+static void cxx_typeinfo_identity_append_structural_values(
+    CxxTypeInfoIdentityBuilder* builder, const Type* type,
+    const int64_t* values, int value_count, int* value_index);
 
 static void cxx_typeinfo_identity_append_class(
     CxxTypeInfoIdentityBuilder* builder, CxxClass* cls) {
@@ -3813,6 +4051,27 @@ static void cxx_typeinfo_identity_append_class(
                     rcc_fatal("C++ typeinfo value argument is missing");
                 }
                 cxx_typeinfo_identity_append_char(builder, 'V');
+                {
+                    const int64_t* recorded_values = NULL;
+                    int recorded_count = 0;
+                    if (parameter->type &&
+                        cxx_structural_class_value_record_resolve(
+                            parameter->type, value_arguments[index],
+                            &recorded_values, &recorded_count)) {
+                        int recorded_index = 0;
+                        cxx_typeinfo_identity_append_char(builder, 'A');
+                        cxx_typeinfo_identity_append_type(
+                            builder, parameter->type);
+                        cxx_typeinfo_identity_append_structural_values(
+                            builder, parameter->type, recorded_values,
+                            recorded_count, &recorded_index);
+                        if (recorded_index != recorded_count) {
+                            rcc_fatal(
+                                "C++ typeinfo structural class value is incomplete");
+                        }
+                        break;
+                    }
+                }
                 if (parameter->type &&
                     cxx_structural_class_has_only_pointer_member(
                         parameter->type) && value_arguments[index] != 0) {
@@ -4012,6 +4271,113 @@ static void cxx_typeinfo_identity_append_type(
         case TYPE_NULLPTR:
         case TYPE_VOID:
             break;
+    }
+}
+
+static void cxx_typeinfo_identity_append_structural_pointer_value(
+    CxxTypeInfoIdentityBuilder* builder, const Type* type, int64_t value) {
+    cxx_typeinfo_identity_append_type(builder, type);
+    if (type->cxx_is_member_pointer) {
+        CxxClass* owner = NULL;
+        const char* member_name = NULL;
+        TypeMethod* method = NULL;
+        if (value <= 0) {
+            cxx_typeinfo_identity_append_char(builder, 'N');
+            return;
+        }
+        if (!cxx_structural_member_pointer_value_resolve(
+                value, &owner, &member_name, NULL, &method) ||
+            !owner || !owner->type || !member_name) {
+            rcc_fatal(
+                "C++ typeinfo structural member-pointer value is missing");
+        }
+        cxx_typeinfo_identity_append_char(builder, method ? 'F' : 'M');
+        cxx_typeinfo_identity_append_type(builder, owner->type);
+        cxx_typeinfo_identity_append_text(
+            builder, method
+                ? decl_link_name(method->function_decl) : member_name);
+        if (method && method->function_decl) {
+            cxx_typeinfo_identity_append_type(
+                builder, method->function_decl->type);
+        }
+        return;
+    }
+    if (value == 0) {
+        cxx_typeinfo_identity_append_char(builder, 'N');
+        return;
+    }
+    {
+        int64_t byte_offset = 0;
+        bool has_subobject_path = false;
+        bool one_past = false;
+        bool array_decay = false;
+        const CxxStructuralPointerPathElement* subobject_path = NULL;
+        size_t subobject_path_length = 0u;
+        Decl* declaration =
+            cxx_structural_pointer_value_declaration(value);
+        if (!declaration || !decl_link_name(declaration) ||
+            !cxx_structural_pointer_value_location(
+                value, &byte_offset, &has_subobject_path, &one_past,
+                &array_decay, &subobject_path, &subobject_path_length)) {
+            rcc_fatal("C++ typeinfo structural pointer value is missing");
+        }
+        cxx_typeinfo_identity_append_char(builder, 'P');
+        cxx_typeinfo_identity_append_text(
+            builder, decl_link_name(declaration));
+        cxx_typeinfo_identity_append_signed(builder, byte_offset);
+        cxx_typeinfo_identity_append_char(
+            builder, has_subobject_path ? 'S' : 'B');
+        cxx_typeinfo_identity_append_char(builder, one_past ? 'P' : 'I');
+        cxx_typeinfo_identity_append_char(builder, array_decay ? 'D' : 'N');
+        cxx_typeinfo_identity_append_number(
+            builder, subobject_path_length);
+        for (size_t path_index = 0u;
+             path_index < subobject_path_length; ++path_index) {
+            const CxxStructuralPointerPathElement* element =
+                &subobject_path[path_index];
+            if (element->kind == CXX_STRUCTURAL_POINTER_PATH_ARRAY_INDEX) {
+                cxx_typeinfo_identity_append_char(builder, 'A');
+                cxx_typeinfo_identity_append_signed(
+                    builder, element->array_index);
+            } else {
+                cxx_typeinfo_identity_append_char(builder, 'M');
+                cxx_typeinfo_identity_append_type(
+                    builder, element->owner_type);
+                cxx_typeinfo_identity_append_text(
+                    builder, element->member_field->name);
+                cxx_typeinfo_identity_append_signed(
+                    builder, element->member_field->offset);
+            }
+        }
+    }
+}
+
+static void cxx_typeinfo_identity_append_structural_values(
+    CxxTypeInfoIdentityBuilder* builder, const Type* type,
+    const int64_t* values, int value_count, int* value_index) {
+    const TypeParam* field;
+    for (field = type->cxx_class->fields; field; field = field->next) {
+        int64_t value;
+        if (field->is_static) continue;
+        if (field->type->kind == TYPE_STRUCT) {
+            cxx_typeinfo_identity_append_char(builder, 'S');
+            cxx_typeinfo_identity_append_type(builder, field->type);
+            cxx_typeinfo_identity_append_structural_values(
+                builder, field->type, values, value_count, value_index);
+            continue;
+        }
+        if (!value_index || *value_index < 0 ||
+            *value_index >= value_count) {
+            rcc_fatal("C++ typeinfo structural class value is incomplete");
+        }
+        value = values[(*value_index)++];
+        if (field->type->kind == TYPE_PTR) {
+            cxx_typeinfo_identity_append_structural_pointer_value(
+                builder, field->type, value);
+        } else {
+            cxx_typeinfo_identity_append_type(builder, field->type);
+            cxx_typeinfo_identity_append_signed(builder, value);
+        }
     }
 }
 
@@ -10360,6 +10726,9 @@ void cxx_init(void) {
     cxx_structural_member_pointer_values = NULL;
     cxx_structural_member_pointer_value_count = 0u;
     cxx_structural_member_pointer_value_capacity = 0u;
+    cxx_structural_class_value_records = NULL;
+    cxx_structural_class_value_record_count = 0u;
+    cxx_structural_class_value_record_capacity = 0u;
     if (!g_global_namespace) {
         g_global_namespace = cxx_namespace_alloc(NULL, NULL);
     }

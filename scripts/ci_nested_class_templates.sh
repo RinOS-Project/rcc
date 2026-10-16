@@ -94,6 +94,8 @@ sources=(
 	tests/cxx_structural_computed_pointer_nttp.cpp
 	tests/cxx_structural_member_pointer_nttp.cpp
 	tests/cxx_structural_member_function_pointer_nttp.cpp
+	tests/cxx_structural_multiple_member_pointer_nttp.cpp
+	tests/cxx_structural_multiple_member_function_pointer_nttp.cpp
 	tests/cxx_nested_explicit_chain_ten_levels.cpp
 	tests/cxx_nested_explicit_chain_twelve_levels.cpp
 	tests/cxx_nested_explicit_chain_thirteen_levels.cpp

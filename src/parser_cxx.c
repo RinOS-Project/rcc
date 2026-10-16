@@ -2491,7 +2491,7 @@ static bool cxx_structural_pointer_member_value(
 
 static bool cxx_structural_class_collect_member_values(
     Type* type, ExprList* initializer, bool value_init,
-    int64_t* member_values, int* member_count) {
+    int64_t* member_values, size_t member_capacity, int* member_count) {
     TypeParam* field;
     bool has_nonstatic_field = false;
     for (field = type->cxx_class->fields; field; field = field->next) {
@@ -2539,7 +2539,7 @@ static bool cxx_structural_class_collect_member_values(
             if (!cxx_structural_class_collect_member_values(
                     field->type, nested_initializer,
                     field_initializer && field_initializer->compound_value_init,
-                    member_values, member_count)) {
+                    member_values, member_capacity, member_count)) {
                 return false;
             }
             continue;
@@ -2580,10 +2580,35 @@ static bool cxx_structural_class_collect_member_values(
                 return false;
             }
         }
-        if (*member_count >= 8) return false;
+        if (*member_count < 0 ||
+            (size_t)*member_count >= member_capacity || !member_values) {
+            return false;
+        }
         member_values[(*member_count)++] = member_value;
     }
     return initializer == NULL;
+}
+
+static bool cxx_structural_class_count_member_values(
+    const Type* type, size_t* member_count) {
+    const TypeParam* field;
+    if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
+        !member_count) {
+        return false;
+    }
+    for (field = type->cxx_class->fields; field; field = field->next) {
+        if (field->is_static) continue;
+        if (field->type->kind == TYPE_STRUCT) {
+            if (!cxx_structural_class_count_member_values(
+                    field->type, member_count)) {
+                return false;
+            }
+        } else {
+            if (*member_count >= (size_t)INT_MAX) return false;
+            ++*member_count;
+        }
+    }
+    return true;
 }
 
 static bool cxx_template_non_type_constant_value(
@@ -2597,15 +2622,24 @@ static bool cxx_template_non_type_constant_value(
     if (expression->kind == EXPR_COMPOUND) {
         Type* value_type = expression->compound_type
             ? expression->compound_type : expression->type;
-        int64_t member_values[8] = { 0 };
+        size_t member_capacity = 0u;
+        int64_t* member_values = NULL;
         int member_count = 0;
-        if (!cxx_structural_class_value_supported_subset(value_type)) {
+        if (!cxx_structural_class_value_supported_subset(value_type) ||
+            !cxx_structural_class_count_member_values(
+                value_type, &member_capacity) ||
+            member_capacity > SIZE_MAX / sizeof(*member_values)) {
             return false;
+        }
+        if (member_capacity != 0u) {
+            member_values = ast_arena_alloc(
+                member_capacity * sizeof(*member_values));
+            if (!member_values) return false;
         }
         if (!cxx_structural_class_collect_member_values(
                 value_type, expression->compound_init,
                 expression->compound_value_init, member_values,
-                &member_count)) {
+                member_capacity, &member_count)) {
             return false;
         }
         if (!cxx_structural_class_pack_member_values(

@@ -5066,8 +5066,8 @@ remains a separate open item.
   and execute RCC AMD64 and GCC-host programs.
 - [x] Add the regression to `scripts/ci_nested_class_templates.sh`; the complete
   POSIX nested-class CI gate passes in WSL.
-- [ ] Multiple member-pointer leaves, reference members, and additional
-  standard-valid structural class NTTP forms remain open.
+- [ ] Reference members and additional standard-valid structural class NTTP
+  forms remain open.
 
 ## RCC continuation (2026-10-16, structural pointer subobject offsets)
 
@@ -5145,5 +5145,21 @@ remains a separate open item.
   The complete POSIX nested-class CI gate passes in WSL.
 - [x] Re-run native-Windows MinGW `test-cxx` after the parser and structural
   NTTP changes; the full aggregate passes (exit 0).
-- [ ] Multiple member-pointer leaves, reference members, and other
-  standard-valid structural class NTTP forms remain open.
+- [ ] Reference members and other standard-valid structural class NTTP forms
+  remain open.
+
+## RCC continuation (2026-10-16, multiple structural member-pointer NTTP leaves)
+
+- [x] Preserve multiple nested data-member-pointer leaves and multiple
+  member-function-pointer leaves in structural class NTTP values, including
+  owner/member identity through template cloning.
+- [x] Emit GCC-compatible Itanium names for mixed/nested leaves, including
+  repeated owner and member-function type substitutions. Compare fixture
+  symbol sets on i686/AMD64, assemble both targets, and execute the AMD64
+  RCC/GCC-host regressions.
+- [x] Add both regressions to `scripts/ci_nested_class_templates.sh`; the WSL
+  POSIX gate passes.
+- [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate; it passes
+  (exit 0).
+- [ ] Reference members and other standard-valid structural class NTTP forms
+  remain open.

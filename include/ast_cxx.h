@@ -516,6 +516,9 @@ bool cxx_structural_member_pointer_value_register(
 bool cxx_structural_member_pointer_value_resolve(
     int64_t token, CxxClass** owner_out, const char** member_name_out,
     int64_t* offset_out, TypeMethod** method_out);
+bool cxx_structural_class_value_record_resolve(
+    const Type* type, int64_t token, const int64_t** member_values_out,
+    int* member_count_out);
 bool cxx_structural_class_unpack_member_path(
     const Type* type, int64_t packed_value,
     const char* const* member_names, int member_name_count,
