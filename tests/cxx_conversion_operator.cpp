@@ -7,6 +7,14 @@ public:
     }
 };
 
+struct ScalarReferenceConversionSource {
+    int value;
+
+    operator int&() {
+        return value;
+    }
+};
+
 class Flag {
 public:
     int value;
@@ -224,6 +232,14 @@ int take_integer(int value) {
     return value;
 }
 
+int read_scalar_conversion_reference(const int& value) {
+    return value;
+}
+
+int increment_scalar_conversion_reference(int& value) {
+    return ++value;
+}
+
 int take_ranked_integer(int value) {
     return value;
 }
@@ -254,6 +270,18 @@ int read_conversion_reference_base(const ConversionReferenceBase& value) {
 
 long take_long(long value) {
     return value;
+}
+
+long take_long_reference(const long& value) {
+    return value + 300;
+}
+
+long take_long_rvalue_reference(long&& value) {
+    return value + 400;
+}
+
+double take_double_reference(const double& value) {
+    return value + 500.0;
 }
 
 int choose_conversion(int value) {
@@ -372,6 +400,7 @@ int main() {
     FloatingPromotionMeter floating_promotion_meter;
     TemplatedConversionSource templated_source;
     ConstrainedTemplatedConversionSource constrained_templated_source;
+    ScalarReferenceConversionSource scalar_reference_source{71};
     reference_ranking_source.middle.value = 83;
     reference_ranking_source.leaf.value = 89;
     int direct = meter;
@@ -379,10 +408,18 @@ int main() {
     int argument = take_integer(meter);
     int templated_argument = take_integer(templated_source);
     long widened = take_long(meter);
+    long reference_widened = take_long_reference(meter);
+    long rvalue_reference_widened = take_long_rvalue_reference(meter);
+    double reference_promoted = take_double_reference(floating_promotion_meter);
 
     if (!flag) return 1;
     if (direct != 7 || templated_direct != 67 ||
         templated_argument != 67 || argument != 7 || widened != 7 ||
+        reference_widened != 307 || rvalue_reference_widened != 407 ||
+        reference_promoted != 531.0 ||
+        read_scalar_conversion_reference(scalar_reference_source) != 71 ||
+        increment_scalar_conversion_reference(scalar_reference_source) != 72 ||
+        scalar_reference_source.value != 72 ||
         choose_constrained_conversion(constrained_templated_source) != 101 ||
         return_integer() != 9 || return_long() != 11 ||
         choose_conversion(meter) != 107 ||

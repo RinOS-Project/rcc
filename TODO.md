@@ -5478,3 +5478,19 @@ remains a separate open item.
       Windows `test-cxx` passes (exit 0).
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-17, arithmetic conversion references)
+
+- [x] Apply the standard arithmetic conversion after an implicit conversion
+      function when binding its result to a reference, and materialize the
+      target-typed temporary only when the source and referred-to types differ.
+      Preserve direct reference results, including lvalue aliasing.
+- [x] Cover `int` to `long` for `const long&` and `long&&`, `float` to `double`
+      for `const double&`, direct `operator int&()` binding to const/mutable
+      references, and rejection of conversion temporaries for mutable `long&`.
+      GCC C++20 `-Wall -Wextra -Werror` and native-Windows
+      `test-cxx-conversion-operator` pass with i686/AMD64 generation and runtime;
+      the invalid fixture verifies diagnostics and absence of `.ro` on both
+      targets.
+- [ ] Other multi-step standard conversions, remaining cv/reference binding
+      shapes, and general C++20 conversion-sequence ordering remain open.

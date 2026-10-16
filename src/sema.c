@@ -3232,17 +3232,30 @@ reference_binding_source:
             TypeMethod* conversion = sema_find_cxx_conversion_method(
                 source_object, target, &ambiguous, e);
             if (!ambiguous && conversion) {
+                Type* conversion_result_object = conversion->return_type;
+                bool apply_standard_conversion;
                 Expr* source_expression =
                     ast_arena_alloc(sizeof(*source_expression));
                 Expr* member;
                 Expr* call;
+                if (conversion_result_object &&
+                    conversion_result_object->is_reference) {
+                    conversion_result_object =
+                        conversion_result_object->base;
+                }
+                apply_standard_conversion =
+                    !conversion_result_object ||
+                    !cxx_reference_object_compatible(
+                        conversion_result_object, referred);
                 *source_expression = *e;
                 member = expr_member(source_expression, conversion->name,
                                      e->loc);
                 call = expr_call(member, NULL, e->loc);
                 call->call_method = conversion;
-                if (referred->kind == TYPE_PTR &&
-                    !referred->cxx_is_member_pointer) {
+                if (apply_standard_conversion &&
+                    (type_is_arithmetic(referred) ||
+                     (referred->kind == TYPE_PTR &&
+                      !referred->cxx_is_member_pointer))) {
                     Expr* conversion_result =
                         ast_arena_alloc(sizeof(*conversion_result));
                     Expr* converted;
