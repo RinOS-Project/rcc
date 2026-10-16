@@ -2016,6 +2016,14 @@ int choose_function_to_bool_reference(const bool& value) {
     return value ? 251 : 252;
 }
 
+int choose_array_to_bool_rvalue_reference(bool&& value) {
+    return value ? 253 : 254;
+}
+
+int choose_function_to_bool_rvalue_reference(bool&& value) {
+    return value ? 255 : 256;
+}
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Waddress"
 static int verify_array_to_bool_decay() {
@@ -2034,6 +2042,16 @@ static int verify_function_to_bool_decay() {
 
 static int verify_function_to_bool_reference_decay() {
     return choose_function_to_bool_reference(
+        conversion_noexcept_function);
+}
+
+static int verify_array_to_bool_rvalue_reference_decay() {
+    int value[1] = { 1 };
+    return choose_array_to_bool_rvalue_reference(value);
+}
+
+static int verify_function_to_bool_rvalue_reference_decay() {
+    return choose_function_to_bool_rvalue_reference(
         conversion_noexcept_function);
 }
 #pragma GCC diagnostic pop
@@ -3370,6 +3388,8 @@ int main(void) {
                    verify_array_to_bool_reference_decay() == 249 &&
                    verify_function_to_bool_decay() == 247 &&
                    verify_function_to_bool_reference_decay() == 251 &&
+                   verify_array_to_bool_rvalue_reference_decay() == 253 &&
+                   verify_function_to_bool_rvalue_reference_decay() == 255 &&
                    choose_nullptr_to_bool_non_template(nullptr) == 218 &&
                    choose_nullptr_to_bool_template(value, nullptr) == 220 &&
                    !static_cast<bool>(nullptr) &&

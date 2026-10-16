@@ -5419,5 +5419,10 @@ remains a separate open item.
       `test-cxx-function-template-overloads` gate, and full native-Windows
       `test-cxx` all pass (exit 0), including i686/AMD64 generation and runtime
       execution.
-- [ ] Other multi-step standard conversions, reference/cv binding shapes, and
-      general C++20 conversion-sequence ordering remain open.
+- [x] Extend the runtime regressions to bind the decayed `bool` temporary to
+      `bool&&` from both arrays and function designators. GCC C++20
+      `-Werror` and the focused native-Windows overload gate pass, including
+      i686/AMD64 generation and execution.
+- [ ] Other multi-step standard conversions, mutable-reference rejection,
+      remaining cv/reference binding shapes, and general C++20
+      conversion-sequence ordering remain open.
