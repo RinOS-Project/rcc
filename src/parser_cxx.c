@@ -8,6 +8,7 @@
 #include "ast.h"
 #include "ast_cxx.h"
 #include "symtab.h"
+#include <float.h>
 #include <limits.h>
 #include <stdio.h>
 
@@ -19467,6 +19468,231 @@ static bool cxx_template_integer_bits_to_i64(
     return true;
 }
 
+static bool cxx_template_integer_bits_to_double(
+    const CxxTemplateIntegerBits* value, double* result) {
+    int64_t signed_value;
+    uint64_t mask;
+    if (!value || !result ||
+        !cxx_template_integer_type_mask(value->type, &mask)) {
+        return false;
+    }
+    if (cxx_template_integer_type_is_unsigned(value->type)) {
+        *result = (double)(value->bits & mask);
+        return true;
+    }
+    if (!cxx_template_integer_bits_to_i64(value, &signed_value)) {
+        return false;
+    }
+    *result = (double)signed_value;
+    return true;
+}
+
+static bool cxx_template_floating_value_is_finite(double value) {
+    return value == value && value <= DBL_MAX && value >= -DBL_MAX;
+}
+
+static double cxx_template_round_floating_type(Type* type, double value) {
+    return type && type->kind == TYPE_FLOAT ? (double)(float)value : value;
+}
+
+static Type* cxx_template_common_floating_type(Expr* left, Expr* right) {
+    Type* left_type = left ? left->type : NULL;
+    Type* right_type = right ? right->type : NULL;
+    if ((left_type && left_type->kind == TYPE_DOUBLE) ||
+        (right_type && right_type->kind == TYPE_DOUBLE)) {
+        return type_double;
+    }
+    if ((left_type && left_type->kind == TYPE_FLOAT) ||
+        (right_type && right_type->kind == TYPE_FLOAT)) {
+        return type_float;
+    }
+    return NULL;
+}
+
+static bool eval_template_floating_expression(
+    Expr* expression, CxxTemplate* tmpl, const int64_t* values,
+    const bool* value_present, double* result) {
+    CxxTemplateIntegerBits integer_value;
+    double left;
+    double right;
+    double evaluated;
+    Type* common_type;
+    if (!expression || !result) return false;
+
+    if (!type_is_floating(expression->type) &&
+        eval_template_integer_expression_bits(
+            expression, tmpl, values, value_present, &integer_value)) {
+        return cxx_template_integer_bits_to_double(
+            &integer_value, result);
+    }
+
+    switch (expression->kind) {
+        case EXPR_FLOAT_LIT:
+            evaluated = cxx_template_round_floating_type(
+                expression->type, expression->float_val);
+            if (!cxx_template_floating_value_is_finite(evaluated)) {
+                return false;
+            }
+            *result = evaluated;
+            return true;
+        case EXPR_CAST:
+            if (!type_is_floating(expression->cast_type) ||
+                !eval_template_floating_expression(
+                    expression->cast_expr, tmpl, values, value_present,
+                    &evaluated)) {
+                return false;
+            }
+            evaluated = cxx_template_round_floating_type(
+                expression->cast_type, evaluated);
+            if (!cxx_template_floating_value_is_finite(evaluated)) {
+                return false;
+            }
+            *result = evaluated;
+            return true;
+        case EXPR_NEG:
+            if (!eval_template_floating_expression(
+                    expression->unary_operand, tmpl, values, value_present,
+                    &left)) {
+                return false;
+            }
+            evaluated = cxx_template_round_floating_type(
+                expression->type, -left);
+            if (!cxx_template_floating_value_is_finite(evaluated)) {
+                return false;
+            }
+            *result = evaluated;
+            return true;
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+            common_type = cxx_template_common_floating_type(
+                expression->binary_lhs, expression->binary_rhs);
+            if (!common_type ||
+                !eval_template_floating_expression(
+                    expression->binary_lhs, tmpl, values, value_present,
+                    &left) ||
+                !eval_template_floating_expression(
+                    expression->binary_rhs, tmpl, values, value_present,
+                    &right)) {
+                return false;
+            }
+            left = cxx_template_round_floating_type(common_type, left);
+            right = cxx_template_round_floating_type(common_type, right);
+            if (expression->kind == EXPR_ADD) {
+                evaluated = left + right;
+            } else if (expression->kind == EXPR_SUB) {
+                evaluated = left - right;
+            } else if (expression->kind == EXPR_MUL) {
+                evaluated = left * right;
+            } else {
+                if (right == 0.0) return false;
+                evaluated = left / right;
+            }
+            evaluated = cxx_template_round_floating_type(
+                expression->type ? expression->type : common_type,
+                evaluated);
+            if (!cxx_template_floating_value_is_finite(evaluated)) {
+                return false;
+            }
+            *result = evaluated;
+            return true;
+        case EXPR_COND:
+            if (!eval_template_floating_expression(
+                    expression->cond_test, tmpl, values, value_present,
+                    &left) ||
+                !eval_template_floating_expression(
+                    left != 0.0 ? expression->cond_then
+                                : expression->cond_else,
+                    tmpl, values, value_present, &evaluated)) {
+                return false;
+            }
+            evaluated = cxx_template_round_floating_type(
+                expression->type, evaluated);
+            if (!cxx_template_floating_value_is_finite(evaluated)) {
+                return false;
+            }
+            *result = evaluated;
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool cxx_template_integer_bits_from_floating(
+    double value, Type* target, CxxTemplateIntegerBits* result) {
+    Type* representation = cxx_template_integer_representation(target);
+    uint64_t mask;
+    unsigned bit_width;
+    if (!result || !cxx_template_integer_type_mask(target, &mask) ||
+        !representation) {
+        return false;
+    }
+    if (target->kind == TYPE_BOOL) {
+        result->bits = value != 0.0 ? 1u : 0u;
+        result->type = target;
+        return true;
+    }
+
+    bit_width = (unsigned)representation->size * 8u;
+    if (cxx_template_integer_type_is_unsigned(target)) {
+        uint64_t truncated;
+        if (!(value > -1.0 &&
+              value < 18446744073709551616.0)) {
+            return false;
+        }
+        truncated = value < 0.0 ? 0u : (uint64_t)value;
+        if (truncated > mask) return false;
+        result->bits = truncated;
+        result->type = target;
+        return true;
+    }
+
+    if (!(value >= -9223372036854775808.0 &&
+          value < 9223372036854775808.0)) {
+        return false;
+    }
+    {
+        int64_t truncated = (int64_t)value;
+        if (bit_width < 64u) {
+            int64_t minimum = -(INT64_C(1) << (bit_width - 1u));
+            int64_t maximum = (INT64_C(1) << (bit_width - 1u)) - 1;
+            if (truncated < minimum || truncated > maximum) return false;
+        }
+        return cxx_template_integer_bits_from_i64(
+            target, truncated, result);
+    }
+}
+
+static bool cxx_template_expression_is_floating(const Expr* expression) {
+    if (!expression) return false;
+    if (expression->type) return type_is_floating(expression->type);
+    switch (expression->kind) {
+        case EXPR_FLOAT_LIT:
+            return true;
+        case EXPR_CAST:
+            return type_is_floating(expression->cast_type);
+        case EXPR_NEG:
+            return cxx_template_expression_is_floating(
+                expression->unary_operand);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+            return cxx_template_expression_is_floating(
+                       expression->binary_lhs) ||
+                cxx_template_expression_is_floating(
+                    expression->binary_rhs);
+        case EXPR_COND:
+            return cxx_template_expression_is_floating(
+                       expression->cond_then) ||
+                cxx_template_expression_is_floating(
+                    expression->cond_else);
+        default:
+            return false;
+    }
+}
+
 static Type* cxx_template_integer_promoted_type(Type* type) {
     Type* representation = cxx_template_integer_representation(type);
     if (!representation ||
@@ -19601,13 +19827,27 @@ static bool eval_template_integer_expression_bits(
 
     switch (expression->kind) {
         case EXPR_CAST:
-            if (!eval_template_integer_expression_bits(
+            if (eval_template_integer_expression_bits(
                     expression->cast_expr, tmpl, values, value_present,
                     &left)) {
+                return cxx_template_integer_bits_convert(
+                    &left, expression->cast_type, result);
+            }
+            if (type_is_floating(expression->cast_type) ||
+                (!type_is_integer(expression->cast_type) &&
+                 expression->cast_type->kind != TYPE_ENUM)) {
                 return false;
             }
-            return cxx_template_integer_bits_convert(
-                &left, expression->cast_type, result);
+            {
+                double floating_value;
+                if (!eval_template_floating_expression(
+                        expression->cast_expr, tmpl, values, value_present,
+                        &floating_value)) {
+                    return false;
+                }
+                return cxx_template_integer_bits_from_floating(
+                    floating_value, expression->cast_type, result);
+            }
         case EXPR_NEG:
             if (!eval_template_integer_expression_bits(
                     expression->unary_operand, tmpl, values, value_present,
@@ -19998,6 +20238,22 @@ static bool cxx_template_integer_expression_overflows(
                 cxx_template_integer_expression_overflows(
                        expression->binary_rhs, tmpl, values, value_present);
         case EXPR_CAST:
+            if (expression->cast_type &&
+                (type_is_integer(expression->cast_type) ||
+                 expression->cast_type->kind == TYPE_ENUM) &&
+                expression->cast_expr &&
+                cxx_template_expression_is_floating(
+                    expression->cast_expr)) {
+                double floating_value;
+                CxxTemplateIntegerBits converted;
+                if (eval_template_floating_expression(
+                        expression->cast_expr, tmpl, values, value_present,
+                        &floating_value) &&
+                    !cxx_template_integer_bits_from_floating(
+                        floating_value, expression->cast_type, &converted)) {
+                    return true;
+                }
+            }
             return cxx_template_integer_expression_overflows(
                 expression->cast_expr, tmpl, values, value_present);
         case EXPR_CALL:

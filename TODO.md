@@ -4956,6 +4956,20 @@ remains a separate open item.
   fixture and evaluator changes. The complete C++ and debug-info aggregates
   pass (exit 0).
 - [ ] Other unsigned argument types/conversion paths, signed shift and
-  overflow rules, floating casts, and constant-expression contexts outside
-  dependent array bounds remain open; non-null structural pointer NTTP values
-  and specialization chains deeper than ten levels also remain open.
+  overflow rules, and constant-expression contexts outside dependent array
+  bounds remain open; non-null structural pointer NTTP values and
+  specialization chains deeper than ten levels also remain open.
+
+## RCC continuation (2026-10-16, floating conversions in dependent array bounds)
+
+- [x] Evaluate dependent floating arithmetic, conditional expressions, and
+  floating casts while substituting class-template member array bounds. Cover
+  `double`/`float` rounding, signed truncation toward zero, unsigned conversion,
+  and boolean conversion for both i686 and AMD64.
+- [x] Reject out-of-range floating-to-integer constant conversions as invalid
+  dependent array bounds with the overflow diagnostic; confirm no `.ro` output
+  and compare the positive and negative cases with GCC C++20.
+- [x] Run `make test-cxx test-debug-info`; both aggregate targets pass (exit 0).
+- [ ] Extend floating constant evaluation and conversion coverage to other
+  constant-expression contexts; structural pointer NTTP values and
+  specialization chains deeper than ten levels remain open.
