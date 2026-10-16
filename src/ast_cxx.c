@@ -1912,6 +1912,13 @@ typedef struct CxxMemberTemplateMangleContext {
     Type** type_substitutions;
     size_t* type_substitution_indices;
     size_t type_substitution_count;
+    CxxTemplate** template_names;
+    size_t* template_name_indices;
+    size_t template_name_count;
+    TemplateParam** pack_expansion_parameters;
+    Type** pack_expansion_patterns;
+    size_t* pack_expansion_indices;
+    size_t pack_expansion_count;
 } CxxMemberTemplateMangleContext;
 
 static void cxx_mangle_template_type_append(
@@ -2210,6 +2217,78 @@ static size_t cxx_mangle_free_template_substitution_base(CxxNamespace* ns) {
     /* A nested namespace and the template function name precede the function
      * type in the Itanium substitution table. */
     return cxx_mangle_member_template_substitution_base(ns, NULL) + 1u;
+}
+
+static bool cxx_mangle_member_template_name_substitution(
+    char* buf, size_t* pos, CxxTemplate* tmpl,
+    CxxMemberTemplateMangleContext* context) {
+    if (!context || !tmpl) return false;
+    for (size_t index = 0; index < context->template_name_count; ++index) {
+        if (context->template_names[index] == tmpl) {
+            cxx_mangle_member_template_substitution(
+                buf, pos, context->template_name_indices[index]);
+            return true;
+        }
+    }
+    return false;
+}
+
+static void cxx_mangle_member_template_name_record(
+    CxxTemplate* tmpl, CxxMemberTemplateMangleContext* context) {
+    size_t count;
+    if (!tmpl || !context) return;
+    count = context->template_name_count;
+    context->template_names = ast_arena_grow(
+        context->template_names,
+        sizeof(context->template_names[0]) * count,
+        sizeof(context->template_names[0]) * (count + 1u));
+    context->template_name_indices = ast_arena_grow(
+        context->template_name_indices,
+        sizeof(context->template_name_indices[0]) * count,
+        sizeof(context->template_name_indices[0]) * (count + 1u));
+    context->template_names[count] = tmpl;
+    context->template_name_indices[count] = context->next_substitution++;
+    ++context->template_name_count;
+}
+
+static bool cxx_mangle_member_template_pack_expansion_substitution(
+    char* buf, size_t* pos, TemplateParam* parameter, Type* pattern,
+    CxxMemberTemplateMangleContext* context) {
+    if (!parameter || !pattern || !context) return false;
+    for (size_t index = 0; index < context->pack_expansion_count; ++index) {
+        if (context->pack_expansion_parameters[index] == parameter &&
+            type_is_same_template_argument(
+                context->pack_expansion_patterns[index], pattern)) {
+            cxx_mangle_member_template_substitution(
+                buf, pos, context->pack_expansion_indices[index]);
+            return true;
+        }
+    }
+    return false;
+}
+
+static void cxx_mangle_member_template_pack_expansion_record(
+    TemplateParam* parameter, Type* pattern,
+    CxxMemberTemplateMangleContext* context) {
+    size_t count;
+    if (!parameter || !pattern || !context) return;
+    count = context->pack_expansion_count;
+    context->pack_expansion_parameters = ast_arena_grow(
+        context->pack_expansion_parameters,
+        sizeof(context->pack_expansion_parameters[0]) * count,
+        sizeof(context->pack_expansion_parameters[0]) * (count + 1u));
+    context->pack_expansion_patterns = ast_arena_grow(
+        context->pack_expansion_patterns,
+        sizeof(context->pack_expansion_patterns[0]) * count,
+        sizeof(context->pack_expansion_patterns[0]) * (count + 1u));
+    context->pack_expansion_indices = ast_arena_grow(
+        context->pack_expansion_indices,
+        sizeof(context->pack_expansion_indices[0]) * count,
+        sizeof(context->pack_expansion_indices[0]) * (count + 1u));
+    context->pack_expansion_parameters[count] = parameter;
+    context->pack_expansion_patterns[count] = pattern;
+    context->pack_expansion_indices[count] = context->next_substitution++;
+    ++context->pack_expansion_count;
 }
 
 static bool cxx_mangle_dependent_nested_type_append(
@@ -2651,18 +2730,19 @@ static void cxx_mangle_template_type_append_impl(
             }
             namespace_stack[namespace_count++] = current;
         }
-        if (namespace_count > 0) CXX_MANGLE_TEMPLATE_APPEND('N');
-        for (int index = namespace_count - 1; index >= 0; --index) {
-            mangle_name(buf, pos, namespace_stack[index]->name);
+        bool template_name_is_substitution =
+            cxx_mangle_member_template_name_substitution(
+                buf, pos, type->cxx_template, context);
+        if (!template_name_is_substitution) {
+            if (namespace_count > 0) CXX_MANGLE_TEMPLATE_APPEND('N');
+            for (int index = namespace_count - 1; index >= 0; --index) {
+                mangle_name(buf, pos, namespace_stack[index]->name);
+            }
+            mangle_name(buf, pos, type->cxx_template->name);
+            cxx_mangle_member_template_name_record(
+                type->cxx_template, context);
         }
-        mangle_name(buf, pos, type->cxx_template->name);
         CXX_MANGLE_TEMPLATE_APPEND('I');
-        /* The template-name prefix enters the Itanium substitution table
-         * before its arguments; later repeated type parameters therefore use
-         * the same indices as GCC/Clang. */
-        if (context) {
-            context->next_substitution += (size_t)namespace_count + 1u;
-        }
         for (int index = 0; index < type->cxx_template_arg_count; ++index) {
             TemplateParam* parameter =
                 cxx_mangle_template_argument_parameter(type, index);
@@ -2683,11 +2763,16 @@ static void cxx_mangle_template_type_append_impl(
                         buf, pos, expression, tmpl, context);
                     CXX_MANGLE_TEMPLATE_APPEND('E');
                 } else {
-                    CXX_MANGLE_TEMPLATE_APPEND('D');
-                    CXX_MANGLE_TEMPLATE_APPEND('p');
-                    cxx_mangle_template_type_append(
-                        buf, pos, type->cxx_template_args[index], tmpl,
-                        context);
+                    Type* pattern = type->cxx_template_args[index];
+                    if (!cxx_mangle_member_template_pack_expansion_substitution(
+                            buf, pos, parameter, pattern, context)) {
+                        CXX_MANGLE_TEMPLATE_APPEND('D');
+                        CXX_MANGLE_TEMPLATE_APPEND('p');
+                        cxx_mangle_template_type_append(
+                            buf, pos, pattern, tmpl, context);
+                        cxx_mangle_member_template_pack_expansion_record(
+                            parameter, pattern, context);
+                    }
                 }
                 if (pack_expansion_start >= 0 &&
                     index == type->cxx_template_arg_count - 1) {
@@ -2752,7 +2837,9 @@ static void cxx_mangle_template_type_append_impl(
             }
         }
         CXX_MANGLE_TEMPLATE_APPEND('E');
-        if (namespace_count > 0) CXX_MANGLE_TEMPLATE_APPEND('E');
+        if (namespace_count > 0 && !template_name_is_substitution) {
+            CXX_MANGLE_TEMPLATE_APPEND('E');
+        }
         return;
     }
     {
@@ -2780,7 +2867,8 @@ static void cxx_mangle_template_type_append(
     if (context && is_substitutable_type) {
         for (size_t index = 0; index < context->type_substitution_count;
              ++index) {
-            if (type_is_compatible(context->type_substitutions[index], type)) {
+            if (type_is_same_template_argument(
+                    context->type_substitutions[index], type)) {
                 cxx_mangle_member_template_substitution(
                     buf, pos, context->type_substitution_indices[index]);
                 return;

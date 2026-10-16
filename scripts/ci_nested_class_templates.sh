@@ -85,6 +85,7 @@ expect_gcc_failure() {
 }
 
 sources=(
+	tests/cxx_repeated_nontrailing_pack_expansions.cpp
 	tests/cxx_nested_class_templates.cpp
 	tests/cxx_nested_class_template_specializations.cpp
 	tests/cxx_nested_class_template_template_owner_specialization.cpp

@@ -791,6 +791,13 @@ int choose_nontrailing_template_argument_pack_order(
     return 269;
 }
 
+template<typename... Types>
+int choose_repeated_class_template_pack_expansions(
+    FunctionTemplatePackPartialOrderBox<Types..., int, Types...>,
+    FunctionTemplatePackPartialOrderBox<Types...>) {
+    return static_cast<int>(sizeof...(Types));
+}
+
 template<int... Values>
 int choose_nontrailing_non_type_pack_order(
     FunctionTemplateNonTypePackBox<Values..., 7>) {
@@ -2951,6 +2958,14 @@ int main(void) {
                    choose_nontrailing_template_argument_pack_order(
                        FunctionTemplatePackPartialOrderBox<char, double>{}) ==
                        269 &&
+                   choose_repeated_class_template_pack_expansions(
+                       FunctionTemplatePackPartialOrderBox<char, short, int,
+                                                           char, short>{},
+                       FunctionTemplatePackPartialOrderBox<char, short>{}) ==
+                       2 &&
+                   choose_repeated_class_template_pack_expansions(
+                       FunctionTemplatePackPartialOrderBox<int>{},
+                       FunctionTemplatePackPartialOrderBox<>{}) == 0 &&
                    choose_nontrailing_template_template_pack_order<
                        FunctionTemplateTemplatePackItem>(
                        FunctionTemplateTemplatePackBox<
