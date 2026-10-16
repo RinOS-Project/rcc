@@ -2150,6 +2150,35 @@ static bool verify_function_member_pointer_to_bool() {
            !convert_function_member_pointer_to_bool(null_value) &&
            static_cast<bool>(value) && !static_cast<bool>(null_value);
 }
+
+static int contextual_data_member_pointer_bool(
+    ConversionDataMemberBoolPointer pointer) {
+    if (pointer) {
+        return pointer && (pointer ? 271 : 272) == 271 ? 271 : 272;
+    }
+    return !pointer ? 273 : 274;
+}
+
+static int contextual_function_member_pointer_bool(
+    ConversionFunctionMemberBoolPointer pointer) {
+    if (pointer) {
+        return pointer && (pointer ? 275 : 276) == 275 ? 275 : 276;
+    }
+    return !pointer ? 277 : 278;
+}
+
+static bool verify_member_pointer_contextual_bool() {
+    ConversionDataMemberBoolPointer data_value =
+        &ConversionMemberPointerBoolOwner::value;
+    ConversionDataMemberBoolPointer data_null = nullptr;
+    ConversionFunctionMemberBoolPointer function_value =
+        &ConversionMemberPointerBoolOwner::is_positive;
+    ConversionFunctionMemberBoolPointer function_null = nullptr;
+    return contextual_data_member_pointer_bool(data_value) == 271 &&
+           contextual_data_member_pointer_bool(data_null) == 273 &&
+           contextual_function_member_pointer_bool(function_value) == 275 &&
+           contextual_function_member_pointer_bool(function_null) == 277;
+}
 #pragma GCC diagnostic pop
 
 int choose_nullptr_to_bool_non_template(bool) {
@@ -3492,6 +3521,7 @@ int main(void) {
                    verify_function_pointer_to_bool_rvalue_reference() == 259 &&
                    verify_data_member_pointer_to_bool() &&
                    verify_function_member_pointer_to_bool() &&
+                   verify_member_pointer_contextual_bool() &&
                    choose_nullptr_to_bool_non_template(nullptr) == 218 &&
                    choose_nullptr_to_bool_template(value, nullptr) == 220 &&
                    !static_cast<bool>(nullptr) &&

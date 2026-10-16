@@ -7978,6 +7978,15 @@ static Expr* sema_contextual_bool_after_analysis(Expr* expression,
                   "scoped enum is not implicitly convertible to bool");
         return expression;
     }
+    if (value_type && value_type->kind == TYPE_PTR &&
+        value_type->cxx_is_member_pointer) {
+        Expr* source_expression = ast_arena_alloc(sizeof(*source_expression));
+        Expr* converted;
+        *source_expression = *expression;
+        converted = expr_cast(type_bool, source_expression, expression->loc);
+        *expression = *converted;
+        return expression;
+    }
     if (value_type &&
         (type_is_scalar(value_type) || value_type->kind == TYPE_ENUM)) {
         return expression;

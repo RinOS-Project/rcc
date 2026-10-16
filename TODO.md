@@ -5434,9 +5434,10 @@ remains a separate open item.
 - [x] Convert data-member and member-function pointers to `bool` using their
       distinct ABI null representations. Cover implicit and explicit value
       conversion, return/local initialization, `const bool&` and `bool&&`
-      binding, true/null values, and rejection for mutable `bool&`; GCC C++20,
-      both RCC target architectures, and generated host execution pass in the
+      binding, true/null values, and rejection for mutable `bool&`. Contextual
+      `if`, `!`, `&&`, and `?:` forms use the same ABI-aware conversion. GCC
+      C++20, both RCC target architectures, generated host execution, the
       focused overload and invalid-reference gates, and the full native-Windows
-      `test-cxx` aggregate passes (exit 0).
+      `test-cxx` aggregate pass (exit 0).
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
