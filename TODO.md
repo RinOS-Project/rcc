@@ -5066,9 +5066,8 @@ remains a separate open item.
   and execute RCC AMD64 and GCC-host programs.
 - [x] Add the regression to `scripts/ci_nested_class_templates.sh`; the complete
   POSIX nested-class CI gate passes in WSL.
-- [ ] Multiple member-pointer leaves, member-function-pointer structural
-  values, reference members, and additional standard-valid structural class
-  NTTP forms remain open.
+- [ ] Multiple member-pointer leaves, reference members, and additional
+  standard-valid structural class NTTP forms remain open.
 
 ## RCC continuation (2026-10-16, structural pointer subobject offsets)
 
@@ -5131,3 +5130,20 @@ remains a separate open item.
   parser change; it passes (exit 0).
 - [ ] Deeper specialization chains and the other structural pointer forms
   listed above remain open.
+
+## RCC continuation (2026-10-16, structural member-function-pointer NTTP values)
+
+- [x] Preserve a selected member-function identity in structural class NTTP
+  values and nested template instantiations; clone it as a method designator
+  rather than a null integer value.
+- [x] Emit GCC-compatible Itanium encodings for structural member-function
+  pointer values, including the member-function type, method qualifiers, and
+  nested-name substitutions. Verify complete symbols against GCC on i686 and
+  AMD64, assemble both targets, and execute the AMD64 regression.
+- [x] Parse parenthesized pointer-to-member function declarators as class
+  fields and add the regression to `scripts/ci_nested_class_templates.sh`.
+  The complete POSIX nested-class CI gate passes in WSL.
+- [x] Re-run native-Windows MinGW `test-cxx` after the parser and structural
+  NTTP changes; the full aggregate passes (exit 0).
+- [ ] Multiple member-pointer leaves, reference members, and other
+  standard-valid structural class NTTP forms remain open.

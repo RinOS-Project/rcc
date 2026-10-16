@@ -511,11 +511,11 @@ bool cxx_structural_pointer_value_location(
     const CxxStructuralPointerPathElement** subobject_path_out,
     size_t* subobject_path_length_out);
 bool cxx_structural_member_pointer_value_register(
-    CxxClass* owner, const char* member_name, int64_t offset,
-    int64_t* token_out);
+    CxxClass* owner, const char* member_name, TypeMethod* method,
+    int64_t offset, int64_t* token_out);
 bool cxx_structural_member_pointer_value_resolve(
     int64_t token, CxxClass** owner_out, const char** member_name_out,
-    int64_t* offset_out);
+    int64_t* offset_out, TypeMethod** method_out);
 bool cxx_structural_class_unpack_member_path(
     const Type* type, int64_t packed_value,
     const char* const* member_names, int member_name_count,

@@ -27,6 +27,7 @@ static size_t cxx_structural_pointer_value_capacity;
 typedef struct CxxStructuralMemberPointerValue {
     CxxClass* owner;
     const char* member_name;
+    TypeMethod* method;
     int64_t offset;
 } CxxStructuralMemberPointerValue;
 static CxxStructuralMemberPointerValue*
@@ -171,8 +172,8 @@ bool cxx_structural_pointer_value_location(
 }
 
 bool cxx_structural_member_pointer_value_register(
-    CxxClass* owner, const char* member_name, int64_t offset,
-    int64_t* token_out) {
+    CxxClass* owner, const char* member_name, TypeMethod* method,
+    int64_t offset, int64_t* token_out) {
     size_t index;
     if (!owner || !member_name || !token_out) return false;
     for (index = 0; index < cxx_structural_member_pointer_value_count;
@@ -180,7 +181,8 @@ bool cxx_structural_member_pointer_value_register(
         CxxStructuralMemberPointerValue* value =
             &cxx_structural_member_pointer_values[index];
         if (value->owner == owner &&
-            strcmp(value->member_name, member_name) == 0) {
+            strcmp(value->member_name, member_name) == 0 &&
+            value->method == method) {
             *token_out = (int64_t)(index + 1u);
             return true;
         }
@@ -211,6 +213,8 @@ bool cxx_structural_member_pointer_value_register(
     cxx_structural_member_pointer_values[
         cxx_structural_member_pointer_value_count].member_name = member_name;
     cxx_structural_member_pointer_values[
+        cxx_structural_member_pointer_value_count].method = method;
+    cxx_structural_member_pointer_values[
         cxx_structural_member_pointer_value_count].offset = offset;
     ++cxx_structural_member_pointer_value_count;
     *token_out = (int64_t)cxx_structural_member_pointer_value_count;
@@ -219,7 +223,7 @@ bool cxx_structural_member_pointer_value_register(
 
 bool cxx_structural_member_pointer_value_resolve(
     int64_t token, CxxClass** owner_out, const char** member_name_out,
-    int64_t* offset_out) {
+    int64_t* offset_out, TypeMethod** method_out) {
     CxxStructuralMemberPointerValue* value;
     if (token <= 0 || (uint64_t)token >
             (uint64_t)cxx_structural_member_pointer_value_count) {
@@ -229,6 +233,7 @@ bool cxx_structural_member_pointer_value_resolve(
     if (owner_out) *owner_out = value->owner;
     if (member_name_out) *member_name_out = value->member_name;
     if (offset_out) *offset_out = value->offset;
+    if (method_out) *method_out = value->method;
     return true;
 }
 
@@ -348,6 +353,8 @@ static void mangle_class_name_context(char* buf, size_t* pos, CxxClass* cls,
                                       CxxMangleContext* context);
 static size_t cxx_mangle_find_class_substitution(
     const CxxMangleContext* context, Type* type);
+static void cxx_mangle_append_substitution(char* buf, size_t* pos,
+                                           size_t index);
 static void cxx_mangle_record_class_type(CxxMangleContext* context,
                                          Type* type);
 
@@ -546,15 +553,95 @@ static bool cxx_structural_class_decode_leaf(
     const Type* field_type, uint64_t packed_value, unsigned bit_offset,
     int64_t* member_value);
 
+static bool cxx_mangle_structural_member_function_designator(
+    char* buf, size_t* pos, TypeMethod* method,
+    CxxMangleContext* context) {
+    Decl* function = method ? method->function_decl : NULL;
+    CxxClass* owner = function && function->func_method_owner
+        ? function->func_method_owner->cxx_class : NULL;
+    CxxNamespace* namespaces[32];
+    int namespace_count = 0;
+    bool is_const;
+    bool is_volatile;
+    CxxRefQualifier ref_qualifier;
+    size_t owner_substitution;
+    if (!function || !method->name || !owner || !owner->type ||
+        !function->type) {
+        return false;
+    }
+    is_const = function->type->is_const;
+    is_volatile = function->type->is_volatile;
+    ref_qualifier = function->type->function_ref_qualifier;
+    cxx_mangle_type_char(buf, pos, 'L');
+    cxx_mangle_type_char(buf, pos, '_');
+    cxx_mangle_type_char(buf, pos, 'Z');
+    cxx_mangle_type_char(buf, pos, 'N');
+    if (is_volatile) cxx_mangle_type_char(buf, pos, 'V');
+    if (is_const) cxx_mangle_type_char(buf, pos, 'K');
+    if (ref_qualifier == CXX_REF_QUAL_LVALUE)
+        cxx_mangle_type_char(buf, pos, 'R');
+    else if (ref_qualifier == CXX_REF_QUAL_RVALUE)
+        cxx_mangle_type_char(buf, pos, 'O');
+    for (CxxNamespace* current = owner->ns;
+         current && current->name; current = current->parent) {
+        if (namespace_count <
+            (int)(sizeof(namespaces) / sizeof(namespaces[0]))) {
+            namespaces[namespace_count++] = current;
+        }
+    }
+    for (int index = namespace_count - 1; index >= 0; --index) {
+        mangle_name(buf, pos, namespaces[index]->name);
+    }
+    owner_substitution = cxx_mangle_find_class_substitution(
+        context, owner->type);
+    if (owner_substitution != (size_t)-1) {
+        cxx_mangle_append_substitution(buf, pos, owner_substitution);
+    } else {
+        mangle_class_name_context(buf, pos, owner, context);
+    }
+    mangle_name(buf, pos, method->name);
+    cxx_mangle_type_char(buf, pos, 'E');
+    if (function->func_params) {
+        for (DeclList* parameter = function->func_params; parameter;
+             parameter = parameter->next) {
+            if (!parameter->decl || !parameter->decl->type) return false;
+            cxx_mangle_type_append_context(
+                buf, pos, parameter->decl->type, context);
+        }
+    } else {
+        cxx_mangle_type_char(buf, pos, 'v');
+    }
+    cxx_mangle_type_char(buf, pos, 'E');
+    return true;
+}
+
 static bool cxx_mangle_structural_member_pointer_value(
-    char* buf, size_t* pos, int64_t token) {
+    char* buf, size_t* pos, int64_t token, Type* pointer_type,
+    CxxMangleContext* context) {
     CxxClass* owner = NULL;
     const char* member_name = NULL;
+    TypeMethod* method = NULL;
     char member_link[CXX_MANGLE_BUFFER_SIZE];
     size_t member_link_pos = 0u;
     if (!cxx_structural_member_pointer_value_resolve(
-            token, &owner, &member_name, NULL) || !owner || !member_name) {
+            token, &owner, &member_name, NULL, &method) || !owner ||
+        !member_name) {
         return false;
+    }
+    if (method) {
+        if (!pointer_type || !type_is_cxx_member_function_pointer(
+                pointer_type)) return false;
+        cxx_mangle_type_char(buf, pos, 't');
+        cxx_mangle_type_char(buf, pos, 'l');
+        cxx_mangle_type_append_context(buf, pos, pointer_type, context);
+        cxx_mangle_type_char(buf, pos, 'a');
+        cxx_mangle_type_char(buf, pos, 'd');
+        if (!cxx_mangle_structural_member_function_designator(
+                buf, pos, method, context)) {
+            return false;
+        }
+        cxx_mangle_type_char(buf, pos, 'E');
+        return true;
     }
     mangle_nested_prefix(
         member_link, &member_link_pos, owner->ns, owner);
@@ -849,7 +936,7 @@ static bool cxx_mangle_structural_value_body(
             if (field->type->cxx_is_member_pointer) {
                 if (field_value != -1 &&
                     !cxx_mangle_structural_member_pointer_value(
-                        buf, pos, field_value)) {
+                        buf, pos, field_value, field->type, context)) {
                     return false;
                 }
                 *bit_offset += field_bits;
@@ -1152,7 +1239,7 @@ static void cxx_mangle_record_structural_member_pointer_owner_types(
                     parameter->type) || !value_present[index] ||
                 value_arguments[index] <= 0 ||
                 !cxx_structural_member_pointer_value_resolve(
-                    value_arguments[index], &owner, NULL, NULL) ||
+                    value_arguments[index], &owner, NULL, NULL, NULL) ||
                 !owner || !owner->type) {
                 continue;
             }
@@ -2775,8 +2862,7 @@ static bool cxx_structural_class_measure_fields(
         }
         if (field->type->kind == TYPE_PTR) {
             if ((field->type->cxx_is_member_pointer &&
-                 (!field->type->base ||
-                  field->type->base->kind == TYPE_FUNC)) ||
+                 !field->type->base) ||
                 *total_bits > 0u || 64u > 64u - *total_bits) {
                 return false;
             }
@@ -3786,15 +3872,21 @@ static void cxx_typeinfo_identity_append_class(
                            value_arguments[index] > 0) {
                     CxxClass* owner = NULL;
                     const char* member_name = NULL;
+                    TypeMethod* method = NULL;
                     if (!cxx_structural_member_pointer_value_resolve(
                             value_arguments[index], &owner, &member_name,
-                            NULL) || !owner || !owner->type || !member_name) {
+                            NULL, &method) || !owner || !owner->type ||
+                        !member_name) {
                         rcc_fatal(
                             "C++ typeinfo structural member-pointer argument is missing");
                     }
-                    cxx_typeinfo_identity_append_char(builder, 'M');
+                    cxx_typeinfo_identity_append_char(
+                        builder, method ? 'F' : 'M');
                     cxx_typeinfo_identity_append_type(builder, owner->type);
-                    cxx_typeinfo_identity_append_text(builder, member_name);
+                    cxx_typeinfo_identity_append_text(
+                        builder, method
+                            ? decl_link_name(method->function_decl)
+                            : member_name);
                 } else {
                     cxx_typeinfo_identity_append_signed(
                         builder, value_arguments[index]);
@@ -8711,13 +8803,27 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                     CxxClass* member_owner = NULL;
                     const char* member_name = NULL;
                     int64_t member_offset = 0;
+                    TypeMethod* member_method = NULL;
                     if (!cxx_structural_member_pointer_value_resolve(
                             value, &member_owner, &member_name,
-                            &member_offset) || !member_owner || !member_name) {
+                            &member_offset, &member_method) ||
+                        !member_owner || !member_name) {
                         rcc_fatal(
                             "C++ structural member-pointer template argument is missing");
                     }
-                    copy = expr_int(member_offset, expression->loc);
+                    if (member_method) {
+                        Decl* function = member_method->function_decl;
+                        Expr* identifier = expr_ident(
+                            function->name, expression->loc);
+                        identifier->ident_decl = function;
+                        identifier->type = function->type;
+                        copy = expr_unary(
+                            EXPR_ADDR, identifier, expression->loc);
+                        copy->cxx_member_function_pointer_method =
+                            member_method;
+                    } else {
+                        copy = expr_int(member_offset, expression->loc);
+                    }
                     copy->type = value_type;
                     copy->cxx_member_pointer_form = true;
                     copy->cxx_member_pointer_form_name = member_name;

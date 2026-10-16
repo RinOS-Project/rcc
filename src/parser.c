@@ -19,6 +19,10 @@ static bool check(TokenType type);
 static bool parser_parenthesized_pointer_is_function(void);
 static bool parser_parenthesized_declarator_starts_member_pointer(void);
 
+bool rcc_parser_cxx_parenthesized_declarator_starts_member_pointer(void) {
+    return parser_parenthesized_declarator_starts_member_pointer();
+}
+
 /* The C frontend and C++ frontend share this parser translation unit.  Keep
  * the C-only executable independent of parser_cxx.c without providing fake
  * language implementations: an absent C++ hook is a missing extension and

@@ -21,6 +21,7 @@ typedef struct {
 extern Parser parser;
 extern void rcc_parser_set_cxx_template_default_mode(bool enabled);
 extern bool rcc_parser_cxx_split_template_close(void);
+extern bool rcc_parser_cxx_parenthesized_declarator_starts_member_pointer(void);
 
 /* The current template is only needed while parsing dependent declarations;
  * instantiated types are resolved by the later template semantic phase. */
@@ -2434,21 +2435,24 @@ static bool cxx_structural_pointer_member_value(
     if (pointer_type->cxx_is_member_pointer) {
         CxxClass* owner = pointer_type->cxx_member_pointer_owner
             ? pointer_type->cxx_member_pointer_owner->cxx_class : NULL;
+        TypeMethod* method = expression->cxx_member_function_pointer_method;
+        const char* member_name = expression->cxx_member_pointer_form_name;
         if (cxx_expr_is_nullptr_constant(expression) ||
             (expr_eval_integer_constant((Expr*)expression, &offset) &&
              offset == 0 && !expression->cxx_member_pointer_form)) {
             *value_out = -1;
             return true;
         }
+        if (!member_name && method) member_name = method->name;
         if (!expression->cxx_member_pointer_form ||
             expression->cxx_member_pointer_form_deferred ||
             expression->cxx_member_pointer_form_overload_set || !owner ||
-            !expression->cxx_member_pointer_form_name) {
+            !member_name) {
             return false;
         }
         return cxx_structural_member_pointer_value_register(
-            owner, expression->cxx_member_pointer_form_name,
-            expression->int_val, value_out);
+            owner, member_name, method,
+            method ? 0 : expression->int_val, value_out);
     }
     if (cxx_expr_is_nullptr_constant(expression) ||
         (expr_eval_integer_constant((Expr*)expression, &offset) &&
@@ -8357,7 +8361,8 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         if (check(TOK_LPAREN) && parser.cur->next &&
             (parser.cur->next->type == TOK_STAR ||
              parser.cur->next->type == TOK_AMP ||
-             parser.cur->next->type == TOK_AND)) {
+             parser.cur->next->type == TOK_AND ||
+             rcc_parser_cxx_parenthesized_declarator_starts_member_pointer())) {
             /* Class fields with parenthesized pointer/reference declarators
              * (notably `T (*rows)[N]`) use the shared declarator grammar so
              * their suffix arrays bind to the pointee before the pointer
