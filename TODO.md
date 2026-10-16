@@ -5285,3 +5285,17 @@ remains a separate open item.
       RCC-generated and GCC-generated AMD64 programs natively on Windows.
 - [ ] Non-finite values, `long double`, extended precision/rounding cases,
       and broader floating constant-expression conversions remain open.
+
+## RCC continuation (2026-10-16, non-final class-template-id pack expansions)
+
+- [x] Parse and substitute type, non-type, and template-template pack
+      expansions that precede fixed class-template arguments.
+- [x] Keep non-final expansion argument lists non-deduced during C++20
+      function-template deduction while honoring explicit pack arguments.
+- [x] Preserve template-template pack carriers through AST instantiation,
+      instance caching, and Itanium function-template mangling.
+- [x] Compare GCC C++20 behavior and pass native-Windows
+      `test-cxx-function-template-overloads`: i686/AMD64 assembly, AMD64
+      execution of RCC output, GCC host execution, and overload diagnostics.
+- [ ] Interactions among multiple expansions/packs and broader C++20
+      partial-ordering cases remain open.

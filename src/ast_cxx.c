@@ -420,9 +420,15 @@ static void mangle_name(char* buf, size_t* pos, const char* name) {
 
 typedef struct CxxMangleContext {
     Type** class_types;
+    size_t* class_type_indices;
     size_t class_type_count;
     size_t class_type_index_base;
     size_t class_name_depth;
+    CxxTemplate** template_names;
+    size_t* template_name_indices;
+    size_t template_name_count;
+    size_t next_substitution_index;
+    bool has_substitution_cursor;
 } CxxMangleContext;
 
 static void cxx_mangle_type_append(char* buf, size_t* pos, Type* type);
@@ -434,8 +440,11 @@ static void mangle_class_name_context(char* buf, size_t* pos, CxxClass* cls,
                                       CxxMangleContext* context);
 static size_t cxx_mangle_find_class_substitution(
     const CxxMangleContext* context, Type* type);
+static size_t cxx_mangle_next_substitution_index(CxxMangleContext* context);
 static void cxx_mangle_append_substitution(char* buf, size_t* pos,
                                            size_t index);
+static void mangle_template_argument_name_context(
+    char* buf, size_t* pos, Type* argument, CxxMangleContext* context);
 static void cxx_mangle_record_class_type(CxxMangleContext* context,
                                          Type* type);
 
@@ -587,6 +596,43 @@ static void mangle_template_argument_name(char* buf, size_t* pos,
     }
     mangle_name(buf, pos, actual_template->name);
     if (namespace_count > 0) cxx_mangle_type_char(buf, pos, 'E');
+}
+
+static size_t cxx_mangle_find_template_name_substitution(
+    const CxxMangleContext* context, const CxxTemplate* actual_template) {
+    if (!context || !actual_template) return (size_t)-1;
+    for (size_t index = 0; index < context->template_name_count; ++index) {
+        if (context->template_names[index] == actual_template) {
+            return context->template_name_indices[index];
+        }
+    }
+    return (size_t)-1;
+}
+
+static void mangle_template_argument_name_context(
+    char* buf, size_t* pos, Type* argument, CxxMangleContext* context) {
+    CxxTemplate* actual_template = argument ? argument->cxx_template : NULL;
+    size_t substitution = cxx_mangle_find_template_name_substitution(
+        context, actual_template);
+    if (substitution != (size_t)-1) {
+        cxx_mangle_append_substitution(buf, pos, substitution);
+        return;
+    }
+    mangle_template_argument_name(buf, pos, argument);
+    if (!context || !actual_template) return;
+    size_t count = context->template_name_count;
+    context->template_names = ast_arena_grow(
+        context->template_names,
+        sizeof(context->template_names[0]) * count,
+        sizeof(context->template_names[0]) * (count + 1u));
+    context->template_name_indices = ast_arena_grow(
+        context->template_name_indices,
+        sizeof(context->template_name_indices[0]) * count,
+        sizeof(context->template_name_indices[0]) * (count + 1u));
+    context->template_names[count] = actual_template;
+    context->template_name_indices[count] =
+        cxx_mangle_next_substitution_index(context);
+    ++context->template_name_count;
 }
 
 static bool cxx_mangle_has_nested_scope(CxxNamespace* ns, CxxClass* cls) {
@@ -1312,10 +1358,23 @@ static size_t cxx_mangle_find_class_substitution(
     if (!context || !type) return (size_t)-1;
     for (size_t index = 0; index < context->class_type_count; ++index) {
         if (type_is_compatible(context->class_types[index], type)) {
-            return index + context->class_type_index_base;
+            return context->class_type_indices
+                ? context->class_type_indices[index]
+                : index + context->class_type_index_base;
         }
     }
     return (size_t)-1;
+}
+
+static size_t cxx_mangle_next_substitution_index(CxxMangleContext* context) {
+    if (!context) return 0u;
+    if (!context->has_substitution_cursor) {
+        context->next_substitution_index =
+            context->class_type_index_base + context->class_type_count +
+            context->template_name_count;
+        context->has_substitution_cursor = true;
+    }
+    return context->next_substitution_index++;
 }
 
 static void cxx_mangle_append_substitution(char* buf, size_t* pos,
@@ -1350,7 +1409,15 @@ static void cxx_mangle_record_class_type(CxxMangleContext* context,
         context->class_types,
         context->class_type_count * sizeof(*context->class_types),
         (context->class_type_count + 1u) * sizeof(*context->class_types));
-    context->class_types[context->class_type_count++] = type;
+    context->class_type_indices = ast_arena_grow(
+        context->class_type_indices,
+        context->class_type_count * sizeof(*context->class_type_indices),
+        (context->class_type_count + 1u) *
+            sizeof(*context->class_type_indices));
+    context->class_types[context->class_type_count] = type;
+    context->class_type_indices[context->class_type_count] =
+        cxx_mangle_next_substitution_index(context);
+    ++context->class_type_count;
 }
 
 static void cxx_mangle_record_structural_member_pointer_owner_types_in_value(
@@ -1829,7 +1896,8 @@ static int cxx_function_template_type_parameter_index(
         return -1;
     }
     for (int index = 0; index < tmpl->param_count; ++index) {
-        if (tmpl->params[index].kind == TPARAM_TYPE &&
+        if ((tmpl->params[index].kind == TPARAM_TYPE ||
+             tmpl->params[index].kind == TPARAM_TEMPLATE) &&
             tmpl->params[index].name &&
             strcmp(type->tag, tmpl->params[index].name) == 0) {
             return index;
@@ -1861,7 +1929,7 @@ static bool cxx_member_template_expression_supported(
     if (expression->kind == EXPR_IDENT && expression->ident_name && tmpl) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
-            if (parameter->kind == TPARAM_NONTYPE && !parameter->is_pack &&
+            if (parameter->kind == TPARAM_NONTYPE &&
                 parameter->name &&
                 strcmp(parameter->name, expression->ident_name) == 0) {
                 return true;
@@ -1951,7 +2019,7 @@ static void cxx_member_template_expression_append(
     if (expression->kind == EXPR_IDENT && expression->ident_name) {
         for (int index = 0; index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
-            if (parameter->kind != TPARAM_NONTYPE || parameter->is_pack ||
+            if (parameter->kind != TPARAM_NONTYPE ||
                 !parameter->name ||
                 strcmp(parameter->name, expression->ident_name) != 0) {
                 continue;
@@ -2224,6 +2292,19 @@ static bool cxx_mangle_dependent_nested_type_append(
     return true;
 }
 
+static TemplateParam* cxx_mangle_template_argument_parameter(
+    Type* specialization, int argument_index) {
+    CxxTemplate* tmpl = specialization ? specialization->cxx_template : NULL;
+    if (!tmpl || argument_index < 0) return NULL;
+    for (int index = 0; index < tmpl->param_count; ++index) {
+        if (tmpl->params[index].is_pack && argument_index >= index) {
+            return &tmpl->params[index];
+        }
+    }
+    return argument_index < tmpl->param_count
+        ? &tmpl->params[argument_index] : NULL;
+}
+
 static void cxx_mangle_template_type_append_impl(
     char* buf, size_t* pos, Type* type, CxxTemplate* tmpl,
     CxxMemberTemplateMangleContext* context) {
@@ -2468,6 +2549,7 @@ static void cxx_mangle_template_type_append_impl(
     int64_t nested_value_arguments[32] = { 0 };
     int nested_value_parameter_indices[32];
     Expr* nested_value_expressions[32] = { NULL };
+    int pack_expansion_start = -1;
     for (int index = 0;
          index < (int)(sizeof(nested_value_parameter_indices) /
                        sizeof(nested_value_parameter_indices[0]));
@@ -2479,10 +2561,41 @@ static void cxx_mangle_template_type_append_impl(
         type->cxx_template_arg_count <=
             (int)(sizeof(nested_value_arguments) /
                   sizeof(nested_value_arguments[0]));
+    if (type && type->cxx_template_arg_pack_expansions) {
+        for (int index = 0; index < type->cxx_template_arg_count; ++index) {
+            if (type->cxx_template_arg_pack_expansions[index] &&
+                pack_expansion_start < 0) {
+                pack_expansion_start = index;
+            }
+        }
+    }
     if (nested_value_arguments_encodable) {
         for (int index = 0; index < type->cxx_template_arg_count; ++index) {
-            if (index < type->cxx_template->param_count &&
-                type->cxx_template->params[index].kind == TPARAM_NONTYPE) {
+            TemplateParam* parameter =
+                cxx_mangle_template_argument_parameter(type, index);
+            bool is_pack_expansion =
+                type->cxx_template_arg_pack_expansions &&
+                type->cxx_template_arg_pack_expansions[index];
+            if (is_pack_expansion &&
+                parameter && parameter->kind != TPARAM_NONTYPE) {
+                if (!type->cxx_template_args[index]) {
+                    nested_value_arguments_encodable = false;
+                    break;
+                }
+                continue;
+            }
+            if (is_pack_expansion && parameter &&
+                parameter->kind == TPARAM_NONTYPE) {
+                Expr* expression = type->cxx_template_value_args
+                    ? type->cxx_template_value_args[index] : NULL;
+                if (!cxx_member_template_expression_supported(
+                        expression, tmpl)) {
+                    nested_value_arguments_encodable = false;
+                    break;
+                }
+                continue;
+            }
+            if (parameter && parameter->kind == TPARAM_NONTYPE) {
                 Expr* value_expression = type->cxx_template_value_args
                     ? type->cxx_template_value_args[index] : NULL;
                 if (!value_expression) {
@@ -2551,8 +2664,37 @@ static void cxx_mangle_template_type_append_impl(
             context->next_substitution += (size_t)namespace_count + 1u;
         }
         for (int index = 0; index < type->cxx_template_arg_count; ++index) {
-            TemplateParam* parameter = index < type->cxx_template->param_count
-                ? &type->cxx_template->params[index] : NULL;
+            TemplateParam* parameter =
+                cxx_mangle_template_argument_parameter(type, index);
+            bool is_pack_expansion =
+                type->cxx_template_arg_pack_expansions &&
+                type->cxx_template_arg_pack_expansions[index];
+            if (index == pack_expansion_start) {
+                CXX_MANGLE_TEMPLATE_APPEND('J');
+            }
+            if (is_pack_expansion) {
+                if (parameter && parameter->kind == TPARAM_NONTYPE) {
+                    Expr* expression = type->cxx_template_value_args
+                        ? type->cxx_template_value_args[index] : NULL;
+                    CXX_MANGLE_TEMPLATE_APPEND('X');
+                    CXX_MANGLE_TEMPLATE_APPEND('s');
+                    CXX_MANGLE_TEMPLATE_APPEND('p');
+                    cxx_member_template_expression_append(
+                        buf, pos, expression, tmpl, context);
+                    CXX_MANGLE_TEMPLATE_APPEND('E');
+                } else {
+                    CXX_MANGLE_TEMPLATE_APPEND('D');
+                    CXX_MANGLE_TEMPLATE_APPEND('p');
+                    cxx_mangle_template_type_append(
+                        buf, pos, type->cxx_template_args[index], tmpl,
+                        context);
+                }
+                if (pack_expansion_start >= 0 &&
+                    index == type->cxx_template_arg_count - 1) {
+                    CXX_MANGLE_TEMPLATE_APPEND('E');
+                }
+                continue;
+            }
             if (parameter && parameter->kind == TPARAM_NONTYPE) {
                 int function_parameter_index =
                     nested_value_parameter_indices[index];
@@ -2603,6 +2745,10 @@ static void cxx_mangle_template_type_append_impl(
             } else {
                 cxx_mangle_template_type_append(
                     buf, pos, type->cxx_template_args[index], tmpl, context);
+            }
+            if (pack_expansion_start >= 0 &&
+                index == type->cxx_template_arg_count - 1) {
+                CXX_MANGLE_TEMPLATE_APPEND('E');
             }
         }
         CXX_MANGLE_TEMPLATE_APPEND('E');
@@ -2698,8 +2844,9 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         if (tmpl->params[index].kind == TPARAM_NONTYPE && value_present &&
             value_present[index]) {
             has_value_argument = true;
-        } else if (tmpl->params[index].kind == TPARAM_TYPE && type_args &&
-                   tmpl->params[index].is_pack &&
+        } else if ((tmpl->params[index].kind == TPARAM_TYPE ||
+                    tmpl->params[index].kind == TPARAM_TEMPLATE) &&
+                   type_args && tmpl->params[index].is_pack &&
                    tmpl->pending_pack_count >= 0) {
             has_type_argument = true;
         } else if (tmpl->params[index].kind == TPARAM_NONTYPE &&
@@ -2749,12 +2896,38 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     for (int index = 0; index < tmpl->param_count; ++index) {
         TemplateParam* parameter = &tmpl->params[index];
         if (parameter->kind == TPARAM_TEMPLATE) {
+            if (parameter->is_pack && tmpl->pending_pack_count >= 0) {
+                if (pos + 2u >= sizeof(buf)) {
+                    rcc_fatal("C++ template function name is too long");
+                }
+                buf[pos++] = 'J';
+                for (int pack_index = 0;
+                     pack_index < tmpl->pending_pack_count; ++pack_index) {
+                    size_t old_pos = pos;
+                    Type* pack_argument = tmpl->pending_pack_args
+                        ? tmpl->pending_pack_args[pack_index] : NULL;
+                    if (!pack_argument || !pack_argument->cxx_template) {
+                        rcc_fatal(
+                            "C++ function template-template pack argument is missing");
+                    }
+                    mangle_template_argument_name_context(
+                        buf, &pos, pack_argument,
+                        &template_argument_context);
+                    if (old_pos == pos || pos >= sizeof(buf) - 32u) {
+                        rcc_fatal(
+                            "C++ template function name is too long");
+                    }
+                }
+                buf[pos++] = 'E';
+                continue;
+            }
             if (!type_args || !type_args[index] ||
                 !type_args[index]->cxx_template) {
                 rcc_fatal(
                     "C++ function template-template argument is missing");
             }
-            mangle_template_argument_name(buf, &pos, type_args[index]);
+            mangle_template_argument_name_context(
+                buf, &pos, type_args[index], &template_argument_context);
             continue;
         }
         if (parameter->kind == TPARAM_TYPE) {
@@ -7019,9 +7192,7 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                     local_expansion_parameter
                         ? local_expansion_parameter
                         : enclosing_expansion_parameter;
-                if (pack_index < 0 || nested_index < pack_index ||
-                    nested_index != type->cxx_template_arg_count - 1 ||
-                    !parameter ||
+                if (pack_index < 0 || nested_index < pack_index || !parameter ||
                     (parameter->kind != TPARAM_TYPE &&
                      parameter->kind != TPARAM_NONTYPE &&
                      parameter->kind != TPARAM_TEMPLATE) ||
@@ -10222,7 +10393,7 @@ static bool template_instance_matches(CxxTemplate* tmpl, int instance_index,
                     tmpl->pending_pack_count) {
                 return false;
             }
-            if (parameter->kind == TPARAM_TYPE) {
+            if (parameter->kind != TPARAM_NONTYPE) {
                 for (int pack_index = 0;
                      pack_index < tmpl->pending_pack_count; ++pack_index) {
                     if (!tmpl->pending_pack_args ||
@@ -10282,7 +10453,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         TemplateParam* parameter = &tmpl->params[index];
         if (parameter->is_pack) {
             if (tmpl->pending_pack_count < 0 ||
-                (tmpl->pending_pack_count > 0 && parameter->kind == TPARAM_TYPE &&
+                (tmpl->pending_pack_count > 0 && parameter->kind != TPARAM_NONTYPE &&
                  !tmpl->pending_pack_args) ||
                 (tmpl->pending_pack_count > 0 && parameter->kind == TPARAM_NONTYPE &&
                  (!tmpl->pending_pack_values ||
@@ -10504,7 +10675,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             for (int parameter_index = 0;
                  parameter_index < tmpl->param_count; ++parameter_index) {
                 if (tmpl->params[parameter_index].is_pack &&
-                    tmpl->params[parameter_index].kind == TPARAM_TYPE) {
+                    tmpl->params[parameter_index].kind != TPARAM_NONTYPE) {
                     has_type_pack = true;
                     break;
                 }
@@ -10598,7 +10769,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             for (int parameter_index = 0;
                  parameter_index < tmpl->param_count; ++parameter_index) {
                 if (tmpl->params[parameter_index].is_pack &&
-                    tmpl->params[parameter_index].kind == TPARAM_TYPE) {
+                    tmpl->params[parameter_index].kind != TPARAM_NONTYPE) {
                     has_type_pack = true;
                     break;
                 }

@@ -392,6 +392,9 @@ int choose_nontrailing_function_pack(Rest..., int) {
 template<int Value>
 struct FunctionTemplateValuePackTag {};
 
+template<int... Values>
+struct FunctionTemplateNonTypePackBox {};
+
 template<short Value>
 struct FunctionTemplateShortValuePackTag {};
 
@@ -432,6 +435,15 @@ struct FunctionTemplatePartialOrderBox {};
 
 template<typename... Types>
 struct FunctionTemplatePackPartialOrderBox {};
+
+template<template<typename> class... Templates>
+struct FunctionTemplateTemplatePackBox {};
+
+template<typename Type>
+struct FunctionTemplateTemplatePackItem {};
+
+template<typename Type>
+struct FunctionTemplateTemplatePackFixed {};
 
 template<typename Type>
 struct FunctionTemplatePackCompoundElement {};
@@ -765,6 +777,43 @@ template<typename First, typename... Rest>
 int choose_class_template_pack_expansion_order(
     FunctionTemplatePackPartialOrderBox<First, Rest...>) {
     return 214;
+}
+
+template<typename... Types>
+int choose_nontrailing_template_argument_pack_order(
+    FunctionTemplatePackPartialOrderBox<Types..., int>) {
+    return 268;
+}
+
+template<typename... Types>
+int choose_nontrailing_template_argument_pack_order(
+    FunctionTemplatePackPartialOrderBox<Types...>) {
+    return 269;
+}
+
+template<int... Values>
+int choose_nontrailing_non_type_pack_order(
+    FunctionTemplateNonTypePackBox<Values..., 7>) {
+    return 272;
+}
+
+template<int... Values>
+int choose_nontrailing_non_type_pack_order(
+    FunctionTemplateNonTypePackBox<Values...>) {
+    return 273;
+}
+
+template<template<typename> class... Templates>
+int choose_nontrailing_template_template_pack_order(
+    FunctionTemplateTemplatePackBox<
+        Templates..., FunctionTemplateTemplatePackFixed>) {
+    return 274;
+}
+
+template<template<typename> class... Templates>
+int choose_nontrailing_template_template_pack_order(
+    FunctionTemplateTemplatePackBox<Templates...>) {
+    return 275;
 }
 
 template<typename... Types>
@@ -2859,6 +2908,10 @@ int main(void) {
                    choose_expression_non_type_pack_partial_order<1, 2>(
                        FunctionTemplateExpressionValuePackTag<2>{},
                        FunctionTemplateExpressionValuePackTag<3>{}) == 181 &&
+                   choose_nontrailing_non_type_pack_order<3>(
+                       FunctionTemplateNonTypePackBox<3, 7>{}) == 272 &&
+                   choose_nontrailing_non_type_pack_order(
+                       FunctionTemplateNonTypePackBox<3, 5>{}) == 273 &&
                    choose_dependent_non_type_partial_order(
                        FunctionTemplateTwoValueTag<4, 4>{}) == 191 &&
                    choose_fixed_non_type_partial_order(
@@ -2892,6 +2945,21 @@ int main(void) {
                    choose_class_template_pack_expansion_order(
                        FunctionTemplatePackPartialOrderBox<int, short>{}) ==
                        214 &&
+                   choose_nontrailing_template_argument_pack_order<char>(
+                       FunctionTemplatePackPartialOrderBox<char, int>{}) ==
+                       268 &&
+                   choose_nontrailing_template_argument_pack_order(
+                       FunctionTemplatePackPartialOrderBox<char, double>{}) ==
+                       269 &&
+                   choose_nontrailing_template_template_pack_order<
+                       FunctionTemplateTemplatePackItem>(
+                       FunctionTemplateTemplatePackBox<
+                           FunctionTemplateTemplatePackItem,
+                           FunctionTemplateTemplatePackFixed>{}) == 274 &&
+                   choose_nontrailing_template_template_pack_order(
+                       FunctionTemplateTemplatePackBox<
+                           FunctionTemplateTemplatePackItem,
+                           FunctionTemplateTemplatePackItem>{}) == 275 &&
                    count_class_pointer_pack_expansion(
                        FunctionTemplatePackPartialOrderBox<>{}) == 220 &&
                    count_class_pointer_pack_expansion(
