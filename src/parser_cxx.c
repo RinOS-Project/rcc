@@ -18391,6 +18391,61 @@ static bool cxx_function_template_class_nontype_argument_deduce(
         arguments, values, value_present);
 }
 
+static int cxx_function_template_template_parameter_index(
+    const CxxTemplate* function_template, const Type* template_argument) {
+    if (!function_template || !template_argument ||
+        template_argument->kind != TYPE_STRUCT || !template_argument->tag) {
+        return -1;
+    }
+    if (template_argument->cxx_dependent &&
+        template_argument->cxx_template_param_index >= 0 &&
+        template_argument->cxx_template_param_index <
+            function_template->param_count) {
+        int index = template_argument->cxx_template_param_index;
+        const TemplateParam* parameter = &function_template->params[index];
+        if (parameter->kind == TPARAM_TEMPLATE && parameter->name &&
+            strcmp(parameter->name, template_argument->tag) == 0) {
+            return index;
+        }
+    }
+    for (int index = 0; index < function_template->param_count; ++index) {
+        const TemplateParam* parameter = &function_template->params[index];
+        if (parameter->kind == TPARAM_TEMPLATE && parameter->name &&
+            strcmp(parameter->name, template_argument->tag) == 0) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+static bool cxx_function_template_class_template_template_argument_deduce(
+    CxxTemplate* function_template, Type* pattern_argument,
+    Type* actual_argument, Type** deduced_arguments) {
+    int parameter_index;
+    CxxTemplate* actual_template;
+    if (!function_template || !pattern_argument || !actual_argument ||
+        !deduced_arguments) {
+        return false;
+    }
+    parameter_index = cxx_function_template_template_parameter_index(
+        function_template, pattern_argument);
+    actual_template = actual_argument->cxx_template;
+    if (parameter_index < 0) {
+        return pattern_argument->cxx_template == actual_template;
+    }
+    TemplateParam* parameter = &function_template->params[parameter_index];
+    if (!actual_template ||
+        !template_template_signature_matches(parameter, actual_template)) {
+        return false;
+    }
+    if (deduced_arguments[parameter_index] &&
+        deduced_arguments[parameter_index]->cxx_template != actual_template) {
+        return false;
+    }
+    deduced_arguments[parameter_index] = actual_argument;
+    return true;
+}
+
 static bool deduce_function_template_type_with_pack(
     CxxTemplate* tmpl, Type* pattern, Type* actual, Type** arguments,
     int64_t* values, bool* value_present, int* specificity,
@@ -18703,6 +18758,12 @@ static bool deduce_function_template_type_with_pack(
                                     NULL, NULL, NULL)) {
                                 return false;
                             }
+                        } else if (class_parameter->kind == TPARAM_TEMPLATE) {
+                            if (!cxx_function_template_class_template_template_argument_deduce(
+                                    tmpl, pattern_arguments[index],
+                                    actual_arguments[index], arguments)) {
+                                return false;
+                            }
                         }
                     }
                     for (int actual_index = expansion_index;
@@ -18842,6 +18903,13 @@ static bool deduce_function_template_type_with_pack(
                             if (!cxx_function_template_class_nontype_argument_deduce(
                                     tmpl, pattern, actual, index, arguments,
                                     values, value_present)) {
+                                fixed_values_match = false;
+                                break;
+                            }
+                        } else if (class_parameter->kind == TPARAM_TEMPLATE) {
+                            if (!cxx_function_template_class_template_template_argument_deduce(
+                                    tmpl, pattern_arguments[index],
+                                    actual_arguments[index], arguments)) {
                                 fixed_values_match = false;
                                 break;
                             }
@@ -24636,10 +24704,53 @@ static bool cxx_function_template_partial_order_deduce_type(
     bool* supported, unsigned depth) {
     int parameter_index;
     int argument_index;
+    int parameter_template_index;
+    int argument_template_index;
     if (supported) *supported = false;
     if (!parameter_template || !parameter_pattern || !argument_template ||
         !argument_pattern || !deduced_arguments || depth > 64u) {
         return false;
+    }
+    parameter_template_index = cxx_function_template_template_parameter_index(
+        parameter_template, parameter_pattern);
+    if (parameter_template_index >= 0) {
+        const TemplateParam* parameter =
+            &parameter_template->params[parameter_template_index];
+        CxxTemplate* argument_template_argument =
+            argument_pattern->cxx_template;
+        if (supported) *supported = true;
+        if (argument_template_argument) {
+            if (!template_template_signature_matches(
+                    parameter, argument_template_argument)) {
+                return false;
+            }
+            if (deduced_arguments[parameter_template_index] &&
+                deduced_arguments[parameter_template_index]->cxx_template !=
+                    argument_template_argument) {
+                return false;
+            }
+            deduced_arguments[parameter_template_index] = argument_pattern;
+            return true;
+        }
+        argument_template_index =
+            cxx_function_template_template_parameter_index(
+                argument_template, argument_pattern);
+        if (argument_template_index < 0 ||
+            !template_template_parameter_signatures_match(
+                parameter->template_signature,
+                argument_template->params[argument_template_index]
+                    .template_signature,
+                0)) {
+            return false;
+        }
+        if (deduced_arguments[parameter_template_index] &&
+            !cxx_template_type_parameter_mapping_matches(
+                deduced_arguments[parameter_template_index],
+                argument_template, argument_pattern, argument_template)) {
+            return false;
+        }
+        deduced_arguments[parameter_template_index] = argument_pattern;
+        return true;
     }
     parameter_index = cxx_function_template_type_parameter_index(
         parameter_template, parameter_pattern);
@@ -24661,6 +24772,12 @@ static bool cxx_function_template_partial_order_deduce_type(
         }
         deduced_arguments[parameter_index] = argument_pattern;
         return true;
+    }
+    argument_template_index = cxx_function_template_template_parameter_index(
+        argument_template, argument_pattern);
+    if (argument_template_index >= 0) {
+        if (supported) *supported = true;
+        return false;
     }
     argument_index = cxx_function_template_type_parameter_index(
         argument_template, argument_pattern);
@@ -25027,6 +25144,14 @@ static int cxx_function_template_type_pack_parameter_index(
         }
     }
     return -1;
+}
+
+static int cxx_function_template_template_pack_parameter_index(
+    const CxxTemplate* tmpl, const Type* type) {
+    int index = cxx_function_template_template_parameter_index(tmpl, type);
+    return index >= 0 && index < tmpl->param_count &&
+            tmpl->params[index].is_pack
+        ? index : -1;
 }
 
 static int cxx_function_template_nontype_pack_parameter_index(
@@ -25596,11 +25721,13 @@ static bool cxx_function_template_class_pack_expansion_deduce(
         const TemplateParam* parameter =
             &parameter_match->tmpl->params[index];
         if (parameter->is_pack && parameter->kind != TPARAM_TYPE &&
-            parameter->kind != TPARAM_NONTYPE) {
+            parameter->kind != TPARAM_NONTYPE &&
+            parameter->kind != TPARAM_TEMPLATE) {
             return false;
         }
         if (parameter->kind != TPARAM_TYPE &&
-            parameter->kind != TPARAM_NONTYPE) return false;
+            parameter->kind != TPARAM_NONTYPE &&
+            parameter->kind != TPARAM_TEMPLATE) return false;
         if (parameter->is_pack) {
             ++parameter_pack_count;
             parameter_template_pack_index = index;
@@ -25609,11 +25736,13 @@ static bool cxx_function_template_class_pack_expansion_deduce(
     for (int index = 0; index < argument_match->tmpl->param_count; ++index) {
         const TemplateParam* parameter = &argument_match->tmpl->params[index];
         if (parameter->is_pack && parameter->kind != TPARAM_TYPE &&
-            parameter->kind != TPARAM_NONTYPE) {
+            parameter->kind != TPARAM_NONTYPE &&
+            parameter->kind != TPARAM_TEMPLATE) {
             return false;
         }
         if (parameter->kind != TPARAM_TYPE &&
-            parameter->kind != TPARAM_NONTYPE) return false;
+            parameter->kind != TPARAM_NONTYPE &&
+            parameter->kind != TPARAM_TEMPLATE) return false;
         if (parameter->is_pack) {
             ++argument_pack_count;
             argument_template_pack_index = index;
@@ -25681,12 +25810,14 @@ static bool cxx_function_template_class_pack_expansion_deduce(
         if (class_parameter->is_pack) {
             if (class_template_pack_index >= 0 ||
                 (class_parameter->kind != TPARAM_TYPE &&
-                 class_parameter->kind != TPARAM_NONTYPE)) {
+                 class_parameter->kind != TPARAM_NONTYPE &&
+                 class_parameter->kind != TPARAM_TEMPLATE)) {
                 return false;
             }
             class_template_pack_index = index;
         } else if (class_parameter->kind != TPARAM_TYPE &&
-                   class_parameter->kind != TPARAM_NONTYPE) {
+                   class_parameter->kind != TPARAM_NONTYPE &&
+                   class_parameter->kind != TPARAM_TEMPLATE) {
             return false;
         }
     }
@@ -25721,7 +25852,8 @@ static bool cxx_function_template_class_pack_expansion_deduce(
             cxx_function_template_nontype_pack_parameter_index(
                 argument_match->tmpl, argument_pack_expression) ==
             argument_template_pack_index;
-    } else {
+    } else if (parameter_class_template->params[
+                   class_template_pack_index].kind == TPARAM_TYPE) {
         if (cxx_parser_template_parameter_pack_index(
                 (CxxTemplate*)parameter_match->tmpl,
                 parameter_arguments[parameter_pack_index]) !=
@@ -25739,6 +25871,27 @@ static bool cxx_function_template_class_pack_expansion_deduce(
             parameter_template_pack_index;
         argument_direct_pack_pattern =
             cxx_function_template_type_pack_parameter_index(
+                argument_match->tmpl,
+                argument_arguments[argument_pack_index]) ==
+            argument_template_pack_index;
+    } else {
+        if (cxx_parser_template_parameter_pack_index(
+                (CxxTemplate*)parameter_match->tmpl,
+                parameter_arguments[parameter_pack_index]) !=
+                parameter_template_pack_index ||
+            cxx_parser_template_parameter_pack_index(
+                (CxxTemplate*)argument_match->tmpl,
+                argument_arguments[argument_pack_index]) !=
+                argument_template_pack_index) {
+            return false;
+        }
+        parameter_direct_pack_pattern =
+            cxx_function_template_template_pack_parameter_index(
+                parameter_match->tmpl,
+                parameter_arguments[parameter_pack_index]) ==
+            parameter_template_pack_index;
+        argument_direct_pack_pattern =
+            cxx_function_template_template_pack_parameter_index(
                 argument_match->tmpl,
                 argument_arguments[argument_pack_index]) ==
             argument_template_pack_index;

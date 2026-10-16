@@ -521,6 +521,11 @@
         transformed-template pack mappings independent. Empty, one-element,
         and multi-element cases agree with GCC; RCC i686/AMD64 generated
         execution and the native-Windows overload regression target pass.
+  - [x] Order direct class template-template pack expansions against a fixed
+        leading template argument. The all-pack candidate handles an empty
+        sequence; the fixed-first candidate wins for one and multiple
+        template arguments. GCC C++20 and RCC i686/AMD64 runtime selections
+        agree in the native-Windows overload regression target.
   - [ ] full partial ordering, all parameter-pack deduction rules, and
         unsupported constexpr evaluation required for complete standard
         conformance
@@ -3058,9 +3063,14 @@ remains a separate open item.
   `mingw32-make SHELL=cmd.exe test-cxx` regression suite; both pass (exit 0),
   including GCC oracle checks, i686/AMD64 generation, AMD64 host execution, and
   existing ambiguity/no-output diagnostics.
-- [ ] Extend class-pack ordering from matching fixed integral values to
-  dependent non-type expressions, non-type packs, and template-template packs;
-  full C++20 partial ordering, constraints, and conversion ties remain open.
+- [x] Extend class-pack ordering to direct trailing integral non-type and
+  template-template pack expansions after a fixed leading argument. Verify
+  empty, one-element, and multiple-element cases against GCC C++20 and execute
+  both RCC target programs on native Windows.
+- [ ] Extend class-pack ordering to other dependent non-type expression forms,
+  compound/repeated/mixed pack sources, and broader template-template pack
+  signatures; full C++20 partial ordering, constraints, and conversion ties
+  remain open.
 
 ## RCC continuation (2026-10-12, cv-sensitive template argument identity)
 
@@ -5334,4 +5344,21 @@ remains a separate open item.
       and template-template packs. Exercise uneven offsets and empty/nonempty
       segments; compare exact GCC/RCC i686 and AMD64 symbols, assemble i686,
       and execute the RCC/GCC AMD64 programs in POSIX and native Windows.
+- [ ] Broader C++20 partial-ordering cases remain open.
+
+## RCC continuation (2026-10-17, class template-template pack ordering)
+
+- [x] Deduce the fixed leading template-template argument in
+      `Box<First, Rest...>` and compare transformed function-template patterns
+      for `Box<Templates...>` versus that fixed-prefix form. The all-pack
+      overload handles `Box<>`; the fixed-prefix overload wins for one and two
+      template arguments. Native-Windows `test-cxx-function-template-overloads`
+      passes with GCC host and RCC i686/AMD64 execution. In POSIX, both RCC
+      generated programs pass these checks; the enclosing GCC host fixture
+      later exits 23 at its conversion-value cleanup assertion, so the full
+      POSIX target is not recorded as passing.
+- [ ] Complete the native-Windows `test-cxx` aggregate. It currently stops in
+      `test-cxx-class-template-member-function-templates` because RCC rejects
+      the `count_tagged_pack_size` calls at source line 244; determine the cause
+      and pass the full aggregate before marking this item complete.
 - [ ] Broader C++20 partial-ordering cases remain open.

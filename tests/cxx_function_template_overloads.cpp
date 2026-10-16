@@ -791,6 +791,19 @@ int choose_class_template_pack_expansion_order(
     return 214;
 }
 
+template<template<typename> class... Templates>
+int choose_class_template_template_pack_expansion_order(
+    FunctionTemplateTemplatePackBox<Templates...>) {
+    return 276;
+}
+
+template<template<typename> class First,
+         template<typename> class... Rest>
+int choose_class_template_template_pack_expansion_order(
+    FunctionTemplateTemplatePackBox<First, Rest...>) {
+    return 277;
+}
+
 template<typename... Types>
 int choose_nontrailing_template_argument_pack_order(
     FunctionTemplatePackPartialOrderBox<Types..., int>) {
@@ -2398,6 +2411,15 @@ int main(void) {
             FunctionTemplateNonTypePackBox<1>{}) != 183) return 202;
     if (choose_non_type_class_pack_partial_order(
             FunctionTemplateNonTypePackBox<1, 2>{}) != 183) return 203;
+    if (choose_class_template_template_pack_expansion_order(
+            FunctionTemplateTemplatePackBox<>{}) != 276) return 204;
+    if (choose_class_template_template_pack_expansion_order(
+            FunctionTemplateTemplatePackBox<
+                FunctionTemplateTemplatePackItem>{}) != 277) return 205;
+    if (choose_class_template_template_pack_expansion_order(
+            FunctionTemplateTemplatePackBox<
+                FunctionTemplateTemplatePackItem,
+                FunctionTemplateTemplatePackFixed>{}) != 277) return 206;
     CxxFunctionTemplateAdl::Payload adl_payload{2};
     if (select_better_template(&adl_payload, 5) != 607) {
         return 164;
@@ -2982,6 +3004,15 @@ int main(void) {
                         FunctionTemplateNonTypePackBox<1>{}) == 183 &&
                     choose_non_type_class_pack_partial_order(
                         FunctionTemplateNonTypePackBox<1, 2>{}) == 183 &&
+                    choose_class_template_template_pack_expansion_order(
+                        FunctionTemplateTemplatePackBox<>{}) == 276 &&
+                    choose_class_template_template_pack_expansion_order(
+                        FunctionTemplateTemplatePackBox<
+                            FunctionTemplateTemplatePackItem>{}) == 277 &&
+                    choose_class_template_template_pack_expansion_order(
+                        FunctionTemplateTemplatePackBox<
+                            FunctionTemplateTemplatePackItem,
+                            FunctionTemplateTemplatePackFixed>{}) == 277 &&
                    choose_expression_non_type_pack_partial_order<1>(
                        FunctionTemplateExpressionValuePackTag<2>{}) == 181 &&
                    choose_expression_non_type_pack_partial_order<1, 2>(
