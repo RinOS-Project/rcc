@@ -137,6 +137,11 @@ jobs:
       - name: Run complete production regression gate
         run: make test-ci
 
+      - name: Cover Linux nested-template and #line regressions
+        run: |
+          make test-preprocessor-line
+          bash scripts/ci_nested_class_templates.sh
+
   sanitizer-gate:
     name: sanitizer-${{ matrix.cc }}
     runs-on: ubuntu-latest

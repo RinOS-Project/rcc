@@ -4985,3 +4985,17 @@ remains a separate open item.
       pass (exit 0).
 - [ ] Other constant-expression contexts, non-null structural pointer NTTP
       values, and specialization chains deeper than ten levels remain open.
+
+## RCC continuation (2026-10-16, Linux CI nested-class coverage)
+
+- [x] Add a POSIX CI gate for nested class-template coverage, including the five
+      specialization fixtures not reachable from Linux `test-ci`: compile
+      i686 and AMD64 outputs, execute each RCC AMD64 program and GCC host
+      counterpart, and compare the complete GCC/RCC Itanium function-symbol
+      sets for both target architectures.
+- [x] Gate nested-class access and missing-owner negative cases on both target
+      architectures, requiring the expected diagnostics, no rejected `.ro`
+      output, and matching GCC rejection.
+- [x] Add the `#line` regression to the Linux production CI workflow. Validate
+      the nested fixtures and target outputs in WSL with GCC; the workflow runs
+      this gate in both GCC and Clang regression jobs.
