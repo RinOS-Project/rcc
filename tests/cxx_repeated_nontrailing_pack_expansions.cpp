@@ -68,6 +68,17 @@ int independent_template_template_pack_partition(
                             sizeof...(SecondTemplates));
 }
 
+template<typename... Types, int... Values,
+         template<typename> class... Templates>
+int independent_mixed_pack_partition(
+    RepeatedPackExpansionBox<Types...>,
+    RepeatedValuePackExpansionBox<Values...>,
+    RepeatedTemplatePackExpansionBox<Templates...>) {
+    return static_cast<int>(sizeof...(Types) * 100 +
+                            sizeof...(Values) * 10 +
+                            sizeof...(Templates));
+}
+
 int main() {
     if (repeat_pack_expansion(
             RepeatedPackExpansionBox<char, short, int, char, short>{},
@@ -165,6 +176,27 @@ int main() {
                 RepeatedTemplatePackExpansionItem,
                 RepeatedTemplatePackExpansionFixed>{}) != 2) {
         return 18;
+    }
+    if (independent_mixed_pack_partition(
+            RepeatedPackExpansionBox<char>{},
+            RepeatedValuePackExpansionBox<1, 2>{},
+            RepeatedTemplatePackExpansionBox<>{}) != 120) {
+        return 19;
+    }
+    if (independent_mixed_pack_partition(
+            RepeatedPackExpansionBox<char, short>{},
+            RepeatedValuePackExpansionBox<>{},
+            RepeatedTemplatePackExpansionBox<
+                RepeatedTemplatePackExpansionItem>{}) != 201) {
+        return 20;
+    }
+    if (independent_mixed_pack_partition(
+            RepeatedPackExpansionBox<>{},
+            RepeatedValuePackExpansionBox<3>{},
+            RepeatedTemplatePackExpansionBox<
+                RepeatedTemplatePackExpansionItem,
+                RepeatedTemplatePackExpansionFixed>{}) != 12) {
+        return 21;
     }
     return 0;
 }

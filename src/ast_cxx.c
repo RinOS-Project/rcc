@@ -7584,6 +7584,8 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 }
                 for (int pack_value = 0;
                      pack_value < expansion_count; ++pack_value) {
+                    int pending_pack_index = has_local_pack_source
+                        ? local_expansion_offset + pack_value : pack_value;
                     Type* expanded_arguments[32] = { NULL };
                     int64_t expanded_values[32] = { 0 };
                     bool expanded_value_present[32] = { false };
@@ -7674,18 +7676,20 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                 : has_local_pack_source &&
                                       tmpl->pending_pack_value_present &&
                                       tmpl->pending_pack_value_present[
-                                          pack_value];
+                                          pending_pack_index];
                         bool pending_value_expansion =
                             has_local_pack_source &&
                             tmpl->pending_pack_expansions &&
-                            tmpl->pending_pack_expansions[pack_value];
+                            tmpl->pending_pack_expansions[
+                                pending_pack_index];
                         nested_values[nested_count] =
                             !has_local_pack_source && expands_enclosing_pack
                             ? (pending_value_present
                                    ? value_args[owner_argument_index] : 0)
                             : has_local_pack_source &&
                                       tmpl->pending_pack_values
-                                  ? tmpl->pending_pack_values[pack_value]
+                                  ? tmpl->pending_pack_values[
+                                        pending_pack_index]
                                   : 0;
                         nested_value_present[nested_count] =
                             pending_value_present;
@@ -7736,7 +7740,7 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                     : has_local_pack_source &&
                                               tmpl->pending_pack_value_expressions
                                         ? tmpl->pending_pack_value_expressions[
-                                              pack_value]
+                                              pending_pack_index]
                                         : NULL;
                         }
                         if (!pending_value_present &&

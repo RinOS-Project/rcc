@@ -5304,8 +5304,9 @@ remains a separate open item.
       `scripts/ci_nested_class_templates.sh`.
 - [x] Pass the complete native-Windows MinGW `test-cxx` aggregate after the
       substitution changes (exit 0).
-- [ ] Interactions between independent template parameter packs and broader
-      C++20 partial-ordering cases remain open.
+- [x] Independent function-template pack interactions, including mixed pack
+      kinds, are completed in the 2026-10-17 continuation below.
+- [ ] Broader C++20 partial-ordering cases remain open.
 
 ## RCC continuation (2026-10-17, independent function-template packs)
 
@@ -5322,5 +5323,8 @@ remains a separate open item.
       template-template packs. Exercise `1+1`, `2+0`, and `0+2` partitions,
       require exact GCC/RCC i686/AMD64 Itanium symbols, and execute the POSIX
       and native MinGW runtime regressions.
-- [ ] Other independent pack combinations (including mixed pack kinds) and
-      broader C++20 partial-ordering cases remain open.
+- [x] Add a mixed function template with independent type, integer non-type,
+      and template-template packs. Exercise uneven offsets and empty/nonempty
+      segments; compare exact GCC/RCC i686 and AMD64 symbols, assemble i686,
+      and execute the RCC/GCC AMD64 programs in POSIX and native Windows.
+- [ ] Broader C++20 partial-ordering cases remain open.
