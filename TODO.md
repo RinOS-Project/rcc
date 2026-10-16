@@ -5047,10 +5047,9 @@ remains a separate open item.
 - [x] Keep `rinvalidate` host objects separate under `obj/windows` and
       `obj/posix`; build both variants and validate current RCC-generated RIN,
       RLL, and DRV artifacts.
-- [ ] Re-run the complete `test-cxx` aggregate after the existing uncommitted
-      codegen cleanup-registration changes are paired with their runtime
-      definitions; the current member-lifetime link fails on those missing
-      symbols. Do not fold those unrelated changes into this commit.
+- [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate against the
+      current compiler tree; `test-cxx-member-lifetime` and the full aggregate
+      both pass (exit 0).
 - [ ] Nonzero pointer arithmetic and other pointer constant-expression forms,
       overloaded-function template/conversion cases, and reference members
       remain open.
