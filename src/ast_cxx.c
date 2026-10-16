@@ -3102,8 +3102,11 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
     }
     if (member_mangle_context.parameter_substitutions) {
         size_t argument_substitution_end =
-            template_argument_context.class_type_index_base +
-            template_argument_context.class_type_count;
+            template_argument_context.has_substitution_cursor
+                ? template_argument_context.next_substitution_index
+                : template_argument_context.class_type_index_base +
+                      template_argument_context.class_type_count +
+                      template_argument_context.template_name_count;
         if (argument_substitution_end >
             member_mangle_context.next_substitution) {
             member_mangle_context.next_substitution =

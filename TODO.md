@@ -5297,11 +5297,12 @@ remains a separate open item.
 - [x] Compare GCC C++20 behavior and pass native-Windows
       `test-cxx-function-template-overloads`: i686/AMD64 assembly, AMD64
       execution of RCC output, GCC host execution, and overload diagnostics.
-- [x] Preserve Itanium substitutions for repeated type-pack expansion patterns
-      and class-template names; cover nonempty and empty packs with exact
-      GCC/RCC symbol-set comparisons on i686 and AMD64 plus AMD64 execution in
+- [x] Encode repeated type, non-type, and template-template class-pack
+      expansions with GCC-compatible Itanium substitutions/expressions;
+      compare exact GCC/RCC symbol sets for empty and nonempty packs on i686
+      and AMD64 and execute the AMD64 output in
       `scripts/ci_nested_class_templates.sh`.
 - [x] Pass the complete native-Windows MinGW `test-cxx` aggregate after the
       substitution changes (exit 0).
-- [ ] Interactions among multiple expansions/packs and broader C++20
-      partial-ordering cases remain open.
+- [ ] Interactions between independent template parameter packs and broader
+      C++20 partial-ordering cases remain open.

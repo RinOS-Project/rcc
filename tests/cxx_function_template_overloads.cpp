@@ -799,6 +799,21 @@ int choose_repeated_class_template_pack_expansions(
 }
 
 template<int... Values>
+int choose_repeated_class_non_type_pack_expansions(
+    FunctionTemplateNonTypePackBox<Values..., 7, Values...>,
+    FunctionTemplateNonTypePackBox<Values...>) {
+    return static_cast<int>(sizeof...(Values));
+}
+
+template<template<typename> class... Templates>
+int choose_repeated_class_template_template_pack_expansions(
+    FunctionTemplateTemplatePackBox<
+        Templates..., FunctionTemplateTemplatePackFixed, Templates...>,
+    FunctionTemplateTemplatePackBox<Templates...>) {
+    return static_cast<int>(sizeof...(Templates));
+}
+
+template<int... Values>
 int choose_nontrailing_non_type_pack_order(
     FunctionTemplateNonTypePackBox<Values..., 7>) {
     return 272;
@@ -2966,6 +2981,23 @@ int main(void) {
                    choose_repeated_class_template_pack_expansions(
                        FunctionTemplatePackPartialOrderBox<int>{},
                        FunctionTemplatePackPartialOrderBox<>{}) == 0 &&
+                   choose_repeated_class_non_type_pack_expansions(
+                       FunctionTemplateNonTypePackBox<1, 2, 7, 1, 2>{},
+                       FunctionTemplateNonTypePackBox<1, 2>{}) == 2 &&
+                   choose_repeated_class_non_type_pack_expansions(
+                       FunctionTemplateNonTypePackBox<7>{},
+                       FunctionTemplateNonTypePackBox<>{}) == 0 &&
+                   choose_repeated_class_template_template_pack_expansions(
+                       FunctionTemplateTemplatePackBox<
+                           FunctionTemplateTemplatePackItem,
+                           FunctionTemplateTemplatePackFixed,
+                           FunctionTemplateTemplatePackItem>{},
+                       FunctionTemplateTemplatePackBox<
+                           FunctionTemplateTemplatePackItem>{}) == 1 &&
+                   choose_repeated_class_template_template_pack_expansions(
+                       FunctionTemplateTemplatePackBox<
+                           FunctionTemplateTemplatePackFixed>{},
+                       FunctionTemplateTemplatePackBox<>{}) == 0 &&
                    choose_nontrailing_template_template_pack_order<
                        FunctionTemplateTemplatePackItem>(
                        FunctionTemplateTemplatePackBox<
