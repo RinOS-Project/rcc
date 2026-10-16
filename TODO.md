@@ -5377,7 +5377,8 @@ remains a separate open item.
       where no non-type argument array exists; guard absent template context.
 - [x] Compare GCC/RCC Itanium symbols in the C++ debug template fixture for
       both target widths. `test-debug-info` passes, including exact template
-      symbol checks and relocatable DWARF line/info/location-list/frame checks.
+      symbol checks for both single and repeated template-template type
+      occurrences, plus relocatable DWARF line/info/location-list/frame checks.
 - [x] Run the complete native-Windows `test-cxx` aggregate after the ABI fix
       (exit 0).
 - [ ] Broader Itanium substitution cases and C++20 partial-ordering remain

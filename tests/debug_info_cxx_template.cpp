@@ -406,6 +406,18 @@ int debug_template_template_function_entry() {
                &debug_template_function_template_leaf);
 }
 
+template <template <typename> class Template, typename Value>
+int debug_template_template_repeated_function(Template<Value>* first,
+                                              Template<Value>* second) {
+    return first != nullptr && second != nullptr;
+}
+
+int debug_template_template_repeated_function_entry() {
+    return debug_template_template_repeated_function<
+        DebugTemplateTemplateLeaf, int>(&debug_template_function_template_leaf,
+                                        &debug_template_function_template_leaf);
+}
+
 template <int Value>
 struct DebugTemplateValueTemplateLeaf {
     int value;
