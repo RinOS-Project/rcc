@@ -4070,6 +4070,57 @@ static Type* parse_declarator(Type* base_type, const char** name,
             Token* identifier = advance();
             if (name) *name = identifier->value.str_val;
         }
+        /* In `(*callbacks[Count])(Args...)`, the array suffix belongs to
+         * the pointer declarator inside the parentheses.  Capture it here
+         * and apply it outside the parsed function-pointer type below. */
+        while (match(TOK_LBRACKET)) {
+            int length = -1;
+            Expr* bound_expression = NULL;
+            bool unspecified_bound = false;
+            bool parameter_static = match(TOK_STATIC);
+            bool parameter_const = false;
+            bool parameter_volatile = false;
+            bool parameter_restrict = false;
+            while (check(TOK_CONST) || check(TOK_VOLATILE) ||
+                   check(TOK_RESTRICT)) {
+                if (match(TOK_CONST)) parameter_const = true;
+                else if (match(TOK_VOLATILE)) parameter_volatile = true;
+                else if (match(TOK_RESTRICT)) parameter_restrict = true;
+            }
+            if (match(TOK_STAR)) {
+                length = -2;
+                unspecified_bound = true;
+            } else if (!check(TOK_RBRACKET)) {
+                Expr* bound = parse_assignment();
+                int64_t constant = 0;
+                if (eval_integer_constant(bound, &constant)) {
+                    if (constant <= 0 || constant > INT_MAX) {
+                        rcc_error(bound->loc,
+                                  "array bound is not a positive representable integer constant");
+                    } else {
+                        length = (int)constant;
+                    }
+                } else {
+                    length = -2;
+                    bound_expression = bound;
+                }
+            }
+            expect(TOK_RBRACKET, "]");
+            if (array_count >= (int)(sizeof(array_lengths) /
+                                     sizeof(array_lengths[0]))) {
+                rcc_error(previous()->loc, "array declarator is too deep");
+            } else {
+                array_lengths[array_count] = length;
+                array_bounds[array_count] = bound_expression;
+                array_locs[array_count] = previous()->loc;
+                array_unspecified[array_count] = unspecified_bound;
+                array_statics[array_count] = parameter_static;
+                array_consts[array_count] = parameter_const;
+                array_volatiles[array_count] = parameter_volatile;
+                array_restricts[array_count] = parameter_restrict;
+                ++array_count;
+            }
+        }
         expect(TOK_RPAREN, ")");
         expect(TOK_LPAREN, "(");
         has_prototype = !check(TOK_RPAREN);
@@ -4114,6 +4165,25 @@ static Type* parse_declarator(Type* base_type, const char** name,
             }
         }
         type = apply_pointer_levels(type, nested_pointers);
+        while (array_count > 0) {
+            int length = array_lengths[--array_count];
+            if (length > 0 && type->size > 0 &&
+                length > INT_MAX / type->size) {
+                rcc_error(array_locs[array_count],
+                          "array bound is too large for the complete element type");
+                length = -1;
+            }
+            type = type_array(type, length);
+            type->array_bound = array_bounds[array_count];
+            type->array_unspecified_bound =
+                array_unspecified[array_count];
+            type->array_parameter_static = array_statics[array_count];
+            type->array_parameter_const = array_consts[array_count];
+            type->array_parameter_volatile =
+                array_volatiles[array_count];
+            type->array_parameter_restrict =
+                array_restricts[array_count];
+        }
         if (parameters) *parameters = function_parameters;
         parser_last_declarator_parameter_pack = declarator_parameter_pack;
         return type;

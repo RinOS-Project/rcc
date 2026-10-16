@@ -1935,7 +1935,12 @@
   - [x] namespace-scope `constexpr` function-pointer変数が互換な関数を直接指す
         場合に限りcalleeを解決し、既存のpure-scalar・副作用・予算条件を通るcallを
         inline化。i686/AMD64 DWARFのcall-site line/columnとhost relocationを検証
-  - [ ] constant-index callable arrays、および一般のaliased/indirect callの
+  - [x] C/C++の`(*callbacks[N])(Args...)`配列declaratorを解析し、C17 callable
+        arrayをi686/AMD64で実行検証。C++20ではnamespace-scope constexpr
+        function-pointer arrayの定数添字を安全に解決し、既存のpure-scalar・副作用・
+        予算条件を通るcallだけinline化。verified DWARF call-site (`89:12`) とhost
+        relocationをi686/AMD64、結果実行をAMD64で検証
+  - [ ] 一般のaliased/indirect call（可変添字、非constexpr/local pointerを含む）の
         optimization coverageは未実装。calleeを安全に確定できる場合だけ対象化する
   - [x] 最適化でstorageが除去されたimmutable unsigned scalar localの値を
         `DW_AT_const_value`の`DW_FORM_udata`で保持し、符号付き負値からunsigned型への

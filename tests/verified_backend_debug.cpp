@@ -69,6 +69,26 @@ extern "C" int verified_cpp_debug_inline_pointer_host(int value)
     return verified_cpp_debug_inline_pointer(value);
 }
 
+static int verified_cpp_debug_inline_array_first(int value)
+{
+    return value + 13;
+}
+
+static int verified_cpp_debug_inline_array_second(int value)
+{
+    return value * 3 + 2;
+}
+
+static constexpr int (*verified_cpp_debug_inline_array[])(int) = {
+    &verified_cpp_debug_inline_array_first,
+    &verified_cpp_debug_inline_array_second
+};
+
+extern "C" int verified_cpp_debug_inline_array_host(int value)
+{
+    return verified_cpp_debug_inline_array[1](value);
+}
+
 extern "C" int verified_cpp_debug_const_local(int value)
 {
     const int verified_cpp_optimized_constant = 31;

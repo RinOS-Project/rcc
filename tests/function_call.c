@@ -42,6 +42,16 @@ int call_function_parameter(void) {
 
 static int nested_argument_value(void) { return 5; }
 
+static int callback_array_first(int value) { return value + 11; }
+static int callback_array_second(int value) { return value * 2; }
+static int (*callback_array[2])(int) = {
+    callback_array_first, callback_array_second
+};
+
+int call_callback_array(unsigned index, int value) {
+    return callback_array[index](value);
+}
+
 static int accept_two_arguments(int first, int second) {
     return first * 10 + second;
 }
@@ -60,6 +70,8 @@ int main(void)
         call_without_prototype() != 91 ||
         call_promoted_redeclaration() != 123 ||
         call_function_parameter() != 63 ||
+        call_callback_array(0u, 7) != 18 ||
+        call_callback_array(1u, 7) != 14 ||
         call_nested_argument() != 35) {
         return 1;
     }

@@ -1886,22 +1886,18 @@ static Decl* resolve_inline_function_definition(Decl* function) {
     return function;
 }
 
-static Decl* resolve_inline_constexpr_function_pointer(Decl* variable) {
-    Expr* initializer;
+static Decl* resolve_inline_function_pointer_initializer(
+    Type* pointer_type, Expr* initializer) {
     Expr* target;
     Decl* function;
-    if (!variable || variable->kind != DECL_VAR ||
-        !variable->var_is_global || !variable->var_is_constexpr ||
-        variable->var_is_thread_local || variable->var_dynamic_initializer ||
-        !variable->type || variable->type->kind != TYPE_PTR ||
-        !variable->type->base || variable->type->base->kind != TYPE_FUNC ||
-        !variable->var_init) {
+    if (!pointer_type || pointer_type->kind != TYPE_PTR ||
+        !pointer_type->base || pointer_type->base->kind != TYPE_FUNC ||
+        !initializer) {
         return NULL;
     }
-    initializer = variable->var_init;
     while (initializer->kind == EXPR_CAST &&
            initializer->unary_operand &&
-           type_is_compatible(initializer->type, variable->type)) {
+           type_is_compatible(initializer->type, pointer_type)) {
         initializer = initializer->unary_operand;
     }
     target = initializer->kind == EXPR_ADDR
@@ -1911,10 +1907,81 @@ static Decl* resolve_inline_constexpr_function_pointer(Decl* variable) {
         return NULL;
     }
     function = target->ident_decl;
-    if (!type_is_compatible(variable->type->base, function->type)) {
+    if (!type_is_compatible(pointer_type->base, function->type)) {
         return NULL;
     }
     return function;
+}
+
+static bool inline_constexpr_function_pointer_variable(Decl* variable) {
+    return variable && variable->kind == DECL_VAR &&
+           variable->var_is_global && variable->var_is_constexpr &&
+           !variable->var_is_thread_local &&
+           !variable->var_dynamic_initializer;
+}
+
+static Decl* resolve_inline_constexpr_function_pointer(Decl* variable) {
+    if (!inline_constexpr_function_pointer_variable(variable)) {
+        return NULL;
+    }
+    return resolve_inline_function_pointer_initializer(
+        variable->type, variable->var_init);
+}
+
+static Decl* resolve_inline_constexpr_function_pointer_array(
+    Expr* callee) {
+    Expr* initializer;
+    ExprList* element;
+    Decl* variable;
+    int64_t index;
+    if (!callee || callee->kind != EXPR_INDEX || !callee->index_base ||
+        callee->index_base->kind != EXPR_IDENT ||
+        !callee->index_base->ident_decl || !callee->index_expr ||
+        expression_has_side_effect(callee->index_expr) ||
+        !expr_eval_integer_constant(callee->index_expr, &index) ||
+        index < 0) {
+        return NULL;
+    }
+    variable = callee->index_base->ident_decl;
+    if (!inline_constexpr_function_pointer_variable(variable) ||
+        !variable->type || variable->type->kind != TYPE_ARRAY ||
+        variable->type->array_len < 0 || index >= variable->type->array_len ||
+        !variable->type->base || variable->type->base->kind != TYPE_PTR ||
+        !variable->type->base->base ||
+        variable->type->base->base->kind != TYPE_FUNC) {
+        return NULL;
+    }
+    initializer = variable->var_init;
+    if (!initializer || initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_designator_wrapper ||
+        initializer->compound_constructor) {
+        return NULL;
+    }
+    element = initializer->compound_init;
+    while (index > 0) {
+        if (!element || element->designator_kind != INIT_DESIGNATOR_NONE) {
+            return NULL;
+        }
+        element = element->next;
+        --index;
+    }
+    if (!element || element->designator_kind != INIT_DESIGNATOR_NONE) {
+        return NULL;
+    }
+    return resolve_inline_function_pointer_initializer(
+        variable->type->base, element->expr);
+}
+
+static Decl* resolve_inline_indirect_call_target(Expr* callee) {
+    Decl* declaration;
+    if (!callee) return NULL;
+    if (callee->kind == EXPR_INDEX) {
+        return resolve_inline_constexpr_function_pointer_array(callee);
+    }
+    if (callee->kind != EXPR_IDENT || !callee->ident_decl) return NULL;
+    declaration = callee->ident_decl;
+    if (declaration->kind == DECL_FUNC) return declaration;
+    return resolve_inline_constexpr_function_pointer(declaration);
 }
 
 static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
@@ -1934,19 +2001,14 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
     expression = *expression_out;
     if (expression->kind != EXPR_CALL ||
         !expression->call_func ||
-        expression->call_func->kind != EXPR_IDENT ||
-        expression->call_func->ident_decl == NULL ||
         expression->call_new_args != NULL ||
         expression->call_new_count != NULL || expression->call_is_new ||
         expression->call_is_delete || expression->call_is_virtual ||
         expression->cxx_close_call != NULL) {
         return false;
     }
-    function = expression->call_func->ident_decl;
-    if (function->kind != DECL_FUNC) {
-        function = resolve_inline_constexpr_function_pointer(function);
-        if (!function) return false;
-    }
+    function = resolve_inline_indirect_call_target(expression->call_func);
+    if (!function) return false;
     function = resolve_inline_function_definition(function);
     if (function->kind != DECL_FUNC || !function->func_body ||
         function->func_this_param != NULL || !type_is_scalar(expression->type)) {

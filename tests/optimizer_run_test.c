@@ -924,6 +924,8 @@ static void execute_inline_namespace_case(const char* path)
     DWORD previous_protection;
     uintptr_t address;
     SysvIntUnary function;
+    SysvIntUnary array_first;
+    SysvIntUnary array_second;
     assert(object != NULL && object->arch == ARCH_X64);
     if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
         objfile_free(object);
@@ -942,6 +944,14 @@ static void execute_inline_namespace_case(const char* path)
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&function, &address, sizeof(function));
     assert(function(2) == 202);
+    symbol = function_symbol(object, "inline_constexpr_array_first_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&array_first, &address, sizeof(array_first));
+    symbol = function_symbol(object, "inline_constexpr_array_second_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&array_second, &address, sizeof(array_second));
+    assert(array_first(5) == 28);
+    assert(array_second(5) == 11);
     assert(VirtualFree(mapping, 0u, MEM_RELEASE));
     objfile_free(object);
     puts("Windows AMD64 C++ inline namespace identity execution passed");
@@ -1124,6 +1134,8 @@ static void execute_inline_namespace_case(const char* path)
     uint8_t* mapping;
     uintptr_t address;
     int (*function)(int);
+    int (*array_first)(int);
+    int (*array_second)(int);
     assert(object != NULL && object->arch == ARCH_X64);
     if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
         objfile_free(object);
@@ -1140,6 +1152,14 @@ static void execute_inline_namespace_case(const char* path)
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&function, &address, sizeof(function));
     assert(function(2) == 202);
+    symbol = function_symbol(object, "inline_constexpr_array_first_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&array_first, &address, sizeof(array_first));
+    symbol = function_symbol(object, "inline_constexpr_array_second_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&array_second, &address, sizeof(array_second));
+    assert(array_first(5) == 28);
+    assert(array_second(5) == 11);
     assert(munmap(mapping, code->size) == 0);
     objfile_free(object);
     puts("AMD64 C++ inline namespace identity execution passed");
