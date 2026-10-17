@@ -3313,12 +3313,15 @@ reference_binding_validated:
         return target;
     }
 
-    /* Data-member pointers are not ordinary object pointers: keep them out
-     * of void-pointer and integer conversions, but allow the standard
-     * same-owner qualification conversion for their member type. */
-    if ((e->type->kind == TYPE_PTR &&
-         e->type->cxx_is_member_pointer) ||
-        (target->kind == TYPE_PTR && target->cxx_is_member_pointer)) {
+    /* Member pointers are not ordinary object pointers. Keep direct
+     * conversions separate, but let class-valued C++ expressions reach the
+     * conversion-function lookup below when the target is a member pointer. */
+    if (!((e->type->kind == TYPE_STRUCT ||
+           e->type->kind == TYPE_UNION) &&
+          target->kind == TYPE_PTR && target->cxx_is_member_pointer) &&
+        ((e->type->kind == TYPE_PTR &&
+          e->type->cxx_is_member_pointer) ||
+         (target->kind == TYPE_PTR && target->cxx_is_member_pointer))) {
         if (target->kind == TYPE_PTR && target->cxx_is_member_pointer &&
             (e->type->kind == TYPE_NULLPTR ||
              sema_is_null_pointer_constant(e))) {

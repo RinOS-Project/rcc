@@ -176,6 +176,26 @@ public:
     }
 };
 
+struct ConversionMemberFunctionSignatureTarget {
+    int exact(int value) noexcept { return value + 10; }
+    int different_parameter(long value) noexcept {
+        return static_cast<int>(value) + 20;
+    }
+};
+
+using ConversionMemberFunctionInt =
+    int (ConversionMemberFunctionSignatureTarget::*)(int) noexcept;
+using ConversionMemberFunctionLong =
+    int (ConversionMemberFunctionSignatureTarget::*)(long) noexcept;
+using ConversionMemberFunctionThrowing =
+    int (ConversionMemberFunctionSignatureTarget::*)(int);
+
+struct ConversionMemberFunctionSignatureSource {
+    operator ConversionMemberFunctionInt() const {
+        return &ConversionMemberFunctionSignatureTarget::exact;
+    }
+};
+
 class ReferenceConversionSource {
 public:
     operator ReferenceConversionResult() && {
@@ -267,6 +287,12 @@ int read_member_pointer_conversion_reference(
     return object.*member;
 }
 
+int read_member_pointer_conversion_value(
+    int MemberPointerReferenceBase::* member) {
+    MemberPointerReferenceBase object{211};
+    return object.*member;
+}
+
 int is_null_member_pointer_conversion_reference(
     int MemberPointerReferenceDerived::* const& member) {
     return member == nullptr;
@@ -354,6 +380,22 @@ int take_pointer_conversion_bool_rvalue_reference(bool&& value) {
 
 int take_member_pointer_conversion_bool(bool value) {
     return value ? 149 : 151;
+}
+
+int rank_member_function_signature(ConversionMemberFunctionInt) {
+    return 167;
+}
+
+int rank_member_function_signature(ConversionMemberFunctionLong) {
+    return 173;
+}
+
+int rank_member_function_noexcept(ConversionMemberFunctionInt) {
+    return 179;
+}
+
+int rank_member_function_noexcept(ConversionMemberFunctionThrowing) {
+    return 181;
 }
 
 int consume_void_pointer_reference(const void* const& value) {
@@ -522,6 +564,8 @@ int main() {
         read_member_pointer_conversion_reference(
             member_pointer_reference_object,
             member_pointer_reference_source) != 211 ||
+        read_member_pointer_conversion_value(
+            member_pointer_reference_source) != 211 ||
         !is_null_member_pointer_conversion_reference(
             null_member_pointer_reference_source) ||
         choose_template_member_pointer_reference_conversion(
@@ -530,6 +574,10 @@ int main() {
             0, member_pointer_reference_source) != 243 ||
         choose_template_member_pointer_owner_cv_reference_conversion(
             0, member_pointer_reference_source) != 251 ||
+        rank_member_function_signature(
+            ConversionMemberFunctionSignatureSource{}) != 167 ||
+        rank_member_function_noexcept(
+            ConversionMemberFunctionSignatureSource{}) != 179 ||
         choose_constrained_conversion(constrained_templated_source) != 101 ||
         return_integer() != 9 || return_long() != 11 ||
         choose_conversion(meter) != 107 ||
