@@ -5930,3 +5930,16 @@ remains a separate open item.
       arguments.
 - [ ] Other nested dependent pack sources, additional structural NTTP member
       layouts, and broader ABI substitution interactions remain open.
+
+## RCC continuation (2026-10-18, native Windows CI re-audit)
+
+- [x] Reconcile the recorded `native-windows-cmd` gate with checked-in
+      workflows. The job was absent from the current workflow set despite
+      earlier TODO entries; add a dedicated pinned MSYS2 UCRT64 workflow that
+      builds RinValidate and runs native `test-cxx`, `test-debug-info`, and
+      `test-optimize` using `cmd.exe` recipes.
+- [x] Parse the new workflow and rerun its three regression aggregates locally
+      on native Windows; all pass. Existing GCC/Clang Linux `test-ci` remains
+      the full production gate.
+- [ ] Record a successful hosted GitHub Actions run; local Windows execution
+      does not verify hosted-runner setup.
