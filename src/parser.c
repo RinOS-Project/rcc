@@ -2467,6 +2467,12 @@ static Expr* parse_initializer(void) {
             exprlist_append_designated(
                 &items, expr_int(0, loc), INIT_DESIGNATOR_NONE, 0, NULL);
             value_init = true;
+        } else if (g_opts.c_standard >= 23) {
+            /* C23 empty initialization zero-initializes the object.  Lower it
+             * through the existing {0} initializer path so aggregate tails
+             * keep the same zero-initialization semantics. */
+            exprlist_append_designated(
+                &items, expr_int(0, loc), INIT_DESIGNATOR_NONE, 0, NULL);
         } else {
             rcc_error(loc, "empty initializer list is not valid C17");
         }

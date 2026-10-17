@@ -39,6 +39,7 @@ static void print_usage(void) {
     printf("  --sign-key <file>   Explicit RSA private key (final outputs)\n");
     printf("  --public-key <file> Provisioned PKCS#1 public DER key\n");
     printf("  --sign-profile <p>  Build profile: debug or release\n");
+    printf("  -std=c17/c23    Select the C language standard (default: c17)\n");
     printf("  -O<level>       Optimization level (0-3)\n");
     printf("  -g              Generate debug info\n");
     printf("\n");
@@ -81,6 +82,7 @@ static int parse_args(int argc, char** argv) {
     g_opts.output_format = OUTPUT_RIN;
     g_opts.target_arch = ARCH_X86;
     g_opts.opt_level = 0;
+    g_opts.c_standard = 17;
     g_opts.sse_enabled = true;
     g_opts.sse2_enabled = true;
     g_opts.include_count = 0;
@@ -155,31 +157,43 @@ static int parse_args(int argc, char** argv) {
             g_opts.nostdinc = true;
         } else if (strcmp(arg, "-ffreestanding") == 0) {
             g_opts.freestanding = true;
-        } else if (strcmp(arg, "-std=c17") == 0 ||
-                   strcmp(arg, "--std=c17") == 0 ||
-                   strcmp(arg, "-std=gnu17") == 0 ||
-                   strcmp(arg, "--std=gnu17") == 0) {
-            /* C17 is the RCC language contract.  Keep the accepted spelling
-             * compatible with common build systems without pretending that
-             * another language revision has different semantics. */
         } else if (strcmp(arg, "-std") == 0 || strcmp(arg, "--std") == 0) {
             if (i + 1 >= argc) {
                 fprintf(stderr, "rcc: error: %s requires an argument\n", arg);
                 return -1;
             }
-            if (strcmp(argv[++i], "c17") != 0 &&
-                strcmp(argv[i], "gnu17") != 0) {
+            const char* standard = argv[++i];
+            if (strcmp(standard, "c17") == 0 ||
+                strcmp(standard, "gnu17") == 0) {
+                g_opts.c_standard = 17;
+            } else if (strcmp(standard, "c23") == 0 ||
+                       strcmp(standard, "gnu23") == 0 ||
+                       strcmp(standard, "c2x") == 0 ||
+                       strcmp(standard, "gnu2x") == 0) {
+                g_opts.c_standard = 23;
+            } else {
                 fprintf(stderr,
-                        "rcc: error: unsupported C standard '%s'; use c17 or gnu17\n",
-                        argv[i]);
+                        "rcc: error: unsupported C standard '%s'; use c17, gnu17, c23, or gnu23\n",
+                        standard);
                 return -1;
             }
         } else if (strncmp(arg, "-std=", 5) == 0 ||
                    strncmp(arg, "--std=", 6) == 0) {
-            fprintf(stderr,
-                    "rcc: error: unsupported C standard '%s'; use c17 or gnu17\n",
-                    strchr(arg, '=') + 1);
-            return -1;
+            const char* standard = strchr(arg, '=') + 1;
+            if (strcmp(standard, "c17") == 0 ||
+                strcmp(standard, "gnu17") == 0) {
+                g_opts.c_standard = 17;
+            } else if (strcmp(standard, "c23") == 0 ||
+                       strcmp(standard, "gnu23") == 0 ||
+                       strcmp(standard, "c2x") == 0 ||
+                       strcmp(standard, "gnu2x") == 0) {
+                g_opts.c_standard = 23;
+            } else {
+                fprintf(stderr,
+                        "rcc: error: unsupported C standard '%s'; use c17, gnu17, c23, or gnu23\n",
+                        standard);
+                return -1;
+            }
         } else if (strcmp(arg, "-fPIC") == 0 ||
                    strcmp(arg, "-fpic") == 0) {
             g_opts.pic = true;

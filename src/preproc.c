@@ -167,7 +167,8 @@ Preprocessor* pp_new(void) {
     pp_define(pp, "__RCC__", "1");
     pp_define(pp, "__RINOS__", "1");
     pp_define(pp, "__STDC__", "1");
-    pp_define(pp, "__STDC_VERSION__", "201710L");
+    pp_define(pp, "__STDC_VERSION__",
+              g_opts.c_standard >= 23 ? "202311L" : "201710L");
     char date_literal[12];
     char time_literal[9];
     if (pp_build_date_time_literals(date_literal, time_literal)) {
