@@ -6293,6 +6293,7 @@ test-cxx-function-template-dependent-compound-type: $(RCXX_TARGET) $(CXX_WINDOWS
 	$(GREP) -F -q "_Z28nested_deep_pointer_identityI23NestedCompoundDeepOwnerEPNT_11traits_type10value_typeES4_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
 	$(GREP) -F -q "_Z30nested_member_pointer_identityI19NestedCompoundOwnerEMT_NS1_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
 	$(GREP) -F -q "_Z30nested_member_pointer_identityI25NestedCompoundSecondOwnerEMT_NS1_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
+	$(GREP) -F -q "_Z28nested_function_pointer_packIJ19NestedCompoundOwner25NestedCompoundSecondOwnerEEiDpPFNT_10value_typeES3_E" $(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc.s
 	$(GREP) -F -q "_Z23nested_pointer_identityI19NestedCompoundOwnerEPNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
 	$(GREP) -F -q "_Z23nested_pointer_identityI25NestedCompoundSecondOwnerEPNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
 	$(GREP) -F -q "_Z25nested_reference_identityI19NestedCompoundOwnerERNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
@@ -6304,6 +6305,7 @@ test-cxx-function-template-dependent-compound-type: $(RCXX_TARGET) $(CXX_WINDOWS
 	$(GREP) -F -q "_Z28nested_deep_pointer_identityI23NestedCompoundDeepOwnerEPNT_11traits_type10value_typeES4_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
 	$(GREP) -F -q "_Z30nested_member_pointer_identityI19NestedCompoundOwnerEMT_NS1_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
 	$(GREP) -F -q "_Z30nested_member_pointer_identityI25NestedCompoundSecondOwnerEMT_NS1_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
+	$(GREP) -F -q "_Z28nested_function_pointer_packIJ19NestedCompoundOwner25NestedCompoundSecondOwnerEEiDpPFNT_10value_typeES3_E" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x86.s
 	$(GREP) -F -q "_Z23nested_pointer_identityI19NestedCompoundOwnerEPNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
 	$(GREP) -F -q "_Z23nested_pointer_identityI25NestedCompoundSecondOwnerEPNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
 	$(GREP) -F -q "_Z25nested_reference_identityI19NestedCompoundOwnerERNT_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
@@ -6315,6 +6317,7 @@ test-cxx-function-template-dependent-compound-type: $(RCXX_TARGET) $(CXX_WINDOWS
 	$(GREP) -F -q "_Z28nested_deep_pointer_identityI23NestedCompoundDeepOwnerEPNT_11traits_type10value_typeES4_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
 	$(GREP) -F -q "_Z30nested_member_pointer_identityI19NestedCompoundOwnerEMT_NS1_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
 	$(GREP) -F -q "_Z30nested_member_pointer_identityI25NestedCompoundSecondOwnerEMT_NS1_10value_typeES3_" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
+	$(GREP) -F -q "_Z28nested_function_pointer_packIJ19NestedCompoundOwner25NestedCompoundSecondOwnerEEiDpPFNT_10value_typeES3_E" $(TEST_OUT)/cxx-function-template-dependent-nested-type/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o \
 		$(TEST_OUT)/cxx-function-template-dependent-nested-type/compound-gcc-host$(EXE_SUFFIX) \
 		tests/cxx_function_template_dependent_compound_type.cpp

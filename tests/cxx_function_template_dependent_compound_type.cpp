@@ -51,6 +51,21 @@ typename Owner::traits_type::value_type* nested_deep_pointer_identity(
     return value;
 }
 
+template <typename... Owners>
+int nested_function_pointer_pack(
+    typename Owners::value_type (*...functions)(
+        typename Owners::value_type)) {
+    return (functions(1) + ... + 0);
+}
+
+int nested_int_callback(int value) {
+    return value + 1;
+}
+
+long nested_long_callback(long value) {
+    return value + 1;
+}
+
 int main() {
     NestedCompoundOwner first{1};
     NestedCompoundSecondOwner second{2};
@@ -77,6 +92,11 @@ int main() {
                        nullptr) == nullptr &&
                    nested_member_pointer_identity<
                        NestedCompoundSecondOwner>(nullptr) == nullptr
+                   && nested_function_pointer_pack<
+                          NestedCompoundOwner,
+                          NestedCompoundSecondOwner>(nested_int_callback,
+                                                     nested_long_callback) ==
+                          4
         ? 0
         : 1;
 }

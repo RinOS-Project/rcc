@@ -13925,6 +13925,11 @@ bool rcc_parse_cxx_type_start(void) {
         result = next && next->type == TOK_IDENT;
         return result;
     }
+    /* Nested function declarators are parsed by the shared declarator
+     * engine, whose parameter-list parser asks this hook before it hands a
+     * type-id to the C++ type parser.  `typename T::member` is unambiguously
+     * a type there and must take that path too. */
+    if (check(TOK_TYPENAME)) return true;
     if (check(TOK_BOOL) || check(TOK_WCHAR_T) || check(TOK_CHAR16_T) ||
         check(TOK_CHAR32_T) || check(TOK_CHAR8_T)) return true;
     if (!check(TOK_IDENT) && !check(TOK_SCOPE)) return false;

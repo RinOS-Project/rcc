@@ -3046,6 +3046,12 @@ remains a separate open item.
   overload gate pass for i686/AMD64 generation and AMD64 execution; invalid
   compilation emits no object. The full native-Windows
   `mingw32-make SHELL=cmd.exe test-cxx` suite also passes (exit 0).
+- [x] Parse dependent `typename Owner::value_type` in nested function-pointer
+  parameter declarators and expand that declaration as a function parameter
+  pack. Verify exact GCC/RCC Itanium symbols on i686/AMD64 and execute the
+  generated x86_64 fixture; the focused native-Windows regression passes.
+- [x] Re-run the full native-Windows `test-cxx` aggregate after this parser fix;
+  the complete suite passed (exit 0).
 - [ ] Extend function-pack deduction to remaining pack-expansion shapes and
   interactions with other deduction sources; full C++20 partial ordering and
   deduction remain incomplete.
