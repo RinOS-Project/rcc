@@ -424,6 +424,11 @@ struct CxxTemplate {
     /* While cloning a local class method, this names the method's own
      * parameter list so pack expressions bind to that method's parameter pack. */
     DeclList* active_pack_parameters;
+    /* Pack expansion context propagated into dependent type operands while a
+     * fold is partially instantiated by an enclosing class template. */
+    bool active_pack_expansion;
+    int active_pack_expansion_index;
+    int active_pack_expansion_count;
 };
 
 struct CxxLocalClassTemplate {

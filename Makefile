@@ -477,7 +477,7 @@ endif
 .PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
-.PHONY: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-posix
+.PHONY: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-posix test-cxx-nested-class-template-owner-structural-value-pack-invalid
 .PHONY: test-cxx-structural-pointer-offset test-cxx-structural-pointer-offset-posix
 .PHONY: test-cxx-nested-class-template-owner-explicit-chain-10
 .PHONY: test-cxx-dependent-array-bound-overflow
@@ -5292,7 +5292,7 @@ test-cxx-nested-class-templates: $(RCXX_TARGET)
 test-cxx-nested-class-templates: test-cxx-nested-class-template-specializations
 test-cxx-nested-class-templates: test-cxx-nested-class-template-template-owner-specialization
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-partial-specialization
-test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-structural-value-pack
+test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-invalid
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-explicit-chain-10
 test-cxx-nested-class-templates: test-cxx-structural-computed-pointer-nttp
 
@@ -5861,6 +5861,9 @@ test-cxx-nested-class-template-owner-structural-value-pack: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-nested-class-template-owner-structural-value-pack,cxx_nested_class_template_owner_structural_value_pack.cpp)
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s tests/cxx_nested_class_template_owner_structural_value_pack.cpp
+	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK27NestedStructuralNestedOwnerIXtl19NestedStructuralKeyLi3Etl23NestedStructuralLeafKeyLan2ELt7EEEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK28NestedStructuralPointerOwnerIXtl26NestedStructuralPointerKeyEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK30NestedStructuralValueOwnerPackIJXtl24NestedStructuralOwnerKeyLi3EEEXtlS0_Li7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
@@ -5958,6 +5961,7 @@ test-cxx-friend-requires-forms: test-cxx-friend-requires-forms-posix
 test-cxx-named-concepts: test-cxx-named-concepts-posix
 test-cxx-alias-templates: test-cxx-alias-templates-posix
 test-cxx-nested-class-templates: test-cxx-nested-class-templates-posix
+test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-structural-value-pack-invalid
 test-cxx-nested-class-template-owner: test-cxx-nested-class-template-owner-posix
 test-cxx-dependent-nested-class-template-owner: test-cxx-dependent-nested-class-template-owner-posix
 test-cxx-dependent-nested-class-template-owner-chain: test-cxx-dependent-nested-class-template-owner-chain-posix
@@ -5968,6 +5972,9 @@ test-cxx-nested-class-template-owner-structural-value-pack-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-nested-class-template-owner-structural-value-pack,cxx_nested_class_template_owner_structural_value_pack.cpp)
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s tests/cxx_nested_class_template_owner_structural_value_pack.cpp
+	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK27NestedStructuralNestedOwnerIXtl19NestedStructuralKeyLi3Etl23NestedStructuralLeafKeyLan2ELt7EEEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK28NestedStructuralPointerOwnerIXtl26NestedStructuralPointerKeyEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK30NestedStructuralValueOwnerPackIJXtl24NestedStructuralOwnerKeyLi3EEEXtlS0_Li7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
@@ -6012,6 +6019,18 @@ test-cxx-nested-class-template-owner-structural-value-pack-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK25NestedStructuralPairOwnerIXtl23NestedStructuralPairKeyLin3ELi4EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe tests/cxx_nested_class_template_owner_structural_value_pack.cpp
 	$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe
+
+test-cxx-nested-class-template-owner-structural-value-pack-invalid: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/mismatch-x86.ro tests/cxx_nested_class_template_owner_structural_value_pack_mismatch.cpp,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/mismatch-x86.log)
+	$(GREP) -F -q "C++ pack expansion has inconsistent lengths" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/mismatch-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/mismatch-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/mismatch-x64.ro tests/cxx_nested_class_template_owner_structural_value_pack_mismatch.cpp,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/mismatch-x64.log)
+	$(GREP) -F -q "C++ pack expansion has inconsistent lengths" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/mismatch-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/mismatch-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -c -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-mismatch.o tests/cxx_nested_class_template_owner_structural_value_pack_mismatch.cpp,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-mismatch.log)
+	$(GREP) -F -q "mismatched argument pack lengths" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-mismatch.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-mismatch.o)
 
 test-cxx-member-pointer-functions: test-cxx-member-pointer-functions-invalid
 

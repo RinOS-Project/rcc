@@ -704,6 +704,12 @@ struct Expr {
      * class-template-id. Enclosing-class substitution must retain references
      * that belong to a member template until that member is specialized. */
     struct CxxTemplate* cxx_template_context;
+    /* A fold instantiated before a nested member-template pack is available
+     * keeps the corresponding expansion element on dependent sizeof/alignof
+     * expressions until that member template is specialized. */
+    bool cxx_pack_substitution_index_valid;
+    int cxx_pack_substitution_index;
+    int cxx_pack_substitution_count;
     /* C++ `sizeof...(Pack)` is retained until a function-template
      * specialization supplies the pack length. */
     const char* sizeof_pack_name;

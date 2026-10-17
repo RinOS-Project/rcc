@@ -5322,8 +5322,8 @@ remains a separate open item.
       in the WSL POSIX gate.
 - [x] Run the complete native-Windows MinGW `test-cxx` aggregate after the
       parser change; it passes (exit 0).
-- [ ] Other structural NTTP pack member shapes and multi-pack expression
-      expansions remain open.
+- [ ] Other structural NTTP pack member shapes and additional multi-pack
+      expression expansions remain open.
 
 ## RCC continuation (2026-10-16, structural NTTP bit-fields)
 
@@ -5913,3 +5913,20 @@ remains a separate open item.
 - [ ] Other dependent function parameter pack forms, non-integral structural
       non-type packs, and uninstantiated dependent alias/template-definition
       DIEs remain open.
+
+## RCC continuation (2026-10-18, nested structural multi-pack folds)
+
+- [x] Zip an outer structural integer-value pack, a nested scoped-enum
+      structural pack, and a member-function type pack in one fold, including
+      `sizeof(Elements)` per expansion. Verify empty packs and execute the
+      native-Windows RCC/GCC C++20 host tests.
+- [x] Preserve the per-element index while a class-template fold is partially
+      instantiated, then substitute the member-function type pack at its
+      specialization. Diagnose unequal pack lengths; GCC and RCC agree, and
+      RCC emits no object for i686 or AMD64 mismatch cases.
+- [x] Match GCC's exact Itanium symbol for the nested specialization on both
+      target ABIs. Record enclosing class-specialization and nested
+      class-template-prefix substitution candidates before structural NTTP
+      arguments.
+- [ ] Other nested dependent pack sources, additional structural NTTP member
+      layouts, and broader ABI substitution interactions remain open.

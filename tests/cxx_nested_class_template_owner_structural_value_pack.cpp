@@ -164,6 +164,19 @@ struct NestedStructuralReorderedOwner<OwnerType*, OwnerValue>::Inner<Element*> {
     int result() const { return OwnerValue.value; }
 };
 
+template <NestedStructuralOwnerKey... LeftValues>
+struct NestedStructuralZipOwner {
+    template <NestedStructuralOwnerEnumKey... RightValues>
+    struct Zip {
+        template <typename... Elements>
+        int combined() const {
+            return ((LeftValues.value +
+                     static_cast<int>(RightValues.value) +
+                     static_cast<int>(sizeof(Elements))) + ... + 0);
+        }
+    };
+};
+
 int main() {
     NestedStructuralValueOwnerPack<
         NestedStructuralOwnerKey{3}, NestedStructuralOwnerKey{7}>
@@ -207,6 +220,14 @@ int main() {
     NestedStructuralReorderedOwner<
         int, NestedStructuralOwnerKey{43}>::Inner<int*>
         reordered_primary_fallback;
+    NestedStructuralZipOwner<
+        NestedStructuralOwnerKey{1}, NestedStructuralOwnerKey{2}>::Zip<
+            NestedStructuralOwnerEnumKey{
+                NestedStructuralOwnerCode::three},
+            NestedStructuralOwnerEnumKey{
+                NestedStructuralOwnerCode::seven}>
+        zipped_structural_values;
+    NestedStructuralZipOwner<>::Zip<> empty_structural_values;
     if (partial.result() != 22) return 1;
     if (parameter_object.result() != 37) return 2;
     if (enum_partial.result() != 24) return 3;
@@ -220,5 +241,7 @@ int main() {
     if (nested_null_pointer_parameter_object.result() != 17) return 11;
     if (reordered_type_first.result() != 43) return 12;
     if (reordered_type_second.result() != 47) return 13;
-    return reordered_primary_fallback.result() == 13 ? 0 : 14;
+    if (reordered_primary_fallback.result() != 13) return 14;
+    if (zipped_structural_values.combined<char, int>() != 18) return 15;
+    return empty_structural_values.combined<>() == 0 ? 0 : 16;
 }

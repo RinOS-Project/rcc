@@ -1255,10 +1255,21 @@ static void mangle_class_name_context(
          (expanded_pack && template_arg_count < pack_parameter_index) ||
          (template_arg_count > 0 && !template_args))) {
         mangle_name(buf, pos, cls->name);
+        if (template_argument_context->class_name_depth > 1u && cls->type) {
+            cxx_mangle_record_class_type(template_argument_context, cls->type);
+        }
         --template_argument_context->class_name_depth;
         return;
     }
     mangle_name(buf, pos, tmpl->name);
+    /* A nested class-template prefix (Outer<...>::Inner) is itself an
+     * Itanium substitution candidate before Inner's template arguments.
+     * The outer class specialization is recorded after its full name below;
+     * reserve this prefix before spelling the nested arguments so structural
+     * NTTP types receive the same indices as GCC/Clang. */
+    if (cls->enclosing_class) {
+        cxx_mangle_next_substitution_index(template_argument_context);
+    }
     if (*pos + 1u >= CXX_MANGLE_BUFFER_SIZE) {
         rcc_fatal("C++ template class name is too long");
     }
@@ -1358,6 +1369,9 @@ static void mangle_class_name_context(
         rcc_fatal("C++ template class name is too long");
     }
     buf[(*pos)++] = 'E';
+    if (template_argument_context->class_name_depth > 1u && cls->type) {
+        cxx_mangle_record_class_type(template_argument_context, cls->type);
+    }
     --template_argument_context->class_name_depth;
 }
 
@@ -6604,6 +6618,9 @@ CxxTemplate* cxx_template_alloc(const char* name, TemplateParam* params, int cou
     tmpl->pending_pack_value_expressions = NULL;
     tmpl->pending_pack_count = -1;
     tmpl->active_pack_parameters = NULL;
+    tmpl->active_pack_expansion = false;
+    tmpl->active_pack_expansion_index = 0;
+    tmpl->active_pack_expansion_count = 0;
     return tmpl;
 }
 
@@ -9182,6 +9199,9 @@ static Expr* template_clone_pack_pattern(
     int local_pack_index = -1;
     int pack_length;
     int pack_offset;
+    bool saved_active_pack_expansion = false;
+    int saved_active_pack_expansion_index = 0;
+    int saved_active_pack_expansion_count = 0;
     if (!pattern || !pack_name) return NULL;
     written = snprintf(name, sizeof(name), "__rcc_pack_arg_%d", index);
     if (written < 0 || (size_t)written >= sizeof(name)) return NULL;
@@ -9367,8 +9387,25 @@ static Expr* template_clone_pack_pattern(
         clone_value_args = expanded_value_args;
         clone_value_present = expanded_value_present;
     }
+    if (tmpl) {
+        saved_active_pack_expansion = tmpl->active_pack_expansion;
+        saved_active_pack_expansion_index =
+            tmpl->active_pack_expansion_index;
+        saved_active_pack_expansion_count =
+            tmpl->active_pack_expansion_count;
+        tmpl->active_pack_expansion = pack_length >= 0;
+        tmpl->active_pack_expansion_index = index;
+        tmpl->active_pack_expansion_count = pack_length;
+    }
     copy = template_clone_expr(tmpl, pattern, clone_args, arg_count,
                                clone_value_args, clone_value_present);
+    if (tmpl) {
+        tmpl->active_pack_expansion = saved_active_pack_expansion;
+        tmpl->active_pack_expansion_index =
+            saved_active_pack_expansion_index;
+        tmpl->active_pack_expansion_count =
+            saved_active_pack_expansion_count;
+    }
     if (!copy) return NULL;
     if (!value_pack) {
         template_replace_pack_identifier(copy, pack_name, name);
@@ -10316,6 +10353,61 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             copy->sizeof_type = template_substitute_type(
                 tmpl, expression->sizeof_type, args, arg_count,
                 value_args, value_present);
+            if (tmpl && tmpl->active_pack_expansion &&
+                (expression->kind == EXPR_SIZEOF ||
+                 expression->kind == EXPR_ALIGNOF) &&
+                expression->sizeof_type) {
+                copy->cxx_pack_substitution_index_valid = true;
+                copy->cxx_pack_substitution_index =
+                    tmpl->active_pack_expansion_index;
+                copy->cxx_pack_substitution_count =
+                    tmpl->active_pack_expansion_count;
+            }
+            if (copy->cxx_pack_substitution_index_valid && tmpl &&
+                (expression->kind == EXPR_SIZEOF ||
+                 expression->kind == EXPR_ALIGNOF) &&
+                expression->sizeof_type) {
+                int pack_parameter = template_type_parameter_index(
+                    tmpl, expression->sizeof_type);
+                if (pack_parameter >= 0 &&
+                    pack_parameter < tmpl->param_count &&
+                    tmpl->params[pack_parameter].kind == TPARAM_TYPE &&
+                    tmpl->params[pack_parameter].is_pack) {
+                    int pack_count = template_pending_pack_length(
+                        tmpl, pack_parameter);
+                    int pack_offset = template_pending_pack_offset(
+                        tmpl, pack_parameter);
+                    int expansion_index =
+                        copy->cxx_pack_substitution_index;
+                    if (pack_count !=
+                        copy->cxx_pack_substitution_count) {
+                        rcc_error(expression->loc,
+                                  "C++ pack expansion has inconsistent lengths");
+                    } else if (!tmpl->pending_pack_args ||
+                               expansion_index < 0 ||
+                               expansion_index >= pack_count ||
+                               pack_offset < 0 ||
+                               pack_offset > INT_MAX - expansion_index) {
+                        rcc_error(expression->loc,
+                                  "C++ type parameter pack value is missing");
+                    } else {
+                        Type* argument = tmpl->pending_pack_args[
+                            pack_offset + expansion_index];
+                        if (expression->sizeof_type->is_const ||
+                            expression->sizeof_type->is_volatile) {
+                            Type* qualified = ast_arena_alloc(
+                                sizeof(*qualified));
+                            *qualified = *argument;
+                            qualified->is_const = qualified->is_const ||
+                                expression->sizeof_type->is_const;
+                            qualified->is_volatile = qualified->is_volatile ||
+                                expression->sizeof_type->is_volatile;
+                            argument = qualified;
+                        }
+                        copy->sizeof_type = argument;
+                    }
+                }
+            }
             copy->sizeof_pack_name = expression->sizeof_pack_name;
             if (expression->kind == EXPR_NOEXCEPT) {
                 /* The operand may become a different overload after
