@@ -5750,5 +5750,10 @@ remains a separate open item.
       `test-cxx-function-template-overloads` pass. Existing ambiguity,
       incomparable-pattern, and unsupported-constraint diagnostics still pass
       for i686/AMD64.
+- [x] Verify structural ordering remains stronger than constraint ordering:
+      a `Head*` partial beats a constrained general `Head` partial, in direct
+      and dependent selection. GCC C++20 and native-Windows
+      `test-cxx-class-template-specialization` pass for i686/AMD64 generation
+      and AMD64 execution.
 - [ ] Constraint ordering across non-equivalent patterns, crossed constraints,
       and non-type/template-template pack patterns remain open.

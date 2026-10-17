@@ -278,6 +278,34 @@ static_assert(ConstrainedOrderedPackPartial<int, char>::kind == 2);
 static_assert(sizeof(typename DependentConstrainedOrderedPackPartialUse<
                   int, char>::type) == sizeof(long));
 
+template<typename... Types>
+struct StructuralBeforeConstraintPack {
+    static constexpr int kind = 0;
+    using type = char;
+};
+
+template<typename Head, typename... Tail>
+    requires (sizeof(Head) > 0)
+struct StructuralBeforeConstraintPack<Head, Tail...> {
+    static constexpr int kind = 1;
+    using type = short;
+};
+
+template<typename Head, typename... Tail>
+struct StructuralBeforeConstraintPack<Head*, Tail...> {
+    static constexpr int kind = 2;
+    using type = long;
+};
+
+template<typename... Types>
+struct DependentStructuralBeforeConstraintPackUse {
+    using type = typename StructuralBeforeConstraintPack<Types...>::type;
+};
+
+static_assert(StructuralBeforeConstraintPack<int*, char>::kind == 2);
+static_assert(sizeof(typename DependentStructuralBeforeConstraintPackUse<
+                  int*, char>::type) == sizeof(long));
+
 int main() {
     Value<int> value{21};
     Value<int*> pointer_value{9};
@@ -306,6 +334,8 @@ int main() {
         OrderedMixedPackPartial<int*, char>::kind;
     constexpr int constrained_ordered_pack =
         ConstrainedOrderedPackPartial<int, char>::kind;
+    constexpr int structural_before_constraint_pack =
+        StructuralBeforeConstraintPack<int*, char>::kind;
     return value.doubled() == 42 && pointer_value.kind() == 9 &&
                    pointer_pointer_value.kind() == 22 &&
                    pointer_pointer_pointer_value.kind() == 33 &&
@@ -330,7 +360,8 @@ int main() {
                    mixed_pack_empty == 1 && mixed_pack_single == 2 &&
                    mixed_pack_double == 2 && mixed_pack_triple == 2 &&
                    ordered_mixed_pack_pointer == 2 &&
-                   constrained_ordered_pack == 2
+                   constrained_ordered_pack == 2 &&
+                   structural_before_constraint_pack == 2
                ? 0
                : 1;
 }
