@@ -3806,6 +3806,7 @@ STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL = _ZN30StructuralArrayRecordValuePackIJXtl24
 STRUCTURAL_ENUM_ARRAY_PACK_SYMBOL = _ZN28StructuralEnumArrayValuePackIJXtl22StructuralEnumArrayKeytlA2_24StructuralArrayEnumValueLS1_2ELS1_3EEEEXtlS0_tlS2_LS1_5ELS1_7EEEEEE8combinedEv
 STRUCTURAL_FLOAT_ARRAY_PACK_SYMBOL = _ZN29StructuralFloatArrayValuePackIJXtl23StructuralFloatArrayKeytlA2_fLf3fa00000ELfc0200000EEEEXtlS0_tlS1_Lf40700000ELfc0840000EEEEEE8combinedEv
 STRUCTURAL_DOUBLE_ARRAY_PACK_SYMBOL = _ZN30StructuralDoubleArrayValuePackIJXtl24StructuralDoubleArrayKeytlA2_dLd4009000000000000ELdc012000000000000EEEEXtlS0_tlS1_Ldc019000000000000ELd4021800000000000EEEEEE8combinedEv
+STRUCTURAL_NESTED_ARRAY_PACK_SYMBOL = _ZN30StructuralNestedArrayValuePackIJXtl24StructuralNestedArrayKeytlA2_19StructuralArrayLeaftlS1_Li5ELi50EEtlS1_Li7ELi70EEEEEXtlS0_tlS2_tlS1_Li11ELi110EEtlS1_Li13ELi130EEEEEEE8combinedEv
 
 test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-array-nttp)
@@ -3816,16 +3817,19 @@ test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call CHECK_TEXT,$(STRUCTURAL_ENUM_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FLOAT_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_DOUBLE_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_NESTED_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ENUM_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FLOAT_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_DOUBLE_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_NESTED_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ENUM_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FLOAT_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_DOUBLE_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_NESTED_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-structural-array-nttp/gcc-host tests/cxx_structural_class_array_value_pack.cpp
 	$(TEST_OUT)/cxx-structural-array-nttp/gcc-host
 	@echo "Structural class NTTP array member test passed for i686 and AMD64"

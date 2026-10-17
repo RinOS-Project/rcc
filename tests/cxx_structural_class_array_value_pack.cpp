@@ -26,6 +26,15 @@ struct StructuralDoubleArrayKey {
     double values[2];
 };
 
+struct StructuralArrayLeaf {
+    int value;
+    int extra;
+};
+
+struct StructuralNestedArrayKey {
+    StructuralArrayLeaf values[2];
+};
+
 template <StructuralArrayKey... Keys>
 struct StructuralArrayValuePack {
     static constexpr int combined() {
@@ -67,6 +76,14 @@ struct StructuralDoubleArrayValuePack {
     }
 };
 
+template <StructuralNestedArrayKey... Keys>
+struct StructuralNestedArrayValuePack {
+    static constexpr int combined() {
+        return ((Keys.values[0].value + Keys.values[0].extra +
+                 Keys.values[1].value + Keys.values[1].extra) + ... + 0);
+    }
+};
+
 int main() {
     return StructuralArrayValuePack<
                StructuralArrayKey{{2, 3}},
@@ -85,6 +102,10 @@ int main() {
                StructuralFloatArrayKey{{3.75f, -4.125f}}>::combined() == 2 &&
            StructuralDoubleArrayValuePack<
                StructuralDoubleArrayKey{{3.125, -4.5}},
-               StructuralDoubleArrayKey{{-6.25, 8.75}}>::combined() == 2
+               StructuralDoubleArrayKey{{-6.25, 8.75}}>::combined() == 2 &&
+           StructuralNestedArrayValuePack<
+               StructuralNestedArrayKey{{{5, 50}, {7, 70}}},
+               StructuralNestedArrayKey{{{11, 110}, {13, 130}}}
+           >::combined() == 396
         ? 0 : 1;
 }
