@@ -1295,6 +1295,10 @@ struct Decl {
             int func_template_pack_count;
             int* func_template_pack_offsets;
             int* func_template_pack_counts;
+            /* Preserve whether the source signature ends in a C-style `...`.
+             * Function parameter packs are tracked separately but currently
+             * share Type::variadic in some deduction paths. */
+            bool func_has_explicit_variadic_ellipsis;
             bool func_has_cxx_linkage;
             bool func_has_local_linkage;
             bool func_is_cxx_method;

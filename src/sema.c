@@ -3253,8 +3253,8 @@ reference_binding_source:
              referred->kind == TYPE_UNION ||
              referred->kind == TYPE_FUNC ||
              referred->kind == TYPE_BOOL ||
-             (referred->kind == TYPE_PTR &&
-              !referred->cxx_is_member_pointer)) &&
+             type_is_arithmetic(referred) ||
+             referred->kind == TYPE_PTR) &&
             (source_object->kind == TYPE_STRUCT ||
              source_object->kind == TYPE_UNION)) {
             bool ambiguous = false;

@@ -47,6 +47,16 @@ struct DebugTemplateCompoundTypeOwner {
     short member;
 };
 
+struct DebugTemplateCompoundPackShortOwner {
+    using value_type = short;
+    short member;
+};
+
+struct DebugTemplateCompoundPackLongOwner {
+    using value_type = long;
+    long member;
+};
+
 template <typename Owner>
 typename Owner::value_type* debug_template_dependent_pointer_type(
     typename Owner::value_type* value) {
@@ -79,6 +89,46 @@ int debug_template_dependent_compound_type_entry() {
                 &DebugTemplateCompoundTypeOwner::member);
     return pointer == &value && &reference == &value &&
            owner.*member == 11;
+}
+
+template <typename... Owners>
+int debug_template_dependent_pointer_pack(
+    typename Owners::value_type*... values) {
+    return ((values != nullptr) + ... + 0);
+}
+
+template <typename... Owners>
+int debug_template_dependent_reference_pack(
+    typename Owners::value_type&... values) {
+    return static_cast<int>(sizeof...(Owners));
+}
+
+template <typename... Owners>
+int debug_template_dependent_member_pointer_pack(
+    typename Owners::value_type Owners::*... values) {
+    return ((values != nullptr) + ... + 0);
+}
+
+template <typename... Values>
+int debug_template_pack_with_variadic_ellipsis(Values... values, ...) {
+    return static_cast<int>(sizeof...(Values));
+}
+
+int debug_template_dependent_compound_pack_entry() {
+    short short_value = 3;
+    long long_value = 5;
+    return debug_template_dependent_pointer_pack<
+               DebugTemplateCompoundPackShortOwner,
+               DebugTemplateCompoundPackLongOwner>(&short_value, &long_value) +
+           debug_template_dependent_reference_pack<
+               DebugTemplateCompoundPackShortOwner,
+               DebugTemplateCompoundPackLongOwner>(short_value, long_value) +
+           debug_template_dependent_member_pointer_pack<
+               DebugTemplateCompoundPackShortOwner,
+               DebugTemplateCompoundPackLongOwner>(
+                   &DebugTemplateCompoundPackShortOwner::member,
+                   &DebugTemplateCompoundPackLongOwner::member) +
+           debug_template_pack_with_variadic_ellipsis<int>(7, 11);
 }
 
 struct DebugTemplateCompoundNestedValueLeaf {

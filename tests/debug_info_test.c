@@ -4387,6 +4387,107 @@ static void verify_dependent_compound_function_type(
     objfile_free(object);
 }
 
+static uint64_t function_template_children_start(
+    const ObjSection* info, uint64_t function_die, uint64_t address_size);
+
+static void verify_dependent_compound_function_pack(
+    const char* path, uint16_t architecture, const char* function_name,
+    uint8_t expected_type_tag)
+{
+    static const char* const owner_names[] = {
+        "DebugTemplateCompoundPackShortOwner",
+        "DebugTemplateCompoundPackLongOwner"
+    };
+    static const char* const base_type_names[] = {"short", "long"};
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t function_die;
+    uint64_t cursor;
+    unsigned argument_count = 0u;
+    unsigned parameter_count = 0u;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+    function_die = find_function_die(info, strings, function_name,
+                                     address_size);
+    assert(function_die != UINT64_MAX);
+    cursor = function_template_children_start(info, function_die,
+                                              address_size);
+
+    /* The owner pack DIE confirms the specialization uses the two distinct
+     * owner types whose nested aliases expand to short and long. */
+    assert(cursor + 5u <= info->size && info->data[cursor++] == 50u);
+    {
+        uint32_t pack_name = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(pack_name < strings->size &&
+               strcmp((const char*)strings->data + pack_name, "Owners") == 0);
+    }
+    while (cursor < info->size && info->data[cursor] == 51u) {
+        uint32_t owner_type;
+        uint32_t owner_name;
+        assert(cursor + 5u <= info->size && argument_count < 2u);
+        ++cursor;
+        owner_type = read_u32(info->data, cursor);
+        cursor += 4u;
+        assert(owner_type + 5u <= info->size &&
+               info->data[owner_type] == 12u);
+        owner_name = read_u32(info->data, owner_type + 1u);
+        assert(owner_name < strings->size &&
+               strcmp((const char*)strings->data + owner_name,
+                      owner_names[argument_count]) == 0);
+        ++argument_count;
+    }
+    assert(argument_count == 2u && cursor < info->size &&
+           info->data[cursor++] == 0u);
+
+    while (cursor < info->size && info->data[cursor] == 3u) {
+        uint32_t parameter_type;
+        uint64_t expression_size;
+        assert(parameter_count < 2u && cursor + 21u <= info->size);
+        ++cursor;
+        cursor += 4u; /* generated parameter name */
+        parameter_type = read_u32(info->data, cursor);
+        cursor += 16u; /* type, file, line, and column */
+        expression_size = read_uleb(info->data, info->size, &cursor);
+        assert(expression_size <= info->size - cursor);
+        cursor += expression_size;
+        assert(parameter_type + 6u <= info->size &&
+               info->data[parameter_type] == expected_type_tag);
+        {
+            uint32_t base_type = expected_type_tag == 37u
+                ? read_u32(info->data, parameter_type + 1u)
+                : read_u32(info->data, parameter_type + 2u);
+            uint32_t base_name;
+            assert(base_type + 5u <= info->size &&
+                   info->data[base_type] == 5u);
+            base_name = read_u32(info->data, base_type + 1u);
+            assert(base_name < strings->size &&
+                   strcmp((const char*)strings->data + base_name,
+                          base_type_names[parameter_count]) == 0);
+            if (expected_type_tag == 57u) {
+                uint32_t owner_type;
+                uint32_t owner_name;
+                assert(parameter_type + 10u <= info->size);
+                owner_type = read_u32(info->data, parameter_type + 6u);
+                assert(owner_type + 5u <= info->size &&
+                       info->data[owner_type] == 12u);
+                owner_name = read_u32(info->data, owner_type + 1u);
+                assert(owner_name < strings->size &&
+                       strcmp((const char*)strings->data + owner_name,
+                              owner_names[parameter_count]) == 0);
+            }
+        }
+        ++parameter_count;
+    }
+    assert(parameter_count == 2u);
+    objfile_free(object);
+}
+
 static void verify_function_template_parameter_dies(
     const char* path, uint16_t architecture)
 {
@@ -5895,6 +5996,20 @@ int main(int argc, char** argv)
     verify_dependent_compound_function_type(
         argv[27], ARCH_X64, "debug_template_dependent_member_pointer_type",
         57u, true);
+    verify_dependent_compound_function_pack(
+        argv[26], ARCH_X86, "debug_template_dependent_pointer_pack", 6u);
+    verify_dependent_compound_function_pack(
+        argv[27], ARCH_X64, "debug_template_dependent_pointer_pack", 6u);
+    verify_dependent_compound_function_pack(
+        argv[26], ARCH_X86, "debug_template_dependent_reference_pack", 37u);
+    verify_dependent_compound_function_pack(
+        argv[27], ARCH_X64, "debug_template_dependent_reference_pack", 37u);
+    verify_dependent_compound_function_pack(
+        argv[26], ARCH_X86,
+        "debug_template_dependent_member_pointer_pack", 57u);
+    verify_dependent_compound_function_pack(
+        argv[27], ARCH_X64,
+        "debug_template_dependent_member_pointer_pack", 57u);
     verify_function_template_template_parameter_dies(argv[26], ARCH_X86);
     verify_function_template_template_parameter_dies(argv[27], ARCH_X64);
     verify_function_template_nontype_signature_die(argv[26], ARCH_X86);

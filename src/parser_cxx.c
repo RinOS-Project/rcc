@@ -5413,6 +5413,7 @@ Stmt* rcc_parse_cxx_operator_declaration(Type* return_type, SourceLoc loc) {
     declaration = decl_func(name, cxx_function_type_from_parameters(
         return_type, params), params, body, loc);
     declaration->type->variadic = is_variadic;
+    declaration->func_has_explicit_variadic_ellipsis = is_variadic;
     declaration->func_has_cxx_linkage = true;
     return stmt_decl(declaration, loc);
 }
@@ -9149,6 +9150,7 @@ static void parse_class_member(CxxClass* cls, AccessSpec current_access) {
         /* Create method */
         CxxMethod* method = cxx_method_new(name, type, params, body, loc);
         method->decl->type->variadic = is_variadic;
+        method->decl->func_has_explicit_variadic_ellipsis = is_variadic;
         for (DeclList* parameter = params; parameter; parameter = parameter->next) {
             if (parameter->decl && parameter->decl->param_is_pack) {
                 method->decl->type->variadic = true;
@@ -11481,6 +11483,7 @@ static Decl* parse_cxx_function_declaration(bool parse_body,
     CxxMethod* function = cxx_method_new(function_name, return_type,
                                          params, body, loc);
     function->decl->type->variadic = is_variadic;
+    function->decl->func_has_explicit_variadic_ellipsis = is_variadic;
     for (DeclList* parameter = params; parameter; parameter = parameter->next) {
         if (parameter->decl && parameter->decl->param_is_pack) {
             function->decl->type->variadic = true;
@@ -26886,6 +26889,20 @@ static int cxx_parser_template_parameter_pack_index(CxxTemplate* tmpl,
                                                     Type* pattern) {
     int result = -1;
     if (!tmpl || !pattern) return -1;
+    /* A dependent nested type such as `Owner::value_type` keeps the template
+     * parameter index of its owner, not the nested type's spelling.  Follow
+     * that binding directly so a pack expansion is associated with Owner. */
+    if (pattern->cxx_dependent &&
+        pattern->cxx_template_param_index >= 0 &&
+        pattern->cxx_template_param_index < tmpl->param_count) {
+        TemplateParam* parameter =
+            &tmpl->params[pattern->cxx_template_param_index];
+        if (parameter->is_pack &&
+            (parameter->kind == TPARAM_TYPE ||
+             parameter->kind == TPARAM_TEMPLATE)) {
+            result = pattern->cxx_template_param_index;
+        }
+    }
     if (pattern->kind == TYPE_STRUCT && pattern->tag) {
         if (pattern->cxx_dependent &&
             pattern->cxx_template_param_index >= 0 &&
@@ -26906,7 +26923,8 @@ static int cxx_parser_template_parameter_pack_index(CxxTemplate* tmpl,
             }
         }
     }
-    if (pattern->kind == TYPE_PTR || pattern->kind == TYPE_ARRAY) {
+    if (pattern->kind == TYPE_PTR || pattern->kind == TYPE_ARRAY ||
+        pattern->kind == TYPE_VECTOR) {
         result = cxx_parser_template_pack_index_merge(
             result, cxx_parser_template_parameter_pack_index(
                         tmpl, pattern->base));
@@ -26920,6 +26938,12 @@ static int cxx_parser_template_parameter_pack_index(CxxTemplate* tmpl,
                 result, cxx_parser_template_parameter_pack_index(
                             tmpl, parameter->type));
         }
+    }
+    if (pattern->cxx_is_member_pointer &&
+        pattern->cxx_member_pointer_owner) {
+        result = cxx_parser_template_pack_index_merge(
+            result, cxx_parser_template_parameter_pack_index(
+                        tmpl, pattern->cxx_member_pointer_owner));
     }
     for (int index = 0; index < pattern->cxx_template_arg_count; ++index) {
         result = cxx_parser_template_pack_index_merge(

@@ -3376,7 +3376,7 @@ static char* cxx_mangle_function_template(Decl* func, CxxNamespace* ns,
         } else {
             buf[pos++] = 'v';
         }
-        if (signature->type && signature->type->variadic) {
+        if (signature->func_has_explicit_variadic_ellipsis) {
             buf[pos++] = 'z';
         }
     }
@@ -6844,15 +6844,33 @@ static int template_parameter_pack_index_nested(CxxTemplate* tmpl,
                                                 Type* type) {
     int index = -1;
     if (!tmpl || !type) return -1;
+    /* Nested dependent names retain the owner parameter index even though
+     * their tag is `Owner::member`, so name-based type-parameter lookup below
+     * cannot discover the source pack. */
+    if (type->cxx_dependent && type->cxx_dependent_member_name &&
+        type->cxx_template_param_index >= 0 &&
+        type->cxx_template_param_index < tmpl->param_count) {
+        TemplateParam* parameter =
+            &tmpl->params[type->cxx_template_param_index];
+        if (parameter->is_pack &&
+            (parameter->kind == TPARAM_TYPE ||
+             parameter->kind == TPARAM_TEMPLATE)) {
+            index = type->cxx_template_param_index;
+        }
+    }
     if (type->kind == TYPE_ARRAY) {
         index = template_value_parameter_index(tmpl, type->array_bound);
         if (index >= 0 && !tmpl->params[index].is_pack) index = -1;
         if (index >= 0) return index;
     }
-    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) {
+    if (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY ||
+        type->kind == TYPE_VECTOR) {
         int nested = template_parameter_pack_index_nested(tmpl, type->base);
         if (nested == -2) return -2;
-        if (nested >= 0) index = nested;
+        if (nested >= 0) {
+            if (index >= 0 && index != nested) return -2;
+            index = nested;
+        }
     }
     if (type->kind == TYPE_STRUCT) {
         if (type->cxx_dependent &&
@@ -6894,6 +6912,15 @@ static int template_parameter_pack_index_nested(CxxTemplate* tmpl,
                 if (index >= 0 && index != nested) return -2;
                 index = nested;
             }
+        }
+    }
+    if (type->cxx_is_member_pointer && type->cxx_member_pointer_owner) {
+        int nested = template_parameter_pack_index_nested(
+            tmpl, type->cxx_member_pointer_owner);
+        if (nested == -2) return -2;
+        if (nested >= 0) {
+            if (index >= 0 && index != nested) return -2;
+            index = nested;
         }
     }
     for (int nested_index = 0;
@@ -11063,12 +11090,10 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         TypeParam** type_tail = &type_parameters;
         Type* function_type;
         Decl* instance;
-        bool has_function_parameter_pack = false;
 
         for (DeclList* item = definition->func_params; item;
              item = item->next) {
             if (item->decl && item->decl->param_is_pack) {
-                has_function_parameter_pack = true;
                 int pack_index = template_parameter_pack_index_nested(
                     tmpl, item->decl->type);
                 if (pack_index < 0 || !tmpl->params[pack_index].is_pack) {
@@ -11194,9 +11219,7 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
             tmpl, definition->type ? definition->type->ret_type : NULL,
             args, arg_count, value_args, value_present);
         function_type = type_func(return_type, type_parameters,
-                                  definition->type &&
-                                      definition->type->variadic &&
-                                      !has_function_parameter_pack);
+                                  definition->func_has_explicit_variadic_ellipsis);
         function_type->has_prototype = definition->type
             ? definition->type->has_prototype : true;
         function_type->function_is_noexcept = definition->func_is_noexcept;
@@ -11234,6 +11257,8 @@ void* cxx_template_instantiate_with_values(CxxTemplate* tmpl, Type** args,
         instance->func_is_template_instance = true;
         instance->func_template_owner = tmpl;
         instance->func_is_cxx_method = definition->func_is_cxx_method;
+        instance->func_has_explicit_variadic_ellipsis =
+            definition->func_has_explicit_variadic_ellipsis;
         instance->func_method_owner = definition->func_method_owner;
         instance->func_template_arg_count = arg_count;
         instance->func_template_pack_count = -1;

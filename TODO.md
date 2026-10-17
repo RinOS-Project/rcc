@@ -1860,7 +1860,12 @@
   - [x] Function-template return／parameterのpointer／reference／member-pointer
         compound dependent declared typeをi686/AMD64のDWARF DIEで検証。
         `test-debug-info`全体が成功
-  - [ ] non-integral structural non-type packs、他形式のdependent pack expansion、
+  - [x] Function-template parameter packのdependent nested aliasをpointer／
+        reference／member-pointerへ展開し、各要素の実型とmember-pointer ownerを
+        i686/AMD64のDWARF parameter DIEで検証。GCC C++20とのItanium symbol一致も
+        確認し、`test-debug-info`全体が成功
+  - [ ] non-integral structural non-type packs、function parameterの
+        pointer／reference／member-pointer以外のdependent pack expansion、および
         未instantiateのdependent alias/template-definition DIEは引き続き未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
         type/value argumentsを保持し、subprogram DIE配下へtemplate type／
