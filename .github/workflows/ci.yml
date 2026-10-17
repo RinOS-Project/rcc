@@ -228,5 +228,5 @@ jobs:
       - name: Build native RinValidate
         run: make -C ../rinvalidate SHELL=cmd.exe
 
-      - name: Run native Windows C++ and DWARF regressions
-        run: make SHELL=cmd.exe test-cxx test-debug-info
+      - name: Run native Windows C++, optimizer and DWARF regressions
+        run: make SHELL=cmd.exe test-cxx test-debug-info test-optimize

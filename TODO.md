@@ -5651,3 +5651,11 @@ remains a separate open item.
       `test-debug-info` gates pass on this committed compiler source revision.
 - [ ] Record a successful hosted GitHub Actions run for `native-windows-cmd`;
       local Windows results do not verify the hosted runner setup.
+
+## RCC continuation (2026-10-17, native Windows optimizer gate)
+
+- [x] Add `test-optimize` to `native-windows-cmd` so the MinGW-native job gates
+      optimizer output and execution for C and C++ on both target architectures.
+- [x] Run `mingw32-make SHELL=cmd.exe test-optimize` locally on native Windows;
+      all compile, diagnostic, object-inspection, and execution checks pass.
+- [ ] Record a successful hosted GitHub Actions run after this workflow change.
