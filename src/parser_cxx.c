@@ -3551,6 +3551,9 @@ static bool eval_template_integer_expression(Expr* expression,
                                               const int64_t* values,
                                               const bool* value_present,
                                               int64_t* result);
+static bool cxx_function_template_expression_has_undeduced_nontype_parameter(
+    const CxxTemplate* function_template, const Expr* expression,
+    const bool* value_present, unsigned depth);
 /* The general template evaluator above uses int64_t for historical callers.
  * Dependent array bounds also need unsigned values above INT64_MAX, so this
  * scoped evaluator carries the target-width bit pattern and its source type. */
@@ -15046,6 +15049,8 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         Type* nested_arguments[32] = { NULL };
         int64_t nested_values[32] = { 0 };
         bool nested_value_present[32] = { false };
+        Expr* nested_value_expressions[32] = { NULL };
+        bool still_dependent = false;
         Type* instantiated;
         if (type->cxx_template_param_index >= argument_count || !arguments)
             return type;
@@ -15082,25 +15087,63 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
             if (nested_parameter->kind == TPARAM_NONTYPE) {
                 Expr* value_expression = type->cxx_template_value_args
                     ? type->cxx_template_value_args[nested_index] : NULL;
-                if (!value_expression ||
+                Expr* substituted_expression = value_expression
+                    ? cxx_template_clone_expr_with_values(
+                          tmpl, value_expression, arguments, argument_count,
+                          value_args, value_present)
+                    : NULL;
+                nested_value_expressions[nested_index] =
+                    substituted_expression ? substituted_expression
+                                           : value_expression;
+                nested_arguments[nested_index] = nested_parameter->type
+                    ? nested_parameter->type : type_int;
+                if (!value_expression || !substituted_expression ||
                     !eval_template_integer_expression(
-                        value_expression, tmpl, value_args, value_present,
-                        &nested_values[nested_index])) {
+                        substituted_expression, tmpl, value_args,
+                        value_present, &nested_values[nested_index])) {
+                    if (cxx_function_template_expression_has_undeduced_nontype_parameter(
+                            tmpl, nested_value_expressions[nested_index],
+                            value_present, 0u)) {
+                        still_dependent = true;
+                        continue;
+                    }
                     rcc_error(value_expression ? value_expression->loc
                                                 : (SourceLoc){"<template>", 0, 0},
                               "dependent template-template non-type argument "
                               "must be an integer constant expression");
                     return NULL;
                 }
-                nested_arguments[nested_index] = nested_parameter->type
-                    ? nested_parameter->type : type_int;
                 nested_value_present[nested_index] = true;
             } else {
                 nested_arguments[nested_index] = substitute_template_type(
                     tmpl, type->cxx_template_args[nested_index], arguments,
                     argument_count, value_args, value_present);
                 if (!nested_arguments[nested_index]) return NULL;
+                if (nested_arguments[nested_index]->cxx_dependent) {
+                    still_dependent = true;
+                }
             }
+        }
+        if (still_dependent) {
+            Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
+            *unresolved = *type;
+            unresolved->cxx_dependent = true;
+            unresolved->cxx_template_args = ast_arena_alloc(
+                sizeof(*unresolved->cxx_template_args) *
+                (size_t)type->cxx_template_arg_count);
+            unresolved->cxx_template_value_args = ast_arena_alloc(
+                sizeof(*unresolved->cxx_template_value_args) *
+                (size_t)type->cxx_template_arg_count);
+            memcpy(unresolved->cxx_template_args, nested_arguments,
+                   sizeof(*unresolved->cxx_template_args) *
+                   (size_t)type->cxx_template_arg_count);
+            memcpy(unresolved->cxx_template_value_args,
+                   nested_value_expressions,
+                   sizeof(*unresolved->cxx_template_value_args) *
+                   (size_t)type->cxx_template_arg_count);
+            unresolved->cxx_template_arg_count =
+                type->cxx_template_arg_count;
+            return unresolved;
         }
         if (actual_template->kind == TMPL_ALIAS) {
             SourceLoc template_loc = {"<template>", 0, 0};
@@ -19552,13 +19595,20 @@ static bool cxx_function_template_expression_has_undeduced_nontype_parameter(
     const bool* value_present, unsigned depth) {
     if (!function_template || !expression || depth > 64u) return false;
     if (expression->kind == EXPR_IDENT && expression->ident_name) {
-        for (int index = 0; index < function_template->param_count; ++index) {
-            const TemplateParam* parameter = &function_template->params[index];
-            if (parameter->kind == TPARAM_NONTYPE && !parameter->is_pack &&
-                parameter->name &&
-                strcmp(parameter->name, expression->ident_name) == 0) {
-                return !value_present || !value_present[index];
+        int offset = 0;
+        for (const CxxTemplate* scope = function_template; scope;
+             scope = scope->enclosing_template) {
+            for (int index = 0; index < scope->param_count; ++index) {
+                const TemplateParam* parameter = &scope->params[index];
+                if (parameter->kind == TPARAM_NONTYPE &&
+                    !parameter->is_pack && parameter->name &&
+                    strcmp(parameter->name, expression->ident_name) == 0) {
+                    int value_index = offset + index;
+                    return !value_present || !value_present[value_index];
+                }
             }
+            if (scope->param_count > INT_MAX - offset) return false;
+            offset += scope->param_count;
         }
         return false;
     }
@@ -19575,6 +19625,21 @@ static bool cxx_function_template_expression_has_undeduced_nontype_parameter(
             return cxx_function_template_expression_has_undeduced_nontype_parameter(
                 function_template, expression->cast_expr, value_present,
                 depth + 1u);
+        case EXPR_CALL:
+            if (cxx_function_template_expression_has_undeduced_nontype_parameter(
+                    function_template, expression->call_func, value_present,
+                    depth + 1u)) {
+                return true;
+            }
+            for (ExprList* argument = expression->call_args; argument;
+                 argument = argument->next) {
+                if (cxx_function_template_expression_has_undeduced_nontype_parameter(
+                        function_template, argument->expr, value_present,
+                        depth + 1u)) {
+                    return true;
+                }
+            }
+            return false;
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:

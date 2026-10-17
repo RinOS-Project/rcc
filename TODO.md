@@ -5817,7 +5817,11 @@ remains a separate open item.
       after another parameter supplies `T`; GCC C++20 and native-Windows
       `test-cxx-function-template-overloads` agree on the selected overload,
       with i686/AMD64 generation and RCC/GCC host execution passing.
-- [ ] Concept-id/call-bearing defaults in template-template signatures, other
-      compound outer non-type expression forms, deeper paths through dependent
-      intermediate aliases, and additional C++20 function partial-ordering
-      cases remain open.
+- [x] Evaluate a named concept-id inside a conditional dependent non-type
+      default in a nested template-template signature, with the outer `N`
+      deduced from a later array parameter. Compare overload selection against
+      GCC C++20; native-Windows `test-cxx-function-template-overloads` passes
+      for i686/AMD64 generation, RCC/GCC host execution, and diagnostic checks.
+- [ ] Other call-bearing default expressions, compound outer non-type forms,
+      deeper paths through dependent intermediate aliases, and additional
+      C++20 function partial-ordering cases remain open.

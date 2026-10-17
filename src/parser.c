@@ -139,6 +139,8 @@ static int parser_pack_depth;
 static bool parser_cxx_mode;
 static int parser_cxx_standard = 20;
 static bool parser_cxx_template_default_mode;
+static int parser_cxx_template_default_depth;
+static int parser_cxx_template_default_paren_base[64];
 static int parser_cxx_template_paren_depth;
 static const char* parser_function_name;
 static const char* parser_function_name_stack[64];
@@ -225,12 +227,36 @@ void rcc_parser_function_scope_pop(void) {
 }
 
 void rcc_parser_set_cxx_template_default_mode(bool enabled) {
-    if (enabled && !parser_cxx_template_default_mode) {
-        parser_cxx_template_paren_depth = 0;
-    } else if (!enabled) {
+    if (enabled) {
+        if (parser_cxx_template_default_depth >=
+            (int)(sizeof(parser_cxx_template_default_paren_base) /
+                  sizeof(parser_cxx_template_default_paren_base[0]))) {
+            rcc_fatal("C++ template-default parse nesting is too deep");
+        }
+        if (parser_cxx_template_default_depth == 0) {
+            parser_cxx_template_paren_depth = 0;
+        }
+        parser_cxx_template_default_paren_base[
+            parser_cxx_template_default_depth++] =
+                parser_cxx_template_paren_depth;
+    } else if (parser_cxx_template_default_depth > 0) {
+        --parser_cxx_template_default_depth;
+        if (parser_cxx_template_default_depth == 0) {
+            parser_cxx_template_paren_depth = 0;
+        }
+    } else {
         parser_cxx_template_paren_depth = 0;
     }
-    parser_cxx_template_default_mode = enabled;
+    parser_cxx_template_default_mode =
+        parser_cxx_template_default_depth > 0;
+}
+
+static bool parser_cxx_template_default_at_argument_boundary(void) {
+    return parser_cxx_template_default_mode &&
+        parser_cxx_template_default_depth > 0 &&
+        parser_cxx_template_paren_depth ==
+            parser_cxx_template_default_paren_base[
+                parser_cxx_template_default_depth - 1];
 }
 
 static bool parser_pack_value_valid(int alignment) {
@@ -2196,8 +2222,7 @@ static Expr* parse_additive(void) {
 static bool parser_cxx_template_shift_closes_arguments(void) {
     Token* token = parser.cur;
     TokenType next_type;
-    if (!parser_cxx_template_default_mode ||
-        parser_cxx_template_paren_depth != 0 || !token ||
+    if (!parser_cxx_template_default_at_argument_boundary() || !token ||
         token->type != TOK_RSHIFT) {
         return false;
     }
@@ -2241,8 +2266,8 @@ static Expr* parse_relational(void) {
         /* At top level in a non-type template argument, `>` closes the
          * template-id. Parenthesized expressions may still use it as the
          * relational operator. */
-        if (parser_cxx_template_default_mode &&
-            parser_cxx_template_paren_depth == 0 && check(TOK_GT)) break;
+        if (parser_cxx_template_default_at_argument_boundary() &&
+            check(TOK_GT)) break;
         if (match(TOK_LT)) {
             e = expr_binary(EXPR_LT, e, parse_shift(), loc);
         } else if (match(TOK_GT)) {
