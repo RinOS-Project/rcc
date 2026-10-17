@@ -53,6 +53,11 @@ concept HasTemplateBoxValue = requires(T candidate) {
 };
 
 template<typename T>
+concept HasDefaultTemplateBoxValue = requires(T candidate) {
+    { candidate.value() } -> FitsInBox<>;
+};
+
+template<typename T>
 requires HasIntSizedValue<T>
 int accepts_int_sized_value(T) {
     return 1;
@@ -91,6 +96,12 @@ int accepts_default_template_argument() {
 template<typename T>
 requires HasTemplateBoxValue<T>
 int accepts_template_box_value(T) {
+    return 1;
+}
+
+template<typename T>
+requires HasDefaultTemplateBoxValue<T>
+int accepts_default_template_box_value(T) {
     return 1;
 }
 
@@ -140,6 +151,7 @@ int main() {
                    accepts_abbreviated_template_argument(1) == 1 &&
                    accepts_template_constrained_type(1) == 1 &&
                    accepts_template_box_value(SmallProvider{}) == 1 &&
+                   accepts_default_template_box_value(SmallProvider{}) == 1 &&
                    accepts_self_sized_type<LargeResult>() == 1 &&
                    accepts_default_bound(1) == 1 &&
                    accepts_abbreviated(1) == 1 &&
