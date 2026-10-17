@@ -297,6 +297,12 @@ int select_nontrailing_pointer_function_pack(Rest*..., Tail) {
     return 12;
 }
 
+template<typename... Rest, typename Tail>
+int select_nontrailing_pointer_pack_nondeduced_suffix_without_default(
+    Rest*..., decltype(sizeof(Tail))) {
+    return 13;
+}
+
 int main() {
     int value = 3;
     int* pointer = &value;
@@ -340,5 +346,7 @@ int main() {
                IncomparableClassPointerPackBox<int*, short*>{}) +
            select_nontrailing_function_pack_too_many(value, value + 1) +
            select_nontrailing_pointer_function_pack<int, short>(
-               pointer, pointer, value + 1);
+               pointer, pointer, value + 1) +
+           select_nontrailing_pointer_pack_nondeduced_suffix_without_default<
+               int, short>(pointer, pointer, 2u);
 }

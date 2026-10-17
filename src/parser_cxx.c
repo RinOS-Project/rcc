@@ -28404,6 +28404,40 @@ static bool prepare_cxx_function_template_match(
                 }
             }
         }
+        /* A non-final template parameter pack consumes the explicit
+         * arguments at its position. Later parameters are first deduced from
+         * the function arguments above; only after that deduction may their
+         * defaults fill non-deduced parameters. */
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->is_pack) continue;
+            if (parameter->kind == TPARAM_NONTYPE) {
+                if (!match->value_present[index] &&
+                    parameter->has_default && parameter->default_context) {
+                    parameter->default_context->pending_pack_count =
+                        tmpl->pending_pack_count;
+                }
+                if (!match->value_present[index] &&
+                    parameter->has_default && parameter->default_value &&
+                    eval_template_integer_expression(
+                        parameter->default_value,
+                        parameter->default_context
+                            ? parameter->default_context : tmpl,
+                        match->values, match->value_present,
+                        &match->values[index])) {
+                    match->value_present[index] = true;
+                }
+                if (!match->value_present[index]) return false;
+                match->arguments[index] = parameter->type;
+            } else if (!match->arguments[index] &&
+                       parameter->has_default && parameter->default_type) {
+                match->arguments[index] = substitute_template_type(
+                    tmpl, parameter->default_type, match->arguments,
+                    tmpl->param_count, match->values,
+                    match->value_present);
+            }
+            if (!match->arguments[index]) return false;
+        }
     } else {
         Type** saved_pending_pack_args = tmpl->pending_pack_args;
         bool* saved_pending_pack_expansions =

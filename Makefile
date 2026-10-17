@@ -3297,6 +3297,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "no matching function template overload for 'select_nontrailing_pointer_function_pack'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(GREP) -q "no matching function template overload for 'select_nontrailing_pointer_pack_nondeduced_suffix_without_default'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "ambiguous function template overload for 'select_incomparable_reference_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "ambiguous function template overload for 'select_by_value_or_const_reference'" \
@@ -3346,6 +3348,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "no matching function template overload for 'select_nontrailing_pointer_function_pack'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(GREP) -q "no matching function template overload for 'select_nontrailing_pointer_pack_nondeduced_suffix_without_default'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "ambiguous function template overload for 'select_incomparable_reference_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "ambiguous function template overload for 'select_by_value_or_const_reference'" \
@@ -3386,6 +3390,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(GREP) -q "select_nontrailing_function_pack_too_many" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -q "select_nontrailing_pointer_function_pack" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
+	$(GREP) -q "select_nontrailing_pointer_pack_nondeduced_suffix_without_default" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -q "select_incomparable_reference_template" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
@@ -4558,6 +4564,7 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_class_pointer_pack_expansion'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(call CHECK_COUNT,ambiguous function template overload for 'select_incomparable_class_compound_pointer_pack',$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log,2)
 	$(GREP) -F -q "no matching function template overload for 'select_nontrailing_function_pack_too_many'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(GREP) -F -q "no matching function template overload for 'select_nontrailing_pointer_pack_nondeduced_suffix_without_default'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_reference_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_const_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_lvalue_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
@@ -4576,6 +4583,7 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_class_pointer_pack_expansion'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(call CHECK_COUNT,ambiguous function template overload for 'select_incomparable_class_compound_pointer_pack',$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log,2)
 	$(GREP) -F -q "no matching function template overload for 'select_nontrailing_function_pack_too_many'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(GREP) -F -q "no matching function template overload for 'select_nontrailing_pointer_pack_nondeduced_suffix_without_default'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_incomparable_reference_template'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_const_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -F -q "ambiguous function template overload for 'select_by_value_or_lvalue_reference'" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
@@ -4591,6 +4599,7 @@ test-cxx-function-template-overloads: $(RCXX_TARGET) test-cxx-array-function-boo
 	$(GREP) -F -q "select_incomparable_class_pointer_pack_expansion" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(call CHECK_COUNT,call of overloaded 'select_incomparable_class_compound_pointer_pack,$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log,2)
 	$(GREP) -F -q "select_nontrailing_function_pack_too_many" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
+	$(GREP) -F -q "select_nontrailing_pointer_pack_nondeduced_suffix_without_default" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -F -q "select_incomparable_reference_template" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -F -q "select_by_value_or_const_reference" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -F -q "select_by_value_or_lvalue_reference" $(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log

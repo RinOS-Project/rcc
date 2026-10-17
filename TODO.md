@@ -5659,3 +5659,17 @@ remains a separate open item.
 - [x] Run `mingw32-make SHELL=cmd.exe test-optimize` locally on native Windows;
       all compile, diagnostic, object-inspection, and execution checks pass.
 - [ ] Record a successful hosted GitHub Actions run after this workflow change.
+
+## RCC continuation (2026-10-17, defaults after explicit non-final packs)
+
+- [x] After function-argument deduction processes trailing non-pack parameters
+      following an explicitly supplied non-final template parameter pack, apply
+      defaults to parameters that remain non-deduced. Keep required parameters
+      without defaults non-viable.
+- [x] Compare the positive non-deduced `decltype(sizeof(Tail))` suffix with a
+      default and the corresponding no-default rejection against GCC C++20.
+      Native-Windows `test-cxx-function-template-overloads` passes with i686/
+      AMD64 generation and runtime execution; both target diagnostics and absent
+      `.ro` output are checked for the negative case.
+- [ ] Other function-pack shapes, deduction sources, default-dependency
+      interactions, and broader C++20 partial-ordering gaps remain open.
