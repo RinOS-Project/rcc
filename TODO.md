@@ -5837,7 +5837,12 @@ remains a separate open item.
       default, then evaluate its specialization after the outer value is known.
       GCC C++20 and native-Windows `test-cxx-function-template-overloads`
       agree; i686/AMD64 generation, RCC/GCC execution, and diagnostics pass.
-- [ ] Function-template overload resolution, ADL/using-lookup call-bearing
+- [x] Resolve a constrained versus unconstrained constexpr function-template
+      overload inside a dependent nested template-template default, using the
+      outer non-type argument's declared type. GCC C++20 and the complete
+      native-Windows `test-cxx-function-template-overloads` gate agree across
+      i686/AMD64 generation, RCC/GCC execution, and diagnostics.
+- [ ] Broader function-template overload sets, ADL/using-lookup call-bearing
       defaults, other compound outer non-type forms, deeper paths through
       dependent intermediate aliases, and additional C++20 function
       partial-ordering cases remain open.

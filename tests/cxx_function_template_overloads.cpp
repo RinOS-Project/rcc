@@ -1669,6 +1669,22 @@ constexpr int pack_order_constexpr_template_default_value(T value) {
 }
 
 template<typename T>
+concept PackOrderConstexprDefaultInt = sizeof(T) == sizeof(int);
+
+template<typename T>
+constexpr int pack_order_overloaded_constexpr_template_default_value(
+    T value) {
+    return 3 * value + 4;
+}
+
+template<typename T>
+    requires PackOrderConstexprDefaultInt<T>
+constexpr int pack_order_overloaded_constexpr_template_default_value(
+    T value) {
+    return 3 * value + 2;
+}
+
+template<typename T>
 struct PackOrderTemplateBox {};
 
 template<typename T, typename U = void>
@@ -1904,6 +1920,23 @@ int choose_outer_non_type_constexpr_template_call_default_template_template_orde
     Box<T, pack_order_constexpr_template_default_value(N)>,
     T (&values)[N]) {
     return values[0].value == 3 ? 197 : 198;
+}
+
+template<int N, typename T,
+         template<typename,
+                  int = pack_order_overloaded_constexpr_template_default_value(N)> class Box>
+    requires PackOrderHasValueAndSize<T>
+int choose_outer_non_type_overloaded_constexpr_template_call_default_order(
+    Box<T>, T (&values)[N]) {
+    return values[0].value == 3 ? 199 : 200;
+}
+
+template<int N, typename T, template<typename, int> class Box>
+    requires PackOrderHasValue<T>
+int choose_outer_non_type_overloaded_constexpr_template_call_default_order(
+    Box<T, pack_order_overloaded_constexpr_template_default_value(N)>,
+    T (&values)[N]) {
+    return values[0].value == 3 ? 201 : 202;
 }
 
 template<typename T,
@@ -3876,6 +3909,10 @@ int main(void) {
                        PackOrderOuterNonTypeDefaultTemplateBox<
                            PackOrderConstrainedValue, 14>{},
                        constrained_values) == 195 &&
+                   choose_outer_non_type_overloaded_constexpr_template_call_default_order(
+                       PackOrderOuterNonTypeDefaultTemplateBox<
+                           PackOrderConstrainedValue, 14>{},
+                       constrained_values) == 199 &&
                    choose_nested_type_default_template_template_order(
                        PackOrderNestedTypeDefaultTemplateBox<
                            int, unsigned>{},
