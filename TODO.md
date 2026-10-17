@@ -1864,9 +1864,14 @@
         reference／member-pointerへ展開し、各要素の実型とmember-pointer ownerを
         i686/AMD64のDWARF parameter DIEで検証。GCC C++20とのItanium symbol一致も
         確認し、`test-debug-info`全体が成功
-  - [ ] non-integral structural non-type packs、function parameterの
-        pointer／reference／member-pointer以外のdependent pack expansion、および
-        未instantiateのdependent alias/template-definition DIEは引き続き未完
+  - [x] Function parameter packのdependent nested alias expansionについて、
+        by-value引数とfixed-bound array lvalue-reference引数を追加検証。
+        `short`／`long`の異なるalias型を持つ2 ownerでi686/AMD64のparameter
+        DWARF DIEとarray boundを検証し、GCC C++20とのItanium symbol一致および
+        `test-debug-info`全体の成功を確認
+  - [ ] その他のdependent function parameter pack expansion、non-integral
+        structural non-type packs、および未instantiateのdependent
+        alias/template-definition DIEは引き続き未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
         type/value argumentsを保持し、subprogram DIE配下へtemplate type／
         integral value parameter DIEを出力。i686/AMD64の`test-debug-info`で
@@ -5894,3 +5899,17 @@ remains a separate open item.
       common-ancestor arrangements. A three-level using-directive chain that
       collides with an enclosing direct type is rejected consistently with
       GCC C++20 on i686 and AMD64 by `test-cxx-namespace-extension`.
+
+## RCC continuation (2026-10-18, dependent function parameter pack shapes)
+
+- [x] Add C++20 coverage for dependent nested-alias function parameter packs
+      passed by value and by fixed-bound array lvalue reference. Use two owner
+      types whose aliases resolve to different scalar types (`short` and
+      `long`) to verify heterogeneous expansion on i686 and AMD64.
+- [x] Verify each instantiated formal-parameter DIE refers to its concrete
+      scalar type; for array references, verify the reference-to-array DIE,
+      element type, and upper bound. GCC and RCC Itanium symbols match exactly.
+- [x] Pass native-Windows MinGW GCC `test-debug-info` (exit 0).
+- [ ] Other dependent function parameter pack forms, non-integral structural
+      non-type packs, and uninstantiated dependent alias/template-definition
+      DIEs remain open.

@@ -4390,9 +4390,9 @@ static void verify_dependent_compound_function_type(
 static uint64_t function_template_children_start(
     const ObjSection* info, uint64_t function_die, uint64_t address_size);
 
-static void verify_dependent_compound_function_pack(
+static void verify_dependent_function_parameter_pack(
     const char* path, uint16_t architecture, const char* function_name,
-    uint8_t expected_type_tag)
+    uint8_t expected_type_tag, bool array_reference)
 {
     static const char* const owner_names[] = {
         "DebugTemplateCompoundPackShortOwner",
@@ -4456,13 +4456,32 @@ static void verify_dependent_compound_function_pack(
         expression_size = read_uleb(info->data, info->size, &cursor);
         assert(expression_size <= info->size - cursor);
         cursor += expression_size;
-        assert(parameter_type + 6u <= info->size &&
+        assert(parameter_type + 5u <= info->size &&
                info->data[parameter_type] == expected_type_tag);
         {
-            uint32_t base_type = expected_type_tag == 37u
-                ? read_u32(info->data, parameter_type + 1u)
-                : read_u32(info->data, parameter_type + 2u);
+            uint32_t base_type;
             uint32_t base_name;
+            if (array_reference) {
+                uint32_t array_type;
+                uint32_t subrange_type;
+                assert(expected_type_tag == 37u &&
+                       parameter_type + 5u <= info->size);
+                array_type = read_u32(info->data, parameter_type + 1u);
+                assert(array_type + 13u <= info->size &&
+                       info->data[array_type] == 10u);
+                base_type = read_u32(info->data, array_type + 1u);
+                subrange_type = array_type + 5u;
+                assert(info->data[subrange_type] == 11u &&
+                       read_u32(info->data, subrange_type + 1u) == 1u &&
+                       info->data[subrange_type + 5u] == 0u &&
+                       info->data[subrange_type + 6u] == 0u);
+            } else if (expected_type_tag == 5u) {
+                base_type = parameter_type;
+            } else if (expected_type_tag == 37u) {
+                base_type = read_u32(info->data, parameter_type + 1u);
+            } else {
+                base_type = read_u32(info->data, parameter_type + 2u);
+            }
             assert(base_type + 5u <= info->size &&
                    info->data[base_type] == 5u);
             base_name = read_u32(info->data, base_type + 1u);
@@ -5996,20 +6015,36 @@ int main(int argc, char** argv)
     verify_dependent_compound_function_type(
         argv[27], ARCH_X64, "debug_template_dependent_member_pointer_type",
         57u, true);
-    verify_dependent_compound_function_pack(
-        argv[26], ARCH_X86, "debug_template_dependent_pointer_pack", 6u);
-    verify_dependent_compound_function_pack(
-        argv[27], ARCH_X64, "debug_template_dependent_pointer_pack", 6u);
-    verify_dependent_compound_function_pack(
-        argv[26], ARCH_X86, "debug_template_dependent_reference_pack", 37u);
-    verify_dependent_compound_function_pack(
-        argv[27], ARCH_X64, "debug_template_dependent_reference_pack", 37u);
-    verify_dependent_compound_function_pack(
+    verify_dependent_function_parameter_pack(
+        argv[26], ARCH_X86, "debug_template_dependent_pointer_pack", 6u,
+        false);
+    verify_dependent_function_parameter_pack(
+        argv[27], ARCH_X64, "debug_template_dependent_pointer_pack", 6u,
+        false);
+    verify_dependent_function_parameter_pack(
+        argv[26], ARCH_X86, "debug_template_dependent_reference_pack", 37u,
+        false);
+    verify_dependent_function_parameter_pack(
+        argv[27], ARCH_X64, "debug_template_dependent_reference_pack", 37u,
+        false);
+    verify_dependent_function_parameter_pack(
         argv[26], ARCH_X86,
-        "debug_template_dependent_member_pointer_pack", 57u);
-    verify_dependent_compound_function_pack(
+        "debug_template_dependent_member_pointer_pack", 57u, false);
+    verify_dependent_function_parameter_pack(
         argv[27], ARCH_X64,
-        "debug_template_dependent_member_pointer_pack", 57u);
+        "debug_template_dependent_member_pointer_pack", 57u, false);
+    verify_dependent_function_parameter_pack(
+        argv[26], ARCH_X86, "debug_template_dependent_value_pack", 5u,
+        false);
+    verify_dependent_function_parameter_pack(
+        argv[27], ARCH_X64, "debug_template_dependent_value_pack", 5u,
+        false);
+    verify_dependent_function_parameter_pack(
+        argv[26], ARCH_X86,
+        "debug_template_dependent_array_reference_pack", 37u, true);
+    verify_dependent_function_parameter_pack(
+        argv[27], ARCH_X64,
+        "debug_template_dependent_array_reference_pack", 37u, true);
     verify_function_template_template_parameter_dies(argv[26], ARCH_X86);
     verify_function_template_template_parameter_dies(argv[27], ARCH_X64);
     verify_function_template_nontype_signature_die(argv[26], ARCH_X86);
