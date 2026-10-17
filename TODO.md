@@ -5673,3 +5673,20 @@ remains a separate open item.
       `.ro` output are checked for the negative case.
 - [ ] Other function-pack shapes, deduction sources, default-dependency
       interactions, and broader C++20 partial-ordering gaps remain open.
+
+## RCC continuation (2026-10-17, pack-dependent nested default types)
+
+- [x] Preserve `typename ClassTemplate<sizeof...(Pack)>::type` as a dependent
+      nested type until the template-id owner is substituted; do not resolve it
+      prematurely against the primary class definition.
+- [x] Substitute function-template type defaults with the active explicitly
+      supplied type/value pack arguments and per-pack offsets/counts. Resolve
+      full explicit class specializations after those arguments become concrete.
+- [x] Add GCC C++20 coverage for a non-final function-template pack whose
+      default type selects `char` for an empty pack and `short` for two elements.
+      Native-Windows `test-cxx-function-template-overloads` passes, including
+      i686/AMD64 generation, generated AMD64 execution, GCC host execution, and
+      the existing negative-diagnostic checks.
+- [ ] Partial-specialization selection in these dependent nested-type paths,
+      deeper nested paths, non-type conversion edge cases, and mixed/multiple
+      pack default interactions remain open.

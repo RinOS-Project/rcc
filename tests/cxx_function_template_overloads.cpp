@@ -417,6 +417,25 @@ int choose_nontrailing_pointer_pack_with_default_suffix(
            (int)suffix;
 }
 
+template<int Count>
+struct FunctionTemplatePackCountType {
+    using type = char;
+};
+
+template<>
+struct FunctionTemplatePackCountType<2> {
+    using type = short;
+};
+
+template<typename... Rest,
+         typename Tail = typename FunctionTemplatePackCountType<
+             sizeof...(Rest)>::type>
+int choose_nontrailing_pointer_pack_with_pack_dependent_default_suffix(
+    Rest*..., decltype(sizeof(Tail)) suffix) {
+    return (int)sizeof...(Rest) * 100 + (int)sizeof(Tail) * 10 +
+           (int)suffix;
+}
+
 template<int Value>
 struct FunctionTemplateValuePackTag {};
 
@@ -3192,6 +3211,10 @@ int main(void) {
                        int, short>(pointer, &priority, 7) == 9 &&
                    choose_nontrailing_pointer_pack_with_default_suffix<
                        int, short>(pointer, &priority, 2u) == 242 &&
+                   choose_nontrailing_pointer_pack_with_pack_dependent_default_suffix<
+                       int, short>(pointer, &priority, 2u) == 222 &&
+                   choose_nontrailing_pointer_pack_with_pack_dependent_default_suffix<>(
+                       2u) == 12 &&
                    choose_non_type_pack_partial_order(
                        FunctionTemplateValuePackTag<1>{}) == 171 &&
                    choose_non_type_pack_partial_order(
