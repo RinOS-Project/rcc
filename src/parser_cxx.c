@@ -25256,6 +25256,36 @@ static bool cxx_constraint_function_parameters_match(
     return !left_parameter && !right_parameter;
 }
 
+static bool cxx_constraint_template_parameters_match(
+    const CxxTemplate* left, const CxxTemplate* right) {
+    if (!left || !right || left->param_count != right->param_count) {
+        return false;
+    }
+    for (int index = 0; index < left->param_count; ++index) {
+        const TemplateParam* left_parameter = &left->params[index];
+        const TemplateParam* right_parameter = &right->params[index];
+        if (left_parameter->kind != right_parameter->kind ||
+            left_parameter->is_pack != right_parameter->is_pack) {
+            return false;
+        }
+        if (left_parameter->kind == TPARAM_NONTYPE) {
+            if (!cxx_template_type_parameter_mapping_matches(
+                    left_parameter->type, left,
+                    right_parameter->type, right)) {
+                return false;
+            }
+        } else if (left_parameter->kind == TPARAM_TEMPLATE) {
+            /* Compare the declared signature supported by the parser. */
+            if (!template_template_parameter_signatures_match(
+                    left_parameter->template_signature,
+                    right_parameter->template_signature, 0)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 /* Positive means left is more constrained; negative means right is. */
 static int cxx_template_constraint_relation(
     CxxTemplate* left, CxxTemplate* right, bool* comparable) {
@@ -25302,6 +25332,7 @@ static int cxx_template_constraint_relation(
 static int cxx_function_template_constraint_relation(
     CxxTemplate* left, CxxTemplate* right, bool* comparable) {
     if (!left || !right ||
+        !cxx_constraint_template_parameters_match(left, right) ||
         !cxx_constraint_function_parameters_match(left, right)) {
         if (comparable) *comparable = false;
         return 0;

@@ -100,6 +100,11 @@ template<typename T>
 concept EquivalentConstraintAtMostEight = sizeof(T) <= 8;
 
 template<typename T>
+concept EquivalentConstraintHasValueAndPositiveSize =
+    EquivalentConstraintHasValue<T> &&
+    EquivalentConstraintPositiveSize<T>;
+
+template<typename T>
 concept ConstraintMappedSize = sizeof(T) >= 1;
 
 template<typename T>
@@ -116,6 +121,42 @@ struct ConstraintMappedValueTag {};
 struct EquivalentConstraintArgument {
     int value;
 };
+
+template<typename T, int = 0>
+    requires EquivalentConstraintHasValueAndPositiveSize<T>
+int select_constraint_parameter_list_mismatch(T) {
+    return 15;
+}
+
+template<typename T>
+    requires EquivalentConstraintHasValue<T>
+int select_constraint_parameter_list_mismatch(T) {
+    return 16;
+}
+
+template<typename T, int = 0>
+    requires EquivalentConstraintHasValueAndPositiveSize<T>
+int select_constraint_parameter_kind_mismatch(T) {
+    return 17;
+}
+
+template<typename T, typename = void>
+    requires EquivalentConstraintHasValue<T>
+int select_constraint_parameter_kind_mismatch(T) {
+    return 18;
+}
+
+template<typename T, int = 0>
+    requires EquivalentConstraintHasValueAndPositiveSize<T>
+int select_constraint_parameter_type_mismatch(T) {
+    return 19;
+}
+
+template<typename T, unsigned = 0>
+    requires EquivalentConstraintHasValue<T>
+int select_constraint_parameter_type_mismatch(T) {
+    return 20;
+}
 
 template<typename T> requires EquivalentConstraintHasValue<T>
 int select_equivalent_constraints(T) {
@@ -319,6 +360,12 @@ int main() {
            select_by_value_or_volatile_pointer_reference(pointer) +
            select_incomparable_constraints(value) +
            select_equivalent_constraints(equivalent_constraint_argument) +
+           select_constraint_parameter_list_mismatch(
+               equivalent_constraint_argument) +
+           select_constraint_parameter_kind_mismatch(
+               equivalent_constraint_argument) +
+           select_constraint_parameter_type_mismatch(
+               equivalent_constraint_argument) +
            select_distributive_equivalent_constraints(
                equivalent_constraint_argument) +
            select_distinct_constraint_mappings(

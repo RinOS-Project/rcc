@@ -5757,3 +5757,16 @@ remains a separate open item.
       and AMD64 execution.
 - [ ] Constraint ordering across non-equivalent patterns, crossed constraints,
       and non-type/template-template pack patterns remain open.
+
+## RCC continuation (2026-10-17, function constraint-order parameter guards)
+
+- [x] Require corresponding function-template parameter lists before applying
+      constraint subsumption: check arity, parameter kind and packness, and
+      mapped non-type parameter types and parser-supported template-template
+      signatures, in addition to the function parameters.
+- [x] Regress more-constrained overloads whose template parameter lists differ
+      by arity, parameter kind, or non-type parameter type. GCC C++20 and
+      native-Windows `test-cxx-function-template-overloads` agree on ambiguity;
+      i686/AMD64 diagnostics and positive AMD64 overload execution pass.
+- [ ] Nested constrained template-template signature equivalence and remaining
+      C++20 function partial-ordering cases remain open.
