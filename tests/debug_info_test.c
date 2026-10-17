@@ -4300,6 +4300,7 @@ static void verify_large_file_table(const char* path,
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint64_t function_die;
     uint32_t file_index;
+    uint32_t scope_file_index = 0u;
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     strings = objfile_get_section(object, ".debug_str");
@@ -4313,6 +4314,33 @@ static void verify_large_file_table(const char* path,
                           function_die + 1u + 4u + address_size + 4u);
     assert(file_index > 255u);
     assert(line_table_file_matches(line, file_index, expected_file));
+    assert(find_lexical_block_local(
+        info, strings, "debug_info_large_file_local", address_size));
+    for (uint64_t offset = 11u; offset + 17u <= info->size; ++offset) {
+        bool ranged = info->data[offset] == 25u;
+        uint64_t range_offset;
+        uint64_t file_offset;
+        uint64_t child_offset;
+        uint32_t name_offset;
+        if (!ranged && info->data[offset] != 24u) continue;
+        range_offset = ranged ? offset + 1u : offset + 1u + address_size;
+        file_offset = range_offset + 4u;
+        child_offset = file_offset + 12u;
+        if (child_offset + 5u > info->size ||
+            (info->data[child_offset] != 4u &&
+             info->data[child_offset] != 39u)) {
+            continue;
+        }
+        name_offset = read_u32(info->data, child_offset + 1u);
+        if (name_offset < strings->size &&
+            strcmp((const char*)strings->data + name_offset,
+                   "debug_info_large_file_local") == 0) {
+            scope_file_index = read_u32(info->data, file_offset);
+            break;
+        }
+    }
+    assert(scope_file_index > 255u);
+    assert(line_table_file_matches(line, scope_file_index, expected_file));
     objfile_free(object);
 }
 

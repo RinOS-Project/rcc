@@ -13,10 +13,20 @@ def main() -> int:
     with output.open("w", encoding="utf-8", newline="\n") as source:
         for index in range(260):
             source.write(f'#line 1 "debug_info_file_{index:03}.c"\n')
-            source.write(
-                f"int debug_info_large_file_{index}(void) "
-                f"{{ return {index}; }}\n"
-            )
+            if index == 259:
+                source.write(
+                    "int debug_info_large_file_259(void) {\n"
+                    "    {\n"
+                    "        volatile int debug_info_large_file_local = 259;\n"
+                    "        return debug_info_large_file_local;\n"
+                    "    }\n"
+                    "}\n"
+                )
+            else:
+                source.write(
+                    f"int debug_info_large_file_{index}(void) "
+                    f"{{ return {index}; }}\n"
+                )
     return 0
 
 
