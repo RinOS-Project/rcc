@@ -1857,8 +1857,10 @@
         reference／member-pointer型を両architectureで解決し、owner名をASTへ安定保持。
         2段のdependent alias pathとmember-pointer引数も含め、GCC C++20とItanium
         symbolを照合し、i686/AMD64生成とgenerated x64実行を検証
-  - [ ] Pointer／reference／member-pointer等のcompound dependent declared type、
-        non-integral structural non-type packs、他形式のdependent pack expansion、
+  - [x] Function-template return／parameterのpointer／reference／member-pointer
+        compound dependent declared typeをi686/AMD64のDWARF DIEで検証。
+        `test-debug-info`全体が成功
+  - [ ] non-integral structural non-type packs、他形式のdependent pack expansion、
         未instantiateのdependent alias/template-definition DIEは引き続き未完
   - [x] Concrete C++ function-template instancesにtemplate ownerと実体化済みの
         type/value argumentsを保持し、subprogram DIE配下へtemplate type／

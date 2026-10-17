@@ -42,6 +42,45 @@ struct DebugTemplateNestedValueOwner {
     using value_type = short;
 };
 
+struct DebugTemplateCompoundTypeOwner {
+    using value_type = short;
+    short member;
+};
+
+template <typename Owner>
+typename Owner::value_type* debug_template_dependent_pointer_type(
+    typename Owner::value_type* value) {
+    return value;
+}
+
+template <typename Owner>
+typename Owner::value_type& debug_template_dependent_reference_type(
+    typename Owner::value_type& value) {
+    return value;
+}
+
+template <typename Owner>
+typename Owner::value_type Owner::*
+debug_template_dependent_member_pointer_type(
+    typename Owner::value_type Owner::* value) {
+    return value;
+}
+
+int debug_template_dependent_compound_type_entry() {
+    DebugTemplateCompoundTypeOwner owner{11};
+    short value = 7;
+    short* pointer = debug_template_dependent_pointer_type<
+        DebugTemplateCompoundTypeOwner>(&value);
+    short& reference = debug_template_dependent_reference_type<
+        DebugTemplateCompoundTypeOwner>(value);
+    short DebugTemplateCompoundTypeOwner::* member =
+        debug_template_dependent_member_pointer_type<
+            DebugTemplateCompoundTypeOwner>(
+                &DebugTemplateCompoundTypeOwner::member);
+    return pointer == &value && &reference == &value &&
+           owner.*member == 11;
+}
+
 struct DebugTemplateCompoundNestedValueLeaf {
     using nested_type = short;
 };

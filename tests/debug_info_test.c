@@ -4289,6 +4289,104 @@ static uint64_t find_function_die(const ObjSection* info,
     return UINT64_MAX;
 }
 
+static void verify_dependent_compound_type_die(
+    const ObjSection* info, const ObjSection* strings, uint32_t type_die,
+    uint8_t expected_type_tag, bool member_pointer)
+{
+    uint32_t base_type;
+    assert(type_die + 2u <= info->size &&
+           info->data[type_die] == expected_type_tag);
+    if (expected_type_tag == 6u) {
+        base_type = read_u32(info->data, type_die + 2u);
+    } else if (expected_type_tag == 37u) {
+        base_type = read_u32(info->data, type_die + 1u);
+    } else {
+        uint32_t owner_type;
+        uint32_t owner_name;
+        assert(member_pointer && expected_type_tag == 57u &&
+               type_die + 10u <= info->size);
+        base_type = read_u32(info->data, type_die + 2u);
+        owner_type = read_u32(info->data, type_die + 6u);
+        assert(owner_type + 5u <= info->size &&
+               info->data[owner_type] == 12u);
+        owner_name = read_u32(info->data, owner_type + 1u);
+        assert(owner_name < strings->size &&
+               strcmp((const char*)strings->data + owner_name,
+                      "DebugTemplateCompoundTypeOwner") == 0);
+    }
+    assert(base_type + 6u <= info->size && info->data[base_type] == 5u);
+    {
+        uint32_t base_name = read_u32(info->data, base_type + 1u);
+        assert(base_name < strings->size &&
+               strcmp((const char*)strings->data + base_name, "short") == 0);
+    }
+}
+
+static void verify_dependent_compound_function_type(
+    const char* path, uint16_t architecture, const char* function_name,
+    uint8_t expected_type_tag, bool member_pointer)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t function_die;
+    uint64_t cursor;
+    uint64_t expression_size;
+    uint32_t result_type;
+    uint32_t parameter_type = UINT32_MAX;
+    bool found_parameter = false;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    assert(info != NULL && strings != NULL);
+    function_die = find_function_die(info, strings, function_name,
+                                     address_size);
+    assert(function_die != UINT64_MAX);
+    result_type = read_u32(info->data,
+                           function_die + 23u + address_size);
+    verify_dependent_compound_type_die(
+        info, strings, result_type, expected_type_tag, member_pointer);
+    cursor = function_die + 27u + address_size;
+    expression_size = read_uleb(info->data, info->size, &cursor);
+    assert(expression_size <= info->size - cursor);
+    cursor += expression_size + 2u; /* frame base, inline, prototype */
+    while (cursor < info->size && info->data[cursor] != 0u) {
+        uint8_t abbreviation = info->data[cursor];
+        if (abbreviation == 47u) {
+            assert(cursor + 9u <= info->size);
+            cursor += 9u; /* instantiated function-template type parameter */
+        } else if (abbreviation == 3u) {
+            uint32_t parameter_name;
+            uint32_t child_type;
+            uint64_t parameter_start = cursor;
+            cursor += 1u;
+            assert(cursor + 20u <= info->size);
+            parameter_name = read_u32(info->data, cursor);
+            child_type = read_u32(info->data, cursor + 4u);
+            cursor += 20u; /* name, type, file, line, and column */
+            expression_size = read_uleb(info->data, info->size, &cursor);
+            assert(expression_size <= info->size - cursor);
+            cursor += expression_size;
+            if (parameter_name < strings->size &&
+                strcmp((const char*)strings->data + parameter_name,
+                       "value") == 0) {
+                verify_dependent_compound_type_die(
+                    info, strings, child_type, expected_type_tag,
+                    member_pointer);
+                parameter_type = child_type;
+                found_parameter = true;
+                break;
+            }
+            assert(cursor > parameter_start);
+        } else {
+            assert(0 && "unexpected child in dependent-type function DIE");
+        }
+    }
+    assert(found_parameter && parameter_type != UINT32_MAX);
+    objfile_free(object);
+}
+
 static void verify_function_template_parameter_dies(
     const char* path, uint16_t architecture)
 {
@@ -5779,6 +5877,24 @@ int main(int argc, char** argv)
         argv[27], ARCH_X64, "DebugTemplateEmptyNonTypePack.");
     verify_function_template_parameter_dies(argv[26], ARCH_X86);
     verify_function_template_parameter_dies(argv[27], ARCH_X64);
+    verify_dependent_compound_function_type(
+        argv[26], ARCH_X86, "debug_template_dependent_pointer_type", 6u,
+        false);
+    verify_dependent_compound_function_type(
+        argv[27], ARCH_X64, "debug_template_dependent_pointer_type", 6u,
+        false);
+    verify_dependent_compound_function_type(
+        argv[26], ARCH_X86, "debug_template_dependent_reference_type", 37u,
+        false);
+    verify_dependent_compound_function_type(
+        argv[27], ARCH_X64, "debug_template_dependent_reference_type", 37u,
+        false);
+    verify_dependent_compound_function_type(
+        argv[26], ARCH_X86, "debug_template_dependent_member_pointer_type",
+        57u, true);
+    verify_dependent_compound_function_type(
+        argv[27], ARCH_X64, "debug_template_dependent_member_pointer_type",
+        57u, true);
     verify_function_template_template_parameter_dies(argv[26], ARCH_X86);
     verify_function_template_template_parameter_dies(argv[27], ARCH_X64);
     verify_function_template_nontype_signature_die(argv[26], ARCH_X86);
