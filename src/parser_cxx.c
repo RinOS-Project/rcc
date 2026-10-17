@@ -19710,6 +19710,50 @@ static bool cxx_function_template_class_template_template_argument_deduce(
     return true;
 }
 
+static bool cxx_function_template_dependent_nested_type_deduce(
+    CxxTemplate* function_template, Type* pattern_type, Type* actual_type,
+    Type** deduced_arguments, int* specificity) {
+    int owner_parameter_index;
+    Type* owner_type;
+    Type* nested_type = NULL;
+    CxxClass* owner_class;
+    CxxClass* access_context;
+    bool ambiguous = false;
+    bool accessible = false;
+    if (!function_template || !pattern_type || !actual_type ||
+        !pattern_type->cxx_dependent_member_name) {
+        return false;
+    }
+    owner_parameter_index = pattern_type->cxx_template_param_index;
+    if (owner_parameter_index < 0 ||
+        owner_parameter_index >= function_template->param_count ||
+        !deduced_arguments ||
+        !(owner_type = deduced_arguments[owner_parameter_index])) {
+        /* A dependent nested-name-specifier is a non-deduced context. A
+         * different function parameter may still provide its owner. */
+        return true;
+    }
+    if (owner_type->cxx_dependent) return true;
+    owner_class = owner_type->cxx_class;
+    if (!owner_class && owner_type->tag &&
+        (owner_type->kind == TYPE_STRUCT || owner_type->kind == TYPE_UNION)) {
+        owner_class = find_class(owner_type->tag);
+    }
+    if (!owner_class) return false;
+    access_context = function_template->active_class_instance
+        ? function_template->active_class_instance
+        : function_template->templated_class;
+    if (!cxx_class_resolve_nested_type_path(
+            owner_class, pattern_type->cxx_dependent_member_name,
+            access_context, &nested_type, &ambiguous, &accessible) ||
+        !nested_type || !type_is_same_template_argument(nested_type,
+                                                        actual_type)) {
+        return false;
+    }
+    if (specificity) ++*specificity;
+    return true;
+}
+
 static bool deduce_function_template_type_with_pack(
     CxxTemplate* tmpl, Type* pattern, Type* actual, Type** arguments,
     int64_t* values, bool* value_present, int* specificity,
@@ -19722,6 +19766,10 @@ static bool deduce_function_template_type_with_pack(
         !(pattern->kind == TYPE_PTR && pattern->is_reference)) {
         actual = actual->base;
         if (!actual) return false;
+    }
+    if (pattern->cxx_dependent && pattern->cxx_dependent_member_name) {
+        return cxx_function_template_dependent_nested_type_deduce(
+            tmpl, pattern, actual, arguments, specificity);
     }
     if (pattern->kind == TYPE_STRUCT && pattern->cxx_dependent &&
         pattern->cxx_template_param_index >= 0 &&

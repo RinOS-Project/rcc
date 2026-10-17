@@ -1670,6 +1670,14 @@ struct PackOrderTemplateDefaultTemplateBox {};
 template<typename T, int N>
 struct PackOrderOuterNonTypeDefaultTemplateBox {};
 
+struct PackOrderNestedTypeDefaultValue {
+    using value_type = unsigned;
+    int value;
+};
+
+template<typename T, typename U = typename T::value_type>
+struct PackOrderNestedTypeDefaultTemplateBox {};
+
 struct PackOrderConstrainedValue {
     int value;
 };
@@ -1800,6 +1808,20 @@ template<int N, typename T, template<typename, int> class Box>
 int choose_outer_non_type_arithmetic_default_template_template_order(
     Box<T, 2 * N + 1>, T (&values)[N]) {
     return values[0].value == 3 ? 173 : 174;
+}
+
+template<typename T,
+         template<typename, typename = typename T::value_type> class Box>
+    requires PackOrderHasValueAndSize<T>
+int choose_nested_type_default_template_template_order(Box<int>, T value) {
+    return value.value == 7 ? 175 : 176;
+}
+
+template<typename T, template<typename, typename> class Box>
+    requires PackOrderHasValue<T>
+int choose_nested_type_default_template_template_order(
+    Box<int, typename T::value_type>, T value) {
+    return value.value == 7 ? 177 : 178;
 }
 
 template<typename T>
@@ -2909,6 +2931,7 @@ int main(void) {
     PackOrderConstrainedValue constrained_values[4] = {
         { 3 }, { 0 }, { 0 }, { 0 }
     };
+    PackOrderNestedTypeDefaultValue nested_type_default_value = { 7 };
     ConversionPointerTrailingSequence conversion_pointer{&value};
     int** pointer_to_pointer = &pointer;
     int array_value[1] = { value };
@@ -3722,6 +3745,10 @@ int main(void) {
                        PackOrderOuterNonTypeDefaultTemplateBox<
                            PackOrderConstrainedValue, 9>{},
                        constrained_values) == 171 &&
+                   choose_nested_type_default_template_template_order(
+                       PackOrderNestedTypeDefaultTemplateBox<
+                           int, unsigned>{},
+                       nested_type_default_value) == 175 &&
                    choose_constraint_disjunction_partial_order(
                        constrained_value) == 152 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&
