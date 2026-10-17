@@ -4093,10 +4093,13 @@ test-cxx-friend-requires-forms-posix: $(RCXX_TARGET)
 
 test-cxx-named-concepts-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concept-defaults)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/nested)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/ordering)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/non-type-ordering)
 	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_named_concepts.cpp
+	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_named_concept_defaults.cpp
+	$(call CXX_POSIX_ENTRY_TEST,cxx-named-concept-defaults,cxx_named_concept_defaults.cpp)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-named-concepts/x86.s \
 		tests/cxx_named_concepts.cpp
@@ -5028,10 +5031,13 @@ test-cxx-friend-requires-forms: $(RCXX_TARGET)
 
 test-cxx-named-concepts: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concept-defaults)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/nested)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/ordering)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/non-type-ordering)
 	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_named_concepts.cpp
+	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_named_concept_defaults.cpp
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-named-concept-defaults,cxx_named_concept_defaults.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-named-concepts,cxx_named_concepts.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-named-concepts/nested,cxx_nested_concept_requirement.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-named-concepts/ordering,cxx_concept_ordering.cpp)

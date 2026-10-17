@@ -4694,6 +4694,33 @@ static bool cxx_name_has_suffix(const char* name, const char* suffix) {
             name[name_length - suffix_length - 1u] == ':');
 }
 
+/* Named concepts currently share the fixed-arity evaluator used by ordinary
+ * template parameters.  A missing suffix is still standard C++ when every
+ * omitted parameter has a supported default; the evaluator materializes that
+ * suffix before checking the concept expression. */
+static bool cxx_concept_missing_arguments_have_defaults(
+    const CxxTemplate* concept, int first_missing) {
+    if (!concept || first_missing < 0 ||
+        first_missing > concept->param_count) {
+        return false;
+    }
+    for (int index = first_missing; index < concept->param_count; ++index) {
+        const TemplateParam* parameter = &concept->params[index];
+        if (parameter->is_pack || !parameter->has_default) return false;
+        if (parameter->kind == TPARAM_TYPE) {
+            if (!parameter->default_type) return false;
+        } else if (parameter->kind == TPARAM_NONTYPE) {
+            if (!parameter->type || !type_is_integer(parameter->type) ||
+                !parameter->default_value) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* Recognize standard type constraints and named concepts in a compound
  * requirement. Bare types remain accepted as an exact-type extension for
  * freestanding RinOS code; unknown constraint names are diagnosed instead
@@ -4714,13 +4741,15 @@ static Type* parse_cxx_requires_return_constraint(
             const char* name = parse_qualified_name();
             CxxTemplate* concept = find_concept(name);
             if (concept) {
-                if (concept->param_count != 1 ||
+                if (concept->param_count < 1 || concept->param_count > 32 ||
                     concept->params[0].kind != TPARAM_TYPE ||
                     concept->params[0].is_pack ||
-                    concept->params[0].has_default) {
+                    !cxx_concept_missing_arguments_have_defaults(
+                        concept, 1)) {
                     rcc_error(saved_cur->loc,
                               "bare requires-expression return concept must "
-                              "have one required type parameter");
+                              "have a leading type parameter and only "
+                              "defaulted supported trailing parameters");
                     return NULL;
                 }
                 /* The first type argument is supplied from decltype((E))
@@ -4818,11 +4847,13 @@ static Type* parse_cxx_requires_return_constraint(
             ++explicit_count;
         }
         expect(TOK_GT, "> after requires-expression return concept");
-        if (explicit_count != expected_count) {
+        if (explicit_count < expected_count &&
+            !cxx_concept_missing_arguments_have_defaults(
+                concept, explicit_count + 1)) {
             rcc_error(previous()->loc,
-                      "requires-expression return concept '%s' expects %d "
-                      "explicit argument(s), got %d",
-                      constraint_name, expected_count, explicit_count);
+                      "requires-expression return concept '%s' omits "
+                      "required trailing arguments",
+                      constraint_name);
         }
         *return_concept = concept;
         *return_concept_arguments = explicit_arguments;
@@ -10629,13 +10660,16 @@ static DeclList* parse_cxx_parameter_declarations(bool* is_variadic) {
                     rcc_error(loc,
                               "constrained abbreviated function parameter "
                               "requires a known named concept");
-                } else if (concept->param_count != 1 ||
+                } else if (concept->param_count < 1 ||
+                           concept->param_count > 32 ||
                            concept->params[0].kind != TPARAM_TYPE ||
                            concept->params[0].is_pack ||
-                           concept->params[0].has_default) {
+                           !cxx_concept_missing_arguments_have_defaults(
+                               concept, 1)) {
                     rcc_error(loc,
                               "constrained abbreviated function parameter "
-                              "requires a single type-parameter concept");
+                              "requires a leading type parameter and only "
+                              "defaulted supported trailing concept parameters");
                     concept = NULL;
                 }
             }
@@ -11928,13 +11962,16 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                     rcc_error(loc,
                               "constrained type template parameter requires a "
                               "known named concept");
-                } else if (concept->param_count != 1 ||
+                } else if (concept->param_count < 1 ||
+                           concept->param_count > 32 ||
                            concept->params[0].kind != TPARAM_TYPE ||
                            concept->params[0].is_pack ||
-                           concept->params[0].has_default) {
+                           !cxx_concept_missing_arguments_have_defaults(
+                               concept, 1)) {
                     rcc_error(loc,
                               "constrained type template parameter requires a "
-                              "single type-parameter concept");
+                              "leading type parameter and only defaulted "
+                              "supported trailing concept parameters");
                 } else {
                     concept_call = expr_call(
                         expr_ident(concept_name, loc), concept_arguments, loc);
@@ -12041,8 +12078,7 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
     expect(TOK_GT, ">");
 
     /* Keep named concepts bounded, but preserve real type parameters so a
-     * requires-expression can be substituted and semantically checked.  Packs
-     * and defaults remain outside this compiler's finite template ABI. */
+     * requires-expression can be substituted and semantically checked. */
     if (match(TOK_CONCEPT)) {
         Token* concept_name = expect(TOK_IDENT, "concept name");
         tmpl->kind = TMPL_FUNCTION;
@@ -12054,10 +12090,17 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                 rcc_error(loc,
                           "RCC++ named concepts require named parameters");
             }
-            if (parameter->is_pack || parameter->has_default) {
+            if (parameter->is_pack) {
                 rcc_error(loc,
-                          "RCC++ named concepts do not support parameter packs "
-                          "or defaults");
+                          "RCC++ named concepts do not support parameter packs");
+            }
+            if (parameter->has_default &&
+                ((parameter->kind == TPARAM_TYPE &&
+                  !parameter->default_type) ||
+                 (parameter->kind == TPARAM_NONTYPE &&
+                  !parameter->default_value))) {
+                rcc_error(loc,
+                          "RCC++ named concept default argument is incomplete");
             }
             if (parameter->kind == TPARAM_TEMPLATE) {
                 rcc_error(loc,
@@ -13344,10 +13387,14 @@ Expr* rcc_parse_cxx_concept_expression(void) {
         } while (match(TOK_COMMA));
     }
     expect(TOK_GT, ">");
-    if (argument_count != concept->param_count) {
+    if (argument_count > concept->param_count ||
+        (argument_count < concept->param_count &&
+         !cxx_concept_missing_arguments_have_defaults(
+             concept, argument_count))) {
         rcc_error(loc,
-                  "named concept '%s' expects %d argument(s), got %d",
-                  name, concept->param_count, argument_count);
+                  "named concept '%s' omits required trailing arguments or "
+                  "has too many arguments",
+                  name);
     }
     {
         Expr* call = expr_call(expr_ident(name, loc), arguments, loc);
@@ -20609,25 +20656,64 @@ static bool eval_template_integer_expression(Expr* expression,
         int64_t concept_values[32] = { 0 };
         bool concept_value_present[32] = { false };
         ExprList* argument = expression->call_args;
-        if (!concept->is_concept || concept->param_count > 32 ||
+        if (!concept->is_concept || concept->param_count < 0 ||
+            concept->param_count > 32 ||
             !concept->constraint) return false;
         for (int index = 0; index < concept->param_count; ++index) {
             TemplateParam* parameter = &concept->params[index];
-            if (!argument) return false;
-            if (parameter->kind == TPARAM_TYPE) {
-                if (!argument->expr || !argument->expr->type) return false;
-                concept_types[index] = argument->expr->type;
-            } else if (parameter->kind == TPARAM_NONTYPE) {
+            if (argument) {
+                if (!argument->expr) return false;
+                if (parameter->kind == TPARAM_TYPE) {
+                    if (!argument->expr->type) return false;
+                    concept_types[index] = argument->expr->type;
+                } else if (parameter->kind == TPARAM_NONTYPE) {
+                    if (!eval_template_integer_expression(
+                            argument->expr, tmpl, values, value_present,
+                            &concept_values[index])) {
+                        return false;
+                    }
+                    concept_value_present[index] = true;
+                    concept_types[index] = substitute_template_type(
+                        concept, parameter->type, concept_types,
+                        concept->param_count, concept_values,
+                        concept_value_present);
+                } else {
+                    return false;
+                }
+                argument = argument->next;
+            } else if (parameter->has_default &&
+                       parameter->kind == TPARAM_TYPE &&
+                       parameter->default_type) {
+                concept_types[index] = substitute_template_type(
+                    concept, parameter->default_type, concept_types,
+                    concept->param_count, concept_values,
+                    concept_value_present);
+            } else if (parameter->has_default &&
+                       parameter->kind == TPARAM_NONTYPE &&
+                       parameter->default_value && parameter->type) {
+                Expr* default_value = cxx_template_clone_expr_with_values(
+                    concept, parameter->default_value, concept_types,
+                    concept->param_count, concept_values,
+                    concept_value_present);
                 if (!eval_template_integer_expression(
-                        argument->expr, tmpl, values, value_present,
+                        default_value, concept,
+                        concept_values, concept_value_present,
                         &concept_values[index])) {
                     return false;
                 }
                 concept_value_present[index] = true;
+                concept_types[index] = substitute_template_type(
+                    concept, parameter->type, concept_types,
+                    concept->param_count, concept_values,
+                    concept_value_present);
             } else {
                 return false;
             }
-            argument = argument->next;
+            if ((parameter->kind == TPARAM_TYPE ||
+                 parameter->kind == TPARAM_NONTYPE) &&
+                !concept_types[index]) {
+                return false;
+            }
         }
         if (argument || !concept->constraint) {
             return false;
@@ -24253,21 +24339,64 @@ static CxxConstraintNode* cxx_constraint_expand(
         }
         for (int index = 0; index < concept->param_count; ++index) {
             TemplateParam* parameter = &concept->params[index];
-            if (!argument || !argument->expr) return NULL;
-            if (parameter->kind == TPARAM_TYPE) {
-                arguments[index] = argument->expr->type;
+            if (argument) {
+                if (!argument->expr) return NULL;
+                if (parameter->kind == TPARAM_TYPE) {
+                    arguments[index] = argument->expr->type;
+                    if (!arguments[index]) return NULL;
+                    symbolic_arguments[index] = expr_int(
+                        0, argument->expr->loc);
+                    symbolic_arguments[index]->type = arguments[index];
+                } else if (parameter->kind == TPARAM_NONTYPE) {
+                    symbolic_arguments[index] = argument->expr;
+                    if (eval_template_integer_expression(
+                            argument->expr, parameter_context, NULL, NULL,
+                            &values[index])) {
+                        value_present[index] = true;
+                    }
+                    arguments[index] = substitute_template_type(
+                        concept, parameter->type, arguments,
+                        concept->param_count, values, value_present);
+                } else {
+                    return NULL;
+                }
+                argument = argument->next;
+            } else if (parameter->has_default &&
+                       parameter->kind == TPARAM_TYPE &&
+                       parameter->default_type) {
+                arguments[index] = substitute_template_type(
+                    concept, parameter->default_type, arguments,
+                    concept->param_count, values, value_present);
                 if (!arguments[index]) return NULL;
-            } else if (parameter->kind == TPARAM_NONTYPE) {
-                symbolic_arguments[index] = argument->expr;
+                symbolic_arguments[index] = expr_int(0, (SourceLoc){0});
+                symbolic_arguments[index]->type = arguments[index];
+            } else if (parameter->has_default &&
+                       parameter->kind == TPARAM_NONTYPE &&
+                       parameter->default_value && parameter->type) {
+                Expr* default_value = cxx_template_clone_expr_with_values(
+                    concept, parameter->default_value, arguments,
+                    concept->param_count, values, value_present);
+                if (!default_value) return NULL;
+                default_value = cxx_constraint_substitute_nontype_expression(
+                    default_value, concept, symbolic_arguments, NULL);
+                symbolic_arguments[index] = default_value;
                 if (eval_template_integer_expression(
-                        argument->expr, parameter_context, NULL, NULL,
+                        default_value, parameter_context, NULL, NULL,
                         &values[index])) {
                     value_present[index] = true;
                 }
+                arguments[index] = substitute_template_type(
+                    concept, parameter->type, arguments,
+                    concept->param_count, values, value_present);
+                if (!arguments[index]) return NULL;
             } else {
                 return NULL;
             }
-            argument = argument->next;
+            if ((parameter->kind == TPARAM_TYPE ||
+                 parameter->kind == TPARAM_NONTYPE) &&
+                !arguments[index]) {
+                return NULL;
+            }
         }
         if (argument) return NULL;
         instantiated = cxx_template_clone_expr_with_values(
