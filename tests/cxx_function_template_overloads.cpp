@@ -1667,6 +1667,9 @@ struct PackOrderNonTypeDefaultTemplateBox {};
 template<typename T, template<typename> class Box = PackOrderTemplateBox>
 struct PackOrderTemplateDefaultTemplateBox {};
 
+template<typename T, int N>
+struct PackOrderOuterNonTypeDefaultTemplateBox {};
+
 struct PackOrderConstrainedValue {
     int value;
 };
@@ -1757,6 +1760,18 @@ template<typename T,
 int choose_template_default_template_template_order(
     Box<T, PackOrderTemplateBox>) {
     return 164;
+}
+
+template<int N, typename T, template<typename, int = N> class Box>
+    requires PackOrderHasValueAndSize<T>
+int choose_outer_non_type_default_template_template_order(Box<T>) {
+    return 165;
+}
+
+template<int N, typename T, template<typename, int> class Box>
+    requires PackOrderHasValue<T>
+int choose_outer_non_type_default_template_template_order(Box<T, N>) {
+    return 166;
 }
 
 template<typename T>
@@ -3665,6 +3680,9 @@ int main(void) {
                    choose_template_default_template_template_order(
                        PackOrderTemplateDefaultTemplateBox<
                            PackOrderConstrainedValue>{}) == 163 &&
+                   choose_outer_non_type_default_template_template_order(
+                       PackOrderOuterNonTypeDefaultTemplateBox<
+                           PackOrderConstrainedValue, 4>{}) == 165 &&
                    choose_constraint_disjunction_partial_order(
                        constrained_value) == 152 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&

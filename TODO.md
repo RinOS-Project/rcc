@@ -5799,5 +5799,11 @@ remains a separate open item.
       against GCC C++20. Native-Windows
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation
       and RCC/GCC host execution.
-- [ ] Defaults depending on outer non-type parameters or nested member types,
-      and other C++20 function partial-ordering cases remain open.
+- [x] Deduce an outer non-type parameter from an omitted nested default that
+      names it (`template<typename, int = N>`); compare `Box<T>` against
+      explicit `Box<T, N>` overloads. GCC C++20 and the native-Windows
+      `test-cxx-function-template-overloads` agree on the more constrained
+      overload; i686/AMD64 generation and RCC/GCC host execution pass.
+- [ ] More complex defaults involving outer non-type expressions, nested
+      member types, and other C++20 function partial-ordering cases remain
+      open.
