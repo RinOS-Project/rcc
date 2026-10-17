@@ -130,6 +130,10 @@ static uint32_t parser_tag_identity_counter;
 static ParserEnumConstant* parser_enum_constants;
 static Type* parser_builtin_va_list_type;
 static int parser_pack_alignment;
+/* An aggregate's GNU packed attribute limits only its own members. Keep this
+ * separate from #pragma pack so a nested aggregate definition does not
+ * accidentally inherit the enclosing type's packed attribute. */
+static int parser_aggregate_pack_alignment;
 static int parser_pack_stack[32];
 static int parser_pack_depth;
 static bool parser_cxx_mode;
@@ -2549,6 +2553,15 @@ static int parser_align_up(int value, int alignment) {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
+static int parser_effective_pack_alignment(void) {
+    int alignment = parser_pack_alignment;
+    if (parser_aggregate_pack_alignment > 0 &&
+        (alignment == 0 || parser_aggregate_pack_alignment < alignment)) {
+        alignment = parser_aggregate_pack_alignment;
+    }
+    return alignment;
+}
+
 static int parse_explicit_alignment(void) {
     SourceLoc loc = peek()->loc;
     Type* alignment_type;
@@ -3006,8 +3019,11 @@ static void parser_append_field(Type* aggregate, const char* name, Type* type) {
     TypeField** tail = &aggregate->fields;
     int alignment = type && type->align > 0 ? type->align : 1;
     int size = type && type->size > 0 ? type->size : 0;
-    if (parser_pack_alignment > 0 && alignment > parser_pack_alignment) {
-        alignment = parser_pack_alignment;
+    {
+        int pack_alignment = parser_effective_pack_alignment();
+        if (pack_alignment > 0 && alignment > pack_alignment) {
+            alignment = pack_alignment;
+        }
     }
     field->name = name;
     field->type = type;
@@ -3091,9 +3107,11 @@ static void parser_append_bitfield(Type* aggregate,
         parser_reset_bitfield_layout(layout);
         if (aggregate->kind == TYPE_STRUCT) {
             alignment = type->align > 0 ? type->align : 1;
-            if (parser_pack_alignment > 0 &&
-                alignment > parser_pack_alignment) {
-                alignment = parser_pack_alignment;
+            {
+                int pack_alignment = parser_effective_pack_alignment();
+                if (pack_alignment > 0 && alignment > pack_alignment) {
+                    alignment = pack_alignment;
+                }
             }
             aggregate->size = parser_align_up(aggregate->size, alignment);
             if (alignment > aggregate->align) aggregate->align = alignment;
@@ -3102,8 +3120,11 @@ static void parser_append_bitfield(Type* aggregate,
     }
 
     alignment = type->align > 0 ? type->align : 1;
-    if (parser_pack_alignment > 0 && alignment > parser_pack_alignment) {
-        alignment = parser_pack_alignment;
+    {
+        int pack_alignment = parser_effective_pack_alignment();
+        if (pack_alignment > 0 && alignment > pack_alignment) {
+            alignment = pack_alignment;
+        }
     }
     if (aggregate->kind == TYPE_UNION) {
         parser_reset_bitfield_layout(layout);
@@ -3256,8 +3277,11 @@ static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
     TypeField** tail = &aggregate->fields;
     int alignment = anonymous && anonymous->align > 0 ? anonymous->align : 1;
     int size = anonymous && anonymous->size > 0 ? anonymous->size : 0;
-    if (parser_pack_alignment > 0 && alignment > parser_pack_alignment) {
-        alignment = parser_pack_alignment;
+    {
+        int pack_alignment = parser_effective_pack_alignment();
+        if (pack_alignment > 0 && alignment > pack_alignment) {
+            alignment = pack_alignment;
+        }
     }
     int base_offset = aggregate->kind == TYPE_UNION
         ? 0 : parser_align_up(aggregate->size, alignment);
@@ -3300,6 +3324,155 @@ static void parser_append_anonymous_fields(Type* aggregate, Type* anonymous) {
         aggregate->size = base_offset + size;
     }
     if (alignment > aggregate->align) aggregate->align = alignment;
+}
+
+typedef struct ParserAggregateAttributes {
+    bool packed;
+    int alignment;
+} ParserAggregateAttributes;
+
+static void parser_skip_attribute_arguments(void) {
+    int depth = 1;
+    while (!at_end() && depth > 0) {
+        if (match(TOK_LPAREN)) {
+            ++depth;
+        } else if (match(TOK_RPAREN)) {
+            --depth;
+        } else {
+            advance();
+        }
+    }
+}
+
+/* Parse GNU attributes attached to a struct/union specifier.  Attributes on
+ * the tag affect member layout, while an aligned attribute also changes the
+ * completed type's alignment and rounded size.  Unrelated attributes remain
+ * intentionally ignorable, as they are in skip_attributes(). */
+static void parser_parse_aggregate_attributes(
+    ParserAggregateAttributes* attributes) {
+    while (match(TOK___ATTRIBUTE__)) {
+        SourceLoc attribute_loc = previous()->loc;
+        if (!match(TOK_LPAREN)) continue;
+        if (!match(TOK_LPAREN)) {
+            parser_skip_attribute_arguments();
+            continue;
+        }
+        while (!check(TOK_RPAREN) && !at_end()) {
+            Token* name;
+            bool is_packed;
+            bool is_aligned;
+            if (match(TOK_COMMA)) continue;
+            if (!check(TOK_IDENT)) {
+                advance();
+                continue;
+            }
+            name = advance();
+            is_packed = strcmp(name->value.str_val, "packed") == 0 ||
+                        strcmp(name->value.str_val, "__packed__") == 0;
+            is_aligned = strcmp(name->value.str_val, "aligned") == 0 ||
+                         strcmp(name->value.str_val, "__aligned__") == 0;
+            if (match(TOK_LPAREN)) {
+                if (is_aligned) {
+                    Expr* alignment_expression = NULL;
+                    int64_t alignment_value = 0;
+                    if (!check(TOK_RPAREN)) {
+                        alignment_expression = parse_assignment();
+                    }
+                    if (alignment_expression &&
+                        (!eval_integer_constant(alignment_expression,
+                                                &alignment_value) ||
+                         alignment_value <= 0 || alignment_value > 4096 ||
+                         (alignment_value & (alignment_value - 1)) != 0)) {
+                        rcc_error(attribute_loc,
+                                  "aligned attribute requires a positive power-of-two constant no greater than 4096");
+                    } else if (alignment_expression &&
+                               alignment_value > attributes->alignment) {
+                        attributes->alignment = (int)alignment_value;
+                    }
+                    expect(TOK_RPAREN, "')' after aligned attribute argument");
+                } else {
+                    parser_skip_attribute_arguments();
+                }
+            } else if (is_aligned && attributes->alignment < 16) {
+                /* GCC's argument-less aligned attribute requests the target's
+                 * maximum natural alignment. RinOS x86 ABIs cap it at 16. */
+                attributes->alignment = 16;
+            }
+            if (is_packed) attributes->packed = true;
+        }
+        expect(TOK_RPAREN, "')' after attribute list");
+        expect(TOK_RPAREN, "')' after __attribute__");
+    }
+}
+
+static void parser_relayout_packed_aggregate(Type* aggregate) {
+    ParserBitfieldLayout bitfield_layout;
+    if (!aggregate || (aggregate->kind != TYPE_STRUCT &&
+                       aggregate->kind != TYPE_UNION) ||
+        !aggregate->is_complete) {
+        return;
+    }
+    aggregate->size = 0;
+    aggregate->align = 1;
+    parser_reset_bitfield_layout(&bitfield_layout);
+    for (TypeField* field = aggregate->fields; field; field = field->next) {
+        int size = field->type && field->type->size > 0
+            ? field->type->size : 0;
+        if (field->is_bitfield) {
+            unsigned storage_bits = (unsigned)size * 8u;
+            if (aggregate->kind == TYPE_UNION) {
+                parser_reset_bitfield_layout(&bitfield_layout);
+                bitfield_layout.offset = 0;
+                bitfield_layout.size = size;
+                bitfield_layout.alignment = 1;
+                bitfield_layout.used = field->bit_width;
+                field->offset = 0;
+                field->bit_offset = 0u;
+                if (size > aggregate->size) aggregate->size = size;
+            } else {
+                if (!bitfield_layout.active ||
+                    bitfield_layout.size != size ||
+                    bitfield_layout.used + field->bit_width > storage_bits) {
+                    bitfield_layout.active = true;
+                    bitfield_layout.offset = aggregate->size;
+                    bitfield_layout.size = size;
+                    bitfield_layout.alignment = 1;
+                    bitfield_layout.used = 0u;
+                    aggregate->size += size;
+                }
+                field->offset = bitfield_layout.offset;
+                field->bit_offset = bitfield_layout.used;
+                bitfield_layout.used += field->bit_width;
+            }
+            continue;
+        }
+
+        parser_reset_bitfield_layout(&bitfield_layout);
+        if (aggregate->kind == TYPE_UNION) {
+            field->offset = 0;
+            if (size > aggregate->size) aggregate->size = size;
+        } else {
+            field->offset = aggregate->size;
+            aggregate->size += size;
+        }
+    }
+}
+
+static void parser_apply_aggregate_attributes(
+    Type* aggregate, const ParserAggregateAttributes* attributes,
+    SourceLoc attribute_loc) {
+    if (attributes->packed) parser_relayout_packed_aggregate(aggregate);
+    if (attributes->alignment > 0 && aggregate) {
+        if (attributes->alignment > aggregate->align) {
+            aggregate->align = attributes->alignment;
+        }
+        aggregate->has_explicit_alignment = true;
+        if (aggregate->is_complete) {
+            aggregate->size = parser_align_up(aggregate->size,
+                                              aggregate->align);
+        }
+    }
+    (void)attribute_loc;
 }
 
 static void parse_aggregate_body(Type* aggregate) {
@@ -3409,6 +3582,40 @@ static Type* parser_atomic_type(Type* type, SourceLoc loc) {
     *atomic = *type;
     atomic->is_atomic = true;
     return atomic;
+}
+
+static Type* parser_parse_aggregate_type_spec(TypeKind kind) {
+    ParserAggregateAttributes attributes = { false, 0 };
+    Token* tag = NULL;
+    Type* aggregate = NULL;
+    int saved_aggregate_pack_alignment = parser_aggregate_pack_alignment;
+    SourceLoc attribute_loc = peek()->loc;
+
+    parser_parse_aggregate_attributes(&attributes);
+    if (check(TOK_IDENT)) tag = advance();
+    parser_parse_aggregate_attributes(&attributes);
+
+    if (kind == TYPE_STRUCT && parser_cxx_mode && tag &&
+        rcc_parser_cxx_find_class_type) {
+        aggregate = rcc_parser_cxx_find_class_type(tag->value.str_val);
+    }
+    if (!aggregate) {
+        aggregate = parser_tag_type(kind,
+                                    tag ? tag->value.str_val : NULL);
+    }
+
+    if (check(TOK_LBRACE)) {
+        parser_aggregate_pack_alignment = attributes.packed ? 1 : 0;
+        advance();
+        parse_aggregate_body(aggregate);
+        parser_aggregate_pack_alignment = saved_aggregate_pack_alignment;
+    }
+
+    /* GNU permits a type attribute after the closing brace as well, e.g.
+     * `struct T { ... } __attribute__((aligned(8))) T;`. */
+    parser_parse_aggregate_attributes(&attributes);
+    parser_apply_aggregate_attributes(aggregate, &attributes, attribute_loc);
+    return aggregate;
 }
 
 static Type* parse_type_spec(void) {
@@ -3559,26 +3766,9 @@ static Type* parse_type_spec(void) {
     } else if (match(TOK___BUILTIN_VA_LIST)) {
         t = parser_builtin_va_list_type;
     } else if (match(TOK_STRUCT)) {
-        Token* tag = NULL;
-        if (check(TOK_IDENT)) {
-            tag = advance();
-        }
-        t = NULL;
-        if (parser_cxx_mode && tag && rcc_parser_cxx_find_class_type) {
-            t = rcc_parser_cxx_find_class_type(tag->value.str_val);
-        }
-        if (!t) {
-            t = parser_tag_type(TYPE_STRUCT,
-                                tag ? tag->value.str_val : NULL);
-        }
-        if (match(TOK_LBRACE)) parse_aggregate_body(t);
+        t = parser_parse_aggregate_type_spec(TYPE_STRUCT);
     } else if (match(TOK_UNION)) {
-        Token* tag = NULL;
-        if (check(TOK_IDENT)) {
-            tag = advance();
-        }
-        t = parser_tag_type(TYPE_UNION, tag ? tag->value.str_val : NULL);
-        if (match(TOK_LBRACE)) parse_aggregate_body(t);
+        t = parser_parse_aggregate_type_spec(TYPE_UNION);
     } else if (match(TOK_ENUM)) {
         bool scoped = false;
         bool has_underlying_type = false;
@@ -5396,6 +5586,7 @@ AST* rcc_parse(TokenList* tokens) {
     parser.prev = NULL;
     rcc_parser_reset_type_scopes();
     parser_pack_alignment = 0;
+    parser_aggregate_pack_alignment = 0;
     parser_pack_depth = 0;
 
     AST* ast = ast_new();

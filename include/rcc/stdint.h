@@ -22,11 +22,25 @@ typedef unsigned int uintptr_t;
 #define UINTPTR_MAX UINT32_MAX
 #endif
 
-#define INT32_C(value) value
+#define INT8_C(value) value
+#define UINT8_C(value) value
+#define INT16_C(value) value
 #define UINT16_C(value) value
-#define UINT32_C(value) value
+#define INT32_C(value) value
+#define UINT32_C(value) value ## U
+#define INT64_C(value) value ## LL
 #define UINT64_C(value) value ## ULL
+#define INT8_MIN (-127 - 1)
+#define INT8_MAX 127
+#define UINT8_MAX 255U
+#define INT16_MIN (-32767 - 1)
+#define INT16_MAX 32767
+#define UINT16_MAX 65535U
+#define INT32_MIN (-2147483647 - 1)
+#define INT32_MAX 2147483647
 #define UINT32_MAX 0xffffffff
+#define INT64_MIN (-9223372036854775807LL - 1LL)
+#define INT64_MAX 9223372036854775807LL
 #define UINT64_MAX 0xffffffffffffffff
 
 #endif

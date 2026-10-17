@@ -15028,7 +15028,7 @@ static Type* sema_expr(Expr* expr) {
                               "delete requires C++ destructor lowering for a non-trivial object");
                 }
             }
-            if (expr->call_func &&
+            if (rcc_parser_is_cxx_mode() && expr->call_func &&
                 (expr->call_func->kind == EXPR_MEMBER ||
                  expr->call_func->kind == EXPR_PTR_MEMBER)) {
                 Expr* member = expr->call_func;
