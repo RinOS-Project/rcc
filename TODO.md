@@ -5538,3 +5538,17 @@ remains a separate open item.
       (i686/AMD64 generation and execution), and full `test-cxx` pass (exit 0).
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-17, member-pointer reference cv ordering)
+
+- [x] Compare member-pointer reference targets when owner and member cv
+      conversions compete: for related owners, prefer the nearer derived
+      owner even when the farther target adds member `const`; for one owner,
+      prefer the target that does not add member cv qualification.
+- [x] Add GCC-confirmed function-template regressions for conversion results
+      bound to those reference targets. Native-Windows
+      `test-cxx-conversion-operator` passes with i686/AMD64 generation and
+      AMD64 runtime execution; its GCC C++20 `-Wall -Wextra -Werror` host
+      build and run also pass.
+- [ ] Other multi-step standard conversions, remaining cv/reference binding
+      shapes, and general C++20 conversion-sequence ordering remain open.

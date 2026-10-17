@@ -408,6 +408,30 @@ int choose_template_member_pointer_reference_conversion(
 }
 
 template<typename T>
+int choose_template_member_pointer_cv_reference_conversion(
+    T, int MemberPointerReferenceDerived::* const&) {
+    return 243;
+}
+
+template<typename T>
+int choose_template_member_pointer_cv_reference_conversion(
+    T, const int MemberPointerReferenceDerived::* const&) {
+    return 247;
+}
+
+template<typename T>
+int choose_template_member_pointer_owner_cv_reference_conversion(
+    T, const int MemberPointerReferenceDerived::* const&) {
+    return 251;
+}
+
+template<typename T>
+int choose_template_member_pointer_owner_cv_reference_conversion(
+    T, int MemberPointerReferenceLeaf::* const&) {
+    return 253;
+}
+
+template<typename T>
 int take_template_integer(T, int value) {
     return value + 10;
 }
@@ -502,6 +526,10 @@ int main() {
             null_member_pointer_reference_source) ||
         choose_template_member_pointer_reference_conversion(
             0, member_pointer_reference_source) != 239 ||
+        choose_template_member_pointer_cv_reference_conversion(
+            0, member_pointer_reference_source) != 243 ||
+        choose_template_member_pointer_owner_cv_reference_conversion(
+            0, member_pointer_reference_source) != 251 ||
         choose_constrained_conversion(constrained_templated_source) != 101 ||
         return_integer() != 9 || return_long() != 11 ||
         choose_conversion(meter) != 107 ||
