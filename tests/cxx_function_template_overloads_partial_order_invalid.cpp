@@ -292,6 +292,11 @@ int select_nontrailing_function_pack_too_many(Rest..., int) {
     return 11;
 }
 
+template<typename... Rest, typename Tail>
+int select_nontrailing_pointer_function_pack(Rest*..., Tail) {
+    return 12;
+}
+
 int main() {
     int value = 3;
     int* pointer = &value;
@@ -333,5 +338,7 @@ int main() {
                IncomparableClassPointerPackBox<int*>{}) +
            select_incomparable_class_compound_pointer_pack(
                IncomparableClassPointerPackBox<int*, short*>{}) +
-           select_nontrailing_function_pack_too_many(value, value + 1);
+           select_nontrailing_function_pack_too_many(value, value + 1) +
+           select_nontrailing_pointer_function_pack<int, short>(
+               pointer, pointer, value + 1);
 }

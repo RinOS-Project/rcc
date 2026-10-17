@@ -3052,6 +3052,12 @@ remains a separate open item.
   generated x86_64 fixture; the focused native-Windows regression passes.
 - [x] Re-run the full native-Windows `test-cxx` aggregate after this parser fix;
   the complete suite passed (exit 0).
+- [x] When explicit template arguments fill a non-final function parameter
+  pack, leave following non-pack template parameters available for deduction
+  from their corresponding call arguments. Verify `Rest*...` with two explicit
+  pack types and a separately deduced suffix type against GCC C++20; the
+  focused overload gate passes i686/AMD64 generation and execution, and an
+  ill-matched pack element is rejected without producing an object.
 - [ ] Extend function-pack deduction to remaining pack-expansion shapes and
   interactions with other deduction sources; full C++20 partial ordering and
   deduction remain incomplete.

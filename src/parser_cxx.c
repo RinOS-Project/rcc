@@ -28054,6 +28054,15 @@ static bool prepare_cxx_function_template_match(
              index < tmpl->param_count; ++index) {
             TemplateParam* parameter = &tmpl->params[index];
             if (parameter->is_pack) continue;
+            if (pack_parameter_index >= 0 &&
+                index > pack_parameter_index) {
+                /* Explicit arguments consumed by a non-final template
+                 * parameter pack do not make later parameters non-deduced.
+                 * Leave them unset so function-call deduction can infer them;
+                 * default arguments are applied afterward if deduction does
+                 * not provide a value. */
+                continue;
+            }
             if (!parameter->has_default) return false;
             if (parameter->kind == TPARAM_TYPE) {
                 if (!parameter->default_type) return false;
@@ -28331,6 +28340,7 @@ static bool prepare_cxx_function_template_match(
                     saved_parameter_pack_value_present;
                 tmpl->pending_pack_count = saved_parameter_pack_count;
                 bool has_undeduced_parameter =
+                    !parameter_type ||
                     cxx_function_template_type_contains_parameter(
                         tmpl, parameter_type);
                 if (has_undeduced_parameter) {

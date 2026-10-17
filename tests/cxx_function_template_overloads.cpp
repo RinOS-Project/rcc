@@ -400,6 +400,16 @@ int choose_nontrailing_function_pack(Rest..., int) {
     return 203;
 }
 
+template<typename... Rest>
+int choose_nontrailing_pointer_function_pack(Rest*..., int tail) {
+    return (int)sizeof...(Rest) + (int)tail;
+}
+
+template<typename... Rest, typename Tail>
+int choose_nontrailing_pointer_pack_with_deduced_suffix(Rest*..., Tail tail) {
+    return (int)sizeof...(Rest) + (int)tail;
+}
+
 template<int Value>
 struct FunctionTemplateValuePackTag {};
 
@@ -3169,6 +3179,10 @@ int main(void) {
                        (short)4, 7) == 203 &&
                    choose_nontrailing_function_pack<int, short>(
                        4, (short)5, 7) == 203 &&
+                   choose_nontrailing_pointer_function_pack<int, short>(
+                       pointer, &priority, 7) == 9 &&
+                   choose_nontrailing_pointer_pack_with_deduced_suffix<
+                       int, short>(pointer, &priority, 7) == 9 &&
                    choose_non_type_pack_partial_order(
                        FunctionTemplateValuePackTag<1>{}) == 171 &&
                    choose_non_type_pack_partial_order(

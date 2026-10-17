@@ -3295,6 +3295,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "no matching function template overload for 'select_nontrailing_function_pack_too_many'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
+	$(GREP) -q "no matching function template overload for 'select_nontrailing_pointer_function_pack'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "ambiguous function template overload for 'select_incomparable_reference_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x86.log
 	$(GREP) -q "ambiguous function template overload for 'select_by_value_or_const_reference'" \
@@ -3342,6 +3344,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "no matching function template overload for 'select_nontrailing_function_pack_too_many'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
+	$(GREP) -q "no matching function template overload for 'select_nontrailing_pointer_function_pack'" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "ambiguous function template overload for 'select_incomparable_reference_template'" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-x64.log
 	$(GREP) -q "ambiguous function template overload for 'select_by_value_or_const_reference'" \
@@ -3380,6 +3384,8 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 	$(GREP) -q "select_crossed_pointer_pack_order" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -q "select_nontrailing_function_pack_too_many" \
+		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
+	$(GREP) -q "select_nontrailing_pointer_function_pack" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
 	$(GREP) -q "select_incomparable_reference_template" \
 		$(TEST_OUT)/cxx-function-template-overloads/partial-order-invalid-gcc.log
