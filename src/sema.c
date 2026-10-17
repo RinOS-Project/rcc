@@ -9124,7 +9124,7 @@ static int cxx_conversion_vector_relation(
                 }
             }
         }
-        if (left[index] == right[index] && left[index] == 2 &&
+        if (left[index] == right[index] &&
             left_targets && right_targets && left_targets[index] &&
             right_targets[index] &&
             left_targets[index]->is_reference ==

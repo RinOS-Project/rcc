@@ -480,6 +480,18 @@ int choose_template_member_pointer_owner_cv_reference_conversion(
 }
 
 template<typename T>
+int choose_template_member_pointer_value_cv_conversion(
+    T, int MemberPointerReferenceBase::* const& member) {
+    return member ? 257 : 259;
+}
+
+template<typename T>
+int choose_template_member_pointer_value_cv_conversion(
+    T, const int MemberPointerReferenceBase::* const& member) {
+    return member ? 263 : 265;
+}
+
+template<typename T>
 int take_template_integer(T, int value) {
     return value + 10;
 }
@@ -583,6 +595,8 @@ int main() {
             0, member_pointer_reference_source) != 243 ||
         choose_template_member_pointer_owner_cv_reference_conversion(
             0, member_pointer_reference_source) != 251 ||
+        choose_template_member_pointer_value_cv_conversion(
+            0, member_pointer_reference_source) != 257 ||
         rank_member_function_signature(
             ConversionMemberFunctionSignatureSource{}) != 167 ||
         rank_member_function_noexcept(

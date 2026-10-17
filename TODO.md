@@ -2566,6 +2566,12 @@ remains a separate open item.
   signatures, and exact `noexcept` versus throwing targets. GCC C++20 agrees;
   the focused conversion-operator target passes i686/AMD64 generation and the
   generated AMD64 plus GCC-host executions.
+- [x] Compare trailing member-type qualification sequences even when the
+  general compatibility predicate gives both conversion-function targets the
+  same rank. A GCC-confirmed function-template regression verifies that an
+  exact data-member-pointer target beats adding member `const` for equal-owner
+  targets; the focused conversion-operator gate passes both architectures and
+  runtime execution.
 - [ ] Extend ranking to deeper/differing member-type shapes, member-function
   parameter/signature variations, and virtual/inaccessible owner-path interactions;
   proper subsequences and full template partial ordering also remain open.
