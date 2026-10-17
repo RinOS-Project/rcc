@@ -3564,6 +3564,79 @@ static bool cxx_eval_i64_integral_cast(Type* target, int64_t value,
 static bool cxx_friend_function_name_matches(CxxNamespace* ns,
                                              const char* candidate_name,
                                              const char* name);
+static bool cxx_template_integer_call_add_candidate(
+    Decl** candidates, int* candidate_count, int candidate_capacity,
+    Decl* candidate);
+static bool cxx_template_integer_call_count_namespace_declarations(
+    CxxNamespace* ns, int* count) {
+    if (!ns || !count) return true;
+    for (DeclList* item = ns->decls; item; item = item->next) {
+        if (*count == INT_MAX) return false;
+        ++*count;
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (!cxx_template_integer_call_count_namespace_declarations(
+                child, count)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool cxx_template_integer_call_add_using_declaration_candidates(
+    CxxNamespace* scope, const char* name, Decl** candidates,
+    int* candidate_count, int candidate_capacity, bool* scope_has_name) {
+    if (!scope || !name || !candidates || !candidate_count ||
+        !scope_has_name) {
+        return false;
+    }
+    for (int using_index = 0;
+         using_index < scope->using_declaration_count; ++using_index) {
+        const char* target = scope->using_declarations[using_index];
+        char target_buffer[512];
+        char* separator;
+        const char* target_name;
+        CxxNamespace* target_namespace = g_global_namespace;
+        if (!target || strlen(target) >= sizeof(target_buffer)) continue;
+        strcpy(target_buffer, target);
+        while (target_buffer[0] == ':' && target_buffer[1] == ':') {
+            memmove(target_buffer, target_buffer + 2,
+                    strlen(target_buffer + 2) + 1u);
+        }
+        separator = strrchr(target_buffer, ':');
+        target_name = target_buffer;
+        if (separator && separator > target_buffer && separator[-1] == ':') {
+            target_name = separator + 1;
+            separator[-1] = '\0';
+            target_namespace = cxx_namespace_find(
+                g_global_namespace, target_buffer);
+        }
+        if (strcmp(target_name, name) != 0) continue;
+        *scope_has_name = true;
+        if (!target_namespace) return false;
+        for (DeclList* item = target_namespace->decls; item;
+             item = item->next) {
+            Decl* candidate = item->decl;
+            if (!candidate || !cxx_friend_function_name_matches(
+                    target_namespace, candidate->name, target_name)) {
+                continue;
+            }
+            if (candidate->kind == DECL_FUNC &&
+                candidate->func_is_hidden_friend) {
+                continue;
+            }
+            if (candidate->kind != DECL_FUNC ||
+                candidate->func_this_param ||
+                candidate->func_template_owner ||
+                !cxx_template_integer_call_add_candidate(
+                    candidates, candidate_count, candidate_capacity,
+                    candidate)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
 
 static bool cxx_template_integer_call_add_candidate(
     Decl** candidates, int* candidate_count, int candidate_capacity,
@@ -3811,8 +3884,7 @@ static Decl* cxx_template_integer_call_function(
         bool scope_has_name = false;
         candidate_capacity = 0;
         candidate_count = 0;
-        if (ns->using_namespace_count > 0 ||
-            ns->using_declaration_count > 0) {
+        if (ns->using_namespace_count > 0) {
             return NULL;
         }
         for (int index = 0; index < ns->template_count; ++index) {
@@ -3828,11 +3900,9 @@ static Decl* cxx_template_integer_call_function(
         for (CxxNamespace* child = ns->children; child; child = child->next) {
             if (child->is_inline_namespace) return NULL;
         }
-        for (DeclList* item = ns->decls; item; item = item->next) {
-            if (candidate_capacity == INT_MAX) return NULL;
-            ++candidate_capacity;
-        }
-        if (candidate_capacity == 0) continue;
+        if (!cxx_template_integer_call_count_namespace_declarations(
+                g_global_namespace, &candidate_capacity)) return NULL;
+        if (candidate_capacity == 0) candidate_capacity = 1;
         candidates = ast_arena_alloc(sizeof(*candidates) *
                                      (size_t)candidate_capacity);
         if (!candidates) return NULL;
@@ -3854,6 +3924,11 @@ static Decl* cxx_template_integer_call_function(
             if (!cxx_template_integer_call_add_candidate(
                     candidates, &candidate_count, candidate_capacity,
                     candidate)) return NULL;
+        }
+        if (!cxx_template_integer_call_add_using_declaration_candidates(
+                ns, name, candidates, &candidate_count, candidate_capacity,
+                &scope_has_name)) {
+            return NULL;
         }
         if (scope_has_name) {
             return candidate_count > 0

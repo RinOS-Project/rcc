@@ -1684,6 +1684,35 @@ constexpr int pack_order_overloaded_constexpr_template_default_value(
     return 3 * value + 2;
 }
 
+namespace PackOrderConstexprUsingLookupCallee {
+constexpr int default_value(int value) {
+    return 3 * value + 2;
+}
+
+constexpr int default_value(long value) {
+    return 3 * value + 4;
+}
+}
+
+namespace PackOrderConstexprUsingLookupTemplate {
+using PackOrderConstexprUsingLookupCallee::default_value;
+
+template<int N, typename T,
+         template<typename, int = default_value(N)> class Box>
+    requires ::PackOrderHasValueAndSize<T>
+int choose_using_lookup_constexpr_call_default_order(
+    Box<T>, T (&values)[N]) {
+    return values[0].value == 3 ? 223 : 224;
+}
+
+template<int N, typename T, template<typename, int> class Box>
+    requires ::PackOrderHasValue<T>
+int choose_using_lookup_constexpr_call_default_order(
+    Box<T, default_value(N)>, T (&values)[N]) {
+    return values[0].value == 3 ? 225 : 226;
+}
+}
+
 template<typename T>
 struct PackOrderTemplateBox {};
 
@@ -3905,6 +3934,11 @@ int main(void) {
                        PackOrderOuterNonTypeDefaultTemplateBox<
                            PackOrderConstrainedValue, 14>{},
                        constrained_values) == 191 &&
+                   PackOrderConstexprUsingLookupTemplate::
+                       choose_using_lookup_constexpr_call_default_order(
+                           PackOrderOuterNonTypeDefaultTemplateBox<
+                               PackOrderConstrainedValue, 14>{},
+                           constrained_values) == 223 &&
                    choose_outer_non_type_constexpr_template_call_default_template_template_order(
                        PackOrderOuterNonTypeDefaultTemplateBox<
                            PackOrderConstrainedValue, 14>{},

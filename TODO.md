@@ -5842,7 +5842,12 @@ remains a separate open item.
       outer non-type argument's declared type. GCC C++20 and the complete
       native-Windows `test-cxx-function-template-overloads` gate agree across
       i686/AMD64 generation, RCC/GCC execution, and diagnostics.
-- [ ] Broader function-template overload sets, ADL/using-lookup call-bearing
-      defaults, other compound outer non-type forms, deeper paths through
-      dependent intermediate aliases, and additional C++20 function
-      partial-ordering cases remain open.
+- [x] Resolve namespace-scope constexpr overloads imported by a named
+      using-declaration in a nested template-template non-type default, ranking
+      candidates by argument conversion sequences. Native-Windows
+      `test-cxx-function-template-overloads` passes for i686/AMD64 generation,
+      RCC/GCC host execution, and diagnostics.
+- [ ] ADL and using-directive lookup in call-bearing defaults, other compound
+      outer non-type forms, deeper paths through dependent intermediate
+      aliases, and additional C++20 function partial-ordering cases remain
+      open.
