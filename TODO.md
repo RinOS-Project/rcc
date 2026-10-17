@@ -5784,5 +5784,9 @@ remains a separate open item.
       stronger outer constraint and native-Windows
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation
       and both execution checks.
-- [ ] Dependent nested constraints/defaults and other C++20 function
-      partial-ordering cases remain open.
+- [x] Parse an outer-dependent type default in a nested template-template
+      signature and compare constrained candidates with GCC C++20. The native-
+      Windows function-template-overload gate passes for i686/AMD64 generation
+      and RCC/GCC host execution.
+- [ ] Dependent nested constraints beyond type defaults and other C++20
+      function partial-ordering cases remain open.
