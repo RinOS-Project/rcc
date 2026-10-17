@@ -5723,5 +5723,17 @@ remains a separate open item.
       re-instantiation. Native-Windows `test-cxx-class-template-dependent-
       nested-type` passes for i686/AMD64 generation and execution.
 - [ ] Multiple and mixed-kind pack expansions, dependent non-type/template-
-      template expansions, and partial-ordering relationships between pack
-      patterns remain open.
+      template expansions, and broader partial-ordering edge cases between
+      pack patterns remain open.
+
+## RCC continuation (2026-10-17, class partial-specialization pack ordering)
+
+- [x] Prefer a pointer-constrained fixed head (`Head*`) over the general fixed
+      head (`Head`) when both class partial specializations match and both are
+      followed by the same type-pack expansion.
+- [x] Check direct empty/general/pointer selection, multi-element pointer-pack
+      selection through a dependent nested type, GCC C++20 static assertions,
+      and native-Windows `test-cxx-class-template-specialization` for i686/
+      AMD64 generation and AMD64 execution.
+- [ ] Crossed constraints, unequal expansion structure, and non-type or
+      template-template pack partial-ordering cases remain open.

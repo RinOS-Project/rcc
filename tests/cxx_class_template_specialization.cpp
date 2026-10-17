@@ -220,6 +220,35 @@ static_assert(sizeof(typename DependentMixedPackPartialUse<int>::type) ==
 static_assert(sizeof(typename DependentMixedPackPartialUse<int, short>::type) ==
               sizeof(short));
 
+template<typename... Types>
+struct OrderedMixedPackPartial {
+    static constexpr int kind = 0;
+    using type = char;
+};
+
+template<typename Head, typename... Tail>
+struct OrderedMixedPackPartial<Head, Tail...> {
+    static constexpr int kind = 1;
+    using type = short;
+};
+
+template<typename Head, typename... Tail>
+struct OrderedMixedPackPartial<Head*, Tail...> {
+    static constexpr int kind = 2;
+    using type = long;
+};
+
+template<typename... Types>
+struct DependentOrderedMixedPackPartialUse {
+    using type = typename OrderedMixedPackPartial<Types...>::type;
+};
+
+static_assert(OrderedMixedPackPartial<>::kind == 0);
+static_assert(OrderedMixedPackPartial<int>::kind == 1);
+static_assert(OrderedMixedPackPartial<int*, char>::kind == 2);
+static_assert(sizeof(typename DependentOrderedMixedPackPartialUse<
+                  int*, char, long>::type) == sizeof(long));
+
 int main() {
     Value<int> value{21};
     Value<int*> pointer_value{9};
@@ -244,6 +273,8 @@ int main() {
     constexpr int mixed_pack_double = MixedPackPartial<int, short>::kind;
     constexpr int mixed_pack_triple =
         MixedPackPartial<int, short, long>::kind;
+    constexpr int ordered_mixed_pack_pointer =
+        OrderedMixedPackPartial<int*, char>::kind;
     return value.doubled() == 42 && pointer_value.kind() == 9 &&
                    pointer_pointer_value.kind() == 22 &&
                    pointer_pointer_pointer_value.kind() == 33 &&
@@ -266,7 +297,8 @@ int main() {
                    consteval_aggregate_box.first +
                        consteval_aggregate_box.second == 42 &&
                    mixed_pack_empty == 1 && mixed_pack_single == 2 &&
-                   mixed_pack_double == 2 && mixed_pack_triple == 2
+                   mixed_pack_double == 2 && mixed_pack_triple == 2 &&
+                   ordered_mixed_pack_pointer == 2
                ? 0
                : 1;
 }
