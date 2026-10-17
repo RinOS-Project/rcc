@@ -1659,6 +1659,10 @@ constexpr int pack_order_constexpr_default_value(int value) {
     return 3 * value + 2;
 }
 
+constexpr int pack_order_constexpr_default_value(long value) {
+    return 3 * value + 4;
+}
+
 template<typename T>
 struct PackOrderTemplateBox {};
 

@@ -5827,6 +5827,11 @@ remains a separate open item.
       outer `N` is deduced. Compare the selected constrained overload with GCC
       C++20; native-Windows `test-cxx-function-template-overloads` passes for
       i686/AMD64 generation, RCC/GCC host execution, and diagnostic checks.
-- [ ] Overloaded or function-template call-bearing defaults, other compound
+- [x] Rank non-template constexpr free-function overload candidates by their
+      argument conversion sequences, rather than declaration order; compare an
+      exact `int` match against a `long` conversion with GCC C++20. The complete
+      native-Windows `test-cxx-function-template-overloads` gate passes for
+      i686/AMD64 generation, RCC/GCC host execution, and diagnostic checks.
+- [ ] Function-template/ADL/using-lookup call-bearing defaults, other compound
       outer non-type forms, deeper paths through dependent intermediate aliases,
       and additional C++20 function partial-ordering cases remain open.

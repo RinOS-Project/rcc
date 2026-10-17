@@ -3550,28 +3550,222 @@ static bool cxx_friend_function_name_matches(CxxNamespace* ns,
                                              const char* candidate_name,
                                              const char* name);
 
+static bool cxx_template_integer_call_add_candidate(
+    Decl** candidates, int* candidate_count, int candidate_capacity,
+    Decl* candidate) {
+    if (!candidates || !candidate_count || !candidate) return false;
+    for (int index = 0; index < *candidate_count; ++index) {
+        Decl* existing = candidates[index];
+        if (existing == candidate) return true;
+        if (existing->link_name && candidate->link_name &&
+            strcmp(existing->link_name, candidate->link_name) == 0) {
+            if (!existing->func_body && candidate->func_body) {
+                candidates[index] = candidate;
+            }
+            return true;
+        }
+    }
+    if (*candidate_count >= candidate_capacity) return false;
+    candidates[(*candidate_count)++] = candidate;
+    return true;
+}
+
+static Decl* cxx_template_integer_call_select_candidate(
+    Expr* expression, Decl** candidates, int candidate_count) {
+    int argument_count = 0;
+    size_t rank_stride;
+    int* ranks;
+    bool* viable;
+    ExprList* argument;
+    if (!expression || !candidates || candidate_count <= 0) return NULL;
+    for (argument = expression->call_args; argument;
+         argument = argument->next) {
+        Type* argument_type = cxx_parser_expression_type(argument->expr);
+        if (!argument_type ||
+            (!type_is_integer(argument_type) &&
+             !type_is_floating(argument_type))) {
+            /* Class and enumeration arguments may add ADL candidates or
+             * user-defined conversions not represented by this evaluator. */
+            return NULL;
+        }
+        if (argument_count == INT_MAX) return NULL;
+        ++argument_count;
+    }
+    rank_stride = argument_count > 0 ? (size_t)argument_count : 1u;
+    if ((size_t)candidate_count >
+        SIZE_MAX / rank_stride / sizeof(*ranks)) {
+        return NULL;
+    }
+    ranks = ast_arena_alloc(sizeof(*ranks) *
+                            (size_t)candidate_count * rank_stride);
+    viable = ast_arena_alloc(sizeof(*viable) * (size_t)candidate_count);
+    if (!ranks || !viable) return NULL;
+    memset(viable, 0, sizeof(*viable) * (size_t)candidate_count);
+
+    for (int candidate_index = 0; candidate_index < candidate_count;
+         ++candidate_index) {
+        Decl* function = candidates[candidate_index];
+        DeclList* parameter;
+        int parameter_count = 0;
+        int required_count = 0;
+        int argument_index = 0;
+        bool is_viable = true;
+        if (!function || function->kind != DECL_FUNC ||
+            !function->type || function->type->kind != TYPE_FUNC) {
+            continue;
+        }
+        for (parameter = function->func_params; parameter;
+             parameter = parameter->next) {
+            if (!parameter->decl || parameter_count == INT_MAX) {
+                is_viable = false;
+                break;
+            }
+            ++parameter_count;
+            if (!parameter->decl->param_default) ++required_count;
+        }
+        if (!is_viable || argument_count < required_count ||
+            (!function->type->variadic &&
+             argument_count > parameter_count)) {
+            continue;
+        }
+        argument = expression->call_args;
+        parameter = function->func_params;
+        while (argument && parameter) {
+            int rank = cxx_parser_function_template_overload_conversion_rank(
+                argument->expr, parameter->decl->type, NULL);
+            if (rank < 0) {
+                is_viable = false;
+                break;
+            }
+            ranks[(size_t)candidate_index * rank_stride +
+                  (size_t)argument_index++] = rank;
+            argument = argument->next;
+            parameter = parameter->next;
+        }
+        while (is_viable && argument) {
+            if (!function->type->variadic) {
+                is_viable = false;
+                break;
+            }
+            ranks[(size_t)candidate_index * rank_stride +
+                  (size_t)argument_index++] = INT_MAX;
+            argument = argument->next;
+        }
+        while (is_viable && parameter) {
+            if (!parameter->decl || !parameter->decl->param_default) {
+                is_viable = false;
+                break;
+            }
+            parameter = parameter->next;
+        }
+        viable[candidate_index] = is_viable;
+    }
+
+    {
+        int selected = -1;
+        for (int candidate = 0; candidate < candidate_count; ++candidate) {
+            bool dominated = false;
+            if (!viable[candidate]) continue;
+            for (int other = 0; other < candidate_count; ++other) {
+                bool no_worse = true;
+                bool strictly_better = false;
+                if (!viable[other] || candidate == other) continue;
+                for (int argument_index = 0;
+                     argument_index < argument_count; ++argument_index) {
+                    int candidate_rank = ranks[
+                        (size_t)candidate * rank_stride +
+                        (size_t)argument_index];
+                    int other_rank = ranks[
+                        (size_t)other * rank_stride +
+                        (size_t)argument_index];
+                    if (other_rank > candidate_rank) no_worse = false;
+                    if (other_rank < candidate_rank) strictly_better = true;
+                }
+                if (no_worse && strictly_better) {
+                    dominated = true;
+                    break;
+                }
+            }
+            if (!dominated) {
+                if (selected >= 0) return NULL;
+                selected = candidate;
+            }
+        }
+        return selected >= 0 ? candidates[selected] : NULL;
+    }
+}
+
 static Decl* cxx_template_integer_call_function(
     const Expr* expression, CxxTemplate* tmpl) {
     const Expr* function_expression;
     const char* name;
-    Decl* match = NULL;
+    Decl* direct_declaration;
+    Decl** candidates;
+    int candidate_capacity = 0;
+    int candidate_count = 0;
     bool qualified;
     if (!expression || expression->kind != EXPR_CALL ||
         !(function_expression = expression->call_func) ||
         function_expression->kind != EXPR_IDENT) {
         return NULL;
     }
-    if (function_expression->ident_decl &&
-        function_expression->ident_decl->kind == DECL_FUNC) {
-        return function_expression->ident_decl;
+    direct_declaration = function_expression->ident_decl &&
+        function_expression->ident_decl->kind == DECL_FUNC
+        ? function_expression->ident_decl : NULL;
+    if (direct_declaration && direct_declaration->func_is_template_instance &&
+        !direct_declaration->func_overload_next) {
+        return direct_declaration;
     }
     name = function_expression->ident_name;
-    if (!name) return NULL;
+    if (!name) return direct_declaration;
     while (name[0] == ':' && name[1] == ':') name += 2;
     qualified = strstr(name, "::") != NULL;
     if (qualified) {
-        for (DeclList* item = active_ast ? active_ast->decls : NULL;
-             item; item = item->next) {
+        char namespace_name[512];
+        const char* separator = strrchr(name, ':');
+        if (separator && separator > name && separator[-1] == ':') {
+            size_t namespace_length = (size_t)(separator - name - 1);
+            CxxNamespace* call_namespace;
+            if (namespace_length >= sizeof(namespace_name)) return NULL;
+            memcpy(namespace_name, name, namespace_length);
+            namespace_name[namespace_length] = '\0';
+            call_namespace = cxx_namespace_find(
+                g_global_namespace, namespace_name);
+            if (call_namespace &&
+                (call_namespace->using_namespace_count > 0 ||
+                 call_namespace->using_declaration_count > 0)) {
+                return NULL;
+            }
+            if (call_namespace) {
+                for (CxxNamespace* child = call_namespace->children; child;
+                     child = child->next) {
+                    if (child->is_inline_namespace) return NULL;
+                }
+                for (int index = 0;
+                     index < call_namespace->template_count; ++index) {
+                    CxxTemplate* function_template =
+                        call_namespace->templates[index];
+                    if (function_template &&
+                        function_template->kind == TMPL_FUNCTION &&
+                        !function_template->is_concept &&
+                        function_template->name &&
+                        strcmp(function_template->name,
+                               separator + 1) == 0) {
+                        return NULL;
+                    }
+                }
+            }
+        }
+        for (DeclList* item = active_ast ? active_ast->decls : NULL; item;
+             item = item->next) {
+            if (candidate_capacity == INT_MAX) return NULL;
+            ++candidate_capacity;
+        }
+        if (candidate_capacity == 0) return direct_declaration;
+        candidates = ast_arena_alloc(sizeof(*candidates) *
+                                     (size_t)candidate_capacity);
+        if (!candidates) return NULL;
+        for (DeclList* item = active_ast->decls; item; item = item->next) {
             Decl* candidate = item->decl;
             if (!candidate || !candidate->name ||
                 strcmp(candidate->name, name) != 0) {
@@ -3581,25 +3775,18 @@ static Decl* cxx_template_integer_call_function(
                 candidate->func_is_hidden_friend) {
                 continue;
             }
-            if (candidate->kind != DECL_FUNC ||
-                candidate->func_this_param ||
+            if (candidate->kind != DECL_FUNC || candidate->func_this_param ||
                 candidate->func_template_owner) {
                 return NULL;
             }
-            if (!match) {
-                match = candidate;
-                continue;
-            }
-            if (match->link_name && candidate->link_name &&
-                strcmp(match->link_name, candidate->link_name) == 0) {
-                if (!match->func_body && candidate->func_body) {
-                    match = candidate;
-                }
-                continue;
-            }
-            return NULL;
+            if (!cxx_template_integer_call_add_candidate(
+                    candidates, &candidate_count, candidate_capacity,
+                    candidate)) return NULL;
         }
-        return match;
+        return candidate_count > 0
+            ? cxx_template_integer_call_select_candidate(
+                  (Expr*)expression, candidates, candidate_count)
+            : direct_declaration;
     }
     for (CxxNamespace* ns = tmpl && tmpl->ns ? tmpl->ns
                                              : (active_namespace
@@ -3607,7 +3794,33 @@ static Decl* cxx_template_integer_call_function(
                                                     : g_global_namespace);
          ns; ns = ns->parent) {
         bool scope_has_name = false;
-        match = NULL;
+        candidate_capacity = 0;
+        candidate_count = 0;
+        if (ns->using_namespace_count > 0 ||
+            ns->using_declaration_count > 0) {
+            return NULL;
+        }
+        for (int index = 0; index < ns->template_count; ++index) {
+            CxxTemplate* function_template = ns->templates[index];
+            if (function_template &&
+                function_template->kind == TMPL_FUNCTION &&
+                !function_template->is_concept &&
+                function_template->name &&
+                strcmp(function_template->name, name) == 0) {
+                return NULL;
+            }
+        }
+        for (CxxNamespace* child = ns->children; child; child = child->next) {
+            if (child->is_inline_namespace) return NULL;
+        }
+        for (DeclList* item = ns->decls; item; item = item->next) {
+            if (candidate_capacity == INT_MAX) return NULL;
+            ++candidate_capacity;
+        }
+        if (candidate_capacity == 0) continue;
+        candidates = ast_arena_alloc(sizeof(*candidates) *
+                                     (size_t)candidate_capacity);
+        if (!candidates) return NULL;
         for (DeclList* item = ns->decls; item; item = item->next) {
             Decl* candidate = item->decl;
             if (!candidate || !candidate->name ||
@@ -3623,23 +3836,18 @@ static Decl* cxx_template_integer_call_function(
                 candidate->func_template_owner) {
                 return NULL;
             }
-            if (!match) {
-                match = candidate;
-                continue;
-            }
-            if (match->link_name && candidate->link_name &&
-                strcmp(match->link_name, candidate->link_name) == 0) {
-                if (!match->func_body && candidate->func_body) {
-                    match = candidate;
-                }
-                continue;
-            }
-            /* Do not choose an overload based on declaration-list order. */
-            return NULL;
+            if (!cxx_template_integer_call_add_candidate(
+                    candidates, &candidate_count, candidate_capacity,
+                    candidate)) return NULL;
         }
-        if (scope_has_name) return match;
+        if (scope_has_name) {
+            return candidate_count > 0
+                ? cxx_template_integer_call_select_candidate(
+                      (Expr*)expression, candidates, candidate_count)
+                : NULL;
+        }
     }
-    return match;
+    return direct_declaration;
 }
 
 static bool eval_template_integer_expression(Expr* expression,
