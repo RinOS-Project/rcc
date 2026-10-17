@@ -4,8 +4,17 @@ concept NoLargerThan = sizeof(T) <= sizeof(Bound);
 template<typename T, typename Bound = T>
 concept NoLargerThanDefaultType = sizeof(T) <= sizeof(Bound);
 
-template<typename T, int MaximumSize = sizeof(T)>
+template<typename T, int MinimumSize = sizeof(T),
+         int MaximumSize = MinimumSize>
 concept FitsMaximumSize = sizeof(T) <= MaximumSize;
+
+template<typename T>
+struct Holder {
+    T value;
+};
+
+template<typename T, template<typename> class Box = Holder>
+concept FitsInBox = sizeof(Box<T>) >= sizeof(T);
 
 struct SmallResult {
     int value() const { return 1; }
@@ -39,6 +48,11 @@ concept HasDefaultTypeBound = requires(T candidate) {
 };
 
 template<typename T>
+concept HasTemplateBoxValue = requires(T candidate) {
+    { candidate.value() } -> FitsInBox<Holder>;
+};
+
+template<typename T>
 requires HasIntSizedValue<T>
 int accepts_int_sized_value(T) {
     return 1;
@@ -65,6 +79,27 @@ int accepts_dependent_default_type(T) {
 template<typename T>
 requires FitsMaximumSize<T>
 int accepts_self_sized_type() {
+    return 1;
+}
+
+template<typename T>
+requires FitsInBox<T>
+int accepts_default_template_argument() {
+    return 1;
+}
+
+template<typename T>
+requires HasTemplateBoxValue<T>
+int accepts_template_box_value(T) {
+    return 1;
+}
+
+int accepts_abbreviated_template_argument(FitsInBox auto value) {
+    return sizeof(value) != 0;
+}
+
+template<FitsInBox T>
+int accepts_template_constrained_type(T) {
     return 1;
 }
 
@@ -101,6 +136,10 @@ int main() {
                    accepts_self_sized_value(LargeProvider{}) == 1 &&
                    accepts_dependent_default_type(SmallProvider{}) == 1 &&
                    accepts_dependent_default_type(LargeProvider{}) == 1 &&
+                   accepts_default_template_argument<int>() == 1 &&
+                   accepts_abbreviated_template_argument(1) == 1 &&
+                   accepts_template_constrained_type(1) == 1 &&
+                   accepts_template_box_value(SmallProvider{}) == 1 &&
                    accepts_self_sized_type<LargeResult>() == 1 &&
                    accepts_default_bound(1) == 1 &&
                    accepts_abbreviated(1) == 1 &&

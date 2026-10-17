@@ -4714,11 +4714,61 @@ static bool cxx_concept_missing_arguments_have_defaults(
                 !parameter->default_value) {
                 return false;
             }
+        } else if (parameter->kind == TPARAM_TEMPLATE) {
+            if (!parameter->default_type ||
+                !parameter->default_type->cxx_template) {
+                return false;
+            }
         } else {
             return false;
         }
     }
     return true;
+}
+
+static Type* parse_cxx_concept_template_argument(
+    const TemplateParam* parameter) {
+    SourceLoc loc = peek()->loc;
+    const char* name = parse_qualified_name();
+    Type* carrier;
+    int source_parameter_index;
+
+    if (!name) {
+        rcc_error(loc,
+                  "named concept template-template argument requires a "
+                  "template name");
+        return type_int;
+    }
+    source_parameter_index = active_template_template_parameter_index(name);
+    if (source_parameter_index >= 0 && active_template) {
+        const TemplateParam* source_parameter =
+            active_template_template_parameter(source_parameter_index);
+        if (!source_parameter ||
+            !template_template_parameter_signatures_match(
+                parameter->template_signature,
+                source_parameter->template_signature, 0)) {
+            rcc_error(loc,
+                      "named concept template-template argument does not "
+                      "match its parameter list");
+            return type_int;
+        }
+        carrier = type_struct(name);
+        carrier->cxx_dependent = true;
+        carrier->cxx_template_param_index = source_parameter_index;
+        return carrier;
+    }
+
+    CxxTemplate* argument_template = find_template_template_argument(name);
+    if (!argument_template ||
+        !template_template_signature_matches(parameter, argument_template)) {
+        rcc_error(loc,
+                  "named concept template-template argument does not match "
+                  "its parameter list");
+        return type_int;
+    }
+    carrier = type_struct(name);
+    carrier->cxx_template = argument_template;
+    return carrier;
 }
 
 /* Recognize standard type constraints and named concepts in a compound
@@ -4814,10 +4864,12 @@ static Type* parse_cxx_requires_return_constraint(
             parameter = &concept->params[explicit_count + 1];
             if (parameter->is_pack ||
                 (parameter->kind != TPARAM_TYPE &&
-                 parameter->kind != TPARAM_NONTYPE)) {
+                 parameter->kind != TPARAM_NONTYPE &&
+                 parameter->kind != TPARAM_TEMPLATE)) {
                 rcc_error(peek()->loc,
                           "requires-expression return concepts support only "
-                          "non-pack type and non-type parameters");
+                          "non-pack type, non-type, and template-template "
+                          "parameters");
                 while (!check(TOK_GT) && !at_end()) advance();
                 break;
             }
@@ -4832,6 +4884,10 @@ static Type* parse_cxx_requires_return_constraint(
                     argument_type, NULL, NULL);
                 argument = expr_int(0, peek()->loc);
                 argument->type = argument_type;
+            } else if (parameter->kind == TPARAM_TEMPLATE) {
+                argument = expr_int(0, peek()->loc);
+                argument->type = parse_cxx_concept_template_argument(
+                    parameter);
             } else {
                 rcc_parser_set_cxx_template_default_mode(true);
                 argument = parse_assignment_expression();
@@ -12098,24 +12154,23 @@ CxxTemplate* parse_cxx_template(AccessSpec member_access) {
                 ((parameter->kind == TPARAM_TYPE &&
                   !parameter->default_type) ||
                  (parameter->kind == TPARAM_NONTYPE &&
-                  !parameter->default_value))) {
+                  !parameter->default_value) ||
+                 (parameter->kind == TPARAM_TEMPLATE &&
+                  !parameter->default_type))) {
                 rcc_error(loc,
                           "RCC++ named concept default argument is incomplete");
             }
-            if (parameter->kind == TPARAM_TEMPLATE) {
-                rcc_error(loc,
-                          "RCC++ named concepts do not support "
-                          "template-template parameters");
-            } else if (parameter->kind == TPARAM_NONTYPE &&
+            if (parameter->kind == TPARAM_NONTYPE &&
                        (!parameter->type || !type_is_integer(parameter->type))) {
                 rcc_error(loc,
                           "RCC++ named concepts require integral non-type "
                           "parameters");
             } else if (parameter->kind != TPARAM_TYPE &&
+                       parameter->kind != TPARAM_TEMPLATE &&
                        parameter->kind != TPARAM_NONTYPE) {
                 rcc_error(loc,
-                          "RCC++ named concepts support only type and integral "
-                          "non-type parameters");
+                          "RCC++ named concepts support only type, "
+                          "template-template, and integral non-type parameters");
             }
         }
         expect(TOK_ASSIGN, "= after concept name");
@@ -13377,6 +13432,12 @@ Expr* rcc_parse_cxx_concept_expression(void) {
                     argument_type, NULL, NULL);
                 argument = expr_int(0, loc);
                 argument->type = argument_type;
+            } else if (argument_count < concept->param_count &&
+                       concept->params[argument_count].kind ==
+                           TPARAM_TEMPLATE) {
+                argument = expr_int(0, loc);
+                argument->type = parse_cxx_concept_template_argument(
+                    &concept->params[argument_count]);
             } else {
                 rcc_parser_set_cxx_template_default_mode(true);
                 argument = parse_assignment_expression();
@@ -20666,6 +20727,13 @@ static bool eval_template_integer_expression(Expr* expression,
                 if (parameter->kind == TPARAM_TYPE) {
                     if (!argument->expr->type) return false;
                     concept_types[index] = argument->expr->type;
+                } else if (parameter->kind == TPARAM_TEMPLATE) {
+                    if (!argument->expr->type ||
+                        (!argument->expr->type->cxx_template &&
+                         !argument->expr->type->cxx_dependent)) {
+                        return false;
+                    }
+                    concept_types[index] = argument->expr->type;
                 } else if (parameter->kind == TPARAM_NONTYPE) {
                     if (!eval_template_integer_expression(
                             argument->expr, tmpl, values, value_present,
@@ -20682,7 +20750,8 @@ static bool eval_template_integer_expression(Expr* expression,
                 }
                 argument = argument->next;
             } else if (parameter->has_default &&
-                       parameter->kind == TPARAM_TYPE &&
+                       (parameter->kind == TPARAM_TYPE ||
+                        parameter->kind == TPARAM_TEMPLATE) &&
                        parameter->default_type) {
                 concept_types[index] = substitute_template_type(
                     concept, parameter->default_type, concept_types,
@@ -20710,6 +20779,7 @@ static bool eval_template_integer_expression(Expr* expression,
                 return false;
             }
             if ((parameter->kind == TPARAM_TYPE ||
+                 parameter->kind == TPARAM_TEMPLATE ||
                  parameter->kind == TPARAM_NONTYPE) &&
                 !concept_types[index]) {
                 return false;
@@ -24347,6 +24417,16 @@ static CxxConstraintNode* cxx_constraint_expand(
                     symbolic_arguments[index] = expr_int(
                         0, argument->expr->loc);
                     symbolic_arguments[index]->type = arguments[index];
+                } else if (parameter->kind == TPARAM_TEMPLATE) {
+                    arguments[index] = argument->expr->type;
+                    if (!arguments[index] ||
+                        (!arguments[index]->cxx_template &&
+                         !arguments[index]->cxx_dependent)) {
+                        return NULL;
+                    }
+                    symbolic_arguments[index] = expr_int(
+                        0, argument->expr->loc);
+                    symbolic_arguments[index]->type = arguments[index];
                 } else if (parameter->kind == TPARAM_NONTYPE) {
                     symbolic_arguments[index] = argument->expr;
                     if (eval_template_integer_expression(
@@ -24362,7 +24442,8 @@ static CxxConstraintNode* cxx_constraint_expand(
                 }
                 argument = argument->next;
             } else if (parameter->has_default &&
-                       parameter->kind == TPARAM_TYPE &&
+                       (parameter->kind == TPARAM_TYPE ||
+                        parameter->kind == TPARAM_TEMPLATE) &&
                        parameter->default_type) {
                 arguments[index] = substitute_template_type(
                     concept, parameter->default_type, arguments,
@@ -24393,6 +24474,7 @@ static CxxConstraintNode* cxx_constraint_expand(
                 return NULL;
             }
             if ((parameter->kind == TPARAM_TYPE ||
+                 parameter->kind == TPARAM_TEMPLATE ||
                  parameter->kind == TPARAM_NONTYPE) &&
                 !arguments[index]) {
                 return NULL;
