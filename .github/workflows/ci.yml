@@ -187,3 +187,46 @@ jobs:
 
       - name: Run ASan and UBSan regression suite
         run: make -j2 test-sanitize
+
+  native-windows:
+    name: native-windows-cmd
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: msys2 {0}
+        working-directory: public-base/toolchain/RinCompiler
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: public-base/toolchain/RinCompiler
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/RinOS-SDK
+          path: public-base/RinOS-SDK
+
+      - uses: actions/checkout@v4
+        with:
+          repository: RinOS-Project/rinvalidate
+          path: public-base/toolchain/rinvalidate
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make
+            mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-python
+
+      - name: Build native compiler and linker
+        run: make SHELL=cmd.exe build-rcc build-rcxx build-rld
+
+      - name: Build native RinValidate
+        run: make -C ../rinvalidate SHELL=cmd.exe
+
+      - name: Run native Windows C++ and DWARF regressions
+        run: make SHELL=cmd.exe test-cxx test-debug-info

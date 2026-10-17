@@ -5628,3 +5628,14 @@ remains a separate open item.
       `test-cxx-function-template-overloads` pass.
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-17, native Windows CI coverage)
+
+- [x] Add a `windows-latest`/MSYS2 UCRT64 job that builds RCC/RCC++/RLD and
+      RinValidate, then runs the full C++ and DWARF regression aggregates
+      through native `cmd.exe` recipes.
+- [x] Parse-check the workflow and locally verify the native toolchain and
+      RinValidate build commands. The exact native Windows `test-cxx` and
+      `test-debug-info` gates pass on this committed compiler source revision.
+- [ ] Record a successful hosted GitHub Actions run for `native-windows-cmd`;
+      local Windows results do not verify the hosted runner setup.
