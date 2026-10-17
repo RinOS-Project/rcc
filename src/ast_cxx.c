@@ -1133,7 +1133,8 @@ static bool cxx_mangle_structural_value_body(
                     }
                     raw_value = (((uint64_t)packed_value) >> element_offset) &
                         mask;
-                    if (!element_type->is_unsigned && element_bits < 64u &&
+                    if (!type_is_floating((Type*)element_type) &&
+                        !element_type->is_unsigned && element_bits < 64u &&
                         (raw_value & (UINT64_C(1) <<
                                       (element_bits - 1u)))) {
                         raw_value |= ~mask;
@@ -3691,8 +3692,10 @@ static bool cxx_structural_array_leaf_info(
     const Type* type, const Type** leaf_type, unsigned* leaf_count) {
     if (!type || type->kind != TYPE_ARRAY || type->array_len <= 0 ||
         !type->base || type->array_bound ||
-        (!type_is_integer(type->base) &&
-         type->base->kind != TYPE_ENUM) ||
+        ((!type_is_integer(type->base) &&
+          type->base->kind != TYPE_ENUM) &&
+         !((type->base->kind == TYPE_FLOAT && type->base->size == 4) ||
+           (type->base->kind == TYPE_DOUBLE && type->base->size == 8))) ||
         type->base->size <= 0 || type->base->size > 8) {
         return false;
     }
@@ -3977,7 +3980,8 @@ static bool cxx_structural_class_find_member_path(
                         return false;
                     }
                     raw_value = (packed_value >> element_offset) & mask;
-                    if (!element_type->is_unsigned && element_bits < 64u &&
+                    if (!type_is_floating((Type*)element_type) &&
+                        !element_type->is_unsigned && element_bits < 64u &&
                         (raw_value & (UINT64_C(1) <<
                                       (element_bits - 1u)))) {
                         raw_value |= ~mask;
@@ -10206,7 +10210,32 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                         parameter->type, value_args[index], member_names,
                         member_count, (int)array_element_index,
                         &value, &value_type)) {
-                    copy = expr_int(value, expression->loc);
+                    if (value_type && type_is_floating(value_type)) {
+                        double floating_value;
+                        if (value_type->kind == TYPE_FLOAT) {
+                            uint32_t bits = (uint32_t)(uint64_t)value;
+                            float narrowed;
+                            if (value_type->size != (int)sizeof(narrowed)) {
+                                rcc_fatal(
+                                    "C++ structural float array element has an unsupported size");
+                            }
+                            memcpy(&narrowed, &bits, sizeof(bits));
+                            floating_value = narrowed;
+                        } else if (value_type->kind == TYPE_DOUBLE) {
+                            if (value_type->size != (int)sizeof(floating_value)) {
+                                rcc_fatal(
+                                    "C++ structural double array element has an unsupported size");
+                            }
+                            memcpy(&floating_value, &value,
+                                   sizeof(floating_value));
+                        } else {
+                            rcc_fatal(
+                                "C++ structural floating array element has an unsupported type");
+                        }
+                        copy = expr_float(floating_value, expression->loc);
+                    } else {
+                        copy = expr_int(value, expression->loc);
+                    }
                     copy->type = value_type;
                     return copy;
                 }

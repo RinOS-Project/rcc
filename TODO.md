@@ -5962,7 +5962,19 @@ remains a separate open item.
 - [x] Gate the regression in `test-cxx`; assemble both target outputs and run
       RCC-generated and GCC-generated host executables. The focused test and
       complete native-Windows `test-cxx` aggregate pass.
-- [ ] Arrays of nested structural classes, pointer/floating arrays, and
+- [ ] Arrays of nested structural classes, pointer arrays, and
+      multidimensional arrays remain open.
+
+## RCC continuation (2026-10-18, floating arrays in structural NTTP packs)
+
+- [x] Extend fixed-bound one-dimensional structural-class NTTP arrays to
+      `float` and `double`. Preserve their IEEE value bits in compact and
+      record-backed storage, constant-index member access, and Itanium
+      mangling.
+- [x] Compare exact GCC/RCC symbols; assemble i686 and AMD64 output and execute
+      RCC/GCC host regressions. The focused target and full native-Windows
+      `test-cxx` aggregate pass.
+- [ ] Arrays of nested structural classes, pointer arrays, and
       multidimensional arrays remain open.
 
 ## RCC continuation (2026-10-18, native Windows CI re-audit)

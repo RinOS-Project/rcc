@@ -3054,8 +3054,14 @@ static bool cxx_structural_class_collect_member_values(
             Type* element_type = field->type->base;
             if (!element_type || field->type->array_len <= 0 ||
                 field->type->array_bound ||
-                (!type_is_integer(element_type) &&
-                 element_type->kind != TYPE_ENUM) ||
+                ((!type_is_integer(element_type) &&
+                  element_type->kind != TYPE_ENUM) &&
+                 element_type->kind != TYPE_FLOAT &&
+                 element_type->kind != TYPE_DOUBLE) ||
+                (element_type->kind == TYPE_FLOAT &&
+                 element_type->size != 4) ||
+                (element_type->kind == TYPE_DOUBLE &&
+                 element_type->size != 8) ||
                 element_type->size <= 0 || element_type->size > 8) {
                 return false;
             }
@@ -3074,11 +3080,45 @@ static bool cxx_structural_class_collect_member_values(
                  element_index < field->type->array_len; ++element_index) {
                 int64_t element_value = 0;
                 if (array_initializer) {
+                    Expr* element_initializer = array_initializer->expr;
                     if (array_initializer->designator_kind !=
-                            INIT_DESIGNATOR_NONE ||
-                        !array_initializer->expr ||
-                        !expr_eval_integer_constant(
-                            array_initializer->expr, &element_value)) {
+                            INIT_DESIGNATOR_NONE || !element_initializer) {
+                        return false;
+                    }
+                    if (type_is_floating(element_type)) {
+                        double floating_value;
+                        if (!eval_template_floating_expression(
+                                element_initializer, NULL, NULL, NULL,
+                                &floating_value)) {
+                            return false;
+                        }
+                        if (!cxx_structural_floating_member_conversion_is_valid(
+                                element_initializer, element_type,
+                                floating_value)) {
+                            rcc_error(element_initializer->loc,
+                                      "narrowing conversion in structural class non-type template argument");
+                            return false;
+                        }
+                        if (element_type->kind == TYPE_FLOAT) {
+                            float narrowed = (float)floating_value;
+                            uint32_t bits;
+                            if (element_type->size != (int)sizeof(narrowed)) {
+                                return false;
+                            }
+                            memcpy(&bits, &narrowed, sizeof(bits));
+                            element_value = (int64_t)bits;
+                        } else {
+                            uint64_t bits;
+                            if (element_type->size !=
+                                (int)sizeof(floating_value)) {
+                                return false;
+                            }
+                            memcpy(&bits, &floating_value, sizeof(bits));
+                            memcpy(&element_value, &bits,
+                                   sizeof(element_value));
+                        }
+                    } else if (!expr_eval_integer_constant(
+                                   element_initializer, &element_value)) {
                         return false;
                     }
                     array_initializer = array_initializer->next;
