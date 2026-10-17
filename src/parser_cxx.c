@@ -3048,6 +3048,51 @@ static bool cxx_structural_class_collect_member_values(
             !field_initializer) {
             return false;
         }
+        if (field->type->kind == TYPE_ARRAY) {
+            ExprList* array_initializer = NULL;
+            Type* initializer_type = NULL;
+            Type* element_type = field->type->base;
+            if (!element_type || field->type->array_len <= 0 ||
+                field->type->array_bound ||
+                (!type_is_integer(element_type) &&
+                 element_type->kind != TYPE_ENUM) ||
+                element_type->size <= 0 || element_type->size > 8) {
+                return false;
+            }
+            if (field_initializer) {
+                if (field_initializer->kind != EXPR_COMPOUND) return false;
+                initializer_type = field_initializer->compound_type
+                    ? field_initializer->compound_type
+                    : field_initializer->type;
+                if (initializer_type &&
+                    !type_is_compatible(field->type, initializer_type)) {
+                    return false;
+                }
+                array_initializer = field_initializer->compound_init;
+            }
+            for (int element_index = 0;
+                 element_index < field->type->array_len; ++element_index) {
+                int64_t element_value = 0;
+                if (array_initializer) {
+                    if (array_initializer->designator_kind !=
+                            INIT_DESIGNATOR_NONE ||
+                        !array_initializer->expr ||
+                        !expr_eval_integer_constant(
+                            array_initializer->expr, &element_value)) {
+                        return false;
+                    }
+                    array_initializer = array_initializer->next;
+                }
+                if (*member_count < 0 ||
+                    (size_t)*member_count >= member_capacity ||
+                    !member_values) {
+                    return false;
+                }
+                member_values[(*member_count)++] = element_value;
+            }
+            if (array_initializer) return false;
+            continue;
+        }
         if (field->type->kind == TYPE_STRUCT) {
             ExprList* nested_initializer = NULL;
             Type* nested_type = NULL;
@@ -3164,6 +3209,14 @@ static bool cxx_structural_class_count_member_values(
                     field->type, member_count)) {
                 return false;
             }
+        } else if (field->type->kind == TYPE_ARRAY) {
+            if (field->type->array_len <= 0 ||
+                field->type->array_bound ||
+                (size_t)field->type->array_len >
+                    (size_t)INT_MAX - *member_count) {
+                return false;
+            }
+            *member_count += (size_t)field->type->array_len;
         } else {
             if (*member_count >= (size_t)INT_MAX) return false;
             ++*member_count;

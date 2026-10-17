@@ -707,6 +707,8 @@ static Type* cxx_structural_field_mangled_type(
 static bool cxx_structural_class_measure_fields(
     const Type* type, unsigned* total_bits, unsigned* leaf_count,
     unsigned* pointer_count);
+static bool cxx_structural_array_leaf_info(
+    const Type* type, const Type** leaf_type, unsigned* leaf_count);
 static bool cxx_structural_class_decode_leaf(
     const TypeParam* field, uint64_t packed_value, unsigned bit_offset,
     int64_t* member_value);
@@ -1096,6 +1098,60 @@ static bool cxx_mangle_structural_value_body(
         int64_t field_value;
         unsigned field_bits;
         if (field->is_static) continue;
+        if (field->type->kind == TYPE_ARRAY) {
+            const Type* element_type = NULL;
+            unsigned element_count = 0u;
+            unsigned element_bits;
+            if (!cxx_structural_array_leaf_info(
+                    field->type, &element_type, &element_count) ||
+                !element_type || element_type->size <= 0 ||
+                element_type->size > 8) {
+                return false;
+            }
+            element_bits = (unsigned)element_type->size * 8u;
+            cxx_mangle_type_char(buf, pos, 't');
+            cxx_mangle_type_char(buf, pos, 'l');
+            cxx_mangle_type_append_context(buf, pos, field->type, context);
+            for (unsigned element_index = 0u;
+                 element_index < element_count; ++element_index) {
+                if (recorded_values) {
+                    if (!recorded_index || *recorded_index < 0 ||
+                        *recorded_index >= recorded_count) {
+                        return false;
+                    }
+                    field_value = recorded_values[(*recorded_index)++];
+                } else {
+                    uint64_t mask = element_bits == 64u
+                        ? UINT64_MAX
+                        : (UINT64_C(1) << element_bits) - UINT64_C(1);
+                    uint64_t raw_value;
+                    unsigned element_offset = *bit_offset +
+                        element_index * element_bits;
+                    if (element_offset > 64u ||
+                        element_bits > 64u - element_offset) {
+                        return false;
+                    }
+                    raw_value = (((uint64_t)packed_value) >> element_offset) &
+                        mask;
+                    if (!element_type->is_unsigned && element_bits < 64u &&
+                        (raw_value & (UINT64_C(1) <<
+                                      (element_bits - 1u)))) {
+                        raw_value |= ~mask;
+                    }
+                    field_value = (int64_t)raw_value;
+                }
+                cxx_mangle_type_char(buf, pos, 'L');
+                cxx_mangle_type_append_context(
+                    buf, pos, (Type*)element_type, context);
+                cxx_mangle_template_value_suffix(
+                    buf, pos, (Type*)element_type, field_value);
+            }
+            cxx_mangle_type_char(buf, pos, 'E');
+            if (!recorded_values) {
+                *bit_offset += element_count * element_bits;
+            }
+            continue;
+        }
         if (field->type->kind == TYPE_STRUCT) {
             if (!recorded_values &&
                 cxx_structural_class_has_only_pointer_member(field->type) &&
@@ -1835,7 +1891,13 @@ static void cxx_mangle_type_append_context(
         case TYPE_ARRAY: {
             char base_mangled[CXX_MANGLE_BUFFER_SIZE];
             size_t base_pos = 0u;
+            size_t substitution = cxx_mangle_find_class_substitution(
+                context, type);
             int written;
+            if (substitution != (size_t)-1) {
+                cxx_mangle_append_substitution(buf, pos, substitution);
+                break;
+            }
             cxx_mangle_type_append_context(
                 base_mangled, &base_pos, type->base, context);
             base_mangled[base_pos] = '\0';
@@ -1849,6 +1911,7 @@ static void cxx_mangle_type_append_context(
                 rcc_fatal("C++ array type name is too long");
             }
             *pos += (size_t)written;
+            cxx_mangle_record_class_type(context, type);
             break;
         }
         case TYPE_FUNC:
@@ -3548,6 +3611,7 @@ static bool cxx_structural_class_measure_fields(
     }
     for (field = cls->fields; field; field = field->next) {
         unsigned field_bits;
+        unsigned field_leaves = 1u;
         if (field->is_static) continue;
         if (field->cxx_access != ACCESS_PUBLIC || !field->name ||
             !field->type) {
@@ -3568,6 +3632,20 @@ static bool cxx_structural_class_measure_fields(
                 return false;
             }
             continue;
+        } else if (field->type->kind == TYPE_ARRAY) {
+            const Type* element_type = NULL;
+            unsigned element_count = 0u;
+            if (!cxx_structural_array_leaf_info(
+                    field->type, &element_type, &element_count) ||
+                !element_type || element_type->size <= 0 ||
+                element_type->size > 8 ||
+                element_count > UINT_MAX /
+                    ((unsigned)element_type->size * 8u)) {
+                return false;
+            }
+            field_bits = element_count *
+                ((unsigned)element_type->size * 8u);
+            field_leaves = element_count;
         } else if (field->type->kind == TYPE_PTR) {
             if ((field->type->cxx_is_member_pointer &&
                  !field->type->base) ||
@@ -3600,12 +3678,26 @@ static bool cxx_structural_class_measure_fields(
             field_bits = (unsigned)field->type->size * 8u;
         }
         if (field_bits > UINT_MAX - *total_bits ||
-            *leaf_count == UINT_MAX) {
+            field_leaves > UINT_MAX - *leaf_count) {
             return false;
         }
         *total_bits += field_bits;
-        ++*leaf_count;
+        *leaf_count += field_leaves;
     }
+    return true;
+}
+
+static bool cxx_structural_array_leaf_info(
+    const Type* type, const Type** leaf_type, unsigned* leaf_count) {
+    if (!type || type->kind != TYPE_ARRAY || type->array_len <= 0 ||
+        !type->base || type->array_bound ||
+        (!type_is_integer(type->base) &&
+         type->base->kind != TYPE_ENUM) ||
+        type->base->size <= 0 || type->base->size > 8) {
+        return false;
+    }
+    if (leaf_type) *leaf_type = type->base;
+    if (leaf_count) *leaf_count = (unsigned)type->array_len;
     return true;
 }
 
@@ -3631,6 +3723,19 @@ static unsigned cxx_structural_type_value_bits(const Type* type) {
             return 0;
         }
         return total_bits;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        const Type* element_type = NULL;
+        unsigned element_count = 0u;
+        if (!cxx_structural_array_leaf_info(
+                type, &element_type, &element_count) ||
+            !element_type || element_type->size <= 0 ||
+            element_type->size > 8 ||
+            element_count > UINT_MAX /
+                ((unsigned)element_type->size * 8u)) {
+            return 0u;
+        }
+        return element_count * ((unsigned)element_type->size * 8u);
     }
     if (type->kind == TYPE_PTR) return 64u;
     if (type->kind == TYPE_NULLPTR) return 1u;
@@ -3699,6 +3804,32 @@ static bool cxx_structural_class_pack_fields(
         uint64_t mask;
         uint64_t field_value;
         if (field->is_static) continue;
+        if (field->type->kind == TYPE_ARRAY) {
+            const Type* element_type = NULL;
+            unsigned element_count = 0u;
+            unsigned element_bits;
+            if (!cxx_structural_array_leaf_info(
+                    field->type, &element_type, &element_count) ||
+                !element_type || element_type->size <= 0 ||
+                element_type->size > 8) {
+                return false;
+            }
+            element_bits = (unsigned)element_type->size * 8u;
+            mask = element_bits == 64u
+                ? UINT64_MAX
+                : (UINT64_C(1) << element_bits) - UINT64_C(1);
+            for (unsigned element_index = 0u;
+                 element_index < element_count; ++element_index) {
+                if (!member_values || *value_index >= member_count ||
+                    element_bits > 64u - *bit_offset) {
+                    return false;
+                }
+                field_value = (uint64_t)member_values[(*value_index)++];
+                *packed_value |= (field_value & mask) << *bit_offset;
+                *bit_offset += element_bits;
+            }
+            continue;
+        }
         if (!field->is_bitfield && field->type->kind == TYPE_STRUCT) {
             if (!cxx_structural_class_pack_fields(
                     field->type, member_values, member_count, value_index,
@@ -3793,7 +3924,8 @@ static bool cxx_structural_class_decode_leaf(
 
 static bool cxx_structural_class_find_member_path(
     const Type* type, uint64_t packed_value, const char* const* member_names,
-    int member_name_count, int path_index, unsigned bit_offset,
+    int member_name_count, int path_index, int array_element_index,
+    unsigned bit_offset,
     const int64_t* recorded_values, int recorded_count, int* value_index,
     int64_t* member_value, Type** member_type) {
     const TypeParam* field;
@@ -3805,13 +3937,57 @@ static bool cxx_structural_class_find_member_path(
                 if (path_index + 1 >= member_name_count) return false;
                 return cxx_structural_class_find_member_path(
                     field->type, packed_value, member_names,
-                    member_name_count, path_index + 1, bit_offset,
+                    member_name_count, path_index + 1,
+                    array_element_index, bit_offset,
                     recorded_values, recorded_count, value_index,
                     member_value, member_type);
             }
             if (path_index + 1 != member_name_count) {
                 return false;
             }
+            if (field->type->kind == TYPE_ARRAY) {
+                const Type* element_type = NULL;
+                unsigned element_count = 0u;
+                unsigned element_bits;
+                if (array_element_index < 0 ||
+                    !cxx_structural_array_leaf_info(
+                        field->type, &element_type, &element_count) ||
+                    (unsigned)array_element_index >= element_count ||
+                    !element_type || element_type->size <= 0 ||
+                    element_type->size > 8) {
+                    return false;
+                }
+                element_bits = (unsigned)element_type->size * 8u;
+                if (recorded_values) {
+                    if (*value_index < 0 || *value_index > recorded_count ||
+                        array_element_index >= recorded_count - *value_index) {
+                        return false;
+                    }
+                    *member_value =
+                        recorded_values[*value_index + array_element_index];
+                } else {
+                    uint64_t mask = element_bits == 64u
+                        ? UINT64_MAX
+                        : (UINT64_C(1) << element_bits) - UINT64_C(1);
+                    unsigned element_offset = bit_offset +
+                        (unsigned)array_element_index * element_bits;
+                    uint64_t raw_value;
+                    if (element_offset > 64u ||
+                        element_bits > 64u - element_offset) {
+                        return false;
+                    }
+                    raw_value = (packed_value >> element_offset) & mask;
+                    if (!element_type->is_unsigned && element_bits < 64u &&
+                        (raw_value & (UINT64_C(1) <<
+                                      (element_bits - 1u)))) {
+                        raw_value |= ~mask;
+                    }
+                    *member_value = (int64_t)raw_value;
+                }
+                if (member_type) *member_type = (Type*)element_type;
+                return true;
+            }
+            if (array_element_index >= 0) return false;
             if (recorded_values) {
                 if (*value_index < 0 || *value_index >= recorded_count) {
                     return false;
@@ -3837,8 +4013,20 @@ static bool cxx_structural_class_find_member_path(
                     return false;
                 }
                 *value_index += (int)nested_leaf_count;
+            } else if (field->type->kind == TYPE_ARRAY) {
+                const Type* element_type = NULL;
+                unsigned element_count = 0u;
+                if (!cxx_structural_array_leaf_info(
+                        field->type, &element_type, &element_count) ||
+                    element_count >
+                        (unsigned)(INT_MAX - *value_index)) {
+                    return false;
+                }
+                *value_index += (int)element_count;
             } else {
-                if (*value_index >= recorded_count) return false;
+                if (*value_index < 0 || *value_index >= recorded_count) {
+                    return false;
+                }
                 ++*value_index;
             }
             continue;
@@ -3868,9 +4056,33 @@ bool cxx_structural_class_unpack_member_path(
         recorded_count = 0;
     }
     return cxx_structural_class_find_member_path(
-        type, (uint64_t)packed_value, member_names, member_name_count, 0, 0,
+        type, (uint64_t)packed_value, member_names, member_name_count, 0,
+        -1, 0,
         recorded_values, recorded_count, &value_index,
         member_value, member_type);
+}
+
+bool cxx_structural_class_unpack_array_member_path(
+    const Type* type, int64_t packed_value,
+    const char* const* member_names, int member_name_count,
+    int array_element_index, int64_t* member_value, Type** member_type) {
+    const int64_t* recorded_values = NULL;
+    int recorded_count = 0;
+    int value_index = 0;
+    if (!member_names || member_name_count <= 0 || !member_names[0] ||
+        array_element_index < 0 || !member_value ||
+        !cxx_structural_class_value_supported_subset(type)) {
+        return false;
+    }
+    if (!cxx_structural_class_value_record_resolve(
+            type, packed_value, &recorded_values, &recorded_count)) {
+        recorded_values = NULL;
+        recorded_count = 0;
+    }
+    return cxx_structural_class_find_member_path(
+        type, (uint64_t)packed_value, member_names, member_name_count, 0,
+        array_element_index, 0, recorded_values, recorded_count,
+        &value_index, member_value, member_type);
 }
 
 bool cxx_structural_class_unpack_member_value(
@@ -4964,6 +5176,26 @@ static void cxx_typeinfo_identity_append_structural_values(
             cxx_typeinfo_identity_append_type(builder, field->type);
             cxx_typeinfo_identity_append_structural_values(
                 builder, field->type, values, value_count, value_index);
+            continue;
+        }
+        if (field->type->kind == TYPE_ARRAY) {
+            const Type* element_type = NULL;
+            unsigned element_count = 0u;
+            if (!cxx_structural_array_leaf_info(
+                    field->type, &element_type, &element_count) ||
+                !value_index || *value_index < 0 ||
+                *value_index > value_count ||
+                element_count > (unsigned)(value_count - *value_index)) {
+                rcc_fatal(
+                    "C++ typeinfo structural array value is incomplete");
+            }
+            cxx_typeinfo_identity_append_char(builder, 'A');
+            cxx_typeinfo_identity_append_type(builder, field->type);
+            for (unsigned element_index = 0u;
+                 element_index < element_count; ++element_index) {
+                cxx_typeinfo_identity_append_signed(
+                    builder, values[(*value_index)++]);
+            }
             continue;
         }
         if (!value_index || *value_index < 0 ||
@@ -9945,6 +10177,42 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                                  const bool* value_present) {
     Expr* copy;
     if (!expression) return NULL;
+    if (expression->kind == EXPR_INDEX && value_args && value_present) {
+        int64_t array_element_index = 0;
+        int64_t value = 0;
+        Type* value_type = NULL;
+        Expr* array_member = expression->index_base;
+        int member_capacity =
+            template_clone_structural_member_path_capacity(array_member);
+        if (member_capacity > 0 &&
+            expr_eval_integer_constant(
+                expression->index_expr, &array_element_index) &&
+            array_element_index >= 0 && array_element_index <= INT_MAX) {
+            const char* parameter_name = NULL;
+            const char** member_names = ast_arena_alloc(
+                sizeof(*member_names) * (size_t)member_capacity);
+            int member_count = 0;
+            TemplateParam* parameter = NULL;
+            if (template_clone_collect_structural_member_path(
+                    array_member, member_names, member_capacity,
+                    &member_count, &parameter_name)) {
+                int index = template_clone_value_parameter_index(
+                    tmpl, parameter_name, arg_count, &parameter);
+                if (index >= 0 && parameter &&
+                    cxx_structural_class_value_supported_subset(
+                        parameter->type) &&
+                    value_present[index] &&
+                    cxx_structural_class_unpack_array_member_path(
+                        parameter->type, value_args[index], member_names,
+                        member_count, (int)array_element_index,
+                        &value, &value_type)) {
+                    copy = expr_int(value, expression->loc);
+                    copy->type = value_type;
+                    return copy;
+                }
+            }
+        }
+    }
     if (expression->kind == EXPR_MEMBER) {
         int64_t value;
         Type* value_type = NULL;

@@ -5951,6 +5951,20 @@ remains a separate open item.
 - [ ] Other nested dependent pack sources, additional structural NTTP member
       layouts, and broader ABI substitution interactions remain open.
 
+## RCC continuation (2026-10-18, integral arrays in structural NTTP packs)
+
+- [x] Accept fixed-bound one-dimensional integral and enum arrays as public
+      structural-class members. Collect aggregate elements, preserve values
+      in both compact and record-backed representations, and substitute
+      constant-index member access inside template instantiations.
+- [x] Emit GCC-compatible Itanium array-subobject expressions and array-type
+      substitutions. Compare the exact GCC/RCC symbol on i686 and AMD64.
+- [x] Gate the regression in `test-cxx`; assemble both target outputs and run
+      RCC-generated and GCC-generated host executables. The focused test and
+      complete native-Windows `test-cxx` aggregate pass.
+- [ ] Arrays of nested structural classes, pointer/floating arrays, and
+      multidimensional arrays remain open.
+
 ## RCC continuation (2026-10-18, native Windows CI re-audit)
 
 - [x] Reconcile the recorded `native-windows-cmd` gate with checked-in

@@ -478,7 +478,7 @@ endif
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
 .PHONY: test-cxx-nested-class-template-owner-structural-value-pack test-cxx-nested-class-template-owner-structural-value-pack-posix test-cxx-nested-class-template-owner-structural-value-pack-invalid
-.PHONY: test-cxx-structural-pointer-offset test-cxx-structural-pointer-offset-posix
+.PHONY: test-cxx-structural-pointer-offset test-cxx-structural-pointer-offset-posix test-cxx-structural-array-nttp
 .PHONY: test-cxx-nested-class-template-owner-explicit-chain-10
 .PHONY: test-cxx-dependent-array-bound-overflow
 .PHONY: test-cxx-dependent-array-unsigned64-bound
@@ -653,6 +653,7 @@ CXX_REGRESSION_TARGETS = \
 	test-cxx-static-reference-conversions \
 	test-cxx-member-pointer-data \
 	test-cxx-structural-pointer-offset \
+	test-cxx-structural-array-nttp \
 	test-cxx-member-pointer-functions \
 	test-cxx-member-pointer-reference-lifetime \
 	test-cxx-class-template-methods \
@@ -3799,6 +3800,27 @@ test-cxx-static-reference-conversions-posix: $(RCXX_TARGET)
 	@echo "C++ static reference conversion lifetime tests passed for i686 and AMD64"
 
 test-cxx-structural-pointer-offset: test-cxx-structural-pointer-offset-posix
+
+STRUCTURAL_ARRAY_PACK_SYMBOL = _ZN24StructuralArrayValuePackIJXtl18StructuralArrayKeytlA2_iLi2ELi3EEEEXtlS0_tlS1_Li5ELi7EEEEEE8combinedEv
+STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL = _ZN30StructuralArrayRecordValuePackIJXtl24StructuralArrayRecordKeytlA2_iLi2ELi3EELi4EEEXtlS0_tlS1_Li5ELi7EELi9EEEEE8combinedEv
+STRUCTURAL_ENUM_ARRAY_PACK_SYMBOL = _ZN28StructuralEnumArrayValuePackIJXtl22StructuralEnumArrayKeytlA2_24StructuralArrayEnumValueLS1_2ELS1_3EEEEXtlS0_tlS2_LS1_5ELS1_7EEEEEE8combinedEv
+
+test-cxx-structural-array-nttp: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-array-nttp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-structural-array-nttp,cxx_structural_class_array_value_pack.cpp)
+	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-structural-array-nttp/gcc.s tests/cxx_structural_class_array_value_pack.cpp
+	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_ENUM_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_ENUM_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_ENUM_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-structural-array-nttp/gcc-host tests/cxx_structural_class_array_value_pack.cpp
+	$(TEST_OUT)/cxx-structural-array-nttp/gcc-host
+	@echo "Structural class NTTP array member test passed for i686 and AMD64"
 
 test-cxx-structural-pointer-offset-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-pointer-offset)
