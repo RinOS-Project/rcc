@@ -5704,6 +5704,24 @@ remains a separate open item.
       and empty-pack primary results against GCC C++20; native-Windows
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation,
       generated execution, host execution, and existing diagnostic checks.
-- [ ] Other template-template partial-specialization patterns, mixed
-      fixed/pack parameter lists, broader nested paths, and dependent non-type
-      conversions remain open.
+- [ ] Other template-template partial-specialization patterns, broader nested
+      paths, dependent non-type conversions, and mixed multi-source pack
+      patterns remain open.
+
+## RCC continuation (2026-10-17, mixed fixed/pack class partial specializations)
+
+- [x] Parse a fixed leading type followed by a type-pack expansion in class
+      partial-specialization patterns, map zero or more actual pack arguments,
+      and instantiate the selected specialization with its flattened pack.
+- [x] Regress empty, one-element, and multi-element packs, including selection
+      through a dependent nested-type substitution. The native-Windows
+      `test-cxx-class-template-specialization` gate passes for i686/AMD64
+      generation and AMD64 execution; GCC C++20 `-Wall -Wextra -Werror`
+      syntax checking passes.
+- [x] Reuse an in-progress class instance when its own dependent nested type
+      is resolved while cloning member declarations, preventing recursive
+      re-instantiation. Native-Windows `test-cxx-class-template-dependent-
+      nested-type` passes for i686/AMD64 generation and execution.
+- [ ] Multiple and mixed-kind pack expansions, dependent non-type/template-
+      template expansions, and partial-ordering relationships between pack
+      patterns remain open.

@@ -188,6 +188,38 @@ public:
     }
 };
 
+template<typename... Types>
+struct MixedPackPartial {
+    static constexpr int kind = 1;
+};
+
+template<typename Head, typename... Tail>
+struct MixedPackPartial<Head, Tail...> {
+    static constexpr int kind = 2;
+};
+
+template<typename... Types>
+struct DependentMixedPackPartial {
+    using type = char;
+};
+
+template<typename Head, typename... Tail>
+struct DependentMixedPackPartial<Head, Tail...> {
+    using type = short;
+};
+
+template<typename... Types>
+struct DependentMixedPackPartialUse {
+    using type = typename DependentMixedPackPartial<Types...>::type;
+};
+
+static_assert(sizeof(typename DependentMixedPackPartialUse<>::type) ==
+              sizeof(char));
+static_assert(sizeof(typename DependentMixedPackPartialUse<int>::type) ==
+              sizeof(short));
+static_assert(sizeof(typename DependentMixedPackPartialUse<int, short>::type) ==
+              sizeof(short));
+
 int main() {
     Value<int> value{21};
     Value<int*> pointer_value{9};
@@ -207,6 +239,11 @@ int main() {
     ConstrainedNumber<5> constrained_specialized;
     DefaultType<int> default_type{5};
     AggregateBox<int> aggregate_box = make_aggregate_box(20, 22);
+    constexpr int mixed_pack_empty = MixedPackPartial<>::kind;
+    constexpr int mixed_pack_single = MixedPackPartial<int>::kind;
+    constexpr int mixed_pack_double = MixedPackPartial<int, short>::kind;
+    constexpr int mixed_pack_triple =
+        MixedPackPartial<int, short, long>::kind;
     return value.doubled() == 42 && pointer_value.kind() == 9 &&
                    pointer_pointer_value.kind() == 22 &&
                    pointer_pointer_pointer_value.kind() == 33 &&
@@ -227,7 +264,9 @@ int main() {
                    constexpr_aggregate_box.first +
                        constexpr_aggregate_box.second == 22 &&
                    consteval_aggregate_box.first +
-                       consteval_aggregate_box.second == 42
+                       consteval_aggregate_box.second == 42 &&
+                   mixed_pack_empty == 1 && mixed_pack_single == 2 &&
+                   mixed_pack_double == 2 && mixed_pack_triple == 2
                ? 0
                : 1;
 }

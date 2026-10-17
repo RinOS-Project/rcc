@@ -374,6 +374,9 @@ struct CxxTemplate {
     CxxTemplate** specializations;
     int specialization_count;
     Type** specialization_args;
+    /* Type-argument pack expansions in a class partial-specialization
+     * pattern, indexed by the primary template argument position. */
+    bool* specialization_arg_pack_expansions;
     /* Owner class-template-id pattern for an out-of-class nested member
      * specialization, when the owner itself is still dependent. */
     Type* specialization_owner_pattern;
