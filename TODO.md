@@ -5591,3 +5591,16 @@ remains a separate open item.
       `test-cxx` aggregate pass (exit 0).
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-17, nested ordinary-pointer qualification)
+
+- [x] Do not treat a conversion-function result `int**` as identity-compatible
+      with `const int** const&`; the nested qualification is unsafe. Reject it
+      while preserving the safe conversion to
+      `const int* const* const&`.
+- [x] Compare both forms with GCC C++20. The native-Windows focused gate checks
+      GCC and RCC acceptance/rejection, diagnostics, and absent output for
+      i686/AMD64; `test-cxx-conversion-operator` and
+      `test-cxx-function-template-overloads` pass.
+- [ ] Other multi-step standard conversions, remaining cv/reference binding
+      shapes, and general C++20 conversion-sequence ordering remain open.

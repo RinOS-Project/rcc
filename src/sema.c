@@ -2720,6 +2720,12 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
          (source->is_volatile && !target->is_volatile))) {
         return -1;
     }
+    if (source->kind == TYPE_PTR && target->kind == TYPE_PTR &&
+        !source->cxx_is_member_pointer &&
+        !target->cxx_is_member_pointer && source->base && target->base &&
+        !sema_pointee_qualification_preserved(source->base, target->base)) {
+        return -1;
+    }
     if (type_is_compatible(source, target) &&
         !(source->kind == TYPE_PTR && target->kind == TYPE_PTR &&
           source->cxx_is_member_pointer && target->cxx_is_member_pointer &&

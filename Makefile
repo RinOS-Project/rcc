@@ -18078,4 +18078,17 @@ test-cxx-conversion-member-pointer-owner-path: $(RCXX_TARGET)
 	$(GREP) -F -q "incompatible type for argument 1 to 'consume_const_pointee_member_pointer_array'" $(TEST_OUT)/cxx-conversion-member-pointer-owner-path/nested-array-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/nested-array-x64.ro)
 
-test-cxx-conversion-operator: test-cxx-conversion-member-pointer-owner-path
+test-cxx-conversion-nested-pointer-qualification: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-nested-pointer-qualification)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -DTEST_NESTED_POINTER_QUALIFICATION_INVALID -fsyntax-only tests/cxx_conversion_nested_pointer_qualification.cpp,$(TEST_OUT)/cxx-conversion-nested-pointer-qualification/gcc.log)
+	g++ -std=c++20 -Wall -Wextra -Werror -DTEST_NESTED_POINTER_QUALIFICATION_SAFE -fsyntax-only tests/cxx_conversion_nested_pointer_qualification.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_NESTED_POINTER_QUALIFICATION_INVALID -c -o $(TEST_OUT)/cxx-conversion-nested-pointer-qualification/x86.ro tests/cxx_conversion_nested_pointer_qualification.cpp,$(TEST_OUT)/cxx-conversion-nested-pointer-qualification/x86.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'consume_nested_pointer_qualification'" $(TEST_OUT)/cxx-conversion-nested-pointer-qualification/x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-nested-pointer-qualification/x86.ro)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_NESTED_POINTER_QUALIFICATION_SAFE -c -o $(TEST_OUT)/cxx-conversion-nested-pointer-qualification/safe-x86.ro tests/cxx_conversion_nested_pointer_qualification.cpp
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_NESTED_POINTER_QUALIFICATION_INVALID -c -o $(TEST_OUT)/cxx-conversion-nested-pointer-qualification/x64.ro tests/cxx_conversion_nested_pointer_qualification.cpp,$(TEST_OUT)/cxx-conversion-nested-pointer-qualification/x64.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'consume_nested_pointer_qualification'" $(TEST_OUT)/cxx-conversion-nested-pointer-qualification/x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-nested-pointer-qualification/x64.ro)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_NESTED_POINTER_QUALIFICATION_SAFE -c -o $(TEST_OUT)/cxx-conversion-nested-pointer-qualification/safe-x64.ro tests/cxx_conversion_nested_pointer_qualification.cpp
+
+test-cxx-conversion-operator: test-cxx-conversion-member-pointer-owner-path test-cxx-conversion-nested-pointer-qualification
