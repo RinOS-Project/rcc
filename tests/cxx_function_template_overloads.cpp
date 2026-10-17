@@ -1655,6 +1655,10 @@ concept PackOrderHasPositiveSize = sizeof(T) >= 1;
 template<int Value>
 concept PackOrderPositiveNonType = Value > 0;
 
+constexpr int pack_order_constexpr_default_value(int value) {
+    return 3 * value + 2;
+}
+
 template<typename T>
 struct PackOrderTemplateBox {};
 
@@ -1858,6 +1862,22 @@ int choose_outer_non_type_concept_default_template_template_order(
     Box<T, (PackOrderPositiveNonType<N> ? 3 * N + 2 : 3 * N + 3)>,
     T (&values)[N]) {
     return values[0].value == 3 ? 189 : 190;
+}
+
+template<int N, typename T,
+         template<typename,
+                  int = pack_order_constexpr_default_value(N)> class Box>
+    requires PackOrderHasValueAndSize<T>
+int choose_outer_non_type_constexpr_call_default_template_template_order(
+    Box<T>, T (&values)[N]) {
+    return values[0].value == 3 ? 191 : 192;
+}
+
+template<int N, typename T, template<typename, int> class Box>
+    requires PackOrderHasValue<T>
+int choose_outer_non_type_constexpr_call_default_template_template_order(
+    Box<T, pack_order_constexpr_default_value(N)>, T (&values)[N]) {
+    return values[0].value == 3 ? 193 : 194;
 }
 
 template<typename T,
@@ -3822,6 +3842,10 @@ int main(void) {
                        PackOrderOuterNonTypeDefaultTemplateBox<
                            PackOrderConstrainedValue, 14>{},
                        constrained_values) == 187 &&
+                   choose_outer_non_type_constexpr_call_default_template_template_order(
+                       PackOrderOuterNonTypeDefaultTemplateBox<
+                           PackOrderConstrainedValue, 14>{},
+                       constrained_values) == 191 &&
                    choose_nested_type_default_template_template_order(
                        PackOrderNestedTypeDefaultTemplateBox<
                            int, unsigned>{},

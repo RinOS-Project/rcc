@@ -5822,6 +5822,11 @@ remains a separate open item.
       deduced from a later array parameter. Compare overload selection against
       GCC C++20; native-Windows `test-cxx-function-template-overloads` passes
       for i686/AMD64 generation, RCC/GCC host execution, and diagnostic checks.
-- [ ] Other call-bearing default expressions, compound outer non-type forms,
-      deeper paths through dependent intermediate aliases, and additional
-      C++20 function partial-ordering cases remain open.
+- [x] Evaluate a unique namespace-scope integer-returning `constexpr` function
+      call in a dependent nested template-template non-type default after the
+      outer `N` is deduced. Compare the selected constrained overload with GCC
+      C++20; native-Windows `test-cxx-function-template-overloads` passes for
+      i686/AMD64 generation, RCC/GCC host execution, and diagnostic checks.
+- [ ] Overloaded or function-template call-bearing defaults, other compound
+      outer non-type forms, deeper paths through dependent intermediate aliases,
+      and additional C++20 function partial-ordering cases remain open.

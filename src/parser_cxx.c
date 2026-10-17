@@ -3546,6 +3546,102 @@ static bool cxx_eval_i64_integral_cast(Type* target, int64_t value,
     return true;
 }
 
+static bool cxx_friend_function_name_matches(CxxNamespace* ns,
+                                             const char* candidate_name,
+                                             const char* name);
+
+static Decl* cxx_template_integer_call_function(
+    const Expr* expression, CxxTemplate* tmpl) {
+    const Expr* function_expression;
+    const char* name;
+    Decl* match = NULL;
+    bool qualified;
+    if (!expression || expression->kind != EXPR_CALL ||
+        !(function_expression = expression->call_func) ||
+        function_expression->kind != EXPR_IDENT) {
+        return NULL;
+    }
+    if (function_expression->ident_decl &&
+        function_expression->ident_decl->kind == DECL_FUNC) {
+        return function_expression->ident_decl;
+    }
+    name = function_expression->ident_name;
+    if (!name) return NULL;
+    while (name[0] == ':' && name[1] == ':') name += 2;
+    qualified = strstr(name, "::") != NULL;
+    if (qualified) {
+        for (DeclList* item = active_ast ? active_ast->decls : NULL;
+             item; item = item->next) {
+            Decl* candidate = item->decl;
+            if (!candidate || !candidate->name ||
+                strcmp(candidate->name, name) != 0) {
+                continue;
+            }
+            if (candidate->kind == DECL_FUNC &&
+                candidate->func_is_hidden_friend) {
+                continue;
+            }
+            if (candidate->kind != DECL_FUNC ||
+                candidate->func_this_param ||
+                candidate->func_template_owner) {
+                return NULL;
+            }
+            if (!match) {
+                match = candidate;
+                continue;
+            }
+            if (match->link_name && candidate->link_name &&
+                strcmp(match->link_name, candidate->link_name) == 0) {
+                if (!match->func_body && candidate->func_body) {
+                    match = candidate;
+                }
+                continue;
+            }
+            return NULL;
+        }
+        return match;
+    }
+    for (CxxNamespace* ns = tmpl && tmpl->ns ? tmpl->ns
+                                             : (active_namespace
+                                                    ? active_namespace
+                                                    : g_global_namespace);
+         ns; ns = ns->parent) {
+        bool scope_has_name = false;
+        match = NULL;
+        for (DeclList* item = ns->decls; item; item = item->next) {
+            Decl* candidate = item->decl;
+            if (!candidate || !candidate->name ||
+                !cxx_friend_function_name_matches(ns, candidate->name,
+                                                  name) ||
+                (candidate->kind == DECL_FUNC &&
+                 candidate->func_is_hidden_friend)) {
+                continue;
+            }
+            scope_has_name = true;
+            if (candidate->kind != DECL_FUNC ||
+                candidate->func_this_param ||
+                candidate->func_template_owner) {
+                return NULL;
+            }
+            if (!match) {
+                match = candidate;
+                continue;
+            }
+            if (match->link_name && candidate->link_name &&
+                strcmp(match->link_name, candidate->link_name) == 0) {
+                if (!match->func_body && candidate->func_body) {
+                    match = candidate;
+                }
+                continue;
+            }
+            /* Do not choose an overload based on declaration-list order. */
+            return NULL;
+        }
+        if (scope_has_name) return match;
+    }
+    return match;
+}
+
 static bool eval_template_integer_expression(Expr* expression,
                                               CxxTemplate* tmpl,
                                               const int64_t* values,
@@ -21697,6 +21793,18 @@ static bool eval_template_integer_expression(Expr* expression,
         }
         *result = *result != 0;
         return true;
+    }
+    if (expression->kind == EXPR_CALL && expression->call_func &&
+        expression->call_func->kind == EXPR_IDENT) {
+        Decl* function = cxx_template_integer_call_function(expression, tmpl);
+        if (!function) return false;
+        if (!function->func_is_constexpr || function->func_this_param ||
+            !function->type || function->type->kind != TYPE_FUNC ||
+            !type_is_integer(function->type->ret_type)) {
+            return false;
+        }
+        return rcc_sema_eval_constexpr_integer_call(
+            function, expression->call_args, result);
     }
     if (expression->kind == EXPR_CALL &&
         expression->call_func &&
