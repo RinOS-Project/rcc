@@ -130,7 +130,8 @@ CHECK_NO_SIGN_TEMP = test -z "$$(find "$(1)" -type f \( -name '*.rcc-unsigned-*'
 define PARALLEL_SIGNING
 $(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug --python python3 --rinsign tests/fake_rinsign.py --sign-key tests/signing_test_private.key --public-key tests/signing_test_public.der -o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & first=$$!; $(RCC_TARGET) --target i686-unknown-rinos --sign-profile debug --python python3 --rinsign tests/fake_rinsign.py --sign-key tests/signing_test_private.key --public-key tests/signing_test_public.der -o "$(SIGN_TEST_DIR)/parallel.rin" tests/hello.c & second=$$!; wait $$first; wait $$second
 endef
-CHECK_COUNT = test "$$($(GREP) -F -c '$(1)' '$(2)')" -eq $(3)
+SHELL_QUOTE = '$(subst ','"'"',$(1))'
+CHECK_COUNT = test "$$($(GREP) -F -c $(call SHELL_QUOTE,$(1)) '$(2)')" -eq $(3)
 endif
 
 ifeq ($(OS),Windows_NT)
@@ -2679,7 +2680,7 @@ else
 	gcc -m32 -c -o $(TEST_OUT)/cxx-member-lifetime/x86.o \
 		$(TEST_OUT)/cxx-member-lifetime/x86.s
 	gcc -m32 -c -o $(TEST_OUT)/cxx-member-lifetime/start-x86.o \
-		tests/cxx_new_delete_i686_start.s
+		tests/cxx_exceptions_i686_start.s
 	gcc -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-member-lifetime/x86 \
 		$(TEST_OUT)/cxx-member-lifetime/start-x86.o \
@@ -2690,8 +2691,9 @@ else
 		tests/cxx_member_lifetime.cpp
 	gcc -c -o $(TEST_OUT)/cxx-member-lifetime/x64.o \
 		$(TEST_OUT)/cxx-member-lifetime/x64.s
-	gcc -c -o $(TEST_OUT)/cxx-member-lifetime/start-x64.o \
-		tests/cxx_new_delete_x64_start.s
+	gcc -x assembler-with-cpp -c \
+		-o $(TEST_OUT)/cxx-member-lifetime/start-x64.o \
+		tests/cxx_exceptions_x64_start.s
 	gcc -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-member-lifetime/x64 \
 		$(TEST_OUT)/cxx-member-lifetime/start-x64.o \
@@ -3216,7 +3218,7 @@ test-cxx-array-function-bool-reference-invalid: $(RCXX_TARGET)
 	$(call CHECK_COUNT,incompatible type for argument 1 to 'mutable_bool_reference_sink',$(TEST_OUT)/cxx-array-function-bool-reference/x64.log,11)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-array-function-bool-reference/x64.ro)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_array_function_to_mutable_bool_reference_invalid.cpp,$(TEST_OUT)/cxx-array-function-bool-reference/gcc.log)
-	$(call CHECK_COUNT,cannot bind non-const lvalue reference of type 'bool&',$(TEST_OUT)/cxx-array-function-bool-reference/gcc.log,6)
+	$(call CHECK_COUNT,cannot bind non-const lvalue reference of type,$(TEST_OUT)/cxx-array-function-bool-reference/gcc.log,6)
 
 test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-function-bool-reference-invalid
 	$(call MKDIR_P,$(TEST_OUT)/cxx-function-template-overloads)
@@ -3246,7 +3248,7 @@ test-cxx-function-template-overloads-posix: $(RCXX_TARGET) test-cxx-array-functi
 		$(TEST_OUT)/cxx-function-template-overloads/start-x64.o \
 		$(TEST_OUT)/cxx-function-template-overloads/x64.o
 	$(TEST_OUT)/cxx-function-template-overloads/x64
-	g++ -std=c++20 -Wall -Wextra -Werror \
+	g++ -std=c++20 -Wall -Wextra -Werror -fno-elide-constructors \
 		-o $(TEST_OUT)/cxx-function-template-overloads/gcc-host \
 		tests/cxx_function_template_overloads.cpp
 	$(TEST_OUT)/cxx-function-template-overloads/gcc-host
@@ -3480,7 +3482,7 @@ test-cxx-function-template-references-posix: $(RCXX_TARGET)
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-function-template-references/x86.o \
 		$(TEST_OUT)/cxx-function-template-references/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-function-template-references/start-x86.o \
-		tests/cxx_member_methods_i686_start.s
+		tests/cxx_exceptions_i686_start.s
 	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-function-template-references/x86 \
 		$(TEST_OUT)/cxx-function-template-references/start-x86.o \
@@ -3491,8 +3493,9 @@ test-cxx-function-template-references-posix: $(RCXX_TARGET)
 		tests/cxx_function_template_references.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-function-template-references/x64.o \
 		$(TEST_OUT)/cxx-function-template-references/x64.s
-	$(CC) -c -o $(TEST_OUT)/cxx-function-template-references/start-x64.o \
-		tests/cxx_member_methods_x64_start.s
+	$(CC) -x assembler-with-cpp -c \
+		-o $(TEST_OUT)/cxx-function-template-references/start-x64.o \
+		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-function-template-references/x64 \
 		$(TEST_OUT)/cxx-function-template-references/start-x64.o \
@@ -3591,7 +3594,7 @@ test-cxx-static-reference-retry-posix: $(RCXX_TARGET)
 		> $(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
 	$(GREP) -F -q "elf64-x86-64" \
 		$(TEST_OUT)/cxx-static-reference-retry/x64-arch.log
-	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-retry/x64-start.o \
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-static-reference-retry/x64-start.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-retry/x64-guard.o \
 		tests/cxx_static_reference_guard_runtime.c
@@ -3674,7 +3677,7 @@ test-cxx-static-local-exception-posix: $(RCXX_TARGET)
 		> $(TEST_OUT)/cxx-static-local-exception/x64-arch.log
 	$(GREP) -F -q "elf64-x86-64" \
 		$(TEST_OUT)/cxx-static-local-exception/x64-arch.log
-	$(CC) -c \
+	$(CC) -x assembler-with-cpp -c \
 		-o $(TEST_OUT)/cxx-static-local-exception/x64-start.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -c \
@@ -4093,6 +4096,7 @@ test-cxx-named-concepts-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/nested)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/ordering)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/non-type-ordering)
+	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_named_concepts.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-named-concepts/x86.s \
 		tests/cxx_named_concepts.cpp
@@ -4208,7 +4212,7 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-alias-templates/cxx11-x86.s
 	objdump -f $(TEST_OUT)/cxx-alias-templates/cxx11-x86.o \
 		>$(TEST_OUT)/cxx-alias-templates/cxx11-x86-arch.log
-	$(GREP) -F -q "pe-i386" \
+	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-alias-templates/cxx11-x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -S \
 		-o $(TEST_OUT)/cxx-alias-templates/cxx11-x64.s \
@@ -4317,13 +4321,13 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-alias-templates/invalid-x86.ro \
 		tests/cxx_alias_templates_invalid.cpp \
 		>$(TEST_OUT)/cxx-alias-templates/invalid-x86.log 2>&1
-	$(GREP) -q "RCC\+\+ alias template packs currently require one trailing type, non-type, or template-template parameter pack" \
+	$(GREP) -F -q "RCC++ alias template packs currently require one trailing type, non-type, or template-template parameter pack" \
 		$(TEST_OUT)/cxx-alias-templates/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alias-templates/invalid-x64.ro \
 		tests/cxx_alias_templates_invalid.cpp \
 		>$(TEST_OUT)/cxx-alias-templates/invalid-x64.log 2>&1
-	$(GREP) -q "RCC\+\+ alias template packs currently require one trailing type, non-type, or template-template parameter pack" \
+	$(GREP) -F -q "RCC++ alias template packs currently require one trailing type, non-type, or template-template parameter pack" \
 		$(TEST_OUT)/cxx-alias-templates/invalid-x64.log
 	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-alias-templates/class-access-invalid-x86.ro \
@@ -4345,7 +4349,7 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-class-template-alias-owner,cxx_class_template_alias_templates.cpp)
 	objdump -f $(TEST_OUT)/cxx-class-template-alias-owner/x86.o \
 		>$(TEST_OUT)/cxx-class-template-alias-owner/x86-arch.log
-	$(GREP) -F -q "pe-i386" \
+	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-class-template-alias-owner/x86-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S \
 		-o $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.s \
@@ -4355,7 +4359,7 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.s
 	objdump -f $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86.o \
 		>$(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86-arch.log
-	$(GREP) -F -q "pe-i386" \
+	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x86-arch.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++11 -S \
 		-o $(TEST_OUT)/cxx-class-template-alias-owner/cxx11-x64.s \
@@ -4375,7 +4379,7 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log
 	$(GREP) -F -q "nested alias template 'AmbiguousAlias' is ambiguous" \
 		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log,4)
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.log,6)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x86.ro)
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.ro \
@@ -4389,13 +4393,13 @@ test-cxx-alias-templates-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log
 	$(GREP) -F -q "nested alias template 'AmbiguousAlias' is ambiguous" \
 		$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log
-	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log,4)
+	$(call CHECK_COUNT,error:,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.log,6)
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-class-template-alias-owner/invalid-x64.ro)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-signature-alias)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-friend-signature-alias,cxx_friend_signature_alias_templates.cpp)
 	objdump -f $(TEST_OUT)/cxx-friend-signature-alias/x86.o \
 		>$(TEST_OUT)/cxx-friend-signature-alias/x86-arch.log
-	$(GREP) -F -q "pe-i386" \
+	$(GREP) -F -q "elf32-i386" \
 		$(TEST_OUT)/cxx-friend-signature-alias/x86-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++11 -S \
 		-o $(TEST_OUT)/cxx-friend-signature-alias/cxx11-x86.s \
@@ -5027,6 +5031,7 @@ test-cxx-named-concepts: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/nested)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/ordering)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-named-concepts/non-type-ordering)
+	g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_named_concepts.cpp
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-named-concepts,cxx_named_concepts.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-named-concepts/nested,cxx_nested_concept_requirement.cpp)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-named-concepts/ordering,cxx_concept_ordering.cpp)
@@ -10837,7 +10842,7 @@ test-cxx-typeid-dynamic-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		tests/cxx_typeid_dynamic.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-typeid-dynamic/x64.o \
 		$(TEST_OUT)/cxx-typeid-dynamic/x64.s
-	$(CC) -c -o $(TEST_OUT)/cxx-typeid-dynamic/start-x64.o \
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-typeid-dynamic/start-x64.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-typeid-dynamic/x64 \
@@ -13118,7 +13123,7 @@ test-cxx-exceptions-posix: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-exceptions/x86
 	$(CC) -c -o $(TEST_OUT)/cxx-exceptions/x64.o \
 		$(TEST_OUT)/cxx-exceptions/x64.s
-	$(CC) -c -o $(TEST_OUT)/cxx-exceptions/x64-start.o \
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-exceptions/x64-start.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-exceptions/x64 \
@@ -13200,7 +13205,7 @@ test-cxx-object-exceptions-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-object-exceptions/x64.s tests/cxx_object_exceptions.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-object-exceptions/x64.o \
 		$(TEST_OUT)/cxx-object-exceptions/x64.s
-	$(CC) -c -o $(TEST_OUT)/cxx-object-exceptions/x64-start.o \
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-object-exceptions/x64-start.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-object-exceptions/x64 \
@@ -13287,7 +13292,7 @@ test-cxx-cross-library-exceptions-posix: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALID
 		$(TEST_OUT)/cxx-cross-library-exceptions/consumer-x64.s
 	$(OBJCOPY) --redefine-sym _rcc_entry=provider_rcc_entry \
 		$(TEST_OUT)/cxx-cross-library-exceptions/provider-x64.o
-	$(CC) -c -o $(TEST_OUT)/cxx-cross-library-exceptions/start-x64.o \
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-cross-library-exceptions/start-x64.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-cross-library-exceptions/native-x64 \
@@ -13472,7 +13477,7 @@ test-cxx-exception-cleanup-posix: $(RCXX_TARGET)
 		tests/cxx_exception_cleanup.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.o \
 		$(TEST_OUT)/cxx-exception-cleanup/x64.s
-	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/x64-start.o \
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-exception-cleanup/x64-start.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-exception-cleanup/x64 \
@@ -13496,7 +13501,7 @@ test-cxx-exception-cleanup-posix: $(RCXX_TARGET)
 		tests/cxx_exception_cleanup_call_rejected.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x64.o \
 		$(TEST_OUT)/cxx-exception-cleanup/call-x64.s
-	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x64-start.o \
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x64-start.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-exception-cleanup/call-x64 \
@@ -13537,7 +13542,7 @@ test-cxx-nontrivial-object-exceptions-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-nontrivial-object-exceptions/x64.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86-start.o \
 		tests/cxx_exceptions_i686_start.s
-	$(CC) -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64-start.o \
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x64-start.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -m32 -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-nontrivial-object-exceptions/x86 \
@@ -14470,7 +14475,7 @@ test-cxx-dynamic-cast-downcast: $(RCXX_TARGET)
 		tests/cxx_dynamic_cast_downcast.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64.o \
 		$(TEST_OUT)/cxx-dynamic-cast-downcast/x64.s
-	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/start-x64.o \
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-dynamic-cast-downcast/start-x64.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-dynamic-cast-downcast/x64 \
@@ -14530,7 +14535,7 @@ test-cxx-dynamic-cast-runtime: $(RCXX_TARGET)
 		tests/cxx_dynamic_cast_virtual.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-runtime/x64.o \
 		$(TEST_OUT)/cxx-dynamic-cast-runtime/x64.s
-	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-runtime/start-x64.o \
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-dynamic-cast-runtime/start-x64.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-dynamic-cast-runtime/x64 \
@@ -14590,7 +14595,7 @@ test-cxx-dynamic-cast-reference: $(RCXX_TARGET)
 		tests/cxx_dynamic_cast_reference.cpp
 	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-reference/x64.o \
 		$(TEST_OUT)/cxx-dynamic-cast-reference/x64.s
-	$(CC) -c -o $(TEST_OUT)/cxx-dynamic-cast-reference/start-x64.o \
+	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-dynamic-cast-reference/start-x64.o \
 		tests/cxx_exceptions_x64_start.s
 	$(CC) -nostdlib -static -no-pie -Wl,--entry=_start \
 		-o $(TEST_OUT)/cxx-dynamic-cast-reference/x64 \

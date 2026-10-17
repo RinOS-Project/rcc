@@ -2361,7 +2361,12 @@ static bool expression_mentions_decl(const Expr* expression,
                      expression->cxx_requires_compound;
                  requirement; requirement = requirement->next) {
                 if (expression_mentions_decl(requirement->expr,
-                                              declaration)) return true;
+                                              declaration) ||
+                    expression_list_mentions_decl(
+                        requirement->return_type_concept_arguments,
+                        declaration)) {
+                    return true;
+                }
             }
             return false;
         case EXPR_VA_START:

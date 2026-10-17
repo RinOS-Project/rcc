@@ -560,6 +560,8 @@ struct CxxCompoundRequirement {
     bool is_noexcept;
     Type* return_type;
     bool return_type_convertible;
+    struct CxxTemplate* return_type_concept;
+    ExprList* return_type_concept_arguments;
     SourceLoc loc;
     CxxCompoundRequirement* next;
 };

@@ -4651,13 +4651,17 @@ static void cxx_requires_type_append(TypeList** list, Type* type,
 
 static void cxx_requires_compound_append(
     CxxCompoundRequirement** list, Expr* expr, bool is_noexcept,
-    Type* return_type, bool return_type_convertible, SourceLoc loc) {
+    Type* return_type, bool return_type_convertible,
+    CxxTemplate* return_type_concept,
+    ExprList* return_type_concept_arguments, SourceLoc loc) {
     CxxCompoundRequirement* item = ast_arena_alloc(sizeof(*item));
     CxxCompoundRequirement** tail = list;
     item->expr = expr;
     item->is_noexcept = is_noexcept;
     item->return_type = return_type;
     item->return_type_convertible = return_type_convertible;
+    item->return_type_concept = return_type_concept;
+    item->return_type_concept_arguments = return_type_concept_arguments;
     item->loc = loc;
     item->next = NULL;
     while (*tail) tail = &(*tail)->next;
@@ -4690,30 +4694,139 @@ static bool cxx_name_has_suffix(const char* name, const char* suffix) {
             name[name_length - suffix_length - 1u] == ':');
 }
 
-/* Recognize the standard-library type constraints that have a direct bounded
- * ABI interpretation.  Bare types remain accepted as a useful exact-type
- * extension for freestanding RinOS code; unknown concept names are diagnosed
- * instead of being lowered as an unconstrained requirement. */
-static Type* parse_cxx_requires_return_constraint(bool* return_type_convertible) {
+/* Recognize standard type constraints and named concepts in a compound
+ * requirement. Bare types remain accepted as an exact-type extension for
+ * freestanding RinOS code; unknown constraint names are diagnosed instead
+ * of being lowered as unconstrained requirements. */
+static Type* parse_cxx_requires_return_constraint(
+    bool* return_type_convertible, CxxTemplate** return_concept,
+    ExprList** return_concept_arguments) {
     const char* constraint_name;
     Type* return_type;
 
     *return_type_convertible = false;
+    *return_concept = NULL;
+    *return_concept_arguments = NULL;
     if (!cxx_requires_return_constraint_has_arguments()) {
+        Token* saved_cur = parser.cur;
+        Token* saved_prev = parser.prev;
+        if (check(TOK_IDENT) || check(TOK_SCOPE)) {
+            const char* name = parse_qualified_name();
+            CxxTemplate* concept = find_concept(name);
+            if (concept) {
+                if (concept->param_count != 1 ||
+                    concept->params[0].kind != TPARAM_TYPE ||
+                    concept->params[0].is_pack ||
+                    concept->params[0].has_default) {
+                    rcc_error(saved_cur->loc,
+                              "bare requires-expression return concept must "
+                              "have one required type parameter");
+                    return NULL;
+                }
+                /* The first type argument is supplied from decltype((E))
+                 * when the requires-expression is checked. */
+                *return_concept = concept;
+                return NULL;
+            }
+            parser.cur = saved_cur;
+            parser.prev = saved_prev;
+        }
         return parse_cxx_type_spec();
     }
+
     constraint_name = parse_qualified_name();
-    expect(TOK_LT, "< after requires-expression return constraint");
-    return_type = parse_cxx_type_spec();
-    expect(TOK_GT, "> after requires-expression return constraint");
-    if (cxx_name_has_suffix(constraint_name, "same_as")) return return_type;
-    if (cxx_name_has_suffix(constraint_name, "convertible_to")) {
-        *return_type_convertible = true;
+    if (cxx_name_has_suffix(constraint_name, "same_as") ||
+        cxx_name_has_suffix(constraint_name, "convertible_to")) {
+        expect(TOK_LT, "< after requires-expression return constraint");
+        return_type = parse_cxx_type_spec();
+        expect(TOK_GT, "> after requires-expression return constraint");
+        if (cxx_name_has_suffix(constraint_name, "convertible_to")) {
+            *return_type_convertible = true;
+        }
         return return_type;
     }
-    rcc_error(previous()->loc,
-              "unsupported C++20 requires-expression return constraint '%s'",
-              constraint_name);
+
+    {
+        CxxTemplate* concept = find_concept(constraint_name);
+        ExprList* explicit_arguments = NULL;
+        int explicit_count = 0;
+        int expected_count;
+
+        if (!concept || !concept->is_concept || concept->param_count < 1 ||
+            concept->param_count > 32 ||
+            concept->params[0].kind != TPARAM_TYPE ||
+            concept->params[0].is_pack) {
+            rcc_error(peek()->loc,
+                      "unsupported C++20 requires-expression return "
+                      "constraint '%s'",
+                      constraint_name);
+            return NULL;
+        }
+        expect(TOK_LT, "< after requires-expression return concept");
+        expected_count = concept->param_count - 1;
+        while (!check(TOK_GT) && !at_end()) {
+            TemplateParam* parameter;
+            Expr* argument;
+            if (explicit_count >= expected_count) {
+                rcc_error(peek()->loc,
+                          "too many explicit arguments for requires-expression "
+                          "return concept '%s'",
+                          constraint_name);
+                while (!check(TOK_GT) && !at_end()) advance();
+                break;
+            }
+            if (explicit_count > 0) {
+                if (!match(TOK_COMMA)) {
+                    rcc_error(peek()->loc,
+                              "expected ',' between return concept arguments");
+                    break;
+                }
+            }
+            parameter = &concept->params[explicit_count + 1];
+            if (parameter->is_pack ||
+                (parameter->kind != TPARAM_TYPE &&
+                 parameter->kind != TPARAM_NONTYPE)) {
+                rcc_error(peek()->loc,
+                          "requires-expression return concepts support only "
+                          "non-pack type and non-type parameters");
+                while (!check(TOK_GT) && !at_end()) advance();
+                break;
+            }
+            if (parameter->kind == TPARAM_TYPE) {
+                Type* argument_type = parse_cxx_type_spec();
+                if (!argument_type) {
+                    rcc_error(peek()->loc,
+                              "return concept type argument requires a type");
+                    break;
+                }
+                argument_type = rcc_parser_parse_cxx_declarator(
+                    argument_type, NULL, NULL);
+                argument = expr_int(0, peek()->loc);
+                argument->type = argument_type;
+            } else {
+                rcc_parser_set_cxx_template_default_mode(true);
+                argument = parse_assignment_expression();
+                rcc_parser_set_cxx_template_default_mode(false);
+                if (!argument) {
+                    rcc_error(peek()->loc,
+                              "return concept non-type argument requires an "
+                              "expression");
+                    break;
+                }
+            }
+            exprlist_append(&explicit_arguments, argument);
+            ++explicit_count;
+        }
+        expect(TOK_GT, "> after requires-expression return concept");
+        if (explicit_count != expected_count) {
+            rcc_error(previous()->loc,
+                      "requires-expression return concept '%s' expects %d "
+                      "explicit argument(s), got %d",
+                      constraint_name, expected_count, explicit_count);
+        }
+        *return_concept = concept;
+        *return_concept_arguments = explicit_arguments;
+    }
     return NULL;
 }
 
@@ -4898,17 +5011,22 @@ Expr* rcc_parse_cxx_requires_expression(void) {
             bool is_noexcept;
             bool return_type_convertible = false;
             Type* return_type = NULL;
+            CxxTemplate* return_type_concept = NULL;
+            ExprList* return_type_concept_arguments = NULL;
             expect(TOK_RBRACE,
                    "'}' after requires-expression compound expression");
             is_noexcept = match(TOK_NOEXCEPT);
             if (match(TOK_ARROW)) {
                 return_type = parse_cxx_requires_return_constraint(
-                    &return_type_convertible);
+                    &return_type_convertible, &return_type_concept,
+                    &return_type_concept_arguments);
             }
             if (compound) {
                 cxx_requires_compound_append(&compound_requirements, compound,
                                              is_noexcept, return_type,
                                              return_type_convertible,
+                                             return_type_concept,
+                                             return_type_concept_arguments,
                                              requirement_loc);
             }
             expect(TOK_SEMICOLON,
@@ -20902,6 +21020,47 @@ static bool eval_template_integer_expression(Expr* expression,
     }
 }
 
+bool rcc_parser_cxx_type_constraint_satisfied(
+    CxxTemplate* concept, ExprList* explicit_arguments,
+    Type* expression_type, bool expression_is_lvalue,
+    bool expression_is_xvalue) {
+    ExprList* arguments = NULL;
+    Expr* implicit_argument;
+    Expr* concept_call;
+    Type* constrained_type;
+    int64_t result = 0;
+    SourceLoc loc = {0};
+
+    if (!concept || !concept->is_concept || !expression_type ||
+        concept->param_count < 1 || concept->param_count > 32 ||
+        concept->params[0].kind != TPARAM_TYPE ||
+        concept->params[0].is_pack) {
+        return false;
+    }
+    constrained_type = expression_type;
+    if (constrained_type->is_reference) {
+        constrained_type = constrained_type->base;
+    }
+    if (!constrained_type) return false;
+    if (expression_is_lvalue) {
+        constrained_type = type_reference(constrained_type, false);
+    } else if (expression_is_xvalue) {
+        constrained_type = type_reference(constrained_type, true);
+    }
+    implicit_argument = expr_int(0, loc);
+    implicit_argument->type = constrained_type;
+    exprlist_append(&arguments, implicit_argument);
+    for (ExprList* argument = explicit_arguments; argument;
+         argument = argument->next) {
+        if (!argument->expr) return false;
+        exprlist_append(&arguments, argument->expr);
+    }
+    concept_call = expr_call(expr_ident(concept->name, loc), arguments, loc);
+    concept_call->cxx_concept_template = concept;
+    return eval_template_integer_expression(
+               concept_call, NULL, NULL, NULL, &result) && result != 0;
+}
+
 static Type* cxx_template_integer_representation(Type* type) {
     if (type && type->kind == TYPE_ENUM && type->enum_underlying_type) {
         return type->enum_underlying_type;
@@ -24033,6 +24192,9 @@ static Expr* cxx_constraint_substitute_nontype_expression(
                 requirement->expr =
                     cxx_constraint_substitute_nontype_expression(
                         requirement->expr, tmpl, arguments, &nested_scope);
+                cxx_constraint_substitute_nontype_list(
+                    requirement->return_type_concept_arguments, tmpl,
+                    arguments, &nested_scope);
             }
             break;
         }

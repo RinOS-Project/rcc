@@ -8228,7 +8228,7 @@ static void gen_expr64_pair(Module* mod, Expr* expr) {
                     emit_sub_reg_imm(mod, EAX, 1);
                     emit_sbb_reg_imm8(mod, EDX, 0u);
                 }
-                emit_mov_reg_mem(mod, ECX, ESP, post ? 12 : 0);
+                emit_mov_reg_mem(mod, ECX, ESP, post ? 8 : 0);
                 emit_bitfield_store64_pair(mod, field);
                 if (post) {
                     emit_push_reg(mod, EDX);

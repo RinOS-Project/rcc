@@ -5877,6 +5877,8 @@ static bool cxx_template_redeclaration_requires_matches(
                 if (left_compound->is_noexcept != right_compound->is_noexcept ||
                     left_compound->return_type_convertible !=
                         right_compound->return_type_convertible ||
+                    left_compound->return_type_concept !=
+                        right_compound->return_type_concept ||
                     (!!left_compound->return_type !=
                         !!right_compound->return_type) ||
                     !cxx_template_redeclaration_expr_matches(
@@ -5887,7 +5889,12 @@ static bool cxx_template_redeclaration_requires_matches(
                      !cxx_template_redeclaration_type_matches(
                         left_compound->return_type, left_template,
                         right_compound->return_type, right_template,
-                        depth + 1))) {
+                        depth + 1)) ||
+                    !cxx_template_redeclaration_expr_list_matches(
+                        left_compound->return_type_concept_arguments,
+                        left_template, &left_scope,
+                        right_compound->return_type_concept_arguments,
+                        right_template, &right_scope, depth + 1)) {
                     return false;
                 }
                 break;
@@ -10612,6 +10619,13 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                         value_args, value_present);
                     requirement_copy->return_type_convertible =
                         requirement->return_type_convertible;
+                    requirement_copy->return_type_concept =
+                        requirement->return_type_concept;
+                    requirement_copy->return_type_concept_arguments =
+                        template_clone_expr_list(
+                            tmpl,
+                            requirement->return_type_concept_arguments,
+                            args, arg_count, value_args, value_present);
                     requirement_copy->loc = requirement->loc;
                     requirement_copy->next = NULL;
                     *tail = requirement_copy;

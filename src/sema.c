@@ -13705,7 +13705,15 @@ static Type* sema_expr(Expr* expr) {
                     rcc_error(requirement->loc,
                               "requires-expression compound requirement is not noexcept");
                 }
-                if (requirement->return_type &&
+                if (requirement->return_type_concept) {
+                    if (!rcc_parser_cxx_type_constraint_satisfied(
+                            requirement->return_type_concept,
+                            requirement->return_type_concept_arguments,
+                            actual_type, is_lvalue(requirement->expr),
+                            is_xvalue(requirement->expr))) {
+                        valid = false;
+                    }
+                } else if (requirement->return_type &&
                     ((!requirement->return_type_convertible &&
                       !type_is_compatible(actual_type,
                                           requirement->return_type)) ||

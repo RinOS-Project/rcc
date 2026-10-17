@@ -160,6 +160,8 @@ struct Expr;
 struct Type;
 struct CxxClass;
 struct CxxFriendAccess;
+struct CxxTemplate;
+struct ExprList;
 
 /* Preprocessor */
 struct Preprocessor* rcc_preproc_new(void);
@@ -177,6 +179,9 @@ void rcc_parser_set_cxx_mode(bool enabled);
 struct AST* rcc_parse(struct TokenList* tokens);
 bool rcc_sema(struct AST* ast);
 bool rcc_sema_cxx_requires_satisfied(struct Expr* expression);
+bool rcc_parser_cxx_type_constraint_satisfied(
+    struct CxxTemplate* concept, struct ExprList* explicit_arguments,
+    struct Type* expression_type, bool is_lvalue, bool is_xvalue);
 bool rcc_sema_resolve_function_noexcept(struct Decl* declaration);
 struct TypeMethod;
 int rcc_sema_cxx_conversion_rank(struct Expr* expression,
