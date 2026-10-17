@@ -17099,6 +17099,87 @@ static bool cxx_class_specialization_pattern_layout(
     return true;
 }
 
+static int cxx_template_constraint_relation(
+    CxxTemplate* left, CxxTemplate* right, bool* comparable);
+
+static bool cxx_class_specialization_patterns_equivalent(
+    CxxTemplate* primary, CxxTemplate* left, CxxTemplate* right,
+    int argument_count) {
+    int left_pattern_indices[32] = { 0 };
+    int right_pattern_indices[32] = { 0 };
+    int left_expansion_index;
+    int right_expansion_index;
+    int left_expansion_count;
+    int right_expansion_count;
+    if (!primary || !left || !right || left->param_count == 0 ||
+        right->param_count == 0 ||
+        left->param_count != right->param_count ||
+        left->specialization_arg_count != right->specialization_arg_count ||
+        argument_count < 0 || argument_count > 32) {
+        return false;
+    }
+    for (int index = 0; index < left->param_count; ++index) {
+        if (left->params[index].kind != right->params[index].kind ||
+            left->params[index].is_pack != right->params[index].is_pack) {
+            return false;
+        }
+        if (left->params[index].kind == TPARAM_TEMPLATE ||
+            (left->params[index].kind == TPARAM_NONTYPE &&
+             !cxx_template_type_parameter_mapping_matches(
+                 left->params[index].type, left,
+                 right->params[index].type, right))) {
+            return false;
+        }
+    }
+    for (int index = 0; index < left->specialization_arg_count; ++index) {
+        bool left_expands = left->specialization_arg_pack_expansions &&
+            left->specialization_arg_pack_expansions[index];
+        bool right_expands = right->specialization_arg_pack_expansions &&
+            right->specialization_arg_pack_expansions[index];
+        if (left_expands != right_expands) return false;
+    }
+    if (!cxx_class_specialization_pattern_layout(
+            left, argument_count, left_pattern_indices,
+            &left_expansion_index, &left_expansion_count) ||
+        !cxx_class_specialization_pattern_layout(
+            right, argument_count, right_pattern_indices,
+            &right_expansion_index, &right_expansion_count) ||
+        left_expansion_index != right_expansion_index ||
+        left_expansion_count != right_expansion_count) {
+        return false;
+    }
+    int primary_pack_index = cxx_class_pack_index(primary);
+    for (int argument_index = 0; argument_index < argument_count;
+         ++argument_index) {
+        int primary_parameter_index = primary_pack_index >= 0 &&
+                argument_index >= primary_pack_index
+            ? primary_pack_index : argument_index;
+        int left_pattern_index = left_pattern_indices[argument_index];
+        int right_pattern_index = right_pattern_indices[argument_index];
+        if (primary_parameter_index >= primary->param_count) return false;
+        if (primary->params[primary_parameter_index].kind == TPARAM_NONTYPE) {
+            Expr* left_value = left->specialization_value_args
+                ? left->specialization_value_args[left_pattern_index] : NULL;
+            Expr* right_value = right->specialization_value_args
+                ? right->specialization_value_args[right_pattern_index] : NULL;
+            if (!cxx_template_constraint_mapping_matches(
+                    left_value, left, right_value, right)) {
+                return false;
+            }
+        } else {
+            Type* left_pattern = left->specialization_args
+                ? left->specialization_args[left_pattern_index] : NULL;
+            Type* right_pattern = right->specialization_args
+                ? right->specialization_args[right_pattern_index] : NULL;
+            if (!cxx_template_type_parameter_mapping_matches(
+                    left_pattern, left, right_pattern, right)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static bool cxx_deduce_class_specialization_expanded_type(
     CxxTemplate* specialization, Type* pattern, Type* actual,
     Type** candidate_arguments, int* candidate_pack_count,
@@ -18406,6 +18487,17 @@ static Type* cxx_instantiate_dependent_class_template(
             bool selected_dominates = selected &&
                 cxx_class_specialization_rank_dominates(
                     selected_ranks, candidate_ranks, argument_count);
+            if (selected && !candidate_dominates && !selected_dominates &&
+                cxx_class_specialization_patterns_equivalent(
+                    tmpl, specialization, selected, argument_count)) {
+                bool constraints_comparable = false;
+                int constraint_relation = cxx_template_constraint_relation(
+                    specialization, selected, &constraints_comparable);
+                if (constraints_comparable) {
+                    candidate_dominates = constraint_relation > 0;
+                    selected_dominates = constraint_relation < 0;
+                }
+            }
             if (!selected || candidate_dominates) {
                 selected = specialization;
                 memcpy(selected_ranks, candidate_ranks,
@@ -18989,6 +19081,19 @@ static Type* parse_class_template_specialization_with_owner_type(
                     cxx_class_specialization_rank_dominates(
                         selected_ranks, specialization_ranks,
                         argument_count);
+                if (selected && !current_dominates && !selected_dominates &&
+                    cxx_class_specialization_patterns_equivalent(
+                        tmpl, specialization, selected, argument_count)) {
+                    bool constraints_comparable = false;
+                    int constraint_relation =
+                        cxx_template_constraint_relation(
+                            specialization, selected,
+                            &constraints_comparable);
+                    if (constraints_comparable) {
+                        current_dominates = constraint_relation > 0;
+                        selected_dominates = constraint_relation < 0;
+                    }
+                }
                 if (!selected || current_dominates) {
                     selected = specialization;
                     memcpy(selected_ranks, specialization_ranks,
@@ -25151,10 +25256,8 @@ static bool cxx_constraint_function_parameters_match(
     return !left_parameter && !right_parameter;
 }
 
-/* Positive means left is more constrained; negative means right is.  A false
- * `comparable` leaves candidates to the existing ordering rules when a
- * concept's dependent non-type argument cannot yet be mapped symbolically. */
-static int cxx_function_template_constraint_relation(
+/* Positive means left is more constrained; negative means right is. */
+static int cxx_template_constraint_relation(
     CxxTemplate* left, CxxTemplate* right, bool* comparable) {
     CxxTemplate* left_context;
     CxxTemplate* right_context;
@@ -25166,10 +25269,6 @@ static int cxx_function_template_constraint_relation(
     bool right_subsumes_left;
     if (comparable) *comparable = true;
     if (!left || !right) {
-        if (comparable) *comparable = false;
-        return 0;
-    }
-    if (!cxx_constraint_function_parameters_match(left, right)) {
         if (comparable) *comparable = false;
         return 0;
     }
@@ -25194,6 +25293,20 @@ static int cxx_function_template_constraint_relation(
         &right_forms.dnf, &left_forms.cnf);
     if (left_subsumes_right == right_subsumes_left) return 0;
     return left_subsumes_right ? 1 : -1;
+}
+
+/* Function-template constraints are ordered only after the function
+ * parameter mappings are known to correspond. Class partial specializations
+ * use the same subsumption relation after their specialization patterns have
+ * been proven equivalent. */
+static int cxx_function_template_constraint_relation(
+    CxxTemplate* left, CxxTemplate* right, bool* comparable) {
+    if (!left || !right ||
+        !cxx_constraint_function_parameters_match(left, right)) {
+        if (comparable) *comparable = false;
+        return 0;
+    }
+    return cxx_template_constraint_relation(left, right, comparable);
 }
 
 static bool cxx_function_template_reference_adjustment_base_type_supported(

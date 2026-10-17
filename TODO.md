@@ -5737,3 +5737,18 @@ remains a separate open item.
       AMD64 generation and AMD64 execution.
 - [ ] Crossed constraints, unequal expansion structure, and non-type or
       template-template pack partial-ordering cases remain open.
+
+## RCC continuation (2026-10-17, constrained class-pack partial ordering)
+
+- [x] For equivalent class partial-specialization patterns, use associated
+      constraint subsumption to prefer the constrained candidate over its
+      unconstrained counterpart, in both direct and dependent instantiation.
+- [x] Regress equivalent `Head, Tail...` patterns with and without a satisfied
+      constraint; compare with GCC C++20. Native-Windows
+      `test-cxx-class-template-specialization`,
+      `test-cxx-class-template-dependent-nested-type`, and
+      `test-cxx-function-template-overloads` pass. Existing ambiguity,
+      incomparable-pattern, and unsupported-constraint diagnostics still pass
+      for i686/AMD64.
+- [ ] Constraint ordering across non-equivalent patterns, crossed constraints,
+      and non-type/template-template pack patterns remain open.

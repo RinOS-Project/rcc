@@ -249,6 +249,35 @@ static_assert(OrderedMixedPackPartial<int*, char>::kind == 2);
 static_assert(sizeof(typename DependentOrderedMixedPackPartialUse<
                   int*, char, long>::type) == sizeof(long));
 
+template<typename... Types>
+struct ConstrainedOrderedPackPartial {
+    static constexpr int kind = 0;
+    using type = char;
+};
+
+template<typename Head, typename... Tail>
+struct ConstrainedOrderedPackPartial<Head, Tail...> {
+    static constexpr int kind = 1;
+    using type = short;
+};
+
+template<typename Head, typename... Tail>
+    requires (sizeof(Head) > 0)
+struct ConstrainedOrderedPackPartial<Head, Tail...> {
+    static constexpr int kind = 2;
+    using type = long;
+};
+
+template<typename... Types>
+struct DependentConstrainedOrderedPackPartialUse {
+    using type = typename ConstrainedOrderedPackPartial<Types...>::type;
+};
+
+static_assert(ConstrainedOrderedPackPartial<int>::kind == 2);
+static_assert(ConstrainedOrderedPackPartial<int, char>::kind == 2);
+static_assert(sizeof(typename DependentConstrainedOrderedPackPartialUse<
+                  int, char>::type) == sizeof(long));
+
 int main() {
     Value<int> value{21};
     Value<int*> pointer_value{9};
@@ -275,6 +304,8 @@ int main() {
         MixedPackPartial<int, short, long>::kind;
     constexpr int ordered_mixed_pack_pointer =
         OrderedMixedPackPartial<int*, char>::kind;
+    constexpr int constrained_ordered_pack =
+        ConstrainedOrderedPackPartial<int, char>::kind;
     return value.doubled() == 42 && pointer_value.kind() == 9 &&
                    pointer_pointer_value.kind() == 22 &&
                    pointer_pointer_pointer_value.kind() == 33 &&
@@ -298,7 +329,8 @@ int main() {
                        consteval_aggregate_box.second == 42 &&
                    mixed_pack_empty == 1 && mixed_pack_single == 2 &&
                    mixed_pack_double == 2 && mixed_pack_triple == 2 &&
-                   ordered_mixed_pack_pointer == 2
+                   ordered_mixed_pack_pointer == 2 &&
+                   constrained_ordered_pack == 2
                ? 0
                : 1;
 }
