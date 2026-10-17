@@ -1777,12 +1777,26 @@ constexpr int default_value(Value value) {
 }
 }
 
+namespace PackOrderConstexprInlineEnumTemplateAdl {
+inline namespace V1 {
+enum Value { inline_template_seed = 3 };
+}
+
+template<typename T>
+constexpr int inline_template_default_value(T value) {
+    return value == inline_template_seed ? 21 : 23;
+}
+}
+
 using PackOrderConstexprEnumAdl::Value;
 using PackOrderConstexprEnumAdl::seed;
 using PackOrderConstexprInlineEnumAdl::inline_seed;
+using PackOrderConstexprInlineEnumTemplateAdl::inline_template_seed;
 
 static_assert(default_value(seed) == 12,
               "ordinary calls must find enum-namespace constexpr functions by ADL");
+static_assert(inline_template_default_value(inline_template_seed) == 21,
+              "ADL must find enum-associated constexpr function templates");
 
 namespace PackOrderConstexprEnumAdlTemplate {
 template<Value V, typename T,

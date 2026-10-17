@@ -93,12 +93,15 @@ extern const char* rcc_parser_cxx_resolve_local_using(
     const char* name, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern const char* rcc_parser_cxx_current_namespace_identity(void)
     RCC_OPTIONAL_CXX;
+extern bool rcc_parser_cxx_type_namespace_is_visible(
+    const char*, const char*) RCC_OPTIONAL_CXX;
 extern bool rcc_parser_cxx_enum_namespace_is_visible(
     Type* enum_type, const char* namespace_name) RCC_OPTIONAL_CXX;
 
 typedef struct ParserTypeName {
     const char* name;
     Type* type;
+    const char* cxx_namespace;
     uint32_t cxx_constructor_arity_mask;
     struct ParserTypeName* next;
 } ParserTypeName;
@@ -300,8 +303,14 @@ static void parser_apply_pack(Token* directive) {
     parser_pack_alignment = value;
 }
 
+static bool parser_tag_scope_is_visible(ParserTagScope* scope);
+
 static Type* parser_lookup_type(const char* name) {
     ParserTypeName* entry;
+    const char* current_namespace = NULL;
+    Type* visible_type = NULL;
+    size_t visible_namespace_length = 0u;
+    bool found_visible_type = false;
     static Type* builtin_v4sf;
     static Type* builtin_v2df;
     static Type* builtin_v16qi;
@@ -332,16 +341,63 @@ static Type* parser_lookup_type(const char* name) {
         if (!builtin_v2di) builtin_v2di = type_vector(type_llong, 2, 16);
         return builtin_v2di;
     }
-    for (entry = parser_type_names; entry; entry = entry->next) {
-        if (strcmp(entry->name, name) == 0) return entry->type;
+    if (parser_cxx_mode && rcc_parser_cxx_current_namespace_identity) {
+        current_namespace =
+            rcc_parser_cxx_current_namespace_identity();
+        if (current_namespace && !*current_namespace) {
+            current_namespace = NULL;
+        }
     }
-    return NULL;
+    if (parser_cxx_mode) {
+        for (ParserTagName* tag = parser_tag_names; tag; tag = tag->next) {
+            bool namespace_visible = !tag->cxx_namespace ||
+                !*tag->cxx_namespace ||
+                (rcc_parser_cxx_type_namespace_is_visible &&
+                 rcc_parser_cxx_type_namespace_is_visible(
+                     tag->cxx_namespace, current_namespace));
+            if (tag->name && strcmp(tag->name, name) == 0 &&
+                (tag->kind == TYPE_ENUM || tag->kind == TYPE_STRUCT ||
+                 tag->kind == TYPE_UNION) && namespace_visible && tag->scope &&
+                parser_tag_scope_is_visible(tag->scope)) {
+                return tag->type;
+            }
+        }
+    }
+    for (entry = parser_type_names; entry; entry = entry->next) {
+        size_t declaration_namespace_length;
+        bool namespace_visible;
+        if (!entry->name || strcmp(entry->name, name) != 0) continue;
+        if (!parser_cxx_mode) return entry->type;
+        declaration_namespace_length = entry->cxx_namespace
+            ? strlen(entry->cxx_namespace) : 0u;
+        if (declaration_namespace_length == 0u) {
+            namespace_visible = true;
+        } else {
+            namespace_visible = rcc_parser_cxx_type_namespace_is_visible &&
+                rcc_parser_cxx_type_namespace_is_visible(
+                    entry->cxx_namespace, current_namespace);
+        }
+        if (!namespace_visible) continue;
+        if (!found_visible_type || declaration_namespace_length >
+                                       visible_namespace_length) {
+            visible_type = entry->type;
+            visible_namespace_length = declaration_namespace_length;
+            found_visible_type = true;
+        }
+    }
+    return visible_type;
 }
 
 static void parser_define_type(const char* name, Type* type) {
     ParserTypeName* entry = ast_arena_alloc(sizeof(*entry));
     entry->name = name;
     entry->type = type;
+    entry->cxx_namespace = parser_cxx_mode &&
+        rcc_parser_cxx_current_namespace_identity
+        ? rcc_parser_cxx_current_namespace_identity() : NULL;
+    if (entry->cxx_namespace && !*entry->cxx_namespace) {
+        entry->cxx_namespace = NULL;
+    }
     entry->cxx_constructor_arity_mask = 0u;
     entry->next = parser_type_names;
     parser_type_names = entry;

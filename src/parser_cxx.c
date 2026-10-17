@@ -64,6 +64,86 @@ const char* rcc_parser_cxx_current_namespace_identity(void) {
     return cxx_namespace_typeinfo_identity(active_namespace);
 }
 
+static CxxNamespace* cxx_namespace_find_typeinfo_identity(
+    CxxNamespace* ns, const char* identity) {
+    const char* current_identity;
+    if (!ns || !identity) return NULL;
+    current_identity = cxx_namespace_typeinfo_identity(ns);
+    if (current_identity && strcmp(current_identity, identity) == 0) {
+        return ns;
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        CxxNamespace* found =
+            cxx_namespace_find_typeinfo_identity(child, identity);
+        if (found) return found;
+    }
+    return NULL;
+}
+
+typedef struct CxxNamespaceTypeLookupPath {
+    CxxNamespace* ns;
+    const struct CxxNamespaceTypeLookupPath* parent;
+} CxxNamespaceTypeLookupPath;
+
+static bool cxx_namespace_type_lookup_contains(
+    CxxNamespace* lookup_namespace, CxxNamespace* declaration_namespace,
+    const CxxNamespaceTypeLookupPath* path) {
+    CxxNamespaceTypeLookupPath current_path;
+    if (!lookup_namespace || !declaration_namespace) return false;
+    for (const CxxNamespaceTypeLookupPath* entry = path; entry;
+         entry = entry->parent) {
+        if (entry->ns == lookup_namespace) return false;
+    }
+    if (lookup_namespace == declaration_namespace) return true;
+    for (CxxNamespace* imported = declaration_namespace;
+         imported && (imported->is_inline_namespace ||
+                      imported->is_anonymous_namespace);
+         imported = imported->parent) {
+        if (imported->parent == lookup_namespace) return true;
+    }
+    current_path.ns = lookup_namespace;
+    current_path.parent = path;
+    for (CxxNamespace* child = lookup_namespace->children; child;
+         child = child->next) {
+        if ((child->is_inline_namespace || child->is_anonymous_namespace) &&
+            cxx_namespace_type_lookup_contains(
+                child, declaration_namespace, &current_path)) {
+            return true;
+        }
+    }
+    for (int index = 0; index < lookup_namespace->using_namespace_count;
+         ++index) {
+        if (cxx_namespace_type_lookup_contains(
+                lookup_namespace->using_namespaces[index],
+                declaration_namespace, &current_path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool rcc_parser_cxx_type_namespace_is_visible(
+    const char* declaration_identity, const char* current_identity) {
+    CxxNamespace* declaration_namespace;
+    CxxNamespace* current_namespace;
+    if (!g_global_namespace) return false;
+    declaration_namespace = declaration_identity && *declaration_identity
+        ? cxx_namespace_find_typeinfo_identity(
+              g_global_namespace, declaration_identity)
+        : g_global_namespace;
+    current_namespace = current_identity && *current_identity
+        ? cxx_namespace_find_typeinfo_identity(
+              g_global_namespace, current_identity)
+        : g_global_namespace;
+    if (!declaration_namespace || !current_namespace) return false;
+    for (CxxNamespace* scope = current_namespace; scope;
+         scope = scope->parent) {
+        if (cxx_namespace_type_lookup_contains(
+                scope, declaration_namespace, NULL)) return true;
+    }
+    return false;
+}
+
 /* A leading alignas belongs to a class declaration only when its complete
  * parenthesized argument list is followed by class-key.  Leave other
  * declarations to the common declaration parser so alignas on objects and
@@ -10905,6 +10985,16 @@ static Decl* parse_cxx_using(AST* ast, CxxNamespace* ns) {
             strcat(target, "::");
             suffix = advance()->value.str_val;
             strcat(target, suffix);
+        }
+        if (ast) {
+            Type* imported_type = rcc_parser_lookup_type(target);
+            if (imported_type) {
+                const char* imported_name = strrchr(target, ':');
+                imported_name = imported_name
+                    ? imported_name + 1 : target;
+                rcc_parser_define_type(rcc_intern(imported_name),
+                                       imported_type);
+            }
         }
         cxx_namespace_add_using_decl(
             ns, cxx_using_qualified_name(target, loc));

@@ -5871,6 +5871,11 @@ remains a separate open item.
       native-Windows
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation,
       RCC/GCC execution, GCC comparison, and diagnostic checks.
+- [x] Scope parser type-name lookup to the declaring C++ namespace, including
+      inline/anonymous namespace injection and namespace using-directives, so
+      unrelated same-spelled types do not collide. Verified by native-Windows
+      `test-cxx-template-two-phase-adl`, `test-cxx-namespace-extension`, and
+      `test-cxx-function-template-overloads`.
 - [ ] Broader class/enum ADL and imported function-template overloads remain
       open. Other compound outer non-type forms, deeper paths through dependent
       intermediate aliases, and additional C++20 function partial-ordering
