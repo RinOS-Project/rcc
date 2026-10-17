@@ -986,10 +986,17 @@ bool expr_eval_integer_constant_u64(Expr* expr, uint64_t* value) {
 }
 
 static bool pending_weak_attribute;
+static bool pending_naked_attribute;
 
 static bool take_weak_attribute(void) {
     bool result = pending_weak_attribute;
     pending_weak_attribute = false;
+    return result;
+}
+
+static bool take_naked_attribute(void) {
+    bool result = pending_naked_attribute;
+    pending_naked_attribute = false;
     return result;
 }
 
@@ -998,6 +1005,7 @@ static void skip_attributes(void) {
         SourceLoc attribute_loc = previous()->loc;
         bool group_weak = false;
         bool weak_arguments = false;
+        bool group_naked = false;
         if (match(TOK_LPAREN)) {
             int depth = 1;
             bool current_attribute_weak = false;
@@ -1006,6 +1014,9 @@ static void skip_attributes(void) {
                     current_attribute_weak =
                         strcmp(peek()->value.str_val, "weak") == 0;
                     if (current_attribute_weak) group_weak = true;
+                    if (strcmp(peek()->value.str_val, "naked") == 0) {
+                        group_naked = true;
+                    }
                     advance();
                 } else if (match(TOK_LPAREN)) {
                     if (depth == 2 && current_attribute_weak) {
@@ -1031,6 +1042,7 @@ static void skip_attributes(void) {
                     pending_weak_attribute = true;
                 }
             }
+            if (group_naked) pending_naked_attribute = true;
         }
     }
 }
@@ -3938,6 +3950,13 @@ static DeclList* parse_parameter_list(bool* variadic) {
             parameter_base = type_int;
         }
         parameter_type = parse_declarator(parameter_base, &parameter_name, NULL);
+        /* GNU parameter attributes follow the declarator, as in
+         * `int callback(void *context __attribute__((unused)))`. */
+        skip_attributes();
+        if (take_weak_attribute()) {
+            rcc_error(previous()->loc,
+                      "weak attribute requires a file-scope declaration");
+        }
         if (parameter_type->kind == TYPE_ARRAY) {
             parameter_array_type = parameter_type;
             {
@@ -5062,6 +5081,7 @@ Stmt* parse_declaration(void) {
     Expr* noexcept_expr = NULL;
     bool is_thread_local = false;
     bool is_weak = false;
+    bool is_naked = false;
     const char* declaration_name = NULL;
     DeclList* parameters = NULL;
     Type* base_type;
@@ -5109,6 +5129,7 @@ Stmt* parse_declaration(void) {
 
     skip_attributes();
     is_weak = take_weak_attribute();
+    is_naked = take_naked_attribute();
     if (parser_cxx_mode && match(TOK_CONSTEXPR)) is_constexpr = true;
     if (parser_cxx_mode && match(TOK_CONSTEVAL)) {
         is_constexpr = true;
@@ -5157,6 +5178,11 @@ Stmt* parse_declaration(void) {
         else if (check(TOK__ALIGNAS)) {
             int alignment = parse_explicit_alignment();
             if (alignment > explicit_alignment) explicit_alignment = alignment;
+        }
+        else if (check(TOK___ATTRIBUTE__)) {
+            skip_attributes();
+            is_weak = is_weak || take_weak_attribute();
+            is_naked = is_naked || take_naked_attribute();
         }
         else if (match(TOK_INLINE) || match(TOK___INLINE__)) is_inline = true;
         else break;
@@ -5280,6 +5306,7 @@ Stmt* parse_declaration(void) {
     }
     skip_attributes();
     is_weak = is_weak || take_weak_attribute();
+    is_naked = is_naked || take_naked_attribute();
     if (friend_signature_context) {
         if (is_typedef || !type || type->kind != TYPE_FUNC) {
             if (rcc_parser_cxx_end_function_signature_access) {
@@ -5507,6 +5534,7 @@ Stmt* parse_declaration(void) {
             is_inline, is_constexpr, is_noreturn, is_noexcept,
             noexcept_expr, is_consteval);
         declaration->is_weak = is_weak;
+        declaration->func_is_naked = is_naked;
         return stmt_decl(declaration, loc);
     }
 

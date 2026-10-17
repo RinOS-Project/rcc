@@ -1279,6 +1279,7 @@ struct Decl {
             CxxFriendAccess* func_friend_access; /* Classes granting friendship. */
             bool func_is_hidden_friend; /* Lookup only through ADL. */
             bool func_is_inline;
+            bool func_is_naked;
             bool func_is_defined;
             bool func_is_template_instance;
             struct CxxTemplate* func_template_owner;

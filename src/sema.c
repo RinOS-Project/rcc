@@ -2340,7 +2340,10 @@ static bool sema_asm_register_name_supported(const char* name,
                     strcmp(name, "{esi}") == 0 ||
                     strcmp(name, "{rsi}") == 0 ||
                     strcmp(name, "{edi}") == 0 ||
-                    strcmp(name, "{rdi}") == 0)) {
+                    strcmp(name, "{rdi}") == 0 ||
+                    strcmp(name, "{r8}") == 0 ||
+                    strcmp(name, "{r9}") == 0 ||
+                    strcmp(name, "{r10}") == 0)) {
         return true;
     }
     rcc_error(loc, "unsupported AMD64 inline asm %s register constraint '%s'",
@@ -2468,7 +2471,10 @@ static int sema_asm_fixed_register_id(const char* name) {
     if (strcmp(name, "D") == 0 || strcmp(name, "edi") == 0 ||
         strcmp(name, "rdi") == 0 || strcmp(name, "di") == 0 ||
         strcmp(name, "{edi}") == 0 || strcmp(name, "{rdi}") == 0) return 5;
-    if (strcmp(name, "r10") == 0 || strcmp(name, "{r10}") == 0) return 6;
+    if (strcmp(name, "{r8}") == 0) return 8;
+    if (strcmp(name, "{r9}") == 0) return 9;
+    if (strcmp(name, "{r10}") == 0) return 10;
+    if (strcmp(name, "r10") == 0) return 6;
     return -1;
 }
 
