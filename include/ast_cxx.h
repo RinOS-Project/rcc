@@ -517,6 +517,9 @@ bool cxx_structural_pointer_value_location(
     bool* one_past, bool* array_decay_out,
     const CxxStructuralPointerPathElement** subobject_path_out,
     size_t* subobject_path_length_out);
+bool rcc_parser_cxx_structural_pointer_conversion(
+    Type* source_pointee, Type* target_pointee,
+    int64_t* adjustment_out);
 bool cxx_structural_member_pointer_value_register(
     CxxClass* owner, const char* member_name, TypeMethod* method,
     int64_t offset, int64_t* token_out);

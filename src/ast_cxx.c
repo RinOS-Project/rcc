@@ -996,27 +996,35 @@ static bool cxx_mangle_structural_pointer_value(
         return true;
     }
     if (byte_offset != 0) {
+        int64_t base_adjustment = 0;
         if (!pointer_type || pointer_type->kind != TYPE_PTR ||
-            !pointer_type->base || !one_past) {
+            !pointer_type->base) {
             return false;
         }
-        cxx_mangle_type_char(buf, pos, 'c');
-        cxx_mangle_type_char(buf, pos, 'v');
-        cxx_mangle_type_append_context(buf, pos, pointer_type, context);
-        cxx_mangle_type_char(buf, pos, 'p');
-        cxx_mangle_type_char(buf, pos, 'l');
-        cxx_mangle_type_char(buf, pos, 'c');
-        cxx_mangle_type_char(buf, pos, 'v');
-        cxx_mangle_type_char(buf, pos, 'P');
-        cxx_mangle_type_char(buf, pos, 'c');
-        cxx_mangle_type_char(buf, pos, 'a');
-        cxx_mangle_type_char(buf, pos, 'd');
+        if (one_past) {
+            cxx_mangle_type_char(buf, pos, 'c');
+            cxx_mangle_type_char(buf, pos, 'v');
+            cxx_mangle_type_append_context(buf, pos, pointer_type, context);
+            cxx_mangle_type_char(buf, pos, 'p');
+            cxx_mangle_type_char(buf, pos, 'l');
+            cxx_mangle_type_char(buf, pos, 'c');
+            cxx_mangle_type_char(buf, pos, 'v');
+            cxx_mangle_type_char(buf, pos, 'P');
+            cxx_mangle_type_char(buf, pos, 'c');
+            cxx_mangle_type_char(buf, pos, 'a');
+            cxx_mangle_type_char(buf, pos, 'd');
+        } else if (!rcc_parser_cxx_structural_pointer_conversion(
+                       declaration->type, pointer_type->base,
+                       &base_adjustment) ||
+                   base_adjustment != byte_offset) {
+            return false;
+        }
     }
     if (!cxx_mangle_structural_pointer_root_expression(
             buf, pos, link_name)) {
         return false;
     }
-    if (byte_offset != 0) {
+    if (byte_offset != 0 && one_past) {
         char digits[32];
         int written = snprintf(digits, sizeof(digits), "%llu",
                                (unsigned long long)byte_offset);
@@ -10064,22 +10072,40 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                         }
                     } else {
                         if (byte_offset != 0) {
-                            Expr* address;
-                            Expr* one;
-                            if (!one_past || !pointer_declaration->type ||
-                                pointer_declaration->type->size <= 0 ||
-                                byte_offset !=
+                            int64_t base_adjustment = 0;
+                            if (one_past && pointer_declaration->type &&
+                                pointer_declaration->type->size > 0 &&
+                                byte_offset ==
                                     pointer_declaration->type->size) {
-                                rcc_fatal(
-                                    "C++ structural pointer object offset is invalid");
+                                Expr* address = expr_unary(
+                                    EXPR_ADDR, identifier, expression->loc);
+                                Expr* one = expr_int(1, expression->loc);
+                                address->type = type_ptr(
+                                    pointer_declaration->type);
+                                one->type = type_int;
+                                copy = expr_binary(
+                                    EXPR_ADD, address, one, expression->loc);
+                                copy->type = value_type;
+                                return copy;
                             }
-                            address = expr_unary(
-                                EXPR_ADDR, identifier, expression->loc);
-                            address->type = value_type;
-                            one = expr_int(1, expression->loc);
-                            one->type = type_int;
-                            copy = expr_binary(
-                                EXPR_ADD, address, one, expression->loc);
+                            if (!value_type || value_type->kind != TYPE_PTR ||
+                                !value_type->base ||
+                                !pointer_declaration->type ||
+                                !rcc_parser_cxx_structural_pointer_conversion(
+                                    pointer_declaration->type,
+                                    value_type->base, &base_adjustment) ||
+                                base_adjustment != byte_offset) {
+                                rcc_fatal(
+                                    "C++ structural pointer base adjustment is invalid");
+                            }
+                            {
+                                Expr* address = expr_unary(
+                                    EXPR_ADDR, identifier, expression->loc);
+                                address->type = type_ptr(
+                                    pointer_declaration->type);
+                                copy = expr_cast(
+                                    value_type, address, expression->loc);
+                            }
                             copy->type = value_type;
                             return copy;
                         }
@@ -10087,6 +10113,27 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                             ? identifier
                             : expr_unary(EXPR_ADDR, identifier,
                                          expression->loc);
+                        if (!value_type->is_reference &&
+                            value_type->kind == TYPE_PTR &&
+                            value_type->base &&
+                            value_type->base->kind != TYPE_FUNC &&
+                            pointer_declaration->type &&
+                            !type_is_compatible(
+                                value_type->base,
+                                pointer_declaration->type)) {
+                            int64_t base_adjustment = 0;
+                            if (!rcc_parser_cxx_structural_pointer_conversion(
+                                    pointer_declaration->type,
+                                    value_type->base,
+                                    &base_adjustment) ||
+                                base_adjustment != 0) {
+                                rcc_fatal(
+                                    "C++ structural pointer conversion is invalid");
+                            }
+                            copy->type = type_ptr(pointer_declaration->type);
+                            copy = expr_cast(
+                                value_type, copy, expression->loc);
+                        }
                     }
                     copy->type = value_type->is_reference
                         ? pointer_declaration->type : value_type;

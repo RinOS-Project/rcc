@@ -145,6 +145,28 @@ done
 expect_gcc_failure "$noexcept_pointer_invalid" "invalid conversion" \
 	structural-noexcept-pointer-direction
 
+for invalid_source in \
+	tests/cxx_structural_base_pointer_ambiguous_invalid.cpp \
+	tests/cxx_structural_base_pointer_private_invalid.cpp \
+	tests/cxx_structural_base_pointer_qualification_invalid.cpp; do
+	name=${invalid_source##*/}
+	name=${name%.cpp}
+	for target in i686-unknown-rinos x86_64-unknown-rinos; do
+		expect_rcc_failure "$invalid_source" "$target" \
+			"class template non-type argument must be an integer constant expression" \
+			"$name-$target"
+	done
+done
+expect_gcc_failure \
+	tests/cxx_structural_base_pointer_ambiguous_invalid.cpp \
+	"is an ambiguous base" structural-base-pointer-ambiguous
+expect_gcc_failure \
+	tests/cxx_structural_base_pointer_private_invalid.cpp \
+	"is an inaccessible base" structural-base-pointer-private
+expect_gcc_failure \
+	tests/cxx_structural_base_pointer_qualification_invalid.cpp \
+	"invalid conversion" structural-base-pointer-qualification
+
 nested_array_source=tests/cxx_structural_pointer_nested_array_nttp.cpp
 nested_array_dir="$out/cxx_structural_pointer_nested_array_nttp"
 mkdir -p "$nested_array_dir"

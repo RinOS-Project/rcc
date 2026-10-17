@@ -1,6 +1,24 @@
 int nested_computed_pointer_target_a = 47;
 int nested_computed_pointer_target_b = 89;
 
+struct NestedComputedPointerBase {
+    int value;
+};
+
+struct NestedComputedPointerPrefix {
+    int padding;
+};
+
+struct NestedComputedPointerDerived : NestedComputedPointerPrefix,
+                                      NestedComputedPointerBase {
+    int tail;
+};
+
+inline constexpr NestedComputedPointerDerived
+    nested_computed_pointer_derived{{3}, {59}, 7};
+
+NestedComputedPointerDerived nested_computed_pointer_mutable{{5}, {61}, 9};
+
 int nested_computed_pointer_function_a(int value) {
     return value + 5;
 }
@@ -66,6 +84,14 @@ struct NestedComputedPointerKey {
     NestedComputedPointerLeafKey leaf;
 };
 
+struct NestedComputedBasePointerKey {
+    const NestedComputedPointerBase* pointer;
+};
+
+struct NestedComputedVoidPointerKey {
+    void* pointer;
+};
+
 using NestedComputedFunction = int (*)(int);
 
 struct NestedComputedFunctionKey {
@@ -85,6 +111,25 @@ struct NestedComputedNullPointerOwner {
     template <typename Element>
     struct Inner {
         bool is_null() const { return Value.leaf.pointer == nullptr; }
+    };
+};
+
+template <NestedComputedBasePointerKey Value>
+struct NestedComputedBasePointerOwner {
+    template <typename Element>
+    struct Inner {
+        int result() const { return Value.pointer->value; }
+    };
+};
+
+template <NestedComputedVoidPointerKey Value>
+struct NestedComputedVoidPointerOwner {
+    template <typename Element>
+    struct Inner {
+        bool is_object() const {
+            return Value.pointer ==
+                static_cast<void*>(&nested_computed_pointer_mutable);
+        }
     };
 };
 
@@ -120,6 +165,10 @@ int main() {
     NestedComputedNullPointerOwner<
         NestedComputedPointerKey{{true
             ? 0 : &nested_computed_pointer_target_a}}>::Inner<int> integer_null;
+    NestedComputedBasePointerOwner<NestedComputedBasePointerKey{
+        &nested_computed_pointer_derived}>::Inner<int> base_conversion;
+    NestedComputedVoidPointerOwner<NestedComputedVoidPointerKey{
+        &nested_computed_pointer_mutable}>::Inner<int> void_conversion;
     NestedComputedFunctionOwner<NestedComputedFunctionKey{
         false ? &nested_computed_pointer_function_a
               : &nested_computed_pointer_function_b}>::Inner<int> function;
@@ -144,6 +193,8 @@ int main() {
         reverse_add_zero.result() == 47 &&
         subtract_zero.result() == 47 && conditional.result() == 89 &&
         cast.result() == 47 && null.is_null() && integer_null.is_null() &&
+        base_conversion.result() == 59 &&
+        void_conversion.is_object() &&
         function.result() == 46 && noexcept_conversion.result() == 49 &&
         overloaded.result() == 43 &&
         overloaded_template.result() == 47 &&

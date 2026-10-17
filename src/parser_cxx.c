@@ -2026,8 +2026,145 @@ static bool cxx_structural_function_pointer_target_accepts(
     return type_is_compatible(target_function, &adjusted_source);
 }
 
+static int cxx_structural_nonvirtual_base_paths(
+    Type* derived, Type* target, bool require_public,
+    int64_t* adjustment_out, unsigned depth) {
+    CxxClass* cls;
+    int path_count = 0;
+    int64_t first_adjustment = 0;
+    if (!derived || !target || depth > 64u) return 0;
+    if (derived->cxx_class && target->cxx_class &&
+        derived->cxx_class == target->cxx_class) {
+        if (adjustment_out) *adjustment_out = 0;
+        return 1;
+    }
+    cls = derived->cxx_class;
+    if (!cls || !cls->base_offsets) return 0;
+    for (int index = 0; index < cls->base_count; ++index) {
+        Type* base_type = cls->bases[index].base
+            ? cls->bases[index].base->type : NULL;
+        int64_t nested_adjustment = 0;
+        int nested_count;
+        int64_t total_adjustment;
+        if (!base_type || cls->bases[index].is_virtual ||
+            cls->base_offsets[index] < 0 ||
+            (require_public &&
+             cls->bases[index].access != ACCESS_PUBLIC)) {
+            continue;
+        }
+        nested_count = cxx_structural_nonvirtual_base_paths(
+            base_type, target, require_public, &nested_adjustment,
+            depth + 1u);
+        if (nested_count <= 0) continue;
+        total_adjustment = (int64_t)cls->base_offsets[index] +
+            nested_adjustment;
+        if (total_adjustment < 0) continue;
+        if (path_count == 0) first_adjustment = total_adjustment;
+        path_count += nested_count;
+        if (path_count > 1) {
+            path_count = 2;
+            break;
+        }
+    }
+    if (path_count == 1 && adjustment_out) {
+        *adjustment_out = first_adjustment;
+    }
+    return path_count;
+}
+
+static int cxx_structural_virtual_base_paths(
+    Type* derived, Type* target, bool require_public,
+    int64_t* adjustment_out) {
+    CxxClass* cls = derived ? derived->cxx_class : NULL;
+    int path_count = 0;
+    int64_t first_adjustment = 0;
+    if (!cls || !cls->virtual_bases) return 0;
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[index];
+        Type* base_type = virtual_base->base
+            ? virtual_base->base->type : NULL;
+        int64_t nested_adjustment = 0;
+        int nested_count;
+        int64_t total_adjustment;
+        if (!base_type || virtual_base->offset < 0 ||
+            (require_public && !virtual_base->public_path)) {
+            continue;
+        }
+        nested_count = cxx_structural_nonvirtual_base_paths(
+            base_type, target, require_public, &nested_adjustment, 0u);
+        if (nested_count <= 0) continue;
+        total_adjustment = (int64_t)virtual_base->offset +
+            nested_adjustment;
+        if (total_adjustment < 0) continue;
+        if (path_count == 0) first_adjustment = total_adjustment;
+        path_count += nested_count;
+        if (path_count > 1) {
+            path_count = 2;
+            break;
+        }
+    }
+    if (path_count == 1 && adjustment_out) {
+        *adjustment_out = first_adjustment;
+    }
+    return path_count;
+}
+
+bool rcc_parser_cxx_structural_pointer_conversion(
+    Type* source_pointee, Type* target_pointee,
+    int64_t* adjustment_out) {
+    Type source_unqualified;
+    Type target_unqualified;
+    int all_paths;
+    int public_paths;
+    int64_t adjustment = 0;
+    int64_t virtual_adjustment = 0;
+    if (!source_pointee || !target_pointee ||
+        source_pointee->cxx_is_member_pointer ||
+        target_pointee->cxx_is_member_pointer ||
+        (source_pointee->is_const && !target_pointee->is_const) ||
+        (source_pointee->is_volatile && !target_pointee->is_volatile)) {
+        return false;
+    }
+    source_unqualified = *source_pointee;
+    target_unqualified = *target_pointee;
+    source_unqualified.is_const = false;
+    source_unqualified.is_volatile = false;
+    target_unqualified.is_const = false;
+    target_unqualified.is_volatile = false;
+    if (type_is_compatible(&source_unqualified, &target_unqualified)) {
+        if (adjustment_out) *adjustment_out = 0;
+        return true;
+    }
+    if (target_unqualified.kind == TYPE_VOID &&
+        source_unqualified.kind != TYPE_FUNC) {
+        if (adjustment_out) *adjustment_out = 0;
+        return true;
+    }
+    if (source_unqualified.kind != TYPE_STRUCT ||
+        target_unqualified.kind != TYPE_STRUCT ||
+        !source_unqualified.cxx_class || !target_unqualified.cxx_class) {
+        return false;
+    }
+    all_paths = cxx_structural_nonvirtual_base_paths(
+        &source_unqualified, &target_unqualified, false, NULL, 0u) +
+        cxx_structural_virtual_base_paths(
+            &source_unqualified, &target_unqualified, false, NULL);
+    public_paths = cxx_structural_nonvirtual_base_paths(
+        &source_unqualified, &target_unqualified, true, &adjustment, 0u) +
+        cxx_structural_virtual_base_paths(
+            &source_unqualified, &target_unqualified, true,
+            &virtual_adjustment);
+    if (all_paths != 1 || public_paths != 1) return false;
+    if (adjustment_out) {
+        *adjustment_out = adjustment != 0 || virtual_adjustment == 0
+            ? adjustment : virtual_adjustment;
+    }
+    return true;
+}
+
 static Decl* cxx_structural_pointer_member_address_declaration(
-    const Expr* expression, Type* pointer_type) {
+    const Expr* expression, Type* pointer_type,
+    int64_t* pointer_adjustment_out) {
     const Expr* operand;
     Decl* declaration;
     bool namespace_scope_target = false;
@@ -2040,9 +2177,18 @@ static Decl* cxx_structural_pointer_member_address_declaration(
         operand, &namespace_scope_target);
     if (!declaration || !declaration->type || !pointer_type ||
         pointer_type->kind != TYPE_PTR ||
-        !cxx_structural_function_pointer_target_accepts(
-            pointer_type->base, declaration->type) ||
         !decl_link_name(declaration)) {
+        return NULL;
+    }
+    if (pointer_type->base && pointer_type->base->kind == TYPE_FUNC) {
+        if (!cxx_structural_function_pointer_target_accepts(
+                pointer_type->base, declaration->type)) {
+            return NULL;
+        }
+        if (pointer_adjustment_out) *pointer_adjustment_out = 0;
+    } else if (!rcc_parser_cxx_structural_pointer_conversion(
+                   declaration->type, pointer_type->base,
+                   pointer_adjustment_out)) {
         return NULL;
     }
     if (!cxx_structural_pointer_member_declaration_has_static_storage(
@@ -2276,6 +2422,7 @@ static bool cxx_structural_pointer_member_location(
         expression->cast_type && expression->cast_type->kind == TYPE_PTR &&
         type_is_compatible(expression->cast_type, pointer_type)) {
         Type* source_type = expression->cast_expr->type;
+        int64_t base_adjustment = 0;
         bool explicit_pointer_cast =
             expression->cxx_cast_kind == CXX_CAST_STATIC ||
             expression->cxx_cast_kind == CXX_CAST_CONST;
@@ -2285,6 +2432,24 @@ static bool cxx_structural_pointer_member_location(
             expression->cast_type->base &&
             type_is_compatible(source_type->base,
                                expression->cast_type->base);
+        if (source_type && source_type->kind == TYPE_PTR &&
+            source_type->base && pointer_type->base &&
+            rcc_parser_cxx_structural_pointer_conversion(
+                source_type->base, pointer_type->base, &base_adjustment)) {
+            CxxStructuralPointerLocation source_location;
+            if (cxx_structural_pointer_member_location(
+                    expression->cast_expr, source_type,
+                    &source_location) &&
+                source_location.declaration &&
+                !source_location.has_subobject_path &&
+                !source_location.one_past &&
+                source_location.byte_offset <=
+                    INT64_MAX - base_adjustment) {
+                *location = source_location;
+                location->byte_offset += base_adjustment;
+                return true;
+            }
+        }
         if (explicit_pointer_cast || array_to_pointer_decay) {
             return cxx_structural_pointer_member_location(
                 expression->cast_expr, pointer_type, location);
@@ -2488,11 +2653,12 @@ static bool cxx_structural_pointer_member_location(
         return true;
     }
     if (expression->kind == EXPR_ADDR) {
+        int64_t pointer_adjustment = 0;
         Decl* declaration = cxx_structural_pointer_member_address_declaration(
-            expression, pointer_type);
+            expression, pointer_type, &pointer_adjustment);
         if (!declaration) return false;
         location->declaration = declaration;
-        location->byte_offset = 0;
+        location->byte_offset = pointer_adjustment;
         location->array_start_offset = 0;
         location->array_byte_size = 0;
         location->array_element_size = 0;
