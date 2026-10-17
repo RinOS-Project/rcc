@@ -136,6 +136,15 @@ for source in "${sources[@]}"; do
 	printf 'nested class template regression passed: %s\n' "$source"
 done
 
+noexcept_pointer_invalid=tests/cxx_structural_noexcept_pointer_nttp_invalid.cpp
+for target in i686-unknown-rinos x86_64-unknown-rinos; do
+	expect_rcc_failure "$noexcept_pointer_invalid" "$target" \
+		"class template non-type argument must be an integer constant expression" \
+		"structural-noexcept-pointer-direction-$target"
+done
+expect_gcc_failure "$noexcept_pointer_invalid" "invalid conversion" \
+	structural-noexcept-pointer-direction
+
 nested_array_source=tests/cxx_structural_pointer_nested_array_nttp.cpp
 nested_array_dir="$out/cxx_structural_pointer_nested_array_nttp"
 mkdir -p "$nested_array_dir"

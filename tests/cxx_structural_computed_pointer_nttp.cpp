@@ -9,6 +9,10 @@ int nested_computed_pointer_function_b(int value) {
     return value + 9;
 }
 
+int nested_computed_pointer_noexcept_function(int value) noexcept {
+    return value + 12;
+}
+
 double nested_computed_pointer_overloaded_target(double value) {
     return value + 1.5;
 }
@@ -120,6 +124,9 @@ int main() {
         false ? &nested_computed_pointer_function_a
               : &nested_computed_pointer_function_b}>::Inner<int> function;
     NestedComputedFunctionOwner<NestedComputedFunctionKey{
+        &nested_computed_pointer_noexcept_function}>::Inner<int>
+        noexcept_conversion;
+    NestedComputedFunctionOwner<NestedComputedFunctionKey{
         &nested_computed_pointer_overloaded_target}>::Inner<int> overloaded;
     NestedComputedFunctionOwner<NestedComputedFunctionKey{
         &nested_computed_pointer_overloaded_template}>::Inner<int>
@@ -137,7 +144,8 @@ int main() {
         reverse_add_zero.result() == 47 &&
         subtract_zero.result() == 47 && conditional.result() == 89 &&
         cast.result() == 47 && null.is_null() && integer_null.is_null() &&
-        function.result() == 46 && overloaded.result() == 43 &&
+        function.result() == 46 && noexcept_conversion.result() == 49 &&
+        overloaded.result() == 43 &&
         overloaded_template.result() == 47 &&
         mixed_template_wins.result() == 47 &&
         mixed_non_template_wins.result() == 43 &&

@@ -2006,6 +2006,26 @@ static bool cxx_structural_pointer_member_declaration_has_static_storage(
     return false;
 }
 
+/* C++ permits a pointer to a noexcept function to convert to the otherwise
+ * identical potentially-throwing function-pointer type. Keep this directed
+ * conversion local to structural NTTP evaluation: noexcept remains part of
+ * function-type identity everywhere that requires exact compatibility. */
+static bool cxx_structural_function_pointer_target_accepts(
+    Type* target_function, Type* source_function) {
+    Type adjusted_source;
+    if (!target_function || !source_function) return false;
+    if (type_is_compatible(target_function, source_function)) return true;
+    if (target_function->kind != TYPE_FUNC ||
+        source_function->kind != TYPE_FUNC ||
+        target_function->function_is_noexcept ||
+        !source_function->function_is_noexcept) {
+        return false;
+    }
+    adjusted_source = *source_function;
+    adjusted_source.function_is_noexcept = false;
+    return type_is_compatible(target_function, &adjusted_source);
+}
+
 static Decl* cxx_structural_pointer_member_address_declaration(
     const Expr* expression, Type* pointer_type) {
     const Expr* operand;
@@ -2020,7 +2040,8 @@ static Decl* cxx_structural_pointer_member_address_declaration(
         operand, &namespace_scope_target);
     if (!declaration || !declaration->type || !pointer_type ||
         pointer_type->kind != TYPE_PTR ||
-        !type_is_compatible(pointer_type->base, declaration->type) ||
+        !cxx_structural_function_pointer_target_accepts(
+            pointer_type->base, declaration->type) ||
         !decl_link_name(declaration)) {
         return NULL;
     }
