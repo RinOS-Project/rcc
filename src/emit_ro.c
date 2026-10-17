@@ -3101,7 +3101,7 @@ static void debug_emit_lexical_block_die(
             (int64_t)(statement->debug_code_start - function->offset));
         debug_line_u32(info, range_size);
     }
-    section_add_byte(info, (uint8_t)file_index);
+    debug_line_u32(info, (uint32_t)file_index);
     debug_line_u32(info, statement->loc.line);
     debug_line_u32(info, statement->loc.column);
     rcc_free(scoped_name);
@@ -4181,7 +4181,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
-    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
@@ -4213,7 +4213,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
-    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
@@ -4448,7 +4448,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x12u);     /* DW_AT_high_pc */
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3au);     /* DW_AT_decl_file */
-    debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3bu);     /* DW_AT_decl_line */
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x39u);     /* DW_AT_decl_column */
@@ -4461,7 +4461,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x23u);     /* DW_AT_ranges */
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3au);     /* DW_AT_decl_file */
-    debug_line_uleb(abbrev, 0x0bu);     /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3bu);     /* DW_AT_decl_line */
     debug_line_uleb(abbrev, 0x06u);     /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x39u);     /* DW_AT_decl_column */
@@ -4543,7 +4543,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
-    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
@@ -4597,7 +4597,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
-    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
@@ -4629,7 +4629,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
-    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
@@ -4664,7 +4664,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x12u);    /* DW_AT_high_pc */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3au);    /* DW_AT_decl_file */
-    debug_line_uleb(abbrev, 0x0bu);    /* DW_FORM_data1 */
+    debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x3bu);    /* DW_AT_decl_line */
     debug_line_uleb(abbrev, 0x06u);    /* DW_FORM_data4 */
     debug_line_uleb(abbrev, 0x39u);    /* DW_AT_decl_column */
@@ -5165,7 +5165,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
             g_opts.target_arch == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U, 0);
         rcc_free(scoped_name);
         debug_line_u32(info, debug_function_size(mod, function));
-        section_add_byte(info, (uint8_t)file_index);
+        debug_line_u32(info, (uint32_t)file_index);
         debug_line_u32(info, function->source_line);
         debug_line_u32(info, function->source_column);
         section_add_byte(info, function->is_global ? 1u : 0u);

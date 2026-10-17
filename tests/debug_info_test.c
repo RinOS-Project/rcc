@@ -108,7 +108,7 @@ static void verify_object_pointer_parameter(const char* path,
     assert(contains_byte_pair(abbrev->data, abbrev->size, 0x64u, 0x13u));
     assert(contains_byte_pair(abbrev->data, abbrev->size, 0x34u, 0x0cu));
 
-    for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 1u +
+    for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 4u +
              4u + 4u + 1u + 4u <= info->size; ++die) {
         uint32_t name_offset;
         uint32_t linkage_name_offset;
@@ -127,13 +127,13 @@ static void verify_object_pointer_parameter(const char* path,
             continue;
         }
         linkage_name_offset = read_u32(
-            info->data, die + 1u + 4u + address_size + 4u + 1u + 4u +
+            info->data, die + 1u + 4u + address_size + 4u + 4u + 4u +
                        4u + 1u);
         assert(linkage_name_offset < strings->size);
         assert(strcmp((const char*)strings->data + linkage_name_offset,
                       "read") != 0);
         assert(strings->data[linkage_name_offset] == '_');
-        cursor = die + 1u + 4u + address_size + 4u + 1u + 4u + 4u +
+        cursor = die + 1u + 4u + address_size + 4u + 4u + 4u + 4u +
                  1u + 4u + 4u;
         assert(cursor < info->size);
         expression_size = read_uleb(info->data, info->size, &cursor);
@@ -190,7 +190,7 @@ static void verify_static_member_containing_type(const char* path,
     assert(info != NULL && abbrev != NULL && strings != NULL);
     assert(contains_byte_pair(abbrev->data, abbrev->size, 0x1du, 0x13u));
 
-    for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 1u +
+    for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 4u +
              4u + 4u + 1u + 4u <= info->size; ++die) {
         uint32_t name_offset;
         uint32_t linkage_name_offset;
@@ -205,7 +205,7 @@ static void verify_static_member_containing_type(const char* path,
                    "create_value") != 0) {
             continue;
         }
-        cursor = die + 1u + 4u + address_size + 4u + 1u + 4u + 4u + 1u;
+        cursor = die + 1u + 4u + address_size + 4u + 4u + 4u + 4u + 1u;
         linkage_name_offset = read_u32(info->data, cursor);
         assert(linkage_name_offset < strings->size);
         assert(strcmp((const char*)strings->data + linkage_name_offset,
@@ -1556,7 +1556,7 @@ static void verify_alias_scope_children(
             *cursor += 20u;
         } else if (abbreviation == 24u || abbreviation == 25u) {
             uint64_t header_size = abbreviation == 24u
-                ? address_size + 13u : 13u;
+                ? address_size + 16u : 16u;
             assert(header_size <= info->size - *cursor);
             *cursor += header_size;
             verify_alias_scope_children(
@@ -1599,7 +1599,7 @@ static void verify_local_type_alias_scope(const char* path,
                                      "debug_local_alias_entry",
                                      address_size);
     assert(function_die != UINT64_MAX);
-    cursor = function_die + 1u + 4u + address_size + 4u + 1u + 4u + 4u +
+    cursor = function_die + 1u + 4u + address_size + 4u + 4u + 4u + 4u +
              1u + 4u + 4u;
     expression_size = read_uleb(info->data, info->size, &cursor);
     assert(expression_size <= info->size - cursor);
@@ -1614,7 +1614,7 @@ static void verify_local_type_alias_scope(const char* path,
                                      "debug_template_local_alias_entry",
                                      address_size);
     assert(function_die != UINT64_MAX);
-    cursor = function_die + 1u + 4u + address_size + 4u + 1u + 4u + 4u +
+    cursor = function_die + 1u + 4u + address_size + 4u + 4u + 4u + 4u +
              1u + 4u + 4u;
     expression_size = read_uleb(info->data, info->size, &cursor);
     assert(expression_size <= info->size - cursor);
@@ -1711,7 +1711,7 @@ static void verify_cxx_method_accessibility(const char* path,
             continue;
         }
 
-        cursor = die + 1u + 4u + address_size + 4u + 1u + 4u + 4u + 1u +
+        cursor = die + 1u + 4u + address_size + 4u + 4u + 4u + 4u + 1u +
                  4u + 4u;
         if (cursor >= info->size) continue;
         expression_size = read_uleb(info->data, info->size, &cursor);
@@ -1776,13 +1776,13 @@ static bool find_lexical_block_local(const ObjSection* info,
         if (!ranged && info->data[offset] != 24u) continue;
         range_offset = ranged ? offset + 1u : offset + 1u + address_size;
         file_offset = range_offset + 4u;
-        line_offset = file_offset + 1u;
+        line_offset = file_offset + 4u;
         column_offset = line_offset + 4u;
         child_offset = column_offset + 4u;
         range_end = child_offset + 5u;
         if (range_end > info->size ||
             (!ranged && read_u32(info->data, range_offset) == 0u) ||
-            info->data[file_offset] == 0u ||
+            read_u32(info->data, file_offset) == 0u ||
             read_u32(info->data, line_offset) == 0u ||
             read_u32(info->data, column_offset) == 0u ||
             (info->data[child_offset] != 4u &&
@@ -1829,7 +1829,7 @@ static bool verify_location_starts_after_simple_scope(
         uint32_t name_offset;
         if (info->data[offset] != 24u) continue;
         range_offset = offset + 1u + address_size;
-        child_offset = range_offset + 4u + 1u + 4u + 4u;
+        child_offset = range_offset + 4u + 4u + 4u + 4u;
         if (child_offset + 5u > info->size ||
             (info->data[child_offset] != 4u &&
              info->data[child_offset] != 39u)) {
@@ -1881,14 +1881,14 @@ static bool verify_location_starts_after_ranges_scope(
     if (!info || !strings || !locations || !ranges || !variable_name) {
         return false;
     }
-    for (uint64_t offset = 11u; offset + 14u <= info->size; ++offset) {
+    for (uint64_t offset = 11u; offset + 17u <= info->size; ++offset) {
         uint32_t name_offset;
         uint32_t list_offset;
         uint64_t child_offset;
         uint64_t cursor;
         bool saw_range = false;
         if (info->data[offset] != 25u) continue;
-        child_offset = offset + 14u;
+        child_offset = offset + 17u;
         if (child_offset + 5u > info->size ||
             (info->data[child_offset] != 4u &&
              info->data[child_offset] != 39u)) {
@@ -4281,12 +4281,39 @@ static uint64_t find_function_die(const ObjSection* info,
                    function_name) != 0) {
             continue;
         }
-        if (offset + 1u + 4u + address_size + 4u + 1u + 4u > info->size) {
+        if (offset + 1u + 4u + address_size + 4u + 4u + 4u > info->size) {
             return UINT64_MAX;
         }
         return offset;
     }
     return UINT64_MAX;
+}
+
+static void verify_large_file_table(const char* path,
+                                    uint16_t architecture,
+                                    const char* expected_file)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* line;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t function_die;
+    uint32_t file_index;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    line = objfile_get_section(object, ".debug_line");
+    assert(info != NULL && strings != NULL && line != NULL);
+    function_die = find_function_die(info, strings,
+                                     "debug_info_large_file_259",
+                                     address_size);
+    assert(function_die != UINT64_MAX);
+    file_index = read_u32(info->data,
+                          function_die + 1u + 4u + address_size + 4u);
+    assert(file_index > 255u);
+    assert(line_table_file_matches(line, file_index, expected_file));
+    objfile_free(object);
 }
 
 static void verify_dependent_compound_type_die(
@@ -4344,10 +4371,10 @@ static void verify_dependent_compound_function_type(
                                      address_size);
     assert(function_die != UINT64_MAX);
     result_type = read_u32(info->data,
-                           function_die + 23u + address_size);
+                           function_die + 26u + address_size);
     verify_dependent_compound_type_die(
         info, strings, result_type, expected_type_tag, member_pointer);
-    cursor = function_die + 27u + address_size;
+    cursor = function_die + 30u + address_size;
     expression_size = read_uleb(info->data, info->size, &cursor);
     assert(expression_size <= info->size - cursor);
     cursor += expression_size + 2u; /* frame base, inline, prototype */
@@ -4527,7 +4554,7 @@ static void verify_function_template_parameter_dies(
                                      "debug_template_function",
                                      address_size);
     assert(function_die != UINT64_MAX);
-    cursor = function_die + 1u + 4u + address_size + 4u + 1u + 4u + 4u +
+    cursor = function_die + 1u + 4u + address_size + 4u + 4u + 4u + 4u +
              1u + 4u + 4u;
     expression_size = read_uleb(info->data, info->size, &cursor);
     assert(expression_size <= info->size - cursor);
@@ -4564,7 +4591,7 @@ static void verify_function_template_parameter_dies(
 static uint64_t function_template_children_start(
     const ObjSection* info, uint64_t function_die, uint64_t address_size)
 {
-    uint64_t cursor = function_die + 1u + 4u + address_size + 4u + 1u + 4u +
+    uint64_t cursor = function_die + 1u + 4u + address_size + 4u + 4u + 4u +
                       4u + 1u + 4u + 4u;
     uint64_t expression_size = read_uleb(info->data, info->size, &cursor);
     assert(expression_size <= info->size - cursor);
@@ -5260,7 +5287,7 @@ static uint8_t read_inline_attribute(const ObjSection* info,
                                      uint64_t address_size,
                                      bool has_return_type)
 {
-    uint64_t offset = function_offset + 1u + 4u + address_size + 4u + 1u +
+    uint64_t offset = function_offset + 1u + 4u + address_size + 4u + 4u +
                       4u + 4u + 1u + 4u + (has_return_type ? 4u : 0u);
     assert(info != NULL);
     assert(offset + 4u < info->size);
@@ -5280,7 +5307,7 @@ static uint8_t read_prototyped_attribute(const ObjSection* info,
         info, strings, function_name, address_size);
     uint64_t offset;
     assert(function_offset != UINT64_MAX);
-    offset = function_offset + 1u + 4u + address_size + 4u + 1u + 4u +
+    offset = function_offset + 1u + 4u + address_size + 4u + 4u + 4u +
              4u + 1u + 4u + 4u;
     assert(offset + 4u < info->size);
     assert(info->data[offset] == 2u); /* DW_AT_frame_base exprloc */
@@ -5292,7 +5319,7 @@ static uint32_t read_return_type_ref(const ObjSection* info,
                                      uint64_t function_offset,
                                      uint64_t address_size)
 {
-    uint64_t offset = function_offset + 1u + 4u + address_size + 4u + 1u +
+    uint64_t offset = function_offset + 1u + 4u + address_size + 4u + 4u +
                       4u + 4u + 1u + 4u;
     assert(info != NULL);
     assert(offset + 4u <= info->size);
@@ -5352,7 +5379,7 @@ static void verify_debug_object(const char* path, uint16_t architecture,
         uint64_t function_offset = find_function_die(
             info, strings, function_name, address_size);
         uint64_t column_offset = function_offset + 1u + 4u + address_size +
-                                  4u + 1u + 4u;
+                                  4u + 4u + 4u;
         assert(function_offset != UINT64_MAX);
         assert(info->data[function_offset] == 2u);
         assert(info->size >= column_offset + 4u);
@@ -5817,7 +5844,7 @@ static void verify_verified_fallback_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 34);
+    assert(argc == 36);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -6085,5 +6112,7 @@ int main(int argc, char** argv)
     verify_enum_template_value_dies(argv[27], ARCH_X64);
     verify_verified_fallback_debug_object(argv[28], ARCH_X86);
     verify_verified_fallback_debug_object(argv[29], ARCH_X64);
+    verify_large_file_table(argv[34], ARCH_X86, "debug_info_file_259.c");
+    verify_large_file_table(argv[35], ARCH_X64, "debug_info_file_259.c");
     return 0;
 }

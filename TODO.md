@@ -2007,6 +2007,10 @@
         持たないsynthetic `__rcc_global_init`も含める。i686/AMD64のdebug／
         non-debug object relocation回帰とlinked debug RINのrinvalidate検証を
         `test-debug-info`／`test-format-validation`で確認。
+  - [x] 関数／lexical-block DIEの`DW_AT_decl_file`を32-bitで出力し、256件を
+        超えるsource file tableでもindexを切り詰めない。260個の`#line` fileを
+        生成する回帰でDWARF indexとline-table entryの対応をi686/AMD64双方で検証し、
+        native Windows `test-debug-info`全体が成功。
   - [ ] `.debug_info`の全inline attribution／全scopeの宣言開始・終了に一致する
         location lists、register・piece location追跡、非標準prologueを含む
         完全なCFI/unwind
