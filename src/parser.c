@@ -93,6 +93,8 @@ extern const char* rcc_parser_cxx_resolve_local_using(
     const char* name, SourceLoc loc) RCC_OPTIONAL_CXX;
 extern const char* rcc_parser_cxx_current_namespace_identity(void)
     RCC_OPTIONAL_CXX;
+extern bool rcc_parser_cxx_enum_namespace_is_visible(
+    Type* enum_type, const char* namespace_name) RCC_OPTIONAL_CXX;
 
 typedef struct ParserTypeName {
     const char* name;
@@ -452,11 +454,43 @@ int rcc_parser_pack_alignment(void) {
     return parser_pack_alignment;
 }
 
+static bool parser_enum_constant_name_matches(
+    const ParserEnumConstant* entry, const char* name) {
+    const char* spelling = name;
+    size_t spelling_length;
+    size_t enumerator_length;
+    size_t namespace_length;
+    char namespace_name[512];
+
+    if (!entry || !entry->name || !spelling) return false;
+    while (spelling[0] == ':' && spelling[1] == ':') spelling += 2;
+    if (strcmp(entry->name, spelling) == 0) return true;
+
+    spelling_length = strlen(spelling);
+    enumerator_length = strlen(entry->name);
+    if (spelling_length < 2u ||
+        spelling_length - 2u < enumerator_length) {
+        return false;
+    }
+    namespace_length = spelling_length - enumerator_length - 2u;
+    if (spelling[namespace_length] != ':' ||
+        spelling[namespace_length + 1u] != ':' ||
+        strcmp(spelling + namespace_length + 2u, entry->name) != 0 ||
+        namespace_length >= sizeof(namespace_name)) {
+        return false;
+    }
+    memcpy(namespace_name, spelling, namespace_length);
+    namespace_name[namespace_length] = '\0';
+    return rcc_parser_cxx_enum_namespace_is_visible &&
+           rcc_parser_cxx_enum_namespace_is_visible(
+               entry->type, namespace_name);
+}
+
 static bool parser_lookup_enum_constant(const char* name, int64_t* value,
                                         Type** type, Type** expression_type) {
     ParserEnumConstant* entry;
     for (entry = parser_enum_constants; entry; entry = entry->next) {
-        if (strcmp(entry->name, name) == 0) {
+        if (parser_enum_constant_name_matches(entry, name)) {
             if (value) *value = entry->value;
             if (type) *type = entry->type;
             if (expression_type) *expression_type = entry->expression_type;

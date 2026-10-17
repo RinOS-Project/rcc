@@ -5862,10 +5862,15 @@ remains a separate open item.
 - [x] Normalize inline-namespace associated class types to their enclosing
       non-inline namespace before ADL. Verify function-template lookup against
       GCC and generated i686/AMD64 output/execution.
+- [x] Resolve enum-argument ADL when the enum is declared in an inline
+      namespace and the namespace-scope constexpr function is declared in its
+      enclosing namespace. Cover dependent nested template-template defaults,
+      plus fully qualified enumerators through both the inline namespace and
+      its injected enclosing namespace as function-template non-type arguments;
+      native-Windows
+      `test-cxx-function-template-overloads` passes for i686/AMD64 generation,
+      RCC/GCC execution, GCC comparison, and diagnostic checks.
 - [ ] Broader class/enum ADL and imported function-template overloads remain
-      open. In particular, enum arguments declared in inline namespaces are
-      not yet resolved in dependent constexpr template-template defaults; the
-      current evaluator reports a non-constant template non-type argument.
-      Other compound outer non-type forms, deeper paths through dependent
+      open. Other compound outer non-type forms, deeper paths through dependent
       intermediate aliases, and additional C++20 function partial-ordering
       cases also remain open.

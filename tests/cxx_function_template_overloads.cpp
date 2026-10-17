@@ -1767,8 +1767,19 @@ constexpr int default_value(Value value) {
 }
 }
 
+namespace PackOrderConstexprInlineEnumAdl {
+inline namespace V1 {
+enum Value { inline_seed = 2 };
+}
+
+constexpr int default_value(Value value) {
+    return value == inline_seed ? 12 : 14;
+}
+}
+
 using PackOrderConstexprEnumAdl::Value;
 using PackOrderConstexprEnumAdl::seed;
+using PackOrderConstexprInlineEnumAdl::inline_seed;
 
 static_assert(default_value(seed) == 12,
               "ordinary calls must find enum-namespace constexpr functions by ADL");
@@ -1778,6 +1789,22 @@ template<Value V, typename T,
          template<typename, int = default_value(V)> class Box>
 constexpr int select_default_value(Box<T>) {
     return V == seed ? 12 : 14;
+}
+}
+
+namespace PackOrderConstexprInlineEnumAdlTemplate {
+using PackOrderConstexprInlineEnumAdl::Value;
+using PackOrderConstexprInlineEnumAdl::inline_seed;
+
+template<int ValueArgument>
+constexpr int qualified_enumerator_value() {
+    return ValueArgument;
+}
+
+template<Value V, typename T,
+         template<typename, int = default_value(V)> class Box>
+constexpr int select_default_value(Box<T>) {
+    return V == inline_seed ? 12 : 14;
 }
 }
 
@@ -4020,6 +4047,19 @@ int main(void) {
                        select_default_value<seed>(
                            PackOrderOuterNonTypeDefaultTemplateBox<
                                PackOrderConstrainedValue, 12>{}) == 12 &&
+                   PackOrderConstexprInlineEnumAdlTemplate::
+                       select_default_value<
+                           inline_seed>(
+                           PackOrderOuterNonTypeDefaultTemplateBox<
+                               PackOrderConstrainedValue, 12>{}) == 12 &&
+                   PackOrderConstexprInlineEnumAdlTemplate::
+                       qualified_enumerator_value<
+                           PackOrderConstexprInlineEnumAdl::V1::
+                               inline_seed>() == 2 &&
+                   PackOrderConstexprInlineEnumAdlTemplate::
+                       qualified_enumerator_value<
+                           PackOrderConstexprInlineEnumAdl::
+                               inline_seed>() == 2 &&
                    choose_outer_non_type_constexpr_template_call_default_template_template_order(
                        PackOrderOuterNonTypeDefaultTemplateBox<
                            PackOrderConstrainedValue, 14>{},
