@@ -5832,6 +5832,12 @@ remains a separate open item.
       exact `int` match against a `long` conversion with GCC C++20. The complete
       native-Windows `test-cxx-function-template-overloads` gate passes for
       i686/AMD64 generation, RCC/GCC host execution, and diagnostic checks.
-- [ ] Function-template/ADL/using-lookup call-bearing defaults, other compound
-      outer non-type forms, deeper paths through dependent intermediate aliases,
-      and additional C++20 function partial-ordering cases remain open.
+- [x] Deduce a constexpr function-template parameter from the declared type of
+      an enclosing non-type template parameter in a nested template-template
+      default, then evaluate its specialization after the outer value is known.
+      GCC C++20 and native-Windows `test-cxx-function-template-overloads`
+      agree; i686/AMD64 generation, RCC/GCC execution, and diagnostics pass.
+- [ ] Function-template overload resolution, ADL/using-lookup call-bearing
+      defaults, other compound outer non-type forms, deeper paths through
+      dependent intermediate aliases, and additional C++20 function
+      partial-ordering cases remain open.

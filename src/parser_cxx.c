@@ -1349,6 +1349,21 @@ static Type* cxx_parser_value_type(const char* name) {
             return binding->type;
         }
     }
+    /* Nested template-template signatures have their own active template
+     * scope, but expressions in their defaults can name a non-type parameter
+     * from the enclosing function template. Preserve that parameter's declared
+     * type during parser-time function-template deduction. */
+    for (CxxTemplate* tmpl = active_template; tmpl;
+         tmpl = tmpl->enclosing_template) {
+        for (int index = 0; index < tmpl->param_count; ++index) {
+            TemplateParam* parameter = &tmpl->params[index];
+            if (parameter->kind == TPARAM_NONTYPE && parameter->name &&
+                name && strcmp(parameter->name, name) == 0 &&
+                parameter->type && !parameter->type->cxx_dependent) {
+                return parameter->type;
+            }
+        }
+    }
     return NULL;
 }
 
