@@ -9186,40 +9186,56 @@ static int cxx_conversion_vector_relation(
         }
         if (left[index] == right[index] && left[index] == 2 &&
             left_targets && right_targets && left_targets[index] &&
-            right_targets[index] && !left_targets[index]->is_reference &&
-            !right_targets[index]->is_reference &&
-            left_targets[index]->kind == TYPE_PTR &&
-            right_targets[index]->kind == TYPE_PTR &&
-            !left_targets[index]->cxx_is_member_pointer &&
-            !right_targets[index]->cxx_is_member_pointer &&
-            left_targets[index]->base && right_targets[index]->base) {
-            Type* left_pointee = left_targets[index]->base;
-            Type* right_pointee = right_targets[index]->base;
-            bool matching_cv =
-                left_pointee->is_const == right_pointee->is_const &&
-                left_pointee->is_volatile == right_pointee->is_volatile;
-            if (matching_cv && left_pointee->kind == TYPE_STRUCT &&
-                left_pointee->cxx_class &&
-                right_pointee->kind == TYPE_VOID) {
-                left_better = true;
-            } else if (matching_cv && left_pointee->kind == TYPE_VOID &&
-                       right_pointee->kind == TYPE_STRUCT &&
-                       right_pointee->cxx_class) {
-                right_better = true;
-            } else if (left_pointee->kind == TYPE_STRUCT &&
-                       right_pointee->kind == TYPE_STRUCT &&
-                       left_pointee->cxx_class &&
-                       right_pointee->cxx_class &&
-                       left_pointee->cxx_class !=
-                           right_pointee->cxx_class) {
-                if (sema_cxx_class_derives_from(left_pointee->cxx_class,
-                                                right_pointee->cxx_class,
-                                                0)) {
+            right_targets[index] &&
+            left_targets[index]->is_reference ==
+                right_targets[index]->is_reference &&
+            (!left_targets[index]->is_reference ||
+             (left_targets[index]->is_rvalue_reference ==
+                  right_targets[index]->is_rvalue_reference &&
+              left_targets[index]->base && right_targets[index]->base &&
+              left_targets[index]->base->is_const ==
+                  right_targets[index]->base->is_const &&
+              left_targets[index]->base->is_volatile ==
+                  right_targets[index]->base->is_volatile))) {
+            Type* left_pointer_target = left_targets[index]->is_reference
+                ? left_targets[index]->base : left_targets[index];
+            Type* right_pointer_target = right_targets[index]->is_reference
+                ? right_targets[index]->base : right_targets[index];
+            if (left_pointer_target && right_pointer_target &&
+                left_pointer_target->kind == TYPE_PTR &&
+                right_pointer_target->kind == TYPE_PTR &&
+                !left_pointer_target->cxx_is_member_pointer &&
+                !right_pointer_target->cxx_is_member_pointer &&
+                left_pointer_target->base && right_pointer_target->base) {
+                Type* left_pointee = left_pointer_target->base;
+                Type* right_pointee = right_pointer_target->base;
+                bool matching_cv =
+                    left_pointee->is_const == right_pointee->is_const &&
+                    left_pointee->is_volatile == right_pointee->is_volatile;
+                if (matching_cv && left_pointee->kind == TYPE_STRUCT &&
+                    left_pointee->cxx_class &&
+                    right_pointee->kind == TYPE_VOID) {
                     left_better = true;
-                } else if (sema_cxx_class_derives_from(
-                               right_pointee->cxx_class,
-                               left_pointee->cxx_class, 0)) {
+                } else if (matching_cv &&
+                           left_pointee->kind == TYPE_VOID &&
+                           right_pointee->kind == TYPE_STRUCT &&
+                           right_pointee->cxx_class) {
                     right_better = true;
+                } else if (left_pointee->kind == TYPE_STRUCT &&
+                           right_pointee->kind == TYPE_STRUCT &&
+                           left_pointee->cxx_class &&
+                           right_pointee->cxx_class &&
+                           left_pointee->cxx_class !=
+                               right_pointee->cxx_class) {
+                    if (sema_cxx_class_derives_from(
+                            left_pointee->cxx_class,
+                            right_pointee->cxx_class, 0)) {
+                        left_better = true;
+                    } else if (sema_cxx_class_derives_from(
+                                   right_pointee->cxx_class,
+                                   left_pointee->cxx_class, 0)) {
+                        right_better = true;
+                    }
                 }
             }
         }

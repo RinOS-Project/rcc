@@ -5510,3 +5510,18 @@ remains a separate open item.
       diagnostics and absence of `.ro` are checked for the negative fixture.
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-17, pointer-to-void reference overload ordering)
+
+- [x] Apply pointer-to-void versus related-class-pointer overload ordering when
+      the converted pointer prvalue binds through the same reference form, not
+      only for by-value pointer parameters. Preserve the existing partial
+      ordering for unrelated class targets and do not compare different
+      user-defined conversion functions' trailing sequences.
+- [x] Add GCC-confirmed regressions for an `operator Derived*()` result passed
+      to competing `const Base* const&` and `const void* const&` overloads,
+      including ordinary and function-template overload sets. The focused
+      native-Windows `test-cxx-conversion-operator` gate passes with i686/AMD64
+      generation and execution; full `test-cxx` passes (exit 0).
+- [ ] Other multi-step standard conversions, remaining cv/reference binding
+      shapes, and general C++20 conversion-sequence ordering remain open.
