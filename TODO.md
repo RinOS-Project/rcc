@@ -435,10 +435,15 @@
         virtual-base-to-value call argument conversionをlowerし、complete objectの
         destructorがcall後に一度だけ実行されることをi686/AMD64で確認。
         `test-verified-cxx-virtual-base-value` はfallbackなしで両objectを実行する。
-  - [ ] verified backendで上記subsetを一般化し、nontrivial constructor/member/base
-        initialization、nontrivial/deleted target copy constructor、call引数以外の
-        full-expression cleanup、例外経路を実装・検証。標準conversion subsequenceと
-        pointer-to-memberを含む全rank/partial orderingも未完了
+  - [x] 上記constructor loweringを2個までのscalar member/parameterへ拡張。
+        constructor引数を一度ずつ評価し、member initializerから対応parameterへ
+        mapする。virtual-base prvalue cleanup regressionで2個目のscalar fieldを
+        destructorが読み、ローカルcounterへ反映することをi686/AMD64両方で確認。
+  - [ ] verified backendでempty-body/noexcept constructorとscalar memberを超える
+        constructor/body、nontrivial base initialization、nontrivial/deleted target
+        copy constructor、call引数以外のfull-expression cleanup、例外経路を実装・検証。
+        標準conversion subsequenceとpointer-to-memberを含む全rank/partial orderingも
+        未完了
   - [x] Namespace extension compatibility: verify reopened named and
         translation-unit anonymous namespaces, lookup through the transitive
         inline-namespace set for both namespace definitions and qualified

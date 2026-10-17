@@ -6269,7 +6269,8 @@ static bool lower_cxx_empty_trivial_subobject(
     }
     cls = type->cxx_class;
     if (cls->has_user_constructor || cls->has_field_initializer ||
-        cls->destructor_method || cls->vtable_size > 0) {
+        cls->destructor_method || cls->vtable_size > 0 ||
+        cls->virtual_base_count > 0) {
         return false;
     }
     for (member = cls->fields; member; member = member->next) {
@@ -6293,70 +6294,91 @@ static bool lower_cxx_empty_trivial_subobject(
 }
 
 /* The inline-cleanup path may accept a class temporary only if its selected
- * constructor and every base initialization are proven non-throwing.  Keep
+ * constructor and every base initialization are proven non-throwing. Keep
  * construction explicit: an empty noexcept body, empty trivial bases, and
- * either no members/arguments or one pointer member initialized directly
- * from the sole pointer constructor parameter. */
+ * up to two scalar members initialized directly from matching scalar
+ * constructor parameters. */
 static bool lower_cxx_empty_noop_constructor_supported(
     const Expr* expression) {
     const CxxConstructorInfo* constructor;
     const CxxClass* cls;
     const CxxConstructorInitializer* initializer;
-    const TypeParam* member = NULL;
+    const TypeParam* parameter_type;
+    const TypeParam* member;
     const DeclList* parameter_decl;
+    const ExprList* argument;
+    const TypeParam* parameter_types[2] = {NULL, NULL};
+    const Decl* parameter_decls[2] = {NULL, NULL};
+    const TypeParam* initialized_members[2] = {NULL, NULL};
+    bool initialized_parameters[2] = {false, false};
+    unsigned parameter_count = 0u;
+    unsigned member_count = 0u;
     unsigned member_initializer_count = 0u;
-    int index;
+    unsigned index;
+    int base_index;
+    int virtual_base_index;
     if (!expression || expression->kind != EXPR_COMPOUND ||
         !expression->type || expression->type->kind != TYPE_STRUCT ||
         !(cls = expression->type->cxx_class) ||
         !(constructor = expression->compound_constructor) ||
         !constructor->method || !constructor->method->decl ||
         !constructor->method->decl->func_is_noexcept ||
-        !constructor->body_is_empty ||
+        !constructor->body_is_empty || constructor->is_deleted ||
         !constructor->initializers_are_supported ||
         constructor->parameter_count < 0 ||
-        constructor->parameter_count > 1 ||
+        constructor->parameter_count > 2 ||
         cls->has_field_initializer) {
         return false;
     }
     parameter_decl = constructor->method->decl->func_params;
-    if (constructor->parameter_count == 0) {
-        if (expression->compound_init || parameter_decl) return false;
-    } else {
-        const ExprList* argument = expression->compound_init;
-        if (!constructor->parameters || constructor->parameters->next ||
-            !constructor->parameters->type ||
-            constructor->parameters->type->kind != TYPE_PTR ||
+    parameter_type = constructor->parameters;
+    argument = expression->compound_init;
+    while (parameter_type || parameter_decl || argument) {
+        if (parameter_count >= 2u || !parameter_type ||
+            !parameter_type->type || !type_is_scalar(parameter_type->type) ||
+            parameter_type->type->cxx_is_member_pointer ||
+            lower_i686_wide_scalar_type(parameter_type->type) ||
             !parameter_decl || !parameter_decl->decl ||
-            parameter_decl->next || !argument || argument->next ||
+            !argument ||
             argument->designator_kind != INIT_DESIGNATOR_NONE ||
-            !argument->expr) {
+            !argument->expr || !argument->expr->type ||
+            !type_is_scalar(argument->expr->type) ||
+            argument->expr->type->cxx_is_member_pointer ||
+            lower_i686_wide_scalar_type(argument->expr->type)) {
             return false;
         }
+        parameter_types[parameter_count] = parameter_type;
+        parameter_decls[parameter_count] = parameter_decl->decl;
+        ++parameter_count;
+        parameter_type = parameter_type->next;
+        parameter_decl = parameter_decl->next;
+        argument = argument->next;
     }
-    for (const TypeParam* field = cls->fields; field;
-         field = field->next) {
-        if (field->is_static) continue;
-        if (member || constructor->parameter_count != 1 ||
-            !field->name || !field->type ||
-            field->type->kind != TYPE_PTR ||
-            !type_is_compatible(field->type,
-                                constructor->parameters->type)) {
+    if (parameter_count != (unsigned)constructor->parameter_count) {
+        return false;
+    }
+    for (member = cls->fields; member; member = member->next) {
+        if (member->is_static) continue;
+        if (member_count >= 2u || member->is_bitfield || !member->name ||
+            !member->type || !type_is_scalar(member->type) ||
+            member->type->cxx_is_member_pointer ||
+            member->type->is_volatile || member->type->is_atomic ||
+            lower_i686_wide_scalar_type(member->type)) {
             return false;
         }
-        member = field;
+        ++member_count;
     }
-    if ((constructor->parameter_count == 0 && member) ||
-        (constructor->parameter_count == 1 && !member)) return false;
-    for (index = 0; index < cls->base_count; ++index) {
-        const CxxClass* base = cls->bases[index].base;
+    if (member_count != parameter_count) return false;
+    for (base_index = 0; base_index < cls->base_count; ++base_index) {
+        const CxxClass* base = cls->bases[base_index].base;
         if (!base || !lower_cxx_empty_trivial_subobject(
                          base->type, 0u)) {
             return false;
         }
     }
-    for (index = 0; index < cls->virtual_base_count; ++index) {
-        const CxxClass* base = cls->virtual_bases[index].base;
+    for (virtual_base_index = 0;
+         virtual_base_index < cls->virtual_base_count; ++virtual_base_index) {
+        const CxxClass* base = cls->virtual_bases[virtual_base_index].base;
         if (!base || !lower_cxx_empty_trivial_subobject(
                          base->type, 0u)) {
             return false;
@@ -6373,19 +6395,57 @@ static bool lower_cxx_empty_noop_constructor_supported(
             if (initializer->value || initializer->arguments) return false;
             continue;
         }
-        if (!member || !initializer->field ||
-            strcmp(initializer->field, member->name) != 0 ||
-            ++member_initializer_count != 1u ||
+        if (!initializer->arguments || initializer->arguments->next ||
+            !initializer->arguments->expr ||
+            initializer->arguments->expr->kind != EXPR_IDENT ||
+            !initializer->arguments->expr->ident_decl) {
+            return false;
+        }
+        member = cls->fields;
+        while (member && (member->is_static || !initializer->field ||
+               strcmp(initializer->field, member->name) != 0)) {
+            member = member->next;
+        }
+        if (!member || ++member_initializer_count > member_count ||
             !initializer->arguments || initializer->arguments->next ||
             !initializer->arguments->expr ||
             initializer->value != initializer->arguments->expr ||
             initializer->arguments->expr->kind != EXPR_IDENT ||
-            initializer->arguments->expr->ident_decl !=
-                parameter_decl->decl) {
+            !initializer->arguments->expr->ident_decl ||
+            member_initializer_count > 2u) {
             return false;
         }
+        {
+            const Type* parameter = initializer->arguments->expr->ident_decl
+                ->type;
+            bool found_parameter = false;
+            for (index = 0; index < member_count; ++index) {
+                if (initialized_members[index] == member) return false;
+            }
+            for (index = 0; index < parameter_count; ++index) {
+                if (parameter_decls[index] !=
+                    initializer->arguments->expr->ident_decl) continue;
+                if (initialized_parameters[index] ||
+                    !parameter ||
+                    !type_is_compatible(member->type,
+                                        (Type*)parameter_types[index]->type) ||
+                    !type_is_compatible((Type*)parameter_types[index]->type,
+                                        (Type*)parameter)) {
+                    return false;
+                }
+                initialized_parameters[index] = true;
+                found_parameter = true;
+                initialized_members[member_initializer_count - 1u] = member;
+                break;
+            }
+            if (!found_parameter) return false;
+        }
     }
-    return member_initializer_count == (member ? 1u : 0u);
+    if (member_initializer_count != member_count) return false;
+    for (index = 0; index < parameter_count; ++index) {
+        if (!initialized_parameters[index]) return false;
+    }
+    return true;
 }
 
 static bool lower_noexcept_expression(const Expr* expression);
@@ -12492,11 +12552,34 @@ static bool lower_struct_initializer(
     }
     if (type->cxx_class && initializer->compound_constructor) {
         const CxxConstructorInitializer* member_initializer;
-        const Expr* constructor_argument = initializer->compound_init
-            ? initializer->compound_init->expr : NULL;
+        RccIrLowerValue constructor_arguments[2];
+        const TypeParam* constructor_parameter =
+            initializer->compound_constructor->parameters;
+        const ExprList* constructor_argument = initializer->compound_init;
+        int argument_index;
         if (!lower_cxx_empty_noop_constructor_supported(initializer)) {
             context->unsupported = true;
             return false;
+        }
+        for (argument_index = 0;
+             argument_index <
+                 initializer->compound_constructor->parameter_count;
+             ++argument_index) {
+            RccIrLowerValue value;
+            if (!constructor_parameter || !constructor_argument ||
+                !constructor_argument->expr) {
+                context->unsupported = true;
+                return false;
+            }
+            value = lower_expression(context, constructor_argument->expr);
+            value = lower_cast(context, value, constructor_parameter->type);
+            if (!value.valid) {
+                context->unsupported = true;
+                return false;
+            }
+            constructor_arguments[argument_index] = value;
+            constructor_parameter = constructor_parameter->next;
+            constructor_argument = constructor_argument->next;
         }
         for (member_initializer =
                  initializer->compound_constructor->initializers;
@@ -12505,7 +12588,24 @@ static bool lower_struct_initializer(
             const TypeField* field;
             RccIrLowerValue object;
             RccIrLowerValue address;
+            const DeclList* parameter_decl;
+            int parameter_index = -1;
             if (member_initializer->is_base_initializer) continue;
+            if (!member_initializer->arguments ||
+                !member_initializer->arguments->expr ||
+                !member_initializer->arguments->expr->ident_decl) {
+                context->unsupported = true;
+                return false;
+            }
+            for (parameter_decl = initializer->compound_constructor->method
+                     ->decl->func_params, parameter_index = 0;
+                 parameter_decl; parameter_decl = parameter_decl->next,
+                     ++parameter_index) {
+                if (parameter_decl->decl ==
+                    member_initializer->arguments->expr->ident_decl) {
+                    break;
+                }
+            }
             field = lower_struct_declared_field(
                 type, type->cxx_class, member_initializer->field);
             object = lower_value(base, rcc_ir_type_pointer(0u), true);
@@ -12513,10 +12613,13 @@ static bool lower_struct_initializer(
                 ? lower_byte_offset_address(
                       context, object, (uint64_t)field->offset)
                 : lower_invalid_value();
-            if (!field || !constructor_argument || !address.valid ||
-                !lower_initialize_scalar_storage(
-                    context, address.value, field->type,
-                    constructor_argument)) {
+            if (!field || parameter_index < 0 ||
+                parameter_index >=
+                    initializer->compound_constructor->parameter_count ||
+                !address.valid ||
+                !lower_store_address(
+                    context, address,
+                    constructor_arguments[parameter_index])) {
                 context->unsupported = true;
                 return false;
             }
