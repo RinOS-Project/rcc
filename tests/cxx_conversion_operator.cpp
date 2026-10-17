@@ -44,6 +44,15 @@ struct MemberPointerArrayOwner {
 using MemberPointerArray = int (MemberPointerArrayOwner::*)[2];
 using ConstMemberPointerArray = const int (MemberPointerArrayOwner::*)[2];
 
+struct MemberPointerNestedArrayOwner {
+    int* values[2];
+};
+
+using MemberPointerNestedArray =
+    int* (MemberPointerNestedArrayOwner::*)[2];
+using ConstPointeeMemberPointerNestedArray =
+    const int* (MemberPointerNestedArrayOwner::*)[2];
+
 struct MemberPointerAccessBase {
     int value;
 };
@@ -80,6 +89,12 @@ struct MemberPointerArraySource {
     }
 };
 
+struct MemberPointerNestedArraySource {
+    operator MemberPointerNestedArray() const {
+        return &MemberPointerNestedArrayOwner::values;
+    }
+};
+
 struct MemberPointerPrivateSource {
     operator MemberPointerPrivateValue() const {
         return &MemberPointerPrivateOwner::value;
@@ -93,6 +108,8 @@ struct MemberPointerVirtualSource {
 };
 
 int consume_base_member_pointer(MemberPointerBaseValue);
+int consume_const_pointee_member_pointer_array(
+    ConstPointeeMemberPointerNestedArray);
 
 #if defined(TEST_PRIVATE_MEMBER_POINTER_OWNER_CONVERSION)
 int test_private_member_pointer_owner_conversion() {
@@ -103,6 +120,13 @@ int test_private_member_pointer_owner_conversion() {
 #if defined(TEST_VIRTUAL_MEMBER_POINTER_OWNER_CONVERSION)
 int test_virtual_member_pointer_owner_conversion() {
     return consume_base_member_pointer(MemberPointerVirtualSource{});
+}
+#endif
+
+#if defined(TEST_NESTED_ARRAY_MEMBER_POINTER_QUALIFICATION)
+int test_nested_array_member_pointer_qualification() {
+    return consume_const_pointee_member_pointer_array(
+        MemberPointerNestedArraySource{});
 }
 #endif
 

@@ -18058,6 +18058,7 @@ test-cxx-conversion-member-pointer-owner-path: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -DTEST_PRIVATE_MEMBER_POINTER_OWNER_CONVERSION -fsyntax-only tests/cxx_conversion_operator.cpp,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/private-gcc.log)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -DTEST_VIRTUAL_MEMBER_POINTER_OWNER_CONVERSION -fsyntax-only tests/cxx_conversion_operator.cpp,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/virtual-gcc.log)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -DTEST_NESTED_ARRAY_MEMBER_POINTER_QUALIFICATION -fsyntax-only tests/cxx_conversion_operator.cpp,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/nested-array-gcc.log)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_PRIVATE_MEMBER_POINTER_OWNER_CONVERSION -c -o $(TEST_OUT)/cxx-conversion-member-pointer-owner-path/private-x86.ro tests/cxx_conversion_operator.cpp,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/private-x86.log)
 	$(GREP) -F -q "incompatible type for argument 1 to 'consume_base_member_pointer'" $(TEST_OUT)/cxx-conversion-member-pointer-owner-path/private-x86.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/private-x86.ro)
@@ -18070,5 +18071,11 @@ test-cxx-conversion-member-pointer-owner-path: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_VIRTUAL_MEMBER_POINTER_OWNER_CONVERSION -c -o $(TEST_OUT)/cxx-conversion-member-pointer-owner-path/virtual-x64.ro tests/cxx_conversion_operator.cpp,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/virtual-x64.log)
 	$(GREP) -F -q "incompatible type for argument 1 to 'consume_base_member_pointer'" $(TEST_OUT)/cxx-conversion-member-pointer-owner-path/virtual-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/virtual-x64.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -DTEST_NESTED_ARRAY_MEMBER_POINTER_QUALIFICATION -c -o $(TEST_OUT)/cxx-conversion-member-pointer-owner-path/nested-array-x86.ro tests/cxx_conversion_operator.cpp,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/nested-array-x86.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'consume_const_pointee_member_pointer_array'" $(TEST_OUT)/cxx-conversion-member-pointer-owner-path/nested-array-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/nested-array-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -DTEST_NESTED_ARRAY_MEMBER_POINTER_QUALIFICATION -c -o $(TEST_OUT)/cxx-conversion-member-pointer-owner-path/nested-array-x64.ro tests/cxx_conversion_operator.cpp,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/nested-array-x64.log)
+	$(GREP) -F -q "incompatible type for argument 1 to 'consume_const_pointee_member_pointer_array'" $(TEST_OUT)/cxx-conversion-member-pointer-owner-path/nested-array-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-member-pointer-owner-path/nested-array-x64.ro)
 
 test-cxx-conversion-operator: test-cxx-conversion-member-pointer-owner-path

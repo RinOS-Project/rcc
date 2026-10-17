@@ -3083,6 +3083,16 @@ static bool sema_pointee_qualification_preserved_internal(
          !protected_level)) {
         return false;
     }
+    if (source->kind == TYPE_ARRAY || target->kind == TYPE_ARRAY) {
+        if (source->kind != TYPE_ARRAY || target->kind != TYPE_ARRAY ||
+            !source->base || !target->base ||
+            (source->array_len >= 0 && target->array_len >= 0 &&
+             source->array_len != target->array_len)) {
+            return false;
+        }
+        return sema_pointee_qualification_preserved_internal(
+            source->base, target->base, protected_level, nested_level);
+    }
     if (source->kind == TYPE_PTR || target->kind == TYPE_PTR) {
         if (source->kind != TYPE_PTR || target->kind != TYPE_PTR) {
             return true;

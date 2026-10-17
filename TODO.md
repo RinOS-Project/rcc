@@ -5578,3 +5578,16 @@ remains a separate open item.
       build and run also pass.
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-17, nested array member-pointer qualification)
+
+- [x] Recurse nested-pointee qualification checks through array member
+      elements. Reject `int* (C::*)[2]` to `const int* (C::*)[2]`, matching
+      GCC C++20, while preserving the legal direct array-member qualification
+      conversion.
+- [x] Add a GCC-confirmed negative regression for the conversion-function
+      result on i686 and AMD64; both diagnostics and absent output artifacts
+      are checked. The focused owner-path gate and full native-Windows
+      `test-cxx` aggregate pass (exit 0).
+- [ ] Other multi-step standard conversions, remaining cv/reference binding
+      shapes, and general C++20 conversion-sequence ordering remain open.
