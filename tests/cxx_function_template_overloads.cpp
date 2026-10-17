@@ -1788,6 +1788,20 @@ int choose_outer_non_type_expression_default_template_template_order(
     return values[0].value == 3 ? 169 : 170;
 }
 
+template<int N, typename T, template<typename, int = 2 * N + 1> class Box>
+    requires PackOrderHasValueAndSize<T>
+int choose_outer_non_type_arithmetic_default_template_template_order(
+    Box<T>, T (&values)[N]) {
+    return values[0].value == 3 ? 171 : 172;
+}
+
+template<int N, typename T, template<typename, int> class Box>
+    requires PackOrderHasValue<T>
+int choose_outer_non_type_arithmetic_default_template_template_order(
+    Box<T, 2 * N + 1>, T (&values)[N]) {
+    return values[0].value == 3 ? 173 : 174;
+}
+
 template<typename T>
     requires (PackOrderHasValue<T> || PackOrderHasPositiveSize<T>)
 int choose_constraint_disjunction_partial_order(T) {
@@ -3704,6 +3718,10 @@ int main(void) {
                        PackOrderOuterNonTypeDefaultTemplateBox<
                            PackOrderConstrainedValue, 5>{},
                        constrained_values) == 167 &&
+                   choose_outer_non_type_arithmetic_default_template_template_order(
+                       PackOrderOuterNonTypeDefaultTemplateBox<
+                           PackOrderConstrainedValue, 9>{},
+                       constrained_values) == 171 &&
                    choose_constraint_disjunction_partial_order(
                        constrained_value) == 152 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&

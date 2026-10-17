@@ -5805,8 +5805,8 @@ remains a separate open item.
       `test-cxx-function-template-overloads` agree on the more constrained
       overload; i686/AMD64 generation and RCC/GCC host execution pass.
 - [x] Defer nested non-type default matching when its compound expression
-      (`N + 1`) references an outer non-type parameter that has not yet been
-      deduced from another function parameter. The native-Windows
+      (`N + 1`, `2 * N + 1`) references an outer non-type parameter that has
+      not yet been deduced from another function parameter. The native-Windows
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation
       and RCC/GCC host execution.
 - [ ] More complex defaults involving outer non-type expressions, nested
