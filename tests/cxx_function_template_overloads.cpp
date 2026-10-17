@@ -1713,6 +1713,41 @@ int choose_using_lookup_constexpr_call_default_order(
 }
 }
 
+namespace PackOrderConstexprUsingDirectiveSource {
+inline namespace InlineOverloads {
+constexpr int default_value(int value) {
+    return 3 * value + 2;
+}
+
+constexpr int default_value(long value) {
+    return 3 * value + 4;
+}
+}
+}
+
+namespace PackOrderConstexprUsingDirectiveCallee {
+using namespace PackOrderConstexprUsingDirectiveSource;
+}
+
+namespace PackOrderConstexprUsingDirectiveTemplate {
+using namespace PackOrderConstexprUsingDirectiveCallee;
+
+template<int N, typename T,
+         template<typename, int = default_value(N)> class Box>
+    requires ::PackOrderHasValueAndSize<T>
+int choose_using_directive_constexpr_call_default_order(
+    Box<T>, T (&values)[N]) {
+    return values[0].value == 3 ? 227 : 228;
+}
+
+template<int N, typename T, template<typename, int> class Box>
+    requires ::PackOrderHasValue<T>
+int choose_using_directive_constexpr_call_default_order(
+    Box<T, default_value(N)>, T (&values)[N]) {
+    return values[0].value == 3 ? 229 : 230;
+}
+}
+
 template<typename T>
 struct PackOrderTemplateBox {};
 
@@ -3939,6 +3974,11 @@ int main(void) {
                            PackOrderOuterNonTypeDefaultTemplateBox<
                                PackOrderConstrainedValue, 14>{},
                            constrained_values) == 223 &&
+                   PackOrderConstexprUsingDirectiveTemplate::
+                       choose_using_directive_constexpr_call_default_order(
+                           PackOrderOuterNonTypeDefaultTemplateBox<
+                               PackOrderConstrainedValue, 14>{},
+                           constrained_values) == 227 &&
                    choose_outer_non_type_constexpr_template_call_default_template_template_order(
                        PackOrderOuterNonTypeDefaultTemplateBox<
                            PackOrderConstrainedValue, 14>{},

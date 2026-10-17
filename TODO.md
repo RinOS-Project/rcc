@@ -5847,7 +5847,13 @@ remains a separate open item.
       candidates by argument conversion sequences. Native-Windows
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation,
       RCC/GCC host execution, and diagnostics.
-- [ ] ADL and using-directive lookup in call-bearing defaults, other compound
-      outer non-type forms, deeper paths through dependent intermediate
-      aliases, and additional C++20 function partial-ordering cases remain
-      open.
+- [x] Resolve namespace-scope constexpr overloads introduced by transitive
+      using-directives and inline namespaces in a nested template-template
+      non-type default. Preserve direct-scope lookup priority and rank imported
+      overloads by argument conversions. The native-Windows
+      `test-cxx-function-template-overloads` gate passes for i686/AMD64
+      generation, RCC/GCC host execution, and its existing diagnostics.
+- [ ] ADL for class/enum arguments, imported function-template overloads,
+      other compound outer non-type forms, deeper paths through dependent
+      intermediate aliases, and additional C++20 function partial-ordering
+      cases remain open.

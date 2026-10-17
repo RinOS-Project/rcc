@@ -3583,6 +3583,19 @@ static bool cxx_template_integer_call_count_namespace_declarations(
     return true;
 }
 
+static bool cxx_template_integer_call_count_namespaces(
+    CxxNamespace* ns, int* count) {
+    if (!ns || !count) return true;
+    if (*count == INT_MAX) return false;
+    ++*count;
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (!cxx_template_integer_call_count_namespaces(child, count)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool cxx_template_integer_call_add_using_declaration_candidates(
     CxxNamespace* scope, const char* name, Decl** candidates,
     int* candidate_count, int candidate_capacity, bool* scope_has_name) {
@@ -3656,6 +3669,67 @@ static bool cxx_template_integer_call_add_candidate(
     if (*candidate_count >= candidate_capacity) return false;
     candidates[(*candidate_count)++] = candidate;
     return true;
+}
+
+static bool cxx_template_integer_call_add_using_namespace_candidates(
+    CxxNamespace* ns, const char* name, Decl** candidates,
+    int* candidate_count, int candidate_capacity, bool* scope_has_name,
+    CxxNamespace** visited_namespaces, int* visited_count,
+    int visited_capacity) {
+    if (!ns || !name || !candidates || !candidate_count ||
+        !scope_has_name || !visited_namespaces || !visited_count) {
+        return false;
+    }
+    for (int index = 0; index < *visited_count; ++index) {
+        if (visited_namespaces[index] == ns) return true;
+    }
+    if (*visited_count >= visited_capacity) return false;
+    visited_namespaces[(*visited_count)++] = ns;
+
+    for (int index = 0; index < ns->template_count; ++index) {
+        CxxTemplate* function_template = ns->templates[index];
+        if (function_template && function_template->kind == TMPL_FUNCTION &&
+            !function_template->is_concept && function_template->name &&
+            strcmp(function_template->name, name) == 0) {
+            return false;
+        }
+    }
+    for (DeclList* item = ns->decls; item; item = item->next) {
+        Decl* candidate = item->decl;
+        if (!candidate || !candidate->name ||
+            !cxx_friend_function_name_matches(ns, candidate->name, name) ||
+            (candidate->kind == DECL_FUNC &&
+             candidate->func_is_hidden_friend)) {
+            continue;
+        }
+        *scope_has_name = true;
+        if (candidate->kind != DECL_FUNC || candidate->func_this_param ||
+            candidate->func_template_owner ||
+            !cxx_template_integer_call_add_candidate(
+                candidates, candidate_count, candidate_capacity, candidate)) {
+            return false;
+        }
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (child->is_inline_namespace &&
+            !cxx_template_integer_call_add_using_namespace_candidates(
+                child, name, candidates, candidate_count,
+                candidate_capacity, scope_has_name, visited_namespaces,
+                visited_count, visited_capacity)) {
+            return false;
+        }
+    }
+    for (int index = 0; index < ns->using_namespace_count; ++index) {
+        if (!cxx_template_integer_call_add_using_namespace_candidates(
+                ns->using_namespaces[index], name, candidates,
+                candidate_count, candidate_capacity, scope_has_name,
+                visited_namespaces, visited_count, visited_capacity)) {
+            return false;
+        }
+    }
+    return cxx_template_integer_call_add_using_declaration_candidates(
+        ns, name, candidates, candidate_count, candidate_capacity,
+        scope_has_name);
 }
 
 static Decl* cxx_template_integer_call_select_candidate(
@@ -3884,9 +3958,6 @@ static Decl* cxx_template_integer_call_function(
         bool scope_has_name = false;
         candidate_capacity = 0;
         candidate_count = 0;
-        if (ns->using_namespace_count > 0) {
-            return NULL;
-        }
         for (int index = 0; index < ns->template_count; ++index) {
             CxxTemplate* function_template = ns->templates[index];
             if (function_template &&
@@ -3929,6 +4000,28 @@ static Decl* cxx_template_integer_call_function(
                 ns, name, candidates, &candidate_count, candidate_capacity,
                 &scope_has_name)) {
             return NULL;
+        }
+        if (!scope_has_name && ns->using_namespace_count > 0) {
+            CxxNamespace** visited_namespaces;
+            int visited_capacity = 0;
+            int visited_count = 0;
+            if (!cxx_template_integer_call_count_namespaces(
+                    g_global_namespace, &visited_capacity) ||
+                visited_capacity <= 0) {
+                return NULL;
+            }
+            visited_namespaces = ast_arena_alloc(
+                sizeof(*visited_namespaces) * (size_t)visited_capacity);
+            if (!visited_namespaces) return NULL;
+            for (int index = 0; index < ns->using_namespace_count; ++index) {
+                if (!cxx_template_integer_call_add_using_namespace_candidates(
+                        ns->using_namespaces[index], name, candidates,
+                        &candidate_count, candidate_capacity, &scope_has_name,
+                        visited_namespaces, &visited_count,
+                        visited_capacity)) {
+                    return NULL;
+                }
+            }
         }
         if (scope_has_name) {
             return candidate_count > 0
