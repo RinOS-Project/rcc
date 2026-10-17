@@ -5953,3 +5953,12 @@ remains a separate open item.
       the full production gate.
 - [ ] Record a successful hosted GitHub Actions run; local Windows execution
       does not verify hosted-runner setup.
+
+## RCC continuation (2026-10-18, verified backend CI gate)
+
+- [x] Add the complete `test-verified-backend` aggregate to the native Windows
+      workflow and provision Clang, LLD, and Python `cryptography` for its
+      dynamic-TLS RLL build. Parse the updated workflow and confirm the
+      generated Make recipe includes the aggregate and Clang invocation.
+- [ ] Verify the hosted Windows job completes the aggregate; a local dry-run
+      does not replace execution with the provisioned CI toolchain.
