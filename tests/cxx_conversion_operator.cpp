@@ -293,6 +293,12 @@ int read_member_pointer_conversion_value(
     return object.*member;
 }
 
+int read_derived_member_pointer_conversion_value(
+    MemberPointerReferenceDerived& object,
+    int MemberPointerReferenceDerived::* member) {
+    return object.*member;
+}
+
 int is_null_member_pointer_conversion_reference(
     int MemberPointerReferenceDerived::* const& member) {
     return member == nullptr;
@@ -565,6 +571,9 @@ int main() {
             member_pointer_reference_object,
             member_pointer_reference_source) != 211 ||
         read_member_pointer_conversion_value(
+            member_pointer_reference_source) != 211 ||
+        read_derived_member_pointer_conversion_value(
+            member_pointer_reference_object,
             member_pointer_reference_source) != 211 ||
         !is_null_member_pointer_conversion_reference(
             null_member_pointer_reference_source) ||

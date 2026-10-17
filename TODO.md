@@ -2559,11 +2559,12 @@ remains a separate open item.
   member-function-pointer owner/exception-spec ranking fix; the full target
   completed successfully, including both target architectures and generated
   AMD64 execution.
-- [x] Route class-valued arguments targeting a member-function-pointer type
-  through public conversion-function lookup before rejecting the member-pointer
-  conversion. Compare differing function parameter signatures and prefer the
-  exact `noexcept` target over its throwing counterpart. GCC C++20 agrees; the
-  focused conversion-operator target passes i686/AMD64 generation and the
+- [x] Route class-valued arguments targeting member pointers through public
+  conversion-function lookup before rejecting direct member-pointer
+  conversions. Cover data-member conversion results, base-to-derived owner
+  adjustment for value arguments, differing member-function parameter
+  signatures, and exact `noexcept` versus throwing targets. GCC C++20 agrees;
+  the focused conversion-operator target passes i686/AMD64 generation and the
   generated AMD64 plus GCC-host executions.
 - [ ] Extend ranking to deeper/differing member-type shapes, member-function
   parameter/signature variations, and virtual/inaccessible owner-path interactions;
