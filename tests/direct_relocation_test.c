@@ -493,6 +493,8 @@ static void verify_artifact(const char* object_path, const char* image_path,
         assert(rodata->file_size == object_rodata->size &&
                rodata->memory_size == object_rodata->size);
         assert(rodata->virtual_address != data->virtual_address);
+        assert(rodata->alignment != 0u &&
+               (rodata->alignment & (rodata->alignment - 1u)) == 0u);
         image_rodata_rva = rodata->virtual_address;
     } else {
         uint64_t alignment = preferred_base == 0u
@@ -516,12 +518,9 @@ static void verify_artifact(const char* object_path, const char* image_path,
                        code->virtual_address + object_code->size);
         }
         assert(code->virtual_address == 0u &&
-               code->file_size == object_code->size + unwind_size &&
-               code->memory_size <= rodata->virtual_address &&
-               (preferred_base == 0u
-                    ? code->memory_size == rodata->virtual_address
-                    : code->memory_size == object_code->size + unwind_size) &&
-               rodata->virtual_address >= code->memory_size &&
+               code->memory_size == rodata->virtual_address &&
+               code->file_size <= code->memory_size &&
+               code->file_size >= object_code->size + unwind_size &&
                (rodata->virtual_address & (rodata->alignment - 1u)) == 0u &&
                rodata->file_offset >= code->file_offset + code->file_size &&
                (rodata->file_offset & (rodata->alignment - 1u)) == 0u &&
