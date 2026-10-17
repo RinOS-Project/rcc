@@ -5784,9 +5784,20 @@ remains a separate open item.
       stronger outer constraint and native-Windows
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation
       and both execution checks.
-- [x] Parse an outer-dependent type default in a nested template-template
-      signature and compare constrained candidates with GCC C++20. The native-
-      Windows function-template-overload gate passes for i686/AMD64 generation
+- [x] Apply an outer-dependent type default when a `Box<T>` specialization
+      omits its trailing nested template argument; compare it with an explicit
+      `Box<T, T>` overload against GCC C++20. Native-Windows
+      `test-cxx-function-template-overloads` passes for i686/AMD64 generation
       and RCC/GCC host execution.
-- [ ] Dependent nested constraints beyond type defaults and other C++20
-      function partial-ordering cases remain open.
+- [x] Apply an omitted non-type default dependent on an outer type (`sizeof(T)`) in
+      a nested template-template signature; compare `Box<T>` with an explicit
+      `Box<T, sizeof(T)>` overload against GCC C++20. Native-Windows
+      `test-cxx-function-template-overloads` passes for i686/AMD64 generation
+      and RCC/GCC host execution.
+- [x] Apply an omitted template-template default in a nested signature and
+      compare `Box<T>` with an explicit `Box<T, PackOrderTemplateBox>` overload
+      against GCC C++20. Native-Windows
+      `test-cxx-function-template-overloads` passes for i686/AMD64 generation
+      and RCC/GCC host execution.
+- [ ] Defaults depending on outer non-type parameters or nested member types,
+      and other C++20 function partial-ordering cases remain open.

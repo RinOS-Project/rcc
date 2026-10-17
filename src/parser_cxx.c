@@ -18827,20 +18827,23 @@ static Type* parse_class_template_specialization_with_owner_type(
         } else if (parameter->kind == TPARAM_NONTYPE &&
                    parameter->default_value) {
             int64_t value;
+            CxxTemplate* default_context = parameter->default_context
+                ? parameter->default_context : tmpl;
+            Expr* default_expression = cxx_template_clone_expr_with_values(
+                default_context, parameter->default_value, arguments,
+                tmpl->param_count, values, value_present);
             if (parameter->default_context) {
                 parameter->default_context->pending_pack_count =
                     tmpl->pending_pack_count;
             }
-            if (!eval_template_integer_expression(
-                    parameter->default_value,
-                    parameter->default_context
-                        ? parameter->default_context : tmpl,
+            if (!default_expression || !eval_template_integer_expression(
+                    default_expression, default_context,
                     values, value_present,
                     &value)) {
                 if (!cxx_expression_is_dependent(
-                        parameter->default_value,
-                        parameter->default_context
-                            ? parameter->default_context : tmpl)) {
+                        default_expression ? default_expression
+                                           : parameter->default_value,
+                        default_context)) {
                     rcc_error(loc,
                               "class template non-type default must be an "
                               "integer constant expression");
@@ -18849,7 +18852,8 @@ static Type* parse_class_template_specialization_with_owner_type(
                     value_present[argument_count] = true;
                 }
             }
-            value_expressions[argument_count] = parameter->default_value;
+            value_expressions[argument_count] = default_expression
+                ? default_expression : parameter->default_value;
             arguments[argument_count] = substitute_template_type(
                 tmpl, parameter->type, arguments, argument_count,
                 values, value_present);
@@ -18859,9 +18863,7 @@ static Type* parse_class_template_specialization_with_owner_type(
                 arguments[argument_count] = parameter->type;
             }
             if (eval_template_integer_expression(
-                    parameter->default_value,
-                    parameter->default_context
-                        ? parameter->default_context : tmpl,
+                    value_expressions[argument_count], default_context,
                     values, value_present, &value)) {
                 values[argument_count] = value;
                 value_present[argument_count] = true;
@@ -19449,8 +19451,59 @@ static bool cxx_function_template_class_nontype_argument_value(
     expression = type->cxx_template_value_args
         && argument_index < type->cxx_template_arg_count
         ? type->cxx_template_value_args[argument_index] : NULL;
-    return expression &&
-        expr_eval_integer_constant(expression, value_out);
+    if (expression && expr_eval_integer_constant(expression, value_out)) {
+        return true;
+    }
+    /* A dependent class-template-id can retain a default expression in its
+     * source argument list even after its type arguments are concrete. Apply
+     * those arguments before evaluating the non-type value (for example,
+     * Box<ConcreteType> where the omitted value argument defaults to
+     * sizeof(T)). */
+    if (expression && type->cxx_template && type->cxx_template_args &&
+        type->cxx_template_arg_count == type->cxx_template->param_count &&
+        type->cxx_template_arg_count > 0 &&
+        type->cxx_template_arg_count <= 32 &&
+        cxx_class_pack_index(type->cxx_template) < 0) {
+        Type* arguments[32] = { NULL };
+        int64_t values[32] = { 0 };
+        bool value_present[32] = { false };
+        CxxTemplate* class_template = type->cxx_template;
+        int count = type->cxx_template_arg_count;
+        memcpy(arguments, type->cxx_template_args,
+               sizeof(*arguments) * (size_t)count);
+        for (int index = 0; index <= argument_index; ++index) {
+            Expr* value_expression = type->cxx_template_value_args
+                ? type->cxx_template_value_args[index] : NULL;
+            int parameter_index = cxx_class_pack_index(class_template);
+            if (parameter_index >= 0 && index >= parameter_index) {
+                parameter_index = class_template->params[parameter_index].kind
+                        == TPARAM_NONTYPE
+                    ? parameter_index : index;
+            } else {
+                parameter_index = index;
+            }
+            if (parameter_index < 0 ||
+                parameter_index >= class_template->param_count ||
+                class_template->params[parameter_index].kind != TPARAM_NONTYPE ||
+                !value_expression) {
+                continue;
+            }
+            Expr* substituted_expression = cxx_template_clone_expr_with_values(
+                class_template, value_expression, arguments, count,
+                values, value_present);
+            if (substituted_expression &&
+                eval_template_integer_expression(
+                    substituted_expression, class_template, values,
+                    value_present, &values[index])) {
+                value_present[index] = true;
+            }
+        }
+        if (value_present[argument_index]) {
+            *value_out = values[argument_index];
+            return true;
+        }
+    }
+    return false;
 }
 
 static Expr* cxx_function_template_class_nontype_argument_expression(
@@ -19689,6 +19742,18 @@ static bool deduce_function_template_type_with_pack(
                     !cxx_function_template_class_nontype_argument_matches(
                         tmpl, pattern, actual, index, arguments, values,
                         value_present)) {
+                    return false;
+                }
+            } else if (nested_parameter->kind == TPARAM_TEMPLATE) {
+                Type* pattern_argument = pattern->cxx_template_args[index];
+                Type* actual_argument = actual_arguments[index];
+                CxxTemplate* actual_argument_template = actual_argument
+                    ? actual_argument->cxx_template : NULL;
+                if (!pattern_argument || !actual_argument_template ||
+                    !template_template_signature_matches(
+                        nested_parameter, actual_argument_template) ||
+                    !cxx_function_template_class_template_template_argument_deduce(
+                        tmpl, pattern_argument, actual_argument, arguments)) {
                     return false;
                 }
             } else {
@@ -27899,6 +27964,71 @@ static int cxx_parser_sema_conversion_rank_with_method(
         active_friend_access_context);
 }
 
+static bool cxx_parser_template_id_matches_class_type(
+    Type* template_id, Type* class_type) {
+    CxxTemplate* template_id_template = NULL;
+    CxxTemplate* class_template = NULL;
+    Type** template_id_arguments = NULL;
+    Type** class_arguments = NULL;
+    int template_id_argument_count = 0;
+    int class_argument_count = 0;
+    if (!template_id || !class_type ||
+        (template_id->kind != TYPE_STRUCT &&
+         template_id->kind != TYPE_UNION) ||
+        (class_type->kind != TYPE_STRUCT &&
+         class_type->kind != TYPE_UNION)) {
+        return false;
+    }
+    cxx_function_template_class_type_pattern_arguments(
+        template_id, &template_id_template, &template_id_arguments,
+        &template_id_argument_count);
+    cxx_function_template_class_type_pattern_arguments(
+        class_type, &class_template, &class_arguments,
+        &class_argument_count);
+    if (!template_id_template || template_id_template != class_template ||
+        template_id_argument_count < 0 ||
+        template_id_argument_count != class_argument_count ||
+        (template_id_argument_count > 0 &&
+         (!template_id_arguments || !class_arguments))) {
+        return false;
+    }
+    for (int index = 0; index < template_id_argument_count; ++index) {
+        int parameter_index = index < class_template->param_count
+            ? index : class_template->param_count - 1;
+        const TemplateParam* parameter;
+        if (parameter_index < 0 || !class_template->params) return false;
+        parameter = &class_template->params[parameter_index];
+        if (index >= class_template->param_count && !parameter->is_pack) {
+            return false;
+        }
+        if (parameter->kind == TPARAM_TYPE) {
+            if (!type_is_same_template_argument(
+                    template_id_arguments[index], class_arguments[index])) {
+                return false;
+            }
+        } else if (parameter->kind == TPARAM_NONTYPE) {
+            int64_t template_id_value;
+            int64_t class_value;
+            if (!cxx_function_template_class_nontype_argument_value(
+                    template_id, index, &template_id_value) ||
+                !cxx_function_template_class_nontype_argument_value(
+                    class_type, index, &class_value) ||
+                template_id_value != class_value) {
+                return false;
+            }
+        } else if (parameter->kind == TPARAM_TEMPLATE) {
+            if (!template_id_arguments[index] || !class_arguments[index] ||
+                template_id_arguments[index]->cxx_template !=
+                    class_arguments[index]->cxx_template) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
 static int cxx_parser_template_conversion_rank(Expr* argument,
                                                 Type* target) {
     Type* source;
@@ -27929,6 +28059,12 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
         return cxx_parser_sema_conversion_rank(argument, source, target);
     }
     if (type_is_compatible(source, target)) {
+        return cxx_parser_template_qualification_relation(
+                   source, target, !target_is_reference, NULL)
+            ? 0 : -1;
+    }
+    if (cxx_parser_template_id_matches_class_type(source, target) ||
+        cxx_parser_template_id_matches_class_type(target, source)) {
         return cxx_parser_template_qualification_relation(
                    source, target, !target_is_reference, NULL)
             ? 0 : -1;
@@ -31177,6 +31313,103 @@ static Type* parse_dependent_nested_alias_template_type(SourceLoc loc) {
     return dependent;
 }
 
+static bool cxx_template_template_substitute_default(
+    CxxTemplate* signature, Type** supplied_arguments,
+    Expr** supplied_value_expressions, int supplied_count,
+    Type* default_type, Expr* default_value,
+    Type** substituted_type, Expr** substituted_value) {
+    int total_count;
+    int outer_offset = 0;
+    Type** arguments;
+    int64_t* values;
+    bool* value_present;
+    if (substituted_type) *substituted_type = NULL;
+    if (substituted_value) *substituted_value = NULL;
+    if (!signature || supplied_count < 0 ||
+        supplied_count > signature->param_count ||
+        (supplied_count > 0 && !supplied_arguments)) {
+        return false;
+    }
+    total_count = signature->param_count;
+    for (CxxTemplate* scope = signature->enclosing_template; scope;
+         scope = scope->enclosing_template) {
+        if (scope->param_count < 0 ||
+            scope->param_count > INT_MAX - total_count) {
+            return false;
+        }
+        total_count += scope->param_count;
+    }
+    if (total_count > 0 &&
+        (size_t)total_count > SIZE_MAX / sizeof(*arguments)) {
+        return false;
+    }
+    arguments = total_count > 0
+        ? ast_arena_alloc(sizeof(*arguments) * (size_t)total_count) : NULL;
+    values = total_count > 0
+        ? ast_arena_alloc(sizeof(*values) * (size_t)total_count) : NULL;
+    value_present = total_count > 0
+        ? ast_arena_alloc(sizeof(*value_present) * (size_t)total_count)
+        : NULL;
+    if (total_count > 0) {
+        memset(arguments, 0, sizeof(*arguments) * (size_t)total_count);
+        memset(values, 0, sizeof(*values) * (size_t)total_count);
+        memset(value_present, 0,
+               sizeof(*value_present) * (size_t)total_count);
+    }
+    for (int index = 0; index < supplied_count; ++index) {
+        arguments[index] = supplied_arguments[index];
+        if (signature->params[index].kind == TPARAM_NONTYPE &&
+            supplied_value_expressions &&
+            supplied_value_expressions[index]) {
+            Expr* expression = supplied_value_expressions[index];
+            int64_t value;
+            if (!expression->cxx_template_context) {
+                expression->cxx_template_context = signature;
+            }
+            if (expr_eval_integer_constant(expression, &value) ||
+                eval_template_integer_expression(
+                    expression, signature, values, value_present, &value)) {
+                values[index] = value;
+                value_present[index] = true;
+            }
+        }
+    }
+    for (CxxTemplate* scope = signature->enclosing_template; scope;
+         scope = scope->enclosing_template) {
+        for (int index = 0; index < scope->param_count; ++index) {
+            const TemplateParam* parameter = &scope->params[index];
+            int argument_index = signature->param_count + outer_offset + index;
+            if (parameter->kind == TPARAM_TYPE ||
+                parameter->kind == TPARAM_TEMPLATE) {
+                Type* placeholder = type_struct(
+                    parameter->name ? parameter->name : "<template-parameter>");
+                placeholder->cxx_dependent = true;
+                placeholder->cxx_template_param_index = outer_offset + index;
+                placeholder->cxx_template_param_context =
+                    signature->enclosing_template;
+                arguments[argument_index] = placeholder;
+            } else {
+                arguments[argument_index] = parameter->type
+                    ? parameter->type : type_int;
+            }
+        }
+        outer_offset += scope->param_count;
+    }
+    if (default_type && substituted_type) {
+        *substituted_type = rcc_cxx_template_substitute_type(
+            signature, default_type, arguments, total_count, values,
+            value_present);
+        if (!*substituted_type) return false;
+    }
+    if (default_value && substituted_value) {
+        *substituted_value = cxx_template_clone_expr_with_values(
+            signature, default_value, arguments, total_count, values,
+            value_present);
+        if (!*substituted_value) return false;
+    }
+    return true;
+}
+
 static Type* parse_cxx_type_spec(void) {
     SourceLoc loc = peek()->loc;
     Type* t = NULL;
@@ -31963,13 +32196,75 @@ static Type* parse_cxx_type_spec(void) {
                 } while (match(TOK_COMMA));
             }
             expect(TOK_GT, ">");
-            dependent->cxx_template_arg_count = nested_count;
-            if (!parameter->template_signature ||
-                nested_count != parameter->template_signature->param_count) {
+            if (!parameter || !parameter->template_signature) {
                 rcc_error(loc,
-                          "template-template argument count does not match "
-                          "its parameter list");
+                          "template-template parameter has no signature");
+            } else if (nested_count >
+                       parameter->template_signature->param_count) {
+                rcc_error(loc,
+                          "template-template argument count exceeds its "
+                          "parameter list");
+            } else {
+                CxxTemplate* signature = parameter->template_signature;
+                while (nested_count < signature->param_count) {
+                    TemplateParam* default_parameter =
+                        &signature->params[nested_count];
+                    Type* default_type = NULL;
+                    Expr* default_value = NULL;
+                    Type* default_type_pattern = NULL;
+                    Expr* default_value_pattern = NULL;
+                    if (!default_parameter->has_default ||
+                        default_parameter->is_pack) {
+                        rcc_error(loc,
+                                  "template-template argument count does not "
+                                  "match its parameter list");
+                        break;
+                    }
+                    if (default_parameter->kind == TPARAM_TYPE) {
+                        default_type_pattern = default_parameter->default_type;
+                    } else if (default_parameter->kind == TPARAM_NONTYPE) {
+                        default_type_pattern = default_parameter->type;
+                        default_value_pattern =
+                            default_parameter->default_value;
+                    } else if (default_parameter->kind == TPARAM_TEMPLATE) {
+                        default_type_pattern = default_parameter->default_type;
+                    }
+                    if (!default_type_pattern ||
+                        (default_parameter->kind == TPARAM_NONTYPE &&
+                         !default_value_pattern) ||
+                        (default_parameter->kind != TPARAM_TYPE &&
+                         default_parameter->kind != TPARAM_NONTYPE &&
+                         default_parameter->kind != TPARAM_TEMPLATE)) {
+                        rcc_error(loc,
+                                  "template-template default argument could "
+                                  "not be substituted");
+                        break;
+                    }
+                    if (!cxx_template_template_substitute_default(
+                            signature, dependent->cxx_template_args,
+                            dependent->cxx_template_value_args, nested_count,
+                            default_type_pattern, default_value_pattern,
+                            &default_type, &default_value)) {
+                        rcc_error(loc,
+                                  "template-template default argument could "
+                                  "not be substituted");
+                        break;
+                    }
+                    dependent->cxx_template_args = ast_arena_grow(
+                        dependent->cxx_template_args,
+                        sizeof(Type*) * (size_t)nested_count,
+                        sizeof(Type*) * (size_t)(nested_count + 1));
+                    dependent->cxx_template_value_args = ast_arena_grow(
+                        dependent->cxx_template_value_args,
+                        sizeof(Expr*) * (size_t)nested_count,
+                        sizeof(Expr*) * (size_t)(nested_count + 1));
+                    dependent->cxx_template_args[nested_count] = default_type;
+                    dependent->cxx_template_value_args[nested_count] =
+                        default_value;
+                    ++nested_count;
+                }
             }
+            dependent->cxx_template_arg_count = nested_count;
             t = dependent;
         } else if (alias_tmpl) {
             if (class_scope_alias_template &&

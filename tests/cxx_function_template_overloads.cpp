@@ -1661,6 +1661,12 @@ struct PackOrderDefaultedTemplateBox {};
 template<typename T, typename U = T>
 struct PackOrderDependentDefaultTemplateBox {};
 
+template<typename T, int N = sizeof(T)>
+struct PackOrderNonTypeDefaultTemplateBox {};
+
+template<typename T, template<typename> class Box = PackOrderTemplateBox>
+struct PackOrderTemplateDefaultTemplateBox {};
+
 struct PackOrderConstrainedValue {
     int value;
 };
@@ -1714,7 +1720,7 @@ int choose_defaulted_template_template_constraint_order(Box<T, void>) {
 template<typename T, template<typename, typename = T> class Box>
     requires PackOrderHasValueAndSize<T>
 int choose_dependent_default_template_template_constraint_order(
-    Box<T, T>) {
+    Box<T>) {
     return 159;
 }
 
@@ -1723,6 +1729,34 @@ template<typename T, template<typename, typename> class Box>
 int choose_dependent_default_template_template_constraint_order(
     Box<T, T>) {
     return 160;
+}
+
+template<typename T, template<typename, int = sizeof(T)> class Box>
+    requires PackOrderHasValueAndSize<T>
+int choose_non_type_default_template_template_order(Box<T>) {
+    return 161;
+}
+
+template<typename T, template<typename, int> class Box>
+    requires PackOrderHasValue<T>
+int choose_non_type_default_template_template_order(Box<T, sizeof(T)>) {
+    return 162;
+}
+
+template<typename T,
+         template<typename,
+                  template<typename> class = PackOrderTemplateBox> class Box>
+    requires PackOrderHasValueAndSize<T>
+int choose_template_default_template_template_order(Box<T>) {
+    return 163;
+}
+
+template<typename T,
+         template<typename, template<typename> class> class Box>
+    requires PackOrderHasValue<T>
+int choose_template_default_template_template_order(
+    Box<T, PackOrderTemplateBox>) {
+    return 164;
 }
 
 template<typename T>
@@ -3625,6 +3659,12 @@ int main(void) {
                    choose_dependent_default_template_template_constraint_order(
                        PackOrderDependentDefaultTemplateBox<
                            PackOrderConstrainedValue>{}) == 159 &&
+                   choose_non_type_default_template_template_order(
+                       PackOrderNonTypeDefaultTemplateBox<
+                           PackOrderConstrainedValue>{}) == 161 &&
+                   choose_template_default_template_template_order(
+                       PackOrderTemplateDefaultTemplateBox<
+                           PackOrderConstrainedValue>{}) == 163 &&
                    choose_constraint_disjunction_partial_order(
                        constrained_value) == 152 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&
