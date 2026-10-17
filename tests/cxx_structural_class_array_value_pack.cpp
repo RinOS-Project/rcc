@@ -35,6 +35,10 @@ struct StructuralNestedArrayKey {
     StructuralArrayLeaf values[2];
 };
 
+struct StructuralMatrixKey {
+    int values[2][2];
+};
+
 template <StructuralArrayKey... Keys>
 struct StructuralArrayValuePack {
     static constexpr int combined() {
@@ -84,6 +88,14 @@ struct StructuralNestedArrayValuePack {
     }
 };
 
+template <StructuralMatrixKey... Keys>
+struct StructuralMatrixValuePack {
+    static constexpr int combined() {
+        return ((Keys.values[0][0] + Keys.values[0][1] +
+                 Keys.values[1][0] + Keys.values[1][1]) + ... + 0);
+    }
+};
+
 int main() {
     return StructuralArrayValuePack<
                StructuralArrayKey{{2, 3}},
@@ -106,6 +118,10 @@ int main() {
            StructuralNestedArrayValuePack<
                StructuralNestedArrayKey{{{5, 50}, {7, 70}}},
                StructuralNestedArrayKey{{{11, 110}, {13, 130}}}
-           >::combined() == 396
+           >::combined() == 396 &&
+           StructuralMatrixValuePack<
+               StructuralMatrixKey{{{1, 2}, {3, 4}}},
+               StructuralMatrixKey{{{5, 6}, {7, 8}}}
+           >::combined() == 36
         ? 0 : 1;
 }

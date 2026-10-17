@@ -3004,6 +3004,100 @@ static bool cxx_structural_select_function_template_pointer(
     return true;
 }
 
+static bool cxx_structural_array_collect_scalar_values(
+    Type* array_type, Expr* initializer, int64_t* member_values,
+    size_t member_capacity, int* member_count) {
+    ExprList* item = NULL;
+    Type* element_type;
+    Type* initializer_type = NULL;
+    if (!array_type || array_type->kind != TYPE_ARRAY ||
+        !array_type->base || array_type->array_len <= 0 ||
+        array_type->array_bound) {
+        return false;
+    }
+    element_type = array_type->base;
+    if (initializer) {
+        if (initializer->kind != EXPR_COMPOUND) return false;
+        initializer_type = initializer->compound_type
+            ? initializer->compound_type : initializer->type;
+        if (initializer_type &&
+            !type_is_compatible(array_type, initializer_type)) {
+            return false;
+        }
+        item = initializer->compound_init;
+    }
+    if (element_type->kind == TYPE_ARRAY) {
+        if (element_type->array_len <= 0 || element_type->array_bound) {
+            return false;
+        }
+    } else if ((!type_is_integer(element_type) &&
+                element_type->kind != TYPE_ENUM &&
+                element_type->kind != TYPE_FLOAT &&
+                element_type->kind != TYPE_DOUBLE) ||
+               (element_type->kind == TYPE_FLOAT &&
+                element_type->size != 4) ||
+               (element_type->kind == TYPE_DOUBLE &&
+                element_type->size != 8) ||
+               element_type->size <= 0 || element_type->size > 8) {
+        return false;
+    }
+    for (int index = 0; index < array_type->array_len; ++index) {
+        Expr* element_initializer = NULL;
+        if (item) {
+            if (item->designator_kind != INIT_DESIGNATOR_NONE || !item->expr) {
+                return false;
+            }
+            element_initializer = item->expr;
+            item = item->next;
+        }
+        if (element_type->kind == TYPE_ARRAY) {
+            if (!cxx_structural_array_collect_scalar_values(
+                    element_type, element_initializer, member_values,
+                    member_capacity, member_count)) {
+                return false;
+            }
+            continue;
+        }
+        int64_t value = 0;
+        if (element_initializer && type_is_floating(element_type)) {
+            double floating_value;
+            if (!eval_template_floating_expression(
+                    element_initializer, NULL, NULL, NULL, &floating_value)) {
+                return false;
+            }
+            if (!cxx_structural_floating_member_conversion_is_valid(
+                    element_initializer, element_type, floating_value)) {
+                rcc_error(element_initializer->loc,
+                          "narrowing conversion in structural class non-type template argument");
+                return false;
+            }
+            if (element_type->kind == TYPE_FLOAT) {
+                float narrowed = (float)floating_value;
+                uint32_t bits;
+                if (element_type->size != (int)sizeof(narrowed)) return false;
+                memcpy(&bits, &narrowed, sizeof(bits));
+                value = (int64_t)bits;
+            } else {
+                uint64_t bits;
+                if (element_type->size != (int)sizeof(floating_value)) {
+                    return false;
+                }
+                memcpy(&bits, &floating_value, sizeof(bits));
+                memcpy(&value, &bits, sizeof(value));
+            }
+        } else if (element_initializer &&
+                   !expr_eval_integer_constant(element_initializer, &value)) {
+            return false;
+        }
+        if (*member_count < 0 ||
+            (size_t)*member_count >= member_capacity || !member_values) {
+            return false;
+        }
+        member_values[(*member_count)++] = value;
+    }
+    return item == NULL;
+}
+
 static bool cxx_structural_class_collect_member_values(
     Type* type, ExprList* initializer, bool value_init,
     int64_t* member_values, size_t member_capacity, int* member_count) {
@@ -3049,6 +3143,15 @@ static bool cxx_structural_class_collect_member_values(
             return false;
         }
         if (field->type->kind == TYPE_ARRAY) {
+            if (field->type->base &&
+                field->type->base->kind == TYPE_ARRAY) {
+                if (!cxx_structural_array_collect_scalar_values(
+                        field->type, field_initializer, member_values,
+                        member_capacity, member_count)) {
+                    return false;
+                }
+                continue;
+            }
             ExprList* array_initializer = NULL;
             Type* initializer_type = NULL;
             Type* element_type = field->type->base;
@@ -3272,6 +3375,32 @@ static bool cxx_structural_class_collect_member_values(
 }
 
 static bool cxx_structural_class_count_member_values(
+    const Type* type, size_t* member_count);
+
+static bool cxx_structural_array_count_member_values(
+    const Type* type, size_t* member_count) {
+    size_t element_count = 1u;
+    if (!type || !member_count) return false;
+    if (type->kind != TYPE_ARRAY) {
+        if (type->kind == TYPE_STRUCT) {
+            return cxx_structural_class_count_member_values(
+                type, member_count);
+        }
+        *member_count = 1u;
+        return true;
+    }
+    if (!type->base || type->array_len <= 0 || type->array_bound ||
+        !cxx_structural_array_count_member_values(type->base,
+                                                  &element_count) ||
+        element_count == 0u ||
+        element_count > (size_t)INT_MAX / (size_t)type->array_len) {
+        return false;
+    }
+    *member_count = (size_t)type->array_len * element_count;
+    return true;
+}
+
+static bool cxx_structural_class_count_member_values(
     const Type* type, size_t* member_count) {
     const TypeParam* field;
     if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
@@ -3286,24 +3415,13 @@ static bool cxx_structural_class_count_member_values(
                 return false;
             }
         } else if (field->type->kind == TYPE_ARRAY) {
-            size_t element_member_count = 1u;
-            if (field->type->base &&
-                field->type->base->kind == TYPE_STRUCT) {
-                if (!cxx_structural_class_count_member_values(
-                        field->type->base, &element_member_count)) {
-                    return false;
-                }
-            }
-            if (field->type->array_len <= 0 ||
-                field->type->array_bound ||
-                element_member_count == 0u ||
-                element_member_count >
-                    ((size_t)INT_MAX - *member_count) /
-                        (size_t)field->type->array_len) {
+            size_t field_member_count = 0u;
+            if (!cxx_structural_array_count_member_values(
+                    field->type, &field_member_count) ||
+                field_member_count > (size_t)INT_MAX - *member_count) {
                 return false;
             }
-            *member_count += (size_t)field->type->array_len *
-                element_member_count;
+            *member_count += field_member_count;
         } else {
             if (*member_count >= (size_t)INT_MAX) return false;
             ++*member_count;

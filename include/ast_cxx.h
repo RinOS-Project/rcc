@@ -545,6 +545,11 @@ bool cxx_structural_class_unpack_array_member_path(
     const Type* type, int64_t packed_value,
     const char* const* member_names, int member_name_count,
     int array_element_index, int64_t* member_value, Type** member_type);
+bool cxx_structural_class_unpack_multidimensional_array_path(
+    const Type* type, int64_t packed_value,
+    const char* const* member_names, int member_name_count,
+    const int* array_indices, int array_index_count,
+    int64_t* member_value, Type** member_type);
 void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bool is_virtual);
 void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
                                      const char* member_name,

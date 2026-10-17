@@ -5986,6 +5986,18 @@ remains a separate open item.
       `test-cxx` aggregate pass.
 - [ ] Pointer arrays and multidimensional arrays remain open.
 
+## RCC continuation (2026-10-18, multidimensional scalar arrays in NTTPs)
+
+- [x] Support fixed-bound multidimensional arrays with integral, enum, float,
+      and double scalar leaves in structural-class NTTP members. Recursively
+      flatten initialized values, pack them, substitute constant-index paths,
+      and emit nested Itanium array aggregates.
+- [x] Compare the exact two-dimensional GCC/RCC symbol, assemble i686 and
+      AMD64 output, and run the RCC/GCC host regression. The focused target and
+      full native-Windows `test-cxx` aggregate pass.
+- [ ] Pointer-element arrays and multidimensional arrays of structural-class
+      elements remain open.
+
 ## RCC continuation (2026-10-18, native Windows CI re-audit)
 
 - [x] Reconcile the recorded `native-windows-cmd` gate with checked-in
