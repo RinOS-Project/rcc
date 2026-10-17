@@ -8295,6 +8295,10 @@ test-cxx-namespace-extension: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous type name 'ScopeCollision'" $(TEST_OUT)/cxx-namespace-extension/using-same-scope-ambiguous-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/using-same-scope-ambiguous-x64.ro tests/cxx_namespace_extension_using_same_scope_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/using-same-scope-ambiguous-x64.log)
 	$(GREP) -F -q "ambiguous type name 'ScopeCollision'" $(TEST_OUT)/cxx-namespace-extension/using-same-scope-ambiguous-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x86.ro tests/cxx_namespace_extension_using_transitive_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x86.log)
+	$(GREP) -F -q "ambiguous type name 'Collision'" $(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x86.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x64.ro tests/cxx_namespace_extension_using_transitive_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x64.log)
+	$(GREP) -F -q "ambiguous type name 'Collision'" $(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x64.log
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/gcc-ordinary-inline.log)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_alias_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/gcc-alias-conflict.log)
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_alias_declaration_conflict_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/gcc-alias-declaration-conflict.log)
@@ -8304,6 +8308,8 @@ test-cxx-namespace-extension: $(RCXX_TARGET)
 	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-namespace-extension/gcc-using-type-ambiguous.log
 	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_using_same_scope_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/gcc-using-same-scope-ambiguous.log)
 	$(GREP) -q "ScopeCollision.*ambiguous" $(TEST_OUT)/cxx-namespace-extension/gcc-using-same-scope-ambiguous.log
+	$(call EXPECT_FAILURE,g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_using_transitive_ambiguous_invalid.cpp,$(TEST_OUT)/cxx-namespace-extension/gcc-using-transitive-ambiguous.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-namespace-extension/gcc-using-transitive-ambiguous.log
 
 test-cxx-friend-function: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-friend-function)
@@ -9101,6 +9107,18 @@ test-cxx-namespace-extension-posix: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-namespace-extension/using-same-scope-ambiguous-x64.log 2>&1
 	$(GREP) -q "ambiguous type name 'ScopeCollision'" \
 		$(TEST_OUT)/cxx-namespace-extension/using-same-scope-ambiguous-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x86.ro \
+		tests/cxx_namespace_extension_using_transitive_ambiguous_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x86.log 2>&1
+	$(GREP) -q "ambiguous type name 'Collision'" \
+		$(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x86.log
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x64.ro \
+		tests/cxx_namespace_extension_using_transitive_ambiguous_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x64.log 2>&1
+	$(GREP) -q "ambiguous type name 'Collision'" \
+		$(TEST_OUT)/cxx-namespace-extension/using-transitive-ambiguous-x64.log
 	! g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_invalid.cpp \
 		>$(TEST_OUT)/cxx-namespace-extension/gcc-ordinary-inline.log 2>&1
 	! g++ -std=c++20 -fsyntax-only tests/cxx_namespace_extension_alias_invalid.cpp \
@@ -9120,6 +9138,11 @@ test-cxx-namespace-extension-posix: $(RCXX_TARGET)
 		>$(TEST_OUT)/cxx-namespace-extension/gcc-using-same-scope-ambiguous.log 2>&1
 	$(GREP) -q "ScopeCollision.*ambiguous" \
 		$(TEST_OUT)/cxx-namespace-extension/gcc-using-same-scope-ambiguous.log
+	! g++ -std=c++20 -fsyntax-only \
+		tests/cxx_namespace_extension_using_transitive_ambiguous_invalid.cpp \
+		>$(TEST_OUT)/cxx-namespace-extension/gcc-using-transitive-ambiguous.log 2>&1
+	$(GREP) -q "ambiguous" \
+		$(TEST_OUT)/cxx-namespace-extension/gcc-using-transitive-ambiguous.log
 	@echo "C++ namespace extension tests completed"
 
 test-cxx-friend-function-posix: $(RCXX_TARGET)

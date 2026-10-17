@@ -5890,6 +5890,7 @@ remains a separate open item.
       nearer block/namespace declaration over an imported or outer type. The
       native-Windows `test-cxx-namespace-extension` target passes for i686 and
       AMD64 with GCC comparison; the full `test-cxx` gate also passes.
-- [ ] Audit namespace lookup through transitive nested using-directives and
-      additional common-ancestor arrangements beyond the direct-import cases
-      covered by this regression.
+- [x] Audit namespace lookup through transitive nested using-directives and
+      common-ancestor arrangements. A three-level using-directive chain that
+      collides with an enclosing direct type is rejected consistently with
+      GCC C++20 on i686 and AMD64 by `test-cxx-namespace-extension`.
