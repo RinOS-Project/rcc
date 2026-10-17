@@ -5810,10 +5810,12 @@ remains a separate open item.
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation
       and RCC/GCC host execution.
 - [x] Defer matching a nested dependent member-type default such as
-      `typename T::value_type` when `T` has not yet been deduced from an earlier
-      function parameter. Resolve and compare the nested type after another
-      parameter supplies `T`; GCC C++20 and native-Windows
+      `typename T::value_type` or
+      `typename T::value_type::nested_type` when `T` has not yet been deduced
+      from an earlier function parameter. Resolve and compare the nested type
+      after another parameter supplies `T`; GCC C++20 and native-Windows
       `test-cxx-function-template-overloads` agree on the selected overload,
       with i686/AMD64 generation and RCC/GCC host execution passing.
-- [ ] Other compound outer non-type expression forms, deeper nested-member
-      paths, and additional C++20 function partial-ordering cases remain open.
+- [ ] Other compound outer non-type expression forms, deeper paths through
+      dependent intermediate aliases, and additional C++20 function
+      partial-ordering cases remain open.

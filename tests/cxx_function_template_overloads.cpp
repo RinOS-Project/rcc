@@ -1678,6 +1678,19 @@ struct PackOrderNestedTypeDefaultValue {
 template<typename T, typename U = typename T::value_type>
 struct PackOrderNestedTypeDefaultTemplateBox {};
 
+struct PackOrderNestedTypeDefaultIntermediate {
+    using nested_type = unsigned;
+};
+
+struct PackOrderNestedTypeDefaultDeepValue {
+    using value_type = PackOrderNestedTypeDefaultIntermediate;
+    int value;
+};
+
+template<typename T,
+         typename U = typename T::value_type::nested_type>
+struct PackOrderNestedTypeDefaultDeepTemplateBox {};
+
 struct PackOrderConstrainedValue {
     int value;
 };
@@ -1822,6 +1835,22 @@ template<typename T, template<typename, typename> class Box>
 int choose_nested_type_default_template_template_order(
     Box<int, typename T::value_type>, T value) {
     return value.value == 7 ? 177 : 178;
+}
+
+template<typename T,
+         template<typename,
+                  typename = typename T::value_type::nested_type> class Box>
+    requires PackOrderHasValueAndSize<T>
+int choose_nested_deep_type_default_template_template_order(Box<int>,
+                                                             T value) {
+    return value.value == 7 ? 179 : 180;
+}
+
+template<typename T, template<typename, typename> class Box>
+    requires PackOrderHasValue<T>
+int choose_nested_deep_type_default_template_template_order(
+    Box<int, typename T::value_type::nested_type>, T value) {
+    return value.value == 7 ? 181 : 182;
 }
 
 template<typename T>
@@ -2932,6 +2961,9 @@ int main(void) {
         { 3 }, { 0 }, { 0 }, { 0 }
     };
     PackOrderNestedTypeDefaultValue nested_type_default_value = { 7 };
+    PackOrderNestedTypeDefaultDeepValue nested_deep_type_default_value = {
+        7
+    };
     ConversionPointerTrailingSequence conversion_pointer{&value};
     int** pointer_to_pointer = &pointer;
     int array_value[1] = { value };
@@ -3749,6 +3781,10 @@ int main(void) {
                        PackOrderNestedTypeDefaultTemplateBox<
                            int, unsigned>{},
                        nested_type_default_value) == 175 &&
+                   choose_nested_deep_type_default_template_template_order(
+                       PackOrderNestedTypeDefaultDeepTemplateBox<
+                           int, unsigned>{},
+                       nested_deep_type_default_value) == 179 &&
                    choose_constraint_disjunction_partial_order(
                        constrained_value) == 152 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&
