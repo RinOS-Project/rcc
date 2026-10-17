@@ -5687,6 +5687,20 @@ remains a separate open item.
       Native-Windows `test-cxx-function-template-overloads` passes, including
       i686/AMD64 generation, generated AMD64 execution, GCC host execution, and
       the existing negative-diagnostic checks.
-- [ ] Partial-specialization selection in these dependent nested-type paths,
-      deeper nested paths, non-type conversion edge cases, and mixed/multiple
-      pack default interactions remain open.
+- [ ] Deeper nested paths, non-type conversion edge cases, and mixed/multiple
+      pack default interactions remain open; see the follow-up below for the
+      verified type and non-type partial-specialization cases.
+
+## RCC continuation (2026-10-17, variadic class partial specialization in dependent defaults)
+
+- [x] Register multi-argument type-only and non-type partial specializations
+      for variadic class-template primaries, and select them during ordinary
+      instantiation and dependent nested-type substitution. Expand a type pack
+      through a non-type class-template argument expression after substitution.
+- [x] Compare the two-type/value partial specializations and empty-pack primary
+      results against GCC C++20; native-Windows
+      `test-cxx-function-template-overloads` passes for i686/AMD64 generation,
+      generated execution, host execution, and existing diagnostic checks.
+- [ ] Template-template partial specializations, mixed fixed/pack parameter
+      lists, broader nested paths, and dependent non-type conversions remain
+      open.

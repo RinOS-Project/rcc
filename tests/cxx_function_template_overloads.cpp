@@ -417,20 +417,45 @@ int choose_nontrailing_pointer_pack_with_default_suffix(
            (int)suffix;
 }
 
-template<int Count>
+template<typename... Types>
 struct FunctionTemplatePackCountType {
     using type = char;
 };
 
-template<>
-struct FunctionTemplatePackCountType<2> {
+template<typename First, typename Second>
+struct FunctionTemplatePackCountType<First, Second> {
     using type = short;
 };
 
+static_assert(sizeof(FunctionTemplatePackCountType<>::type) == 1);
+static_assert(sizeof(FunctionTemplatePackCountType<int, long>::type) == 2);
+
+template<int... Values>
+struct FunctionTemplatePackValueType {
+    using type = char;
+};
+
+template<int First, int Second>
+struct FunctionTemplatePackValueType<First, Second> {
+    using type = short;
+};
+
+static_assert(sizeof(FunctionTemplatePackValueType<>::type) == 1);
+static_assert(sizeof(FunctionTemplatePackValueType<4, 2>::type) == 2);
+
 template<typename... Rest,
          typename Tail = typename FunctionTemplatePackCountType<
-             sizeof...(Rest)>::type>
+             Rest...>::type>
 int choose_nontrailing_pointer_pack_with_pack_dependent_default_suffix(
+    Rest*..., decltype(sizeof(Tail)) suffix) {
+    return (int)sizeof...(Rest) * 100 + (int)sizeof(Tail) * 10 +
+           (int)suffix;
+}
+
+template<typename... Rest,
+         typename Tail = typename FunctionTemplatePackValueType<
+             static_cast<int>(sizeof(Rest))...>::type>
+int choose_nontrailing_pointer_pack_with_non_type_pack_dependent_default_suffix(
     Rest*..., decltype(sizeof(Tail)) suffix) {
     return (int)sizeof...(Rest) * 100 + (int)sizeof(Tail) * 10 +
            (int)suffix;
@@ -3214,6 +3239,10 @@ int main(void) {
                    choose_nontrailing_pointer_pack_with_pack_dependent_default_suffix<
                        int, short>(pointer, &priority, 2u) == 222 &&
                    choose_nontrailing_pointer_pack_with_pack_dependent_default_suffix<>(
+                       2u) == 12 &&
+                   choose_nontrailing_pointer_pack_with_non_type_pack_dependent_default_suffix<
+                       int, short>(pointer, &priority, 2u) == 222 &&
+                   choose_nontrailing_pointer_pack_with_non_type_pack_dependent_default_suffix<>(
                        2u) == 12 &&
                    choose_non_type_pack_partial_order(
                        FunctionTemplateValuePackTag<1>{}) == 171 &&
