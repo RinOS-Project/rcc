@@ -5773,5 +5773,11 @@ remains a separate open item.
       associated constraint is selected as with GCC C++20; native-Windows
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation,
       AMD64 runtime, and GCC host runtime.
-- [ ] Nested constrained template-template parameter-signature equivalence and
-      other C++20 function partial-ordering cases remain open.
+- [x] Parse a type default in a nested template-template signature and compare
+      equivalent constrained overloads whose signatures differ only by that
+      default. GCC C++20 and native-Windows `test-cxx-function-template-overloads`
+      select the stronger constraint; i686/AMD64 generation and both host
+      execution checks pass.
+- [ ] Concept-constrained nested template parameter-signature equivalence,
+      dependent defaults, and other C++20 function partial-ordering cases remain
+      open.

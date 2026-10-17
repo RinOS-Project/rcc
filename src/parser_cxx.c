@@ -11678,6 +11678,8 @@ static CxxTemplate* parse_cxx_template_template_signature(SourceLoc loc) {
         do {
             const char* nested_name = NULL;
             bool nested_parameter_pack = false;
+            bool nested_type_parameter = false;
+            bool nested_template_parameter = false;
             if (match(TOK_TEMPLATE)) {
                 CxxTemplate* nested_signature =
                     parse_cxx_template_template_signature(peek()->loc);
@@ -11691,12 +11693,14 @@ static CxxTemplate* parse_cxx_template_template_signature(SourceLoc loc) {
                 cxx_template_add_template_param(
                     signature, nested_name, nested_signature,
                     nested_parameter_pack);
+                nested_template_parameter = true;
             } else if (match(TOK_TYPENAME) || match(TOK_CLASS)) {
                 nested_parameter_pack = match(TOK_ELLIPSIS);
                 if (check(TOK_IDENT)) nested_name = advance()->value.str_val;
                 cxx_template_add_type_param(signature, nested_name);
                 signature->params[signature->param_count - 1].is_pack =
                     nested_parameter_pack;
+                nested_type_parameter = true;
             } else if (match(TOK_AUTO)) {
                 if (!rcc_parser_cxx_standard_at_least(17)) {
                     rcc_error(peek()->loc,
@@ -11730,6 +11734,27 @@ static CxxTemplate* parse_cxx_template_template_signature(SourceLoc loc) {
                                              nested_type);
                 signature->params[signature->param_count - 1].is_pack =
                     nested_parameter_pack;
+            }
+            if (match(TOK_ASSIGN)) {
+                TemplateParam* parameter =
+                    &signature->params[signature->param_count - 1];
+                parameter->has_default = true;
+                if (nested_parameter_pack) {
+                    rcc_error(peek()->loc,
+                              "template parameter pack cannot have a default");
+                }
+                if (nested_template_parameter) {
+                    parameter->default_type =
+                        parse_template_template_default(peek()->loc);
+                } else if (nested_type_parameter) {
+                    parameter->default_type = parse_cxx_type_spec();
+                } else {
+                    rcc_parser_set_cxx_template_default_mode(true);
+                    parameter->default_value = parse_assignment_expression();
+                    parameter->default_context =
+                        cxx_template_snapshot_parameter_scope(signature);
+                    rcc_parser_set_cxx_template_default_mode(false);
+                }
             }
         } while (match(TOK_COMMA));
     }
