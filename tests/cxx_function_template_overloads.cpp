@@ -1684,6 +1684,18 @@ int choose_template_template_constraint_order(Box<T>) {
     return 154;
 }
 
+template<template<PackOrderHasValue U> class Box, typename T>
+    requires PackOrderHasValue<T>
+int choose_constrained_template_template_signature_order(Box<T>) {
+    return 157;
+}
+
+template<template<typename U> class Box, typename T>
+    requires PackOrderHasValueAndSize<T>
+int choose_constrained_template_template_signature_order(Box<T>) {
+    return 158;
+}
+
 template<template<typename, typename = void> class Box, typename T>
     requires PackOrderHasValueAndSize<T>
 int choose_defaulted_template_template_constraint_order(Box<T, void>) {
@@ -3587,6 +3599,9 @@ int main(void) {
                    choose_template_template_constraint_order(
                        PackOrderTemplateBox<PackOrderConstrainedValue>{}) ==
                        154 &&
+                   choose_constrained_template_template_signature_order(
+                       PackOrderTemplateBox<PackOrderConstrainedValue>{}) ==
+                       158 &&
                    choose_defaulted_template_template_constraint_order(
                        PackOrderDefaultedTemplateBox<
                            PackOrderConstrainedValue>{}) == 155 &&

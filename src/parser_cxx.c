@@ -11680,7 +11680,71 @@ static CxxTemplate* parse_cxx_template_template_signature(SourceLoc loc) {
             bool nested_parameter_pack = false;
             bool nested_type_parameter = false;
             bool nested_template_parameter = false;
-            if (match(TOK_TEMPLATE)) {
+            if (cxx_constrained_type_parameter_starts()) {
+                SourceLoc parameter_loc = peek()->loc;
+                const char* concept_name = parse_qualified_name();
+                CxxTemplate* concept = find_concept(concept_name);
+                Type* dependent_type;
+                Expr* concept_argument;
+                Expr* concept_call;
+                ExprList* concept_arguments = NULL;
+                if (!rcc_parser_cxx_standard_at_least(20)) {
+                    rcc_error(parameter_loc,
+                              "constrained template-template parameters "
+                              "require C++20 or newer");
+                }
+                nested_parameter_pack = match(TOK_ELLIPSIS);
+                if (check(TOK_IDENT)) {
+                    nested_name = advance()->value.str_val;
+                } else {
+                    rcc_error(parameter_loc,
+                              "constrained template-template parameter "
+                              "requires a name");
+                }
+                cxx_template_add_type_param(signature, nested_name);
+                signature->params[signature->param_count - 1].is_pack =
+                    nested_parameter_pack;
+                nested_type_parameter = true;
+                dependent_type = type_struct(
+                    nested_name ? nested_name : "<type>");
+                dependent_type->cxx_dependent = true;
+                dependent_type->cxx_template_param_index =
+                    signature->param_count - 1;
+                concept_argument = expr_ident(
+                    nested_name ? nested_name : "<type>", parameter_loc);
+                concept_argument->type = dependent_type;
+                exprlist_append(&concept_arguments, concept_argument);
+                if (!concept) {
+                    rcc_error(parameter_loc,
+                              "constrained template-template parameter "
+                              "requires a known named concept");
+                } else if (concept->param_count < 1 ||
+                           concept->param_count > 32 ||
+                           concept->params[0].kind != TPARAM_TYPE ||
+                           concept->params[0].is_pack ||
+                           !cxx_concept_missing_arguments_have_defaults(
+                               concept, 1)) {
+                    rcc_error(parameter_loc,
+                              "constrained template-template parameter "
+                              "requires a leading type parameter and only "
+                              "defaulted supported trailing concept "
+                              "parameters");
+                } else {
+                    concept_call = expr_call(
+                        expr_ident(concept_name, parameter_loc),
+                        concept_arguments, parameter_loc);
+                    concept_call->cxx_concept_template = concept;
+                    if (signature->constraint) {
+                        signature->constraint = expr_binary(
+                            EXPR_AND, signature->constraint, concept_call,
+                            parameter_loc);
+                    } else {
+                        signature->constraint = concept_call;
+                    }
+                    signature->constraint_context =
+                        cxx_template_snapshot_parameter_scope(signature);
+                }
+            } else if (match(TOK_TEMPLATE)) {
                 CxxTemplate* nested_signature =
                     parse_cxx_template_template_signature(peek()->loc);
                 if (!match(TOK_CLASS) && !match(TOK_TYPENAME)) {
