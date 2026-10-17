@@ -5859,6 +5859,9 @@ remains a separate open item.
       explicit template-argument prefix; `test-cxx-function-template-overloads`
       passes for i686/AMD64 generation, GCC comparison, generated host
       execution, and existing diagnostics.
+- [x] Normalize inline-namespace associated class types to their enclosing
+      non-inline namespace before ADL. Verify function-template lookup against
+      GCC and generated i686/AMD64 output/execution.
 - [ ] ADL for class/enum arguments, imported function-template overloads,
       other compound outer non-type forms, deeper paths through dependent
       intermediate aliases, and additional C++20 function partial-ordering

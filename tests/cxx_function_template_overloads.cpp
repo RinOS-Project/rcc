@@ -210,6 +210,17 @@ int select_better_template(Payload* payload, T value) {
 }
 }
 
+namespace InlineNamespaceAssociatedAdl {
+inline namespace v1 {
+struct Token {};
+}
+
+template<typename T>
+int select_inline_namespace_adl(Token, T value) {
+    return value + 340;
+}
+}
+
 struct AdlTiePayload {
     int value;
 };
@@ -3091,6 +3102,10 @@ int main(void) {
     }
     if (adl_tie<int>(&adl_tie_payload, 5) != 807) {
         return 166;
+    }
+    if (select_inline_namespace_adl(
+            InlineNamespaceAssociatedAdl::Token{}, 5) != 345) {
+        return 167;
     }
     if (cxx_free_variadic(7, 8, 9) != 7) {
         return 152;

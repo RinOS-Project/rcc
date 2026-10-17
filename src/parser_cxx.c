@@ -13890,12 +13890,19 @@ static void cxx_function_template_lookup_adl_namespace(
 }
 
 static CxxNamespace* cxx_type_associated_namespace(Type* type) {
+    CxxNamespace* ns;
     if (!type) return NULL;
-    if (type->cxx_class && type->cxx_class->ns) return type->cxx_class->ns;
-    if (type->cxx_namespace && *type->cxx_namespace) {
-        return cxx_namespace_find(g_global_namespace, type->cxx_namespace);
+    if (type->cxx_class && type->cxx_class->ns) {
+        ns = type->cxx_class->ns;
+    } else if (type->cxx_namespace && *type->cxx_namespace) {
+        ns = cxx_namespace_find(g_global_namespace, type->cxx_namespace);
+    } else {
+        ns = g_global_namespace;
     }
-    return g_global_namespace;
+    /* Entities declared in an inline namespace associate the innermost
+     * enclosing non-inline namespace and its inline namespace set. */
+    while (ns && ns->is_inline_namespace) ns = ns->parent;
+    return ns;
 }
 
 static void cxx_function_template_lookup_adl_type(
