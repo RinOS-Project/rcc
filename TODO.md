@@ -2581,8 +2581,12 @@ remains a separate open item.
   function returning `int (C::*)[2]`, select the exact target over
   `const int (C::*)[2]`. GCC C++20 and the focused conversion-operator gate
   confirm the result; the full native-Windows `test-cxx` aggregate passes.
-- [ ] Extend ranking to deeper/differing member-type shapes, member-function
-  parameter/signature variations, and virtual/inaccessible owner-path interactions;
+- [x] Preserve owner-path viability after a user-defined conversion:
+  conversion-function results cannot convert to a base-member pointer through
+  a private or virtual base. GCC C++20 and the focused gate agree; i686/AMD64
+  diagnostics and absent-object checks pass for both cases.
+- [ ] Extend ranking to other nested member-type shapes, member-function
+  parameter/signature variations, and owner-path access-context ranking;
   proper subsequences and full template partial ordering also remain open.
 
 ## C++ regression follow-up (2026-10-14, member-pointer owner/cv ordering)

@@ -44,6 +44,22 @@ struct MemberPointerArrayOwner {
 using MemberPointerArray = int (MemberPointerArrayOwner::*)[2];
 using ConstMemberPointerArray = const int (MemberPointerArrayOwner::*)[2];
 
+struct MemberPointerAccessBase {
+    int value;
+};
+
+struct MemberPointerPrivateOwner : private MemberPointerAccessBase {
+    int value;
+};
+
+struct MemberPointerVirtualOwner : virtual MemberPointerAccessBase {
+    int value;
+};
+
+using MemberPointerBaseValue = int MemberPointerAccessBase::*;
+using MemberPointerPrivateValue = int MemberPointerPrivateOwner::*;
+using MemberPointerVirtualValue = int MemberPointerVirtualOwner::*;
+
 struct MemberPointerReferenceSource {
     int MemberPointerReferenceBase::*member;
 
@@ -63,6 +79,32 @@ struct MemberPointerArraySource {
         return &MemberPointerArrayOwner::values;
     }
 };
+
+struct MemberPointerPrivateSource {
+    operator MemberPointerPrivateValue() const {
+        return &MemberPointerPrivateOwner::value;
+    }
+};
+
+struct MemberPointerVirtualSource {
+    operator MemberPointerVirtualValue() const {
+        return &MemberPointerVirtualOwner::value;
+    }
+};
+
+int consume_base_member_pointer(MemberPointerBaseValue);
+
+#if defined(TEST_PRIVATE_MEMBER_POINTER_OWNER_CONVERSION)
+int test_private_member_pointer_owner_conversion() {
+    return consume_base_member_pointer(MemberPointerPrivateSource{});
+}
+#endif
+
+#if defined(TEST_VIRTUAL_MEMBER_POINTER_OWNER_CONVERSION)
+int test_virtual_member_pointer_owner_conversion() {
+    return consume_base_member_pointer(MemberPointerVirtualSource{});
+}
+#endif
 
 class Flag {
 public:
