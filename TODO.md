@@ -5804,6 +5804,11 @@ remains a separate open item.
       explicit `Box<T, N>` overloads. GCC C++20 and the native-Windows
       `test-cxx-function-template-overloads` agree on the more constrained
       overload; i686/AMD64 generation and RCC/GCC host execution pass.
+- [x] Defer nested non-type default matching when its compound expression
+      (`N + 1`) references an outer non-type parameter that has not yet been
+      deduced from another function parameter. The native-Windows
+      `test-cxx-function-template-overloads` passes for i686/AMD64 generation
+      and RCC/GCC host execution.
 - [ ] More complex defaults involving outer non-type expressions, nested
       member types, and other C++20 function partial-ordering cases remain
       open.

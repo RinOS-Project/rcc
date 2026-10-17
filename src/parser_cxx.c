@@ -19547,6 +19547,67 @@ static bool cxx_function_template_class_nontype_argument_matches(
         pattern_value == actual_value;
 }
 
+static bool cxx_function_template_expression_has_undeduced_nontype_parameter(
+    const CxxTemplate* function_template, const Expr* expression,
+    const bool* value_present, unsigned depth) {
+    if (!function_template || !expression || depth > 64u) return false;
+    if (expression->kind == EXPR_IDENT && expression->ident_name) {
+        for (int index = 0; index < function_template->param_count; ++index) {
+            const TemplateParam* parameter = &function_template->params[index];
+            if (parameter->kind == TPARAM_NONTYPE && !parameter->is_pack &&
+                parameter->name &&
+                strcmp(parameter->name, expression->ident_name) == 0) {
+                return !value_present || !value_present[index];
+            }
+        }
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+            return cxx_function_template_expression_has_undeduced_nontype_parameter(
+                function_template, expression->unary_operand, value_present,
+                depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return cxx_function_template_expression_has_undeduced_nontype_parameter(
+                       function_template, expression->binary_lhs,
+                       value_present, depth + 1u) ||
+                   cxx_function_template_expression_has_undeduced_nontype_parameter(
+                       function_template, expression->binary_rhs,
+                       value_present, depth + 1u);
+        case EXPR_COND:
+            return cxx_function_template_expression_has_undeduced_nontype_parameter(
+                       function_template, expression->cond_test,
+                       value_present, depth + 1u) ||
+                   cxx_function_template_expression_has_undeduced_nontype_parameter(
+                       function_template, expression->cond_then,
+                       value_present, depth + 1u) ||
+                   cxx_function_template_expression_has_undeduced_nontype_parameter(
+                       function_template, expression->cond_else,
+                       value_present, depth + 1u);
+        default:
+            return false;
+    }
+}
+
 static bool cxx_function_template_class_nontype_argument_deduce(
     CxxTemplate* function_template, Type* pattern_type, Type* actual_type,
     int argument_index, Type** arguments, int64_t* values,
@@ -19581,9 +19642,17 @@ static bool cxx_function_template_class_nontype_argument_deduce(
             return true;
         }
     }
-    return cxx_function_template_class_nontype_argument_matches(
-        function_template, pattern_type, actual_type, argument_index,
-        arguments, values, value_present);
+    if (cxx_function_template_class_nontype_argument_matches(
+            function_template, pattern_type, actual_type, argument_index,
+            arguments, values, value_present)) {
+        return true;
+    }
+    /* Function-parameter deduction proceeds independently across the
+     * parameter list. A compound non-type expression such as N + 1 cannot
+     * deduce N here, but a later parameter may do so; final substituted-type
+     * viability checks the expression against the actual argument. */
+    return cxx_function_template_expression_has_undeduced_nontype_parameter(
+        function_template, pattern_expression, value_present, 0u);
 }
 
 static int cxx_function_template_template_parameter_index(
@@ -19706,40 +19775,7 @@ static bool deduce_function_template_type_with_pack(
                     return false;
                 }
             } else if (nested_parameter->kind == TPARAM_NONTYPE) {
-                int64_t actual_value;
-                Expr* pattern_expression = pattern->cxx_template_value_args
-                    ? pattern->cxx_template_value_args[index] : NULL;
-                bool matched_parameter = false;
-                if (!cxx_function_template_class_nontype_argument_value(
-                        actual, index, &actual_value)) {
-                    return false;
-                }
-                if (pattern_expression &&
-                    pattern_expression->kind == EXPR_IDENT &&
-                    pattern_expression->ident_name) {
-                    for (int parameter_index = 0;
-                         parameter_index < tmpl->param_count;
-                         ++parameter_index) {
-                        TemplateParam* function_parameter =
-                            &tmpl->params[parameter_index];
-                        if (function_parameter->kind != TPARAM_NONTYPE ||
-                            !function_parameter->name ||
-                            strcmp(function_parameter->name,
-                                   pattern_expression->ident_name) != 0) {
-                            continue;
-                        }
-                        if (value_present[parameter_index] &&
-                            values[parameter_index] != actual_value) {
-                            return false;
-                        }
-                        values[parameter_index] = actual_value;
-                        value_present[parameter_index] = true;
-                        matched_parameter = true;
-                        break;
-                    }
-                }
-                if (!matched_parameter &&
-                    !cxx_function_template_class_nontype_argument_matches(
+                if (!cxx_function_template_class_nontype_argument_deduce(
                         tmpl, pattern, actual, index, arguments, values,
                         value_present)) {
                     return false;

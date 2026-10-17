@@ -1774,6 +1774,20 @@ int choose_outer_non_type_default_template_template_order(Box<T, N>) {
     return 166;
 }
 
+template<int N, typename T, template<typename, int = N + 1> class Box>
+    requires PackOrderHasValueAndSize<T>
+int choose_outer_non_type_expression_default_template_template_order(
+    Box<T>, T (&values)[N]) {
+    return values[0].value == 3 ? 167 : 168;
+}
+
+template<int N, typename T, template<typename, int> class Box>
+    requires PackOrderHasValue<T>
+int choose_outer_non_type_expression_default_template_template_order(
+    Box<T, N + 1>, T (&values)[N]) {
+    return values[0].value == 3 ? 169 : 170;
+}
+
 template<typename T>
     requires (PackOrderHasValue<T> || PackOrderHasPositiveSize<T>)
 int choose_constraint_disjunction_partial_order(T) {
@@ -2878,6 +2892,9 @@ int main(void) {
     int value = 5;
     int* pointer = &value;
     PackOrderConstrainedValue constrained_value = { value };
+    PackOrderConstrainedValue constrained_values[4] = {
+        { 3 }, { 0 }, { 0 }, { 0 }
+    };
     ConversionPointerTrailingSequence conversion_pointer{&value};
     int** pointer_to_pointer = &pointer;
     int array_value[1] = { value };
@@ -3683,6 +3700,10 @@ int main(void) {
                    choose_outer_non_type_default_template_template_order(
                        PackOrderOuterNonTypeDefaultTemplateBox<
                            PackOrderConstrainedValue, 4>{}) == 165 &&
+                   choose_outer_non_type_expression_default_template_template_order(
+                       PackOrderOuterNonTypeDefaultTemplateBox<
+                           PackOrderConstrainedValue, 5>{},
+                       constrained_values) == 167 &&
                    choose_constraint_disjunction_partial_order(
                        constrained_value) == 152 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&
