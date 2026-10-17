@@ -5525,3 +5525,16 @@ remains a separate open item.
       generation and execution; full `test-cxx` passes (exit 0).
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-17, member-pointer reference template ordering)
+
+- [x] Compare related destination-owner conversions for pointer-to-member
+      results bound to the same reference form after a user-defined conversion.
+      Unwrap reference types before applying the existing member-pointer owner
+      ranking, while preserving cv and reference-category distinctions.
+- [x] Regress `Base::*` conversion results competing for `Derived::* const&`
+      and `Leaf::* const&` in function-template overloads. GCC C++20
+      `-Wall -Wextra -Werror`, native-Windows `test-cxx-conversion-operator`
+      (i686/AMD64 generation and execution), and full `test-cxx` pass (exit 0).
+- [ ] Other multi-step standard conversions, remaining cv/reference binding
+      shapes, and general C++20 conversion-sequence ordering remain open.

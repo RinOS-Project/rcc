@@ -9123,65 +9123,88 @@ static int cxx_conversion_vector_relation(
         }
         if (left[index] == right[index] && left[index] == 2 &&
             left_targets && right_targets && left_targets[index] &&
-            right_targets[index] && left_targets[index]->kind == TYPE_PTR &&
-            right_targets[index]->kind == TYPE_PTR &&
-            left_targets[index]->cxx_is_member_pointer &&
-            right_targets[index]->cxx_is_member_pointer &&
-            left_targets[index]->base && right_targets[index]->base &&
-            left_targets[index]->cxx_member_pointer_owner &&
-            right_targets[index]->cxx_member_pointer_owner) {
-            CxxClass* left_owner =
-                left_targets[index]->cxx_member_pointer_owner->cxx_class;
-            CxxClass* right_owner =
-                right_targets[index]->cxx_member_pointer_owner->cxx_class;
-            bool same_member_type = cxx_same_parameter_type(
-                left_targets[index]->base, right_targets[index]->base, false);
-            bool left_member_type_subset = true;
-            bool right_member_type_subset = true;
-            bool member_type_qualification_related =
-                sema_cxx_qualification_targets_related(
-                    left_targets[index]->base, right_targets[index]->base,
-                    false, &left_member_type_subset,
-                    &right_member_type_subset, 0u);
-            int member_function_noexcept_relation = 0;
-            if (left_targets[index]->base->kind == TYPE_FUNC &&
-                right_targets[index]->base->kind == TYPE_FUNC &&
-                index >= argument_offset && argument && argument->expr) {
-                member_function_noexcept_relation =
-                    rcc_sema_cxx_member_function_noexcept_target_relation(
-                        argument->expr->type, left_targets[index],
-                        right_targets[index]);
-            }
-            if (left_owner && right_owner && left_owner != right_owner) {
-                if (same_member_type ||
-                    member_function_noexcept_relation != 0 ||
-                    member_type_qualification_related) {
-                    /* For viable conversions with compatible member-type
-                     * shapes, compare the destination owner before member
-                     * cv qualification. Exception-specification adjustment
-                     * does not change this owner ordering. */
-                    if (sema_cxx_class_derives_from(
-                            right_owner, left_owner, 0)) {
-                        left_better = true;
-                    } else if (sema_cxx_class_derives_from(
-                                   left_owner, right_owner, 0)) {
-                        right_better = true;
+            right_targets[index] &&
+            left_targets[index]->is_reference ==
+                right_targets[index]->is_reference &&
+            (!left_targets[index]->is_reference ||
+             (left_targets[index]->is_rvalue_reference ==
+                  right_targets[index]->is_rvalue_reference &&
+              left_targets[index]->base && right_targets[index]->base &&
+              left_targets[index]->base->is_const ==
+                  right_targets[index]->base->is_const &&
+              left_targets[index]->base->is_volatile ==
+                  right_targets[index]->base->is_volatile))) {
+            Type* left_member_pointer_target =
+                left_targets[index]->is_reference
+                    ? left_targets[index]->base : left_targets[index];
+            Type* right_member_pointer_target =
+                right_targets[index]->is_reference
+                    ? right_targets[index]->base : right_targets[index];
+            if (left_member_pointer_target && right_member_pointer_target &&
+                left_member_pointer_target->kind == TYPE_PTR &&
+                right_member_pointer_target->kind == TYPE_PTR &&
+                left_member_pointer_target->cxx_is_member_pointer &&
+                right_member_pointer_target->cxx_is_member_pointer &&
+                left_member_pointer_target->base &&
+                right_member_pointer_target->base &&
+                left_member_pointer_target->cxx_member_pointer_owner &&
+                right_member_pointer_target->cxx_member_pointer_owner) {
+                CxxClass* left_owner = left_member_pointer_target
+                    ->cxx_member_pointer_owner->cxx_class;
+                CxxClass* right_owner = right_member_pointer_target
+                    ->cxx_member_pointer_owner->cxx_class;
+                bool same_member_type = cxx_same_parameter_type(
+                    left_member_pointer_target->base,
+                    right_member_pointer_target->base, false);
+                bool left_member_type_subset = true;
+                bool right_member_type_subset = true;
+                bool member_type_qualification_related =
+                    sema_cxx_qualification_targets_related(
+                        left_member_pointer_target->base,
+                        right_member_pointer_target->base, false,
+                        &left_member_type_subset,
+                        &right_member_type_subset, 0u);
+                int member_function_noexcept_relation = 0;
+                if (left_member_pointer_target->base->kind == TYPE_FUNC &&
+                    right_member_pointer_target->base->kind == TYPE_FUNC &&
+                    index >= argument_offset && argument && argument->expr) {
+                    member_function_noexcept_relation =
+                        rcc_sema_cxx_member_function_noexcept_target_relation(
+                            argument->expr->type,
+                            left_member_pointer_target,
+                            right_member_pointer_target);
+                }
+                if (left_owner && right_owner && left_owner != right_owner) {
+                    if (same_member_type ||
+                        member_function_noexcept_relation != 0 ||
+                        member_type_qualification_related) {
+                        /* For viable conversions with compatible member-type
+                         * shapes, compare the destination owner before member
+                         * cv qualification. Exception-specification adjustment
+                         * does not change this owner ordering. */
+                        if (sema_cxx_class_derives_from(
+                                right_owner, left_owner, 0)) {
+                            left_better = true;
+                        } else if (sema_cxx_class_derives_from(
+                                       left_owner, right_owner, 0)) {
+                            right_better = true;
+                        }
                     }
+                } else if (left_owner && right_owner) {
+                    int member_type_relation;
+                    if (left_member_pointer_target->base->kind == TYPE_FUNC &&
+                        right_member_pointer_target->base->kind == TYPE_FUNC) {
+                        member_type_relation =
+                            member_function_noexcept_relation;
+                    } else {
+                        member_type_relation =
+                            sema_cxx_member_type_qualification_relation(
+                                left_member_pointer_target->base,
+                                right_member_pointer_target->base);
+                    }
+                    if (member_type_relation > 0) left_better = true;
+                    if (member_type_relation < 0) right_better = true;
                 }
-            } else if (left_owner && right_owner) {
-                int member_type_relation;
-                if (left_targets[index]->base->kind == TYPE_FUNC &&
-                    right_targets[index]->base->kind == TYPE_FUNC) {
-                    member_type_relation =
-                        member_function_noexcept_relation;
-                } else {
-                    member_type_relation =
-                        sema_cxx_member_type_qualification_relation(
-                            left_targets[index]->base,
-                            right_targets[index]->base);
-                }
-                if (member_type_relation > 0) left_better = true;
-                if (member_type_relation < 0) right_better = true;
             }
         }
         if (left[index] == right[index] && left[index] == 2 &&

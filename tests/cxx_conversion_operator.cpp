@@ -26,6 +26,8 @@ struct MemberPointerReferenceBase {
 struct MemberPointerReferenceDerived : MemberPointerReferencePadding,
                                        MemberPointerReferenceBase {};
 
+struct MemberPointerReferenceLeaf : MemberPointerReferenceDerived {};
+
 struct MemberPointerReferenceSource {
     int MemberPointerReferenceBase::*member;
 
@@ -394,6 +396,18 @@ int choose_template_pointer_reference_conversion(T, const void* const&) {
 }
 
 template<typename T>
+int choose_template_member_pointer_reference_conversion(
+    T, int MemberPointerReferenceDerived::* const&) {
+    return 239;
+}
+
+template<typename T>
+int choose_template_member_pointer_reference_conversion(
+    T, int MemberPointerReferenceLeaf::* const&) {
+    return 241;
+}
+
+template<typename T>
 int take_template_integer(T, int value) {
     return value + 10;
 }
@@ -486,6 +500,8 @@ int main() {
             member_pointer_reference_source) != 211 ||
         !is_null_member_pointer_conversion_reference(
             null_member_pointer_reference_source) ||
+        choose_template_member_pointer_reference_conversion(
+            0, member_pointer_reference_source) != 239 ||
         choose_constrained_conversion(constrained_templated_source) != 101 ||
         return_integer() != 9 || return_long() != 11 ||
         choose_conversion(meter) != 107 ||
