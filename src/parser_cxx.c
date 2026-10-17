@@ -19569,6 +19569,12 @@ static bool cxx_function_template_expression_has_undeduced_nontype_parameter(
             return cxx_function_template_expression_has_undeduced_nontype_parameter(
                 function_template, expression->unary_operand, value_present,
                 depth + 1u);
+        case EXPR_CAST:
+            /* A cast does not make a compound non-type argument deducible,
+             * but its operand may be supplied by a later function parameter. */
+            return cxx_function_template_expression_has_undeduced_nontype_parameter(
+                function_template, expression->cast_expr, value_present,
+                depth + 1u);
         case EXPR_ADD:
         case EXPR_SUB:
         case EXPR_MUL:

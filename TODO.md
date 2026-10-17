@@ -5805,10 +5805,11 @@ remains a separate open item.
       `test-cxx-function-template-overloads` agree on the more constrained
       overload; i686/AMD64 generation and RCC/GCC host execution pass.
 - [x] Defer nested non-type default matching when its compound expression
-      (`N + 1`, `2 * N + 1`) references an outer non-type parameter that has
-      not yet been deduced from another function parameter. The native-Windows
-      `test-cxx-function-template-overloads` passes for i686/AMD64 generation
-      and RCC/GCC host execution.
+      (`N + 1`, `2 * N + 1`, and
+      `static_cast<int>(3 * N + 2)`) references an outer non-type parameter
+      that has not yet been deduced from another function parameter. The
+      native-Windows `test-cxx-function-template-overloads` passes for both
+      i686 and AMD64 generation, plus RCC/GCC host execution.
 - [x] Defer matching a nested dependent member-type default such as
       `typename T::value_type` or
       `typename T::value_type::nested_type` when `T` has not yet been deduced
@@ -5816,6 +5817,7 @@ remains a separate open item.
       after another parameter supplies `T`; GCC C++20 and native-Windows
       `test-cxx-function-template-overloads` agree on the selected overload,
       with i686/AMD64 generation and RCC/GCC host execution passing.
-- [ ] Other compound outer non-type expression forms, deeper paths through
-      dependent intermediate aliases, and additional C++20 function
-      partial-ordering cases remain open.
+- [ ] Concept-id/call-bearing defaults in template-template signatures, other
+      compound outer non-type expression forms, deeper paths through dependent
+      intermediate aliases, and additional C++20 function partial-ordering
+      cases remain open.
