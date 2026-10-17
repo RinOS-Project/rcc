@@ -5100,9 +5100,8 @@ remains a separate open item.
   Itanium-prefixed fixture symbol with GCC on i686/AMD64, assemble both RCC
   outputs, and execute RCC AMD64 plus the GCC-host program; the complete
   `scripts/ci_nested_class_templates.sh` gate passes in WSL.
-- [ ] Nonzero pointer offsets and other computed pointer constants,
-      overloaded-function template/conversion cases, and reference members
-      remain open.
+- [ ] Additional pointer constant-expression forms, function-pointer
+      conversion cases, and reference members remain open.
 
 ## RCC continuation (2026-10-16, computed structural pointer NTTP expressions)
 
@@ -5116,6 +5115,13 @@ remains a separate open item.
       nested-class CI gate.
 - [x] Select an exact-match non-template overload from the structural member's
       function-pointer type; verify GCC-compatible symbols and runtime result.
+- [x] Resolve overloaded function-template addresses from the structural
+      member's target function-pointer type, rank viable ordinary candidates,
+      and preserve the non-template tie preference. GCC/RCC symbol comparisons,
+      i686/AMD64 generation, and RCC/GCC host execution pass.
+- [x] Add the fixture to the native-Windows nested-template gate; the focused
+      gate and full `test-cxx` aggregate pass, and the complete POSIX
+      `scripts/ci_nested_class_templates.sh` gate passes.
 - [x] Correct the C++ global-variable linkage expectation and use the portable
       expected-failure macro in debug-info tests; `test-cxx-language-linkage`
       and `test-debug-info` pass.
@@ -5125,8 +5131,8 @@ remains a separate open item.
 - [x] Re-run the complete native-Windows MinGW `test-cxx` aggregate against the
       current compiler tree; `test-cxx-member-lifetime` and the full aggregate
       both pass (exit 0).
-- [ ] Nonzero pointer arithmetic and other pointer constant-expression forms,
-      and overloaded-function template/conversion cases remain open.
+- [ ] Additional pointer constant-expression forms and function-pointer
+      conversion cases remain open.
 
 ## RCC continuation (2026-10-16, structural data-member-pointer NTTP values)
 
@@ -5475,6 +5481,17 @@ remains a separate open item.
       `test-cxx` aggregate pass (exit 0).
 - [ ] Other multi-step standard conversions, remaining cv/reference binding
       shapes, and general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-17, dependent template-template pack mangling)
+
+- [x] Mangle dependent function-template template-parameter pack patterns as
+      Itanium template parameters rather than placeholder names, while keeping
+      repeated-pack substitution indices aligned with GCC.
+- [x] Verify the existing repeated non-trailing pack fixture through the full
+      POSIX nested-class symbol/assembly/runtime gate and rerun native-Windows
+      `test-cxx` (exit 0).
+- [ ] Other dependent template-template pack and ABI substitution cases remain
+      open.
 
 ## RCC continuation (2026-10-17, conversion-function result to bool)
 

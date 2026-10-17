@@ -119,6 +119,11 @@ static CxxClassAliasTemplate* cxx_parser_find_inherited_alias_template(
     CxxClass* owner, const char* name, CxxClass* access_context,
     CxxClass** declaring_class, bool* ambiguous, bool* accessible);
 static void cxx_complete_pending_member_pointer_forms(CxxClass* cls);
+static int cxx_parser_function_pointer_overload_rank(
+    Expr* argument, Type* target, bool* is_overload_set);
+static int cxx_parser_function_pointer_best_declaration(
+    Expr* argument, Type* target, Decl** selected_decl,
+    bool* is_ambiguous);
 
 static bool cxx_inherited_nonfield_name(CxxClass* cls, const char* name,
                                         unsigned depth) {
@@ -2569,6 +2574,58 @@ static bool cxx_structural_pointer_member_value(
         location.subobject_path_length, value_out);
 }
 
+static bool cxx_structural_select_function_template_pointer(
+    Expr* expression, Type* pointer_type) {
+    Expr* name = expression;
+    Decl* selected = NULL;
+    Decl* ordinary_selected = NULL;
+    bool has_templates = false;
+    bool template_ambiguous = false;
+    bool ordinary_ambiguous = false;
+    int template_rank = -1;
+    int ordinary_rank = -1;
+    if (name && name->kind == EXPR_ADDR) name = name->unary_operand;
+    if (!rcc_parser_is_cxx_mode() || !name ||
+        name->kind != EXPR_IDENT || !name->ident_name || !pointer_type ||
+        pointer_type->kind != TYPE_PTR ||
+        pointer_type->cxx_is_member_pointer || !pointer_type->base ||
+        pointer_type->base->kind != TYPE_FUNC) {
+        return false;
+    }
+    selected = rcc_parser_cxx_resolve_function_pointer_template(
+        name->ident_name, active_namespace, pointer_type, &has_templates,
+        &template_ambiguous, &template_rank);
+    if (!has_templates) return false;
+    ordinary_rank = cxx_parser_function_pointer_best_declaration(
+        expression, pointer_type, &ordinary_selected,
+        &ordinary_ambiguous);
+    if (ordinary_rank >= 0 &&
+        (!selected || ordinary_rank <= template_rank)) {
+        if (!ordinary_ambiguous && ordinary_selected) {
+            name->ident_decl = ordinary_selected;
+            name->type = ordinary_selected->type;
+        }
+        return false;
+    }
+    if (!selected || template_ambiguous || template_rank < 0 ||
+        ordinary_ambiguous) {
+        return false;
+    }
+    name->ident_decl = selected;
+    name->type = selected->type;
+    if (active_ast && selected->func_is_template_instance) {
+        bool present = false;
+        for (DeclList* item = active_ast->decls; item; item = item->next) {
+            if (item->decl == selected) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) ast_add_decl(active_ast, selected);
+    }
+    return true;
+}
+
 static bool cxx_structural_class_collect_member_values(
     Type* type, ExprList* initializer, bool value_init,
     int64_t* member_values, size_t member_capacity, int* member_count) {
@@ -2602,6 +2659,12 @@ static bool cxx_structural_class_collect_member_values(
             initializer = initializer->next;
         } else {
             field_initializer = field->initializer;
+        }
+        if (field_initializer && field->type->kind == TYPE_PTR &&
+            !field->type->cxx_is_member_pointer && field->type->base &&
+            field->type->base->kind == TYPE_FUNC) {
+            (void)cxx_structural_select_function_template_pointer(
+                field_initializer, field->type);
         }
         if (field->type->kind == TYPE_PTR && field->type->is_reference &&
             !field_initializer) {
@@ -26707,6 +26770,52 @@ static int cxx_parser_function_pointer_overload_rank(
     }
     if (!has_distinct_type) return -1;
     if (is_overload_set) *is_overload_set = true;
+    return selected_rank;
+}
+
+static int cxx_parser_function_pointer_best_declaration(
+    Expr* argument, Type* target, Decl** selected_decl,
+    bool* is_ambiguous) {
+    Expr* name = argument;
+    Decl* selected = NULL;
+    int selected_rank = -1;
+    bool ambiguous = false;
+    if (selected_decl) *selected_decl = NULL;
+    if (is_ambiguous) *is_ambiguous = false;
+    if (name && name->kind == EXPR_ADDR) name = name->unary_operand;
+    if (!name || name->kind != EXPR_IDENT || !active_ast || !target ||
+        target->is_reference || target->kind != TYPE_PTR ||
+        target->cxx_is_member_pointer || !target->base ||
+        target->base->kind != TYPE_FUNC) {
+        return -1;
+    }
+    for (DeclList* item = active_ast->decls; item; item = item->next) {
+        Decl* candidate = item->decl;
+        Expr typed_argument;
+        int rank;
+        if (!candidate || candidate->kind != DECL_FUNC ||
+            candidate->func_this_param || !candidate->type ||
+            candidate->type->kind != TYPE_FUNC ||
+            !cxx_parser_function_name_matches(candidate->name,
+                                              name->ident_name)) {
+            continue;
+        }
+        typed_argument = *name;
+        typed_argument.type = candidate->type;
+        rank = cxx_parser_sema_conversion_rank(
+            &typed_argument, candidate->type, target);
+        if (rank < 0) continue;
+        if (!selected || rank < selected_rank) {
+            selected = candidate;
+            selected_rank = rank;
+            ambiguous = false;
+        } else if (rank == selected_rank &&
+                   !type_is_compatible(selected->type, candidate->type)) {
+            ambiguous = true;
+        }
+    }
+    if (selected_decl && !ambiguous) *selected_decl = selected;
+    if (is_ambiguous) *is_ambiguous = ambiguous;
     return selected_rank;
 }
 

@@ -2041,6 +2041,24 @@ static int cxx_function_template_type_parameter_index(
     return -1;
 }
 
+static int cxx_function_template_template_parameter_index(
+    CxxTemplate* tmpl, Type* type) {
+    int parameter_index;
+    if (!tmpl || !type || type->kind != TYPE_STRUCT ||
+        !type->cxx_dependent || type->cxx_template_arg_count != 0 ||
+        type->cxx_template_args || type->cxx_template_param_index < 0) {
+        return -1;
+    }
+    parameter_index = type->cxx_template_param_index;
+    if (parameter_index >= tmpl->param_count ||
+        tmpl->params[parameter_index].kind != TPARAM_TEMPLATE ||
+        !tmpl->params[parameter_index].name || !type->tag ||
+        strcmp(tmpl->params[parameter_index].name, type->tag) != 0) {
+        return -1;
+    }
+    return parameter_index;
+}
+
 static int cxx_function_template_template_id_parameter_index(
     CxxTemplate* tmpl, Type* type) {
     int parameter_index;
@@ -2572,6 +2590,10 @@ static void cxx_mangle_template_type_append_impl(
     {
         int parameter_index =
             cxx_function_template_type_parameter_index(tmpl, type);
+        if (parameter_index < 0) {
+            parameter_index =
+                cxx_function_template_template_parameter_index(tmpl, type);
+        }
         if (parameter_index >= 0) {
             if (context && context->parameter_substitutions &&
                 context->parameter_substitutions[parameter_index] >= 0) {
@@ -3031,7 +3053,8 @@ static void cxx_mangle_template_type_append(
          type->kind == TYPE_STRUCT || type->kind == TYPE_UNION ||
          type->kind == TYPE_ENUM ||
          type->kind == TYPE_FUNC) &&
-        cxx_function_template_type_parameter_index(tmpl, type) < 0;
+        cxx_function_template_type_parameter_index(tmpl, type) < 0 &&
+        cxx_function_template_template_parameter_index(tmpl, type) < 0;
 
     if (context && is_substitutable_type) {
         for (size_t index = 0; index < context->type_substitution_count;

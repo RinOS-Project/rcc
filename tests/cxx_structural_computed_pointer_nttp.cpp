@@ -17,6 +17,43 @@ int nested_computed_pointer_overloaded_target(int value) {
     return value + 6;
 }
 
+template <typename Value>
+int nested_computed_pointer_overloaded_template(Value value) {
+    return static_cast<int>(value) + 10;
+}
+
+template <typename Value>
+int nested_computed_pointer_overloaded_template(Value* value) {
+    return static_cast<int>(*value) + 20;
+}
+
+int nested_computed_pointer_mixed_template_target(long value) {
+    return static_cast<int>(value) + 30;
+}
+
+template <typename Value>
+int nested_computed_pointer_mixed_template_target(Value value) {
+    return static_cast<int>(value) + 10;
+}
+
+int nested_computed_pointer_mixed_non_template_target(int value) {
+    return value + 6;
+}
+
+template <typename Value>
+int nested_computed_pointer_mixed_non_template_target(Value value) {
+    return static_cast<int>(value) + 20;
+}
+
+int nested_computed_pointer_nonviable_template_target(int value) {
+    return value + 6;
+}
+
+template <typename Value>
+int nested_computed_pointer_nonviable_template_target(Value* value) {
+    return static_cast<int>(*value) + 20;
+}
+
 struct NestedComputedPointerLeafKey {
     int* pointer;
 };
@@ -84,9 +121,25 @@ int main() {
               : &nested_computed_pointer_function_b}>::Inner<int> function;
     NestedComputedFunctionOwner<NestedComputedFunctionKey{
         &nested_computed_pointer_overloaded_target}>::Inner<int> overloaded;
+    NestedComputedFunctionOwner<NestedComputedFunctionKey{
+        &nested_computed_pointer_overloaded_template}>::Inner<int>
+        overloaded_template;
+    NestedComputedFunctionOwner<NestedComputedFunctionKey{
+        &nested_computed_pointer_mixed_template_target}>::Inner<int>
+        mixed_template_wins;
+    NestedComputedFunctionOwner<NestedComputedFunctionKey{
+        &nested_computed_pointer_mixed_non_template_target}>::Inner<int>
+        mixed_non_template_wins;
+    NestedComputedFunctionOwner<NestedComputedFunctionKey{
+        &nested_computed_pointer_nonviable_template_target}>::Inner<int>
+        nonviable_template_uses_ordinary;
     return add_zero.result() == 47 &&
         reverse_add_zero.result() == 47 &&
         subtract_zero.result() == 47 && conditional.result() == 89 &&
         cast.result() == 47 && null.is_null() && integer_null.is_null() &&
-        function.result() == 46 && overloaded.result() == 43 ? 0 : 1;
+        function.result() == 46 && overloaded.result() == 43 &&
+        overloaded_template.result() == 47 &&
+        mixed_template_wins.result() == 47 &&
+        mixed_non_template_wins.result() == 43 &&
+        nonviable_template_uses_ordinary.result() == 43 ? 0 : 1;
 }

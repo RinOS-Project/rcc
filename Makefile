@@ -550,6 +550,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-member-pointer-functions \
 	test-cxx-member-pointer-functions-posix \
 	test-cxx-member-pointer-data-posix
+.PHONY: test-cxx-structural-computed-pointer-nttp
 .PHONY: test-verified-volatile
 .PHONY: test-verified-cxx-temporary-cleanup
 .PHONY: test-verified-cxx-virtual-base-value
@@ -5234,6 +5235,13 @@ test-cxx-nested-class-templates: test-cxx-nested-class-template-template-owner-s
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-partial-specialization
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-structural-value-pack
 test-cxx-nested-class-templates: test-cxx-nested-class-template-owner-explicit-chain-10
+test-cxx-nested-class-templates: test-cxx-structural-computed-pointer-nttp
+
+test-cxx-structural-computed-pointer-nttp: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-computed-pointer-nttp)
+	$(call CXX_WINDOWS_ENTRY_TEST,cxx-structural-computed-pointer-nttp,cxx_structural_computed_pointer_nttp.cpp)
+	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-structural-computed-pointer-nttp/gcc-host.exe tests/cxx_structural_computed_pointer_nttp.cpp
+	$(TEST_OUT)/cxx-structural-computed-pointer-nttp/gcc-host.exe
 
 test-cxx-nested-class-template-specializations: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-specializations)
