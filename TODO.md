@@ -5768,5 +5768,10 @@ remains a separate open item.
       by arity, parameter kind, or non-type parameter type. GCC C++20 and
       native-Windows `test-cxx-function-template-overloads` agree on ambiguity;
       i686/AMD64 diagnostics and positive AMD64 overload execution pass.
-- [ ] Nested constrained template-template signature equivalence and remaining
-      C++20 function partial-ordering cases remain open.
+- [x] Compare `Box<T>` function parameters through corresponding
+      template-template parameters before constraint subsumption. The stronger
+      associated constraint is selected as with GCC C++20; native-Windows
+      `test-cxx-function-template-overloads` passes for i686/AMD64 generation,
+      AMD64 runtime, and GCC host runtime.
+- [ ] Nested constrained template-template parameter-signature equivalence and
+      other C++20 function partial-ordering cases remain open.

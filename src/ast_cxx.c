@@ -5437,6 +5437,9 @@ void cxx_namespace_add_decl(CxxNamespace* ns, Decl* decl) {
     ns->decls = node;
 }
 
+static bool cxx_template_template_signature_matches(
+    const CxxTemplate* left, const CxxTemplate* right, int depth);
+
 static int cxx_template_redeclaration_parameter_index(
     Type* type, const CxxTemplate* tmpl) {
     if (!type || !tmpl) return -1;
@@ -5452,10 +5455,16 @@ static int cxx_template_redeclaration_parameter_index(
         }
     }
     if (type->cxx_template_param_index < 0 ||
-        type->cxx_template_param_index >= tmpl->param_count ||
-        tmpl->params[type->cxx_template_param_index].kind != TPARAM_TYPE) {
+        type->cxx_template_param_index >= tmpl->param_count) {
         return -1;
     }
+    const TemplateParam* parameter =
+        &tmpl->params[type->cxx_template_param_index];
+    if (parameter->kind == TPARAM_TEMPLATE &&
+        type->cxx_template_arg_count > 0) {
+        return type->cxx_template_param_index;
+    }
+    if (parameter->kind != TPARAM_TYPE) return -1;
     return type->cxx_template_param_index;
 }
 
@@ -5489,8 +5498,18 @@ static bool cxx_template_redeclaration_type_matches(
             left, left_template);
         int right_index = cxx_template_redeclaration_parameter_index(
             right, right_template);
+        const TemplateParam* left_parameter = left_index >= 0
+            ? &left_template->params[left_index] : NULL;
+        const TemplateParam* right_parameter = right_index >= 0
+            ? &right_template->params[right_index] : NULL;
         if (!left->cxx_dependent || !right->cxx_dependent ||
             left_index < 0 || right_index != left_index ||
+            !left_parameter || !right_parameter ||
+            left_parameter->kind != right_parameter->kind ||
+            (left_parameter->kind == TPARAM_TEMPLATE &&
+             !cxx_template_template_signature_matches(
+                 left_parameter->template_signature,
+                 right_parameter->template_signature, 0)) ||
             ((left->cxx_dependent_member_name ||
               right->cxx_dependent_member_name) &&
              (!left->cxx_dependent_member_name ||

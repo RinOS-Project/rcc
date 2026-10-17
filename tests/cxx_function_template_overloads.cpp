@@ -1652,6 +1652,9 @@ concept PackOrderHasValueAndSize =
 template<typename T>
 concept PackOrderHasPositiveSize = sizeof(T) >= 1;
 
+template<typename T>
+struct PackOrderTemplateBox {};
+
 struct PackOrderConstrainedValue {
     int value;
 };
@@ -1664,6 +1667,18 @@ int choose_constraint_partial_order(T) {
 template<PackOrderHasValueAndSize T>
 int choose_constraint_partial_order(T) {
     return 150;
+}
+
+template<template<typename> class Box, typename T>
+    requires PackOrderHasValue<T>
+int choose_template_template_constraint_order(Box<T>) {
+    return 153;
+}
+
+template<template<typename> class Box, typename T>
+    requires PackOrderHasValueAndSize<T>
+int choose_template_template_constraint_order(Box<T>) {
+    return 154;
 }
 
 template<typename T>
@@ -3554,6 +3569,9 @@ int main(void) {
                            long>{}) == 267 &&
                    choose_pointer_pack_over_value(pointer) == 147 &&
                    choose_constraint_partial_order(constrained_value) == 150 &&
+                   choose_template_template_constraint_order(
+                       PackOrderTemplateBox<PackOrderConstrainedValue>{}) ==
+                       154 &&
                    choose_constraint_disjunction_partial_order(
                        constrained_value) == 152 &&
                    choose_nonpack_over_empty_pack(value) == 160 &&
