@@ -95,6 +95,8 @@ extern const char* rcc_parser_cxx_current_namespace_identity(void)
     RCC_OPTIONAL_CXX;
 extern bool rcc_parser_cxx_type_namespace_is_visible(
     const char*, const char*) RCC_OPTIONAL_CXX;
+extern void rcc_parser_cxx_type_namespace_lookup_depths(
+    const char*, const char*, int*, int*) RCC_OPTIONAL_CXX;
 extern bool rcc_parser_cxx_enum_namespace_is_visible(
     Type* enum_type, const char* namespace_name) RCC_OPTIONAL_CXX;
 
@@ -102,6 +104,7 @@ typedef struct ParserTypeName {
     const char* name;
     Type* type;
     const char* cxx_namespace;
+    struct ParserTagScope* scope;
     uint32_t cxx_constructor_arity_mask;
     struct ParserTypeName* next;
 } ParserTypeName;
@@ -142,6 +145,7 @@ static int parser_aggregate_pack_alignment;
 static int parser_pack_stack[32];
 static int parser_pack_depth;
 static bool parser_cxx_mode;
+static const char* parser_ambiguous_type_name;
 static int parser_cxx_standard = 20;
 static bool parser_cxx_template_default_mode;
 static int parser_cxx_template_default_depth;
@@ -305,6 +309,54 @@ static void parser_apply_pack(Token* directive) {
 
 static bool parser_tag_scope_is_visible(ParserTagScope* scope);
 
+typedef struct ParserCxxTypeLookup {
+    Type* type;
+    int lexical_depth;
+    int depth;
+    bool ambiguous;
+} ParserCxxTypeLookup;
+
+static int parser_tag_scope_lookup_depth(ParserTagScope* scope) {
+    int depth = 0;
+    for (ParserTagScope* visible = parser_tag_scope; visible;
+         visible = visible->parent, ++depth) {
+        if (visible == scope) return depth;
+    }
+    return -1;
+}
+
+static void parser_cxx_consider_type(ParserCxxTypeLookup* lookup,
+                                     Type* candidate, const char* name,
+                                     const char* current_namespace,
+                                     ParserTagScope* declaration_scope) {
+    int direct_depth = -1;
+    int using_depth = -1;
+    int candidate_depth;
+    int lexical_depth = parser_tag_scope_lookup_depth(declaration_scope);
+    if (!candidate || lexical_depth < 0 ||
+        !rcc_parser_cxx_type_namespace_lookup_depths) return;
+    rcc_parser_cxx_type_namespace_lookup_depths(
+        name, current_namespace, &direct_depth, &using_depth);
+    candidate_depth = direct_depth;
+    if (using_depth >= 0 &&
+        (candidate_depth < 0 || using_depth < candidate_depth)) {
+        candidate_depth = using_depth;
+    }
+    if (candidate_depth < 0) return;
+    if (!lookup->type || lexical_depth < lookup->lexical_depth ||
+        (lexical_depth == lookup->lexical_depth &&
+         candidate_depth < lookup->depth)) {
+        lookup->type = candidate;
+        lookup->lexical_depth = lexical_depth;
+        lookup->depth = candidate_depth;
+        lookup->ambiguous = false;
+    } else if (lexical_depth == lookup->lexical_depth &&
+               candidate_depth == lookup->depth &&
+               candidate != lookup->type) {
+        lookup->ambiguous = true;
+    }
+}
+
 static Type* parser_lookup_type(const char* name) {
     ParserTypeName* entry;
     const char* current_namespace = NULL;
@@ -317,6 +369,7 @@ static Type* parser_lookup_type(const char* name) {
     static Type* builtin_v8hi;
     static Type* builtin_v4si;
     static Type* builtin_v2di;
+    parser_ambiguous_type_name = NULL;
     if (name && strcmp(name, "__v4sf") == 0) {
         if (!builtin_v4sf) builtin_v4sf = type_vector(type_float, 4, 16);
         return builtin_v4sf;
@@ -349,18 +402,49 @@ static Type* parser_lookup_type(const char* name) {
         }
     }
     if (parser_cxx_mode) {
+        ParserCxxTypeLookup lookup = {NULL, INT_MAX, INT_MAX, false};
         for (ParserTagName* tag = parser_tag_names; tag; tag = tag->next) {
-            bool namespace_visible = !tag->cxx_namespace ||
-                !*tag->cxx_namespace ||
-                (rcc_parser_cxx_type_namespace_is_visible &&
-                 rcc_parser_cxx_type_namespace_is_visible(
-                     tag->cxx_namespace, current_namespace));
             if (tag->name && strcmp(tag->name, name) == 0 &&
                 (tag->kind == TYPE_ENUM || tag->kind == TYPE_STRUCT ||
-                 tag->kind == TYPE_UNION) && namespace_visible && tag->scope &&
+                 tag->kind == TYPE_UNION) && tag->scope &&
                 parser_tag_scope_is_visible(tag->scope)) {
-                return tag->type;
+                parser_cxx_consider_type(&lookup, tag->type,
+                    tag->cxx_namespace ? tag->cxx_namespace : "",
+                    current_namespace ? current_namespace : "",
+                    tag->scope);
             }
+        }
+        for (entry = parser_type_names; entry; entry = entry->next) {
+            if (entry->name && strcmp(entry->name, name) == 0) {
+                parser_cxx_consider_type(&lookup, entry->type,
+                    entry->cxx_namespace ? entry->cxx_namespace : "",
+                    current_namespace ? current_namespace : "",
+                    entry->scope);
+            }
+        }
+        if (lookup.ambiguous) {
+            parser_ambiguous_type_name = name;
+            return NULL;
+        }
+        if (lookup.type) return lookup.type;
+        /* Older C-only builds may not include the C++ namespace resolver. */
+        if (!rcc_parser_cxx_type_namespace_lookup_depths) {
+            for (ParserTagName* tag = parser_tag_names; tag;
+                 tag = tag->next) {
+                bool namespace_visible = !tag->cxx_namespace ||
+                    !*tag->cxx_namespace ||
+                    (rcc_parser_cxx_type_namespace_is_visible &&
+                     rcc_parser_cxx_type_namespace_is_visible(
+                         tag->cxx_namespace, current_namespace));
+                if (tag->name && strcmp(tag->name, name) == 0 &&
+                    (tag->kind == TYPE_ENUM || tag->kind == TYPE_STRUCT ||
+                     tag->kind == TYPE_UNION) && namespace_visible &&
+                    tag->scope && parser_tag_scope_is_visible(tag->scope)) {
+                    return tag->type;
+                }
+            }
+        } else {
+            return NULL;
         }
     }
     for (entry = parser_type_names; entry; entry = entry->next) {
@@ -395,6 +479,7 @@ static void parser_define_type(const char* name, Type* type) {
     entry->cxx_namespace = parser_cxx_mode &&
         rcc_parser_cxx_current_namespace_identity
         ? rcc_parser_cxx_current_namespace_identity() : NULL;
+    entry->scope = parser_tag_scope;
     if (entry->cxx_namespace && !*entry->cxx_namespace) {
         entry->cxx_namespace = NULL;
     }
@@ -1240,7 +1325,9 @@ Type* rcc_parser_lookup_type(const char* name) {
     Type* type = parser_lookup_type(name);
     ParserTagName* tag;
     Type* cxx_class_type;
-    if (type || !name) return type;
+    if (type || !name ||
+        (parser_ambiguous_type_name &&
+         strcmp(parser_ambiguous_type_name, name) == 0)) return type;
     {
         const char* qualified_name = name;
         const char* final_separator;
@@ -1277,6 +1364,11 @@ Type* rcc_parser_lookup_type(const char* name) {
         if (cxx_class_type) return cxx_class_type;
     }
     return NULL;
+}
+
+bool rcc_parser_type_lookup_is_ambiguous(const char* name) {
+    return name && parser_ambiguous_type_name &&
+           strcmp(name, parser_ambiguous_type_name) == 0;
 }
 
 void rcc_parser_define_type(const char* name, Type* type) {

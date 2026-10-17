@@ -5880,3 +5880,16 @@ remains a separate open item.
       open. Other compound outer non-type forms, deeper paths through dependent
       intermediate aliases, and additional C++20 function partial-ordering
       cases also remain open.
+
+## RCC continuation (2026-10-18, namespace using-directive type ambiguity)
+
+- [x] Resolve C++ unqualified type lookup by lexical scope and namespace lookup
+      depth. Diagnose distinct types that meet at the same effective lookup
+      level through `using namespace`, including both a same-scope collision
+      and a collision lifted to a common enclosing namespace. Preserve a
+      nearer block/namespace declaration over an imported or outer type. The
+      native-Windows `test-cxx-namespace-extension` target passes for i686 and
+      AMD64 with GCC comparison; the full `test-cxx` gate also passes.
+- [ ] Audit namespace lookup through transitive nested using-directives and
+      additional common-ancestor arrangements beyond the direct-import cases
+      covered by this regression.

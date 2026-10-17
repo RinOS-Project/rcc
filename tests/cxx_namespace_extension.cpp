@@ -71,6 +71,30 @@ namespace api {
 namespace exposed = alias_target;
 }
 
+namespace using_type_precedence {
+struct Collision {
+    char outer[3];
+};
+
+namespace Imported {
+struct Collision {
+    char imported[7];
+};
+}
+
+namespace Inner {
+using namespace using_type_precedence::Imported;
+struct Collision {
+    char inner[5];
+};
+static_assert(sizeof(Collision) == 5);
+}
+
+namespace Sibling {
+static_assert(sizeof(Collision) == 3);
+}
+}
+
 int main() {
     merged::First first = {2};
     merged::Second second = {3};

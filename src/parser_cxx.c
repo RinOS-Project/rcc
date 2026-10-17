@@ -20,6 +20,7 @@ typedef struct {
 
 extern Parser parser;
 extern void rcc_parser_set_cxx_template_default_mode(bool enabled);
+extern bool rcc_parser_type_lookup_is_ambiguous(const char* name);
 extern bool rcc_parser_cxx_split_template_close(void);
 extern bool rcc_parser_cxx_parenthesized_declarator_starts_member_pointer(void);
 
@@ -122,6 +123,47 @@ static bool cxx_namespace_type_lookup_contains(
     return false;
 }
 
+static bool cxx_namespace_type_lookup_directly_contains(
+    CxxNamespace* lookup_namespace, CxxNamespace* declaration_namespace,
+    const CxxNamespaceTypeLookupPath* path) {
+    CxxNamespaceTypeLookupPath current_path;
+    if (!lookup_namespace || !declaration_namespace) return false;
+    for (const CxxNamespaceTypeLookupPath* entry = path; entry;
+         entry = entry->parent) {
+        if (entry->ns == lookup_namespace) return false;
+    }
+    if (lookup_namespace == declaration_namespace) return true;
+    for (CxxNamespace* imported = declaration_namespace;
+         imported && (imported->is_inline_namespace ||
+                      imported->is_anonymous_namespace);
+         imported = imported->parent) {
+        if (imported->parent == lookup_namespace) return true;
+    }
+    current_path.ns = lookup_namespace;
+    current_path.parent = path;
+    for (CxxNamespace* child = lookup_namespace->children; child;
+         child = child->next) {
+        if ((child->is_inline_namespace || child->is_anonymous_namespace) &&
+            cxx_namespace_type_lookup_directly_contains(
+                child, declaration_namespace, &current_path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static CxxNamespace* cxx_namespace_common_ancestor(CxxNamespace* left,
+                                                   CxxNamespace* right) {
+    for (CxxNamespace* ancestor = left; ancestor;
+         ancestor = ancestor->parent) {
+        for (CxxNamespace* candidate = right; candidate;
+             candidate = candidate->parent) {
+            if (ancestor == candidate) return ancestor;
+        }
+    }
+    return NULL;
+}
+
 bool rcc_parser_cxx_type_namespace_is_visible(
     const char* declaration_identity, const char* current_identity) {
     CxxNamespace* declaration_namespace;
@@ -142,6 +184,60 @@ bool rcc_parser_cxx_type_namespace_is_visible(
                 scope, declaration_namespace, NULL)) return true;
     }
     return false;
+}
+
+void rcc_parser_cxx_type_namespace_lookup_depths(
+    const char* declaration_identity, const char* current_identity,
+    int* direct_depth, int* using_depth) {
+    CxxNamespace* declaration_namespace;
+    CxxNamespace* current_namespace;
+    if (direct_depth) *direct_depth = -1;
+    if (using_depth) *using_depth = -1;
+    if (!g_global_namespace || !direct_depth || !using_depth) return;
+    declaration_namespace = declaration_identity && *declaration_identity
+        ? cxx_namespace_find_typeinfo_identity(
+              g_global_namespace, declaration_identity)
+        : g_global_namespace;
+    current_namespace = current_identity && *current_identity
+        ? cxx_namespace_find_typeinfo_identity(
+              g_global_namespace, current_identity)
+        : g_global_namespace;
+    if (!declaration_namespace || !current_namespace) return;
+    {
+        int depth = 0;
+        for (CxxNamespace* scope = current_namespace; scope;
+             scope = scope->parent, ++depth) {
+            if (*direct_depth < 0 &&
+                cxx_namespace_type_lookup_directly_contains(
+                    scope, declaration_namespace, NULL)) {
+                *direct_depth = depth;
+            }
+            for (int index = 0; index < scope->using_namespace_count;
+                 ++index) {
+                CxxNamespace* nominated = scope->using_namespaces[index];
+                CxxNamespace* effective_scope =
+                    cxx_namespace_common_ancestor(scope, nominated);
+                int effective_depth = 0;
+                bool is_ancestor = false;
+                if (!effective_scope ||
+                    !cxx_namespace_type_lookup_contains(
+                        nominated, declaration_namespace, NULL)) {
+                    continue;
+                }
+                for (CxxNamespace* lookup = current_namespace; lookup;
+                     lookup = lookup->parent, ++effective_depth) {
+                    if (lookup == effective_scope) {
+                        is_ancestor = true;
+                        break;
+                    }
+                }
+                if (is_ancestor &&
+                    (*using_depth < 0 || effective_depth < *using_depth)) {
+                    *using_depth = effective_depth;
+                }
+            }
+        }
+    }
 }
 
 /* A leading alignas belongs to a class declaration only when its complete
@@ -32920,6 +33016,9 @@ static Type* parse_cxx_type_spec(void) {
             known_class = active_class;
         }
         Type* known_type = rcc_parser_lookup_type(name);
+        bool known_type_ambiguous =
+            rcc_parser_type_lookup_is_ambiguous(name);
+        if (known_type_ambiguous) known_class = NULL;
         if (class_scope_alias_template_ambiguous) {
             rcc_error(loc,
                       "nested alias template '%s' is ambiguous in class '%s'",
@@ -32968,6 +33067,10 @@ static Type* parse_cxx_type_spec(void) {
                 rcc_error(loc, "nested type '%s' is ambiguous", name);
                 t = type_int;
             }
+        }
+        if (!t && known_type_ambiguous) {
+            rcc_error(loc, "ambiguous type name '%s'", name);
+            t = type_int;
         }
         if (known_type && known_type->cxx_class &&
             known_type->cxx_scope_identity) {
