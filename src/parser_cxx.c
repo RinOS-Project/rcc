@@ -13908,17 +13908,18 @@ static CxxNamespace* cxx_type_associated_namespace(Type* type) {
 bool rcc_parser_cxx_enum_namespace_is_visible(
     Type* enum_type, const char* namespace_name) {
     CxxNamespace* ns;
+    CxxNamespace* requested_namespace;
     if (!enum_type || enum_type->kind != TYPE_ENUM || !namespace_name) {
         return false;
     }
+    requested_namespace = cxx_namespace_find(
+        g_global_namespace, namespace_name);
+    if (!requested_namespace) return false;
     ns = enum_type->cxx_namespace && *enum_type->cxx_namespace
         ? cxx_namespace_find(g_global_namespace, enum_type->cxx_namespace)
         : g_global_namespace;
     while (ns) {
-        const char* qualified_name = cxx_namespace_qualified_name(ns);
-        if (qualified_name && strcmp(qualified_name, namespace_name) == 0) {
-            return true;
-        }
+        if (ns == requested_namespace) return true;
         if (!ns->is_inline_namespace) break;
         ns = ns->parent;
     }

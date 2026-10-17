@@ -1808,6 +1808,9 @@ constexpr int select_default_value(Box<T>) {
 }
 }
 
+namespace PackOrderInlineEnumAdlAlias =
+    PackOrderConstexprInlineEnumAdl::V1;
+
 template<typename T>
 struct PackOrderTemplateBox {};
 
@@ -4059,6 +4062,10 @@ int main(void) {
                    PackOrderConstexprInlineEnumAdlTemplate::
                        qualified_enumerator_value<
                            PackOrderConstexprInlineEnumAdl::
+                               inline_seed>() == 2 &&
+                   PackOrderConstexprInlineEnumAdlTemplate::
+                       qualified_enumerator_value<
+                           PackOrderInlineEnumAdlAlias::
                                inline_seed>() == 2 &&
                    choose_outer_non_type_constexpr_template_call_default_template_template_order(
                        PackOrderOuterNonTypeDefaultTemplateBox<

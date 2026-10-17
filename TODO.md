@@ -5865,8 +5865,9 @@ remains a separate open item.
 - [x] Resolve enum-argument ADL when the enum is declared in an inline
       namespace and the namespace-scope constexpr function is declared in its
       enclosing namespace. Cover dependent nested template-template defaults,
-      plus fully qualified enumerators through both the inline namespace and
-      its injected enclosing namespace as function-template non-type arguments;
+      plus fully qualified enumerators through the inline namespace, its
+      injected enclosing namespace, and a namespace alias as function-template
+      non-type arguments;
       native-Windows
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation,
       RCC/GCC execution, GCC comparison, and diagnostic checks.
