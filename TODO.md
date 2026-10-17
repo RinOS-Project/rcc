@@ -2577,6 +2577,10 @@ remains a separate open item.
   `const int* C::*`, rank valid same-owner member qualification as a conversion,
   and verify a GCC-confirmed overload set chooses the exact target. The focused
   gate passes i686/AMD64 generation and execution.
+- [x] Extend member-type ranking to array data members: for a conversion
+  function returning `int (C::*)[2]`, select the exact target over
+  `const int (C::*)[2]`. GCC C++20 and the focused conversion-operator gate
+  confirm the result; the full native-Windows `test-cxx` aggregate passes.
 - [ ] Extend ranking to deeper/differing member-type shapes, member-function
   parameter/signature variations, and virtual/inaccessible owner-path interactions;
   proper subsequences and full template partial ordering also remain open.
