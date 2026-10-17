@@ -5697,10 +5697,13 @@ remains a separate open item.
       for variadic class-template primaries, and select them during ordinary
       instantiation and dependent nested-type substitution. Expand a type pack
       through a non-type class-template argument expression after substitution.
-- [x] Compare the two-type/value partial specializations and empty-pack primary
-      results against GCC C++20; native-Windows
+- [x] Select a two-argument template-template partial specialization for a
+      trailing template-template pack, both directly and after dependent
+      nested-type substitution.
+- [x] Compare the type, value, and template-template partial specializations
+      and empty-pack primary results against GCC C++20; native-Windows
       `test-cxx-function-template-overloads` passes for i686/AMD64 generation,
       generated execution, host execution, and existing diagnostic checks.
-- [ ] Template-template partial specializations, mixed fixed/pack parameter
-      lists, broader nested paths, and dependent non-type conversions remain
-      open.
+- [ ] Other template-template partial-specialization patterns, mixed
+      fixed/pack parameter lists, broader nested paths, and dependent non-type
+      conversions remain open.

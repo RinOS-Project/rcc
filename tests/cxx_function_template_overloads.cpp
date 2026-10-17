@@ -443,6 +443,27 @@ struct FunctionTemplatePackValueType<First, Second> {
 static_assert(sizeof(FunctionTemplatePackValueType<>::type) == 1);
 static_assert(sizeof(FunctionTemplatePackValueType<4, 2>::type) == 2);
 
+template<typename Type>
+struct FunctionTemplateTemplatePartialA {};
+
+template<typename Type>
+struct FunctionTemplateTemplatePartialB {};
+
+template<template<typename> class... Templates>
+struct FunctionTemplateTemplatePackPartialType {
+    using type = char;
+};
+
+template<template<typename> class First, template<typename> class Second>
+struct FunctionTemplateTemplatePackPartialType<First, Second> {
+    using type = short;
+};
+
+static_assert(sizeof(FunctionTemplateTemplatePackPartialType<>::type) == 1);
+static_assert(sizeof(FunctionTemplateTemplatePackPartialType<
+                 FunctionTemplateTemplatePartialA,
+                 FunctionTemplateTemplatePartialB>::type) == 2);
+
 template<typename... Rest,
          typename Tail = typename FunctionTemplatePackCountType<
              Rest...>::type>
@@ -458,6 +479,15 @@ template<typename... Rest,
 int choose_nontrailing_pointer_pack_with_non_type_pack_dependent_default_suffix(
     Rest*..., decltype(sizeof(Tail)) suffix) {
     return (int)sizeof...(Rest) * 100 + (int)sizeof(Tail) * 10 +
+           (int)suffix;
+}
+
+template<template<typename> class... Templates,
+         typename Tail = typename FunctionTemplateTemplatePackPartialType<
+             Templates...>::type>
+int choose_template_template_pack_with_partial_default_suffix(
+    decltype(sizeof(Tail)) suffix) {
+    return (int)sizeof...(Templates) * 100 + (int)sizeof(Tail) * 10 +
            (int)suffix;
 }
 
@@ -3243,6 +3273,11 @@ int main(void) {
                    choose_nontrailing_pointer_pack_with_non_type_pack_dependent_default_suffix<
                        int, short>(pointer, &priority, 2u) == 222 &&
                    choose_nontrailing_pointer_pack_with_non_type_pack_dependent_default_suffix<>(
+                       2u) == 12 &&
+                   choose_template_template_pack_with_partial_default_suffix<
+                       FunctionTemplateTemplatePartialA,
+                       FunctionTemplateTemplatePartialB>(2u) == 222 &&
+                   choose_template_template_pack_with_partial_default_suffix<>(
                        2u) == 12 &&
                    choose_non_type_pack_partial_order(
                        FunctionTemplateValuePackTag<1>{}) == 171 &&
