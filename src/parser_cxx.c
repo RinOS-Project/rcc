@@ -3567,6 +3567,7 @@ static bool cxx_friend_function_name_matches(CxxNamespace* ns,
 static bool cxx_template_integer_call_add_candidate(
     Decl** candidates, int* candidate_count, int candidate_capacity,
     Decl* candidate);
+static CxxNamespace* cxx_type_associated_namespace(Type* type);
 static bool cxx_template_integer_call_count_namespace_declarations(
     CxxNamespace* ns, int* count) {
     if (!ns || !count) return true;
@@ -3732,6 +3733,61 @@ static bool cxx_template_integer_call_add_using_namespace_candidates(
         scope_has_name);
 }
 
+static bool cxx_template_integer_call_add_adl_namespace_candidates(
+    CxxNamespace* ns, const char* name, Decl** candidates,
+    int* candidate_count, int candidate_capacity, unsigned depth) {
+    if (!ns || !name || !candidates || !candidate_count || depth > 64u) {
+        return depth > 64u ? false : true;
+    }
+    for (DeclList* item = ns->decls; item; item = item->next) {
+        Decl* candidate = item->decl;
+        if (!candidate || candidate->kind != DECL_FUNC ||
+            candidate->func_this_param || candidate->func_template_owner ||
+            !cxx_friend_function_name_matches(ns, candidate->name, name)) {
+            continue;
+        }
+        if (candidate->func_is_hidden_friend) continue;
+        if (!cxx_template_integer_call_add_candidate(
+                candidates, candidate_count, candidate_capacity, candidate)) {
+            return false;
+        }
+    }
+    for (CxxNamespace* child = ns->children; child; child = child->next) {
+        if (child->is_inline_namespace &&
+            !cxx_template_integer_call_add_adl_namespace_candidates(
+                child, name, candidates, candidate_count,
+                candidate_capacity, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool cxx_template_integer_call_add_enum_adl_candidates(
+    Expr* expression, const char* name, Decl** candidates,
+    int* candidate_count, int candidate_capacity) {
+    if (!expression || !name || !candidates || !candidate_count) {
+        return false;
+    }
+    for (ExprList* argument = expression->call_args; argument;
+         argument = argument->next) {
+        Type* type = cxx_parser_expression_type(argument->expr);
+        while (type && type->is_reference && type->base) type = type->base;
+        while (type && (type->kind == TYPE_PTR || type->kind == TYPE_ARRAY) &&
+               !type->cxx_is_member_pointer) {
+            type = type->base;
+            while (type && type->is_reference && type->base) type = type->base;
+        }
+        if (!type || type->kind != TYPE_ENUM) continue;
+        if (!cxx_template_integer_call_add_adl_namespace_candidates(
+                cxx_type_associated_namespace(type), name, candidates,
+                candidate_count, candidate_capacity, 0u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static Decl* cxx_template_integer_call_select_candidate(
     Expr* expression, Decl** candidates, int candidate_count) {
     int argument_count = 0;
@@ -3745,9 +3801,10 @@ static Decl* cxx_template_integer_call_select_candidate(
         Type* argument_type = cxx_parser_expression_type(argument->expr);
         if (!argument_type ||
             (!type_is_integer(argument_type) &&
-             !type_is_floating(argument_type))) {
-            /* Class and enumeration arguments may add ADL candidates or
-             * user-defined conversions not represented by this evaluator. */
+             !type_is_floating(argument_type) &&
+             argument_type->kind != TYPE_ENUM)) {
+            /* Class arguments may require user-defined conversions not
+             * represented by this constant-expression overload evaluator. */
             return NULL;
         }
         if (argument_count == INT_MAX) return NULL;
@@ -4024,11 +4081,34 @@ static Decl* cxx_template_integer_call_function(
             }
         }
         if (scope_has_name) {
+            if (!cxx_template_integer_call_add_enum_adl_candidates(
+                    (Expr*)expression, name, candidates, &candidate_count,
+                    candidate_capacity)) {
+                return NULL;
+            }
             return candidate_count > 0
                 ? cxx_template_integer_call_select_candidate(
                       (Expr*)expression, candidates, candidate_count)
                 : NULL;
         }
+    }
+    if (!cxx_template_integer_call_count_namespace_declarations(
+            g_global_namespace, &candidate_capacity)) {
+        return NULL;
+    }
+    if (candidate_capacity == 0) candidate_capacity = 1;
+    candidates = ast_arena_alloc(sizeof(*candidates) *
+                                 (size_t)candidate_capacity);
+    if (!candidates) return NULL;
+    candidate_count = 0;
+    if (!cxx_template_integer_call_add_enum_adl_candidates(
+            (Expr*)expression, name, candidates, &candidate_count,
+            candidate_capacity)) {
+        return NULL;
+    }
+    if (candidate_count > 0) {
+        return cxx_template_integer_call_select_candidate(
+            (Expr*)expression, candidates, candidate_count);
     }
     return direct_declaration;
 }
@@ -15542,7 +15622,14 @@ static Type* substitute_template_type(CxxTemplate* tmpl, Type* type,
         if (type->cxx_template_param_index >= argument_count || !arguments)
             return type;
         template_argument = arguments[type->cxx_template_param_index];
-        if (!template_argument || !template_argument->cxx_template) {
+        if (!template_argument) return type;
+        if (!template_argument->cxx_template &&
+            template_argument->cxx_dependent) {
+            /* Defer this dependent pattern until template-template argument
+             * deduction supplies the concrete template identity. */
+            return type;
+        }
+        if (!template_argument->cxx_template) {
             rcc_error((SourceLoc){"<template>", 0, 0},
                       "template-template parameter index %d has no template "
                       "argument identity",
@@ -29597,7 +29684,12 @@ static bool prepare_cxx_function_template_match(
                  * not provide a value. */
                 continue;
             }
-            if (!parameter->has_default) return false;
+            if (!parameter->has_default) {
+                /* Explicit template arguments are a prefix. A trailing
+                 * parameter without a default can still be deduced from the
+                 * function arguments; reject it only after deduction. */
+                continue;
+            }
             if (parameter->kind == TPARAM_TYPE) {
                 if (!parameter->default_type) return false;
                 match->arguments[index] =

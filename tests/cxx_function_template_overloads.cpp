@@ -1748,6 +1748,28 @@ int choose_using_directive_constexpr_call_default_order(
 }
 }
 
+namespace PackOrderConstexprEnumAdl {
+enum Value { seed = 2 };
+
+constexpr int default_value(Value value) {
+    return value == seed ? 12 : 14;
+}
+}
+
+using PackOrderConstexprEnumAdl::Value;
+using PackOrderConstexprEnumAdl::seed;
+
+static_assert(default_value(seed) == 12,
+              "ordinary calls must find enum-namespace constexpr functions by ADL");
+
+namespace PackOrderConstexprEnumAdlTemplate {
+template<Value V, typename T,
+         template<typename, int = default_value(V)> class Box>
+constexpr int select_default_value(Box<T>) {
+    return V == seed ? 12 : 14;
+}
+}
+
 template<typename T>
 struct PackOrderTemplateBox {};
 
@@ -3979,6 +4001,10 @@ int main(void) {
                            PackOrderOuterNonTypeDefaultTemplateBox<
                                PackOrderConstrainedValue, 14>{},
                            constrained_values) == 227 &&
+                   PackOrderConstexprEnumAdlTemplate::
+                       select_default_value<seed>(
+                           PackOrderOuterNonTypeDefaultTemplateBox<
+                               PackOrderConstrainedValue, 12>{}) == 12 &&
                    choose_outer_non_type_constexpr_template_call_default_template_template_order(
                        PackOrderOuterNonTypeDefaultTemplateBox<
                            PackOrderConstrainedValue, 14>{},

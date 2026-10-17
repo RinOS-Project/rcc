@@ -7983,7 +7983,17 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
         if (type->cxx_template_param_index >= arg_count || !args)
             return type;
         template_argument = args[type->cxx_template_param_index];
-        if (!template_argument || !template_argument->cxx_template) {
+        if (!template_argument) {
+            /* Function-template deduction substitutes parameter patterns
+             * before every template-template argument has necessarily been
+             * deduced. Keep this type dependent until that deduction runs. */
+            return type;
+        }
+        if (!template_argument->cxx_template &&
+            template_argument->cxx_dependent) {
+            return type;
+        }
+        if (!template_argument->cxx_template) {
             rcc_error((SourceLoc){"<template>", 0, 0},
                       "template-template parameter index %d has no template "
                       "argument identity",

@@ -5853,6 +5853,12 @@ remains a separate open item.
       overloads by argument conversions. The native-Windows
       `test-cxx-function-template-overloads` gate passes for i686/AMD64
       generation, RCC/GCC host execution, and its existing diagnostics.
+- [x] Resolve enum-argument ADL for a namespace-scope non-template constexpr
+      call in a dependent nested template-template non-type default. Defer
+      substitution of not-yet-deduced template-template parameters after an
+      explicit template-argument prefix; `test-cxx-function-template-overloads`
+      passes for i686/AMD64 generation, GCC comparison, generated host
+      execution, and existing diagnostics.
 - [ ] ADL for class/enum arguments, imported function-template overloads,
       other compound outer non-type forms, deeper paths through dependent
       intermediate aliases, and additional C++20 function partial-ordering
