@@ -121,6 +121,12 @@ int debug_template_dependent_array_reference_pack(
     return (static_cast<int>(values[0]) + ... + 0);
 }
 
+template <typename... Owners>
+int debug_template_dependent_array_pointer_pack(
+    typename Owners::value_type (*...values)[2]) {
+    return (static_cast<int>((*values)[0]) + ... + 0);
+}
+
 template <typename... Values>
 int debug_template_pack_with_variadic_ellipsis(Values... values, ...) {
     return static_cast<int>(sizeof...(Values));
@@ -148,6 +154,10 @@ int debug_template_dependent_compound_pack_entry() {
            debug_template_dependent_array_reference_pack<
                DebugTemplateCompoundPackShortOwner,
                DebugTemplateCompoundPackLongOwner>(short_array, long_array) +
+           debug_template_dependent_array_pointer_pack<
+               DebugTemplateCompoundPackShortOwner,
+               DebugTemplateCompoundPackLongOwner>(&short_array,
+                                                   &long_array) +
            debug_template_pack_with_variadic_ellipsis<int>(7, 11);
 }
 

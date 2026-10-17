@@ -4530,6 +4530,21 @@ static void verify_dependent_function_parameter_pack(
                        read_u32(info->data, subrange_type + 1u) == 1u &&
                        info->data[subrange_type + 5u] == 0u &&
                        info->data[subrange_type + 6u] == 0u);
+            } else if (expected_type_tag == 6u &&
+                       strcmp(function_name,
+                              "debug_template_dependent_array_pointer_pack") == 0) {
+                uint32_t array_type;
+                uint32_t subrange_type;
+                assert(parameter_type + 6u <= info->size);
+                array_type = read_u32(info->data, parameter_type + 2u);
+                assert(array_type + 12u <= info->size &&
+                       info->data[array_type] == 10u);
+                base_type = read_u32(info->data, array_type + 1u);
+                subrange_type = array_type + 5u;
+                assert(info->data[subrange_type] == 11u &&
+                       read_u32(info->data, subrange_type + 1u) == 1u &&
+                       info->data[subrange_type + 5u] == 0u &&
+                       info->data[subrange_type + 6u] == 0u);
             } else if (expected_type_tag == 5u) {
                 base_type = parameter_type;
             } else if (expected_type_tag == 37u) {
@@ -6100,6 +6115,12 @@ int main(int argc, char** argv)
     verify_dependent_function_parameter_pack(
         argv[27], ARCH_X64,
         "debug_template_dependent_array_reference_pack", 37u, true);
+    verify_dependent_function_parameter_pack(
+        argv[26], ARCH_X86,
+        "debug_template_dependent_array_pointer_pack", 6u, false);
+    verify_dependent_function_parameter_pack(
+        argv[27], ARCH_X64,
+        "debug_template_dependent_array_pointer_pack", 6u, false);
     verify_function_template_template_parameter_dies(argv[26], ARCH_X86);
     verify_function_template_template_parameter_dies(argv[27], ARCH_X64);
     verify_function_template_nontype_signature_die(argv[26], ARCH_X86);

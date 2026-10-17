@@ -5925,6 +5925,11 @@ remains a separate open item.
       scalar type; for array references, verify the reference-to-array DIE,
       element type, and upper bound. GCC and RCC Itanium symbols match exactly.
 - [x] Pass native-Windows MinGW GCC `test-debug-info` (exit 0).
+- [x] Add a dependent nested-alias function parameter pack of pointers to
+      fixed-bound arrays. Verify each formal-parameter DIE points through a
+      pointer DIE to the array DIE, retains the bound of two, and resolves the
+      heterogeneous element types (`short` and `long`) on i686 and AMD64. Check
+      the exact Itanium symbol against GCC and pass `test-debug-info`.
 - [ ] Other dependent function parameter pack forms, non-integral structural
       non-type packs, and uninstantiated dependent alias/template-definition
       DIEs remain open.

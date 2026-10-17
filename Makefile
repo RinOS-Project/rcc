@@ -1379,6 +1379,8 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z45debug_template_dependent_array_reference_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpRA2_NT_10value_typeE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z43debug_template_dependent_array_pointer_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpPA2_NT_10value_typeE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z34debug_template_template_pack_entryP31DebugTemplateTemplatePackHolderIJ25DebugTemplateTemplateLeafN24debug_template_namespace4LeafEEE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z35debug_template_template_fixed_entryP27DebugTemplateTemplateHolderIN24debug_template_namespace4LeafEE' \
@@ -1458,6 +1460,8 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -x -q '_Z35debug_template_dependent_value_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpNT_10value_typeE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z45debug_template_dependent_array_reference_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpRA2_NT_10value_typeE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z43debug_template_dependent_array_pointer_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpPA2_NT_10value_typeE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/debug-info/x86-no-g.ro tests/debug_info.c
