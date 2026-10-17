@@ -2572,6 +2572,11 @@ remains a separate open item.
   exact data-member-pointer target beats adding member `const` for equal-owner
   targets; the focused conversion-operator gate passes both architectures and
   runtime execution.
+- [x] Do not let cv-insensitive type compatibility classify an unsafe nested
+  qualification as an identity conversion. Reject `int* C::*` to
+  `const int* C::*`, rank valid same-owner member qualification as a conversion,
+  and verify a GCC-confirmed overload set chooses the exact target. The focused
+  gate passes i686/AMD64 generation and execution.
 - [ ] Extend ranking to deeper/differing member-type shapes, member-function
   parameter/signature variations, and virtual/inaccessible owner-path interactions;
   proper subsequences and full template partial ordering also remain open.

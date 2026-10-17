@@ -28,11 +28,26 @@ struct MemberPointerReferenceDerived : MemberPointerReferencePadding,
 
 struct MemberPointerReferenceLeaf : MemberPointerReferenceDerived {};
 
+struct MemberPointerNestedQualificationOwner {
+    int* pointer;
+};
+
+using MemberPointerNestedQualification =
+    int* MemberPointerNestedQualificationOwner::*;
+using MemberPointerNestedConstQualification =
+    const int* MemberPointerNestedQualificationOwner::*;
+
 struct MemberPointerReferenceSource {
     int MemberPointerReferenceBase::*member;
 
     operator int MemberPointerReferenceBase::*() const {
         return member;
+    }
+};
+
+struct MemberPointerNestedQualificationSource {
+    operator MemberPointerNestedQualification() const {
+        return &MemberPointerNestedQualificationOwner::pointer;
     }
 };
 
@@ -492,6 +507,18 @@ int choose_template_member_pointer_value_cv_conversion(
 }
 
 template<typename T>
+int choose_template_nested_member_pointer_cv_conversion(
+    T, MemberPointerNestedQualification const& member) {
+    return member ? 269 : 271;
+}
+
+template<typename T>
+int choose_template_nested_member_pointer_cv_conversion(
+    T, MemberPointerNestedConstQualification const& member) {
+    return member ? 277 : 279;
+}
+
+template<typename T>
 int take_template_integer(T, int value) {
     return value + 10;
 }
@@ -597,6 +624,8 @@ int main() {
             0, member_pointer_reference_source) != 251 ||
         choose_template_member_pointer_value_cv_conversion(
             0, member_pointer_reference_source) != 257 ||
+        choose_template_nested_member_pointer_cv_conversion(
+            0, MemberPointerNestedQualificationSource{}) != 269 ||
         rank_member_function_signature(
             ConversionMemberFunctionSignatureSource{}) != 167 ||
         rank_member_function_noexcept(

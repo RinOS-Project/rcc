@@ -78,6 +78,8 @@ static bool sema_cxx_exact_function_signature(Type* candidate,
                                                Type* target);
 static bool sema_cxx_member_function_signature_convertible(
     Type* source, Type* target);
+static bool cxx_same_parameter_type(Type* source, Type* target,
+                                    bool top_level);
 static bool sema_cxx_member_method_lookup_ambiguous(
     Type* aggregate, const char* name);
 static bool sema_cxx_trivially_copyable(Type* type, int depth);
@@ -2712,7 +2714,12 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
          (source->is_volatile && !target->is_volatile))) {
         return -1;
     }
-    if (type_is_compatible(source, target)) return 0;
+    if (type_is_compatible(source, target) &&
+        !(source->kind == TYPE_PTR && target->kind == TYPE_PTR &&
+          source->cxx_is_member_pointer && target->cxx_is_member_pointer &&
+          !cxx_same_parameter_type(source->base, target->base, false))) {
+        return 0;
+    }
     /* A conversion function may return a pointer-like value that completes
      * its implicit conversion sequence with pointer-to-bool. Function and
      * array references first undergo their standard decay, just as they do
@@ -2766,7 +2773,7 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
         }
         if (type_is_compatible(source->cxx_member_pointer_owner,
                                target->cxx_member_pointer_owner)) {
-            return 1;
+            return 2;
         }
         return source->cxx_member_pointer_owner &&
                        target->cxx_member_pointer_owner &&
