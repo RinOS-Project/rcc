@@ -25,17 +25,42 @@ struct VerifiedVirtualValueLeaf : VerifiedVirtualValueLeft,
     virtual int read_leaf() const noexcept { return leaf_value; }
 };
 
+struct VerifiedVirtualCleanupRoot {};
+
+struct VerifiedVirtualCleanupLeaf : virtual VerifiedVirtualCleanupRoot {
+    int* cleanup_count;
+
+    explicit VerifiedVirtualCleanupLeaf(int* count) noexcept
+        : cleanup_count(count) {}
+
+    ~VerifiedVirtualCleanupLeaf() noexcept {
+        ++*cleanup_count;
+    }
+};
+
 int consume_verified_virtual_value_root(
         VerifiedVirtualValueRoot value) noexcept {
     return value.value;
 }
 
+int consume_verified_virtual_cleanup_root(
+        VerifiedVirtualCleanupRoot value) noexcept {
+    (void)value;
+    return 101;
+}
+
 int main() {
+    int cleanup_count = 0;
     VerifiedVirtualValueLeaf value;
     value.value = 101;
     value.leaf_value = 53;
-    return consume_verified_virtual_value_root(value) == 101 &&
-                   value.read_leaf() == 53
-               ? 0
-               : 1;
+    if (consume_verified_virtual_value_root(value) != 101 ||
+        value.read_leaf() != 53) {
+        return 1;
+    }
+    if (consume_verified_virtual_cleanup_root(
+            VerifiedVirtualCleanupLeaf(&cleanup_count)) != 101) {
+        return 2;
+    }
+    return cleanup_count == 1 ? 0 : 3;
 }

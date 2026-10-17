@@ -425,14 +425,19 @@
         complete objectを保持してcall後に一度だけ破棄する。通常backendは
         i686/AMD64生成とx64実行、GCC `-fno-elide-constructors`比較を確認。
         verified backendでlocal objectのvptr/vbptr初期化も行い、両archで
-        3関数・fallbackなし、およびi686/AMD64 objectの実行を確認。
+        5関数・fallbackなし、およびi686/AMD64 objectの実行を確認。
         object runnerは`.text`と`.rodata`のrelocationを適用してvtable経由の
         virtual dispatchも実行する。
         `test-cxx-function-template-overloads` と
         `test-verified-cxx-virtual-base-value` を参照
-  - [ ] verified backendでのvirtual-base経由nontrivial-prvalue cleanup、
-        nontrivial/deleted target copy constructor、call引数以外のfull-expression
-        cleanup、例外経路を実装・検証。標準conversion subsequenceと
+  - [x] verified backendで、noexcept空constructor・empty trivial virtual base・
+        1個のpointer memberを1個のpointer引数から初期化するderived prvalueの
+        virtual-base-to-value call argument conversionをlowerし、complete objectの
+        destructorがcall後に一度だけ実行されることをi686/AMD64で確認。
+        `test-verified-cxx-virtual-base-value` はfallbackなしで両objectを実行する。
+  - [ ] verified backendで上記subsetを一般化し、nontrivial constructor/member/base
+        initialization、nontrivial/deleted target copy constructor、call引数以外の
+        full-expression cleanup、例外経路を実装・検証。標準conversion subsequenceと
         pointer-to-memberを含む全rank/partial orderingも未完了
   - [x] Namespace extension compatibility: verify reopened named and
         translation-unit anonymous namespaces, lookup through the transitive

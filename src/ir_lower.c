@@ -6258,6 +6258,136 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
     return new_value;
 }
 
+static bool lower_cxx_empty_trivial_subobject(
+    const Type* type, unsigned depth) {
+    const CxxClass* cls;
+    const TypeParam* member;
+    int index;
+    if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
+        depth >= 32u) {
+        return false;
+    }
+    cls = type->cxx_class;
+    if (cls->has_user_constructor || cls->has_field_initializer ||
+        cls->destructor_method || cls->vtable_size > 0) {
+        return false;
+    }
+    for (member = cls->fields; member; member = member->next) {
+        if (!member->is_static) return false;
+    }
+    for (index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        if (!base || !lower_cxx_empty_trivial_subobject(
+                         base->type, depth + 1u)) {
+            return false;
+        }
+    }
+    for (index = 0; index < cls->virtual_base_count; ++index) {
+        const CxxClass* base = cls->virtual_bases[index].base;
+        if (!base || !lower_cxx_empty_trivial_subobject(
+                         base->type, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* The inline-cleanup path may accept a class temporary only if its selected
+ * constructor and every base initialization are proven non-throwing.  Keep
+ * construction explicit: an empty noexcept body, empty trivial bases, and
+ * either no members/arguments or one pointer member initialized directly
+ * from the sole pointer constructor parameter. */
+static bool lower_cxx_empty_noop_constructor_supported(
+    const Expr* expression) {
+    const CxxConstructorInfo* constructor;
+    const CxxClass* cls;
+    const CxxConstructorInitializer* initializer;
+    const TypeParam* member = NULL;
+    const DeclList* parameter_decl;
+    unsigned member_initializer_count = 0u;
+    int index;
+    if (!expression || expression->kind != EXPR_COMPOUND ||
+        !expression->type || expression->type->kind != TYPE_STRUCT ||
+        !(cls = expression->type->cxx_class) ||
+        !(constructor = expression->compound_constructor) ||
+        !constructor->method || !constructor->method->decl ||
+        !constructor->method->decl->func_is_noexcept ||
+        !constructor->body_is_empty ||
+        !constructor->initializers_are_supported ||
+        constructor->parameter_count < 0 ||
+        constructor->parameter_count > 1 ||
+        cls->has_field_initializer) {
+        return false;
+    }
+    parameter_decl = constructor->method->decl->func_params;
+    if (constructor->parameter_count == 0) {
+        if (expression->compound_init || parameter_decl) return false;
+    } else {
+        const ExprList* argument = expression->compound_init;
+        if (!constructor->parameters || constructor->parameters->next ||
+            !constructor->parameters->type ||
+            constructor->parameters->type->kind != TYPE_PTR ||
+            !parameter_decl || !parameter_decl->decl ||
+            parameter_decl->next || !argument || argument->next ||
+            argument->designator_kind != INIT_DESIGNATOR_NONE ||
+            !argument->expr) {
+            return false;
+        }
+    }
+    for (const TypeParam* field = cls->fields; field;
+         field = field->next) {
+        if (field->is_static) continue;
+        if (member || constructor->parameter_count != 1 ||
+            !field->name || !field->type ||
+            field->type->kind != TYPE_PTR ||
+            !type_is_compatible(field->type,
+                                constructor->parameters->type)) {
+            return false;
+        }
+        member = field;
+    }
+    if ((constructor->parameter_count == 0 && member) ||
+        (constructor->parameter_count == 1 && !member)) return false;
+    for (index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        if (!base || !lower_cxx_empty_trivial_subobject(
+                         base->type, 0u)) {
+            return false;
+        }
+    }
+    for (index = 0; index < cls->virtual_base_count; ++index) {
+        const CxxClass* base = cls->virtual_bases[index].base;
+        if (!base || !lower_cxx_empty_trivial_subobject(
+                         base->type, 0u)) {
+            return false;
+        }
+    }
+    for (initializer = constructor->initializers; initializer;
+         initializer = initializer->next) {
+        if (initializer->is_delegating_constructor ||
+            initializer->is_default_member_initializer ||
+            initializer->constructor) {
+            return false;
+        }
+        if (initializer->is_base_initializer) {
+            if (initializer->value || initializer->arguments) return false;
+            continue;
+        }
+        if (!member || !initializer->field ||
+            strcmp(initializer->field, member->name) != 0 ||
+            ++member_initializer_count != 1u ||
+            !initializer->arguments || initializer->arguments->next ||
+            !initializer->arguments->expr ||
+            initializer->value != initializer->arguments->expr ||
+            initializer->arguments->expr->kind != EXPR_IDENT ||
+            initializer->arguments->expr->ident_decl !=
+                parameter_decl->decl) {
+            return false;
+        }
+    }
+    return member_initializer_count == (member ? 1u : 0u);
+}
+
 static bool lower_noexcept_expression(const Expr* expression);
 static bool lower_temporary_cleanup_plan_supported(
     const ExprList* argument);
@@ -6300,6 +6430,10 @@ static bool lower_noexcept_expression(const Expr* expression) {
             return expression->cxx_call_is_noexcept &&
                 lower_noexcept_expression(expression->call_func) &&
                 lower_noexcept_expression_list(expression->call_args);
+        case EXPR_COMPOUND:
+            return lower_cxx_empty_noop_constructor_supported(expression) &&
+                lower_noexcept_expression_list(
+                    expression->compound_init);
         case EXPR_COMMA:
         case EXPR_ADD:
         case EXPR_SUB:
@@ -12355,6 +12489,39 @@ static bool lower_struct_initializer(
         !lower_zero_struct_storage(context, base, type)) {
         context->unsupported = true;
         return false;
+    }
+    if (type->cxx_class && initializer->compound_constructor) {
+        const CxxConstructorInitializer* member_initializer;
+        const Expr* constructor_argument = initializer->compound_init
+            ? initializer->compound_init->expr : NULL;
+        if (!lower_cxx_empty_noop_constructor_supported(initializer)) {
+            context->unsupported = true;
+            return false;
+        }
+        for (member_initializer =
+                 initializer->compound_constructor->initializers;
+             member_initializer; member_initializer =
+                 member_initializer->next) {
+            const TypeField* field;
+            RccIrLowerValue object;
+            RccIrLowerValue address;
+            if (member_initializer->is_base_initializer) continue;
+            field = lower_struct_declared_field(
+                type, type->cxx_class, member_initializer->field);
+            object = lower_value(base, rcc_ir_type_pointer(0u), true);
+            address = field
+                ? lower_byte_offset_address(
+                      context, object, (uint64_t)field->offset)
+                : lower_invalid_value();
+            if (!field || !constructor_argument || !address.valid ||
+                !lower_initialize_scalar_storage(
+                    context, address.value, field->type,
+                    constructor_argument)) {
+                context->unsupported = true;
+                return false;
+            }
+        }
+        return true;
     }
     if (type->cxx_class && type->cxx_class->base_count > 0) {
         const CxxClass* cls = type->cxx_class;
