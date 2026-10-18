@@ -2528,8 +2528,15 @@ remains a separate open item.
   resolution. `const T&` remains selected for an lvalue, while `const T&&` wins
   for prvalues and explicit xvalues. GCC C++20 agrees; i686/AMD64 generation,
   AMD64 execution, GCC `-Werror` execution, the focused overload target, and
-  full native-Windows `test-cxx` pass. User-defined sequences and implicit-
-  object parameters remain outside this tie-break.
+  full native-Windows `test-cxx` pass.
+- [x] Apply the same reference tie-break when both candidates use the same
+  user-defined conversion function returning a class prvalue:
+  `ReferenceConversionSource{}` selects `ReferenceConversionResult&&` over
+  `const ReferenceConversionResult&` (`143` rather than `243`). The
+  `test-cxx-conversion-operator` fixture and full native-Windows `test-cxx`
+  aggregate cover the behavior.
+- [ ] Distinct user-defined conversion sequences and implicit-object parameter
+  ranking remain outside this bounded tie-break.
 - [x] Do not let a reference wrapper alone make a function-template pattern
   more specialized than its by-value counterpart when the non-pack scalar,
   class, or one-level unqualified-pointee pointer parameter lists become
