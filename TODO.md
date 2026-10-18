@@ -1703,7 +1703,8 @@
       - [x] 最大4096-byte alignmentのC/C++ variadic MEMORY aggregateを9個目のstack
         double後に渡し、calleeの`va_arg`で読んだ後の24-byte aggregateも正しく読む。
         C/C++ `-O0`/`-O2`全4 objectで57関数をfallbackなしで生成し、host SysV実行で
-        結果100を検証。
+        結果100を検証。clang64の実行ファイルを`CLANG`に指定して`test-verified-backend`
+        全体も再実行し、dynamic-TLS、verified backend、production object各gateが成功。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
         16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER
