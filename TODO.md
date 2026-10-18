@@ -6490,5 +6490,9 @@ remains a separate open item.
       must remain ambiguous. The conversion-operator gate passes on i686 and
       AMD64, including native execution.
 - [x] Pass the full native-Windows `test-cxx` aggregate (exit 0).
+- [x] Prefer a non-template conversion function over an otherwise-equivalent
+      conversion-function-template specialization. Add a GCC-checked runtime
+      regression; the focused conversion-operator gate and full native-Windows
+      `test-cxx` aggregate both pass (exit 0).
 - [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
       and full C++20 overload-resolution conformance remain open.

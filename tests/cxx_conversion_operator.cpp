@@ -224,6 +224,18 @@ public:
     }
 };
 
+class NonTemplateWinsConversionSource {
+public:
+    operator int() const {
+        return 283;
+    }
+
+    template <class T>
+    operator T() const {
+        return static_cast<T>(293);
+    }
+};
+
 class TemplatedConversionSource {
 public:
     template <class T>
@@ -709,6 +721,7 @@ int main() {
     Meter meter{7};
     ConversionImplicitObjectDerived implicit_object_conversion_source;
     ConversionObjectRankDerived object_rank_conversion_source;
+    NonTemplateWinsConversionSource non_template_wins_conversion_source;
     RefQualifiedConversionSource ref_qualified_source;
     const CvRefQualifiedConversionSource const_ref_qualified_source{};
     FunctionReferenceConversionSource function_reference_source;
@@ -769,6 +782,7 @@ int main() {
     if (take_integer(implicit_object_conversion_source) != 227) return 2;
     if (take_long(implicit_object_conversion_source) != 229) return 3;
     if (take_integer(object_rank_conversion_source) != 277) return 4;
+    if (take_integer(non_template_wins_conversion_source) != 283) return 5;
     if (direct != 7 || templated_direct != 67 ||
         templated_argument != 67 || argument != 7 || widened != 7 ||
         reference_widened != 307 || rvalue_reference_widened != 407 ||

@@ -3236,6 +3236,17 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
                 relation = sema_cxx_reference_conversion_source_relation(
                     candidates[other].result_type,
                     candidates[index].result_type, target);
+                if (relation == 0) {
+                    bool other_is_template =
+                        candidates[other].method->function_decl
+                            ->func_is_template_instance;
+                    bool index_is_template =
+                        candidates[index].method->function_decl
+                            ->func_is_template_instance;
+                    if (other_is_template != index_is_template) {
+                        relation = other_is_template ? -1 : 1;
+                    }
+                }
             }
             if (relation > 0) {
                 dominated = true;
