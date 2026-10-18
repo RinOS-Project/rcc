@@ -3113,6 +3113,39 @@ static bool sema_cxx_conversion_result_uses_pointer_to_bool(
            result_type->kind == TYPE_FUNC;
 }
 
+static int sema_cxx_pointer_to_void_source_relation(
+    Type* left_result, Type* right_result, Type* target) {
+    Type* left_pointer;
+    Type* right_pointer;
+    Type* target_pointer;
+    CxxClass* left_class;
+    CxxClass* right_class;
+    if (!left_result || !right_result || !target) return 0;
+    left_pointer = left_result->is_reference ? left_result->base : left_result;
+    right_pointer = right_result->is_reference ? right_result->base
+                                               : right_result;
+    target_pointer = target->is_reference ? target->base : target;
+    if (!left_pointer || !right_pointer || !target_pointer ||
+        left_pointer->kind != TYPE_PTR || right_pointer->kind != TYPE_PTR ||
+        left_pointer->cxx_is_member_pointer ||
+        right_pointer->cxx_is_member_pointer ||
+        target_pointer->kind != TYPE_PTR || !target_pointer->base ||
+        target_pointer->base->kind != TYPE_VOID || !left_pointer->base ||
+        !right_pointer->base ||
+        left_pointer->base->kind != TYPE_STRUCT ||
+        right_pointer->base->kind != TYPE_STRUCT) {
+        return 0;
+    }
+    left_class = left_pointer->base->cxx_class;
+    right_class = right_pointer->base->cxx_class;
+    if (!left_class || !right_class || left_class == right_class) return 0;
+    /* [over.ics.rank]: A* -> void* is better than B* -> void* when B derives
+     * from A. */
+    if (sema_cxx_class_derives_from(right_class, left_class, 0u)) return 1;
+    if (sema_cxx_class_derives_from(left_class, right_class, 0u)) return -1;
+    return 0;
+}
+
 static void sema_register_materialized_member_templates(Type* aggregate) {
     if (!current_ast || !aggregate || !aggregate->cxx_class) return;
     for (TypeMethod* method = aggregate->methods; method;
@@ -3257,9 +3290,14 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
                      * to member to bool is better. */
                     relation = other_uses_pointer_to_bool ? -1 : 1;
                 } else {
-                    relation = sema_cxx_reference_conversion_source_relation(
+                    relation = sema_cxx_pointer_to_void_source_relation(
                         candidates[other].result_type,
                         candidates[index].result_type, target);
+                    if (relation == 0) {
+                        relation = sema_cxx_reference_conversion_source_relation(
+                            candidates[other].result_type,
+                            candidates[index].result_type, target);
+                    }
                 }
                 if (relation == 0) {
                     bool other_is_template =

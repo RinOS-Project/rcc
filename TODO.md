@@ -6498,5 +6498,9 @@ remains a separate open item.
       over pointer-to-`bool` when comparing distinct conversion functions.
       GCC-checked runtime regression; focused and full native-Windows
       `test-cxx` gates pass (exit 0).
+- [x] At equal Conversion rank, prefer `Base* -> void*` over
+      `Derived* -> void*` when conversion functions return related class
+      pointers. GCC-checked runtime regression; focused and full native-Windows
+      `test-cxx` gates pass (exit 0).
 - [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
       and full C++20 overload-resolution conformance remain open.

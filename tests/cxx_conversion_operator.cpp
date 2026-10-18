@@ -294,6 +294,20 @@ public:
     }
 };
 
+class ConversionPointerVoidResultSource {
+public:
+    ConversionBasePointerTarget base_value;
+    ConversionDerivedPointerTarget derived_value;
+
+    operator ConversionBasePointerTarget*() {
+        return &base_value;
+    }
+
+    operator ConversionDerivedPointerTarget*() {
+        return &derived_value;
+    }
+};
+
 class ConversionPointerToBoolSource {
 public:
     int* value;
@@ -735,6 +749,7 @@ int main() {
     ConversionImplicitObjectDerived implicit_object_conversion_source;
     ConversionObjectRankDerived object_rank_conversion_source;
     NonTemplateWinsConversionSource non_template_wins_conversion_source;
+    ConversionPointerVoidResultSource pointer_void_result_source;
     RefQualifiedConversionSource ref_qualified_source;
     const CvRefQualifiedConversionSource const_ref_qualified_source{};
     FunctionReferenceConversionSource function_reference_source;
@@ -853,6 +868,8 @@ int main() {
         choose_pointer_conversion(pointer_source) != 71 ||
         choose_pointer_to_bool_or_void(pointer_source) != 229 ||
         choose_pointer_void_qualification(pointer_source) != 271 ||
+        static_cast<void*>(pointer_void_result_source) !=
+            static_cast<void*>(&pointer_void_result_source.base_value) ||
         choose_template_pointer_conversion(0, pointer_source) != 79 ||
         take_pointer_conversion_bool(pointer_bool_source) != 109 ||
         take_pointer_conversion_bool(null_pointer_bool_source) != 113 ||
