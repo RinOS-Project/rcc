@@ -637,6 +637,12 @@
         with i686/AMD64 ELF assembly and the AMD64 pthread host assertions.
         Native Windows cannot execute this ELF-TLS host target; RinOS runtime
         integration remains a separate open item.
+  - [x] Cover a block-scope `thread_local const Base&` initialized by a
+        conditional selecting between derived-class prvalues. GCC C++20
+        pedantic syntax checking, RCC i686/AMD64 object generation, and x64
+        pthread execution verify that the first branch initializes once, the
+        referent survives to thread exit, and derived-before-base cleanup is
+        exact without signed overflow in the test's ordering counter.
   - [x] Verify namespace-scope `thread_local const T&` bindings to direct and
         derived-to-base class prvalues: i686/AMD64 generation must emit
         `__cxa_thread_atexit`, repeated access in one thread must reuse its

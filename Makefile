@@ -3585,6 +3585,8 @@ test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
 	$(GREP) -F -q "_Z28thread_local_block_referencei" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
+	$(GREP) -F -q "_Z40thread_local_conditional_block_referenceii" \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x86.o \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x86.s
 	objdump -f $(TEST_OUT)/cxx-static-reference-temporaries/x86.o \
@@ -3598,6 +3600,8 @@ test-cxx-static-reference-temporaries-posix: $(RCXX_TARGET)
 	$(GREP) -F -q "__cxa_thread_atexit" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
 	$(GREP) -F -q "_Z28thread_local_block_referencei" \
+		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
+	$(GREP) -F -q "_Z40thread_local_conditional_block_referenceii" \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s
 	$(CC) -c -o $(TEST_OUT)/cxx-static-reference-temporaries/x64.o \
 		$(TEST_OUT)/cxx-static-reference-temporaries/x64.s

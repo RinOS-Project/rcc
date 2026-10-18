@@ -4,7 +4,7 @@ int cxx_static_reference_expected_events = 21;
 #ifdef RCC_STATIC_REFERENCE_TLS_TEST
 int cxx_static_reference_tls_constructions = 0;
 int cxx_static_reference_tls_destructions = 0;
-int cxx_static_reference_tls_destruction_order = 0;
+unsigned long long cxx_static_reference_tls_destruction_order = 0;
 int cxx_static_reference_tls_base_constructions = 0;
 int cxx_static_reference_tls_derived_constructions = 0;
 int cxx_static_reference_tls_base_destructions = 0;
@@ -77,6 +77,15 @@ struct ThreadLocalReferenceDerived : ThreadLocalReferenceBase {
             cxx_static_reference_tls_destruction_order * 10 + 2;
     }
 };
+
+static const ThreadLocalReferenceBase*
+thread_local_conditional_block_reference(int initial_value, int choose_first) {
+    static thread_local const ThreadLocalReferenceBase& reference =
+        choose_first
+            ? ThreadLocalReferenceDerived{initial_value}
+            : ThreadLocalReferenceDerived{initial_value + 1};
+    return &reference;
+}
 
 struct ThreadLocalReferenceConversionSource {
     int value;
@@ -151,6 +160,14 @@ extern "C" int cxx_static_reference_tls_worker(int value) {
         thread_local_block_reference(value + 71);
     if (block_first != block_second || block_first->value != value + 70) {
         return 6;
+    }
+    const ThreadLocalReferenceBase* conditional_first =
+        thread_local_conditional_block_reference(value + 80, 1);
+    const ThreadLocalReferenceBase* conditional_second =
+        thread_local_conditional_block_reference(value + 81, 0);
+    if (conditional_first != conditional_second ||
+        conditional_first->value != value + 80) {
+        return 7;
     }
     return 0;
 }
