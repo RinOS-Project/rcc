@@ -57,6 +57,47 @@ int asm_earlyclobber_generic_avoids_fixed(int first, int later)
     return result;
 }
 
+int asm_earlyclobber_generic_read_write(int first, int later)
+{
+    __asm__ __volatile__("mov $0, %0\n\tmov %1, %0"
+                         : "+&r"(first) : "r"(later));
+    return first;
+}
+
+unsigned int asm_mov_imm8(int unused)
+{
+    unsigned char result;
+    (void)unused;
+    __asm__ __volatile__("mov $0x7f, %b0" : "=a"(result));
+    return result;
+}
+
+unsigned int asm_mov_imm16(int unused)
+{
+    unsigned short result;
+    (void)unused;
+    __asm__ __volatile__("mov $0x1234, %w0" : "=a"(result));
+    return result;
+}
+
+unsigned int asm_mov_imm32(int unused)
+{
+    unsigned int result;
+    (void)unused;
+    __asm__ __volatile__("mov $0x12345678, %k0" : "=a"(result));
+    return result;
+}
+
+#if !defined(__i386__)
+unsigned long long asm_mov_imm64(long long unused)
+{
+    unsigned long long result;
+    (void)unused;
+    __asm__ __volatile__("mov $0x1122334455667788, %0" : "=a"(result));
+    return result;
+}
+#endif
+
 int asm_generic_read_write(int value)
 {
     __asm__ __volatile__("mov %0, %0" : "+r"(value));

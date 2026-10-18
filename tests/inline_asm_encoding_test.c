@@ -116,10 +116,38 @@ static void verify_earlyclobber_generic(const char* path,
                                             : sizeof(x86_later));
 }
 
+static void verify_earlyclobber_generic_read_write(
+    const char* path, uint16_t architecture, const char* function_name)
+{
+    static const uint8_t x86_first[] = {0xbau, 0x00u, 0x00u, 0x00u, 0x00u};
+    static const uint8_t x86_later[] = {0x89u, 0xcau};
+    static const uint8_t x64_first[] = {
+        0x48u, 0xb9u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u, 0x00u
+    };
+    static const uint8_t x64_later[] = {0x4cu, 0x89u, 0xd1u};
+    verify_pattern(path, architecture, function_name,
+                   architecture == ARCH_X64 ? x64_first : x86_first,
+                   architecture == ARCH_X64 ? sizeof(x64_first)
+                                            : sizeof(x86_first));
+    verify_pattern(path, architecture, function_name,
+                   architecture == ARCH_X64 ? x64_later : x86_later,
+                   architecture == ARCH_X64 ? sizeof(x64_later)
+                                            : sizeof(x86_later));
+}
+
 int main(int argc, char** argv)
 {
     assert(argc == 4);
     static const uint8_t interrupt[] = {0xcdu, 0x80u};
+    static const uint8_t mov_imm8[] = {0xb0u, 0x7fu};
+    static const uint8_t mov_imm16[] = {0x66u, 0xb8u, 0x34u, 0x12u};
+    static const uint8_t mov_imm32[] = {
+        0xb8u, 0x78u, 0x56u, 0x34u, 0x12u
+    };
+    static const uint8_t mov_imm64[] = {
+        0x48u, 0xb8u, 0x88u, 0x77u, 0x66u, 0x55u,
+        0x44u, 0x33u, 0x22u, 0x11u
+    };
     verify(argv[1], ARCH_X86, "asm_placeholder_move");
     verify(argv[2], ARCH_X64, "asm_placeholder_move");
     verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
@@ -136,6 +164,34 @@ int main(int argc, char** argv)
                                 "asm_earlyclobber_generic");
     verify_earlyclobber_generic(argv[3], ARCH_X64,
                                 "asm_cpp_earlyclobber_generic");
+    verify_earlyclobber_generic_read_write(
+        argv[1], ARCH_X86, "asm_earlyclobber_generic_read_write");
+    verify_earlyclobber_generic_read_write(
+        argv[2], ARCH_X64, "asm_earlyclobber_generic_read_write");
+    verify_earlyclobber_generic_read_write(
+        argv[3], ARCH_X64, "asm_cpp_earlyclobber_generic_read_write");
+    verify_pattern(argv[1], ARCH_X86, "asm_mov_imm8",
+                   mov_imm8, sizeof(mov_imm8));
+    verify_pattern(argv[2], ARCH_X64, "asm_mov_imm8",
+                   mov_imm8, sizeof(mov_imm8));
+    verify_pattern(argv[3], ARCH_X64, "asm_cpp_mov_imm8",
+                   mov_imm8, sizeof(mov_imm8));
+    verify_pattern(argv[1], ARCH_X86, "asm_mov_imm16",
+                   mov_imm16, sizeof(mov_imm16));
+    verify_pattern(argv[2], ARCH_X64, "asm_mov_imm16",
+                   mov_imm16, sizeof(mov_imm16));
+    verify_pattern(argv[3], ARCH_X64, "asm_cpp_mov_imm16",
+                   mov_imm16, sizeof(mov_imm16));
+    verify_pattern(argv[1], ARCH_X86, "asm_mov_imm32",
+                   mov_imm32, sizeof(mov_imm32));
+    verify_pattern(argv[2], ARCH_X64, "asm_mov_imm32",
+                   mov_imm32, sizeof(mov_imm32));
+    verify_pattern(argv[3], ARCH_X64, "asm_cpp_mov_imm32",
+                   mov_imm32, sizeof(mov_imm32));
+    verify_pattern(argv[2], ARCH_X64, "asm_mov_imm64",
+                   mov_imm64, sizeof(mov_imm64));
+    verify_pattern(argv[3], ARCH_X64, "asm_cpp_mov_imm64",
+                   mov_imm64, sizeof(mov_imm64));
     verify_generic_output(argv[1], ARCH_X86, "asm_general_output_move");
     verify_generic_output(argv[2], ARCH_X64, "asm_general_output_move");
     verify_generic(argv[3], ARCH_X64, "asm_cpp_general_input_move");

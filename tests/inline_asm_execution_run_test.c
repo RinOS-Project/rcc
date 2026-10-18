@@ -51,6 +51,7 @@ int main(int argc, char** argv)
     binary_function roundtrip;
     binary_function earlyclobber;
     binary_function earlyclobber_avoids_fixed;
+    binary_function earlyclobber_read_write;
     unary_function placeholder;
     unary_function generic_output;
     unary_function generic_read_write;
@@ -58,6 +59,12 @@ int main(int argc, char** argv)
     unary_function general_output;
     unary_function general_read_write;
     unary_function read_write;
+#if defined(__x86_64__)
+    unary_i64_function immediate64;
+#endif
+    unary_function immediate8;
+    unary_function immediate16;
+    unary_function immediate32;
 
     assert(argc == 2);
     object = objfile_read(argv[1]);
@@ -109,6 +116,8 @@ int main(int argc, char** argv)
                   "asm_earlyclobber_generic");
     LOAD_FUNCTION(earlyclobber_avoids_fixed, object, mapping,
                   "asm_earlyclobber_generic_avoids_fixed");
+    LOAD_FUNCTION(earlyclobber_read_write, object, mapping,
+                  "asm_earlyclobber_generic_read_write");
     LOAD_FUNCTION(placeholder, object, mapping, "asm_placeholder_move");
     LOAD_FUNCTION(generic_output, object, mapping, "asm_generic_output_move");
     LOAD_FUNCTION(generic_read_write, object, mapping, "asm_generic_read_write");
@@ -116,9 +125,16 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(general_output, object, mapping, "asm_general_output_move");
     LOAD_FUNCTION(general_read_write, object, mapping, "asm_general_read_write");
     LOAD_FUNCTION(read_write, object, mapping, "asm_read_write_accumulator");
+    LOAD_FUNCTION(immediate8, object, mapping, "asm_mov_imm8");
+    LOAD_FUNCTION(immediate16, object, mapping, "asm_mov_imm16");
+    LOAD_FUNCTION(immediate32, object, mapping, "asm_mov_imm32");
+#if defined(__x86_64__)
+    LOAD_FUNCTION(immediate64, object, mapping, "asm_mov_imm64");
+#endif
     assert(roundtrip(37, 91) == 37);
     assert(earlyclobber(37, 91) == 91);
     assert(earlyclobber_avoids_fixed(37, 91) == 91);
+    assert(earlyclobber_read_write(37, 91) == 91);
     assert(placeholder(83) == 83);
     assert(generic_output(97) == 97);
     assert(generic_read_write(109) == 109);
@@ -126,6 +142,13 @@ int main(int argc, char** argv)
     assert(general_output(131) == 131);
     assert(general_read_write(137) == 137);
     assert(read_write(53) == 53);
+    assert(immediate8(0) == 0x7fu);
+    assert(immediate16(0) == 0x1234u);
+    assert(immediate32(0) == 0x12345678u);
+#if defined(__x86_64__)
+    assert((unsigned long long)immediate64(0) ==
+           0x1122334455667788ULL);
+#endif
     LOAD_FUNCTION(read_write, object, mapping, "asm_callee_saved_clobber");
     assert(read_write(71) == 71);
 #if defined(__i386__)

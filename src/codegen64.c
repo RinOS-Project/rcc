@@ -10,6 +10,7 @@
 #include "codegen.h"
 #include "cxx_exception_type.h"
 #include "optimize.h"
+#include <errno.h>
 #include <limits.h>
 
 /* Only compile if generating 64-bit code */
@@ -11070,6 +11071,40 @@ static bool codegen64_asm_parse_register_width(const char* text, size_t length,
     return false;
 }
 
+static bool codegen64_asm_parse_immediate_width(const char* text,
+                                                size_t length, int width,
+                                                uint64_t* value) {
+    char immediate_text[128];
+    char* end;
+    unsigned long long parsed;
+    unsigned long long maximum;
+    long long minimum;
+    if (!text || length <= 1u || length >= sizeof(immediate_text) ||
+        text[0] != '$' || !value) return false;
+    switch (width) {
+        case 1: maximum = UINT8_MAX; minimum = INT8_MIN; break;
+        case 2: maximum = UINT16_MAX; minimum = INT16_MIN; break;
+        case 4: maximum = UINT32_MAX; minimum = INT32_MIN; break;
+        case 8: maximum = ULLONG_MAX; minimum = LLONG_MIN; break;
+        default: return false;
+    }
+    memcpy(immediate_text, text + 1u, length - 1u);
+    immediate_text[length - 1u] = '\0';
+    errno = 0;
+    if (immediate_text[0] == '-') {
+        long long signed_value = strtoll(immediate_text, &end, 0);
+        if (errno == ERANGE || end == immediate_text || *end != '\0' ||
+            signed_value < minimum) return false;
+        *value = (uint64_t)signed_value;
+        return true;
+    }
+    parsed = strtoull(immediate_text, &end, 0);
+    if (errno == ERANGE || end == immediate_text || *end != '\0' ||
+        parsed > maximum) return false;
+    *value = (uint64_t)parsed;
+    return true;
+}
+
 static bool codegen64_asm_parse_memory(const char* text, size_t length,
                                        int* base, int32_t* displacement)
 {
@@ -11379,6 +11414,7 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
     int source_control;
     int destination_control;
     int32_t displacement;
+    uint64_t immediate_value;
 
     if (length < 4u || strncmp(text, "mov", 3u) != 0 ||
         (text[3] != ' ' && text[3] != '\t')) return false;
@@ -11456,27 +11492,30 @@ static bool codegen64_asm_emit_mov(Module* mod, const char* text,
                                         displacement);
         return true;
     }
-    if (source_length > 1u && text[source_begin] == '$' &&
-        codegen64_asm_parse_register_width(text + destination_begin,
+    if (codegen64_asm_parse_register_width(text + destination_begin,
                                             destination_length, &destination,
-                                            &destination_width)) {
-        char immediate_text[64];
-        char* end;
-        long long immediate;
-        size_t immediate_length = source_length - 1u;
-        if (immediate_length >= sizeof(immediate_text)) return false;
-        memcpy(immediate_text, text + source_begin + 1u, immediate_length);
-        immediate_text[immediate_length] = '\0';
-        immediate = strtoll(immediate_text, &end, 0);
-        if (end == immediate_text || *end != '\0' ||
-            immediate < INT32_MIN || immediate > UINT32_MAX ||
-            (destination_width != 4 && destination_width != 8)) {
-            return false;
+                                            &destination_width) &&
+        codegen64_asm_parse_immediate_width(text + source_begin,
+                                             source_length, destination_width,
+                                             &immediate_value)) {
+        if (destination_width == 1) {
+            emit_rex(mod, false, 0, 0, destination);
+            if (destination >= 4 && destination < 8) emit_byte(mod, 0x40);
+            emit_byte(mod, (uint8_t)(0xB0 + (destination & 7)));
+            emit_byte(mod, (uint8_t)immediate_value);
+        } else {
+            if (destination_width == 2) emit_byte(mod, 0x66);
+            emit_rex(mod, destination_width == 8, 0, 0, destination);
+            emit_byte(mod, (uint8_t)(0xB8 + (destination & 7)));
+            if (destination_width == 2) {
+                emit_word(mod, (uint16_t)immediate_value);
+            } else {
+                emit_dword(mod, (uint32_t)immediate_value);
+                if (destination_width == 8) {
+                    emit_dword(mod, (uint32_t)(immediate_value >> 32));
+                }
+            }
         }
-        emit_rex(mod, destination_width == 8, 0, 0, destination);
-        emit_byte(mod, 0xC7);
-        emit_byte(mod, modrm64(3, 0, destination));
-        emit_dword(mod, (uint32_t)immediate);
         return true;
     }
     if (!codegen64_asm_parse_register_width(text + source_begin,

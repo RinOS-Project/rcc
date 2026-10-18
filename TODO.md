@@ -2076,6 +2076,10 @@
         backend-assigned generic/fixed inputs, outputs, and clobbers. Verify
         exact i686/AMD64 C and AMD64 C++ encodings, execute both target-width C
         regressions, and diagnose impossible fixed-register overlap.
+  - [x] Encode AT&T immediate-to-GPR `mov` for i686 8/16/32-bit and AMD64
+        8/16/32/64-bit destinations, with signed/unsigned destination-width
+        range checks. Verify exact C/C++ bytes, execute every width (including
+        the AMD64 64-bit value), and reject an out-of-range byte immediate.
 - [x] driver modeでのFPU/SIMD禁止検査
 
 ## Aquamarine shader frontend

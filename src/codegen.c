@@ -10,6 +10,7 @@
 #include "codegen.h"
 #include "cxx_exception_type.h"
 #include "optimize.h"
+#include <errno.h>
 #include <limits.h>
 
 /* The C-only executable deliberately does not link the C++ frontend.  The
@@ -14037,6 +14038,35 @@ static bool asm_parse_immediate8(const char* text, uint8_t* value) {
     return true;
 }
 
+static bool asm_parse_immediate_width(const char* text, int width,
+                                      uint64_t* value) {
+    char* end;
+    unsigned long long parsed;
+    unsigned long long maximum;
+    long long minimum;
+    if (!text || text[0] != '$' || !text[1] || !value) return false;
+    switch (width) {
+        case 1: maximum = UINT8_MAX; minimum = INT8_MIN; break;
+        case 2: maximum = UINT16_MAX; minimum = INT16_MIN; break;
+        case 4: maximum = UINT32_MAX; minimum = INT32_MIN; break;
+        case 8: maximum = ULLONG_MAX; minimum = LLONG_MIN; break;
+        default: return false;
+    }
+    errno = 0;
+    if (text[1] == '-') {
+        long long signed_value = strtoll(text + 1, &end, 0);
+        if (errno == ERANGE || end == text + 1 || *end != '\0' ||
+            signed_value < minimum) return false;
+        *value = (uint64_t)signed_value;
+        return true;
+    }
+    parsed = strtoull(text + 1, &end, 0);
+    if (errno == ERANGE || end == text + 1 || *end != '\0' ||
+        parsed > maximum) return false;
+    *value = (uint64_t)parsed;
+    return true;
+}
+
 static bool asm_no_operands(const char* op1, const char* op2) {
     return !op1 && !op2;
 }
@@ -14321,6 +14351,7 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
         int destination_control;
         int source_width;
         int destination_width;
+        uint64_t immediate_value;
         if (asm_parse_control_register(op1, &source_control) &&
             asm_parse_register_width(op2, &destination, &destination_width)) {
             if (destination_width != 4) return false;
@@ -14335,6 +14366,24 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
             emit_byte(mod, 0x0F);
             emit_byte(mod, 0x22);
             emit_byte(mod, modrm(3, destination_control, source));
+            return true;
+        }
+        if (asm_parse_register_width(op2, &destination,
+                                     &destination_width) &&
+            asm_parse_immediate_width(op1, destination_width,
+                                      &immediate_value)) {
+            if (destination_width == 1) {
+                emit_byte(mod, (uint8_t)(0xB0 + destination));
+                emit_byte(mod, (uint8_t)immediate_value);
+            } else {
+                if (destination_width == 2) emit_byte(mod, 0x66);
+                emit_byte(mod, (uint8_t)(0xB8 + destination));
+                if (destination_width == 2) {
+                    emit_word(mod, (uint16_t)immediate_value);
+                } else {
+                    emit_dword(mod, (uint32_t)immediate_value);
+                }
+            }
             return true;
         }
         if (!asm_parse_register_width(op1, &source, &source_width) ||

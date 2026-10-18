@@ -15150,6 +15150,14 @@ test-intrin-header: $(RCC_TARGET) $(RCXX_TARGET)
 
 test-inline-asm-validation: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/inline-asm-validation)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/invalid-immediate-x86.ro tests/invalid_inline_asm_immediate.c,$(TEST_OUT)/inline-asm-validation/invalid-immediate-x86.log)
+	$(GREP) -q "unsupported i686 inline asm instruction 'mov'" \
+		$(TEST_OUT)/inline-asm-validation/invalid-immediate-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/inline-asm-validation/invalid-immediate-x86.ro)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/invalid-immediate-x64.ro tests/invalid_inline_asm_immediate.c,$(TEST_OUT)/inline-asm-validation/invalid-immediate-x64.log)
+	$(GREP) -q "unsupported AMD64 inline asm instruction" \
+		$(TEST_OUT)/inline-asm-validation/invalid-immediate-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/inline-asm-validation/invalid-immediate-x64.ro)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/x86.ro tests/invalid_inline_asm_constraints.c,$(TEST_OUT)/inline-asm-validation/x86.log)
 	$(GREP) -q "unsupported i686 inline asm output register constraint 'k'" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
