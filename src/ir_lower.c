@@ -6568,14 +6568,45 @@ static bool lower_noexcept_expression(const Expr* expression) {
     }
 }
 
+static bool lower_nontrivial_temporary_conditional_arm_supported(
+    const Expr* expression, const Type* result_type) {
+    RccIrType return_type;
+    int return_kind;
+    if (!expression || !expression->type || !result_type ||
+        !type_is_compatible((Type*)result_type,
+                            (Type*)expression->type)) {
+        return false;
+    }
+    if (expression->kind == EXPR_COND) {
+        if (expression->type->kind != TYPE_STRUCT ||
+            !expression->type->cxx_nontrivial ||
+            expression->type->cleanup_function ||
+            expression->type->cleanup_field ||
+            expression->cxx_conditional_lvalue ||
+            expression->cxx_conditional_xvalue ||
+            !lower_noexcept_expression(expression->cond_test)) {
+            return false;
+        }
+        return lower_nontrivial_temporary_conditional_arm_supported(
+                   expression->cond_then, result_type) &&
+            lower_nontrivial_temporary_conditional_arm_supported(
+                   expression->cond_else, result_type);
+    }
+    /* Only same-type noexcept ordinary function calls may construct a leaf.
+     * Inline member calls, constructors, conversions, and glvalue arms remain
+     * outside this storage-transfer path. */
+    if (expression->kind != EXPR_CALL || expression->call_method ||
+        !lower_noexcept_expression(expression)) {
+        return false;
+    }
+    return_kind = lower_abi_return_layout(expression->type, &return_type);
+    return return_kind == LOWER_ABI_RETURN_REGISTER_AGGREGATE ||
+        return_kind == LOWER_ABI_RETURN_REGISTER_PAIR ||
+        return_kind == LOWER_ABI_RETURN_SRET;
+}
+
 static bool lower_nontrivial_temporary_conditional_supported(
     const RccIrLowerContext* context, const Expr* expression) {
-    const Expr* then_expression;
-    const Expr* else_expression;
-    RccIrType then_return_type;
-    RccIrType else_return_type;
-    int then_return_kind;
-    int else_return_kind;
     if (!context || !context->allow_nontrivial_temporary_conditional ||
         !expression || expression->kind != EXPR_COND ||
         !expression->type || expression->type->kind != TYPE_STRUCT ||
@@ -6583,38 +6614,17 @@ static bool lower_nontrivial_temporary_conditional_supported(
         expression->type->cleanup_function ||
         expression->type->cleanup_field ||
         expression->cxx_conditional_lvalue ||
-        expression->cxx_conditional_xvalue) {
+        expression->cxx_conditional_xvalue ||
+        !lower_noexcept_expression(expression->cond_test)) {
         return false;
     }
-    then_expression = expression->cond_then;
-    else_expression = expression->cond_else;
-    /* Only same-type noexcept prvalue function calls are accepted here. The
-     * enclosing reference argument owns the selected result and has already
-     * proved its complete cleanup plan; member-inline calls, constructors,
-     * conversions, nested conditionals, and glvalue arms still use the
-     * complete backend. */
-    if (!then_expression || !else_expression ||
-        then_expression->kind != EXPR_CALL ||
-        else_expression->kind != EXPR_CALL ||
-        then_expression->call_method || else_expression->call_method ||
-        !then_expression->type || !else_expression->type ||
-        !type_is_compatible((Type*)expression->type,
-                            (Type*)then_expression->type) ||
-        !type_is_compatible((Type*)expression->type,
-                            (Type*)else_expression->type) ||
-        !lower_noexcept_expression(expression->cond_test) ||
-        !lower_noexcept_expression(then_expression) ||
-        !lower_noexcept_expression(else_expression)) {
-        return false;
-    }
-    then_return_kind = lower_abi_return_layout(
-        then_expression->type, &then_return_type);
-    else_return_kind = lower_abi_return_layout(
-        else_expression->type, &else_return_type);
-    return then_return_kind == else_return_kind &&
-        (then_return_kind == LOWER_ABI_RETURN_REGISTER_AGGREGATE ||
-         then_return_kind == LOWER_ABI_RETURN_REGISTER_PAIR ||
-         then_return_kind == LOWER_ABI_RETURN_SRET);
+    /* The enclosing reference argument owns the selected result and has
+     * already proved its complete cleanup plan. Recursively accept nested
+     * same-type conditionals whose leaves are supported noexcept calls. */
+    return lower_nontrivial_temporary_conditional_arm_supported(
+               expression->cond_then, expression->type) &&
+        lower_nontrivial_temporary_conditional_arm_supported(
+               expression->cond_else, expression->type);
 }
 
 static bool lower_cleanup_object_is_owner_subobject(
