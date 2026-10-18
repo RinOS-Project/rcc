@@ -2460,6 +2460,24 @@ int choose_nearer_base_reference_non_template(ConversionBaseMiddle&) {
     return 88;
 }
 
+int choose_nearer_base_value_non_template(ConversionBaseRoot) {
+    return 91;
+}
+
+int choose_nearer_base_value_non_template(ConversionBaseMiddle) {
+    return 92;
+}
+
+template<typename T>
+int choose_nearer_base_value_template(T*, ConversionBaseRoot) {
+    return 93;
+}
+
+template<typename T>
+int choose_nearer_base_value_template(T*, ConversionBaseMiddle) {
+    return 94;
+}
+
 int choose_nearer_base_pointer_non_template(ConversionBaseRoot*) {
     return 89;
 }
@@ -3246,6 +3264,10 @@ int main(void) {
     const int const_value = 6;
     ConversionBaseLeaf leaf;
     ConversionBaseLeaf* leaf_pointer = &leaf;
+    int class_value_rank_probe = 0;
+    if (choose_nearer_base_value_non_template(leaf) != 92) return 207;
+    if (choose_nearer_base_value_template(&class_value_rank_probe, leaf) !=
+        94) return 208;
     ConversionValueLeaf value_leaf;
     ConversionValueLeaf* value_leaf_pointer = &value_leaf;
     ConversionValueVirtualLeaf virtual_value_leaf;

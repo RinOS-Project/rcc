@@ -2581,9 +2581,20 @@ remains a separate open item.
   AMD64 execution, exact RCC diagnostics, and GCC positive/negative cases; the
   full native-Windows `test-cxx` aggregate passes. No stub or fail-close path
   was added.
-- [ ] Continue standard conversion ordering for class-by-value and
-  pointer-to-member conversions, reference interactions, and general proper
-  subsequences. This does not complete C++20 overload-resolution conformance.
+- [ ] Continue standard conversion ordering for pointer-to-member conversions,
+  reference interactions, and general proper subsequences. This does not
+  complete C++20 overload-resolution conformance.
+
+## C++ regression follow-up (2026-10-18, class-by-value conversion ranking)
+
+- [x] Verify that equal-rank derived-to-base conversions to class values prefer
+  the nearer base in both ordinary and function-template overload sets. The
+  `Leaf` argument selects `Middle` over `Root`; GCC C++20 agrees, both RCC
+  target objects compile, and the native AMD64 RCC/GCC executions pass in
+  `test-cxx-function-template-overloads`.
+- [ ] Complete standard-conversion proper-subsequence ordering and its
+  interactions with reference binding, user-defined conversions, constraints,
+  packs, and full function-template partial ordering.
 
 ## C++ regression follow-up (2026-10-10, derived-to-base reference ranking)
 
