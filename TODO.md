@@ -6212,3 +6212,13 @@ remains a separate open item.
       execution.
 - [x] Run the complete native-Windows `test-cxx` aggregate after this change;
       it exits 0.
+
+## RCC continuation (2026-10-18, user-conversion pointer target ranking)
+
+- [x] Compare the trailing standard conversions after the same conversion
+      function when overload targets are `bool` and `void*`. The pointer-to-
+      `void*` sequence now wins over pointer-to-bool; GCC agrees, and the
+      `test-cxx-conversion-operator` gate passes with i686/AMD64 code generation
+      and native execution.
+- [ ] Other multi-step standard conversions, reference-binding shapes, and
+      general C++20 conversion-sequence ordering remain open.

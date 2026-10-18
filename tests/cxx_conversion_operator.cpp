@@ -484,6 +484,14 @@ int choose_pointer_conversion(void*) {
     return 73;
 }
 
+int choose_pointer_to_bool_or_void(bool) {
+    return 227;
+}
+
+int choose_pointer_to_bool_or_void(void*) {
+    return 229;
+}
+
 int take_pointer_conversion_bool(bool value) {
     return value ? 109 : 113;
 }
@@ -765,6 +773,7 @@ int main() {
         read_conversion_reference_base(reference_ranking_source) != 83 ||
         take_long(object_vs_result_source) != 103 ||
         choose_pointer_conversion(pointer_source) != 71 ||
+        choose_pointer_to_bool_or_void(pointer_source) != 229 ||
         choose_template_pointer_conversion(0, pointer_source) != 79 ||
         take_pointer_conversion_bool(pointer_bool_source) != 109 ||
         take_pointer_conversion_bool(null_pointer_bool_source) != 113 ||

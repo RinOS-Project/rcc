@@ -9510,6 +9510,12 @@ int rcc_sema_cxx_user_conversion_target_relation(
     right_ranks[0] = right_rank;
     left_targets[0] = left_target;
     right_targets[0] = right_target;
+    if (left_rank == 2 && right_rank == 2) {
+        int pointer_bool_relation =
+            rcc_sema_cxx_pointer_to_bool_target_relation(
+                conversion_method->return_type, left_target, right_target);
+        if (pointer_bool_relation != 0) return pointer_bool_relation;
+    }
     return cxx_conversion_vector_relation(
         left_ranks, right_ranks, left_targets, right_targets,
         NULL, NULL, NULL, 0, 1);
