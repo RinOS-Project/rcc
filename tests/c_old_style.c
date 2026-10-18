@@ -36,11 +36,24 @@ int left, right;
     return left - right;
 }
 
+enum OldStyleEnumValue {
+    OLD_STYLE_ENUM_VALUE = 7
+};
+
+/* An unprototyped declaration is compatible with a prototype whose enum
+ * parameter is promoted to int by the default argument promotions. */
+int old_style_enum_value();
+int old_style_enum_value(enum OldStyleEnumValue value)
+{
+    return value + 1;
+}
+
 int main(void)
 {
     return old_style_add(4, 5) == 9 &&
            old_style_default(6) == 7 &&
            old_style_array((int[2]){ 2, 3 }) == 5 &&
            old_style_apply(old_style_plus_one, 8) == 9 &&
-           old_style_multi(11, 4) == 7 ? 0 : 1;
+           old_style_multi(11, 4) == 7 &&
+           old_style_enum_value(OLD_STYLE_ENUM_VALUE) == 8 ? 0 : 1;
 }

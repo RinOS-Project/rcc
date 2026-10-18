@@ -1181,6 +1181,8 @@ test-cxx-numeric-escape-ranges: $(RCXX_TARGET)
 
 test-c-old-style: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/c-old-style)
+	$(CC) -std=c17 -pedantic-errors -Wno-implicit-int -fsyntax-only \
+		tests/c_old_style.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -std=c17 -S \
 		-o $(TEST_OUT)/c-old-style/x64.s tests/c_old_style.c
 	$(CC) -no-pie -o $(TEST_OUT)/c-old-style/x64 \

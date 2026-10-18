@@ -166,6 +166,9 @@
     - [x] C17の旧式identifier-list function declaration/definitionを型付き
           parameter declarationへ接続し、既定int・array/function parameter
           adjustment・未知parameter診断と両arch compile/run回帰を追加
+    - [x] 空parameter-list宣言と、default argument promotionで`int`となる
+          enum parameterを持つprototypeの互換性を確認。RCCの両arch object生成・
+          x64実行とGCC C17 `-pedantic-errors`を`test-c-old-style`で照合
   - [x] 一つのC17宣言文に複数のobject／pointer／array／function prototype／
         typedef declaratorを許可し、同一source scopeの個別Declへ分解して
         global/local initializerとpointer／array型を両archで実行・object回帰する
