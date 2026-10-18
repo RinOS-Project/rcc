@@ -6026,7 +6026,9 @@ remains a separate open item.
 - [x] Gate the regression in `test-cxx`; assemble both target outputs and run
       RCC-generated and GCC-generated host executables. The focused test and
       complete native-Windows `test-cxx` aggregate pass.
-- [ ] Pointer arrays and multidimensional arrays remain open.
+- [x] Close the pointer-array and multidimensional-array gaps; subsequent
+      pointer, member-pointer, and multidimensional structural-array entries
+      below record the completed cases.
 
 ## RCC continuation (2026-10-18, floating arrays in structural NTTP packs)
 
@@ -6037,7 +6039,9 @@ remains a separate open item.
 - [x] Compare exact GCC/RCC symbols; assemble i686 and AMD64 output and execute
       RCC/GCC host regressions. The focused target and full native-Windows
       `test-cxx` aggregate pass.
-- [ ] Pointer arrays and multidimensional arrays remain open.
+- [x] Close the pointer-array and multidimensional-array gaps; subsequent
+      pointer, member-pointer, and multidimensional structural-array entries
+      below record the completed cases.
 
 ## RCC continuation (2026-10-18, nested structural-class arrays in NTTPs)
 
@@ -6048,7 +6052,9 @@ remains a separate open item.
 - [x] Compare exact GCC/RCC symbols, assemble i686 and AMD64 output, and run
       RCC/GCC host tests. The focused regression and full native-Windows
       `test-cxx` aggregate pass.
-- [ ] Pointer arrays and multidimensional arrays remain open.
+- [x] Close the pointer-array and multidimensional-array gaps; subsequent
+      pointer, member-pointer, and multidimensional structural-array entries
+      below record the completed cases.
 
 ## RCC continuation (2026-10-18, multidimensional scalar arrays in NTTPs)
 
@@ -6059,8 +6065,9 @@ remains a separate open item.
 - [x] Compare the exact two-dimensional GCC/RCC symbol, assemble i686 and
       AMD64 output, and run the RCC/GCC host regression. The focused target and
       full native-Windows `test-cxx` aggregate pass.
-- [ ] Pointer-element arrays and multidimensional arrays of structural-class
-      elements remain open.
+- [x] Close pointer-element arrays and multidimensional structural-class
+      element arrays; later continuation entries below record GCC comparisons,
+      both target ABIs, and runtime coverage.
 
 ## RCC continuation (2026-10-18, native Windows CI re-audit)
 
@@ -6081,6 +6088,9 @@ remains a separate open item.
       workflow and provision Clang, LLD, and Python `cryptography` for its
       dynamic-TLS RLL build. Parse the updated workflow and confirm the
       generated Make recipe includes the aggregate and Clang invocation.
+- [x] Run the complete aggregate locally with the installed Clang path
+      explicitly supplied; native-Windows execution exited 0, including the
+      dynamic-TLS RLL prerequisite.
 - [ ] Verify the hosted Windows job completes the aggregate; a local dry-run
       does not replace execution with the provisioned CI toolchain.
 
