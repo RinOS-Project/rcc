@@ -6019,3 +6019,16 @@ remains a separate open item.
       generated Make recipe includes the aggregate and Clang invocation.
 - [ ] Verify the hosted Windows job completes the aggregate; a local dry-run
       does not replace execution with the provisioned CI toolchain.
+
+## RCC continuation (2026-10-18, pointer arrays in structural NTTPs)
+
+- [x] Support function- and object-pointer leaves in fixed-bound structural
+      class NTTP arrays, including null/mixed-null values and two-dimensional
+      pointer arrays. Preserve pointer values through packing, indexed member
+      substitution, RTTI identity, and GCC-compatible Itanium mangling.
+- [x] Compare exact GCC/RCC symbols, assemble i686 and AMD64 output, and run
+      the focused RCC/GCC host regression (`test-cxx-structural-array-nttp`).
+- [x] Complete the full native-Windows `test-cxx` aggregate (exit 0).
+- [x] Run native-Windows `test-debug-info` (exit 0).
+- [ ] Member-pointer arrays and multidimensional arrays of structural-class
+      elements remain open.

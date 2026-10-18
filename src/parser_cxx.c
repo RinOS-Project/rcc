@@ -3033,12 +3033,15 @@ static bool cxx_structural_array_collect_scalar_values(
     } else if ((!type_is_integer(element_type) &&
                 element_type->kind != TYPE_ENUM &&
                 element_type->kind != TYPE_FLOAT &&
-                element_type->kind != TYPE_DOUBLE) ||
+                element_type->kind != TYPE_DOUBLE &&
+                element_type->kind != TYPE_PTR) ||
                (element_type->kind == TYPE_FLOAT &&
                 element_type->size != 4) ||
                (element_type->kind == TYPE_DOUBLE &&
                 element_type->size != 8) ||
-               element_type->size <= 0 || element_type->size > 8) {
+               element_type->size <= 0 ||
+               (element_type->kind != TYPE_PTR &&
+                element_type->size > 8)) {
         return false;
     }
     for (int index = 0; index < array_type->array_len; ++index) {
@@ -3059,7 +3062,19 @@ static bool cxx_structural_array_collect_scalar_values(
             continue;
         }
         int64_t value = 0;
-        if (element_initializer && type_is_floating(element_type)) {
+        if (element_initializer && element_type->kind == TYPE_PTR) {
+            int64_t null_pointer_constant;
+            if (cxx_expr_is_nullptr_constant(element_initializer)) {
+                value = 0;
+            } else if (expr_eval_integer_constant(
+                           element_initializer, &null_pointer_constant)) {
+                if (null_pointer_constant != 0) return false;
+                value = 0;
+            } else if (!cxx_structural_pointer_member_value(
+                           element_initializer, element_type, &value)) {
+                return false;
+            }
+        } else if (element_initializer && type_is_floating(element_type)) {
             double floating_value;
             if (!eval_template_floating_expression(
                     element_initializer, NULL, NULL, NULL, &floating_value)) {
@@ -3165,14 +3180,17 @@ static bool cxx_structural_class_collect_member_values(
                     return false;
                 }
             } else if (((!type_is_integer(element_type) &&
-                         element_type->kind != TYPE_ENUM) &&
+                         element_type->kind != TYPE_ENUM &&
+                         element_type->kind != TYPE_PTR) &&
                         element_type->kind != TYPE_FLOAT &&
                         element_type->kind != TYPE_DOUBLE) ||
                        (element_type->kind == TYPE_FLOAT &&
                         element_type->size != 4) ||
                        (element_type->kind == TYPE_DOUBLE &&
                         element_type->size != 8) ||
-                       element_type->size <= 0 || element_type->size > 8) {
+                       element_type->size <= 0 ||
+                       (element_type->kind != TYPE_PTR &&
+                        element_type->size > 8)) {
                 return false;
             }
             if (field_initializer) {
@@ -3224,6 +3242,22 @@ static bool cxx_structural_class_collect_member_values(
                     }
                 } else {
                     if (element_initializer &&
+                        element_type->kind == TYPE_PTR) {
+                        int64_t null_pointer_constant;
+                        if (cxx_expr_is_nullptr_constant(
+                                element_initializer)) {
+                            element_value = 0;
+                        } else if (expr_eval_integer_constant(
+                                       element_initializer,
+                                       &null_pointer_constant)) {
+                            if (null_pointer_constant != 0) return false;
+                            element_value = 0;
+                        } else if (!cxx_structural_pointer_member_value(
+                                       element_initializer, element_type,
+                                       &element_value)) {
+                            return false;
+                        }
+                    } else if (element_initializer &&
                         type_is_floating(element_type)) {
                         double floating_value;
                         if (!eval_template_floating_expression(

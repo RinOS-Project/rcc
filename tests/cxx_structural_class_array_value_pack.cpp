@@ -39,6 +39,29 @@ struct StructuralMatrixKey {
     int values[2][2];
 };
 
+int structural_pointer_array_first(int value) {
+    return value + 10;
+}
+
+int structural_pointer_array_second(int value) {
+    return value * 3;
+}
+
+int structural_pointer_array_object_first = 17;
+int structural_pointer_array_object_second = 23;
+
+struct StructuralFunctionPointerArrayKey {
+    int (*values[2])(int);
+};
+
+struct StructuralObjectPointerArrayKey {
+    int* values[2];
+};
+
+struct StructuralMatrixPointerKey {
+    int* values[2][2];
+};
+
 template <StructuralArrayKey... Keys>
 struct StructuralArrayValuePack {
     static constexpr int combined() {
@@ -96,6 +119,40 @@ struct StructuralMatrixValuePack {
     }
 };
 
+template <StructuralFunctionPointerArrayKey... Keys>
+struct StructuralFunctionPointerArrayValuePack {
+    static int combined() {
+        return ((Keys.values[0](1) + Keys.values[1](2)) + ... + 0);
+    }
+
+    static int null_count() {
+        return (((Keys.values[0] == nullptr ? 1 : 0) +
+                 (Keys.values[1] == nullptr ? 1 : 0)) + ... + 0);
+    }
+};
+
+template <StructuralObjectPointerArrayKey... Keys>
+struct StructuralObjectPointerArrayValuePack {
+    static int combined() {
+        return ((*Keys.values[0] + *Keys.values[1]) + ... + 0);
+    }
+};
+
+template <StructuralMatrixPointerKey... Keys>
+struct StructuralMatrixPointerValuePack {
+    static int combined() {
+        return ((*Keys.values[0][0] + *Keys.values[0][1] +
+                 *Keys.values[1][0] + *Keys.values[1][1]) + ... + 0);
+    }
+
+    static int null_count() {
+        return (((Keys.values[0][0] == nullptr ? 1 : 0) +
+                 (Keys.values[0][1] == nullptr ? 1 : 0) +
+                 (Keys.values[1][0] == nullptr ? 1 : 0) +
+                 (Keys.values[1][1] == nullptr ? 1 : 0)) + ... + 0);
+    }
+};
+
 int main() {
     return StructuralArrayValuePack<
                StructuralArrayKey{{2, 3}},
@@ -122,6 +179,37 @@ int main() {
            StructuralMatrixValuePack<
                StructuralMatrixKey{{{1, 2}, {3, 4}}},
                StructuralMatrixKey{{{5, 6}, {7, 8}}}
-           >::combined() == 36
+           >::combined() == 36 &&
+           StructuralFunctionPointerArrayValuePack<
+               StructuralFunctionPointerArrayKey{{
+                   &structural_pointer_array_first,
+                   &structural_pointer_array_second}},
+               StructuralFunctionPointerArrayKey{{
+                   &structural_pointer_array_second,
+                   &structural_pointer_array_first}}
+           >::combined() == 32 &&
+           StructuralFunctionPointerArrayValuePack<
+               StructuralFunctionPointerArrayKey{{nullptr, nullptr}}
+           >::null_count() == 2 &&
+           StructuralFunctionPointerArrayValuePack<
+               StructuralFunctionPointerArrayKey{{
+                   &structural_pointer_array_first, nullptr}}
+           >::null_count() == 1 &&
+           StructuralObjectPointerArrayValuePack<
+               StructuralObjectPointerArrayKey{{
+                   &structural_pointer_array_object_first,
+                   &structural_pointer_array_object_second}}
+           >::combined() == 40 &&
+           StructuralMatrixPointerValuePack<
+               StructuralMatrixPointerKey{{
+                   {&structural_pointer_array_object_first,
+                    &structural_pointer_array_object_second},
+                   {&structural_pointer_array_object_second,
+                    &structural_pointer_array_object_first}}}
+           >::combined() == 80 &&
+           StructuralMatrixPointerValuePack<
+               StructuralMatrixPointerKey{{
+                   {nullptr, nullptr}, {nullptr, nullptr}}}
+           >::null_count() == 4
         ? 0 : 1;
 }
