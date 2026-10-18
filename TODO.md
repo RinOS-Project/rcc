@@ -6047,5 +6047,10 @@ remains a separate open item.
 - [x] Cover two-dimensional data-member and member-function pointer arrays,
       including all-null arrays, with exact GCC symbols, i686/AMD64 generation,
       and the full native-Windows `test-cxx` aggregate.
-- [ ] Virtual/inherited member-pointer array values and multidimensional arrays
-      of structural-class elements remain open.
+- [x] Support inherited data-member and member-function pointer arrays where
+      the public nonvirtual base has a nonzero derived-object offset. Preserve
+      adjusted member offsets and `this` adjustments through NTTP collection,
+      substitution, and Itanium mangling; verify exact GCC symbols, i686/AMD64
+      generation, host execution, full `test-cxx`, and `test-debug-info`.
+- [ ] Virtual-base member-pointer conversions and multidimensional arrays of
+      structural-class elements remain open.

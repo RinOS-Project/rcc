@@ -190,7 +190,7 @@ bool cxx_structural_member_pointer_value_register(
             &cxx_structural_member_pointer_values[index];
         if (value->owner == owner &&
             strcmp(value->member_name, member_name) == 0 &&
-            value->method == method) {
+            value->method == method && value->offset == offset) {
             *token_out = (int64_t)(index + 1u);
             return true;
         }
@@ -783,13 +783,17 @@ static bool cxx_mangle_structural_member_pointer_value(
     CxxMangleContext* context) {
     CxxClass* owner = NULL;
     const char* member_name = NULL;
+    int64_t offset = 0;
     TypeMethod* method = NULL;
     if (!cxx_structural_member_pointer_value_resolve(
-            token, &owner, &member_name, NULL, &method) || !owner ||
+            token, &owner, &member_name, &offset, &method) || !owner ||
         !member_name) {
         return false;
     }
     if (method) {
+        CxxClass* designating_owner = pointer_type &&
+                pointer_type->cxx_member_pointer_owner
+            ? pointer_type->cxx_member_pointer_owner->cxx_class : NULL;
         if (!pointer_type || !type_is_cxx_member_function_pointer(
                 pointer_type)) return false;
         cxx_mangle_type_char(buf, pos, 't');
@@ -801,7 +805,20 @@ static bool cxx_mangle_structural_member_pointer_value(
                 buf, pos, method, context)) {
             return false;
         }
+        if (designating_owner && designating_owner != owner) {
+            cxx_mangle_type_char(buf, pos, 'L');
+            cxx_mangle_type_append_context(buf, pos, type_llong, context);
+            cxx_mangle_template_value_suffix(
+                buf, pos, type_llong, offset);
+        }
         cxx_mangle_type_char(buf, pos, 'E');
+        return true;
+    }
+    if (pointer_type && pointer_type->cxx_member_pointer_owner &&
+        pointer_type->cxx_member_pointer_owner->cxx_class != owner) {
+        cxx_mangle_type_char(buf, pos, 'L');
+        cxx_mangle_type_append_context(buf, pos, pointer_type, context);
+        cxx_mangle_template_value_suffix(buf, pos, pointer_type, offset);
         return true;
     }
     cxx_mangle_type_char(buf, pos, 'a');
@@ -1883,6 +1900,11 @@ static void cxx_mangle_record_structural_member_pointer_owner_types_in_array(
     {
         int64_t value = 0;
         unsigned value_bits;
+        if (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
+            type->cxx_member_pointer_owner) {
+            cxx_mangle_record_class_type(
+                context, type->cxx_member_pointer_owner);
+        }
         if (recorded_values) {
             if (!recorded_index || *recorded_index < 0 ||
                 *recorded_index >= recorded_count) {
@@ -1936,6 +1958,12 @@ static void cxx_mangle_record_structural_member_pointer_owner_types_in_value(
                 context, field->type, packed_value, recorded_values,
                 recorded_count, recorded_index, bit_offset);
             continue;
+        }
+        if (field->type->kind == TYPE_PTR &&
+            field->type->cxx_is_member_pointer &&
+            field->type->cxx_member_pointer_owner) {
+            cxx_mangle_record_class_type(
+                context, field->type->cxx_member_pointer_owner);
         }
         if (recorded_values) {
             if (!recorded_index || *recorded_index < 0 ||
@@ -10983,7 +11011,10 @@ static Expr* template_clone_structural_member_pointer_value_expr(
     copy->cxx_member_pointer_form_name = member_name;
     copy->cxx_member_pointer_form_access = ACCESS_PUBLIC;
     copy->cxx_member_pointer_form_declaring_class = member_owner;
-    copy->cxx_member_pointer_form_designating_class = member_owner;
+    copy->cxx_member_pointer_form_designating_class =
+        pointer_type->cxx_member_pointer_owner
+            ? pointer_type->cxx_member_pointer_owner->cxx_class
+            : member_owner;
     return copy;
 }
 

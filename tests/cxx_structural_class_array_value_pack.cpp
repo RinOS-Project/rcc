@@ -75,6 +75,29 @@ struct StructuralMemberPointerArrayOwner {
     }
 };
 
+struct StructuralMemberPointerArrayBase {
+    int first;
+    int second;
+
+    int add_first(int value) const {
+        return first + value;
+    }
+
+    int add_second(int value) const {
+        return second + value;
+    }
+};
+
+struct StructuralMemberPointerArrayPrefix {
+    int prefix;
+};
+
+struct StructuralMemberPointerArrayDerived
+    : StructuralMemberPointerArrayPrefix,
+      StructuralMemberPointerArrayBase {
+    int own;
+};
+
 struct StructuralDataMemberPointerArrayKey {
     int StructuralMemberPointerArrayOwner::*values[2];
 };
@@ -89,6 +112,14 @@ struct StructuralFunctionMemberPointerArrayKey {
 
 struct StructuralFunctionMemberPointerMatrixKey {
     int (StructuralMemberPointerArrayOwner::*values[2][2])(int) const;
+};
+
+struct StructuralInheritedDataMemberPointerArrayKey {
+    int StructuralMemberPointerArrayDerived::*values[2];
+};
+
+struct StructuralInheritedFunctionMemberPointerArrayKey {
+    int (StructuralMemberPointerArrayDerived::*values[2])(int) const;
 };
 
 template <StructuralArrayKey... Keys>
@@ -244,8 +275,38 @@ struct StructuralFunctionMemberPointerMatrixValuePack {
     }
 };
 
+template <StructuralInheritedDataMemberPointerArrayKey... Keys>
+struct StructuralInheritedDataMemberPointerArrayValuePack {
+    static int combined(const StructuralMemberPointerArrayDerived& object) {
+        return ((object.*Keys.values[0] + object.*Keys.values[1]) + ... + 0);
+    }
+
+    static int null_count() {
+        return (((Keys.values[0] == nullptr ? 1 : 0) +
+                 (Keys.values[1] == nullptr ? 1 : 0)) + ... + 0);
+    }
+};
+
+template <StructuralInheritedFunctionMemberPointerArrayKey... Keys>
+struct StructuralInheritedFunctionMemberPointerArrayValuePack {
+    static int combined(const StructuralMemberPointerArrayDerived& object) {
+        return (((object.*Keys.values[0])(1) +
+                 (object.*Keys.values[1])(2)) + ... + 0);
+    }
+
+    static int null_count() {
+        return (((Keys.values[0] == nullptr ? 1 : 0) +
+                 (Keys.values[1] == nullptr ? 1 : 0)) + ... + 0);
+    }
+};
+
 int main() {
     StructuralMemberPointerArrayOwner member_pointer_object{13, 29};
+    StructuralMemberPointerArrayDerived inherited_member_pointer_object{};
+    inherited_member_pointer_object.prefix = 5;
+    inherited_member_pointer_object.first = 13;
+    inherited_member_pointer_object.second = 29;
+    inherited_member_pointer_object.own = 37;
     return StructuralArrayValuePack<
                StructuralArrayKey{{2, 3}},
                StructuralArrayKey{{5, 7}}>::combined() == 17 &&
@@ -350,5 +411,22 @@ int main() {
                StructuralFunctionMemberPointerMatrixKey{{
                    {nullptr, nullptr}, {nullptr, nullptr}}}
            >::null_count() == 4
+           && StructuralInheritedDataMemberPointerArrayValuePack<
+               StructuralInheritedDataMemberPointerArrayKey{{
+                   &StructuralMemberPointerArrayBase::first,
+                   &StructuralMemberPointerArrayBase::second}}
+           >::combined(inherited_member_pointer_object) == 42 &&
+           StructuralInheritedDataMemberPointerArrayValuePack<
+               StructuralInheritedDataMemberPointerArrayKey{{nullptr, nullptr}}
+           >::null_count() == 2 &&
+           StructuralInheritedFunctionMemberPointerArrayValuePack<
+               StructuralInheritedFunctionMemberPointerArrayKey{{
+                   &StructuralMemberPointerArrayBase::add_first,
+                   &StructuralMemberPointerArrayBase::add_second}}
+           >::combined(inherited_member_pointer_object) == 45 &&
+           StructuralInheritedFunctionMemberPointerArrayValuePack<
+               StructuralInheritedFunctionMemberPointerArrayKey{{nullptr,
+                                                                  nullptr}}
+           >::null_count() == 2
         ? 0 : 1;
 }

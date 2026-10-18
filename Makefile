@@ -3822,6 +3822,10 @@ STRUCTURAL_DATA_MEMBER_POINTER_MATRIX_PACK_SYMBOL = _ZN42StructuralDataMemberPoi
 STRUCTURAL_DATA_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL = _ZN42StructuralDataMemberPointerMatrixValuePackIJXtl36StructuralDataMemberPointerMatrixKeyEEEE10null_countEv
 STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_PACK_SYMBOL = _ZN46StructuralFunctionMemberPointerMatrixValuePackIJXtl40StructuralFunctionMemberPointerMatrixKeytlA2_A2_M33StructuralMemberPointerArrayOwnerKFiiEtlS4_tlS3_adL_ZNKS1_9add_firstEiEEtlS3_adL_ZNKS1_10add_secondEiEEEtlS4_tlS3_adL_ZNKS1_9add_firstEiEEtlS3_adL_ZNKS1_10add_secondEiEEEEEEEE8combinedERKS1_
 STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL = _ZN46StructuralFunctionMemberPointerMatrixValuePackIJXtl40StructuralFunctionMemberPointerMatrixKeyEEEE10null_countEv
+STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_ARRAY_PACK_SYMBOL = _ZN50StructuralInheritedDataMemberPointerArrayValuePackIJXtl44StructuralInheritedDataMemberPointerArrayKeytlA2_M35StructuralMemberPointerArrayDerivediLS2_4ELS2_8EEEEEE8combinedERKS1_
+STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL = _ZN50StructuralInheritedDataMemberPointerArrayValuePackIJXtl44StructuralInheritedDataMemberPointerArrayKeyEEEE10null_countEv
+STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL = _ZN54StructuralInheritedFunctionMemberPointerArrayValuePackIJXtl48StructuralInheritedFunctionMemberPointerArrayKeytlA2_M35StructuralMemberPointerArrayDerivedKFiiEtlS3_adL_ZNK32StructuralMemberPointerArrayBase9add_firstEiELx4EEtlS3_adL_ZNKS5_10add_secondEiELx4EEEEEEE8combinedERKS1_
+STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL = _ZN54StructuralInheritedFunctionMemberPointerArrayValuePackIJXtl48StructuralInheritedFunctionMemberPointerArrayKeyEEEE10null_countEv
 
 test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-structural-array-nttp)
@@ -3848,6 +3852,10 @@ test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call CHECK_TEXT,$(STRUCTURAL_DATA_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ENUM_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
@@ -3869,6 +3877,10 @@ test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call CHECK_TEXT,$(STRUCTURAL_DATA_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ARRAY_RECORD_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_ENUM_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
@@ -3890,6 +3902,10 @@ test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call CHECK_TEXT,$(STRUCTURAL_DATA_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_MEMBER_POINTER_MATRIX_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_DATA_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_INHERITED_FUNCTION_MEMBER_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-structural-array-nttp/gcc-host tests/cxx_structural_class_array_value_pack.cpp
 	$(TEST_OUT)/cxx-structural-array-nttp/gcc-host
 	@echo "Structural class NTTP array member test passed for i686 and AMD64"

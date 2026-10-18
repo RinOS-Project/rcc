@@ -2905,24 +2905,55 @@ static bool cxx_structural_pointer_member_value(
     if (pointer_type->cxx_is_member_pointer) {
         CxxClass* owner = pointer_type->cxx_member_pointer_owner
             ? pointer_type->cxx_member_pointer_owner->cxx_class : NULL;
+        CxxClass* declaring_owner =
+            expression->cxx_member_pointer_form_declaring_class;
         TypeMethod* method = expression->cxx_member_function_pointer_method;
         const char* member_name = expression->cxx_member_pointer_form_name;
-        if (cxx_expr_is_nullptr_constant(expression) ||
+        int64_t owner_adjustment = 0;
+        int64_t member_offset = expression->int_val;
+        if ((!expression->cxx_member_pointer_form &&
+             cxx_expr_is_nullptr_constant(expression)) ||
             (expr_eval_integer_constant((Expr*)expression, &offset) &&
              offset == 0 && !expression->cxx_member_pointer_form)) {
             *value_out = -1;
             return true;
         }
         if (!member_name && method) member_name = method->name;
+        if (!declaring_owner && method && method->function_decl &&
+            method->function_decl->func_method_owner) {
+            declaring_owner = method->function_decl->func_method_owner
+                                  ->cxx_class;
+        }
+        if (!declaring_owner && expression->type &&
+            expression->type->cxx_member_pointer_owner) {
+            declaring_owner = expression->type->cxx_member_pointer_owner
+                                  ->cxx_class;
+        }
         if (!expression->cxx_member_pointer_form ||
             expression->cxx_member_pointer_form_deferred ||
             expression->cxx_member_pointer_form_overload_set || !owner ||
-            !member_name) {
+            !declaring_owner || !member_name) {
             return false;
         }
+        if (declaring_owner != owner) {
+            if (!owner->type || !declaring_owner->type) return false;
+            int paths = cxx_structural_nonvirtual_base_paths(
+                owner->type, declaring_owner->type, true,
+                &owner_adjustment, 0u);
+            if (paths != 1) return false;
+        }
+        if (method) {
+            member_offset = owner_adjustment;
+        } else if ((owner_adjustment > 0 &&
+                    member_offset > INT64_MAX - owner_adjustment) ||
+                   (owner_adjustment < 0 &&
+                    member_offset < INT64_MIN - owner_adjustment)) {
+            return false;
+        } else {
+            member_offset += owner_adjustment;
+        }
         return cxx_structural_member_pointer_value_register(
-            owner, member_name, method,
-            method ? 0 : expression->int_val, value_out);
+            declaring_owner, member_name, method, member_offset, value_out);
     }
     if (cxx_expr_is_nullptr_constant(expression) ||
         (expr_eval_integer_constant((Expr*)expression, &offset) &&
