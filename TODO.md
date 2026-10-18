@@ -6263,3 +6263,11 @@ remains a separate open item.
       constraint violations; `test-generic` checks both diagnostics on i686
       and AMD64 and passes.
 - [ ] Broader C17 qualifier/effective-type conformance remains open.
+
+## RCC continuation (2026-10-18, static-reference debug-frame coverage)
+
+- [x] Compile the polymorphic static-reference/subobject regression with `-g`
+      for i686 and AMD64 in `test-debug-info`; verify both relevant function
+      symbols have relocated `.debug_frame` FDEs with EBP/RBP-based CFA rules.
+- [x] Run `make SHELL=cmd.exe test-debug-info`; all relocatable DWARF checks,
+      including the new static-reference FDE checks, pass on native Windows.

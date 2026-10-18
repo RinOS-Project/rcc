@@ -1283,6 +1283,12 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++17 -g -c \
 		-o $(TEST_OUT)/debug-info/cxx17-g.ro tests/hello.cpp
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -c \
+		-o $(TEST_OUT)/debug-info/static-ref-x86-g.ro \
+		tests/cxx_static_reference_subobjects.cpp
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -c \
+		-o $(TEST_OUT)/debug-info/static-ref-x64-g.ro \
+		tests/cxx_static_reference_subobjects.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -g -c \
 		-o $(TEST_OUT)/debug-info/cxx-member-x86-g.ro \
 		tests/debug_info_cxx_member.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -g -c \
@@ -1552,7 +1558,9 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/global-init-x86-no-g.ro \
 		$(TEST_OUT)/debug-info/global-init-x64-no-g.ro \
 		$(TEST_OUT)/debug-info/large-file-table-x86-g.ro \
-		$(TEST_OUT)/debug-info/large-file-table-x64-g.ro
+		$(TEST_OUT)/debug-info/large-file-table-x64-g.ro \
+		$(TEST_OUT)/debug-info/static-ref-x86-g.ro \
+		$(TEST_OUT)/debug-info/static-ref-x64-g.ro
 	@echo "Relocatable DWARF line/info/location-list/frame tests completed"
 
 test-aqc: $(AQC_TARGET)

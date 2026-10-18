@@ -3916,6 +3916,68 @@ static void verify_saved_callee_register_rules(
     }
 }
 
+static void verify_function_frame_fde(const ObjSection* frame,
+                                      const char* function_symbol,
+                                      uint16_t architecture)
+{
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint8_t frame_register = architecture == ARCH_X64 ? 6u : 5u;
+    assert(frame != NULL && function_symbol != NULL);
+    for (const ObjReloc* relocation = frame->relocs; relocation;
+         relocation = relocation->next) {
+        uint64_t fde_offset;
+        uint64_t fde_end;
+        uint64_t range_offset;
+        uint64_t instructions_offset;
+        uint32_t fde_length;
+        if (!relocation->symbol_name ||
+            strcmp(relocation->symbol_name, function_symbol) != 0 ||
+            relocation->offset < 8u) {
+            continue;
+        }
+        fde_offset = relocation->offset - 8u;
+        assert(fde_offset + 8u + address_size * 2u <= frame->size);
+        fde_length = read_u32(frame->data, fde_offset);
+        fde_end = fde_offset + 4u + fde_length;
+        assert(fde_end <= frame->size);
+        assert(read_u32(frame->data, fde_offset + 4u) == 0u);
+        range_offset = fde_offset + 8u + address_size;
+        assert(read_u32(frame->data, range_offset) != 0u);
+        if (address_size == 8u) {
+            assert(read_u32(frame->data, range_offset + 4u) == 0u);
+        }
+        instructions_offset = fde_offset + 8u + address_size * 2u;
+        assert(contains_byte_pair(
+            frame->data + instructions_offset,
+            fde_end - instructions_offset, 0x0du, frame_register));
+        return;
+    }
+    assert(0 && "function has no relocated debug-frame FDE");
+}
+
+static void verify_static_reference_debug_object(const char* path,
+                                                 uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* frame;
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    frame = objfile_get_section(object, ".debug_frame");
+    assert(info != NULL && info->size != 0u && frame != NULL);
+    assert(objfile_find_symbol(object,
+                               "_Z27local_polymorphic_referencev") != NULL);
+    assert(objfile_find_symbol(
+               object,
+               "_Z40local_polymorphic_virtual_base_referencev") != NULL);
+    verify_function_frame_fde(
+        frame, "_Z27local_polymorphic_referencev", architecture);
+    verify_function_frame_fde(
+        frame, "_Z40local_polymorphic_virtual_base_referencev",
+        architecture);
+    objfile_free(object);
+}
+
 static bool has_positive_relocation_addend(const ObjSection* section)
 {
     if (!section) return false;
@@ -5887,7 +5949,7 @@ static void verify_verified_fallback_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 36);
+    assert(argc == 38);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -6163,5 +6225,7 @@ int main(int argc, char** argv)
     verify_verified_fallback_debug_object(argv[29], ARCH_X64);
     verify_large_file_table(argv[34], ARCH_X86, "debug_info_file_259.c");
     verify_large_file_table(argv[35], ARCH_X64, "debug_info_file_259.c");
+    verify_static_reference_debug_object(argv[36], ARCH_X86);
+    verify_static_reference_debug_object(argv[37], ARCH_X64);
     return 0;
 }
