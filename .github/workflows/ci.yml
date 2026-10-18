@@ -218,6 +218,7 @@ jobs:
           install: >-
             make
             mingw-w64-ucrt-x86_64-binutils
+            mingw-w64-ucrt-x86_64-clang
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-openssl
             mingw-w64-ucrt-x86_64-python
@@ -229,4 +230,6 @@ jobs:
         run: make -C ../rinvalidate SHELL=cmd.exe
 
       - name: Run native Windows C++, optimizer and DWARF regressions
-        run: make SHELL=cmd.exe test-cxx test-debug-info test-optimize
+        run: >-
+          make SHELL=cmd.exe CLANG=clang test-cxx test-debug-info
+          test-optimize test-verified-backend

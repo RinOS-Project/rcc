@@ -6298,3 +6298,15 @@ remains a separate open item.
       symbols have relocated `.debug_frame` FDEs with EBP/RBP-based CFA rules.
 - [x] Run `make SHELL=cmd.exe test-debug-info`; all relocatable DWARF checks,
       including the new static-reference FDE checks, pass on native Windows.
+
+## RCC continuation (2026-10-18, native-Windows verified-backend gate)
+
+- [x] Add the full `test-verified-backend` aggregate to the native-Windows
+      regression job and install the UCRT64 Clang package required by its
+      dynamic-TLS runtime integration helper. Keep C++20, DWARF, and optimizer
+      gates in the same job.
+- [x] Run `test-verified-backend` locally with native `mingw32-make` and Clang
+      18.1.4; the complete dynamic-TLS, dual-architecture C/C++ typed-SSA, ABI,
+      cleanup, and RinValidate object checks pass.
+- [ ] A successful hosted GitHub Actions run remains required to verify the
+      UCRT64 package/install and hosted Windows environment.
