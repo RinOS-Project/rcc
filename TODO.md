@@ -2055,8 +2055,13 @@
         initializerとscalar callee型の一致を確認できる場合にinline化。arrayは範囲内の
         整数定数添字、または全要素が同じ直接targetを持つside-effect-free可変添字に限定。
         i686/AMD64の-O1 indirect-call形状とAMD64実行を検証
+  - [x] scalar local function pointerについて、初期化後のすべての直接代入が同一の
+        関数targetで、address/reference escapeやgoto/switchによる初期化迂回がない
+        場合も-O1 inline化。条件分岐内の同一target再代入を含め、i686/AMD64の
+        indirect-call形状とAMD64実行を`test-optimize`で検証
   - [ ] mutable localの再代入・要素書込み、pointer/reference aliasによるescape、異なる
-        targetを選びうる可変添字、より一般のaliased/indirect callの解析・最適化は未実装。
+        targetへの再代入、targetを選びうる可変添字、より一般のaliased/indirect callの
+        解析・最適化は未実装。
         calleeを静的に安全確定できない呼び出しは引き続き間接callとして保持
   - [x] 最適化でstorageが除去されたimmutable unsigned scalar localの値を
         `DW_AT_const_value`の`DW_FORM_udata`で保持し、符号付き負値からunsigned型への
@@ -6358,3 +6363,15 @@ remains a separate open item.
       loop-carried values through its `main` entry point.
 - [ ] Gotos inside structured wide-scalar loop lowering, VLA stack restoration,
       and full SSA predecessor-phi construction at arbitrary labels remain open.
+
+## RCC continuation (2026-10-18, same-target local callback reassignment)
+
+- [x] Allow scalar local function-pointer inlining when whole-function analysis
+      proves every direct reassignment keeps the initializer's function target,
+      including conditional writes. Reject escaped pointers and bodies with
+      goto/switch entry edges for this proof.
+- [x] Keep different-target reassignment indirect; verify optimized i686/AMD64
+      call shape and execute the x64 result. `test-optimize` passes on native
+      Windows.
+- [ ] General local callback dataflow, alias analysis, and indirect-call target
+      sets across distinct functions remain open.

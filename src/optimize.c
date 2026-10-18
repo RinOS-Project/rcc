@@ -1913,6 +1913,10 @@ static Decl* resolve_inline_function_pointer_initializer(
     return function;
 }
 
+static bool inline_statement_has_nonlocal_entry(const Stmt* statement);
+static bool inline_statement_preserves_function_pointer_target(
+    const Stmt* statement, const Decl* variable, const Decl* target);
+
 static bool inline_readonly_initialized_variable(Decl* variable) {
     return variable && variable->kind == DECL_VAR &&
            !variable->var_is_thread_local &&
@@ -1941,15 +1945,157 @@ static bool inline_unmodified_local_variable(Decl* variable) {
 }
 
 static Decl* resolve_inline_function_pointer_variable(Decl* variable) {
-    if ((!inline_readonly_initialized_variable(variable) &&
-         !inline_unmodified_local_variable(variable)) ||
-        !variable->type || variable->type->kind != TYPE_PTR ||
+    bool stable_local_target = false;
+    if (!variable || !variable->type || variable->type->kind != TYPE_PTR ||
         variable->type->is_reference || variable->type->is_volatile ||
         !variable->type->base || variable->type->base->kind != TYPE_FUNC) {
         return NULL;
     }
+    if (!inline_readonly_initialized_variable(variable) &&
+        !inline_unmodified_local_variable(variable)) {
+        Decl* initial_target = resolve_inline_function_pointer_initializer(
+            variable->type, variable->var_init);
+        if (!variable->var_is_global && !variable->var_is_static_local &&
+            !variable->var_is_thread_local &&
+            !variable->var_dynamic_initializer && !variable->var_is_vla &&
+            optimize_inline_caller && optimize_inline_caller->func_body &&
+            initial_target &&
+            !inline_statement_has_nonlocal_entry(
+                optimize_inline_caller->func_body)) {
+            stable_local_target =
+                inline_statement_preserves_function_pointer_target(
+                    optimize_inline_caller->func_body, variable,
+                    initial_target);
+        }
+        if (!stable_local_target) return NULL;
+    }
     return resolve_inline_function_pointer_initializer(
         variable->type, variable->var_init);
+}
+
+/* A local callback remains statically known after reassignment only when
+ * every write is a direct assignment of the exact initializer target. */
+static bool inline_statement_preserves_function_pointer_target(
+    const Stmt* statement, const Decl* variable, const Decl* target) {
+    if (!statement || !variable || !target) return true;
+    if (!statement_modifies_decl(statement, variable)) return true;
+    switch (statement->kind) {
+        case STMT_EXPR: {
+            const Expr* expression = statement->expr;
+            return expression && expression->kind == EXPR_ASSIGN &&
+                   expression->binary_lhs &&
+                   expression->binary_lhs->kind == EXPR_IDENT &&
+                   expression->binary_lhs->ident_decl == variable &&
+                   expression->binary_rhs &&
+                   !expression_mentions_decl(expression->binary_rhs,
+                                             variable) &&
+                   resolve_inline_function_pointer_initializer(
+                       variable->type, expression->binary_rhs) == target;
+        }
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (!inline_statement_preserves_function_pointer_target(
+                        item->stmt, variable, target)) return false;
+            }
+            return true;
+        case STMT_IF:
+            return !expression_modifies_decl(statement->if_cond, variable) &&
+                   inline_statement_preserves_function_pointer_target(
+                       statement->if_then, variable, target) &&
+                   inline_statement_preserves_function_pointer_target(
+                       statement->if_else, variable, target);
+        case STMT_WHILE:
+        case STMT_DO:
+            return !expression_modifies_decl(statement->while_cond,
+                                             variable) &&
+                   inline_statement_preserves_function_pointer_target(
+                       statement->while_body, variable, target);
+        case STMT_FOR:
+            return !expression_modifies_decl(statement->for_cond, variable) &&
+                   !expression_modifies_decl(statement->for_inc, variable) &&
+                   inline_statement_preserves_function_pointer_target(
+                       statement->for_init, variable, target) &&
+                   inline_statement_preserves_function_pointer_target(
+                       statement->for_body, variable, target);
+        case STMT_DEFAULT:
+            return inline_statement_preserves_function_pointer_target(
+                statement->default_stmt, variable, target);
+        case STMT_TRY:
+            if (!inline_statement_preserves_function_pointer_target(
+                    statement->try_body, variable, target)) return false;
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (!inline_statement_preserves_function_pointer_target(
+                        handler->body, variable, target)) return false;
+            }
+            return true;
+        case STMT_LABEL:
+            return inline_statement_preserves_function_pointer_target(
+                statement->label_stmt, variable, target);
+        case STMT_CASE:
+            return !expression_modifies_decl(statement->case_val, variable) &&
+                   inline_statement_preserves_function_pointer_target(
+                       statement->case_stmt, variable, target);
+        case STMT_GOTO:
+        case STMT_SWITCH:
+        case STMT_RETURN:
+        case STMT_DECL:
+        case STMT_ASM:
+        case STMT_THROW:
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_NULL:
+            return false;
+    }
+    return false;
+}
+
+/* A switch dispatch or goto can enter a scope past an automatic initializer.
+ * Reject this whole-function proof in such bodies instead of assuming that
+ * the initializer dominates every indirect call. */
+static bool inline_statement_has_nonlocal_entry(const Stmt* statement) {
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_GOTO:
+        case STMT_LABEL:
+        case STMT_SWITCH:
+        case STMT_CASE:
+            return true;
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (inline_statement_has_nonlocal_entry(item->stmt)) {
+                    return true;
+                }
+            }
+            return false;
+        case STMT_IF:
+            return inline_statement_has_nonlocal_entry(statement->if_then) ||
+                   inline_statement_has_nonlocal_entry(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return inline_statement_has_nonlocal_entry(statement->while_body);
+        case STMT_FOR:
+            return inline_statement_has_nonlocal_entry(statement->for_init) ||
+                   inline_statement_has_nonlocal_entry(statement->for_body);
+        case STMT_DEFAULT:
+            return inline_statement_has_nonlocal_entry(
+                statement->default_stmt);
+        case STMT_TRY:
+            if (inline_statement_has_nonlocal_entry(statement->try_body)) {
+                return true;
+            }
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (inline_statement_has_nonlocal_entry(handler->body)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return false;
+    }
 }
 
 static Decl* resolve_inline_readonly_function_pointer_array(Expr* callee) {
