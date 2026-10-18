@@ -6458,3 +6458,12 @@ remains a separate open item.
       compilation crash. `test-optimize`, `test-cxx-member-pointer-functions`
       (including i686/AMD64 O2 verified objects), and the complete native
       Windows `test-cxx` aggregate all pass (exit 0).
+
+## RCC continuation (2026-10-19, callback-array alias safety)
+
+- [x] Treat array-to-pointer decay into another local pointer as an escape
+      before resolving mutable callback-array targets. Verify an alias write
+      changes the selected function result and that optimized i686/AMD64 code
+      retains the indirect call; native-Windows `test-optimize` passes.
+- [ ] General callback alias analysis, mutable-array dataflow, and target sets
+      spanning multiple functions remain open.

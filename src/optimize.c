@@ -2042,6 +2042,103 @@ static bool inline_readonly_initialized_variable(Decl* variable) {
              !variable->type->base->is_volatile));
 }
 
+static bool inline_expression_is_direct_callback_array_call(
+    const Expr* expression, const Decl* array) {
+    const Expr* callee;
+    if (!expression || expression->kind != EXPR_CALL || !array ||
+        !(callee = expression->call_func) || callee->kind != EXPR_INDEX ||
+        !callee->index_base || callee->index_base->kind != EXPR_IDENT ||
+        callee->index_base->ident_decl != array ||
+        expression_mentions_decl(callee->index_expr, array) ||
+        expression_mentions_decl(expression->call_new_count, array)) {
+        return false;
+    }
+    for (const ExprList* argument = expression->call_args;
+         argument; argument = argument->next) {
+        if (expression_mentions_decl(argument->expr, array)) return false;
+    }
+    for (const ExprList* argument = expression->call_new_args;
+         argument; argument = argument->next) {
+        if (expression_mentions_decl(argument->expr, array)) return false;
+    }
+    return true;
+}
+
+static bool inline_statement_escapes_function_pointer_array(
+    const Stmt* statement, const Decl* array) {
+    if (!statement || !array) return false;
+#define INLINE_ARRAY_EXPR_ESCAPES(expr) \
+    (expression_mentions_decl((expr), array) && \
+     !inline_expression_is_direct_callback_array_call((expr), array))
+    switch (statement->kind) {
+        case STMT_EXPR:
+            return INLINE_ARRAY_EXPR_ESCAPES(statement->expr);
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts;
+                 item; item = item->next) {
+                if (inline_statement_escapes_function_pointer_array(
+                        item->stmt, array)) return true;
+            }
+            return false;
+        case STMT_IF:
+            return INLINE_ARRAY_EXPR_ESCAPES(statement->if_cond) ||
+                   inline_statement_escapes_function_pointer_array(
+                       statement->if_then, array) ||
+                   inline_statement_escapes_function_pointer_array(
+                       statement->if_else, array);
+        case STMT_WHILE:
+        case STMT_DO:
+            return INLINE_ARRAY_EXPR_ESCAPES(statement->while_cond) ||
+                   inline_statement_escapes_function_pointer_array(
+                       statement->while_body, array);
+        case STMT_FOR:
+            return inline_statement_escapes_function_pointer_array(
+                       statement->for_init, array) ||
+                   INLINE_ARRAY_EXPR_ESCAPES(statement->for_cond) ||
+                   INLINE_ARRAY_EXPR_ESCAPES(statement->for_inc) ||
+                   inline_statement_escapes_function_pointer_array(
+                       statement->for_body, array);
+        case STMT_SWITCH:
+            return INLINE_ARRAY_EXPR_ESCAPES(statement->switch_expr) ||
+                   inline_statement_escapes_function_pointer_array(
+                       statement->switch_body, array);
+        case STMT_CASE:
+            return INLINE_ARRAY_EXPR_ESCAPES(statement->case_val) ||
+                   inline_statement_escapes_function_pointer_array(
+                       statement->case_stmt, array);
+        case STMT_DEFAULT:
+            return inline_statement_escapes_function_pointer_array(
+                statement->default_stmt, array);
+        case STMT_RETURN:
+            return INLINE_ARRAY_EXPR_ESCAPES(statement->return_val);
+        case STMT_DECL:
+            return statement->decl && statement->decl != array &&
+                   INLINE_ARRAY_EXPR_ESCAPES(statement->decl->var_init);
+        case STMT_LABEL:
+            return inline_statement_escapes_function_pointer_array(
+                statement->label_stmt, array);
+        case STMT_TRY:
+            if (inline_statement_escapes_function_pointer_array(
+                    statement->try_body, array)) return true;
+            for (const CxxCatch* handler = statement->try_catches;
+                 handler; handler = handler->next) {
+                if (inline_statement_escapes_function_pointer_array(
+                        handler->body, array)) return true;
+            }
+            return false;
+        case STMT_THROW:
+            return INLINE_ARRAY_EXPR_ESCAPES(statement->throw_expr);
+        case STMT_ASM:
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_GOTO:
+        case STMT_NULL:
+            return statement->kind == STMT_ASM;
+    }
+#undef INLINE_ARRAY_EXPR_ESCAPES
+    return true;
+}
+
 static bool inline_unmodified_local_variable(Decl* variable) {
     if (!variable || variable->kind != DECL_VAR ||
         variable->var_is_global || variable->var_is_static_local ||
@@ -2051,6 +2148,11 @@ static bool inline_unmodified_local_variable(Decl* variable) {
         (variable->type->kind == TYPE_ARRAY && variable->type->base &&
          variable->type->base->is_volatile) ||
         !optimize_inline_caller || !optimize_inline_caller->func_body) {
+        return false;
+    }
+    if (variable->type->kind == TYPE_ARRAY &&
+        inline_statement_escapes_function_pointer_array(
+            optimize_inline_caller->func_body, variable)) {
         return false;
     }
     return !statement_modifies_decl(optimize_inline_caller->func_body,

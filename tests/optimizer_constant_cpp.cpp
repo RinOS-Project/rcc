@@ -214,3 +214,15 @@ extern "C" int inline_local_aliased_mutable_function_pointer_call(int value)
     *alias = &inline_constexpr_array_second;
     return callback(value);
 }
+
+extern "C" int
+inline_local_aliased_mutable_function_pointer_array_call(int value)
+{
+    int (*callbacks[])(int) = {
+        &inline_constexpr_array_first,
+        &inline_constexpr_array_second
+    };
+    int (**alias)(int) = callbacks;
+    *alias = &inline_constexpr_array_second;
+    return callbacks[0](value);
+}
