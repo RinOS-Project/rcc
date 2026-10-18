@@ -4592,6 +4592,11 @@ static void emit_store_scalar32(Module* mod, int base, int32_t displacement,
         emit_mov_mem_reg(mod, base, displacement + 4, EDX);
         return;
     }
+    if (type && type->kind == TYPE_DOUBLE) {
+        emit_mov_mem_reg(mod, base, displacement, EAX);
+        emit_mov_mem_reg(mod, base, displacement + 4, EDX);
+        return;
+    }
     emit_store_typed32(mod, base, displacement, EAX, type);
 }
 

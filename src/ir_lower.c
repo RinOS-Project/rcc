@@ -11519,6 +11519,9 @@ static RccIrLowerValue lower_zero_initializer(
         return lower_integer_constant(
             context, ir_type, type->is_unsigned, 0u);
     }
+    if (ir_type.kind == RCC_IR_TYPE_FLOAT) {
+        return lower_float_constant(context, (Type*)type, 0.0);
+    }
     if (ir_type.kind == RCC_IR_TYPE_POINTER) {
         RccIrType integer_type;
         if (!lower_type(type_long, &integer_type)) {

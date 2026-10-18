@@ -6151,9 +6151,13 @@ static void gen64_cxx_initialize_member_initializers(
                       "scalar member initializer has unsupported arity");
             return;
         }
+        Expr* value = gen64_cxx_bind_constructor_expression(
+            constructor, initializer->value, arguments);
+        if (value->type != field->type) {
+            value = expr_cast(field->type, value, value->loc);
+        }
         emit64_push_reg(mod, RCX);
-        gen64_expr(mod, gen64_cxx_bind_constructor_expression(
-                       constructor, initializer->value, arguments));
+        gen64_expr(mod, value);
         emit64_pop_reg(mod, RCX);
         emit64_store_typed(mod, RCX, field->offset, RAX, field->type);
     }
@@ -6404,6 +6408,9 @@ static void gen64_cxx_initialize_object_mode(
                     rcc_error((SourceLoc){"<constructor>", 0, 0},
                               "scalar member initializer has unsupported arity");
                     return;
+                }
+                if (field->type && value->type != field->type) {
+                    value = expr_cast(field->type, value, value->loc);
                 }
                 emit64_push_reg(mod, address_reg);
                 gen64_expr(mod, value);

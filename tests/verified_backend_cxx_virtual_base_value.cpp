@@ -31,11 +31,11 @@ struct VerifiedVirtualCleanupLeaf : virtual VerifiedVirtualCleanupRoot {
     int* cleanup_count;
     int cleanup_increment;
     int cleanup_increment_extra_a;
-    int cleanup_increment_extra_b;
+    double cleanup_increment_extra_b;
 
     explicit VerifiedVirtualCleanupLeaf(
             int* count, int ignored, int extra_a, int increment,
-            int extra_b) noexcept
+            double extra_b) noexcept
         : cleanup_count(count), cleanup_increment(increment),
           cleanup_increment_extra_a(extra_a),
           cleanup_increment_extra_b(extra_b) {}
@@ -43,7 +43,7 @@ struct VerifiedVirtualCleanupLeaf : virtual VerifiedVirtualCleanupRoot {
     ~VerifiedVirtualCleanupLeaf() noexcept {
         *cleanup_count += cleanup_increment +
                           cleanup_increment_extra_a * 10 +
-                          cleanup_increment_extra_b * 100;
+                          static_cast<int>(cleanup_increment_extra_b) * 100;
     }
 };
 
