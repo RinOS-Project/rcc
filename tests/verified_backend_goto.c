@@ -34,6 +34,24 @@ done:
     return value;
 }
 
+long long verified_goto_wide_inside_loop(unsigned int count,
+                                         long long initial)
+{
+    long long value = initial;
+    while (count != 0u) {
+        if ((count & 1u) != 0u) {
+            value += 0x0000000100000001LL;
+            goto joined;
+        }
+        value += 0x0000000200000002LL;
+
+    joined:
+        value += (long long)count;
+        --count;
+    }
+    return value;
+}
+
 int main(void)
 {
     if (verified_goto_wide_forward(1, 100) != 105) return 1;

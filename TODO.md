@@ -6467,3 +6467,14 @@ remains a separate open item.
       retains the indirect call; native-Windows `test-optimize` passes.
 - [ ] General callback alias analysis, mutable-array dataflow, and target sets
       spanning multiple functions remain open.
+
+## RCC continuation (2026-10-19, wide-scalar goto inside loops)
+
+- [x] Add an i686/AMD64 verified-backend regression where a 64-bit local is
+      updated along both sides of a forward `goto`/fallthrough label join
+      inside a `while` loop, then carried across the loop backedge. Require all
+      five functions to emit without fallback at `-O0`/`-O2`; execute zero- and
+      three-iteration cases from both AMD64 generated objects via the host
+      object harness. `test-verified-goto` passes.
+- [ ] Arbitrary-label SSA predecessor/phi construction, nested structured
+      wide-scalar loop edges, and VLA stack restoration remain open.

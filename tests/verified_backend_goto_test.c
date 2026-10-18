@@ -20,17 +20,20 @@
 #endif
 
 typedef int RINOS_ABI (*EntryFunction)(void);
+typedef long long RINOS_ABI (*WideLoopFunction)(unsigned int, long long);
 
 int main(int argc, char** argv)
 {
     ObjectFile* object;
     ObjSection* text;
     ObjSymbol* entry_symbol;
+    ObjSymbol* wide_loop_symbol;
     size_t page_size;
     size_t mapping_size;
     void* memory;
     void* entry_address;
     EntryFunction entry;
+    WideLoopFunction wide_loop;
 #ifdef _WIN32
     SYSTEM_INFO system_info;
     DWORD previous;
@@ -43,8 +46,11 @@ int main(int argc, char** argv)
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
     entry_symbol = objfile_find_symbol(object, "main");
+    wide_loop_symbol = objfile_find_symbol(
+        object, "verified_goto_wide_inside_loop");
     assert(text != NULL && text->data != NULL && text->size != 0u &&
-           entry_symbol != NULL && entry_symbol->section == 0);
+           entry_symbol != NULL && entry_symbol->section == 0 &&
+           wide_loop_symbol != NULL && wide_loop_symbol->section == 0);
 #ifdef _WIN32
     GetSystemInfo(&system_info);
     page_size = (size_t)system_info.dwPageSize;
@@ -93,6 +99,12 @@ int main(int argc, char** argv)
     entry_address = (uint8_t*)memory + entry_symbol->value;
     memcpy(&entry, &entry_address, sizeof(entry));
     assert(entry() == 0);
+    entry_address = (uint8_t*)memory + wide_loop_symbol->value;
+    memcpy(&wide_loop, &entry_address, sizeof(wide_loop));
+    assert(wide_loop(0u, 0x0000000200000002LL) ==
+           0x0000000200000002LL);
+    assert(wide_loop(3u, 0x0000000200000002LL) ==
+           0x000000060000000cLL);
 #ifdef _WIN32
     assert(VirtualFree(memory, 0, MEM_RELEASE));
 #else
