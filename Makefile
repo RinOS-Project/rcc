@@ -18201,6 +18201,18 @@ test-generic: $(RCC_TARGET)
 		$(TEST_OUT)/generic/invalid.log
 	$(GREP) -q "generic association requires a complete object type" \
 		$(TEST_OUT)/generic/invalid.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target i686-unknown-rinos -c \
+		-o $(TEST_OUT)/generic/invalid-vla.ro \
+		tests/invalid_generic_variably_modified.c,$(TEST_OUT)/generic/invalid-vla.log)
+	$(call CHECK_COUNT,generic association type cannot be variably modified,$(TEST_OUT)/generic/invalid-vla.log,2)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
+		-o $(TEST_OUT)/generic/invalid-vla-x64.ro \
+		tests/invalid_generic_variably_modified.c,$(TEST_OUT)/generic/invalid-vla-x64.log)
+	$(call CHECK_COUNT,generic association type cannot be variably modified,$(TEST_OUT)/generic/invalid-vla-x64.log,2)
+	$(call EXPECT_FAILURE,$(CC) -std=c17 -pedantic-errors -fsyntax-only \
+		tests/invalid_generic_variably_modified.c,\
+		$(TEST_OUT)/generic/invalid-vla-gcc.log)
+	$(call CHECK_COUNT,variable length type,$(TEST_OUT)/generic/invalid-vla-gcc.log,2)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c \
 		-o $(TEST_OUT)/generic/invalid-match.ro \
 		tests/invalid_generic_match.c,$(TEST_OUT)/generic/invalid-match.log)

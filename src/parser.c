@@ -18,6 +18,7 @@ Parser parser;  /* Non-static for C++ parser access */
 static bool check(TokenType type);
 static bool parser_parenthesized_pointer_is_function(void);
 static bool parser_parenthesized_declarator_starts_member_pointer(void);
+static bool parser_type_is_variably_modified(Type* type);
 
 bool rcc_parser_cxx_parenthesized_declarator_starts_member_pointer(void) {
     return parser_parenthesized_declarator_starts_member_pointer();
@@ -1282,7 +1283,10 @@ static Expr* parse_generic_selection(SourceLoc loc) {
             association_type = parse_type_spec();
             association_type = parse_declarator(
                 association_type, NULL, NULL);
-            if (!generic_association_type_valid(association_type)) {
+            if (parser_type_is_variably_modified(association_type)) {
+                rcc_error(association_loc,
+                          "generic association type cannot be variably modified");
+            } else if (!generic_association_type_valid(association_type)) {
                 rcc_error(association_loc,
                           "generic association requires a complete object type");
             }

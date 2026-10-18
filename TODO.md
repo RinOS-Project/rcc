@@ -6249,3 +6249,11 @@ remains a separate open item.
       nested pointer qualification; generate i686 and AMD64 `.ro` objects.
       `test-generic` and the full native-Windows `test-c17` aggregate pass.
 - [ ] Broader C17 qualifier/effective-type conformance remains open.
+
+## RCC continuation (2026-10-18, generic variably modified associations)
+
+- [x] Reject VLA and pointer-to-VLA types in C17 `_Generic` associations with
+      a direct diagnostic. GCC C17 `-pedantic-errors` confirms both are
+      constraint violations; `test-generic` checks both diagnostics on i686
+      and AMD64 and passes.
+- [ ] Broader C17 qualifier/effective-type conformance remains open.
