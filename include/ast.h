@@ -1003,6 +1003,7 @@ typedef enum {
 typedef struct AsmOperand {
     const char* constraint;     /* e.g., "=a", "r", "m" */
     Expr* expr;                 /* The C expression */
+    int assigned_gpr;           /* Semantic assignment for bounded GPR outputs */
     struct AsmOperand* next;
 } AsmOperand;
 

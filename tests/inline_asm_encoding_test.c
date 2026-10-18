@@ -98,6 +98,24 @@ static void verify_generic_output(const char* path, uint16_t architecture,
                                             : sizeof(x86_move));
 }
 
+static void verify_earlyclobber_generic(const char* path,
+                                        uint16_t architecture,
+                                        const char* function_name)
+{
+    static const uint8_t x86_first[] = {0x89u, 0xc2u};
+    static const uint8_t x86_later[] = {0x89u, 0xcau};
+    static const uint8_t x64_first[] = {0x48u, 0x89u, 0xc1u};
+    static const uint8_t x64_later[] = {0x4cu, 0x89u, 0xd1u};
+    verify_pattern(path, architecture, function_name,
+                   architecture == ARCH_X64 ? x64_first : x86_first,
+                   architecture == ARCH_X64 ? sizeof(x64_first)
+                                            : sizeof(x86_first));
+    verify_pattern(path, architecture, function_name,
+                   architecture == ARCH_X64 ? x64_later : x86_later,
+                   architecture == ARCH_X64 ? sizeof(x64_later)
+                                            : sizeof(x86_later));
+}
+
 int main(int argc, char** argv)
 {
     assert(argc == 4);
@@ -112,6 +130,12 @@ int main(int argc, char** argv)
     verify_generic_output(argv[1], ARCH_X86, "asm_generic_output_move");
     verify_generic_output(argv[2], ARCH_X64, "asm_generic_output_move");
     verify_generic_output(argv[3], ARCH_X64, "asm_cpp_generic_output_move");
+    verify_earlyclobber_generic(argv[1], ARCH_X86,
+                                "asm_earlyclobber_generic");
+    verify_earlyclobber_generic(argv[2], ARCH_X64,
+                                "asm_earlyclobber_generic");
+    verify_earlyclobber_generic(argv[3], ARCH_X64,
+                                "asm_cpp_earlyclobber_generic");
     verify_generic_output(argv[1], ARCH_X86, "asm_general_output_move");
     verify_generic_output(argv[2], ARCH_X64, "asm_general_output_move");
     verify_generic(argv[3], ARCH_X64, "asm_cpp_general_input_move");

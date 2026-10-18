@@ -62,6 +62,12 @@ void invalid_generic_output_clobber(int value)
     __asm__ __volatile__("mov %1, %0" : "=r"(result) : "a"(value) : "r10");
 }
 
+void invalid_earlyclobber_fixed_conflict(int value)
+{
+    int result;
+    __asm__ __volatile__("mov %1, %0" : "=&a"(result) : "a"(value));
+}
+
 void invalid_duplicate_clobber(void)
 {
     __asm__ __volatile__("nop" : : : "eax", "eax");

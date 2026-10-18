@@ -36,6 +36,27 @@ int asm_generic_output_move(int value)
     return result;
 }
 
+int asm_earlyclobber_generic(int first, int later)
+{
+    int result;
+    __asm__ __volatile__("mov %1, %0\n\tmov %2, %0"
+                         : "=&r"(result) : "a"(first), "r"(later));
+    return result;
+}
+
+int asm_earlyclobber_generic_avoids_fixed(int first, int later)
+{
+    int result;
+#if defined(__i386__)
+    __asm__ __volatile__("mov %1, %0\n\tmov %2, %0"
+                         : "=&r"(result) : "d"(first), "r"(later));
+#else
+    __asm__ __volatile__("mov %1, %0\n\tmov %2, %0"
+                         : "=&r"(result) : "c"(first), "r"(later));
+#endif
+    return result;
+}
+
 int asm_generic_read_write(int value)
 {
     __asm__ __volatile__("mov %0, %0" : "+r"(value));

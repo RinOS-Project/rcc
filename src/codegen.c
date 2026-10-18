@@ -14008,6 +14008,22 @@ static int constraint_to_reg_for_operand(const char* constraint,
     return EDX;      /* Non-constant and out-of-range ports use %dx. */
 }
 
+static int asm_operand_register(const AsmOperand* operand) {
+    if (!operand) return -1;
+    switch (operand->assigned_gpr) {
+        case 0: return EAX;
+        case 1: return EBX;
+        case 2: return ECX;
+        case 3: return EDX;
+        case 4: return ESI;
+        case 5: return EDI;
+        case -2: return -1;
+        default:
+            return constraint_to_reg_for_operand(operand->constraint,
+                                                 operand->expr);
+    }
+}
+
 static bool asm_parse_immediate8(const char* text, uint8_t* value) {
     char* end;
     long long parsed;
@@ -14524,16 +14540,14 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         int idx = 0;
         /* Process outputs first */
         for (AsmOperand* op = outputs; op; op = op->next) {
-            operands[idx].reg = constraint_to_reg_for_operand(
-                op->constraint, op->expr);
+            operands[idx].reg = asm_operand_register(op);
             operands[idx].op = op;
             operands[idx].stack_offset = 0;
             idx++;
         }
         /* Then inputs */
         for (AsmOperand* op = inputs; op; op = op->next) {
-            operands[idx].reg = constraint_to_reg_for_operand(
-                op->constraint, op->expr);
+            operands[idx].reg = asm_operand_register(op);
             operands[idx].op = op;
             operands[idx].stack_offset = 0;
             idx++;

@@ -1476,6 +1476,7 @@ AsmOperand* asm_operand_new(const char* constraint, Expr* expr) {
     AsmOperand* op = rcc_alloc(sizeof(AsmOperand));
     op->constraint = constraint;
     op->expr = expr;
+    op->assigned_gpr = -1;
     op->next = NULL;
     return op;
 }

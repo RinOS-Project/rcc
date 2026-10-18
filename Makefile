@@ -15163,6 +15163,8 @@ test-inline-asm-validation: $(RCC_TARGET)
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "inputs use the same fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
+	$(GREP) -q "early-clobber output conflicts with an input fixed register" \
+		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "clobber conflicts with an operand fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "clobbers list the same register twice" \
@@ -15185,6 +15187,8 @@ test-inline-asm-validation: $(RCC_TARGET)
 	$(GREP) -q "outputs use the same fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	$(GREP) -q "inputs use the same fixed register" \
+		$(TEST_OUT)/inline-asm-validation/x64.log
+	$(GREP) -q "early-clobber output conflicts with an input fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	$(GREP) -q "clobber conflicts with an operand fixed register" \
 		$(TEST_OUT)/inline-asm-validation/x64.log

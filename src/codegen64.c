@@ -10832,6 +10832,26 @@ static int codegen64_asm_register_for_operand(const char* constraint,
     return RDX;      /* Non-constant and out-of-range ports use %dx. */
 }
 
+static int codegen64_asm_operand_register(const AsmOperand* operand)
+{
+    if (!operand) return -1;
+    switch (operand->assigned_gpr) {
+        case 0: return RAX;
+        case 1: return RBX;
+        case 2: return RCX;
+        case 3: return RDX;
+        case 4: return RSI;
+        case 5: return RDI;
+        case 6: return R10;
+        case 8: return R8;
+        case 9: return R9;
+        case -2: return -1;
+        default:
+            return codegen64_asm_register_for_operand(operand->constraint,
+                                                      operand->expr);
+    }
+}
+
 static const char* codegen64_asm_register_name(int reg)
 {
     switch (reg) {
@@ -11910,7 +11930,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
 
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
         ++output_count;
-        int reg = codegen64_asm_register(operand->constraint);
+        int reg = codegen64_asm_operand_register(operand);
         if (reg < 0) {
             rcc_error(stmt->loc,
                       "unsupported AMD64 inline asm output constraint '%s'",
@@ -11933,8 +11953,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
         if (operand->constraint[0] == '+') {
             inputs[input_index] = operand;
-            registers[input_index++] = codegen64_asm_register(
-                operand->constraint);
+            registers[input_index++] = codegen64_asm_operand_register(operand);
         }
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
@@ -11965,8 +11984,8 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
         : NULL;
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
         immediate_flags[template_index] = false;
-        template_registers[template_index++] = codegen64_asm_register(
-            operand->constraint);
+        template_registers[template_index++] =
+            codegen64_asm_operand_register(operand);
     }
     for (operand = stmt->asm_inputs; operand; operand = operand->next) {
         int reg = codegen64_asm_register_for_operand(operand->constraint,
@@ -12118,7 +12137,7 @@ static void gen64_asm_stmt(Module* mod, Stmt* stmt)
     }
 
     for (operand = stmt->asm_outputs; operand; operand = operand->next) {
-        emit64_push_reg(mod, codegen64_asm_register(operand->constraint));
+        emit64_push_reg(mod, codegen64_asm_operand_register(operand));
         gen64_lvalue(mod, operand->expr);
         emit64_mov_reg_reg(mod, RCX, RAX);
         emit64_pop_reg(mod, RAX);

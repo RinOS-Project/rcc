@@ -2473,7 +2473,7 @@ static int sema_asm_fixed_register_id(const char* name) {
         strcmp(name, "{edi}") == 0 || strcmp(name, "{rdi}") == 0) return 5;
     if (strcmp(name, "{r8}") == 0) return 8;
     if (strcmp(name, "{r9}") == 0) return 9;
-    if (strcmp(name, "{r10}") == 0) return 10;
+    if (strcmp(name, "{r10}") == 0) return 6;
     if (strcmp(name, "r10") == 0) return 6;
     return -1;
 }
@@ -2494,19 +2494,116 @@ static bool sema_asm_nd_uses_immediate(const AsmOperand* operand) {
            value >= 0 && value <= 255;
 }
 
+static bool sema_asm_earlyclobber_generic_output(
+    const AsmOperand* operand) {
+    const char* constraint = operand ? operand->constraint : NULL;
+    const char* name = operand
+        ? sema_asm_constraint_name(operand->constraint) : NULL;
+    return constraint &&
+           (constraint[0] == '=' || constraint[0] == '+') &&
+           constraint[1] == '&' && name &&
+           (strcmp(name, "r") == 0 || strcmp(name, "X") == 0 ||
+            strcmp(name, "g") == 0);
+}
+
 static int sema_asm_operand_fixed_register_id(const AsmOperand* operand) {
     const char* name = operand
         ? sema_asm_constraint_name(operand->constraint) : NULL;
+    if (!operand) return -1;
+    if (operand->assigned_gpr >= 0) return operand->assigned_gpr;
+    if (operand->assigned_gpr < -1) return -1;
+    if (sema_asm_earlyclobber_generic_output(operand)) {
+        /* -2 is left for the conflict-resolution pass before codegen. */
+        return g_opts.target_arch == ARCH_X64 ? 6 : 2;
+    }
     if (sema_asm_port_name(name)) {
         return sema_asm_nd_uses_immediate(operand) ? -1 : 3;
     }
     return sema_asm_fixed_register_id(name);
 }
 
+static int sema_asm_operand_assigned_register_id(
+    const AsmOperand* operand) {
+    const char* name = operand
+        ? sema_asm_constraint_name(operand->constraint) : NULL;
+    int fixed_id = sema_asm_operand_fixed_register_id(operand);
+    if (fixed_id >= 0) return fixed_id;
+    if (name && (strcmp(name, "r") == 0 || strcmp(name, "X") == 0 ||
+                 strcmp(name, "g") == 0)) {
+        /* Match the deterministic generic-GPR choices in both backends. */
+        return g_opts.target_arch == ARCH_X64 ? 6 : 2;
+    }
+    return -1;
+}
+
+static bool sema_asm_earlyclobber_register_available(
+    const Stmt* stmt, const AsmOperand* output, int register_id) {
+    for (const AsmOperand* other = stmt->asm_outputs; other;
+         other = other->next) {
+        if (other == output ||
+            (sema_asm_earlyclobber_generic_output(other) &&
+             other->assigned_gpr == -1)) {
+            continue;
+        }
+        if (sema_asm_operand_assigned_register_id(other) == register_id) {
+            return false;
+        }
+    }
+    for (const AsmOperand* input = stmt->asm_inputs; input;
+         input = input->next) {
+        if (sema_asm_operand_assigned_register_id(input) == register_id) {
+            return false;
+        }
+    }
+    for (const AsmClobber* clobber = stmt->asm_clobbers; clobber;
+         clobber = clobber->next) {
+        if (sema_asm_fixed_register_id(clobber->reg) == register_id) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void sema_asm_assign_earlyclobber_registers(Stmt* stmt) {
+    static const int x86_candidates[] = {2, 3, 0, 1, 4, 5};
+    static const int x64_candidates[] = {6, 2, 0, 1, 3, 4, 5, 8, 9};
+    const int* candidates = g_opts.target_arch == ARCH_X64
+        ? x64_candidates : x86_candidates;
+    size_t candidate_count = g_opts.target_arch == ARCH_X64
+        ? sizeof(x64_candidates) / sizeof(x64_candidates[0])
+        : sizeof(x86_candidates) / sizeof(x86_candidates[0]);
+    if (!stmt) return;
+    for (AsmOperand* output = stmt->asm_outputs; output;
+         output = output->next) {
+        if (sema_asm_earlyclobber_generic_output(output)) {
+            output->assigned_gpr = -1;
+        }
+    }
+    for (AsmOperand* output = stmt->asm_outputs; output;
+         output = output->next) {
+        if (!sema_asm_earlyclobber_generic_output(output)) continue;
+        output->assigned_gpr = -2;
+        for (size_t index = 0u; index < candidate_count; ++index) {
+            if (!sema_asm_earlyclobber_register_available(
+                    stmt, output, candidates[index])) {
+                continue;
+            }
+            output->assigned_gpr = candidates[index];
+            break;
+        }
+        if (output->assigned_gpr < 0) {
+            rcc_error(stmt->loc,
+                      "no available register for inline asm early-clobber output '%s'",
+                      output->constraint);
+        }
+    }
+}
+
 static void sema_asm_validate_conflicts(Stmt* stmt) {
     AsmOperand* output;
     AsmOperand* input;
     if (!stmt) return;
+    sema_asm_assign_earlyclobber_registers(stmt);
     for (output = stmt->asm_outputs; output; output = output->next) {
         int output_id = sema_asm_operand_fixed_register_id(output);
         for (AsmOperand* later = output->next; later; later = later->next) {
@@ -2519,7 +2616,10 @@ static void sema_asm_validate_conflicts(Stmt* stmt) {
         for (input = stmt->asm_inputs; input; input = input->next) {
             int input_id = sema_asm_operand_fixed_register_id(input);
             if (output_id < 0 || output_id != input_id) continue;
-            if (output->constraint[0] != '=') {
+            if (output->constraint[1] == '&') {
+                rcc_error(stmt->loc,
+                          "inline asm early-clobber output conflicts with an input fixed register");
+            } else if (output->constraint[0] != '=') {
                 rcc_error(stmt->loc,
                           "inline asm read-write output conflicts with a duplicate fixed-register input");
             }

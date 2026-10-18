@@ -12,6 +12,14 @@ extern "C" int asm_cpp_generic_output_move(int value)
     return result;
 }
 
+extern "C" int asm_cpp_earlyclobber_generic(int first, int later)
+{
+    int result;
+    asm volatile("mov %1, %0\n\tmov %2, %0"
+                 : "=&r"(result) : "a"(first), "r"(later));
+    return result;
+}
+
 extern "C" int asm_cpp_generic_read_write(int value)
 {
     asm volatile("mov %0, %0" : "+r"(value));

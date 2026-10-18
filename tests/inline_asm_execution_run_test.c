@@ -49,6 +49,8 @@ int main(int argc, char** argv)
     size_t page_size;
     size_t mapping_size;
     binary_function roundtrip;
+    binary_function earlyclobber;
+    binary_function earlyclobber_avoids_fixed;
     unary_function placeholder;
     unary_function generic_output;
     unary_function generic_read_write;
@@ -103,6 +105,10 @@ int main(int argc, char** argv)
 #endif
 
     LOAD_FUNCTION(roundtrip, object, mapping, "asm_fixed_register_roundtrip");
+    LOAD_FUNCTION(earlyclobber, object, mapping,
+                  "asm_earlyclobber_generic");
+    LOAD_FUNCTION(earlyclobber_avoids_fixed, object, mapping,
+                  "asm_earlyclobber_generic_avoids_fixed");
     LOAD_FUNCTION(placeholder, object, mapping, "asm_placeholder_move");
     LOAD_FUNCTION(generic_output, object, mapping, "asm_generic_output_move");
     LOAD_FUNCTION(generic_read_write, object, mapping, "asm_generic_read_write");
@@ -111,6 +117,8 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(general_read_write, object, mapping, "asm_general_read_write");
     LOAD_FUNCTION(read_write, object, mapping, "asm_read_write_accumulator");
     assert(roundtrip(37, 91) == 37);
+    assert(earlyclobber(37, 91) == 91);
+    assert(earlyclobber_avoids_fixed(37, 91) == 91);
     assert(placeholder(83) == 83);
     assert(generic_output(97) == 97);
     assert(generic_read_write(109) == 109);
