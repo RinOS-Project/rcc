@@ -6052,7 +6052,9 @@ remains a separate open item.
       adjusted member offsets and `this` adjustments through NTTP collection,
       substitution, and Itanium mangling; verify exact GCC symbols, i686/AMD64
       generation, host execution, full `test-cxx`, and `test-debug-info`.
-- [ ] Virtual-base member-pointer conversions remain open.
+- [x] Verify that direct virtual-base and base-of-virtual-base member-pointer
+      conversions are rejected for data and member-function pointers; compare
+      GCC/RCC diagnostics on i686 and AMD64.
 
 ## RCC continuation (2026-10-18, multidimensional structural-class arrays in NTTPs)
 
@@ -6066,4 +6068,6 @@ remains a separate open item.
       matrices, generate i686 and AMD64 output, and execute RCC/GCC host tests.
       The focused target and full native-Windows `test-cxx` aggregate pass.
 - [x] Run native-Windows `test-debug-info` (exit 0).
-- [ ] Virtual-base member-pointer conversions remain open.
+- [x] Verify standard-invalid conversions through direct and indirect virtual
+      bases remain rejected for data and member-function pointers; compare
+      GCC/RCC diagnostics on i686 and AMD64.
