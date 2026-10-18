@@ -21,6 +21,8 @@
 
 typedef int RINOS_ABI (*EntryFunction)(void);
 typedef long long RINOS_ABI (*WideLoopFunction)(unsigned int, long long);
+typedef long long RINOS_ABI (*WideRestartFunction)(
+    unsigned int, unsigned int, unsigned int, long long);
 
 int main(int argc, char** argv)
 {
@@ -29,6 +31,7 @@ int main(int argc, char** argv)
     ObjSymbol* entry_symbol;
     ObjSymbol* wide_loop_symbol;
     ObjSymbol* nested_wide_loop_symbol;
+    ObjSymbol* nested_wide_restart_symbol;
     size_t page_size;
     size_t mapping_size;
     void* memory;
@@ -36,6 +39,7 @@ int main(int argc, char** argv)
     EntryFunction entry;
     WideLoopFunction wide_loop;
     WideLoopFunction nested_wide_loop;
+    WideRestartFunction nested_wide_restart;
 #ifdef _WIN32
     SYSTEM_INFO system_info;
     DWORD previous;
@@ -52,11 +56,15 @@ int main(int argc, char** argv)
         object, "verified_goto_wide_inside_loop");
     nested_wide_loop_symbol = objfile_find_symbol(
         object, "verified_goto_wide_nested_loop");
+    nested_wide_restart_symbol = objfile_find_symbol(
+        object, "verified_goto_wide_nested_backward_restart");
     assert(text != NULL && text->data != NULL && text->size != 0u &&
            entry_symbol != NULL && entry_symbol->section == 0 &&
            wide_loop_symbol != NULL && wide_loop_symbol->section == 0 &&
            nested_wide_loop_symbol != NULL &&
-           nested_wide_loop_symbol->section == 0);
+           nested_wide_loop_symbol->section == 0 &&
+           nested_wide_restart_symbol != NULL &&
+           nested_wide_restart_symbol->section == 0);
 #ifdef _WIN32
     GetSystemInfo(&system_info);
     page_size = (size_t)system_info.dwPageSize;
@@ -119,6 +127,10 @@ int main(int argc, char** argv)
            0x0000000600000010LL);
     assert(nested_wide_loop(3u, 0x0000000200000002LL) ==
            0x0000000e00000038LL);
+    entry_address = (uint8_t*)memory + nested_wide_restart_symbol->value;
+    memcpy(&nested_wide_restart, &entry_address, sizeof(nested_wide_restart));
+    assert(nested_wide_restart(2u, 2u, 2u, 7) == 34359738386LL);
+    assert(nested_wide_restart(1u, 0u, 2u, 7) == 8);
 #ifdef _WIN32
     assert(VirtualFree(memory, 0, MEM_RELEASE));
 #else

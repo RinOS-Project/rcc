@@ -17051,22 +17051,22 @@ test-verified-goto: $(RCC_TARGET)
 		-o $(TEST_OUT)/verified-backend/goto-x86.ro \
 		tests/verified_backend_goto.c \
 		>$(TEST_OUT)/verified-backend/goto-x86.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x86.log
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x86.log
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/goto-x86-o2.ro \
 		tests/verified_backend_goto.c \
 		>$(TEST_OUT)/verified-backend/goto-x86-o2.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x86-o2.log
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x86-o2.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/goto-x64.ro \
 		tests/verified_backend_goto.c \
 		>$(TEST_OUT)/verified-backend/goto-x64.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x64.log
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x64.log
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/goto-x64-o2.ro \
 		tests/verified_backend_goto.c \
 		>$(TEST_OUT)/verified-backend/goto-x64-o2.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x64-o2.log
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/goto-run \
 		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \

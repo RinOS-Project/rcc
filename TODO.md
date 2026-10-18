@@ -6485,6 +6485,11 @@ remains a separate open item.
       64-bit values into one label. All three runtime paths agree with the GCC
       host oracle; i686/AMD64 verified emissions pass at `-O0`/`-O2` without
       fallback, and both AMD64 objects execute successfully.
+- [x] Cover a backward `goto` from a nested `while` body to a label immediately
+      before that loop, reinitializing the inner bound while carrying a 64-bit
+      local. i686/AMD64 verified emissions pass at `-O0`/`-O2` without fallback;
+      generated AMD64 execution passes both repeated-restart and zero-inner-bound
+      cases in `test-verified-goto`.
 - [ ] Arbitrary-label SSA predecessor/phi construction, nested structured
       wide-scalar loop edges beyond the tested join/backedge shapes, and VLA
       stack restoration remain open.
