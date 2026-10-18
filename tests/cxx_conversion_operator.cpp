@@ -242,6 +242,28 @@ public:
     using ConversionRefQualifiedInheritedBase::operator long;
 };
 
+class ConversionCvRefQualifiedSource {
+public:
+    operator int() const & {
+        return 449;
+    }
+
+    operator long() const volatile && {
+        return 457;
+    }
+};
+
+class ConversionUnqualifiedRefQualifiedSource {
+public:
+    operator int() const {
+        return 461;
+    }
+
+    operator long() const && {
+        return 463;
+    }
+};
+
 class NonTemplateWinsConversionSource {
 public:
     operator int() const {
@@ -887,6 +909,10 @@ int main() {
     if (take_long(inherited_ref_conversion_source) != 433 ||
         take_long(ConversionRefQualifiedInheritedDerived{}) != 431) {
         return 6;
+    }
+    if (take_integer(ConversionCvRefQualifiedSource{}) != 457) return 7;
+    if (take_integer(ConversionUnqualifiedRefQualifiedSource{}) != 461) {
+        return 8;
     }
     if (take_integer(non_template_wins_conversion_source) != 283) return 5;
     if (direct != 7 || templated_direct != 67 ||

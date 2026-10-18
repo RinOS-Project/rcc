@@ -9736,6 +9736,19 @@ static void diagnose_invalid_cxx_method_redeclaration(
             !cxx_method_parameter_lists_match(method, previous)) {
             continue;
         }
+        if (strcmp(name, "operator conversion") == 0) {
+            Type* method_target = method->decl && method->decl->type
+                ? method->decl->type->ret_type : NULL;
+            Type* previous_target = previous->decl && previous->decl->type
+                ? previous->decl->type->ret_type : NULL;
+            if (!type_is_same_template_argument(method_target,
+                                                previous_target)) {
+                /* Conversion-function targets are part of the
+                 * conversion-function-id. Distinct targets are valid
+                 * overloads even when their explicit parameter lists match. */
+                continue;
+            }
+        }
         if (method->is_static == previous->is_static &&
             method->is_const == previous->is_const &&
             method->is_volatile == previous->is_volatile &&

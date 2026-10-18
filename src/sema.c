@@ -3029,11 +3029,12 @@ static int sema_cxx_reference_conversion_source_relation(
     return 0;
 }
 
-/* Rank the implicit object binding for a conversion function.  Conversion
- * functions use the same ref-qualifier and cv rules as other member calls. */
-static int sema_cxx_conversion_object_rank(TypeMethod* method,
-                                           Expr* source_expression,
-                                           bool* inherited_from_base) {
+/* Validate an implicit object binding and count added cv qualifiers.
+ * Conversion functions use the same ref-qualifier and cv rules as other
+ * member calls; ref-qualified rvalue preference is compared separately. */
+static int sema_cxx_conversion_object_qualification_rank(
+    TypeMethod* method, Expr* source_expression,
+    bool* inherited_from_base) {
     Type* source_type;
     Type* this_pointer_type;
     Type* this_type;
@@ -3091,7 +3092,6 @@ static int sema_cxx_conversion_object_rank(TypeMethod* method,
     if (method->ref_qualifier == CXX_REF_QUAL_LVALUE &&
         !source_is_lvalue) {
         if (!this_type->is_const) return -1;
-        ++rank;
     } else if (method->ref_qualifier == CXX_REF_QUAL_RVALUE &&
                source_is_lvalue) {
         return -1;
@@ -3195,7 +3195,7 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         TypeMethod* method;
         Type* result_type;
         int result_rank;
-        int object_rank;
+        int object_qualification_rank;
         bool inherited_from_base;
     } ConversionCandidate;
     TypeMethod* method;
@@ -3221,7 +3221,7 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         sizeof(*candidates) * (method_count > 0u ? method_count : 1u));
     for (method = aggregate->methods; method; method = method->next) {
         Type* result_type;
-        int object_rank;
+        int object_qualification_rank;
         bool inherited_from_base;
         int rank;
         if (method->kind != TYPE_METHOD_FUNCTION ||
@@ -3231,9 +3231,10 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
             method->function_decl->func_params) {
             continue;
         }
-        object_rank = sema_cxx_conversion_object_rank(
-            method, source_expression, &inherited_from_base);
-        if (object_rank < 0) continue;
+        object_qualification_rank =
+            sema_cxx_conversion_object_qualification_rank(
+                method, source_expression, &inherited_from_base);
+        if (object_qualification_rank < 0) continue;
         result_type = method->return_type;
         if (target->is_reference &&
             (!target->base || target->base->kind != TYPE_FUNC)) {
@@ -3260,7 +3261,8 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         candidates[candidate_count].method = method;
         candidates[candidate_count].result_type = result_type;
         candidates[candidate_count].result_rank = rank;
-        candidates[candidate_count].object_rank = object_rank;
+        candidates[candidate_count].object_qualification_rank =
+            object_qualification_rank;
         candidates[candidate_count].inherited_from_base =
             inherited_from_base;
         ++candidate_count;
@@ -3279,11 +3281,27 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
                  * with the same conversion type, including when a using-
                  * declaration made the base declaration visible. */
                 relation = candidates[other].inherited_from_base ? -1 : 1;
-            } else if (candidates[other].object_rank <
-                candidates[index].object_rank) {
+            } else if (source_expression && !is_lvalue(source_expression) &&
+                       candidates[other].method->ref_qualifier !=
+                           CXX_REF_QUAL_NONE &&
+                       candidates[index].method->ref_qualifier !=
+                           CXX_REF_QUAL_NONE &&
+                       candidates[other].method->ref_qualifier !=
+                           candidates[index].method->ref_qualifier) {
+                /* [over.ics.rank]: for two ref-qualified implicit object
+                 * parameters, an rvalue-reference binding to an rvalue is
+                 * better than an lvalue-reference binding. Keep this
+                 * relationship separate from cv qualification additions;
+                 * counting both as scalar penalties can incorrectly let the
+                 * conversion-function result break a tie. */
+                relation = candidates[other].method->ref_qualifier ==
+                        CXX_REF_QUAL_RVALUE
+                    ? 1 : -1;
+            } else if (candidates[other].object_qualification_rank <
+                candidates[index].object_qualification_rank) {
                 relation = 1;
-            } else if (candidates[other].object_rank >
-                       candidates[index].object_rank) {
+            } else if (candidates[other].object_qualification_rank >
+                       candidates[index].object_qualification_rank) {
                 relation = -1;
             } else if (candidates[other].result_rank <
                        candidates[index].result_rank) {
