@@ -1828,6 +1828,9 @@
         prologueの完全なCFIは引き続き未実装
   - [x] CIE/FDEのPC進行を実際の`push fp; mov fp,sp`完了位置へ合わせ、
         epilogueのCFA復帰とsaved FP復元を両archのdebug-info回帰で検証
+  - [x] 静的参照一時オブジェクトのvtable設定中にEBP/RBPを一時scratchへ
+        流用せず、保存したcaller-saved registerをbaseに使うようcodegenを変更。
+        実行時virtual dispatchをi686/AMD64で検証し、frame pointerを維持する。
   - [x] 非再帰のstruct／union／固定長array／vector型について、実フィールド・
         要素型・byte size・member locationを持つDWARF type DIEを出力し、
         i686/AMD64のobject・link回帰で検証。bit-fieldにはbit size／offsetも

@@ -6925,12 +6925,13 @@ static void gen_symbol_address(Module* mod, const char* symbol,
 }
 
 static void gen_local_vtable_init(Module* mod, Type* type,
+                                  int base_register,
                                   int32_t displacement) {
     CxxClass* cls;
     if (!mod || !type || !codegen_type_has_vtable_storage(type)) return;
     if (type->cxx_vtable_size > 0 && type->cxx_vtable_symbol) {
         gen_symbol_address(mod, type->cxx_vtable_symbol, 0u);
-        emit_mov_mem_reg(mod, EBP, displacement, EAX);
+        emit_mov_mem_reg(mod, base_register, displacement, EAX);
     }
 
     cls = type->cxx_class;
@@ -6946,7 +6947,8 @@ static void gen_local_vtable_init(Module* mod, Type* type,
                       "virtual-base pointer exceeds stack limits");
         } else {
             gen_symbol_address(mod, cls->virtual_base_table_symbol, 0u);
-            emit_mov_mem_reg(mod, EBP, (int32_t)pointer_displacement, EAX);
+            emit_mov_mem_reg(mod, base_register,
+                             (int32_t)pointer_displacement, EAX);
         }
     }
     if (!cls->base_offsets) return;
@@ -6980,7 +6982,8 @@ static void gen_local_vtable_init(Module* mod, Type* type,
             continue;
         }
         gen_symbol_address(mod, base_vtable_symbol, 0u);
-        emit_mov_mem_reg(mod, EBP, (int32_t)base_displacement, EAX);
+        emit_mov_mem_reg(mod, base_register,
+                         (int32_t)base_displacement, EAX);
     }
     for (int virtual_index = 0;
          virtual_index < cls->virtual_base_count; ++virtual_index) {
@@ -7026,7 +7029,8 @@ static void gen_local_vtable_init(Module* mod, Type* type,
             continue;
         }
         gen_symbol_address(mod, virtual_vtable_symbol, 0u);
-        emit_mov_mem_reg(mod, EBP, (int32_t)virtual_displacement, EAX);
+        emit_mov_mem_reg(mod, base_register,
+                         (int32_t)virtual_displacement, EAX);
     }
     for (int index = 0; index < cls->base_count; ++index) {
         CxxClass* base = cls->bases[index].base;
@@ -7049,7 +7053,8 @@ static void gen_local_vtable_init(Module* mod, Type* type,
             continue;
         }
         gen_symbol_address(mod, table_symbol, 0u);
-        emit_mov_mem_reg(mod, EBP, (int32_t)pointer_displacement, EAX);
+        emit_mov_mem_reg(mod, base_register,
+                         (int32_t)pointer_displacement, EAX);
     }
     for (int virtual_index = 0;
          virtual_index < cls->virtual_base_count; ++virtual_index) {
@@ -7074,7 +7079,8 @@ static void gen_local_vtable_init(Module* mod, Type* type,
             continue;
         }
         gen_symbol_address(mod, table_symbol, 0u);
-        emit_mov_mem_reg(mod, EBP, (int32_t)pointer_displacement, EAX);
+        emit_mov_mem_reg(mod, base_register,
+                         (int32_t)pointer_displacement, EAX);
     }
 }
 
@@ -7764,7 +7770,7 @@ static void gen_lvalue(Module* mod, Expr* expr) {
                 rcc_error(expr->loc,
                           "unsupported compound literal initializer");
             }
-            gen_local_vtable_init(mod, expr->compound_type,
+            gen_local_vtable_init(mod, expr->compound_type, EBP,
                                   expr->compound_offset);
             emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
             emit_byte(mod, modrm(2, EAX, EBP));
@@ -17205,7 +17211,8 @@ static bool gen_static_reference_aggregate_into_owner32(
                                    expression->compound_offset)) {
             return false;
         }
-        gen_local_vtable_init(mod, type, expression->compound_offset);
+        gen_local_vtable_init(mod, type, EBP,
+                              expression->compound_offset);
         emit_byte(mod, 0x8D); /* LEA EAX, [EBP+disp32] */
         emit_byte(mod, modrm(2, EAX, EBP));
         emit_dword(mod, (uint32_t)expression->compound_offset);
@@ -17322,11 +17329,12 @@ static void gen_static_reference_owner_vtable_init32(
         !codegen_type_has_vtable_storage(type)) {
         return;
     }
-    emit_push_reg(mod, EBP);
+    /* Keep EBP as the live CFA base while initializing this static object. */
+    emit_push_reg(mod, ECX);
     gen_decl_storage_address32(mod, owner);
-    emit_mov_reg_reg(mod, EBP, EAX);
-    gen_local_vtable_init(mod, type, 0);
-    emit_pop_reg(mod, EBP);
+    emit_mov_reg_reg(mod, ECX, EAX);
+    gen_local_vtable_init(mod, type, ECX, 0);
+    emit_pop_reg(mod, ECX);
 }
 
 static bool gen_static_reference_temporary_initializer32(
@@ -18361,7 +18369,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     }
                     if (!call_result_storage) {
                         gen_local_vtable_init(
-                            mod, temporary_type,
+                            mod, temporary_type, EBP,
                             d->var_reference_temporary_offset);
                     }
                     emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
@@ -18376,7 +18384,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                     rcc_error(d->loc, "unsupported local initializer for '%s'",
                               d->name);
                 }
-                gen_local_vtable_init(mod, d->type, d->var_offset);
+                gen_local_vtable_init(mod, d->type, EBP, d->var_offset);
             }
             gen_cleanups_until(mod, initializer_marker);
             discard_cleanups_until(initializer_marker);
