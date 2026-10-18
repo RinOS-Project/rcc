@@ -8,10 +8,6 @@
 
 #include <xmmintrin.h>
 
-/* SSE2 data types */
-typedef double __m128d __attribute__((__vector_size__(16)));
-typedef long long __m128i __attribute__((__vector_size__(16)));
-
 /* Load operations - double */
 static __inline __m128d _mm_load_sd(const double* __p) {
     return __builtin_ia32_loadsd(__p);

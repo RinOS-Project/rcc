@@ -2055,6 +2055,9 @@
         register、I/O、fenceを受理だけにせず実x86命令へエンコードし、
         i686/AMD64のC/C++ヘッダコンパイルと生成バイトを回帰検証。C++の
         intrinsic vector型Itanium name manglingも同時に実装
+  - [x] Avoid redeclaring `__m128d` and `__m128i` in `emmintrin.h` after
+        `xmmintrin.h` supplies them; pass `test-intrin-header` for C and C++20
+        on i686 and AMD64.
   - [x] GCC `g` input/output constraintは有効なGPR alternativeを決定的に
         選び、`=`／`+` outputの保存、input評価、衝突検査を通してlowerする。
         Cでi686/AMD64 byte・生成検証とx64実行、C++でx64生成byteを検証し、
