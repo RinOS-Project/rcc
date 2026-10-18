@@ -439,6 +439,7 @@
         constructor引数を一度ずつ評価し、member initializerから重複のない対応
         parameterへmapする。virtual-base prvalue cleanup regressionを4 member/4
         parameterへ拡張。副作用helperで4 argumentすべての一回評価を確認し、
+        宣言順と異なるparameter/field対応を重み付きdestructorで識別する。
         destructorが全fieldを読み、ローカルcounterへ反映することをi686/AMD64の
         verified object実行でfallbackなしに確認。
   - [ ] verified backendでempty-body/noexcept constructorとscalar memberを超える

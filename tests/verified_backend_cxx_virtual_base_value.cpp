@@ -34,14 +34,15 @@ struct VerifiedVirtualCleanupLeaf : virtual VerifiedVirtualCleanupRoot {
     int cleanup_increment_extra_b;
 
     explicit VerifiedVirtualCleanupLeaf(
-            int* count, int increment, int extra_a, int extra_b) noexcept
+            int* count, int extra_a, int increment, int extra_b) noexcept
         : cleanup_count(count), cleanup_increment(increment),
           cleanup_increment_extra_a(extra_a),
           cleanup_increment_extra_b(extra_b) {}
 
     ~VerifiedVirtualCleanupLeaf() noexcept {
-        *cleanup_count += cleanup_increment + cleanup_increment_extra_a +
-                          cleanup_increment_extra_b;
+        *cleanup_count += cleanup_increment +
+                          cleanup_increment_extra_a * 10 +
+                          cleanup_increment_extra_b * 100;
     }
 };
 
@@ -82,12 +83,12 @@ int main() {
             VerifiedVirtualCleanupLeaf(
                 record_cleanup_pointer_argument(
                     &argument_evaluations, &cleanup_count),
-                record_cleanup_scalar_argument(&argument_evaluations, 2),
                 record_cleanup_scalar_argument(&argument_evaluations, 3),
-                record_cleanup_scalar_argument(&argument_evaluations, 2))) !=
+                record_cleanup_scalar_argument(&argument_evaluations, 2),
+                record_cleanup_scalar_argument(&argument_evaluations, 5))) !=
             101) {
         return 2;
     }
     if (argument_evaluations != 4) return 3;
-    return cleanup_count == 7 ? 0 : 4;
+    return cleanup_count == 532 ? 0 : 4;
 }
