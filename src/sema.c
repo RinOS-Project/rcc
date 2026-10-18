@@ -76,6 +76,8 @@ static bool sema_pointee_qualification_preserved(
     const Type* source, const Type* target);
 static bool sema_cxx_exact_function_signature(Type* candidate,
                                                Type* target);
+static int sema_cxx_function_type_conversion_rank(Type* source,
+                                                   Type* target);
 static bool sema_cxx_member_function_signature_convertible(
     Type* source, Type* target);
 static bool cxx_same_parameter_type(Type* source, Type* target,
@@ -2831,6 +2833,12 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
           source->cxx_is_member_pointer && target->cxx_is_member_pointer &&
           !cxx_same_parameter_type(source->base, target->base, false))) {
         return 0;
+    }
+    if (source->kind == TYPE_FUNC && target->kind == TYPE_PTR &&
+        target->base && target->base->kind == TYPE_FUNC) {
+        /* A function lvalue returned by a conversion function can complete
+         * its user-defined conversion with function-to-pointer decay. */
+        return sema_cxx_function_type_conversion_rank(source, target->base);
     }
     /* A conversion function may return a pointer-like value that completes
      * its implicit conversion sequence with pointer-to-bool. Function and

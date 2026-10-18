@@ -6192,3 +6192,13 @@ remains a separate open item.
       stage2 bootstrap all passed.
 - [ ] Verify the hosted GitHub Actions Windows job; local execution does not
       establish hosted-runner setup or status.
+
+## RCC continuation (2026-10-18, function-reference conversion decay)
+
+- [x] Complete an implicit conversion function returning `FunctionType&` with
+      the standard function-to-pointer decay. Compare with GCC C++20, assemble
+      i686 and AMD64 outputs, and execute both RCC targets through
+      `test-cxx-conversion-operator`; the full native-Windows `test-cxx`
+      aggregate also exits 0.
+- [ ] Other multi-step standard conversions, reference-binding shapes, and
+      general C++20 conversion-sequence ordering remain open.

@@ -410,6 +410,10 @@ double take_promoted_double(double value) {
     return value;
 }
 
+int take_function_pointer(FunctionReferenceConversionTarget* function) {
+    return function();
+}
+
 int choose_conversion_reference(ReferenceConversionResult&& value) {
     return value.value + 100;
 }
@@ -731,6 +735,7 @@ int main() {
         take_ranked_integer(ranked_meter) != 19 ||
         take_promoted_integer(promotion_meter) != 23 ||
         take_promoted_double(floating_promotion_meter) != 31.0 ||
+        take_function_pointer(lvalue_function_reference_source) != 97 ||
         choose_conversion_reference(ReferenceConversionSource{}) != 143 ||
         read_conversion_reference(ref_qualified_source) != 47 ||
         read_conversion_reference(RefQualifiedConversionSource{}) != 53 ||
