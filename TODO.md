@@ -1705,6 +1705,10 @@
         C/C++ `-O0`/`-O2`全4 objectで57関数をfallbackなしで生成し、host SysV実行で
         結果100を検証。clang64の実行ファイルを`CLANG`に指定して`test-verified-backend`
         全体も再実行し、dynamic-TLS、verified backend、production object各gateが成功。
+      - [x] 128/256/512/1024/2048-byte alignmentのC/C++ variadic MEMORY aggregateを
+        9個目のstack double後に連続して渡し、さらに24-byte aggregateを読む。C/C++
+        `-O0`/`-O2`の全4 objectで57関数をfallbackなしで生成し、verified SysV object
+        実行を各objectで確認（結果100）。
         現在のsource progress: 対応するinteger/pointer/float/double aggregateの`va_arg`は、
         INTEGER/SSE eightbyte分類、register-save／stack fallback、16-byte stack alignment、
         16-byteを超えるMEMORY aggregateを実装・実行検証した。variadic callerは最大2 INTEGER
@@ -1713,9 +1717,9 @@
         bounded INTEGER/SSE分類でregister／whole-stack loweringと実行検証を完了し、variadic
         functionのbounded named aggregateもregister／whole-stack配置と`va_start` cursorを
         C/C++ O0/O2で実行検証した。片bankだけのregister straddleもwhole-stack assignmentで
-        typed verified backendから実行する。32-byte/64-byte alignmentと、最大4096-byte
+        typed verified backendから実行する。32/64/128/256/512/1024/2048/4096-byte
         alignmentのvariadic callerはC/C++ `-O0`/`-O2`でfallbackなし生成・実行検証済み。
-        64 byte超4096 byte未満の個別alignment値は網羅していない。
+        その他のalignment値は網羅していない。
         bounded profile外のnamed aggregate layouts、4096 byteを超えるalignment、および
         残るadjusted-`va_list`形態は未実装であり、このparent checkboxは未完了のままにする。
   - [x] x86_64 SysVで`va_list*`を受け取るhelperの`va_arg(*p, T)`／

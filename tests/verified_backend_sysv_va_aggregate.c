@@ -204,6 +204,51 @@ struct VerifiedSysvVaAligned4096Aggregate {
     long long second;
 };
 
+struct VerifiedSysvVaAligned128Aggregate {
+#ifdef __cplusplus
+    alignas(128) long long first;
+#else
+    _Alignas(128) long long first;
+#endif
+    long long second;
+};
+
+struct VerifiedSysvVaAligned256Aggregate {
+#ifdef __cplusplus
+    alignas(256) long long first;
+#else
+    _Alignas(256) long long first;
+#endif
+    long long second;
+};
+
+struct VerifiedSysvVaAligned512Aggregate {
+#ifdef __cplusplus
+    alignas(512) long long first;
+#else
+    _Alignas(512) long long first;
+#endif
+    long long second;
+};
+
+struct VerifiedSysvVaAligned1024Aggregate {
+#ifdef __cplusplus
+    alignas(1024) long long first;
+#else
+    _Alignas(1024) long long first;
+#endif
+    long long second;
+};
+
+struct VerifiedSysvVaAligned2048Aggregate {
+#ifdef __cplusplus
+    alignas(2048) long long first;
+#else
+    _Alignas(2048) long long first;
+#endif
+    long long second;
+};
+
 #ifdef __cplusplus
 static_assert(alignof(VerifiedSysvVaAligned32Aggregate) == 32,
               "C++ variadic MEMORY aggregate alignment");
@@ -238,6 +283,40 @@ _Static_assert(_Alignof(struct VerifiedSysvVaAligned4096Aggregate) == 4096,
                "C maximum variadic MEMORY aggregate alignment");
 _Static_assert(sizeof(struct VerifiedSysvVaAligned4096Aggregate) == 4096,
                "C maximum variadic MEMORY aggregate size");
+#endif
+
+#ifdef __cplusplus
+static_assert(alignof(VerifiedSysvVaAligned128Aggregate) == 128 &&
+                  sizeof(VerifiedSysvVaAligned128Aggregate) == 128,
+              "C++ 128-byte variadic MEMORY aggregate layout");
+static_assert(alignof(VerifiedSysvVaAligned256Aggregate) == 256 &&
+                  sizeof(VerifiedSysvVaAligned256Aggregate) == 256,
+              "C++ 256-byte variadic MEMORY aggregate layout");
+static_assert(alignof(VerifiedSysvVaAligned512Aggregate) == 512 &&
+                  sizeof(VerifiedSysvVaAligned512Aggregate) == 512,
+              "C++ 512-byte variadic MEMORY aggregate layout");
+static_assert(alignof(VerifiedSysvVaAligned1024Aggregate) == 1024 &&
+                  sizeof(VerifiedSysvVaAligned1024Aggregate) == 1024,
+              "C++ 1024-byte variadic MEMORY aggregate layout");
+static_assert(alignof(VerifiedSysvVaAligned2048Aggregate) == 2048 &&
+                  sizeof(VerifiedSysvVaAligned2048Aggregate) == 2048,
+              "C++ 2048-byte variadic MEMORY aggregate layout");
+#else
+_Static_assert(_Alignof(struct VerifiedSysvVaAligned128Aggregate) == 128 &&
+                   sizeof(struct VerifiedSysvVaAligned128Aggregate) == 128,
+               "C 128-byte variadic MEMORY aggregate layout");
+_Static_assert(_Alignof(struct VerifiedSysvVaAligned256Aggregate) == 256 &&
+                   sizeof(struct VerifiedSysvVaAligned256Aggregate) == 256,
+               "C 256-byte variadic MEMORY aggregate layout");
+_Static_assert(_Alignof(struct VerifiedSysvVaAligned512Aggregate) == 512 &&
+                   sizeof(struct VerifiedSysvVaAligned512Aggregate) == 512,
+               "C 512-byte variadic MEMORY aggregate layout");
+_Static_assert(_Alignof(struct VerifiedSysvVaAligned1024Aggregate) == 1024 &&
+                   sizeof(struct VerifiedSysvVaAligned1024Aggregate) == 1024,
+               "C 1024-byte variadic MEMORY aggregate layout");
+_Static_assert(_Alignof(struct VerifiedSysvVaAligned2048Aggregate) == 2048 &&
+                   sizeof(struct VerifiedSysvVaAligned2048Aggregate) == 2048,
+               "C 2048-byte variadic MEMORY aggregate layout");
 #endif
 
 struct VerifiedSysvVaTwoIntegerAggregate {
@@ -561,6 +640,66 @@ long long verified_sysv_va_aligned4096_aggregate_call(
     return verified_sysv_va_read_aligned4096_aggregate_after_nine_doubles(
         7, first, second, third, fourth, fifth, sixth, seventh, eighth,
         ninth, value, trailing);
+}
+
+long long verified_sysv_va_read_aligned128_to2048_after_nine_doubles(
+    int marker, ...)
+{
+    va_list arguments;
+    struct VerifiedSysvVaAligned128Aggregate value128;
+    struct VerifiedSysvVaAligned256Aggregate value256;
+    struct VerifiedSysvVaAligned512Aggregate value512;
+    struct VerifiedSysvVaAligned1024Aggregate value1024;
+    struct VerifiedSysvVaAligned2048Aggregate value2048;
+    struct VerifiedSysvVaLargeAggregate trailing;
+    va_start(arguments, marker);
+    for (int index = 0; index < 9; ++index) {
+        (void)va_arg(arguments, double);
+    }
+    value128 = va_arg(arguments, struct VerifiedSysvVaAligned128Aggregate);
+    value256 = va_arg(arguments, struct VerifiedSysvVaAligned256Aggregate);
+    value512 = va_arg(arguments, struct VerifiedSysvVaAligned512Aggregate);
+    value1024 = va_arg(arguments, struct VerifiedSysvVaAligned1024Aggregate);
+    value2048 = va_arg(arguments, struct VerifiedSysvVaAligned2048Aggregate);
+    trailing = va_arg(arguments, struct VerifiedSysvVaLargeAggregate);
+    va_end(arguments);
+    return value128.second + value256.second + value512.second +
+           value1024.second + value2048.second + trailing.third;
+}
+
+long long verified_sysv_va_aligned128_to2048_aggregate_call(
+    double first, double second, double third, double fourth, double fifth,
+    double sixth, double seventh, double eighth, double ninth,
+    long long value128_first, long long value128_second,
+    long long value256_first, long long value256_second,
+    long long value512_first, long long value512_second,
+    long long value1024_first, long long value1024_second,
+    long long value2048_first, long long value2048_second,
+    long long trailing_first, long long trailing_second,
+    long long trailing_third)
+{
+    struct VerifiedSysvVaAligned128Aggregate value128;
+    struct VerifiedSysvVaAligned256Aggregate value256;
+    struct VerifiedSysvVaAligned512Aggregate value512;
+    struct VerifiedSysvVaAligned1024Aggregate value1024;
+    struct VerifiedSysvVaAligned2048Aggregate value2048;
+    struct VerifiedSysvVaLargeAggregate trailing;
+    value128.first = value128_first;
+    value128.second = value128_second;
+    value256.first = value256_first;
+    value256.second = value256_second;
+    value512.first = value512_first;
+    value512.second = value512_second;
+    value1024.first = value1024_first;
+    value1024.second = value1024_second;
+    value2048.first = value2048_first;
+    value2048.second = value2048_second;
+    trailing.first = trailing_first;
+    trailing.second = trailing_second;
+    trailing.third = trailing_third;
+    return verified_sysv_va_read_aligned128_to2048_after_nine_doubles(
+        7, first, second, third, fourth, fifth, sixth, seventh, eighth,
+        ninth, value128, value256, value512, value1024, value2048, trailing);
 }
 
 int verified_sysv_va_read_integer_aggregate(int marker, ...)
