@@ -6115,3 +6115,11 @@ remains a separate open item.
       Native-Windows `test-optimize` passes.
 - [ ] Heterogeneous-target variable-index arrays and general alias analysis
       remain open.
+
+## RCC continuation (2026-10-18, nullptr conversion-sequence rank)
+
+- [x] Classify `nullptr_t` to object, function, and member-pointer targets as
+      Conversion rank, not Promotion rank. Add an explicit-template overload
+      case where `int*` and `int Owner::*` remain ambiguous; compare against GCC
+      C++20 and reject without output on i686/AMD64. The focused
+      `test-cxx-function-template-overloads` gate passes.

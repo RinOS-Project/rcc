@@ -1,3 +1,17 @@
+struct NullptrPointerMemberOwner {
+    int member;
+};
+
+template<typename Default = int>
+int select_nullptr_pointer(int*) {
+    return 1;
+}
+
+template<typename Default = int>
+int select_nullptr_pointer(int NullptrPointerMemberOwner::*) {
+    return 2;
+}
+
 template<typename T>
 int select_template(T first, int second) {
     return (int)first + (int)second;
@@ -350,7 +364,8 @@ int main() {
     char character = 0;
     int array[1] = { value };
     EquivalentConstraintArgument equivalent_constraint_argument = { value };
-    return (int)select_template((short)1, (short)2) +
+    return (int)select_nullptr_pointer<>(nullptr) +
+           (int)select_template((short)1, (short)2) +
            select_incomparable_reference_template(1, value) +
            select_by_value_or_const_reference(value) +
            select_by_value_or_lvalue_reference(value) +

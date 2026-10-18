@@ -29451,7 +29451,7 @@ static int cxx_parser_template_conversion_rank(Expr* argument,
                 target_base->kind == TYPE_VOID) return 2;
         }
     }
-    if (source->kind == TYPE_NULLPTR && target->kind == TYPE_PTR) return 1;
+    if (source->kind == TYPE_NULLPTR && target->kind == TYPE_PTR) return 2;
     if (source->kind == TYPE_INT && target->kind == TYPE_PTR &&
         argument->kind == EXPR_INT_LIT && argument->int_val == 0) {
         return 2;
