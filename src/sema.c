@@ -3205,6 +3205,7 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
     size_t best_index = 0u;
     size_t best_count = 0u;
     if (ambiguous) *ambiguous = false;
+    if (aggregate && aggregate->is_reference) aggregate = aggregate->base;
     if (!aggregate || !target ||
         (aggregate->kind != TYPE_STRUCT && aggregate->kind != TYPE_UNION)) {
         return NULL;
@@ -3774,24 +3775,30 @@ reference_binding_validated:
      * is important that this goes through sema_expr() rather than assigning a
      * result type: the normal call path supplies the object argument, checks
      * the method ABI, and emits the generated conversion function. */
-    if (rcc_parser_is_cxx_mode() &&
-        (e->type->kind == TYPE_STRUCT || e->type->kind == TYPE_UNION)) {
-        bool ambiguous = false;
-        TypeMethod* conversion = sema_find_cxx_conversion_method(
-            e->type, target, &ambiguous, e);
-        if (ambiguous) return NULL;
-        if (conversion) {
-            Expr* source = ast_arena_alloc(sizeof(*source));
-            Expr* member;
-            *source = *e;
-            member = expr_member(source, conversion->name, e->loc);
-            Expr* call = expr_call(member, NULL, e->loc);
-            call->call_method = conversion;
-            *e = *call;
-            sema_expr(e);
-            if (sema_cxx_decay_array_reference(e, target)) return target;
-            return e->type && sema_cxx_conversion_result_rank(e->type, target) >= 0
-                ? target : NULL;
+    {
+        Type* source_object = e->type->is_reference && e->type->base
+            ? e->type->base : e->type;
+        if (rcc_parser_is_cxx_mode() &&
+            (source_object->kind == TYPE_STRUCT ||
+             source_object->kind == TYPE_UNION)) {
+            bool ambiguous = false;
+            TypeMethod* conversion = sema_find_cxx_conversion_method(
+                source_object, target, &ambiguous, e);
+            if (ambiguous) return NULL;
+            if (conversion) {
+                Expr* source = ast_arena_alloc(sizeof(*source));
+                Expr* member;
+                *source = *e;
+                member = expr_member(source, conversion->name, e->loc);
+                Expr* call = expr_call(member, NULL, e->loc);
+                call->call_method = conversion;
+                *e = *call;
+                sema_expr(e);
+                if (sema_cxx_decay_array_reference(e, target)) return target;
+                return e->type &&
+                        sema_cxx_conversion_result_rank(e->type, target) >= 0
+                    ? target : NULL;
+            }
         }
     }
 
@@ -8735,6 +8742,15 @@ static int cxx_conversion_rank_detail_at_context(
             }
         }
         return -1;
+    }
+    /* Reference types carry their referred-to class in `base`. Value
+     * conversions from an xvalue must classify that class before looking
+     * for conversion functions; retaining the reference wrapper here made
+     * class xvalues skip user-defined conversion lookup entirely. Keep the
+     * original expression for the lvalue/xvalue object-binding tests below. */
+    if (source->kind == TYPE_PTR && source->is_reference) {
+        source = source->base;
+        if (!source) return -1;
     }
     if (sema_is_scoped_enum(source) || sema_is_scoped_enum(target)) {
         return type_is_compatible(source, target) ? 0 : -1;

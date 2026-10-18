@@ -242,6 +242,24 @@ public:
     using ConversionRefQualifiedInheritedBase::operator long;
 };
 
+class ConversionCvRefQualifiedInheritedBase {
+public:
+    operator int() const volatile & {
+        return 479;
+    }
+
+    operator long() const volatile && {
+        return 467;
+    }
+};
+
+class ConversionCvRefQualifiedInheritedDerived
+    : public ConversionCvRefQualifiedInheritedBase {
+public:
+    using ConversionCvRefQualifiedInheritedBase::operator int;
+    using ConversionCvRefQualifiedInheritedBase::operator long;
+};
+
 class ConversionCvRefQualifiedSource {
 public:
     operator int() const & {
@@ -835,6 +853,8 @@ int main() {
     ConversionImplicitObjectDerived implicit_object_conversion_source;
     ConversionObjectRankDerived object_rank_conversion_source;
     ConversionRefQualifiedInheritedDerived inherited_ref_conversion_source;
+    const volatile ConversionCvRefQualifiedInheritedDerived
+        inherited_cvref_conversion_source{};
     NonTemplateWinsConversionSource non_template_wins_conversion_source;
     ConversionPointerVoidResultSource pointer_void_result_source;
     ConversionPointerClassResultSource pointer_class_result_source;
@@ -909,6 +929,13 @@ int main() {
     if (take_long(inherited_ref_conversion_source) != 433 ||
         take_long(ConversionRefQualifiedInheritedDerived{}) != 431) {
         return 6;
+    }
+    if (take_integer(inherited_cvref_conversion_source) != 479 ||
+        take_integer(static_cast<const volatile
+                          ConversionCvRefQualifiedInheritedDerived&&>(
+            inherited_cvref_conversion_source)) != 467 ||
+        take_integer(ConversionCvRefQualifiedInheritedDerived{}) != 467) {
+        return 9;
     }
     if (take_integer(ConversionCvRefQualifiedSource{}) != 457) return 7;
     if (take_integer(ConversionUnqualifiedRefQualifiedSource{}) != 461) {
