@@ -263,6 +263,10 @@ struct ConversionBasePointerTarget {
 
 struct ConversionDerivedPointerTarget : ConversionBasePointerTarget {};
 
+struct ConversionMiddlePointerTarget : ConversionBasePointerTarget {};
+
+struct ConversionLeafPointerTarget : ConversionMiddlePointerTarget {};
+
 struct ConversionReferenceBase {
     int value;
 };
@@ -291,6 +295,20 @@ public:
 
     operator ConversionDerivedPointerTarget*() const {
         return value;
+    }
+};
+
+class ConversionPointerClassResultSource {
+public:
+    ConversionMiddlePointerTarget middle_value;
+    ConversionLeafPointerTarget leaf_value;
+
+    operator ConversionMiddlePointerTarget*() {
+        return &middle_value;
+    }
+
+    operator ConversionLeafPointerTarget*() {
+        return &leaf_value;
     }
 };
 
@@ -750,6 +768,9 @@ int main() {
     ConversionObjectRankDerived object_rank_conversion_source;
     NonTemplateWinsConversionSource non_template_wins_conversion_source;
     ConversionPointerVoidResultSource pointer_void_result_source;
+    ConversionPointerClassResultSource pointer_class_result_source;
+    ConversionBasePointerTarget* pointer_class_result =
+        pointer_class_result_source;
     RefQualifiedConversionSource ref_qualified_source;
     const CvRefQualifiedConversionSource const_ref_qualified_source{};
     FunctionReferenceConversionSource function_reference_source;
@@ -870,6 +891,9 @@ int main() {
         choose_pointer_void_qualification(pointer_source) != 271 ||
         static_cast<void*>(pointer_void_result_source) !=
             static_cast<void*>(&pointer_void_result_source.base_value) ||
+        pointer_class_result !=
+            static_cast<ConversionBasePointerTarget*>(
+                &pointer_class_result_source.middle_value) ||
         choose_template_pointer_conversion(0, pointer_source) != 79 ||
         take_pointer_conversion_bool(pointer_bool_source) != 109 ||
         take_pointer_conversion_bool(null_pointer_bool_source) != 113 ||
