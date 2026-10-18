@@ -27,6 +27,11 @@ struct VerifiedVirtualValueLeaf : VerifiedVirtualValueLeft,
 
 struct VerifiedVirtualCleanupRoot {};
 
+struct VerifiedFloatingValueInitialization {
+    float single;
+    double wide;
+};
+
 struct VerifiedVirtualCleanupLeaf : virtual VerifiedVirtualCleanupRoot {
     int* cleanup_count;
     int cleanup_increment;
@@ -73,9 +78,13 @@ int consume_verified_virtual_cleanup_root(
 int main() {
     int cleanup_count = 0;
     int argument_evaluations = 0;
+    VerifiedFloatingValueInitialization zero_floating{};
     VerifiedVirtualValueLeaf value;
     value.value = 101;
     value.leaf_value = 53;
+    if (zero_floating.single != 0.0f || zero_floating.wide != 0.0) {
+        return 5;
+    }
     if (consume_verified_virtual_value_root(value) != 101 ||
         value.read_leaf() != 53) {
         return 1;

@@ -450,7 +450,8 @@
   - [x] bounded constructorの`float`/`double` memberをverified backendで初期化し、
         double storageのzero-initを追加。通常AMD64 codegenでは実引数からmember型
         への数値conversionを明示し、i686/AMD64 verified objectと通常AMD64 hostで
-        double値をdestructor経由の期待値に反映することを確認。
+        double値をdestructor経由の期待値に反映することを確認。さらに同じfixtureで
+        `float`/`double` aggregateのvalue-initializationがゼロになることを実行確認。
   - [ ] verified backendでempty-body/noexcept constructorとscalar memberを超える
         constructor/body、nontrivial base initialization、nontrivial/deleted target
         copy constructor、call引数以外のfull-expression cleanup、例外経路を実装・検証。
