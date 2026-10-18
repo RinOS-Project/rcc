@@ -2883,6 +2883,13 @@ static bool cxx_structural_pointer_member_value(
             condition ? expression->cond_then : expression->cond_else,
             pointer_type, value_out);
     }
+    if (pointer_type->cxx_is_member_pointer &&
+        expression->kind == EXPR_CAST && expression->unary_operand &&
+        expression->type &&
+        type_is_compatible(pointer_type, expression->type)) {
+        return cxx_structural_pointer_member_value(
+            expression->unary_operand, pointer_type, value_out);
+    }
     if (pointer_type->is_reference) {
         if (!cxx_structural_pointer_member_location(
                 expression, pointer_type, &location) ||
@@ -3064,7 +3071,12 @@ static bool cxx_structural_array_collect_scalar_values(
         int64_t value = 0;
         if (element_initializer && element_type->kind == TYPE_PTR) {
             int64_t null_pointer_constant;
-            if (cxx_expr_is_nullptr_constant(element_initializer)) {
+            if (element_type->cxx_is_member_pointer) {
+                if (!cxx_structural_pointer_member_value(
+                        element_initializer, element_type, &value)) {
+                    return false;
+                }
+            } else if (cxx_expr_is_nullptr_constant(element_initializer)) {
                 value = 0;
             } else if (expr_eval_integer_constant(
                            element_initializer, &null_pointer_constant)) {
@@ -3244,7 +3256,13 @@ static bool cxx_structural_class_collect_member_values(
                     if (element_initializer &&
                         element_type->kind == TYPE_PTR) {
                         int64_t null_pointer_constant;
-                        if (cxx_expr_is_nullptr_constant(
+                        if (element_type->cxx_is_member_pointer) {
+                            if (!cxx_structural_pointer_member_value(
+                                    element_initializer, element_type,
+                                    &element_value)) {
+                                return false;
+                            }
+                        } else if (cxx_expr_is_nullptr_constant(
                                 element_initializer)) {
                             element_value = 0;
                         } else if (expr_eval_integer_constant(

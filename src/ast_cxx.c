@@ -1104,10 +1104,7 @@ static bool cxx_structural_pointer_array_values_all_null(
         leaf_count *= (unsigned)leaf_type->array_len;
         leaf_type = leaf_type->base;
     }
-    if (!leaf_type || leaf_type->kind != TYPE_PTR ||
-        leaf_type->cxx_is_member_pointer) {
-        return false;
-    }
+    if (!leaf_type || leaf_type->kind != TYPE_PTR) return false;
     *leaf_count_out = leaf_count;
     *all_null = true;
     if (recorded_values) {
@@ -1116,7 +1113,8 @@ static bool cxx_structural_pointer_array_values_all_null(
             return false;
         }
         for (unsigned index = 0u; index < leaf_count; ++index) {
-            if (recorded_values[recorded_index + (int)index] != 0) {
+            int64_t null_value = leaf_type->cxx_is_member_pointer ? -1 : 0;
+            if (recorded_values[recorded_index + (int)index] != null_value) {
                 *all_null = false;
                 break;
             }
@@ -1127,7 +1125,9 @@ static bool cxx_structural_pointer_array_values_all_null(
         }
         for (unsigned index = 0u; index < leaf_count; ++index) {
             unsigned value_offset = bit_offset + index * 64u;
-            if (((uint64_t)packed_value >> value_offset) != 0u) {
+            uint64_t value = (uint64_t)packed_value >> value_offset;
+            if ((leaf_type->cxx_is_member_pointer && value != UINT64_MAX) ||
+                (!leaf_type->cxx_is_member_pointer && value != 0u)) {
                 *all_null = false;
                 break;
             }
@@ -1857,12 +1857,79 @@ static void cxx_mangle_record_class_type(CxxMangleContext* context,
 static void cxx_mangle_record_structural_member_pointer_owner_types_in_value(
     CxxMangleContext* context, const Type* type, uint64_t packed_value,
     const int64_t* recorded_values, int recorded_count,
+    int* recorded_index, unsigned* bit_offset);
+
+static void cxx_mangle_record_structural_member_pointer_owner_types_in_array(
+    CxxMangleContext* context, const Type* type, uint64_t packed_value,
+    const int64_t* recorded_values, int recorded_count,
+    int* recorded_index, unsigned* bit_offset) {
+    if (!type) return;
+    if (type->kind == TYPE_ARRAY) {
+        if (!type->base || type->array_len <= 0 || type->array_bound) return;
+        for (int index = 0; index < type->array_len; ++index) {
+            cxx_mangle_record_structural_member_pointer_owner_types_in_array(
+                context, type->base, packed_value, recorded_values,
+                recorded_count, recorded_index, bit_offset);
+        }
+        return;
+    }
+    if (type->kind == TYPE_STRUCT) {
+        cxx_mangle_record_class_type(context, (Type*)type);
+        cxx_mangle_record_structural_member_pointer_owner_types_in_value(
+            context, type, packed_value, recorded_values, recorded_count,
+            recorded_index, bit_offset);
+        return;
+    }
+    {
+        int64_t value = 0;
+        unsigned value_bits;
+        if (recorded_values) {
+            if (!recorded_index || *recorded_index < 0 ||
+                *recorded_index >= recorded_count) {
+                return;
+            }
+            value = recorded_values[(*recorded_index)++];
+        } else if (type->kind == TYPE_PTR &&
+                   type->cxx_is_member_pointer) {
+            if (*bit_offset > 64u || 64u > 64u - *bit_offset) return;
+            value = (int64_t)(packed_value >> *bit_offset);
+        }
+        if (type->kind == TYPE_PTR && type->cxx_is_member_pointer &&
+            value > 0) {
+            CxxClass* owner = NULL;
+            if (cxx_structural_member_pointer_value_resolve(
+                    value, &owner, NULL, NULL, NULL) &&
+                owner && owner->type) {
+                cxx_mangle_record_class_type(context, owner->type);
+            }
+        }
+        value_bits = type->kind == TYPE_PTR
+            ? 64u
+            : type->kind == TYPE_NULLPTR
+                ? 1u
+                : type->size > 0 ? (unsigned)type->size * 8u : 0u;
+        if (!recorded_values) {
+            if (value_bits > 64u - *bit_offset) return;
+            *bit_offset += value_bits;
+        }
+    }
+}
+
+static void cxx_mangle_record_structural_member_pointer_owner_types_in_value(
+    CxxMangleContext* context, const Type* type, uint64_t packed_value,
+    const int64_t* recorded_values, int recorded_count,
     int* recorded_index, unsigned* bit_offset) {
     const TypeParam* field;
     for (field = type->cxx_class->fields; field; field = field->next) {
         int64_t field_value;
         unsigned field_bits;
         if (field->is_static) continue;
+        if (field->type->kind == TYPE_ARRAY) {
+            cxx_mangle_record_structural_member_pointer_owner_types_in_array(
+                context, field->type, packed_value, recorded_values,
+                recorded_count, recorded_index, bit_offset);
+            continue;
+        }
         if (field->type->kind == TYPE_STRUCT) {
             cxx_mangle_record_class_type(context, field->type);
             cxx_mangle_record_structural_member_pointer_owner_types_in_value(
@@ -1996,7 +2063,6 @@ static void cxx_mangle_type_append_context(
                 buf, pos, type->cxx_member_pointer_owner, context);
         }
         cxx_mangle_type_append_context(buf, pos, type->base, context);
-        cxx_mangle_record_class_type(context, type->base);
         cxx_mangle_record_class_type(context, type);
         return;
     }
@@ -10872,6 +10938,55 @@ static bool template_clone_collect_structural_indices(
     return true;
 }
 
+static Expr* template_clone_structural_member_pointer_value_expr(
+    int64_t value, Type* pointer_type, SourceLoc location) {
+    CxxClass* member_owner = NULL;
+    const char* member_name = NULL;
+    int64_t member_offset = 0;
+    TypeMethod* member_method = NULL;
+    Expr* copy;
+    if (!pointer_type || pointer_type->kind != TYPE_PTR ||
+        !pointer_type->cxx_is_member_pointer) {
+        return NULL;
+    }
+    if (value == -1) {
+        int64_t null_representation = pointer_type->base &&
+                pointer_type->base->kind == TYPE_FUNC
+            ? 0 : -1;
+        copy = expr_int(null_representation, location);
+        copy->type = pointer_type;
+        copy->is_cxx_nullptr = pointer_type->base &&
+            pointer_type->base->kind == TYPE_FUNC;
+        return copy;
+    }
+    if (value <= 0 ||
+        !cxx_structural_member_pointer_value_resolve(
+            value, &member_owner, &member_name, &member_offset,
+            &member_method) ||
+        !member_owner || !member_name) {
+        return NULL;
+    }
+    if (member_method) {
+        Decl* function = member_method->function_decl;
+        Expr* identifier;
+        if (!function || !function->name || !function->type) return NULL;
+        identifier = expr_ident(function->name, location);
+        identifier->ident_decl = function;
+        identifier->type = function->type;
+        copy = expr_unary(EXPR_ADDR, identifier, location);
+        copy->cxx_member_function_pointer_method = member_method;
+    } else {
+        copy = expr_int(member_offset, location);
+    }
+    copy->type = pointer_type;
+    copy->cxx_member_pointer_form = true;
+    copy->cxx_member_pointer_form_name = member_name;
+    copy->cxx_member_pointer_form_access = ACCESS_PUBLIC;
+    copy->cxx_member_pointer_form_declaring_class = member_owner;
+    copy->cxx_member_pointer_form_designating_class = member_owner;
+    return copy;
+}
+
 static Expr* template_clone_structural_pointer_value_expr(
     int64_t value, Type* pointer_type, SourceLoc location) {
     Decl* declaration;
@@ -11092,6 +11207,17 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                             copy = expr_float(floating_value, expression->loc);
                         } else if (value_type &&
                                    value_type->kind == TYPE_PTR &&
+                                   value_type->cxx_is_member_pointer) {
+                            copy =
+                                template_clone_structural_member_pointer_value_expr(
+                                    value, value_type, expression->loc);
+                            if (!copy) {
+                                rcc_fatal(
+                                    "C++ structural multidimensional member-pointer array value is invalid");
+                            }
+                        } else if (value_type &&
+                                   value_type->kind == TYPE_PTR &&
+                                   !value_type->cxx_is_member_pointer &&
                                    value != 0) {
                             copy = template_clone_structural_pointer_value_expr(
                                 value, value_type, expression->loc);
@@ -11162,7 +11288,19 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                         }
                         copy = expr_float(floating_value, expression->loc);
                     } else if (value_type &&
-                               value_type->kind == TYPE_PTR && value != 0) {
+                               value_type->kind == TYPE_PTR &&
+                               value_type->cxx_is_member_pointer) {
+                        copy =
+                            template_clone_structural_member_pointer_value_expr(
+                                value, value_type, expression->loc);
+                        if (!copy) {
+                            rcc_fatal(
+                                "C++ structural member-pointer array value is invalid");
+                        }
+                    } else if (value_type &&
+                               value_type->kind == TYPE_PTR &&
+                               !value_type->cxx_is_member_pointer &&
+                               value != 0) {
                         copy = template_clone_structural_pointer_value_expr(
                             value, value_type, expression->loc);
                         if (!copy) {
@@ -11241,39 +11379,13 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                     return copy;
                 }
                 if (value_type && value_type->kind == TYPE_PTR &&
-                    value_type->cxx_is_member_pointer && value > 0) {
-                    CxxClass* member_owner = NULL;
-                    const char* member_name = NULL;
-                    int64_t member_offset = 0;
-                    TypeMethod* member_method = NULL;
-                    if (!cxx_structural_member_pointer_value_resolve(
-                            value, &member_owner, &member_name,
-                            &member_offset, &member_method) ||
-                        !member_owner || !member_name) {
+                    value_type->cxx_is_member_pointer) {
+                    copy = template_clone_structural_member_pointer_value_expr(
+                        value, value_type, expression->loc);
+                    if (!copy) {
                         rcc_fatal(
                             "C++ structural member-pointer template argument is missing");
                     }
-                    if (member_method) {
-                        Decl* function = member_method->function_decl;
-                        Expr* identifier = expr_ident(
-                            function->name, expression->loc);
-                        identifier->ident_decl = function;
-                        identifier->type = function->type;
-                        copy = expr_unary(
-                            EXPR_ADDR, identifier, expression->loc);
-                        copy->cxx_member_function_pointer_method =
-                            member_method;
-                    } else {
-                        copy = expr_int(member_offset, expression->loc);
-                    }
-                    copy->type = value_type;
-                    copy->cxx_member_pointer_form = true;
-                    copy->cxx_member_pointer_form_name = member_name;
-                    copy->cxx_member_pointer_form_access = ACCESS_PUBLIC;
-                    copy->cxx_member_pointer_form_declaring_class =
-                        member_owner;
-                    copy->cxx_member_pointer_form_designating_class =
-                        member_owner;
                     return copy;
                 }
                 if (value_type && value_type->kind == TYPE_PTR &&

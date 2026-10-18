@@ -6032,3 +6032,18 @@ remains a separate open item.
 - [x] Run native-Windows `test-debug-info` (exit 0).
 - [ ] Member-pointer arrays and multidimensional arrays of structural-class
       elements remain open.
+
+## RCC continuation (2026-10-18, member-pointer arrays in structural NTTPs)
+
+- [x] Support fixed-bound arrays of data-member and member-function pointers
+      in structural-class NTTPs. Collect member-pointer values without
+      treating zero-offset members as null, clone indexed uses, and materialize
+      null member-function pointers with their two-word ABI representation.
+- [x] Compare GCC/RCC Itanium symbols for non-null and all-null data/member-
+      function pointer arrays; assemble i686 and AMD64, and execute the focused
+      RCC/GCC host regression (`test-cxx-structural-array-nttp`).
+- [x] Re-run the complete native-Windows `test-cxx` aggregate (exit 0).
+- [x] Run native-Windows `test-debug-info` (exit 0).
+- [ ] Multidimensional member-pointer arrays, virtual/inherited member-pointer
+      array values, and multidimensional arrays of structural-class elements
+      remain open.
