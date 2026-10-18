@@ -6323,5 +6323,24 @@ remains a separate open item.
       fallback at `-O0`/`-O2` on i686/AMD64. The focused target and complete
       `test-verified-backend`, `test-ir`, and `test-optimize` pass on native
       Windows.
-- [ ] Throwing initialization/unwind, partial construction, `goto` cleanup
-      edges, and other cleanup-plan forms remain open.
+- [ ] Throwing initialization/unwind, partial construction, VLA stack-restore
+      edges, `goto` into a protected object lifetime, and other cleanup-plan
+      forms remain open. Gotos that leave initialized automatic-object scopes
+      are covered by the continuation below.
+
+## RCC continuation (2026-10-18, automatic cleanup on `goto` exits)
+
+- [x] Treat each declaration's complete cleanup plan as one object-lifetime
+      entry in sema and typed SSA, matching the legacy backend's cleanup stack.
+      Lower validated `goto` exits by emitting the full plan before branching;
+      preserve outer-scope cleanups and continue rejecting jumps into a live
+      cleanup object's lifetime.
+- [x] Verify nested automatic objects with nested-array destructors on goto
+      and fallthrough paths, at `-O0`/`-O2` for i686/AMD64 with zero verified
+      backend fallback. Also compile and execute the normal x64 backend path.
+- [x] Pass `test-cxx-inline-aggregates`, `test-verified-backend`, `test-ir`,
+      and `test-optimize` on native Windows. Correct the automatic-cleanup
+      fixture's exact emitted-function count in its four architecture/opt
+      checks.
+- [ ] Throwing cleanup/unwind, partial construction, VLA stack restoration,
+      and other cleanup-plan shapes remain open.

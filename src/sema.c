@@ -19393,7 +19393,6 @@ static void sema_collect_cleanup_gotos(Stmt* statement,
                                        SemaCleanupGotoContext* context) {
     SemaCleanupPath* marker;
     Decl* declaration;
-    CxxCleanupPlan* cleanup_item;
     if (!statement) return;
     switch (statement->kind) {
         case STMT_BLOCK:
@@ -19461,15 +19460,13 @@ static void sema_collect_cleanup_gotos(Stmt* statement,
                 context->allocations = path;
                 *active = path;
             }
-            if (declaration && declaration->kind == DECL_VAR) {
-                for (cleanup_item = declaration->var_cleanups;
-                     cleanup_item; cleanup_item = cleanup_item->next) {
-                    SemaCleanupPath* path = rcc_alloc(sizeof(*path));
-                    path->previous = *active;
-                    path->allocation_next = context->allocations;
-                    context->allocations = path;
-                    *active = path;
-                }
+            if (declaration && declaration->kind == DECL_VAR &&
+                declaration->var_cleanups) {
+                SemaCleanupPath* path = rcc_alloc(sizeof(*path));
+                path->previous = *active;
+                path->allocation_next = context->allocations;
+                context->allocations = path;
+                *active = path;
             }
             break;
         default:

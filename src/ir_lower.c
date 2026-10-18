@@ -98,7 +98,7 @@ typedef struct RccIrLowerLabel {
 } RccIrLowerLabel;
 
 typedef struct RccIrLowerScopeCleanup {
-    const CxxCleanupPlan* action;
+    const CxxCleanupPlan* plan;
     struct RccIrLowerScopeCleanup* previous_scope;
     struct RccIrLowerScopeCleanup* allocated_next;
 } RccIrLowerScopeCleanup;
@@ -6880,7 +6880,11 @@ static bool lower_statement_scope_cleanups_supported_impl(
         case STMT_CONTINUE:
             return loop_depth != 0u;
         case STMT_GOTO:
+            return statement->goto_vla_count == 0u;
         case STMT_LABEL:
+            return lower_statement_scope_cleanups_supported_impl(
+                statement->label_stmt, loop_depth, breakable_depth,
+                switch_depth);
         case STMT_TRY:
         case STMT_THROW:
             return false;
@@ -7140,16 +7144,15 @@ static bool lower_prepare_scope_cleanup_plan(
 
 static bool lower_push_scope_cleanup_plan(
     RccIrLowerContext* context, const CxxCleanupPlan* plan) {
+    RccIrLowerScopeCleanup* cleanup;
     if (!context || !plan ||
         !lower_prepare_scope_cleanup_plan(context, plan)) return false;
-    for (const CxxCleanupPlan* item = plan; item; item = item->next) {
-        RccIrLowerScopeCleanup* cleanup = rcc_alloc(sizeof(*cleanup));
-        cleanup->action = item;
-        cleanup->previous_scope = context->scope_cleanups;
-        cleanup->allocated_next = context->allocated_scope_cleanups;
-        context->scope_cleanups = cleanup;
-        context->allocated_scope_cleanups = cleanup;
-    }
+    cleanup = rcc_alloc(sizeof(*cleanup));
+    cleanup->plan = plan;
+    cleanup->previous_scope = context->scope_cleanups;
+    cleanup->allocated_next = context->allocated_scope_cleanups;
+    context->scope_cleanups = cleanup;
+    context->allocated_scope_cleanups = cleanup;
     return true;
 }
 
@@ -7159,7 +7162,8 @@ static bool lower_emit_scope_cleanups_until(
     if (!context) return false;
     for (cleanup = context->scope_cleanups;
          cleanup && cleanup != marker; cleanup = cleanup->previous_scope) {
-        if (!lower_emit_temporary_cleanup_action(context, cleanup->action)) {
+        if (!lower_emit_temporary_cleanup_plan_list(
+                context, cleanup->plan)) {
             return false;
         }
     }
@@ -7167,6 +7171,21 @@ static bool lower_emit_scope_cleanups_until(
         context->unsupported = true;
         return false;
     }
+    return true;
+}
+
+static bool lower_scope_cleanup_marker_for_count(
+    const RccIrLowerContext* context, unsigned count,
+    const RccIrLowerScopeCleanup** marker_out) {
+    const RccIrLowerScopeCleanup* marker;
+    if (!context || !marker_out) return false;
+    marker = context->scope_cleanups;
+    while (count != 0u && marker) {
+        marker = marker->previous_scope;
+        --count;
+    }
+    if (count != 0u) return false;
+    *marker_out = marker;
     return true;
 }
 
@@ -14632,8 +14651,12 @@ static bool lower_statement_impl(RccIrLowerContext* context,
             return lower_branch(context, context->continue_target);
         case STMT_GOTO: {
             RccIrLowerLabel* label;
-            if (statement->goto_cleanup_count != 0u ||
-                statement->goto_vla_count != 0u) {
+            const RccIrLowerScopeCleanup* cleanup_marker;
+            if (statement->goto_vla_count != 0u ||
+                !lower_scope_cleanup_marker_for_count(
+                    context, statement->goto_cleanup_count,
+                    &cleanup_marker) ||
+                !lower_emit_scope_cleanups_until(context, cleanup_marker)) {
                 context->unsupported = true;
                 return false;
             }

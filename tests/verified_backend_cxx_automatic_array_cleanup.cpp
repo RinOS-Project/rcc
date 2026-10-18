@@ -33,6 +33,31 @@ int verify_automatic_array_cleanup(int* cleanup_order,
     return result;
 }
 
+int verify_automatic_goto_cleanup(int* inner_order, int* outer_order,
+                                  int take_goto) noexcept {
+    int result = 0;
+    {
+        VerifiedAutomaticCleanupValue outer{
+            outer_order, 39,
+            {{{outer_order, 1}, {outer_order, 2},
+              {outer_order, 3}},
+             {{outer_order, 4}, {outer_order, 5},
+              {outer_order, 6}}}};
+        {
+            VerifiedAutomaticCleanupValue inner{
+                inner_order, 39,
+                {{{inner_order, 1}, {inner_order, 2},
+                  {inner_order, 3}},
+                 {{inner_order, 4}, {inner_order, 5},
+                  {inner_order, 6}}}};
+            if (take_goto) goto after_cleanup_scope;
+            result = inner.value + outer.value;
+        }
+    }
+after_cleanup_scope:
+    return result;
+}
+
 int verify_automatic_loop_cleanup(int* continue_order,
                                   int* break_order) noexcept {
     int iterations = 0;
@@ -151,41 +176,56 @@ int main() {
         early_order != 9654321) {
         return 2;
     }
+    int goto_order = 0;
+    int goto_outer_order = 0;
+    if (verify_automatic_goto_cleanup(
+            &goto_order, &goto_outer_order, 1) != 0 ||
+        goto_order != 9654321 || goto_outer_order != 9654321) {
+        return 3;
+    }
+    int fallthrough_order = 0;
+    int fallthrough_outer_order = 0;
+    if (verify_automatic_goto_cleanup(
+            &fallthrough_order, &fallthrough_outer_order, 0) != 78 ||
+        fallthrough_order != 9654321 ||
+        fallthrough_outer_order != 9654321) {
+        return 4;
+    }
     int continue_order = 0;
     int break_order = 0;
     if (verify_automatic_loop_cleanup(&continue_order, &break_order) != 2 ||
         continue_order != 9654321 || break_order != 9654321) {
-        return 3;
+        return 5;
     }
     int switch_first_order = 0;
     if (verify_automatic_switch_cleanup(&switch_first_order, 1) != 39 ||
         switch_first_order != 9654321) {
-        return 4;
+        return 6;
     }
     int switch_second_order = 0;
     if (verify_automatic_switch_cleanup(&switch_second_order, 2) != 40 ||
         switch_second_order != 9654321) {
-        return 5;
+        return 7;
     }
     int for_normal_order = 0;
     if (verify_automatic_for_init_normal(&for_normal_order) != 2 ||
         for_normal_order != 9654321) {
-        return 6;
+        return 8;
     }
     int for_break_order = 0;
     if (verify_automatic_for_init_break(&for_break_order) != 1 ||
         for_break_order != 9654321) {
-        return 7;
+        return 9;
     }
     int for_return_order = 0;
     if (verify_automatic_for_init_return(&for_return_order) != 39 ||
         for_return_order != 9654321) {
-        return 8;
+        return 10;
     }
     int for_wide_break_order = 0;
     if (verify_automatic_for_init_wide_break(&for_wide_break_order) != 1 ||
         for_wide_break_order != 9654321) {
-        return 9;
+        return 11;
     }
     return 0;
 }
