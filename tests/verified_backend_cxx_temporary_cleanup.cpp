@@ -27,6 +27,25 @@ struct VerifiedTemporaryFactory {
     }
 };
 
+struct VerifiedArrayChild {
+    int* cleanup_order;
+    int cleanup_id;
+
+    ~VerifiedArrayChild() noexcept {
+        *cleanup_order = *cleanup_order * 10 + cleanup_id;
+    }
+};
+
+struct VerifiedArrayTemporary {
+    int* cleanup_order;
+    int cleanup_id;
+    VerifiedArrayChild children[3];
+
+    ~VerifiedArrayTemporary() noexcept {
+        *cleanup_order = *cleanup_order * 10 + cleanup_id;
+    }
+};
+
 struct VerifiedPairTemporary {
     int* cleanup_order;
     int cleanup_id;
@@ -65,6 +84,19 @@ VerifiedTemporary make_verified_temporary(
         int* cleanup_order, int cleanup_id, int value) noexcept {
     return {cleanup_order, cleanup_id, value,
             {cleanup_order, cleanup_id + 1}};
+}
+
+VerifiedArrayTemporary make_verified_array_temporary(
+        int* cleanup_order, int cleanup_id, int value) noexcept {
+    return {cleanup_order, cleanup_id,
+            {{cleanup_order, cleanup_id + 1},
+             {cleanup_order, cleanup_id + 2},
+             {cleanup_order, cleanup_id + 3}}};
+}
+
+int consume_verified_array_temporary(
+        const VerifiedArrayTemporary& value) noexcept {
+    return value.cleanup_id;
 }
 
 int consume_verified_temporary(const VerifiedTemporary& value) noexcept {
@@ -162,6 +194,13 @@ int main() {
         return 5;
     }
     if (cleanup_order != 56) return 6;
+
+    cleanup_order = 0;
+    if (consume_verified_array_temporary(
+            make_verified_array_temporary(&cleanup_order, 1, 39)) != 1) {
+        return 31;
+    }
+    if (cleanup_order != 1432) return 32;
 
     cleanup_order = 0;
     if (consume_verified_temporary(

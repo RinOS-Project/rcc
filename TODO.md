@@ -1357,7 +1357,9 @@
         nested parent/member cleanup, single and paired temporaries, exactly-once
         cleanup/comma side effects, fallback-free i686/AMD64 objects, and x64
         execution in `test-verified-cxx-temporary-cleanup`. Potentially throwing
-        calls and array-loop cleanup plans remain on the complete backend.
+        calls and array-loop cleanup for automatic-object scopes remain on the
+        complete backend; fixed-size array loops in call-temporary cleanup plans
+        are covered below.
   - [x] Lower same-type noexcept class-prvalue conditional arguments bound to
         reference parameters. Pass the final lifetime-owner storage directly
         to the selected branch's sret call or capture a one-/two-register
@@ -1367,8 +1369,8 @@
         execution in `test-verified-cxx-temporary-cleanup`. A non-virtual,
         `noexcept` ordinary member-function call returning the same class is
         also covered as a branch arm. Field-backed inline member calls,
-        conversions, potentially throwing expressions, and array-loop cleanup
-        remain outside this verified subset.
+        conversions, potentially throwing expressions, and automatic-object
+        array cleanup remain outside this verified subset.
   - [x] Validate noexcept fixed-member cleanup plans recursively for class
         prvalue reference arguments of a selected conditional branch call;
         emit the inner temporary cleanup immediately after that call and the
@@ -1379,6 +1381,12 @@
         their leaves are supported noexcept calls. Verify both nested branch
         choices, exactly-once destruction of the selected temporary,
         fallback-free i686/AMD64 objects, and x64 execution in
+        `test-verified-cxx-temporary-cleanup`.
+  - [x] Lower fixed-size array-loop cleanup plans recursively for nontrivial
+        subobjects of class-prvalue reference temporaries, including nested
+        arrays. Emit reverse element destruction and verify the observed order
+        in both typed-SSA and regular codegen paths; typed SSA passes `-O0` and
+        `-O2` on i686/AMD64 with no fallback in
         `test-verified-cxx-temporary-cleanup`.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier

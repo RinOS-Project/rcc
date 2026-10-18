@@ -17262,7 +17262,7 @@ test-verified-cxx-temporary-cleanup: $(RCXX_TARGET) test-verified-cxx-reference-
 		-o $(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.ro \
 		tests/verified_backend_cxx_temporary_cleanup.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.log
-	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 22 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
@@ -17270,15 +17270,65 @@ test-verified-cxx-temporary-cleanup: $(RCXX_TARGET) test-verified-cxx-reference-
 		-o $(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.ro \
 		tests/verified_backend_cxx_temporary_cleanup.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.log
-	$(GREP) -F -q 'Verified backend: 18 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 22 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/array-temporary-o0-x86.ro \
+		tests/verified_backend_cxx_array_temporary_cleanup.cpp \
+		>$(TEST_OUT)/verified-backend/array-temporary-o0-x86.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/array-temporary-o0-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/array-temporary-o0-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/array-temporary-o0-x64.ro \
+		tests/verified_backend_cxx_array_temporary_cleanup.cpp \
+		>$(TEST_OUT)/verified-backend/array-temporary-o0-x64.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/array-temporary-o0-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/array-temporary-o0-x64.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/array-temporary-o2-x86.ro \
+		tests/verified_backend_cxx_array_temporary_cleanup.cpp \
+		>$(TEST_OUT)/verified-backend/array-temporary-o2-x86.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/array-temporary-o2-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/array-temporary-o2-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/array-temporary-o2-x64.ro \
+		tests/verified_backend_cxx_array_temporary_cleanup.cpp \
+		>$(TEST_OUT)/verified-backend/array-temporary-o2-x64.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/array-temporary-o2-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/array-temporary-o2-x64.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 -S \
+		-o $(TEST_OUT)/verified-backend/array-temporary-legacy-x64.s \
+		tests/verified_backend_cxx_array_temporary_cleanup.cpp
+	$(CC) -o $(TEST_OUT)/verified-backend/array-temporary-legacy-x64-host \
+		$(TEST_OUT)/verified-backend/array-temporary-legacy-x64.s
+	$(TEST_OUT)/verified-backend/array-temporary-legacy-x64-host
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
 		--cxx-reference-object \
 		$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x86.ro x86
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
 		--cxx-reference-object \
 		$(TEST_OUT)/verified-backend/cxx-temporary-cleanup-x64.ro x64
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/array-temporary-o0-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/array-temporary-o0-x64.ro x64
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/array-temporary-o2-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/array-temporary-o2-x64.ro x64
 
 test-verified-cxx-virtual-base-value: $(RCXX_TARGET) test-verified-cxx-reference-local
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)

@@ -15373,6 +15373,9 @@ static void codegen_assign_compound_expr(Expr* expression, int* bytes,
                         active_call_temporary_owners = argument;
                     }
                 }
+                codegen_assign_cleanup_plan(
+                    argument->cxx_temporary_cleanups, bytes,
+                    stack_alignment);
             }
             if (expression->cxx_temporary_owner &&
                 expression->cxx_temporary_source) {

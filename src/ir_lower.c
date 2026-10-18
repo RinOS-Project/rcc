@@ -6628,59 +6628,104 @@ static bool lower_nontrivial_temporary_conditional_supported(
 }
 
 static bool lower_cleanup_object_is_owner_subobject(
-    const Expr* object, const Decl* owner) {
+    const Expr* object, const Decl* owner,
+    const Decl* const* array_indices, size_t array_index_count) {
     if (!object || !owner) return false;
     if (object->kind == EXPR_IDENT) {
         return object->ident_decl == owner;
     }
     if (object->kind == EXPR_MEMBER && object->member_field) {
         return lower_cleanup_object_is_owner_subobject(
-            object->member_base, owner);
+            object->member_base, owner, array_indices,
+            array_index_count);
+    }
+    if (object->kind == EXPR_INDEX && object->index_base &&
+        object->index_expr) {
+        const Expr* index = object->index_expr;
+        bool index_is_valid = index->kind == EXPR_INT_LIT;
+        if (index->kind == EXPR_IDENT && index->ident_decl) {
+            for (size_t slot = 0u; slot < array_index_count; ++slot) {
+                if (array_indices[slot] == index->ident_decl) {
+                    index_is_valid = true;
+                    break;
+                }
+            }
+        }
+        return index_is_valid && lower_cleanup_object_is_owner_subobject(
+            object->index_base, owner, array_indices,
+            array_index_count);
     }
     if (object->kind == EXPR_CAST && object->type &&
         object->type->is_reference) {
         return lower_cleanup_object_is_owner_subobject(
-            object->cast_expr, owner);
+            object->cast_expr, owner, array_indices,
+            array_index_count);
     }
     return false;
 }
 
+static bool lower_temporary_cleanup_plan_list_supported(
+    const CxxCleanupPlan* plan, const Decl* owner,
+    const Decl** array_indices, size_t array_index_count) {
+    size_t count = 0u;
+    for (; plan; plan = plan->next) {
+        if (++count > 4096u) return false;
+        if (plan->kind == CXX_CLEANUP_ARRAY_LOOP) {
+            const Decl* index_decl = plan->index_decl;
+            if (!index_decl || index_decl->kind != DECL_VAR ||
+                !index_decl->type || index_decl->type->kind != TYPE_INT ||
+                plan->element_count <= 0 || !plan->body ||
+                array_index_count >= 32u) {
+                return false;
+            }
+            array_indices[array_index_count] = index_decl;
+            if (!lower_temporary_cleanup_plan_list_supported(
+                    plan->body, owner, array_indices,
+                    array_index_count + 1u)) {
+                return false;
+            }
+            continue;
+        }
+        if (plan->kind == CXX_CLEANUP_EXPRESSION) {
+            const Expr* cleanup = plan->expression;
+            const Expr* function = cleanup && cleanup->kind == EXPR_CALL
+                ? cleanup->call_func : NULL;
+            const ExprList* cleanup_argument = cleanup
+                ? cleanup->call_args : NULL;
+            const Expr* address = cleanup_argument
+                ? cleanup_argument->expr : NULL;
+            const Decl* destructor = function &&
+                    function->kind == EXPR_IDENT
+                ? function->ident_decl : NULL;
+            if (!destructor || destructor->kind != DECL_FUNC ||
+                !destructor->func_is_cxx_destructor ||
+                !destructor->func_is_noexcept || !cleanup_argument ||
+                cleanup_argument->next || !address ||
+                address->kind != EXPR_ADDR || !address->unary_operand ||
+                !lower_cleanup_object_is_owner_subobject(
+                    address->unary_operand, owner, array_indices,
+                    array_index_count)) {
+                return false;
+            }
+            continue;
+        }
+        return false;
+    }
+    return count != 0u;
+}
+
 static bool lower_temporary_cleanup_plan_supported(
     const ExprList* argument) {
-    const CxxCleanupPlan* plan;
-    const Expr* cleanup;
-    const Expr* function;
-    const ExprList* cleanup_argument;
-    const Expr* address;
-    const Decl* destructor;
-    size_t count = 0u;
+    const Decl* array_indices[32];
     if (!argument || !argument->cxx_temporary_owner ||
         !argument->cxx_temporary_cleanups ||
         !argument->cxx_temporary_owner->type ||
         !argument->cxx_temporary_owner->type->is_reference) {
         return false;
     }
-    for (plan = argument->cxx_temporary_cleanups; plan;
-         plan = plan->next) {
-        if (plan->kind != CXX_CLEANUP_EXPRESSION ||
-            !(cleanup = plan->expression) || cleanup->kind != EXPR_CALL ||
-            !(function = cleanup->call_func) ||
-            function->kind != EXPR_IDENT ||
-            !(destructor = function->ident_decl) ||
-            destructor->kind != DECL_FUNC ||
-            !destructor->func_is_cxx_destructor ||
-            !destructor->func_is_noexcept ||
-            !(cleanup_argument = cleanup->call_args) ||
-            cleanup_argument->next || !(address = cleanup_argument->expr) ||
-            address->kind != EXPR_ADDR || !address->unary_operand ||
-            !lower_cleanup_object_is_owner_subobject(
-                address->unary_operand,
-                argument->cxx_temporary_owner)) {
-            return false;
-        }
-        if (++count > 4096u) return false;
-    }
-    return count != 0u;
+    return lower_temporary_cleanup_plan_list_supported(
+        argument->cxx_temporary_cleanups,
+        argument->cxx_temporary_owner, array_indices, 0u);
 }
 
 static bool lower_call_temporary_cleanups_supported(
@@ -6729,14 +6774,100 @@ static bool lower_bind_temporary_owner(RccIrLowerContext* context,
     return lower_store_address(context, slot, object_address);
 }
 
-static bool lower_emit_temporary_cleanup_plan(
-    RccIrLowerContext* context, const ExprList* argument) {
-    const CxxCleanupPlan* plan;
+static bool lower_emit_temporary_cleanup_plan_list(
+    RccIrLowerContext* context, const CxxCleanupPlan* plan);
+
+static bool lower_emit_temporary_cleanup_array_loop(
+    RccIrLowerContext* context, const CxxCleanupPlan* plan) {
+    RccIrInstruction* allocation;
+    RccIrLowerValue index_address;
+    RccIrLowerValue index_value;
+    RccIrLowerValue one;
+    RccIrLowerValue next_index;
+    RccIrBlock* condition_block;
+    RccIrBlock* body_block;
+    RccIrBlock* exit_block;
+    RccIrValue operands[2];
+    RccIrType index_type;
+    if (!context || !plan || plan->kind != CXX_CLEANUP_ARRAY_LOOP ||
+        !plan->index_decl || !plan->index_decl->type ||
+        plan->index_decl->kind != DECL_VAR || plan->element_count <= 0 ||
+        !plan->body || lower_find_local(context, plan->index_decl) ||
+        !lower_type(plan->index_decl->type, &index_type) ||
+        index_type.kind != RCC_IR_TYPE_INTEGER ||
+        index_type.bit_width != 32u) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    allocation = lower_append(context, RCC_IR_ALLOCA,
+                              rcc_ir_type_pointer(0u), NULL, 0u,
+                              NULL, 0u);
+    if (!allocation) return false;
+    rcc_ir_set_immediate(allocation, 4u);
+    allocation->alignment = 4u;
+    allocation->source_declaration = plan->index_decl;
+    if (!lower_add_local(context, plan->index_decl,
+                         allocation->result, index_type)) {
+        context->unsupported = true;
+        return false;
+    }
+    index_address = lower_value(
+        allocation->result, rcc_ir_type_pointer(0u), true);
+    index_value = lower_integer_constant(
+        context, index_type, true, (uint32_t)plan->element_count);
+    if (!index_value.valid ||
+        !lower_store_address(context, index_address, index_value)) {
+        return false;
+    }
+    condition_block = rcc_ir_block_add(
+        context->function, "temporary.cleanup.array.cond");
+    body_block = rcc_ir_block_add(
+        context->function, "temporary.cleanup.array.body");
+    exit_block = rcc_ir_block_add(
+        context->function, "temporary.cleanup.array.end");
+    if (!condition_block || !body_block || !exit_block ||
+        !lower_branch(context, condition_block->id)) {
+        return false;
+    }
+    context->current = condition_block;
+    context->terminated = false;
+    index_value = lower_load_address(
+        context, index_address, plan->index_decl->type);
+    if (!index_value.valid || !lower_conditional_branch(
+            context, index_value, body_block->id, exit_block->id)) {
+        return false;
+    }
+    context->current = body_block;
+    context->terminated = false;
+    index_value = lower_load_address(
+        context, index_address, plan->index_decl->type);
+    one = lower_integer_constant(context, index_type, true, 1u);
+    if (!index_value.valid || !one.valid) return false;
+    operands[0] = index_value.value;
+    operands[1] = one.value;
+    {
+        RccIrInstruction* subtract = lower_append(
+            context, RCC_IR_SUB, index_type, operands, 2u, NULL, 0u);
+        if (!subtract) return false;
+        next_index = lower_value(subtract->result, index_type, true);
+    }
+    if (!lower_store_address(context, index_address, next_index) ||
+        !lower_emit_temporary_cleanup_plan_list(context, plan->body) ||
+        context->terminated ||
+        !lower_branch(context, condition_block->id)) {
+        return false;
+    }
+    context->current = exit_block;
+    context->terminated = false;
+    return true;
+}
+
+static bool lower_emit_temporary_cleanup_plan_list(
+    RccIrLowerContext* context, const CxxCleanupPlan* plan) {
     const CxxCleanupPlan** actions;
     size_t count = 0u;
     size_t index = 0u;
-    for (plan = argument->cxx_temporary_cleanups; plan;
-         plan = plan->next) {
+    for (const CxxCleanupPlan* item = plan; item; item = item->next) {
         ++count;
     }
     if (!count || count > 4096u ||
@@ -6745,20 +6876,38 @@ static bool lower_emit_temporary_cleanup_plan(
         return false;
     }
     actions = rcc_alloc(count * sizeof(*actions));
-    for (plan = argument->cxx_temporary_cleanups; plan;
-         plan = plan->next) {
-        actions[index++] = plan;
+    for (const CxxCleanupPlan* item = plan; item; item = item->next) {
+        actions[index++] = item;
     }
     while (index > 0u) {
         RccIrLowerValue cleanup;
-        plan = actions[--index];
-        cleanup = lower_expression(context, plan->expression);
-        if (!cleanup.valid || cleanup.type.kind != RCC_IR_TYPE_VOID) {
+        const CxxCleanupPlan* item = actions[--index];
+        if (item->kind == CXX_CLEANUP_ARRAY_LOOP) {
+            if (!lower_emit_temporary_cleanup_array_loop(context, item)) {
+                rcc_free(actions);
+                return false;
+            }
+        } else if (item->kind == CXX_CLEANUP_EXPRESSION) {
+            cleanup = lower_expression(context, item->expression);
+            if (!cleanup.valid || cleanup.type.kind != RCC_IR_TYPE_VOID) {
+                context->unsupported = true;
+                rcc_free(actions);
+                return false;
+            }
+        } else {
             context->unsupported = true;
+            rcc_free(actions);
             return false;
         }
     }
+    rcc_free(actions);
     return true;
+}
+
+static bool lower_emit_temporary_cleanup_plan(
+    RccIrLowerContext* context, const ExprList* argument) {
+    return argument && lower_emit_temporary_cleanup_plan_list(
+                           context, argument->cxx_temporary_cleanups);
 }
 
 static bool lower_emit_call_temporary_cleanups(
