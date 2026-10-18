@@ -6052,5 +6052,18 @@ remains a separate open item.
       adjusted member offsets and `this` adjustments through NTTP collection,
       substitution, and Itanium mangling; verify exact GCC symbols, i686/AMD64
       generation, host execution, full `test-cxx`, and `test-debug-info`.
-- [ ] Virtual-base member-pointer conversions and multidimensional arrays of
-      structural-class elements remain open.
+- [ ] Virtual-base member-pointer conversions remain open.
+
+## RCC continuation (2026-10-18, multidimensional structural-class arrays in NTTPs)
+
+- [x] Support fixed-bound multidimensional arrays whose elements are
+      structural classes. Recursively collect and pack field values for both
+      compact values and record-backed values, including nested array layers.
+- [x] Substitute constant-index paths through all array dimensions and into
+      structural-class members; emit recursive Itanium aggregate values and
+      preserve matching structural typeinfo identity.
+- [x] Compare exact GCC/RCC Itanium symbols for compact and record-backed
+      matrices, generate i686 and AMD64 output, and execute RCC/GCC host tests.
+      The focused target and full native-Windows `test-cxx` aggregate pass.
+- [x] Run native-Windows `test-debug-info` (exit 0).
+- [ ] Virtual-base member-pointer conversions remain open.

@@ -3042,6 +3042,10 @@ static bool cxx_structural_select_function_template_pointer(
     return true;
 }
 
+static bool cxx_structural_class_collect_member_values(
+    Type* type, ExprList* initializer, bool value_init,
+    int64_t* member_values, size_t member_capacity, int* member_count);
+
 static bool cxx_structural_array_collect_scalar_values(
     Type* array_type, Expr* initializer, int64_t* member_values,
     size_t member_capacity, int* member_count) {
@@ -3066,6 +3070,10 @@ static bool cxx_structural_array_collect_scalar_values(
     }
     if (element_type->kind == TYPE_ARRAY) {
         if (element_type->array_len <= 0 || element_type->array_bound) {
+            return false;
+        }
+    } else if (element_type->kind == TYPE_STRUCT) {
+        if (!cxx_structural_class_value_supported_subset(element_type)) {
             return false;
         }
     } else if ((!type_is_integer(element_type) &&
@@ -3095,6 +3103,31 @@ static bool cxx_structural_array_collect_scalar_values(
             if (!cxx_structural_array_collect_scalar_values(
                     element_type, element_initializer, member_values,
                     member_capacity, member_count)) {
+                return false;
+            }
+            continue;
+        }
+        if (element_type->kind == TYPE_STRUCT) {
+            ExprList* nested_initializer = NULL;
+            Type* nested_type = NULL;
+            if (element_initializer) {
+                if (element_initializer->kind != EXPR_COMPOUND) {
+                    return false;
+                }
+                nested_type = element_initializer->compound_type
+                    ? element_initializer->compound_type
+                    : element_initializer->type;
+                if (nested_type &&
+                    !type_is_compatible(element_type, nested_type)) {
+                    return false;
+                }
+                nested_initializer = element_initializer->compound_init;
+            }
+            if (!cxx_structural_class_collect_member_values(
+                    element_type, nested_initializer,
+                    !element_initializer ||
+                        element_initializer->compound_value_init,
+                    member_values, member_capacity, member_count)) {
                 return false;
             }
             continue;

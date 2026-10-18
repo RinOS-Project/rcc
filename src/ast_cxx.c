@@ -704,6 +704,9 @@ static unsigned cxx_structural_type_value_bits(const Type* type);
 static unsigned cxx_structural_field_value_bits(const TypeParam* field);
 static Type* cxx_structural_field_mangled_type(
     const TypeParam* field);
+static bool cxx_structural_class_pack_fields(
+    const Type* type, const int64_t* member_values, int member_count,
+    int* value_index, uint64_t* packed_value, unsigned* bit_offset);
 static bool cxx_structural_class_measure_fields(
     const Type* type, unsigned* total_bits, unsigned* leaf_count,
     unsigned* pointer_count);
@@ -1153,11 +1156,18 @@ static bool cxx_structural_pointer_array_values_all_null(
     return true;
 }
 
+static bool cxx_mangle_structural_value_body(
+    char* buf, size_t* pos, Type* value_type, uint64_t packed_value,
+    unsigned* bit_offset, CxxMangleContext* context,
+    int64_t pointer_token, const int64_t* recorded_values,
+    int recorded_count, int* recorded_index);
+
 static bool cxx_mangle_structural_scalar_array_body(
     char* buf, size_t* pos, Type* array_type, bool append_aggregate,
     uint64_t packed_value, unsigned* bit_offset,
-    CxxMangleContext* context, const int64_t* recorded_values,
-    int recorded_count, int* recorded_index) {
+    CxxMangleContext* context, int64_t pointer_token,
+    const int64_t* recorded_values, int recorded_count,
+    int* recorded_index) {
     const Type* element_type;
     unsigned element_count;
     if (!array_type || array_type->kind != TYPE_ARRAY ||
@@ -1190,7 +1200,16 @@ static bool cxx_mangle_structural_scalar_array_body(
         for (unsigned index = 0u; index < element_count; ++index) {
             if (!cxx_mangle_structural_scalar_array_body(
                     buf, pos, (Type*)element_type, true, packed_value,
-                    bit_offset, context, recorded_values, recorded_count,
+                    bit_offset, context, pointer_token, recorded_values,
+                    recorded_count, recorded_index)) {
+                return false;
+            }
+        }
+    } else if (element_type->kind == TYPE_STRUCT) {
+        for (unsigned index = 0u; index < element_count; ++index) {
+            if (!cxx_mangle_structural_value_body(
+                    buf, pos, (Type*)element_type, packed_value, bit_offset,
+                    context, pointer_token, recorded_values, recorded_count,
                     recorded_index)) {
                 return false;
             }
@@ -1310,8 +1329,8 @@ static bool cxx_mangle_structural_value_body(
             if (element_type->kind == TYPE_ARRAY) {
                 if (!cxx_mangle_structural_scalar_array_body(
                         buf, pos, field->type, false, packed_value,
-                        bit_offset, context, recorded_values,
-                        recorded_count, recorded_index)) {
+                        bit_offset, context, pointer_token,
+                        recorded_values, recorded_count, recorded_index)) {
                     return false;
                 }
                 continue;
@@ -4040,7 +4059,6 @@ static bool cxx_structural_array_element_layout(
         unsigned element_pointers = 0u;
         if (!cxx_structural_array_leaf_info(
                 type, &element_type, &element_count) ||
-            element_type->kind == TYPE_STRUCT ||
             !cxx_structural_array_element_layout(
                 element_type, &element_bits, &element_leaves,
                 &element_pointers) ||
@@ -4189,6 +4207,16 @@ static bool cxx_structural_pack_scalar_array_values(
     if (element_type->kind == TYPE_ARRAY) {
         for (unsigned index = 0u; index < element_count; ++index) {
             if (!cxx_structural_pack_scalar_array_values(
+                    element_type, member_values, member_count, value_index,
+                    packed_value, bit_offset)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (element_type->kind == TYPE_STRUCT) {
+        for (unsigned index = 0u; index < element_count; ++index) {
+            if (!cxx_structural_class_pack_fields(
                     element_type, member_values, member_count, value_index,
                     packed_value, bit_offset)) {
                 return false;
@@ -4623,7 +4651,7 @@ static bool cxx_structural_class_find_array_field(
     const Type* type, const char* const* member_names, int member_name_count,
     int path_index, unsigned base_bits, unsigned base_leaves,
     const Type** array_type_out, unsigned* array_base_bits_out,
-    unsigned* array_base_leaves_out) {
+    unsigned* array_base_leaves_out, int* array_member_name_index_out) {
     const TypeParam* field;
     if (!type || type->kind != TYPE_STRUCT || !type->cxx_class ||
         !member_names || path_index < 0 || path_index >= member_name_count) {
@@ -4640,18 +4668,19 @@ static bool cxx_structural_class_find_array_field(
         }
         if (field->name &&
             strcmp(field->name, member_names[path_index]) == 0) {
-            if (path_index + 1 == member_name_count) {
-                if (field->type->kind != TYPE_ARRAY) return false;
+            if (field->type->kind == TYPE_ARRAY) {
                 *array_type_out = field->type;
                 *array_base_bits_out = base_bits;
                 *array_base_leaves_out = base_leaves;
+                *array_member_name_index_out = path_index;
                 return true;
             }
             if (field->type->kind != TYPE_STRUCT) return false;
             return cxx_structural_class_find_array_field(
                 field->type, member_names, member_name_count,
                 path_index + 1, base_bits, base_leaves, array_type_out,
-                array_base_bits_out, array_base_leaves_out);
+                array_base_bits_out, array_base_leaves_out,
+                array_member_name_index_out);
         }
         if (field_bits > UINT_MAX - base_bits ||
             field_leaves > UINT_MAX - base_leaves) {
@@ -4673,15 +4702,18 @@ bool cxx_structural_class_unpack_multidimensional_array_path(
     const Type* selected_type;
     unsigned array_base_bits = 0u;
     unsigned array_base_leaves = 0u;
+    int array_member_name_index = -1;
     unsigned selected_leaf = 0u;
+    unsigned selected_bits = 0u;
     unsigned scalar_bits;
     int recorded_count = 0;
     if (!member_names || member_name_count <= 0 || !member_names[0] ||
-        !array_indices || array_index_count < 2 || !member_value ||
+        !array_indices || array_index_count <= 0 || !member_value ||
         !cxx_structural_class_value_supported_subset(type) ||
         !cxx_structural_class_find_array_field(
             type, member_names, member_name_count, 0, 0u, 0u,
-            &array_type, &array_base_bits, &array_base_leaves)) {
+            &array_type, &array_base_bits, &array_base_leaves,
+            &array_member_name_index)) {
         return false;
     }
     selected_type = array_type;
@@ -4699,11 +4731,39 @@ bool cxx_structural_class_unpack_multidimensional_array_path(
             !cxx_structural_array_element_layout(
                 element_type, &element_bits, &element_leaves,
                 &element_pointers) ||
-            index > (UINT_MAX - selected_leaf) / element_leaves) {
+            index > (UINT_MAX - selected_leaf) / element_leaves ||
+            index > (UINT_MAX - selected_bits) / element_bits) {
             return false;
         }
         selected_leaf += index * element_leaves;
+        selected_bits += index * element_bits;
         selected_type = element_type;
+    }
+    if (selected_type->kind == TYPE_STRUCT) {
+        int value_index;
+        int suffix_index = array_member_name_index + 1;
+        unsigned selected_bits_offset;
+        unsigned selected_leaves_offset;
+        if (suffix_index >= member_name_count ||
+            selected_bits > UINT_MAX - array_base_bits ||
+            selected_leaf > UINT_MAX - array_base_leaves ||
+            selected_leaf > (unsigned)INT_MAX - array_base_leaves) {
+            return false;
+        }
+        selected_bits_offset = array_base_bits + selected_bits;
+        selected_leaves_offset = array_base_leaves + selected_leaf;
+        if (!cxx_structural_class_value_record_resolve(
+                type, packed_value, &recorded_values, &recorded_count)) {
+            recorded_values = NULL;
+            recorded_count = 0;
+        }
+        value_index = (int)selected_leaves_offset;
+        if (recorded_values && value_index > recorded_count) return false;
+        return cxx_structural_class_find_member_path(
+            selected_type, (uint64_t)packed_value, member_names,
+            member_name_count, suffix_index, -1, selected_bits_offset,
+            recorded_values, recorded_count, &value_index,
+            member_value, member_type);
     }
     if (selected_type->kind == TYPE_ARRAY ||
         ((!type_is_integer((Type*)selected_type) &&
@@ -5465,6 +5525,9 @@ static void cxx_typeinfo_identity_append_type(
     CxxTypeInfoIdentityBuilder* builder, const Type* type);
 static void cxx_typeinfo_identity_append_structural_pointer_value(
     CxxTypeInfoIdentityBuilder* builder, const Type* type, int64_t value);
+static void cxx_typeinfo_identity_append_structural_values(
+    CxxTypeInfoIdentityBuilder* builder, const Type* type,
+    const int64_t* values, int value_count, int* value_index);
 static void cxx_typeinfo_identity_append_structural_scalar_array_values(
     CxxTypeInfoIdentityBuilder* builder, const Type* array_type,
     bool append_identity, const int64_t* values, int value_count,
@@ -5498,21 +5561,23 @@ static void cxx_typeinfo_identity_append_structural_scalar_array_values(
     } else {
         for (unsigned element_index = 0u;
              element_index < element_count; ++element_index) {
-            int64_t value = values[(*value_index)++];
-            if (element_type->kind == TYPE_PTR) {
+            if (element_type->kind == TYPE_STRUCT) {
+                cxx_typeinfo_identity_append_char(builder, 'S');
+                cxx_typeinfo_identity_append_type(builder, element_type);
+                cxx_typeinfo_identity_append_structural_values(
+                    builder, element_type, values, value_count, value_index);
+            } else if (element_type->kind == TYPE_PTR) {
+                int64_t value = values[(*value_index)++];
                 cxx_typeinfo_identity_append_structural_pointer_value(
                     builder, element_type, value);
             } else {
+                int64_t value = values[(*value_index)++];
                 cxx_typeinfo_identity_append_type(builder, element_type);
                 cxx_typeinfo_identity_append_signed(builder, value);
             }
         }
     }
 }
-
-static void cxx_typeinfo_identity_append_structural_values(
-    CxxTypeInfoIdentityBuilder* builder, const Type* type,
-    const int64_t* values, int value_count, int* value_index);
 
 static void cxx_typeinfo_identity_append_class(
     CxxTypeInfoIdentityBuilder* builder, CxxClass* cls) {
@@ -10937,6 +11002,61 @@ static bool template_clone_collect_structural_member_path(
     return true;
 }
 
+static int template_clone_structural_member_index_count(
+    const Expr* expression) {
+    int base_count;
+    if (!expression) return -1;
+    if (expression->kind == EXPR_IDENT) return 0;
+    if (expression->kind == EXPR_INDEX) {
+        base_count = template_clone_structural_member_index_count(
+            expression->index_base);
+        return base_count < 0 || base_count == INT_MAX
+            ? -1 : base_count + 1;
+    }
+    if (expression->kind == EXPR_MEMBER) {
+        return template_clone_structural_member_index_count(
+            expression->member_base);
+    }
+    return -1;
+}
+
+static bool template_clone_collect_structural_member_array_path(
+    const Expr* expression, const char** member_names, int member_capacity,
+    int* member_count, int* array_indices, int array_capacity,
+    int* array_index_count, const char** parameter_name) {
+    if (!expression) return false;
+    if (expression->kind == EXPR_IDENT) {
+        *parameter_name = expression->ident_name;
+        return expression->ident_name != NULL;
+    }
+    if (expression->kind == EXPR_INDEX) {
+        int64_t index_value;
+        if (!template_clone_collect_structural_member_array_path(
+                expression->index_base, member_names, member_capacity,
+                member_count, array_indices, array_capacity,
+                array_index_count, parameter_name) ||
+            *array_index_count >= array_capacity ||
+            !expr_eval_integer_constant(expression->index_expr,
+                                        &index_value) ||
+            index_value < 0 || index_value > INT_MAX) {
+            return false;
+        }
+        array_indices[(*array_index_count)++] = (int)index_value;
+        return true;
+    }
+    if (expression->kind != EXPR_MEMBER || !expression->member_base ||
+        !expression->member_name ||
+        !template_clone_collect_structural_member_array_path(
+            expression->member_base, member_names, member_capacity,
+            member_count, array_indices, array_capacity,
+            array_index_count, parameter_name) ||
+        *member_count >= member_capacity) {
+        return false;
+    }
+    member_names[(*member_count)++] = expression->member_name;
+    return true;
+}
+
 static int template_clone_structural_index_depth(const Expr* expression) {
     if (!expression) return -1;
     if (expression->kind != EXPR_INDEX) return 0;
@@ -11357,15 +11477,34 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             const char** member_names = NULL;
             int member_count = 0;
             int array_element_index = -1;
+            int* array_indices = NULL;
+            int array_index_count = 0;
+            int array_index_capacity =
+                template_clone_structural_member_index_count(expression);
             TemplateParam* parameter = NULL;
             int index = -1;
             if (member_capacity > 0) {
                 member_names = ast_arena_alloc(
                     sizeof(*member_names) * (size_t)member_capacity);
-                if (template_clone_collect_structural_member_path(
-                        expression, member_names, member_capacity,
-                        &member_count, &array_element_index,
-                        &parameter_name)) {
+                bool collected_path = false;
+                if (array_index_capacity > 0) {
+                    array_indices = ast_arena_alloc(
+                        sizeof(*array_indices) *
+                        (size_t)array_index_capacity);
+                    collected_path = array_indices &&
+                        template_clone_collect_structural_member_array_path(
+                            expression, member_names, member_capacity,
+                            &member_count, array_indices,
+                            array_index_capacity, &array_index_count,
+                            &parameter_name);
+                } else {
+                    collected_path =
+                        template_clone_collect_structural_member_path(
+                            expression, member_names, member_capacity,
+                            &member_count, &array_element_index,
+                            &parameter_name);
+                }
+                if (collected_path) {
                     index = template_clone_value_parameter_index(
                         tmpl, parameter_name, arg_count, &parameter);
                 }
@@ -11374,7 +11513,12 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
                 cxx_structural_class_value_supported_subset(
                     parameter->type) &&
                 value_present[index] &&
-                (array_element_index >= 0
+                (array_index_count > 0
+                     ? cxx_structural_class_unpack_multidimensional_array_path(
+                           parameter->type, value_args[index], member_names,
+                           member_count, array_indices, array_index_count,
+                           &value, &value_type)
+                     : array_element_index >= 0
                      ? cxx_structural_class_unpack_array_member_path(
                            parameter->type, value_args[index], member_names,
                            member_count, array_element_index, &value,

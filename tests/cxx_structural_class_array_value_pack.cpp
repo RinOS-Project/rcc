@@ -39,6 +39,25 @@ struct StructuralMatrixKey {
     int values[2][2];
 };
 
+struct StructuralClassMatrixElement {
+    int value;
+    short weight;
+};
+
+struct StructuralClassMatrixKey {
+    StructuralClassMatrixElement values[2][2];
+    int tail;
+};
+
+struct StructuralCompactClassMatrixElement {
+    unsigned char value;
+    unsigned char weight;
+};
+
+struct StructuralCompactClassMatrixKey {
+    StructuralCompactClassMatrixElement values[2][2];
+};
+
 int structural_pointer_array_first(int value) {
     return value + 10;
 }
@@ -176,6 +195,27 @@ struct StructuralMatrixValuePack {
     static constexpr int combined() {
         return ((Keys.values[0][0] + Keys.values[0][1] +
                  Keys.values[1][0] + Keys.values[1][1]) + ... + 0);
+    }
+};
+
+template <StructuralClassMatrixKey... Keys>
+struct StructuralClassMatrixValuePack {
+    static constexpr int combined() {
+        return ((Keys.values[0][0].value + Keys.values[0][0].weight +
+                 Keys.values[0][1].value + Keys.values[0][1].weight +
+                 Keys.values[1][0].value + Keys.values[1][0].weight +
+                 Keys.values[1][1].value + Keys.values[1][1].weight +
+                 Keys.tail) + ... + 0);
+    }
+};
+
+template <StructuralCompactClassMatrixKey... Keys>
+struct StructuralCompactClassMatrixValuePack {
+    static constexpr int combined() {
+        return ((Keys.values[0][0].value + Keys.values[0][0].weight +
+                 Keys.values[0][1].value + Keys.values[0][1].weight +
+                 Keys.values[1][0].value + Keys.values[1][0].weight +
+                 Keys.values[1][1].value + Keys.values[1][1].weight) + ... + 0);
     }
 };
 
@@ -333,6 +373,18 @@ int main() {
                StructuralMatrixKey{{{1, 2}, {3, 4}}},
                StructuralMatrixKey{{{5, 6}, {7, 8}}}
            >::combined() == 36 &&
+           StructuralClassMatrixValuePack<
+               StructuralClassMatrixKey{{{{1, 10}, {2, 20}},
+                                         {{3, 30}, {4, 40}}}, 50},
+               StructuralClassMatrixKey{{{{5, 60}, {6, 70}},
+                                         {{7, 80}, {8, 90}}}, 100}
+           >::combined() == 586 &&
+           StructuralCompactClassMatrixValuePack<
+               StructuralCompactClassMatrixKey{{{{1, 10}, {2, 20}},
+                                                {{3, 30}, {4, 40}}}},
+               StructuralCompactClassMatrixKey{{{{5, 50}, {6, 60}},
+                                                {{7, 70}, {8, 80}}}}
+           >::combined() == 396 &&
            StructuralFunctionPointerArrayValuePack<
                StructuralFunctionPointerArrayKey{{
                    &structural_pointer_array_first,

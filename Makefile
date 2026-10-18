@@ -3808,6 +3808,8 @@ STRUCTURAL_FLOAT_ARRAY_PACK_SYMBOL = _ZN29StructuralFloatArrayValuePackIJXtl23St
 STRUCTURAL_DOUBLE_ARRAY_PACK_SYMBOL = _ZN30StructuralDoubleArrayValuePackIJXtl24StructuralDoubleArrayKeytlA2_dLd4009000000000000ELdc012000000000000EEEEXtlS0_tlS1_Ldc019000000000000ELd4021800000000000EEEEEE8combinedEv
 STRUCTURAL_NESTED_ARRAY_PACK_SYMBOL = _ZN30StructuralNestedArrayValuePackIJXtl24StructuralNestedArrayKeytlA2_19StructuralArrayLeaftlS1_Li5ELi50EEtlS1_Li7ELi70EEEEEXtlS0_tlS2_tlS1_Li11ELi110EEtlS1_Li13ELi130EEEEEEE8combinedEv
 STRUCTURAL_MATRIX_PACK_SYMBOL = _ZN25StructuralMatrixValuePackIJXtl19StructuralMatrixKeytlA2_A2_itlS1_Li1ELi2EEtlS1_Li3ELi4EEEEEXtlS0_tlS2_tlS1_Li5ELi6EEtlS1_Li7ELi8EEEEEEE8combinedEv
+STRUCTURAL_CLASS_MATRIX_PACK_SYMBOL = _ZN30StructuralClassMatrixValuePackIJXtl24StructuralClassMatrixKeytlA2_A2_28StructuralClassMatrixElementtlS2_tlS1_Li1ELs10EEtlS1_Li2ELs20EEEtlS2_tlS1_Li3ELs30EEtlS1_Li4ELs40EEEELi50EEEXtlS0_tlS3_tlS2_tlS1_Li5ELs60EEtlS1_Li6ELs70EEEtlS2_tlS1_Li7ELs80EEtlS1_Li8ELs90EEEELi100EEEEE8combinedEv
+STRUCTURAL_COMPACT_CLASS_MATRIX_PACK_SYMBOL = _ZN37StructuralCompactClassMatrixValuePackIJXtl31StructuralCompactClassMatrixKeytlA2_A2_35StructuralCompactClassMatrixElementtlS2_tlS1_Lh1ELh10EEtlS1_Lh2ELh20EEEtlS2_tlS1_Lh3ELh30EEtlS1_Lh4ELh40EEEEEEXtlS0_tlS3_tlS2_tlS1_Lh5ELh50EEtlS1_Lh6ELh60EEEtlS2_tlS1_Lh7ELh70EEtlS1_Lh8ELh80EEEEEEEE8combinedEv
 STRUCTURAL_FUNCTION_POINTER_ARRAY_PACK_SYMBOL = _ZN39StructuralFunctionPointerArrayValuePackIJXtl33StructuralFunctionPointerArrayKeytlA2_PFiiEadL_Z30structural_pointer_array_firstiEadL_Z31structural_pointer_array_secondiEEEEXtlS0_tlS3_adL_Z31structural_pointer_array_secondiEadL_Z30structural_pointer_array_firstiEEEEEE8combinedEv
 STRUCTURAL_FUNCTION_POINTER_NULL_ARRAY_PACK_SYMBOL = _ZN39StructuralFunctionPointerArrayValuePackIJXtl33StructuralFunctionPointerArrayKeyEEEE10null_countEv
 STRUCTURAL_FUNCTION_POINTER_MIXED_NULL_ARRAY_PACK_SYMBOL = _ZN39StructuralFunctionPointerArrayValuePackIJXtl33StructuralFunctionPointerArrayKeytlA2_PFiiEadL_Z30structural_pointer_array_firstiEEEEEE10null_countEv
@@ -3838,6 +3840,8 @@ test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call CHECK_TEXT,$(STRUCTURAL_DOUBLE_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_NESTED_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_CLASS_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_COMPACT_CLASS_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_POINTER_MIXED_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/gcc.s)
@@ -3863,6 +3867,8 @@ test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call CHECK_TEXT,$(STRUCTURAL_DOUBLE_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_NESTED_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_CLASS_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_COMPACT_CLASS_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_POINTER_MIXED_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x86.s)
@@ -3888,6 +3894,8 @@ test-cxx-structural-array-nttp: $(RCXX_TARGET)
 	$(call CHECK_TEXT,$(STRUCTURAL_DOUBLE_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_NESTED_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_CLASS_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
+	$(call CHECK_TEXT,$(STRUCTURAL_COMPACT_CLASS_MATRIX_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_POINTER_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_POINTER_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
 	$(call CHECK_TEXT,$(STRUCTURAL_FUNCTION_POINTER_MIXED_NULL_ARRAY_PACK_SYMBOL),$(TEST_OUT)/cxx-structural-array-nttp/x64.s)
