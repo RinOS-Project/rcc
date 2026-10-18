@@ -6200,6 +6200,19 @@ static void gen64_cxx_initialize_object_mode(
             initialize_virtual_bases);
         return;
     }
+    if (constructor->lowerable_parameter_use_mask_valid) {
+        unsigned index = 0u;
+        for (argument = arguments; argument; argument = argument->next) {
+            if (index < 32u &&
+                (constructor->lowerable_parameter_use_mask &
+                 (UINT32_C(1) << index)) == 0u) {
+                emit64_push_reg(mod, address_reg);
+                gen64_expr(mod, argument->expr);
+                emit64_pop_reg(mod, address_reg);
+            }
+            ++index;
+        }
+    }
     if (!initialize_virtual_bases && object_type && object_type->cxx_class &&
         object_type->cxx_class->virtual_base_count > 0 &&
         object_type->cxx_class->nonvirtual_size > 0) {

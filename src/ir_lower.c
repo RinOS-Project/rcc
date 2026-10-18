@@ -6362,7 +6362,6 @@ static bool lower_cxx_empty_noop_constructor_supported(
         }
         ++member_count;
     }
-    if (member_count != parameter_count) return false;
     for (base_index = 0; base_index < cls->base_count; ++base_index) {
         const CxxClass* base = cls->bases[base_index].base;
         if (!base || !lower_cxx_empty_trivial_subobject(

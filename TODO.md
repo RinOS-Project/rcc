@@ -437,11 +437,16 @@
         `test-verified-cxx-virtual-base-value` はfallbackなしで両objectを実行する。
   - [x] 上記constructor loweringを任意個数のscalar member/parameterへ拡張。
         constructor引数を一度ずつ評価し、member initializerから重複のない対応
-        parameterへmapする。virtual-base prvalue cleanup regressionを4 member/4
-        parameterへ拡張。副作用helperで4 argumentすべての一回評価を確認し、
+        parameterへmapする。virtual-base prvalue cleanup regressionを4 member/5
+        argumentへ拡張し、1個の未使用scalar parameterを含む5 argumentすべての
+        一回評価を副作用helperで確認する。
         宣言順と異なるparameter/field対応を重み付きdestructorで識別する。
         destructorが全fieldを読み、ローカルcounterへ反映することをi686/AMD64の
         verified object実行でfallbackなしに確認。
+  - [x] bounded empty-body/noexcept constructorでmember initializerに使われない
+        scalar parameterも保持し、通常x86 codegen双方で対応するcall argumentを
+        一度だけ評価する。focused targetのverified i686/AMD64 object実行と通常
+        AMD64 host実行が成功。
   - [ ] verified backendでempty-body/noexcept constructorとscalar memberを超える
         constructor/body、nontrivial base initialization、nontrivial/deleted target
         copy constructor、call引数以外のfull-expression cleanup、例外経路を実装・検証。

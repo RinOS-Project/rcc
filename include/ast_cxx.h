@@ -78,11 +78,13 @@ struct CxxConstructorInitializer {
 struct CxxConstructorInfo {
     CxxMethod* method;
     int parameter_count;
+    uint32_t lowerable_parameter_use_mask;
     TypeParam* parameters;
     CxxConstructorInitializer* initializers;
     int initializer_count;
     bool initializers_are_supported;
     bool body_is_empty;
+    bool lowerable_parameter_use_mask_valid;
     bool is_deleted;
     bool is_defaulted;
     bool is_inherited;

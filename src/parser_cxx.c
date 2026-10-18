@@ -8235,6 +8235,8 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
         bool parameter_used[32] = {false};
         TypeParam* field = cls->fields;
         CxxConstructorInitializer* initializer = constructor->initializers;
+        constructor->lowerable_parameter_use_mask = 0u;
+        constructor->lowerable_parameter_use_mask_valid = false;
         if (constructor->access != ACCESS_PUBLIC ||
             constructor->is_deleted || constructor->is_defaulted) {
             continue;
@@ -8287,6 +8289,13 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
                 }
                 if (!all_parameters_used) continue;
             }
+            for (unsigned index = 0u; index < arity; ++index) {
+                if (parameter_used[index]) {
+                    constructor->lowerable_parameter_use_mask |=
+                        UINT32_C(1) << index;
+                }
+            }
+            constructor->lowerable_parameter_use_mask_valid = true;
             for (unsigned invocation_arity = minimum_arity;
                  invocation_arity <= arity; ++invocation_arity) {
                 mask |= UINT32_C(1) << invocation_arity;
@@ -8453,16 +8462,13 @@ static uint32_t lowerable_constructor_arity_mask(CxxClass* cls) {
         if (!supported || field || initializer) {
             continue;
         }
-        if (arity != 0u) {
-            bool all_parameters_used = true;
-            for (unsigned index = 0; index < arity; ++index) {
-                if (!parameter_used[index]) {
-                    all_parameters_used = false;
-                    break;
-                }
+        for (unsigned index = 0u; index < arity; ++index) {
+            if (parameter_used[index]) {
+                constructor->lowerable_parameter_use_mask |=
+                    UINT32_C(1) << index;
             }
-            if (!all_parameters_used) continue;
         }
+        constructor->lowerable_parameter_use_mask_valid = true;
         for (unsigned invocation_arity = minimum_arity;
              invocation_arity <= arity; ++invocation_arity) {
             mask |= UINT32_C(1) << invocation_arity;
