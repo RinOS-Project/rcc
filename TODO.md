@@ -1413,10 +1413,15 @@
         after the containing call in reverse construction order, and verify
         nested parent/member cleanup, single and paired temporaries, exactly-once
         cleanup/comma side effects, fallback-free i686/AMD64 objects, and x64
-        execution in `test-verified-cxx-temporary-cleanup`. Potentially throwing
-        calls and other unsupported automatic-object cleanup-plan shapes remain
-        subject to the restrictions described below; fixed-size array loops in
-        call-temporary cleanup plans are covered separately.
+        execution in `test-verified-cxx-temporary-cleanup`. Fixed-size array
+        loops in call-temporary cleanup plans are covered separately.
+  - [x] Register flat `noexcept` cleanup callbacks for a fully constructed
+        class-prvalue reference argument before a potentially throwing call;
+        on normal return, unregister before inline cleanup, and on throw let the
+        active exception frame run the cleanup before the handler. Verify the
+        regular x64 throw/normal paths (results `472`/`22`) and zero typed-SSA
+        fallback for i686/AMD64 at `-O0`/`-O2`, including runtime registration
+        imports, in `test-verified-cxx-throwing-temporary`.
   - [x] Lower same-type noexcept class-prvalue conditional arguments bound to
         reference parameters. Pass the final lifetime-owner storage directly
         to the selected branch's sret call or capture a one-/two-register
@@ -1455,9 +1460,11 @@
         fallback on i686/AMD64 at `-O0` and `-O2` in
         `test-verified-cxx-automatic-array-cleanup`, included by
         `test-verified-backend` and the production CI gate.
-  - [ ] Throwing expressions/initializers, constructor-driven partial
-        construction and unwind, VLA stack restoration, and other unvalidated
-        automatic cleanup-plan shapes remain outside this verified subset.
+  - [ ] Throwing argument/initializer evaluation before a cleanup owner is
+        fully constructed, constructor-driven partial construction and unwind,
+        potentially throwing cleanup callbacks, VLA stack restoration, and
+        other unvalidated automatic cleanup-plan shapes remain outside this
+        verified subset.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering

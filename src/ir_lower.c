@@ -6769,10 +6769,10 @@ static bool lower_noexcept_expression_list(const ExprList* arguments) {
 }
 
 /* This predicate is deliberately limited to expressions whose exception
- * behavior can be read directly from the semantically resolved AST.  The
- * verified backend may run a reference-argument temporary cleanup inline
- * after the call only when neither argument evaluation nor the call can
- * transfer control through the exception runtime. */
+ * behavior can be read directly from the semantically resolved AST.  A
+ * reference-argument temporary cleanup may run inline after a noexcept call;
+ * before a potentially throwing call, only a flat plan of noexcept
+ * destructors can be registered against the active runtime frame. */
 static bool lower_noexcept_expression(const Expr* expression) {
     if (!expression) return true;
     switch (expression->kind) {
@@ -7231,7 +7231,6 @@ static bool lower_call_temporary_cleanups_supported(
     const ExprList* argument;
     bool has_temporary = false;
     bool current_frame_cleanup = expression &&
-        expression->call_is_explicit_destructor &&
         !expression->cxx_call_is_noexcept;
     if (!expression ||
         (!expression->cxx_call_is_noexcept && !current_frame_cleanup) ||
@@ -7991,7 +7990,6 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         expression->call_member_pointer_application != NULL;
     bool use_aggregate_result_destination = false;
     bool register_temporary_cleanups = expression &&
-        expression->call_is_explicit_destructor &&
         !expression->cxx_call_is_noexcept;
     RccIrInstruction* call;
     if (expression && expression->call_method &&
