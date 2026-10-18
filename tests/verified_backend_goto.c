@@ -75,10 +75,32 @@ long long verified_goto_wide_nested_loop(unsigned int count,
     return value;
 }
 
+long long verified_goto_wide_nested_exit(unsigned int count,
+                                         long long initial)
+{
+    long long value = initial;
+    while (count != 0u) {
+        unsigned int inner = 3u;
+        while (inner != 0u) {
+            if ((count & 1u) != 0u && inner == 2u) goto outer_join;
+            value += 0x0000000100000001LL;
+            --inner;
+        }
+
+    outer_join:
+        value += (long long)(count * 3u);
+        --count;
+    }
+    return value;
+}
+
 int main(void)
 {
     if (verified_goto_wide_forward(1, 100) != 105) return 1;
     if (verified_goto_wide_forward(0, 100) != 109) return 2;
     if (verified_goto_wide_backward(5) != 15) return 3;
+    if (verified_goto_wide_nested_exit(3u, 11) != 21474836514LL) return 4;
+    if (verified_goto_wide_nested_exit(2u, 7) != 17179869204LL) return 5;
+    if (verified_goto_wide_nested_exit(0u, 7) != 7) return 6;
     return 0;
 }
