@@ -6752,6 +6752,10 @@ static bool lower_cxx_empty_noop_constructor_supported(
 static bool lower_noexcept_expression(const Expr* expression);
 static bool lower_temporary_cleanup_plan_supported(
     const ExprList* argument);
+static RccIrLowerValue lower_cxx_runtime_call(
+    RccIrLowerContext* context, const char* callee,
+    RccIrType result_type, const RccIrValue* operands,
+    size_t operand_count);
 
 static bool lower_noexcept_expression_list(const ExprList* arguments) {
     for (; arguments; arguments = arguments->next) {
@@ -7226,7 +7230,11 @@ static bool lower_call_temporary_cleanups_supported(
     const Expr* expression) {
     const ExprList* argument;
     bool has_temporary = false;
-    if (!expression || !expression->cxx_call_is_noexcept ||
+    bool current_frame_cleanup = expression &&
+        expression->call_is_explicit_destructor &&
+        !expression->cxx_call_is_noexcept;
+    if (!expression ||
+        (!expression->cxx_call_is_noexcept && !current_frame_cleanup) ||
         !lower_noexcept_expression(expression->call_func)) {
         return false;
     }
@@ -7237,6 +7245,13 @@ static bool lower_call_temporary_cleanups_supported(
         has_temporary = true;
         if (!lower_temporary_cleanup_plan_supported(argument)) {
             return false;
+        }
+        if (current_frame_cleanup) {
+            const CxxCleanupPlan* action;
+            for (action = argument->cxx_temporary_cleanups; action;
+                 action = action->next) {
+                if (action->kind != CXX_CLEANUP_EXPRESSION) return false;
+            }
         }
     }
     return has_temporary;
@@ -7268,11 +7283,70 @@ static bool lower_bind_temporary_owner(RccIrLowerContext* context,
     return lower_store_address(context, slot, object_address);
 }
 
+static bool lower_change_current_exception_cleanup(
+    RccIrLowerContext* context, const CxxCleanupPlan* action,
+    bool register_cleanup) {
+    const Expr* cleanup = action ? action->expression : NULL;
+    const Expr* callback_expression = cleanup && cleanup->kind == EXPR_CALL
+        ? cleanup->call_func : NULL;
+    const ExprList* cleanup_argument = cleanup
+        ? cleanup->call_args : NULL;
+    RccIrLowerValue callback;
+    RccIrLowerValue object;
+    RccIrValue operands[2];
+    if (!context || !cleanup_argument || cleanup_argument->next ||
+        !callback_expression) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    callback = lower_expression(context, callback_expression);
+    object = lower_expression(context, cleanup_argument->expr);
+    if (!callback.valid || callback.type.kind != RCC_IR_TYPE_POINTER ||
+        !object.valid || object.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return false;
+    }
+    operands[0] = callback.value;
+    operands[1] = object.value;
+    (void)lower_cxx_runtime_call(
+        context,
+        register_cleanup
+            ? "rin_cpp_exception_register_current_cleanup"
+            : "rin_cpp_exception_unregister_current_cleanup",
+        rcc_ir_type_void(), operands, 2u);
+    return !context->unsupported;
+}
+
+static bool lower_register_call_temporary_cleanups(
+    RccIrLowerContext* context, const ExprList* const* arguments,
+    size_t count) {
+    for (size_t index = 0u; index < count; ++index) {
+        const ExprList* argument = arguments[index];
+        const CxxCleanupPlan* action;
+        if (!argument || !argument->cxx_temporary_cleanups) {
+            context->unsupported = true;
+            return false;
+        }
+        for (action = argument->cxx_temporary_cleanups; action;
+             action = action->next) {
+            if (action->kind != CXX_CLEANUP_EXPRESSION ||
+                !lower_change_current_exception_cleanup(
+                    context, action, true)) {
+                context->unsupported = true;
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static bool lower_emit_temporary_cleanup_plan_list(
-    RccIrLowerContext* context, const CxxCleanupPlan* plan);
+    RccIrLowerContext* context, const CxxCleanupPlan* plan,
+    bool unregister_current_frame);
 
 static bool lower_emit_temporary_cleanup_array_loop(
-    RccIrLowerContext* context, const CxxCleanupPlan* plan) {
+    RccIrLowerContext* context, const CxxCleanupPlan* plan,
+    bool unregister_current_frame) {
     RccIrInstruction* allocation;
     RccIrLowerLocal* index_local;
     RccIrLowerValue index_address;
@@ -7358,7 +7432,8 @@ static bool lower_emit_temporary_cleanup_array_loop(
         next_index = lower_value(subtract->result, index_type, true);
     }
     if (!lower_store_address(context, index_address, next_index) ||
-        !lower_emit_temporary_cleanup_plan_list(context, plan->body) ||
+        !lower_emit_temporary_cleanup_plan_list(
+            context, plan->body, unregister_current_frame) ||
         context->terminated ||
         !lower_branch(context, condition_block->id)) {
         return false;
@@ -7369,12 +7444,19 @@ static bool lower_emit_temporary_cleanup_array_loop(
 }
 
 static bool lower_emit_temporary_cleanup_action(
-    RccIrLowerContext* context, const CxxCleanupPlan* action) {
+    RccIrLowerContext* context, const CxxCleanupPlan* action,
+    bool unregister_current_frame) {
     if (!context || !action) return false;
     if (action->kind == CXX_CLEANUP_ARRAY_LOOP) {
-        return lower_emit_temporary_cleanup_array_loop(context, action);
+        return lower_emit_temporary_cleanup_array_loop(
+            context, action, unregister_current_frame);
     }
     if (action->kind == CXX_CLEANUP_EXPRESSION) {
+        if (unregister_current_frame &&
+            !lower_change_current_exception_cleanup(
+                context, action, false)) {
+            return false;
+        }
         RccIrLowerValue cleanup = lower_expression(context, action->expression);
         if (!cleanup.valid || cleanup.type.kind != RCC_IR_TYPE_VOID) {
             context->unsupported = true;
@@ -7387,7 +7469,8 @@ static bool lower_emit_temporary_cleanup_action(
 }
 
 static bool lower_emit_temporary_cleanup_plan_list(
-    RccIrLowerContext* context, const CxxCleanupPlan* plan) {
+    RccIrLowerContext* context, const CxxCleanupPlan* plan,
+    bool unregister_current_frame) {
     const CxxCleanupPlan** actions;
     size_t count = 0u;
     size_t index = 0u;
@@ -7405,7 +7488,8 @@ static bool lower_emit_temporary_cleanup_plan_list(
     }
     while (index > 0u) {
         const CxxCleanupPlan* item = actions[--index];
-        if (!lower_emit_temporary_cleanup_action(context, item)) {
+        if (!lower_emit_temporary_cleanup_action(
+                context, item, unregister_current_frame)) {
             rcc_free(actions);
             return false;
         }
@@ -7471,7 +7555,7 @@ static bool lower_emit_scope_cleanups_until(
     for (cleanup = context->scope_cleanups;
          cleanup && cleanup != marker; cleanup = cleanup->previous_scope) {
         if (!lower_emit_temporary_cleanup_plan_list(
-                context, cleanup->plan)) {
+                context, cleanup->plan, false)) {
             return false;
         }
     }
@@ -7520,21 +7604,24 @@ static bool lower_statement_subscope(
 }
 
 static bool lower_emit_temporary_cleanup_plan(
-    RccIrLowerContext* context, const ExprList* argument) {
+    RccIrLowerContext* context, const ExprList* argument,
+    bool unregister_current_frame) {
     return argument && lower_emit_temporary_cleanup_plan_list(
-                           context, argument->cxx_temporary_cleanups);
+                           context, argument->cxx_temporary_cleanups,
+                           unregister_current_frame);
 }
 
 static bool lower_emit_call_temporary_cleanups(
     RccIrLowerContext* context, const ExprList* const* arguments,
-    size_t count) {
+    size_t count, bool unregister_current_frame) {
     while (count > 0u) {
         const ExprList* argument = arguments[--count];
         if (!lower_temporary_cleanup_plan_supported(argument)) {
             context->unsupported = true;
             return false;
         }
-        if (!lower_emit_temporary_cleanup_plan(context, argument)) return false;
+        if (!lower_emit_temporary_cleanup_plan(
+                context, argument, unregister_current_frame)) return false;
     }
     return true;
 }
@@ -7903,6 +7990,9 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     bool member_pointer_call = expression &&
         expression->call_member_pointer_application != NULL;
     bool use_aggregate_result_destination = false;
+    bool register_temporary_cleanups = expression &&
+        expression->call_is_explicit_destructor &&
+        !expression->cxx_call_is_noexcept;
     RccIrInstruction* call;
     if (expression && expression->call_method &&
         expression->call_method->kind != TYPE_METHOD_FUNCTION) {
@@ -8469,6 +8559,14 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         context->unsupported = true;
         return lower_invalid_value();
     }
+    if (register_temporary_cleanups &&
+        !lower_register_call_temporary_cleanups(
+            context, temporary_cleanups, cleanup_count)) {
+        rcc_free(operands);
+        rcc_free(sysv_memory_arguments);
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
     call_type = return_type;
     if (return_kind == LOWER_ABI_RETURN_REGISTER_PAIR) {
         call_type = rcc_ir_type_void();
@@ -8502,7 +8600,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             return lower_invalid_value();
         }
         if (!lower_emit_call_temporary_cleanups(
-                context, temporary_cleanups, cleanup_count)) {
+                context, temporary_cleanups, cleanup_count,
+                register_temporary_cleanups)) {
             return lower_invalid_value();
         }
         return aggregate_address;
@@ -8516,14 +8615,16 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         rcc_ir_set_immediate(capture,
                              (uint64_t)expression->type->size);
         if (!lower_emit_call_temporary_cleanups(
-                context, temporary_cleanups, cleanup_count)) {
+                context, temporary_cleanups, cleanup_count,
+                register_temporary_cleanups)) {
             return lower_invalid_value();
         }
         return aggregate_address;
     }
     if (return_kind == LOWER_ABI_RETURN_SRET) {
         if (!lower_emit_call_temporary_cleanups(
-                context, temporary_cleanups, cleanup_count)) {
+                context, temporary_cleanups, cleanup_count,
+                register_temporary_cleanups)) {
             return lower_invalid_value();
         }
         return aggregate_address;
@@ -8533,7 +8634,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         value.type = return_type;
         value.valid = true;
         if (!lower_emit_call_temporary_cleanups(
-                context, temporary_cleanups, cleanup_count)) {
+                context, temporary_cleanups, cleanup_count,
+                register_temporary_cleanups)) {
             return lower_invalid_value();
         }
         return value;
@@ -8542,7 +8644,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         RccIrLowerValue value = lower_value(
             call->result, return_type, expression->type->is_unsigned);
         if (!lower_emit_call_temporary_cleanups(
-                context, temporary_cleanups, cleanup_count)) {
+                context, temporary_cleanups, cleanup_count,
+                register_temporary_cleanups)) {
             return lower_invalid_value();
         }
         return value;

@@ -1005,10 +1005,16 @@
         and run reverse-order cleanup exactly once. Verify catch value `47`,
         receiver mutation, order `9321`, i686/AMD64 emission, and x64 runtime
         in `test-cxx-exception-cleanup`.
+  - [x] Lower that throwing-root cleanup in typed SSA by registering the
+        `noexcept` base/member callbacks with the dynamic current exception
+        frame before the root call, then unregistering before normal reverse-
+        order destruction. Verify both runtime symbols are present, with zero
+        fallback for i686/AMD64 in
+        `test-verified-cxx-explicit-throwing-destructor`.
   - [ ] Extend throwing cleanup to subobject destructors that may themselves
         throw, with correct partial-progress/unwind semantics and typed-SSA
-        runtime callback registration; verify zero fallback before marking it
-        complete.
+        callback coverage for those throwing descendants; verify zero fallback
+        before marking it complete.
   - [x] Resolve data-member access exposed through a virtual base using the
         active subobject's vbtable and member-in-base offset; verify inherited
         access from both arms of a shared virtual diamond during destruction,

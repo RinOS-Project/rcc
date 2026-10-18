@@ -474,6 +474,7 @@ endif
 .PHONY: test-cxx-conversion-reference-ranking-ambiguous
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
 .PHONY: test-verified-switch-nested
+.PHONY: test-verified-cxx-explicit-throwing-destructor
 .PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-cxx-variable-templates
 .PHONY: test-cxx-template-local-classes
@@ -17315,6 +17316,27 @@ test-verified-cxx-destructor: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-destructor)
 	$(call CXX_WINDOWS_ENTRY_TEST,verified-cxx-destructor,verified_backend_cxx_destructor.cpp)
 
+test-verified-cxx-explicit-throwing-destructor: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x86.ro \
+		tests/verified_backend_cxx_explicit_throwing_destructor.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x86.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x86.log,0)
+	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x86.ro
+	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x86.ro
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x64.ro \
+		tests/verified_backend_cxx_explicit_throwing_destructor.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x64.log
+	$(GREP) -F -q 'Verified backend: 5 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x64.log,0)
+	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x64.ro
+	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x64.ro
+
 test-verified-cxx-reference-return: $(RCXX_TARGET) test-verified-cxx-reference-local
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
@@ -17707,7 +17729,7 @@ test-rinvalidate-dynamic-tls: $(RCC_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		--rinvalidate "$(abspath $(RINVALIDATE))" \
 		--output-dir "$(abspath $(TEST_OUT)/rinvalidate-dynamic-tls/runtime)"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-explicit-throwing-destructor test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \
