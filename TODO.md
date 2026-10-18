@@ -987,13 +987,20 @@
         cleanup-hook wrapper members. The enclosing destructor body runs first,
         then the validated member cleanup runs exactly once; verify automatic
         scope cleanup in the legacy backend and explicit destruction in typed
-        SSA, with order `94`, i686/AMD64 emission, 13 verified functions, and
-        zero fallback in `test-cxx-destructor-body` and
+        SSA, with order `94`, i686/AMD64 emission, and zero fallback in
+        `test-cxx-destructor-body` and
         `test-verified-cxx-destructor`. The full `test-cxx` and
         `test-verified-backend` gates pass.
-  - [ ] Extend explicit-destructor subobject cleanup to virtual bases and
-        potentially-throwing destructor trees, with lowering and execution
-        coverage for both.
+  - [x] Extend explicit-destructor subobject cleanup through complete-object
+        virtual bases for validated `noexcept` trees. Save the evaluated
+        receiver before the destructor body, then destroy direct bases and
+        shared virtual bases exactly once in reverse order. Verify order `9321`
+        and receiver mutation safety in legacy x64 execution, i686/AMD64 code
+        generation, and typed-SSA zero-fallback emission in
+        `test-cxx-destructor-body` and `test-verified-cxx-destructor`.
+  - [ ] Extend explicit-destructor subobject cleanup to potentially-throwing
+        destructor trees, preserving exception-unwind order and avoiding
+        duplicate destruction after partial completion.
   - [x] Resolve data-member access exposed through a virtual base using the
         active subobject's vbtable and member-in-base offset; verify inherited
         access from both arms of a shared virtual diamond during destruction,

@@ -8951,7 +8951,8 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                     emit64_mov_mem_reg(mod, RSP, layout->temp_offset, RAX);
                     if (args[i]->cxx_temporary_owner && passed_type &&
                         passed_type->kind == TYPE_PTR &&
-                        passed_type->base == argument->type) {
+                        (passed_type->base == argument->type ||
+                         (expr->call_is_explicit_destructor && i == 0))) {
                         emit64_mov_mem_reg(
                             mod, RBP,
                             args[i]->cxx_temporary_owner->var_offset, RAX);

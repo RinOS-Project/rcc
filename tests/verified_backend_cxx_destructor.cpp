@@ -60,6 +60,23 @@ struct VerifiedCleanupDerived {
     }
 };
 
+struct VerifiedVirtualDestructorBase {
+    int* order;
+
+    ~VerifiedVirtualDestructorBase() noexcept {
+        *order = *order * 10 + 1;
+    }
+};
+
+struct VerifiedVirtualDestructorDerived
+    : virtual VerifiedVirtualDestructorBase {
+    int* order;
+
+    ~VerifiedVirtualDestructorDerived() noexcept {
+        *order = *order * 10 + 9;
+    }
+};
+
 extern "C" void verified_cxx_explicit_destructor(
     VerifiedDestructorDerived* object) {
     object->~VerifiedDestructorDerived();
@@ -81,6 +98,11 @@ extern "C" void verified_cxx_explicit_array_destructor(
 extern "C" void verified_cxx_explicit_cleanup_destructor(
     VerifiedCleanupDerived* object) {
     object->~VerifiedCleanupDerived();
+}
+
+extern "C" void verified_cxx_explicit_virtual_destructor(
+    VerifiedVirtualDestructorDerived* object) {
+    object->~VerifiedVirtualDestructorDerived();
 }
 
 int main() {

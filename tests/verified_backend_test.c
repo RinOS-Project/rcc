@@ -3627,6 +3627,7 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
     ObjSymbol* explicit_symbol;
     ObjSymbol* explicit_array_symbol;
     ObjSymbol* explicit_cleanup_symbol;
+    ObjSymbol* explicit_virtual_symbol;
     ObjSymbol* scope_symbol;
     size_t mapping_size;
     void* memory;
@@ -3649,6 +3650,8 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
         object, "verified_cxx_explicit_array_destructor");
     explicit_cleanup_symbol = objfile_find_symbol(
         object, "verified_cxx_explicit_cleanup_destructor");
+    explicit_virtual_symbol = objfile_find_symbol(
+        object, "verified_cxx_explicit_virtual_destructor");
     scope_symbol = objfile_find_symbol(
         object, "verified_cxx_scope_destructor");
     assert(text != NULL && entry_symbol != NULL &&
@@ -3666,7 +3669,11 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
            scope_symbol->section == 0 && explicit_cleanup_symbol != NULL &&
            explicit_cleanup_symbol->type == SYM_GLOBAL &&
            explicit_cleanup_symbol->binding == BIND_CODE &&
-           explicit_cleanup_symbol->section == 0);
+           explicit_cleanup_symbol->section == 0 &&
+           explicit_virtual_symbol != NULL &&
+           explicit_virtual_symbol->type == SYM_GLOBAL &&
+           explicit_virtual_symbol->binding == BIND_CODE &&
+           explicit_virtual_symbol->section == 0);
     if (!execute) {
         objfile_free(object);
         return;

@@ -12563,7 +12563,8 @@ static void gen_call(Module* mod, Expr* expr) {
         }
         if (args[i]->cxx_temporary_owner && passed_type &&
             passed_type->kind == TYPE_PTR &&
-            passed_type->base == argument->type) {
+            (passed_type->base == argument->type ||
+             (expr->call_is_explicit_destructor && i == 0))) {
             emit_mov_mem_reg(
                 mod, EBP,
                 args[i]->cxx_temporary_owner->var_offset, EAX);

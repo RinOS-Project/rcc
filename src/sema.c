@@ -9816,6 +9816,8 @@ static bool sema_cxx_trivially_copyable(Type* type, int depth) {
 }
 
 static Decl* sema_cxx_destructor_function(Type* object_type);
+static bool sema_cxx_type_has_destructor_cleanup(Type* object_type,
+                                                 int depth);
 
 static bool sema_cxx_default_member_constant(Type* field_type,
                                              Expr* initializer) {
@@ -10061,6 +10063,102 @@ static bool sema_cxx_destructor_subobjects_supported(
         if (type->cxx_class &&
             !sema_cxx_destructor_subobjects_supported(
                 type->cxx_class, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool sema_cxx_destructor_tree_has_virtual_base(
+    const Type* type, unsigned depth) {
+    const CxxClass* cls;
+    if (!type || depth >= 64u) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->base &&
+            sema_cxx_destructor_tree_has_virtual_base(
+                type->base, depth + 1u);
+    }
+    cls = type->cxx_class;
+    if (!cls) return false;
+    if (cls->virtual_base_count > 0) return true;
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        if (base && base->type &&
+            sema_cxx_destructor_tree_has_virtual_base(
+                base->type, depth + 1u)) {
+            return true;
+        }
+    }
+    for (const TypeParam* field = cls->fields; field; field = field->next) {
+        if (!field->is_static && field->type &&
+            sema_cxx_destructor_tree_has_virtual_base(
+                field->type, depth + 1u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Explicit destructor calls need a separate complete-object cleanup plan
+ * when the ordinary destructor body cannot inline its subobject walk.  A
+ * virtual base is included only for a complete object; base-subobject
+ * destructor calls must leave shared virtual bases to the most-derived
+ * destructor. */
+static bool sema_cxx_explicit_destructor_tree_supported(
+    const Type* type, unsigned depth, bool complete_object) {
+    const CxxClass* cls;
+    if (!type || depth >= 64u) return false;
+    if (type->kind == TYPE_ARRAY) {
+        if (!type->base || type->array_len < 0) return false;
+        if (!sema_cxx_type_has_destructor_cleanup((Type*)type, 0)) {
+            return true;
+        }
+        return sema_cxx_explicit_destructor_tree_supported(
+            type->base, depth + 1u, true);
+    }
+    cls = type->cxx_class;
+    if (!cls) return true;
+    if (!sema_cxx_destructor_cleanup_hook_supported(type)) return false;
+    if (cls->destructor_method) {
+        const Decl* destructor = cls->destructor_method->decl;
+        if (!destructor || !destructor->func_body ||
+            !destructor->func_is_cxx_destructor ||
+            !destructor->func_is_noexcept || !destructor->func_this_param ||
+            destructor->func_params) {
+            return false;
+        }
+    }
+    if (type->kind == TYPE_UNION) {
+        return !sema_cxx_type_has_destructor_cleanup((Type*)type, 0) ||
+            sema_cxx_destructor_function((Type*)type) != NULL;
+    }
+    if (complete_object && cls->virtual_base_count > 0) {
+        if (!cls->virtual_bases) return false;
+        for (int index = 0; index < cls->virtual_base_count; ++index) {
+            const CxxClass* base = cls->virtual_bases[index].base;
+            if (!base || !base->type ||
+                cls->virtual_bases[index].offset < 0 ||
+                !sema_cxx_explicit_destructor_tree_supported(
+                    base->type, depth + 1u, false)) {
+                return false;
+            }
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        if (cls->bases[index].is_virtual) continue;
+        if (!base || !base->type || !cls->base_offsets ||
+            cls->base_offsets[index] < 0 ||
+            !sema_cxx_explicit_destructor_tree_supported(
+                base->type, depth + 1u, false)) {
+            return false;
+        }
+    }
+    for (const TypeParam* field = cls->fields; field; field = field->next) {
+        if (field->is_static || !field->type) continue;
+        if (!sema_cxx_destructor_cleanup_hook_supported(field->type) ||
+            !sema_cxx_explicit_destructor_tree_supported(
+                field->type, depth + 1u, true)) {
             return false;
         }
     }
@@ -10509,6 +10607,62 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
     }
     if (fields) rcc_free(fields);
     return valid;
+}
+
+static void sema_cxx_prepare_explicit_destructor_cleanup(
+    Expr* call, Decl* destructor) {
+    Type* object_type;
+    ExprList* this_argument;
+    Decl* owner;
+    Expr* owner_object;
+    CxxCleanupPlan* cleanups = NULL;
+    CxxCleanupPlan** tail;
+    int cleanup_budget = 4096;
+    if (!call || !call->call_is_explicit_destructor || !destructor ||
+        !destructor->func_is_cxx_destructor ||
+        !destructor->func_is_noexcept || call->call_is_virtual ||
+        !destructor->func_method_owner ||
+        !(object_type = destructor->func_method_owner) ||
+        !object_type->cxx_class ||
+        !sema_cxx_destructor_tree_has_virtual_base(object_type, 0u) ||
+        sema_cxx_destructor_subobjects_supported(
+            object_type->cxx_class, 0u) ||
+        !sema_cxx_explicit_destructor_tree_supported(
+            object_type, 0u, true) ||
+        !(this_argument = call->call_args) || this_argument->next ||
+        this_argument->cxx_temporary_owner ||
+        this_argument->cxx_temporary_cleanups ||
+        call->cxx_temporary_owner) {
+        return;
+    }
+    owner = decl_var("__rcc_explicit_destructor_object",
+                     type_reference(object_type, false), NULL, call->loc);
+    owner_object = expr_ident(owner->name, call->loc);
+    owner_object->ident_decl = owner;
+    owner_object->type = object_type;
+    if (!sema_cxx_append_object_cleanups(
+            NULL, object_type, owner_object, &cleanups, 0,
+            &cleanup_budget, true, true) || !cleanups) {
+        return;
+    }
+    tail = &cleanups;
+    while ((*tail)->next) tail = &(*tail)->next;
+    if ((*tail)->kind != CXX_CLEANUP_EXPRESSION ||
+        !(*tail)->expression ||
+        (*tail)->expression->kind != EXPR_CALL ||
+        !(*tail)->expression->call_func ||
+        (*tail)->expression->call_func->kind != EXPR_IDENT ||
+        !(*tail)->expression->call_func->ident_decl ||
+        !(*tail)->expression->call_func->ident_decl
+             ->func_is_cxx_destructor ||
+        (*tail)->expression->call_func->ident_decl->func_method_owner !=
+            object_type) {
+        return;
+    }
+    *tail = NULL; /* The explicit call already ran the complete destructor. */
+    if (!cleanups) return;
+    this_argument->cxx_temporary_owner = owner;
+    this_argument->cxx_temporary_cleanups = cleanups;
 }
 
 /* A class prvalue used as a reference argument or member-call receiver lives
@@ -15974,6 +16128,9 @@ static Type* sema_expr(Expr* expr) {
                               "too few arguments to function call");
                 }
             }
+
+            sema_cxx_prepare_explicit_destructor_cleanup(
+                expr, call_declaration);
 
             expr->type = ft->ret_type;
             if (call_declaration && call_declaration->func_is_constexpr) {

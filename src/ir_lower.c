@@ -6915,6 +6915,35 @@ static bool lower_nontrivial_temporary_conditional_supported(
 
 static bool lower_cleanup_object_is_owner_subobject(
     const Expr* object, const Decl* owner,
+    const Decl* const* array_indices, size_t array_index_count);
+
+static bool lower_cleanup_object_is_owner_pointer(
+    const Expr* pointer, const Decl* owner,
+    const Decl* const* array_indices, size_t array_index_count) {
+    int64_t offset;
+    if (!pointer || !owner) return false;
+    if (pointer->kind == EXPR_CAST) {
+        return lower_cleanup_object_is_owner_pointer(
+            pointer->cast_expr, owner, array_indices,
+            array_index_count);
+    }
+    if ((pointer->kind == EXPR_ADD || pointer->kind == EXPR_SUB) &&
+        pointer->binary_lhs && pointer->binary_rhs &&
+        expr_eval_integer_constant(pointer->binary_rhs, &offset)) {
+        return lower_cleanup_object_is_owner_pointer(
+            pointer->binary_lhs, owner, array_indices,
+            array_index_count);
+    }
+    if (pointer->kind == EXPR_ADDR && pointer->unary_operand) {
+        return lower_cleanup_object_is_owner_subobject(
+            pointer->unary_operand, owner, array_indices,
+            array_index_count);
+    }
+    return false;
+}
+
+static bool lower_cleanup_object_is_owner_subobject(
+    const Expr* object, const Decl* owner,
     const Decl* const* array_indices, size_t array_index_count) {
     if (!object || !owner) return false;
     if (object->kind == EXPR_IDENT) {
@@ -6939,6 +6968,11 @@ static bool lower_cleanup_object_is_owner_subobject(
         }
         return index_is_valid && lower_cleanup_object_is_owner_subobject(
             object->index_base, owner, array_indices,
+            array_index_count);
+    }
+    if (object->kind == EXPR_DEREF && object->unary_operand) {
+        return lower_cleanup_object_is_owner_pointer(
+            object->unary_operand, owner, array_indices,
             array_index_count);
     }
     if (object->kind == EXPR_CAST && object->type &&
@@ -8156,6 +8190,19 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                 conversion->cxx_virtual_base_index,
                 conversion->cxx_virtual_base_nested_adjustment);
             temporary_owner_bound = true;
+        } else if (expression->call_is_explicit_destructor &&
+                   argument == expression->call_args &&
+                   argument->cxx_temporary_owner) {
+            value = lower_expression(context, argument->expr);
+            if (!value.valid ||
+                value.type.kind != RCC_IR_TYPE_POINTER ||
+                !lower_bind_temporary_owner(
+                    context, argument->cxx_temporary_owner, value)) {
+                rcc_free(operands);
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            temporary_cleanups[cleanup_count++] = argument;
         } else if (member_pointer_call && argument == expression->call_args) {
             value = member_pointer_receiver;
         } else if (parameter && parameter->type &&

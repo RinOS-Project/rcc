@@ -79,6 +79,53 @@ struct OrderedArrayDerived : OrderedBase {
     }
 };
 
+struct OrderedVirtualBase {
+    int* order;
+
+    explicit OrderedVirtualBase(int* value) noexcept : order(value) {}
+
+    ~OrderedVirtualBase() noexcept {
+        *order = *order * 10 + 1;
+    }
+};
+
+struct OrderedVirtualLeft : virtual OrderedVirtualBase {
+    int* order;
+
+    explicit OrderedVirtualLeft(int* value) noexcept
+        : OrderedVirtualBase(0), order(value) {}
+
+    ~OrderedVirtualLeft() noexcept {
+        *order = *order * 10 + 2;
+    }
+};
+
+struct OrderedVirtualRight : virtual OrderedVirtualBase {
+    int* order;
+
+    explicit OrderedVirtualRight(int* value) noexcept
+        : OrderedVirtualBase(0), order(value) {}
+
+    ~OrderedVirtualRight() noexcept {
+        *order = *order * 10 + 3;
+    }
+};
+
+struct OrderedVirtualDerived : OrderedVirtualLeft, OrderedVirtualRight {
+    int* order;
+    OrderedVirtualDerived** receiver;
+
+    OrderedVirtualDerived(int* value,
+                         OrderedVirtualDerived** receiver_slot) noexcept
+        : OrderedVirtualBase(value), OrderedVirtualLeft(value),
+          OrderedVirtualRight(value), order(value), receiver(receiver_slot) {}
+
+    ~OrderedVirtualDerived() noexcept {
+        *receiver = 0;
+        *order = *order * 10 + 9;
+    }
+};
+
 struct OrderedCleanupDerived {
     int* order;
     OrderedCleanupToken token;
@@ -131,6 +178,16 @@ int explicit_array_subobject_destructor() {
     return order == 943211 ? 0 : 1;
 }
 
+int explicit_virtual_base_destructor() {
+    int order = 0;
+    OrderedVirtualDerived* value = 0;
+    value = new OrderedVirtualDerived(&order, &value);
+    OrderedVirtualDerived* storage = value;
+    value->~OrderedVirtualDerived();
+    rin_free(static_cast<void*>(storage));
+    return order == 9321 && value == 0 ? 0 : 1;
+}
+
 int local_array_subobject_destructor() {
     int order = 0;
     {
@@ -153,6 +210,7 @@ int main() {
     return local_destructor() + heap_destructor() +
         explicit_subobject_destructor() + local_subobject_destructor() +
         explicit_array_subobject_destructor() +
+        explicit_virtual_base_destructor() +
         local_array_subobject_destructor() +
         local_custom_cleanup_subobject_destructor();
 }
