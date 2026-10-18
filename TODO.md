@@ -1399,9 +1399,8 @@
         `test-verified-cxx-automatic-array-cleanup`, included by
         `test-verified-backend` and the production CI gate.
   - [ ] Throwing expressions/initializers, constructor-driven partial
-        construction and unwind, `goto` edges, cleanup-bearing `for`
-        initializers, and other automatic cleanup-plan shapes remain outside
-        this verified subset.
+        construction and unwind, `goto` cleanup edges, and other automatic
+        cleanup-plan shapes remain outside this verified subset.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering
@@ -6310,3 +6309,19 @@ remains a separate open item.
       cleanup, and RinValidate object checks pass.
 - [ ] A successful hosted GitHub Actions run remains required to verify the
       UCRT64 package/install and hosted Windows environment.
+
+## RCC continuation (2026-10-18, cleanup for `for`-initializer objects)
+
+- [x] Keep a cleanup-bearing `for` initializer alive across `continue`, emit
+      its cleanup on the condition-false edge, and clean it on loop `break` and
+      function `return`. Route normal loop completion through a dedicated
+      cleanup block so break paths do not destroy the same object twice.
+- [x] Preserve i686 wide-scalar SSA state across the cleanup block and merge
+      the normally terminated and break edges after cleanup.
+- [x] Verify nested-array reverse destruction and exactly-once cleanup for
+      normal exit, `continue`, `break`, and `return`, with no verified-backend
+      fallback at `-O0`/`-O2` on i686/AMD64. The focused target and complete
+      `test-verified-backend`, `test-ir`, and `test-optimize` pass on native
+      Windows.
+- [ ] Throwing initialization/unwind, partial construction, `goto` cleanup
+      edges, and other cleanup-plan forms remain open.

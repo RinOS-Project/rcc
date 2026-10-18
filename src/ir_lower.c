@@ -6867,12 +6867,6 @@ static bool lower_statement_scope_cleanups_supported_impl(
                     statement->while_body, loop_depth + 1u,
                     breakable_depth + 1u, switch_depth);
         case STMT_FOR:
-            if (statement->for_init &&
-                statement->for_init->kind == STMT_DECL &&
-                statement->for_init->decl &&
-                statement->for_init->decl->var_cleanups) {
-                return false;
-            }
             return lower_statement_scope_cleanups_supported_impl(
                        statement->for_init, loop_depth, breakable_depth,
                        switch_depth) &&
@@ -11159,7 +11153,8 @@ static bool lower_while_wide_ssa(
 
 static bool lower_for_wide_ssa(
     RccIrLowerContext* context, const Stmt* statement,
-    RccIrLowerWideState* baseline) {
+    RccIrLowerWideState* baseline,
+    RccIrLowerScopeCleanup* scope_marker) {
     RccIrBlock* preheader = context->current;
     RccIrBlock* condition_block = rcc_ir_block_add(
         context->function, "for.wide.cond");
@@ -11167,6 +11162,9 @@ static bool lower_for_wide_ssa(
         context->function, "for.wide.body");
     RccIrBlock* latch_block = rcc_ir_block_add(
         context->function, "for.wide.latch");
+    bool has_for_scope_cleanups = context->scope_cleanups != scope_marker;
+    RccIrBlock* cleanup_block = has_for_scope_cleanups
+        ? rcc_ir_block_add(context->function, "for.wide.cleanup") : NULL;
     RccIrBlock* exit_block = rcc_ir_block_add(
         context->function, "for.wide.end");
     RccIrBlockId old_break = context->break_target;
@@ -11179,12 +11177,14 @@ static bool lower_for_wide_ssa(
     RccIrLowerLoopFrame* previous_loop = context->wide_loop;
     RccIrLowerWideState* backedge = NULL;
     RccIrLowerWideState* condition_state = NULL;
+    RccIrLowerWideState* exit_condition_state = NULL;
     RccIrLowerValue condition;
     memset(&frame, 0, sizeof(frame));
     frame.baseline = baseline;
     frame.previous = previous_loop;
     if (!preheader || !condition_block || !body_block || !latch_block ||
-        !exit_block || !lower_branch(context, condition_block->id)) {
+        (has_for_scope_cleanups && !cleanup_block) || !exit_block ||
+        !lower_branch(context, condition_block->id)) {
         lower_release_wide_states(baseline);
         return false;
     }
@@ -11203,7 +11203,8 @@ static bool lower_for_wide_ssa(
     }
     condition_state = lower_capture_wide_branch_states(context, baseline);
     if (!condition.valid || !condition_state || !lower_conditional_branch(
-            context, condition, body_block->id, exit_block->id)) {
+            context, condition, body_block->id,
+            has_for_scope_cleanups ? cleanup_block->id : exit_block->id)) {
         lower_release_wide_states(condition_state);
         lower_release_wide_states(baseline);
         return false;
@@ -11211,7 +11212,7 @@ static bool lower_for_wide_ssa(
     lower_set_wide_state_block(baseline, body_block);
     context->break_target = exit_block->id;
     context->continue_target = latch_block->id;
-    context->break_cleanup_marker = context->scope_cleanups;
+    context->break_cleanup_marker = scope_marker;
     context->continue_cleanup_marker = context->scope_cleanups;
     context->wide_loop = &frame;
     context->current = body_block;
@@ -11289,12 +11290,44 @@ static bool lower_for_wide_ssa(
     context->continue_target = old_continue;
     context->break_cleanup_marker = old_break_cleanup;
     context->continue_cleanup_marker = old_continue_cleanup;
+    if (has_for_scope_cleanups) {
+        context->current = cleanup_block;
+        context->terminated = false;
+        lower_restore_wide_states(condition_state);
+        lower_set_wide_state_block(condition_state, cleanup_block);
+        if (!lower_emit_scope_cleanups_until(context, scope_marker)) {
+            lower_release_wide_states(backedge);
+            lower_release_wide_loop_edges(frame.breaks);
+            lower_release_wide_loop_edges(frame.continues);
+            lower_release_wide_states(condition_state);
+            lower_release_wide_states(baseline);
+            return false;
+        }
+        exit_condition_state = lower_capture_wide_branch_states(
+            context, baseline);
+        if ((!exit_condition_state && baseline) ||
+            !lower_branch(context, exit_block->id)) {
+            lower_release_wide_states(exit_condition_state);
+            lower_release_wide_states(backedge);
+            lower_release_wide_loop_edges(frame.breaks);
+            lower_release_wide_loop_edges(frame.continues);
+            lower_release_wide_states(condition_state);
+            lower_release_wide_states(baseline);
+            return false;
+        }
+        context->scope_cleanups = scope_marker;
+    } else {
+        exit_condition_state = condition_state;
+    }
     context->current = exit_block;
     context->terminated = false;
     if (frame.breaks) {
         if (!lower_build_wide_exit_states(
-                context, baseline, condition_state, NULL, frame.breaks,
+                context, baseline, exit_condition_state, NULL, frame.breaks,
                 exit_block)) {
+            if (has_for_scope_cleanups) {
+                lower_release_wide_states(exit_condition_state);
+            }
             lower_release_wide_states(backedge);
             lower_release_wide_loop_edges(frame.breaks);
             lower_release_wide_loop_edges(frame.continues);
@@ -11303,12 +11336,15 @@ static bool lower_for_wide_ssa(
             return false;
         }
     } else {
-        lower_restore_wide_states(condition_state);
-        lower_set_wide_state_block(condition_state, exit_block);
+        lower_restore_wide_states(exit_condition_state);
+        lower_set_wide_state_block(exit_condition_state, exit_block);
     }
     lower_release_wide_states(backedge);
     lower_release_wide_loop_edges(frame.breaks);
     lower_release_wide_loop_edges(frame.continues);
+    if (has_for_scope_cleanups) {
+        lower_release_wide_states(exit_condition_state);
+    }
     lower_release_wide_states(condition_state);
     lower_release_wide_states(baseline);
     return true;
@@ -11536,7 +11572,11 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     RccIrBlock* condition_block;
     RccIrBlock* body_block;
     RccIrBlock* increment_block;
+    RccIrBlock* cleanup_block;
     RccIrBlock* exit_block;
+    RccIrLowerScopeCleanup* scope_marker = context->scope_cleanups;
+    RccIrLowerScopeCleanup* for_scope_marker;
+    bool has_for_scope_cleanups;
     RccIrBlockId old_break = context->break_target;
     RccIrBlockId old_continue = context->continue_target;
     RccIrLowerScopeCleanup* old_break_cleanup =
@@ -11548,17 +11588,23 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
         !lower_statement(context, statement->for_init)) {
         return false;
     }
+    for_scope_marker = context->scope_cleanups;
+    has_for_scope_cleanups = for_scope_marker != scope_marker;
     if (lower_wide_loop_body_edge_safe(statement->for_body)) {
         RccIrLowerWideState* baseline = lower_capture_wide_states(context);
         if (baseline) {
-            return lower_for_wide_ssa(context, statement, baseline);
+            return lower_for_wide_ssa(
+                context, statement, baseline, scope_marker);
         }
     }
     condition_block = rcc_ir_block_add(context->function, "for.cond");
     body_block = rcc_ir_block_add(context->function, "for.body");
     increment_block = rcc_ir_block_add(context->function, "for.inc");
+    cleanup_block = has_for_scope_cleanups
+        ? rcc_ir_block_add(context->function, "for.cleanup") : NULL;
     exit_block = rcc_ir_block_add(context->function, "for.end");
-    if (!condition_block || !body_block || !increment_block || !exit_block ||
+    if (!condition_block || !body_block || !increment_block ||
+        (has_for_scope_cleanups && !cleanup_block) || !exit_block ||
         !lower_branch(context, condition_block->id)) {
         return false;
     }
@@ -11571,13 +11617,14 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
             context, rcc_ir_type_integer(1u), true, 1u);
     }
     if (!condition.valid || !lower_conditional_branch(
-            context, condition, body_block->id, exit_block->id)) {
+            context, condition, body_block->id,
+            has_for_scope_cleanups ? cleanup_block->id : exit_block->id)) {
         return false;
     }
     context->break_target = exit_block->id;
     context->continue_target = increment_block->id;
-    context->break_cleanup_marker = context->scope_cleanups;
-    context->continue_cleanup_marker = context->scope_cleanups;
+    context->break_cleanup_marker = scope_marker;
+    context->continue_cleanup_marker = for_scope_marker;
     context->current = body_block;
     context->terminated = false;
     if (!lower_statement_subscope(context, statement->for_body)) return false;
@@ -11597,6 +11644,15 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     context->continue_target = old_continue;
     context->break_cleanup_marker = old_break_cleanup;
     context->continue_cleanup_marker = old_continue_cleanup;
+    if (has_for_scope_cleanups) {
+        context->current = cleanup_block;
+        context->terminated = false;
+        if (!lower_emit_scope_cleanups_until(context, scope_marker) ||
+            !lower_branch(context, exit_block->id)) {
+            return false;
+        }
+        context->scope_cleanups = scope_marker;
+    }
     context->current = exit_block;
     context->terminated = false;
     return true;
