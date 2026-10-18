@@ -998,9 +998,17 @@
         and receiver mutation safety in legacy x64 execution, i686/AMD64 code
         generation, and typed-SSA zero-fallback emission in
         `test-cxx-destructor-body` and `test-verified-cxx-destructor`.
-  - [ ] Extend explicit-destructor subobject cleanup to potentially-throwing
-        destructor trees, preserving exception-unwind order and avoiding
-        duplicate destruction after partial completion.
+  - [x] Preserve explicit-destructor subobject cleanup when the explicitly
+        invoked root destructor throws but every remaining base/member
+        cleanup is `noexcept`. Register callbacks with the runtime's current
+        exception frame across the call boundary; preserve the saved receiver
+        and run reverse-order cleanup exactly once. Verify catch value `47`,
+        receiver mutation, order `9321`, i686/AMD64 emission, and x64 runtime
+        in `test-cxx-exception-cleanup`.
+  - [ ] Extend throwing cleanup to subobject destructors that may themselves
+        throw, with correct partial-progress/unwind semantics and typed-SSA
+        runtime callback registration; verify zero fallback before marking it
+        complete.
   - [x] Resolve data-member access exposed through a virtual base using the
         active subobject's vbtable and member-in-base offset; verify inherited
         access from both arms of a shared virtual diamond during destruction,

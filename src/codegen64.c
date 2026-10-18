@@ -4208,6 +4208,8 @@ static void resolve_labels64(Module* mod) {
 static void gen64_stmt(Module* mod, Stmt* stmt);
 static void gen64_push_call_temporary_cleanup(
     Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
+static void gen64_push_explicit_destructor_cleanup(
+    Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
 
 static void gen64_symbol_address(Module* mod, const char* symbol,
                                  uint32_t addend) {
@@ -8956,9 +8958,15 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                         emit64_mov_mem_reg(
                             mod, RBP,
                             args[i]->cxx_temporary_owner->var_offset, RAX);
-                        gen64_push_call_temporary_cleanup(
-                            mod, args[i]->cxx_temporary_owner,
-                            args[i]->cxx_temporary_cleanups);
+                        if (expr->call_is_explicit_destructor && i == 0) {
+                            gen64_push_explicit_destructor_cleanup(
+                                mod, args[i]->cxx_temporary_owner,
+                                args[i]->cxx_temporary_cleanups);
+                        } else {
+                            gen64_push_call_temporary_cleanup(
+                                mod, args[i]->cxx_temporary_owner,
+                                args[i]->cxx_temporary_cleanups);
+                        }
                     }
                 }
             }
@@ -9829,6 +9837,15 @@ static void gen64_cxx_exception_unregister_cleanup(
                   "registered C++ exception cleanup metadata is incomplete");
         return;
     }
+    if (cleanup->exception_frame_offset == INT_MAX) {
+        gen64_symbol_address(mod, decl_link_name(destructor), 0u);
+        emit64_mov_reg_reg(mod, RDI, RAX); /* destructor */
+        gen64_lvalue(mod, address->unary_operand);
+        emit64_mov_reg_reg(mod, RSI, RAX); /* object */
+        gen64_cxx_exception_call(
+            mod, "rin_cpp_exception_unregister_current_cleanup");
+        return;
+    }
     gen64_lvalue(mod, address->unary_operand);
     emit64_mov_reg_reg(mod, RDX, RAX); /* object */
     gen64_symbol_address(mod, decl_link_name(destructor), 0u);
@@ -9849,6 +9866,16 @@ static void gen64_cxx_exception_register_cleanup(
         /* Scope-cleanup wrapper expressions stay on the compiler-side stack;
          * sema rejects calls across them, so they retain the existing inline
          * same-function lowering. */
+        return;
+    }
+    if (cleanup->exception_frame_offset == INT_MAX) {
+        gen64_lvalue(mod, address->unary_operand);
+        emit64_mov_reg_reg(mod, RSI, RAX); /* object */
+        gen64_symbol_address(mod, decl_link_name(destructor), 0u);
+        emit64_mov_reg_reg(mod, RDI, RAX); /* destructor */
+        gen64_cxx_exception_call(
+            mod, "rin_cpp_exception_register_current_cleanup");
+        cleanup->exception_registered = true;
         return;
     }
     gen64_lvalue(mod, address->unary_operand);
@@ -10012,6 +10039,23 @@ static void gen64_push_call_temporary_cleanup(
             mod, cleanup->plan, active_cxx_exception_cleanup_frame_offset64);
         cleanup->exception_registered = true;
     }
+}
+
+static void gen64_push_explicit_destructor_cleanup(
+    Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan) {
+    CleanupCodegen64* cleanup;
+    gen64_push_call_temporary_cleanup(mod, temporary_owner, plan);
+    cleanup = active_cleanups64;
+    if (!cleanup || cleanup->plan != plan || cleanup->exception_registered ||
+        !gen64_cxx_cleanup_plan_registerable(plan)) {
+        return;
+    }
+    /* The explicit destructor may be in a callee while the active handler
+     * belongs to its caller.  Register against the runtime's current frame,
+     * not only a try-frame known in this function at code-generation time. */
+    cleanup->exception_frame_offset = INT_MAX;
+    gen64_cxx_exception_register_plan(mod, plan, INT_MAX);
+    cleanup->exception_registered = true;
 }
 
 static void gen64_cxx_exception_cleanups_until_throw(

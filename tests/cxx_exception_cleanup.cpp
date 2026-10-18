@@ -3,6 +3,61 @@ extern "C" int cxx_exception_cleanup_callee(int value);
 extern "C" int cxx_exception_cleanup_total = 0;
 extern "C" int cxx_exception_destructor_total = 0;
 extern "C" int cxx_exception_array_order = 0;
+extern "C" void rin_free(void* pointer);
+static int explicit_throwing_destructor_should_throw;
+
+class ExplicitThrowingMember {
+public:
+    explicit ExplicitThrowingMember(int* value) noexcept : order(value) {}
+
+    ~ExplicitThrowingMember() noexcept {
+        *order = *order * 10 + 1;
+    }
+
+    int* order;
+};
+
+class ExplicitThrowingLeft {
+public:
+    explicit ExplicitThrowingLeft(int* value) noexcept
+        : order(value), member(value) {}
+
+    ~ExplicitThrowingLeft() noexcept {
+        *order = *order * 10 + 2;
+    }
+
+    int* order;
+    ExplicitThrowingMember member;
+};
+
+class ExplicitThrowingRight {
+public:
+    explicit ExplicitThrowingRight(int* value) noexcept : order(value) {}
+
+    ~ExplicitThrowingRight() noexcept {
+        *order = *order * 10 + 3;
+    }
+
+    int* order;
+};
+
+class ExplicitThrowingDerived : public ExplicitThrowingLeft,
+                                public ExplicitThrowingRight {
+public:
+    ExplicitThrowingDerived(
+        int* value, ExplicitThrowingDerived** receiver_slot) noexcept
+        : ExplicitThrowingLeft(value), ExplicitThrowingRight(value), order(value),
+          receiver(receiver_slot) {}
+
+    ~ExplicitThrowingDerived() noexcept(false) {
+        *receiver = 0;
+        *order = *order * 10 + 9;
+        if (explicit_throwing_destructor_should_throw) throw 47;
+    }
+
+    int* order;
+    ExplicitThrowingDerived** receiver;
+};
 
 class ExceptionGuard final {
 public:
@@ -248,6 +303,39 @@ extern "C" int cxx_exception_cleanup_array_delete_throw() {
     return -1;
 }
 
+extern "C" int cxx_exception_cleanup_explicit_throwing_destructor_callee(
+    int* order, ExplicitThrowingDerived** receiver,
+    ExplicitThrowingDerived** storage) {
+    ExplicitThrowingDerived* value =
+        new ExplicitThrowingDerived(order, receiver);
+    *storage = value;
+    value->~ExplicitThrowingDerived();
+    return -1;
+}
+
+static int run_explicit_throwing_destructor_case(int should_throw) {
+    int order = 0;
+    int caught = 0;
+    ExplicitThrowingDerived* value = 0;
+    ExplicitThrowingDerived* storage = 0;
+    explicit_throwing_destructor_should_throw = should_throw;
+    try {
+        cxx_exception_cleanup_explicit_throwing_destructor_callee(
+            &order, &value, &storage);
+    } catch (int exception_value) {
+        caught = exception_value;
+    }
+    rin_free(static_cast<void*>(storage));
+    return caught == (should_throw ? 47 : 0) &&
+            order == 9321 && value == 0
+        ? 0 : 1;
+}
+
+extern "C" int cxx_exception_cleanup_explicit_throwing_destructor() {
+    return run_explicit_throwing_destructor_case(1) +
+        run_explicit_throwing_destructor_case(0);
+}
+
 extern "C" int main() {
     return cxx_exception_cleanup_direct() == 141 &&
                    cxx_exception_cleanup_handler() == 7 &&
@@ -260,7 +348,8 @@ extern "C" int main() {
                    cxx_exception_cleanup_delete_throw() == 21037 &&
                    cxx_exception_cleanup_dependent_dmi() == 1719 &&
                    cxx_exception_cleanup_completed_dmi_then_throw() == 1723 &&
-                   cxx_exception_cleanup_array_delete_throw() == 21043
+                   cxx_exception_cleanup_array_delete_throw() == 21043 &&
+                   cxx_exception_cleanup_explicit_throwing_destructor() == 0
                ? 0
                : 1;
 }

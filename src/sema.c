@@ -10100,12 +10100,15 @@ static bool sema_cxx_destructor_tree_has_virtual_base(
 }
 
 /* Explicit destructor calls need a separate complete-object cleanup plan
- * when the ordinary destructor body cannot inline its subobject walk.  A
- * virtual base is included only for a complete object; base-subobject
- * destructor calls must leave shared virtual bases to the most-derived
- * destructor. */
+ * when the ordinary destructor body cannot inline its subobject walk.  The
+ * explicitly invoked root destructor may throw; its separately emitted
+ * subobject cleanup callbacks must remain noexcept so exception unwinding
+ * cannot replace the active exception.  A virtual base is included only
+ * for a complete object; base-subobject destructor calls must leave shared
+ * virtual bases to the most-derived destructor. */
 static bool sema_cxx_explicit_destructor_tree_supported(
-    const Type* type, unsigned depth, bool complete_object) {
+    const Type* type, unsigned depth, bool complete_object,
+    bool allow_throwing_destructor) {
     const CxxClass* cls;
     if (!type || depth >= 64u) return false;
     if (type->kind == TYPE_ARRAY) {
@@ -10114,7 +10117,7 @@ static bool sema_cxx_explicit_destructor_tree_supported(
             return true;
         }
         return sema_cxx_explicit_destructor_tree_supported(
-            type->base, depth + 1u, true);
+            type->base, depth + 1u, true, false);
     }
     cls = type->cxx_class;
     if (!cls) return true;
@@ -10123,7 +10126,9 @@ static bool sema_cxx_explicit_destructor_tree_supported(
         const Decl* destructor = cls->destructor_method->decl;
         if (!destructor || !destructor->func_body ||
             !destructor->func_is_cxx_destructor ||
-            !destructor->func_is_noexcept || !destructor->func_this_param ||
+            (!allow_throwing_destructor &&
+             !destructor->func_is_noexcept) ||
+            !destructor->func_this_param ||
             destructor->func_params) {
             return false;
         }
@@ -10139,7 +10144,7 @@ static bool sema_cxx_explicit_destructor_tree_supported(
             if (!base || !base->type ||
                 cls->virtual_bases[index].offset < 0 ||
                 !sema_cxx_explicit_destructor_tree_supported(
-                    base->type, depth + 1u, false)) {
+                    base->type, depth + 1u, false, false)) {
                 return false;
             }
         }
@@ -10150,7 +10155,7 @@ static bool sema_cxx_explicit_destructor_tree_supported(
         if (!base || !base->type || !cls->base_offsets ||
             cls->base_offsets[index] < 0 ||
             !sema_cxx_explicit_destructor_tree_supported(
-                base->type, depth + 1u, false)) {
+                base->type, depth + 1u, false, false)) {
             return false;
         }
     }
@@ -10158,7 +10163,7 @@ static bool sema_cxx_explicit_destructor_tree_supported(
         if (field->is_static || !field->type) continue;
         if (!sema_cxx_destructor_cleanup_hook_supported(field->type) ||
             !sema_cxx_explicit_destructor_tree_supported(
-                field->type, depth + 1u, true)) {
+                field->type, depth + 1u, true, false)) {
             return false;
         }
     }
@@ -10620,15 +10625,16 @@ static void sema_cxx_prepare_explicit_destructor_cleanup(
     int cleanup_budget = 4096;
     if (!call || !call->call_is_explicit_destructor || !destructor ||
         !destructor->func_is_cxx_destructor ||
-        !destructor->func_is_noexcept || call->call_is_virtual ||
+        call->call_is_virtual ||
         !destructor->func_method_owner ||
         !(object_type = destructor->func_method_owner) ||
         !object_type->cxx_class ||
-        !sema_cxx_destructor_tree_has_virtual_base(object_type, 0u) ||
+        (destructor->func_is_noexcept &&
+         !sema_cxx_destructor_tree_has_virtual_base(object_type, 0u)) ||
         sema_cxx_destructor_subobjects_supported(
             object_type->cxx_class, 0u) ||
         !sema_cxx_explicit_destructor_tree_supported(
-            object_type, 0u, true) ||
+            object_type, 0u, true, true) ||
         !(this_argument = call->call_args) || this_argument->next ||
         this_argument->cxx_temporary_owner ||
         this_argument->cxx_temporary_cleanups ||

@@ -3943,6 +3943,8 @@ static bool gen_guarded_static_initializer32(
 static void gen_cxx_reference_adjustment32(Module* mod, Expr* expression);
 static void codegen_push_call_temporary_cleanup32(
     Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
+static void codegen_push_explicit_destructor_cleanup32(
+    Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan);
 static void emit_normalize_atomic_value(Module* mod, int reg,
                                          const Type* type);
 static void emit_atomic_cmpxchg_width(Module* mod, int desired, int address,
@@ -12568,9 +12570,15 @@ static void gen_call(Module* mod, Expr* expr) {
             emit_mov_mem_reg(
                 mod, EBP,
                 args[i]->cxx_temporary_owner->var_offset, EAX);
-            codegen_push_call_temporary_cleanup32(
-                mod, args[i]->cxx_temporary_owner,
-                args[i]->cxx_temporary_cleanups);
+            if (expr->call_is_explicit_destructor && i == 0) {
+                codegen_push_explicit_destructor_cleanup32(
+                    mod, args[i]->cxx_temporary_owner,
+                    args[i]->cxx_temporary_cleanups);
+            } else {
+                codegen_push_call_temporary_cleanup32(
+                    mod, args[i]->cxx_temporary_owner,
+                    args[i]->cxx_temporary_cleanups);
+            }
         }
         if (gen_is_integer64(passed_type)) {
             if (!gen_is_integer64(argument->type)) {
@@ -16834,6 +16842,16 @@ static void gen_cxx_exception_unregister_cleanup32(
                   "registered C++ exception cleanup metadata is incomplete");
         return;
     }
+    if (cleanup->exception_frame_offset == INT_MAX) {
+        gen_lvalue(mod, address->unary_operand);
+        emit_push_reg(mod, EAX); /* object */
+        gen_symbol_address(mod, decl_link_name(destructor), 0u);
+        emit_push_reg(mod, EAX); /* destructor */
+        gen_cxx_exception_call32(
+            mod, "rin_cpp_exception_unregister_current_cleanup");
+        emit_add_reg_imm(mod, ESP, 8);
+        return;
+    }
     gen_lvalue(mod, address->unary_operand);
     emit_push_reg(mod, EAX); /* object */
     gen_symbol_address(mod, decl_link_name(destructor), 0u);
@@ -16852,6 +16870,17 @@ static void gen_cxx_exception_register_cleanup32(
     Expr* address = arguments ? arguments->expr : NULL;
     if (!destructor || !address || address->kind != EXPR_ADDR ||
         !address->unary_operand) {
+        return;
+    }
+    if (cleanup->exception_frame_offset == INT_MAX) {
+        gen_lvalue(mod, address->unary_operand);
+        emit_push_reg(mod, EAX); /* object */
+        gen_symbol_address(mod, decl_link_name(destructor), 0u);
+        emit_push_reg(mod, EAX); /* destructor */
+        gen_cxx_exception_call32(
+            mod, "rin_cpp_exception_register_current_cleanup");
+        emit_add_reg_imm(mod, ESP, 8);
+        cleanup->exception_registered = true;
         return;
     }
     gen_lvalue(mod, address->unary_operand);
@@ -17010,6 +17039,23 @@ static void codegen_push_call_temporary_cleanup32(
             mod, cleanup->plan, active_cxx_exception_cleanup_frame_offset);
         cleanup->exception_registered = true;
     }
+}
+
+static void codegen_push_explicit_destructor_cleanup32(
+    Module* mod, Decl* temporary_owner, CxxCleanupPlan* plan) {
+    CleanupCodegen* cleanup;
+    codegen_push_call_temporary_cleanup32(mod, temporary_owner, plan);
+    cleanup = active_cleanups;
+    if (!cleanup || cleanup->plan != plan || cleanup->exception_registered ||
+        !gen_cxx_cleanup_plan_registerable32(plan)) {
+        return;
+    }
+    /* The explicit destructor may be in a callee while the active handler
+     * belongs to its caller.  Register against the runtime's current frame,
+     * not only a try-frame known in this function at code-generation time. */
+    cleanup->exception_frame_offset = INT_MAX;
+    gen_cxx_exception_register_plan32(mod, plan, INT_MAX);
+    cleanup->exception_registered = true;
 }
 
 static void gen_cxx_exception_unwind_cleanup32(Module* mod) {
