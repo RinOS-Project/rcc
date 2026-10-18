@@ -147,6 +147,26 @@ extern "C" int inline_local_mutable_function_pointer_array_dynamic_call(
     return callbacks[index](value);
 }
 
+extern "C" int inline_local_uniform_function_pointer_array_dynamic_call(
+    int index, int value)
+{
+    int (*callbacks[])(int) = {
+        &inline_constexpr_array_first,
+        &inline_constexpr_array_first
+    };
+    return callbacks[index](value);
+}
+
+extern "C" int inline_local_uniform_function_pointer_array_side_effect_index(
+    int* index, int value)
+{
+    int (*callbacks[])(int) = {
+        &inline_constexpr_array_first,
+        &inline_constexpr_array_first
+    };
+    return callbacks[(*index)++](value);
+}
+
 extern "C" int inline_local_aliased_mutable_function_pointer_call(int value)
 {
     int (*callback)(int) = &inline_constexpr_array_first;

@@ -184,10 +184,12 @@ static void verify_smaller(const char* unoptimized_path,
         "inline_local_const_function_pointer_call",
         "inline_local_const_function_pointer_array_call",
         "inline_local_mutable_function_pointer_call",
-        "inline_local_mutable_function_pointer_array_call"
+        "inline_local_mutable_function_pointer_array_call",
+        "inline_local_uniform_function_pointer_array_dynamic_call"
     };
     static const char* const unresolved_pointer_calls[] = {
         "inline_local_mutable_function_pointer_array_dynamic_call",
+        "inline_local_uniform_function_pointer_array_side_effect_index",
         "inline_local_aliased_mutable_function_pointer_call",
         "inline_local_reassigned_function_pointer_call",
         "inline_local_mutated_function_pointer_array_call"
@@ -1018,6 +1020,7 @@ static void execute_inline_namespace_case(const char* path)
 {
     typedef int (__attribute__((sysv_abi)) *SysvIntUnary)(int);
     typedef int (__attribute__((sysv_abi)) *SysvIntBinary)(int, int);
+    typedef int (__attribute__((sysv_abi)) *SysvIntPointerBinary)(int*, int);
     ObjectFile* object = objfile_read(path);
     ObjSection* code;
     ObjSymbol* symbol;
@@ -1038,6 +1041,8 @@ static void execute_inline_namespace_case(const char* path)
     SysvIntUnary local_reassigned_mutable_pointer;
     SysvIntUnary local_mutated_mutable_pointer_array;
     SysvIntBinary local_mutable_pointer_array_dynamic;
+    SysvIntBinary local_uniform_pointer_array_dynamic;
+    SysvIntPointerBinary local_uniform_pointer_array_side_effect;
     assert(object != NULL && object->arch == ARCH_X64);
     if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
         objfile_free(object);
@@ -1107,6 +1112,16 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&local_mutable_pointer_array_dynamic, &address,
            sizeof(local_mutable_pointer_array_dynamic));
     symbol = function_symbol(
+        object, "inline_local_uniform_function_pointer_array_dynamic_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_uniform_pointer_array_dynamic, &address,
+           sizeof(local_uniform_pointer_array_dynamic));
+    symbol = function_symbol(
+        object, "inline_local_uniform_function_pointer_array_side_effect_index");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_uniform_pointer_array_side_effect, &address,
+           sizeof(local_uniform_pointer_array_side_effect));
+    symbol = function_symbol(
         object, "inline_local_aliased_mutable_function_pointer_call");
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_aliased_mutable_pointer, &address,
@@ -1114,6 +1129,13 @@ static void execute_inline_namespace_case(const char* path)
     assert(local_mutable_pointer(5) == 28);
     assert(local_mutable_pointer_array(5) == 11);
     assert(local_mutable_pointer_array_dynamic(1, 5) == 11);
+    assert(local_uniform_pointer_array_dynamic(0, 5) == 28);
+    assert(local_uniform_pointer_array_dynamic(1, 5) == 28);
+    {
+        int index = 0;
+        assert(local_uniform_pointer_array_side_effect(&index, 5) == 28);
+        assert(index == 1);
+    }
     assert(local_aliased_mutable_pointer(5) == 11);
     symbol = function_symbol(
         object, "inline_local_reassigned_function_pointer_call");
@@ -1322,6 +1344,8 @@ static void execute_inline_namespace_case(const char* path)
     int (*local_reassigned_mutable_pointer)(int);
     int (*local_mutated_mutable_pointer_array)(int);
     int (*local_mutable_pointer_array_dynamic)(int, int);
+    int (*local_uniform_pointer_array_dynamic)(int, int);
+    int (*local_uniform_pointer_array_side_effect)(int*, int);
     assert(object != NULL && object->arch == ARCH_X64);
     if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
         objfile_free(object);
@@ -1389,6 +1413,16 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&local_mutable_pointer_array_dynamic, &address,
            sizeof(local_mutable_pointer_array_dynamic));
     symbol = function_symbol(
+        object, "inline_local_uniform_function_pointer_array_dynamic_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_uniform_pointer_array_dynamic, &address,
+           sizeof(local_uniform_pointer_array_dynamic));
+    symbol = function_symbol(
+        object, "inline_local_uniform_function_pointer_array_side_effect_index");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_uniform_pointer_array_side_effect, &address,
+           sizeof(local_uniform_pointer_array_side_effect));
+    symbol = function_symbol(
         object, "inline_local_aliased_mutable_function_pointer_call");
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_aliased_mutable_pointer, &address,
@@ -1396,6 +1430,13 @@ static void execute_inline_namespace_case(const char* path)
     assert(local_mutable_pointer(5) == 28);
     assert(local_mutable_pointer_array(5) == 11);
     assert(local_mutable_pointer_array_dynamic(1, 5) == 11);
+    assert(local_uniform_pointer_array_dynamic(0, 5) == 28);
+    assert(local_uniform_pointer_array_dynamic(1, 5) == 28);
+    {
+        int index = 0;
+        assert(local_uniform_pointer_array_side_effect(&index, 5) == 28);
+        assert(index == 1);
+    }
     assert(local_aliased_mutable_pointer(5) == 11);
     symbol = function_symbol(
         object, "inline_local_reassigned_function_pointer_call");

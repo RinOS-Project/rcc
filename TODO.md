@@ -1987,11 +1987,12 @@
         `test-debug-info`と完全な`test-cxx`も成功済み
   - [x] automatic localのmutable function-pointer scalarと固定長arrayは、関数全体を
         調べて再代入・要素書込み・escapeがないこと、非volatile、直接の互換function
-        initializer、scalarではcallee type一致、arrayでは範囲内の整数定数添字を確認
-        できる場合にinline化。i686/AMD64の-O1 indirect-call形状とAMD64実行を検証
-  - [ ] mutable localの再代入・要素書込み、pointer/reference aliasによるescape、可変添字、
-        より一般のaliased/indirect callの解析・最適化は未実装。calleeを静的に安全確定
-        できない呼び出しは引き続き間接callとして保持
+        initializerとscalar callee型の一致を確認できる場合にinline化。arrayは範囲内の
+        整数定数添字、または全要素が同じ直接targetを持つside-effect-free可変添字に限定。
+        i686/AMD64の-O1 indirect-call形状とAMD64実行を検証
+  - [ ] mutable localの再代入・要素書込み、pointer/reference aliasによるescape、異なる
+        targetを選びうる可変添字、より一般のaliased/indirect callの解析・最適化は未実装。
+        calleeを静的に安全確定できない呼び出しは引き続き間接callとして保持
   - [x] 最適化でstorageが除去されたimmutable unsigned scalar localの値を
         `DW_AT_const_value`の`DW_FORM_udata`で保持し、符号付き負値からunsigned型への
         modulo変換と`UINT64_MAX`をi686/AMD64で検証。signed localには`sdata`を使い、
@@ -6085,9 +6086,23 @@ remains a separate open item.
       storage, a direct compatible function initializer, and (for arrays) an
       in-range integer constant index.
 - [x] Keep reassigned pointers, written array elements, address/reference
-      aliases, and dynamic array indices indirect. Check optimized x86 and x64
-      call shapes and execute the AMD64 regressions.
+      aliases, heterogeneous-target dynamic array indices, and side-effecting
+      indices indirect. Check optimized x86 and x64 call shapes and execute the
+      AMD64 regressions.
 - [x] Pass `test-optimize`, the complete native-Windows `test-cxx` aggregate,
       and `test-debug-info` (exit 0).
 - [ ] General alias analysis, mutable callback writes, and variable-index
-      function-pointer arrays remain open.
+      function-pointer arrays with heterogeneous targets remain open.
+
+## RCC continuation (2026-10-18, uniform-target dynamic local callback arrays)
+
+- [x] Resolve side-effect-free variable-index calls through fixed-bound local
+      mutable callback arrays when every explicitly initialized element names
+      the same compatible function and whole-function analysis proves the array
+      is not modified or escaped. Preserve indirect calls for side-effecting
+      indices and arrays whose elements may select different functions.
+- [x] Verify optimized i686/AMD64 indirect-call shape, run AMD64 with both valid
+      indices, and verify a side-effecting index is evaluated exactly once.
+      Native-Windows `test-optimize` passes.
+- [ ] Heterogeneous-target variable-index arrays and general alias analysis
+      remain open.

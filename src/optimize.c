@@ -1956,22 +1956,26 @@ static Decl* resolve_inline_readonly_function_pointer_array(Expr* callee) {
     Expr* initializer;
     ExprList* element;
     Decl* variable;
+    Decl* common_target = NULL;
     int64_t index;
+    int64_t element_count = 0;
+    bool constant_index;
     bool unmodified_local;
     if (!callee || callee->kind != EXPR_INDEX || !callee->index_base ||
         callee->index_base->kind != EXPR_IDENT ||
         !callee->index_base->ident_decl || !callee->index_expr ||
-        expression_has_side_effect(callee->index_expr) ||
-        !expr_eval_integer_constant(callee->index_expr, &index) ||
-        index < 0) {
+        expression_has_side_effect(callee->index_expr)) {
         return NULL;
     }
+    constant_index = expr_eval_integer_constant(callee->index_expr, &index);
+    if (constant_index && index < 0) return NULL;
     variable = callee->index_base->ident_decl;
     unmodified_local = inline_unmodified_local_variable(variable);
     if ((!inline_readonly_initialized_variable(variable) &&
          !unmodified_local) ||
         !variable->type || variable->type->kind != TYPE_ARRAY ||
-        variable->type->array_len < 0 || index >= variable->type->array_len ||
+        variable->type->array_len <= 0 ||
+        (constant_index && index >= variable->type->array_len) ||
         !variable->type->base || variable->type->base->kind != TYPE_PTR ||
         variable->type->base->is_volatile ||
         !variable->type->base->base ||
@@ -1988,6 +1992,25 @@ static Decl* resolve_inline_readonly_function_pointer_array(Expr* callee) {
         return NULL;
     }
     element = initializer->compound_init;
+    if (!constant_index) {
+        if (!unmodified_local) return NULL;
+        while (element) {
+            Decl* target;
+            if (element->designator_kind != INIT_DESIGNATOR_NONE) {
+                return NULL;
+            }
+            target = resolve_inline_function_pointer_initializer(
+                variable->type->base, element->expr);
+            if (!target || (common_target && target != common_target)) {
+                return NULL;
+            }
+            common_target = target;
+            ++element_count;
+            element = element->next;
+        }
+        return element_count == variable->type->array_len
+            ? common_target : NULL;
+    }
     while (index > 0) {
         if (!element || element->designator_kind != INIT_DESIGNATOR_NONE) {
             return NULL;
