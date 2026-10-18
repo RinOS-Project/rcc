@@ -79,8 +79,16 @@ struct StructuralDataMemberPointerArrayKey {
     int StructuralMemberPointerArrayOwner::*values[2];
 };
 
+struct StructuralDataMemberPointerMatrixKey {
+    int StructuralMemberPointerArrayOwner::*values[2][2];
+};
+
 struct StructuralFunctionMemberPointerArrayKey {
     int (StructuralMemberPointerArrayOwner::*values[2])(int) const;
+};
+
+struct StructuralFunctionMemberPointerMatrixKey {
+    int (StructuralMemberPointerArrayOwner::*values[2][2])(int) const;
 };
 
 template <StructuralArrayKey... Keys>
@@ -186,6 +194,22 @@ struct StructuralDataMemberPointerArrayValuePack {
     }
 };
 
+template <StructuralDataMemberPointerMatrixKey... Keys>
+struct StructuralDataMemberPointerMatrixValuePack {
+    static int combined(const StructuralMemberPointerArrayOwner& object) {
+        return ((object.*Keys.values[0][0] + object.*Keys.values[0][1] +
+                 object.*Keys.values[1][0] + object.*Keys.values[1][1]) + ... +
+                0);
+    }
+
+    static int null_count() {
+        return (((Keys.values[0][0] == nullptr ? 1 : 0) +
+                 (Keys.values[0][1] == nullptr ? 1 : 0) +
+                 (Keys.values[1][0] == nullptr ? 1 : 0) +
+                 (Keys.values[1][1] == nullptr ? 1 : 0)) + ... + 0);
+    }
+};
+
 template <StructuralFunctionMemberPointerArrayKey... Keys>
 struct StructuralFunctionMemberPointerArrayValuePack {
     static int combined(const StructuralMemberPointerArrayOwner& object) {
@@ -200,6 +224,23 @@ struct StructuralFunctionMemberPointerArrayValuePack {
     static int null_count() {
         return (((Keys.values[0] == nullptr ? 1 : 0) +
                  (Keys.values[1] == nullptr ? 1 : 0)) + ... + 0);
+    }
+};
+
+template <StructuralFunctionMemberPointerMatrixKey... Keys>
+struct StructuralFunctionMemberPointerMatrixValuePack {
+    static int combined(const StructuralMemberPointerArrayOwner& object) {
+        return ((((object.*Keys.values[0][0])(1) +
+                  (object.*Keys.values[0][1])(2) +
+                  (object.*Keys.values[1][0])(3) +
+                  (object.*Keys.values[1][1])(4))) + ... + 0);
+    }
+
+    static int null_count() {
+        return (((Keys.values[0][0] == nullptr ? 1 : 0) +
+                 (Keys.values[0][1] == nullptr ? 1 : 0) +
+                 (Keys.values[1][0] == nullptr ? 1 : 0) +
+                 (Keys.values[1][1] == nullptr ? 1 : 0)) + ... + 0);
     }
 };
 
@@ -273,6 +314,17 @@ int main() {
            StructuralDataMemberPointerArrayValuePack<
                StructuralDataMemberPointerArrayKey{{nullptr, nullptr}}
            >::null_count() == 2 &&
+           StructuralDataMemberPointerMatrixValuePack<
+               StructuralDataMemberPointerMatrixKey{{
+                   {&StructuralMemberPointerArrayOwner::first,
+                    &StructuralMemberPointerArrayOwner::second},
+                   {&StructuralMemberPointerArrayOwner::second,
+                    &StructuralMemberPointerArrayOwner::first}}}
+           >::combined(member_pointer_object) == 84 &&
+           StructuralDataMemberPointerMatrixValuePack<
+               StructuralDataMemberPointerMatrixKey{{
+                   {nullptr, nullptr}, {nullptr, nullptr}}}
+           >::null_count() == 4 &&
            StructuralFunctionMemberPointerArrayValuePack<
                StructuralFunctionMemberPointerArrayKey{{
                    &StructuralMemberPointerArrayOwner::add_first,
@@ -287,5 +339,16 @@ int main() {
            StructuralFunctionMemberPointerArrayValuePack<
                StructuralFunctionMemberPointerArrayKey{{nullptr, nullptr}}
            >::null_count() == 2
+           && StructuralFunctionMemberPointerMatrixValuePack<
+               StructuralFunctionMemberPointerMatrixKey{{
+                   {&StructuralMemberPointerArrayOwner::add_first,
+                    &StructuralMemberPointerArrayOwner::add_second},
+                   {&StructuralMemberPointerArrayOwner::add_first,
+                    &StructuralMemberPointerArrayOwner::add_second}}}
+           >::combined(member_pointer_object) == 94 &&
+           StructuralFunctionMemberPointerMatrixValuePack<
+               StructuralFunctionMemberPointerMatrixKey{{
+                   {nullptr, nullptr}, {nullptr, nullptr}}}
+           >::null_count() == 4
         ? 0 : 1;
 }

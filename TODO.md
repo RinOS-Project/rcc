@@ -6044,6 +6044,8 @@ remains a separate open item.
       RCC/GCC host regression (`test-cxx-structural-array-nttp`).
 - [x] Re-run the complete native-Windows `test-cxx` aggregate (exit 0).
 - [x] Run native-Windows `test-debug-info` (exit 0).
-- [ ] Multidimensional member-pointer arrays, virtual/inherited member-pointer
-      array values, and multidimensional arrays of structural-class elements
-      remain open.
+- [x] Cover two-dimensional data-member and member-function pointer arrays,
+      including all-null arrays, with exact GCC symbols, i686/AMD64 generation,
+      and the full native-Windows `test-cxx` aggregate.
+- [ ] Virtual/inherited member-pointer array values and multidimensional arrays
+      of structural-class elements remain open.
