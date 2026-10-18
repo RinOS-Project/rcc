@@ -2840,6 +2840,19 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
          * its user-defined conversion with function-to-pointer decay. */
         return sema_cxx_function_type_conversion_rank(source, target->base);
     }
+    if (source->kind == TYPE_ARRAY && target->kind == TYPE_PTR &&
+        source->base && target->base &&
+        sema_pointee_qualification_preserved(source->base, target->base)) {
+        if (type_is_compatible(source->base, target->base)) return 0;
+        if (target->base->kind == TYPE_VOID ||
+            ((source->base->kind == TYPE_STRUCT ||
+              source->base->kind == TYPE_UNION) &&
+             (target->base->kind == TYPE_STRUCT ||
+              target->base->kind == TYPE_UNION) &&
+             sema_cxx_unique_public_base(source->base, target->base, NULL))) {
+            return 2;
+        }
+    }
     /* A conversion function may return a pointer-like value that completes
      * its implicit conversion sequence with pointer-to-bool. Function and
      * array references first undergo their standard decay, just as they do
@@ -2917,6 +2930,42 @@ static int sema_cxx_conversion_result_rank(Type* source, Type* target) {
         return sema_cxx_pointer_conversion(source, target, NULL) ? 2 : -1;
     }
     return -1;
+}
+
+/* A reference to an array is represented as a pointer-to-array carrying the
+ * reference bit.  Once such a reference reaches a by-value pointer context,
+ * perform the ordinary array decay on the expression's pointer value. */
+static bool sema_cxx_decay_array_reference(Expr* expression, Type* target) {
+    Type* source;
+    Type* decay_type;
+    int adjustment = 0;
+    if (!expression || !expression->type || !target ||
+        !expression->type->is_reference ||
+        expression->type->kind != TYPE_PTR ||
+        !(source = expression->type->base) ||
+        source->kind != TYPE_ARRAY || target->kind != TYPE_PTR ||
+        !target->base ||
+        sema_cxx_conversion_result_rank(expression->type, target) < 0 ||
+        !(decay_type = source->base ? type_ptr(source->base) : NULL)) {
+        return false;
+    }
+    if (target->base->kind == TYPE_VOID ||
+        type_is_compatible(decay_type->base, target->base)) {
+        expression->type = target;
+        return true;
+    }
+    if (!sema_pointee_qualification_preserved(
+            decay_type->base, target->base) ||
+        !sema_cxx_set_pointer_conversion(
+            expression, decay_type, target, &adjustment)) {
+        return false;
+    }
+    if (!expression->cxx_virtual_base_adjustment) {
+        expression->cxx_pointer_adjustment_valid = adjustment != 0;
+        expression->cxx_pointer_adjustment = adjustment;
+    }
+    expression->type = target;
+    return true;
 }
 
 /* [over.ics.rank] also distinguishes reference bindings with the same target
@@ -3434,6 +3483,8 @@ reference_binding_validated:
         return target;
     }
 
+    if (sema_cxx_decay_array_reference(e, target)) return target;
+
     /* Same type */
     if (e->type == target) return target;
 
@@ -3583,6 +3634,7 @@ reference_binding_validated:
             call->call_method = conversion;
             *e = *call;
             sema_expr(e);
+            if (sema_cxx_decay_array_reference(e, target)) return target;
             return e->type && sema_cxx_conversion_result_rank(e->type, target) >= 0
                 ? target : NULL;
         }

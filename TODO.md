@@ -6202,3 +6202,13 @@ remains a separate open item.
       aggregate also exits 0.
 - [ ] Other multi-step standard conversions, reference-binding shapes, and
       general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-18, array-reference conversion decay)
+
+- [x] Complete an implicit conversion function returning `ArrayType&` with
+      array-to-pointer decay, including element qualification and derived-to-
+      base pointer adjustment. Compare with GCC C++20 and pass
+      `test-cxx-conversion-operator` with i686/AMD64 code generation and native
+      execution.
+- [x] Run the complete native-Windows `test-cxx` aggregate after this change;
+      it exits 0.

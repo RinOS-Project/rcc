@@ -320,6 +320,7 @@ public:
 };
 
 using FunctionReferenceConversionTarget = int();
+using ArrayReferenceConversionTarget = int[2];
 
 int call_lvalue_function_conversion() {
     return 97;
@@ -360,6 +361,15 @@ class LvalueFunctionReferenceSource {
 public:
     operator FunctionReferenceConversionTarget&() const {
         return call_lvalue_function_conversion;
+    }
+};
+
+class ArrayReferenceConversionSource {
+public:
+    ArrayReferenceConversionTarget* value;
+
+    operator ArrayReferenceConversionTarget&() const {
+        return *value;
     }
 };
 
@@ -412,6 +422,10 @@ double take_promoted_double(double value) {
 
 int take_function_pointer(FunctionReferenceConversionTarget* function) {
     return function();
+}
+
+int sum_array_decay(const int* values) {
+    return values[0] + values[1];
 }
 
 int choose_conversion_reference(ReferenceConversionResult&& value) {
@@ -656,6 +670,9 @@ int main() {
         lvalue_function_reference_source;
     ConversionDerivedPointerTarget derived_pointer_target{67};
     ConversionPointerSource pointer_source{&derived_pointer_target};
+    int conversion_array_values[2] = {29, 31};
+    ArrayReferenceConversionSource array_reference_source{
+        &conversion_array_values};
     int pointer_bool_value = 1;
     ConversionPointerToBoolSource pointer_bool_source{&pointer_bool_value};
     ConversionPointerToBoolSource null_pointer_bool_source{nullptr};
@@ -736,6 +753,7 @@ int main() {
         take_promoted_integer(promotion_meter) != 23 ||
         take_promoted_double(floating_promotion_meter) != 31.0 ||
         take_function_pointer(lvalue_function_reference_source) != 97 ||
+        sum_array_decay(array_reference_source) != 60 ||
         choose_conversion_reference(ReferenceConversionSource{}) != 143 ||
         read_conversion_reference(ref_qualified_source) != 47 ||
         read_conversion_reference(RefQualifiedConversionSource{}) != 53 ||
