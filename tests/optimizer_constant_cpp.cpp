@@ -46,6 +46,12 @@ static int inline_constexpr_array_second(int value)
     return value * 3 - 4;
 }
 
+extern "C" int inline_function_pointer_parameter_call(
+    int (*callback)(int), int value)
+{
+    return callback(value);
+}
+
 static constexpr int (*inline_constexpr_function_array[])(int) = {
     &inline_constexpr_array_first,
     &inline_constexpr_array_second

@@ -6444,3 +6444,14 @@ remains a separate open item.
       on native Windows. `test-optimize` passes (exit 0).
 - [ ] General alias analysis, mutable callback writes, and target sets that
       require interprocedural or nonlocal dataflow remain open.
+
+## RCC continuation (2026-10-19, function-pointer parameter optimizer guard)
+
+- [x] Restrict local initializer/reassignment analysis to `DECL_VAR` so
+      function-pointer parameters are never read through the unrelated
+      `var_init` union member. Keep parameter-based calls indirect and add
+      shape plus generated-runtime regressions.
+- [x] Reproduce and fix the O1/O2 verified C++ member-function-pointer
+      compilation crash. `test-optimize`, `test-cxx-member-pointer-functions`
+      (including i686/AMD64 O2 verified objects), and the complete native
+      Windows `test-cxx` aggregate all pass (exit 0).

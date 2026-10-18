@@ -2059,7 +2059,8 @@ static bool inline_unmodified_local_variable(Decl* variable) {
 
 static Decl* resolve_inline_function_pointer_variable(Decl* variable) {
     bool stable_local_target = false;
-    if (!variable || !variable->type || variable->type->kind != TYPE_PTR ||
+    if (!variable || variable->kind != DECL_VAR || !variable->type ||
+        variable->type->kind != TYPE_PTR ||
         variable->type->is_reference || variable->type->is_volatile ||
         !variable->type->base || variable->type->base->kind != TYPE_FUNC) {
         return NULL;

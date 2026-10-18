@@ -192,6 +192,7 @@ static void verify_smaller(const char* unoptimized_path,
         "inline_local_mutable_function_pointer_array_dynamic_call"
     };
     static const char* const unresolved_pointer_calls[] = {
+        "inline_function_pointer_parameter_call",
         "inline_local_uniform_function_pointer_array_side_effect_index",
         "inline_local_aliased_mutable_function_pointer_call",
         "inline_local_branch_reassigned_function_pointer_call",
@@ -1024,6 +1025,8 @@ static void execute_inline_namespace_case(const char* path)
     typedef int (__attribute__((sysv_abi)) *SysvIntUnary)(int);
     typedef int (__attribute__((sysv_abi)) *SysvIntBinary)(int, int);
     typedef int (__attribute__((sysv_abi)) *SysvIntPointerBinary)(int*, int);
+    typedef int (__attribute__((sysv_abi)) *SysvIntIndirect)(
+        SysvIntUnary, int);
     ObjectFile* object = objfile_read(path);
     ObjSection* code;
     ObjSymbol* symbol;
@@ -1048,6 +1051,7 @@ static void execute_inline_namespace_case(const char* path)
     SysvIntUnary local_mutated_mutable_pointer_array;
     SysvIntBinary local_mutable_pointer_array_dynamic;
     SysvIntBinary local_uniform_pointer_array_dynamic;
+    SysvIntIndirect parameter_pointer_call;
     SysvIntPointerBinary local_uniform_pointer_array_side_effect;
     assert(object != NULL && object->arch == ARCH_X64);
     if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
@@ -1134,6 +1138,11 @@ static void execute_inline_namespace_case(const char* path)
            sizeof(local_aliased_mutable_pointer));
     assert(local_mutable_pointer(5) == 28);
     assert(local_mutable_pointer_array(5) == 11);
+    symbol = function_symbol(object, "inline_function_pointer_parameter_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&parameter_pointer_call, &address, sizeof(parameter_pointer_call));
+    assert(parameter_pointer_call(array_first, 5) == 28);
+    assert(parameter_pointer_call(array_second, 5) == 11);
     assert(local_mutable_pointer_array_dynamic(0, 5) == 28);
     assert(local_mutable_pointer_array_dynamic(1, 5) == 11);
     assert(local_uniform_pointer_array_dynamic(0, 5) == 28);
@@ -1352,6 +1361,8 @@ static void execute_signed_negative_power_of_two_cases(const char* path) {
 #if !defined(_WIN32) && defined(__x86_64__)
 static void execute_inline_namespace_case(const char* path)
 {
+    typedef int (__attribute__((sysv_abi)) *SysvIntIndirect)(
+        int (*)(int), int);
     ObjectFile* object = objfile_read(path);
     ObjSection* code;
     ObjSymbol* symbol;
@@ -1375,6 +1386,7 @@ static void execute_inline_namespace_case(const char* path)
     int (*local_mutated_mutable_pointer_array)(int);
     int (*local_mutable_pointer_array_dynamic)(int, int);
     int (*local_uniform_pointer_array_dynamic)(int, int);
+    SysvIntIndirect parameter_pointer_call;
     int (*local_uniform_pointer_array_side_effect)(int*, int);
     assert(object != NULL && object->arch == ARCH_X64);
     if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
@@ -1437,6 +1449,11 @@ static void execute_inline_namespace_case(const char* path)
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_mutable_pointer_array, &address,
            sizeof(local_mutable_pointer_array));
+    symbol = function_symbol(object, "inline_function_pointer_parameter_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&parameter_pointer_call, &address, sizeof(parameter_pointer_call));
+    assert(parameter_pointer_call(array_first, 5) == 28);
+    assert(parameter_pointer_call(array_second, 5) == 11);
     symbol = function_symbol(
         object, "inline_local_mutable_function_pointer_array_dynamic_call");
     address = (uintptr_t)mapping + symbol->value;
