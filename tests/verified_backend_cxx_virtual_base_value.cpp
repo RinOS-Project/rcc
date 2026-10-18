@@ -40,7 +40,7 @@ struct VerifiedVirtualCleanupLeaf : virtual VerifiedVirtualCleanupRoot {
 
     explicit VerifiedVirtualCleanupLeaf(
             int* count, int ignored, int extra_a, int increment,
-            double extra_b) noexcept
+            int extra_b) noexcept
         : cleanup_count(count), cleanup_increment(increment),
           cleanup_increment_extra_a(extra_a),
           cleanup_increment_extra_b(extra_b) {}

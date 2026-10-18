@@ -7766,6 +7766,15 @@ static bool cxx_constructor_scalar_type(Type* type) {
                     type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE);
 }
 
+static bool cxx_constructor_scalar_conversion_supported(
+    Type* source, Type* target) {
+    source = cxx_constructor_value_type(source);
+    target = cxx_constructor_value_type(target);
+    if (!source || !target) return false;
+    return type_is_compatible(source, target) ||
+        (type_is_arithmetic(source) && type_is_arithmetic(target));
+}
+
 static bool cxx_constructor_scalar_constant(Expr* expression) {
     int64_t integer_value;
     if (!expression) return false;
@@ -8055,8 +8064,8 @@ static bool cxx_constructor_expression_is_lowerable(
         if (index < 0 || !parameter ||
             !cxx_constructor_scalar_type(parameter->type) ||
             (target_type &&
-             !type_is_compatible(cxx_constructor_value_type(parameter->type),
-                                 cxx_constructor_value_type(target_type)))) {
+             !cxx_constructor_scalar_conversion_supported(
+                 parameter->type, target_type))) {
             return false;
         }
         if (parameter_used && index < (int)parameter_count) {
@@ -8100,9 +8109,8 @@ static bool cxx_constructor_expression_is_lowerable(
         }
         if (!source_field || !cxx_constructor_scalar_type(source_field->type) ||
             (target_type &&
-             !type_is_compatible(
-                 cxx_constructor_value_type(source_field->type),
-                 cxx_constructor_value_type(target_type)))) {
+             !cxx_constructor_scalar_conversion_supported(
+                 source_field->type, target_type))) {
             return false;
         }
         if (parameter_used && index < (int)parameter_count) {

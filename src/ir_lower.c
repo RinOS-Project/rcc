@@ -6431,10 +6431,19 @@ static bool lower_cxx_empty_noop_constructor_supported(
             }
             while (candidate_type && candidate_decl) {
                 if (candidate_decl->decl == initialized_parameter) {
-                    if (!parameter ||
-                        !type_is_compatible(
+                    bool identical_member_type =
+                        type_is_compatible(
                             (Type*)member->type,
-                            (Type*)candidate_type->type) ||
+                            (Type*)candidate_type->type) &&
+                        type_is_compatible(
+                            (Type*)candidate_type->type,
+                            (Type*)member->type);
+                    bool arithmetic_member_conversion =
+                        type_is_arithmetic((Type*)member->type) &&
+                        type_is_arithmetic((Type*)candidate_type->type);
+                    if (!parameter ||
+                        (!identical_member_type &&
+                         !arithmetic_member_conversion) ||
                         !type_is_compatible(
                             (Type*)candidate_type->type,
                             (Type*)parameter)) {
@@ -12609,6 +12618,7 @@ static bool lower_struct_initializer(
             const TypeField* field;
             RccIrLowerValue object;
             RccIrLowerValue address;
+            RccIrLowerValue member_value;
             const DeclList* parameter_decl;
             int parameter_index = -1;
             if (member_initializer->is_base_initializer) continue;
@@ -12637,10 +12647,15 @@ static bool lower_struct_initializer(
             if (!field || parameter_index < 0 ||
                 parameter_index >=
                     initializer->compound_constructor->parameter_count ||
-                !address.valid ||
-                !lower_store_address(
-                    context, address,
-                    constructor_arguments[parameter_index])) {
+                !address.valid) {
+                context->unsupported = true;
+                goto constructor_lowering_failure;
+            }
+            member_value = lower_cast(
+                context, constructor_arguments[parameter_index],
+                field->type);
+            if (!member_value.valid ||
+                !lower_store_address(context, address, member_value)) {
                 context->unsupported = true;
                 goto constructor_lowering_failure;
             }
