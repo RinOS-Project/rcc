@@ -4977,6 +4977,8 @@ test-cxx-static-reference-subobjects: $(RCXX_TARGET)
 	$(OBJCOPY) --redefine-sym main=rcc_generated_main $(TEST_OUT)/cxx-static-reference-subobjects/x64.o
 	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-static-reference-subobjects/x64-host tests/cxx_static_reference_host.c $(TEST_OUT)/cxx-static-reference-subobjects/x64.o
 	$(TEST_OUT)/cxx-static-reference-subobjects/x64-host
+	$(CXX) -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-static-reference-subobjects/gcc-host tests/cxx_static_reference_subobjects.cpp
+	$(TEST_OUT)/cxx-static-reference-subobjects/gcc-host
 
 test-cxx-static-reference-conversions: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-static-reference-conversions)

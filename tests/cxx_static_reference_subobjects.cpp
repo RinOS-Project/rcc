@@ -65,6 +65,28 @@ struct StaticReferencePolymorphicOwner {
     }
 };
 
+struct StaticReferencePolymorphicVirtualBase {
+    int value;
+
+    explicit StaticReferencePolymorphicVirtualBase(int input) : value(input) {}
+
+    virtual int read() const {
+        return value;
+    }
+};
+
+struct StaticReferencePolymorphicVirtualDerived
+    : virtual StaticReferencePolymorphicVirtualBase {
+    int extra;
+
+    explicit StaticReferencePolymorphicVirtualDerived(int input)
+        : StaticReferencePolymorphicVirtualBase(input), extra(input * 2) {}
+
+    int read() const override {
+        return value + extra;
+    }
+};
+
 static int record_comma_operand() {
     ++cxx_static_reference_comma_calls;
     return 0;
@@ -101,6 +123,13 @@ const StaticReferencePolymorphicOwner& local_polymorphic_reference() {
     return value;
 }
 
+const StaticReferencePolymorphicVirtualBase&
+local_polymorphic_virtual_base_reference() {
+    static const StaticReferencePolymorphicVirtualBase& value =
+            StaticReferencePolymorphicVirtualDerived{12};
+    return value;
+}
+
 extern "C" int main() {
     if (global_member_reference != 1 || global_base_reference.value != 3 ||
             global_conditional_member_reference != 8 ||
@@ -121,6 +150,12 @@ extern "C" int main() {
     if (polymorphic.read() != 12 ||
             &polymorphic != &local_polymorphic_reference()) {
         return 3;
+    }
+    const StaticReferencePolymorphicVirtualBase& virtual_base =
+            local_polymorphic_virtual_base_reference();
+    if (virtual_base.read() != 36 ||
+            &virtual_base != &local_polymorphic_virtual_base_reference()) {
+        return 4;
     }
     return 0;
 }
