@@ -28,12 +28,14 @@ int main(int argc, char** argv)
     ObjSection* text;
     ObjSymbol* entry_symbol;
     ObjSymbol* wide_loop_symbol;
+    ObjSymbol* nested_wide_loop_symbol;
     size_t page_size;
     size_t mapping_size;
     void* memory;
     void* entry_address;
     EntryFunction entry;
     WideLoopFunction wide_loop;
+    WideLoopFunction nested_wide_loop;
 #ifdef _WIN32
     SYSTEM_INFO system_info;
     DWORD previous;
@@ -48,9 +50,13 @@ int main(int argc, char** argv)
     entry_symbol = objfile_find_symbol(object, "main");
     wide_loop_symbol = objfile_find_symbol(
         object, "verified_goto_wide_inside_loop");
+    nested_wide_loop_symbol = objfile_find_symbol(
+        object, "verified_goto_wide_nested_loop");
     assert(text != NULL && text->data != NULL && text->size != 0u &&
            entry_symbol != NULL && entry_symbol->section == 0 &&
-           wide_loop_symbol != NULL && wide_loop_symbol->section == 0);
+           wide_loop_symbol != NULL && wide_loop_symbol->section == 0 &&
+           nested_wide_loop_symbol != NULL &&
+           nested_wide_loop_symbol->section == 0);
 #ifdef _WIN32
     GetSystemInfo(&system_info);
     page_size = (size_t)system_info.dwPageSize;
@@ -105,6 +111,14 @@ int main(int argc, char** argv)
            0x0000000200000002LL);
     assert(wide_loop(3u, 0x0000000200000002LL) ==
            0x000000060000000cLL);
+    entry_address = (uint8_t*)memory + nested_wide_loop_symbol->value;
+    memcpy(&nested_wide_loop, &entry_address, sizeof(nested_wide_loop));
+    assert(nested_wide_loop(0u, 0x0000000200000002LL) ==
+           0x0000000200000002LL);
+    assert(nested_wide_loop(1u, 0x0000000200000002LL) ==
+           0x0000000600000010LL);
+    assert(nested_wide_loop(3u, 0x0000000200000002LL) ==
+           0x0000000e00000038LL);
 #ifdef _WIN32
     assert(VirtualFree(memory, 0, MEM_RELEASE));
 #else

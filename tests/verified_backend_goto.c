@@ -52,6 +52,29 @@ long long verified_goto_wide_inside_loop(unsigned int count,
     return value;
 }
 
+long long verified_goto_wide_nested_loop(unsigned int count,
+                                         long long initial)
+{
+    long long value = initial;
+    while (count != 0u) {
+        unsigned int inner = 3u;
+        while (inner != 0u) {
+            if ((inner & 1u) != 0u) {
+                value += 0x0000000100000001LL;
+                goto joined;
+            }
+            value += 0x0000000200000002LL;
+
+        joined:
+            value += (long long)(count + inner);
+            --inner;
+        }
+        value += (long long)count;
+        --count;
+    }
+    return value;
+}
+
 int main(void)
 {
     if (verified_goto_wide_forward(1, 100) != 105) return 1;
