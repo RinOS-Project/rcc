@@ -975,9 +975,17 @@
         execution in `test-verified-cxx-destructor` and
         `test-cxx-destructor-body`; the complete `test-verified-backend` gate
         passes.
-  - [ ] Extend explicit-destructor subobject cleanup to virtual bases,
-        class-array members, custom cleanup hooks, and potentially-throwing
-        destructor trees, with lowering and execution coverage for each.
+  - [x] Extend explicit-destructor subobject cleanup to fixed-size class-array
+        members, including multidimensional arrays. Lower one reverse-order
+        runtime walk over every element in legacy x86/x64 and typed SSA; verify
+        i686/AMD64 emission with zero fallback and x64 execution of
+        body -> `[1][1]` through `[0][0]` -> base order (`943211`). The legacy
+        explicit-call and automatic-scope tests also pass. The complete
+        `test-cxx`, `test-verified-backend`, `test-optimize`, and
+        `test-debug-info` gates pass.
+  - [ ] Extend explicit-destructor subobject cleanup to virtual bases, custom
+        cleanup hooks, and potentially-throwing destructor trees, with
+        lowering and execution coverage for each.
   - [x] Resolve data-member access exposed through a virtual base using the
         active subobject's vbtable and member-in-base offset; verify inherited
         access from both arms of a shared virtual diamond during destruction,

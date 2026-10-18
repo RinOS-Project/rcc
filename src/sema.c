@@ -9956,10 +9956,37 @@ static Decl* sema_cxx_destructor_function(Type* object_type) {
     return method->decl;
 }
 
-static bool sema_cxx_type_contains_class_array(const Type* type) {
-    if (!type || type->kind != TYPE_ARRAY || !type->base) return false;
-    return type->base->cxx_class ||
-        sema_cxx_type_contains_class_array(type->base);
+static const Type* sema_cxx_class_array_element(const Type* type) {
+    bool is_array = false;
+    while (type && type->kind == TYPE_ARRAY) {
+        if (!type->base || type->array_len <= 0 || type->size <= 0) {
+            return NULL;
+        }
+        is_array = true;
+        type = type->base;
+    }
+    return is_array && type && type->cxx_class ? type : NULL;
+}
+
+static bool sema_cxx_class_array_count(const Type* array_type,
+                                      const Type* element_type,
+                                      uint64_t* count) {
+    uint64_t maximum_count = g_opts.target_arch == ARCH_X64
+        ? (uint64_t)INT64_MAX : (uint64_t)UINT32_MAX;
+    uint64_t element_count;
+    if (!array_type || array_type->kind != TYPE_ARRAY ||
+        !element_type || !element_type->cxx_class ||
+        element_type->size <= 0 || array_type->size <= 0 ||
+        (uint64_t)array_type->size > maximum_count ||
+        (uint64_t)element_type->size > (uint64_t)INT32_MAX ||
+        array_type->size % element_type->size != 0) {
+        return false;
+    }
+    element_count = (uint64_t)array_type->size /
+        (uint64_t)element_type->size;
+    if (element_count == 0u || element_count > maximum_count) return false;
+    if (count) *count = element_count;
+    return true;
 }
 
 /* Keep lifetime cleanup in lockstep with the complete-destructor paths in
@@ -9995,9 +10022,22 @@ static bool sema_cxx_destructor_subobjects_supported(
     for (field = cls->fields; field; field = field->next) {
         const Type* type = field->type;
         if (field->is_static || !type) continue;
-        if (sema_cxx_type_contains_class_array(type) ||
-            type->cleanup_function || type->cleanup_field) {
+        if (type->cleanup_function || type->cleanup_field) {
             return false;
+        }
+        if (type->kind == TYPE_ARRAY) {
+            const Type* element_type = sema_cxx_class_array_element(type);
+            if (element_type) {
+                uint64_t element_count;
+                if (!sema_cxx_class_array_count(
+                        type, element_type, &element_count) ||
+                    element_count == 0u || !element_type->cxx_class ||
+                    !sema_cxx_destructor_subobjects_supported(
+                        element_type->cxx_class, depth + 1u)) {
+                    return false;
+                }
+            }
+            continue;
         }
         if (type->cxx_class &&
             !sema_cxx_destructor_subobjects_supported(

@@ -6470,6 +6470,8 @@ static void gen64_cxx_initialize_object(Module* mod, Type* object_type,
 }
 
 static void gen64_cxx_destroy_complete(Module* mod, Type* object_type);
+static const Type* gen64_cxx_class_array_element(const Type* type);
+static void gen64_cxx_destroy_class_array(Module* mod, Type* array_type);
 /* Keep direct member destructors registered while a deleting destructor is
  * running.  If that destructor throws, the target runtime unwinds this list;
  * on normal return the list is removed before the ordinary member walk. */
@@ -6637,7 +6639,8 @@ static void gen64_cxx_destroy_members(Module* mod, Type* object_type) {
     for (TypeParam* parameter = cls->fields; parameter;
          parameter = parameter->next) {
         if (!parameter->is_static && parameter->type &&
-            parameter->type->cxx_class) {
+            (parameter->type->cxx_class ||
+             gen64_cxx_class_array_element(parameter->type))) {
             ++field_count;
         }
     }
@@ -6646,7 +6649,8 @@ static void gen64_cxx_destroy_members(Module* mod, Type* object_type) {
     for (TypeParam* parameter = cls->fields; parameter;
          parameter = parameter->next) {
         if (!parameter->is_static && parameter->type &&
-            parameter->type->cxx_class) {
+            (parameter->type->cxx_class ||
+             gen64_cxx_class_array_element(parameter->type))) {
             TypeField* field = gen64_cxx_constructor_field(
                 object_type, parameter->name);
             if (field) fields[field_index++] = field;
@@ -6660,16 +6664,44 @@ static void gen64_cxx_destroy_members(Module* mod, Type* object_type) {
                                (uint32_t)fields[index]->offset);
         }
         emit64_mov_reg_reg(mod, RAX, RCX);
-        gen64_cxx_destroy_complete(mod, fields[index]->type);
+        if (fields[index]->type->kind == TYPE_ARRAY) {
+            gen64_cxx_destroy_class_array(mod, fields[index]->type);
+        } else {
+            gen64_cxx_destroy_complete(mod, fields[index]->type);
+        }
     }
     emit64_pop_reg(mod, RAX);
     if (fields) rcc_free(fields);
 }
 
-static bool gen64_cxx_type_contains_class_array(const Type* type) {
-    if (!type || type->kind != TYPE_ARRAY || !type->base) return false;
-    return type->base->cxx_class ||
-        gen64_cxx_type_contains_class_array(type->base);
+static const Type* gen64_cxx_class_array_element(const Type* type) {
+    bool is_array = false;
+    while (type && type->kind == TYPE_ARRAY) {
+        if (!type->base || type->array_len <= 0 || type->size <= 0) {
+            return NULL;
+        }
+        is_array = true;
+        type = type->base;
+    }
+    return is_array && type && type->cxx_class ? type : NULL;
+}
+
+static bool gen64_cxx_class_array_count(const Type* array_type,
+                                        const Type* element_type,
+                                        uint64_t* count) {
+    uint64_t element_count;
+    if (!array_type || array_type->kind != TYPE_ARRAY ||
+        !element_type || !element_type->cxx_class ||
+        element_type->size <= 0 || array_type->size <= 0 ||
+        (uint64_t)element_type->size > (uint64_t)INT32_MAX ||
+        array_type->size % element_type->size != 0) {
+        return false;
+    }
+    element_count = (uint64_t)array_type->size /
+        (uint64_t)element_type->size;
+    if (element_count == 0u) return false;
+    if (count) *count = element_count;
+    return true;
 }
 
 static bool gen64_cxx_destructor_subobjects_supported(
@@ -6700,9 +6732,21 @@ static bool gen64_cxx_destructor_subobjects_supported(
     for (field = cls->fields; field; field = field->next) {
         const Type* type = field->type;
         if (field->is_static || !type) continue;
-        if (gen64_cxx_type_contains_class_array(type) ||
-            type->cleanup_function || type->cleanup_field) {
+        if (type->cleanup_function || type->cleanup_field) {
             return false;
+        }
+        if (type->kind == TYPE_ARRAY) {
+            const Type* element_type = gen64_cxx_class_array_element(type);
+            if (element_type) {
+                uint64_t element_count;
+                if (!gen64_cxx_class_array_count(
+                        type, element_type, &element_count) ||
+                    !gen64_cxx_destructor_subobjects_supported(
+                        element_type->cxx_class, depth + 1u)) {
+                    return false;
+                }
+            }
+            continue;
         }
         if (type->cxx_class &&
             !gen64_cxx_destructor_subobjects_supported(
@@ -6711,6 +6755,36 @@ static bool gen64_cxx_destructor_subobjects_supported(
         }
     }
     return true;
+}
+
+static void gen64_cxx_destroy_class_array(Module* mod, Type* array_type) {
+    const Type* element_type = gen64_cxx_class_array_element(array_type);
+    uint64_t element_count;
+    int loop;
+    int done;
+    if (!gen64_cxx_class_array_count(
+            array_type, element_type, &element_count)) {
+        rcc_fatal("validated C++ class-array destructor has invalid layout");
+    }
+    loop = new_label64();
+    done = new_label64();
+    emit64_push_reg(mod, RAX); /* array base */
+    emit64_mov_reg_mem(mod, RAX, RSP, 0);
+    emit64_mov_reg_imm64(mod, RCX, (uint64_t)array_type->size);
+    emit64_add_reg_reg(mod, RAX, RCX);
+    emit64_push_reg(mod, RAX); /* one-past-end cursor */
+    emit64_label(mod, loop);
+    emit64_mov_reg_mem(mod, RCX, RSP, 0);
+    emit64_sub_reg_imm(mod, RCX, (int32_t)element_type->size);
+    emit64_mov_reg_mem(mod, RDX, RSP, 8);
+    emit64_cmp_reg_reg(mod, RCX, RDX);
+    emit64_jcc_label(mod, CC64_B, done);
+    emit64_mov_mem_reg(mod, RSP, 0, RCX);
+    emit64_mov_reg_reg(mod, RAX, RCX);
+    gen64_cxx_destroy_complete(mod, (Type*)element_type);
+    emit64_jmp_label(mod, loop);
+    emit64_label(mod, done);
+    emit64_add_reg_imm(mod, RSP, 16);
 }
 
 static void gen64_cxx_destroy_bases(Module* mod, Type* object_type) {

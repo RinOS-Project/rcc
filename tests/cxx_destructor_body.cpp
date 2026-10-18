@@ -41,6 +41,34 @@ struct OrderedDerived : OrderedBase {
     }
 };
 
+struct OrderedArrayElement {
+    int* order;
+    int tag;
+
+    ~OrderedArrayElement() noexcept {
+        *order = *order * 10 + tag;
+    }
+};
+
+struct OrderedArrayDerived : OrderedBase {
+    OrderedArrayElement members[2][2];
+
+    explicit OrderedArrayDerived(int* value) noexcept : OrderedBase(value) {
+        members[0][0].order = value;
+        members[0][0].tag = 1;
+        members[0][1].order = value;
+        members[0][1].tag = 2;
+        members[1][0].order = value;
+        members[1][0].tag = 3;
+        members[1][1].order = value;
+        members[1][1].tag = 4;
+    }
+
+    ~OrderedArrayDerived() noexcept {
+        *order = *order * 10 + 9;
+    }
+};
+
 int local_destructor() {
     int count = 0;
     {
@@ -72,7 +100,25 @@ int local_subobject_destructor() {
     return order == 231 ? 0 : 1;
 }
 
+int explicit_array_subobject_destructor() {
+    int order = 0;
+    OrderedArrayDerived* value = new OrderedArrayDerived(&order);
+    value->~OrderedArrayDerived();
+    rin_free(static_cast<void*>(value));
+    return order == 943211 ? 0 : 1;
+}
+
+int local_array_subobject_destructor() {
+    int order = 0;
+    {
+        OrderedArrayDerived value(&order);
+    }
+    return order == 943211 ? 0 : 1;
+}
+
 int main() {
     return local_destructor() + heap_destructor() +
-        explicit_subobject_destructor() + local_subobject_destructor();
+        explicit_subobject_destructor() + local_subobject_destructor() +
+        explicit_array_subobject_destructor() +
+        local_array_subobject_destructor();
 }

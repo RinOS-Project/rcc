@@ -10680,10 +10680,35 @@ static void gen_cxx_init_default_class_array32(Module* mod, Expr* expr) {
 
 static void gen_cxx_destroy_complete32(Module* mod, Type* object_type);
 
-static bool gen_cxx_type_contains_class_array32(const Type* type) {
-    if (!type || type->kind != TYPE_ARRAY || !type->base) return false;
-    return type->base->cxx_class ||
-        gen_cxx_type_contains_class_array32(type->base);
+static const Type* gen_cxx_class_array_element32(const Type* type) {
+    bool is_array = false;
+    while (type && type->kind == TYPE_ARRAY) {
+        if (!type->base || type->array_len <= 0 || type->size <= 0) {
+            return NULL;
+        }
+        is_array = true;
+        type = type->base;
+    }
+    return is_array && type && type->cxx_class ? type : NULL;
+}
+
+static bool gen_cxx_class_array_count32(const Type* array_type,
+                                        const Type* element_type,
+                                        uint32_t* count) {
+    uint64_t element_count;
+    if (!array_type || array_type->kind != TYPE_ARRAY ||
+        !element_type || !element_type->cxx_class ||
+        element_type->size <= 0 || array_type->size <= 0 ||
+        (uint64_t)array_type->size > UINT32_MAX ||
+        (uint64_t)element_type->size > (uint64_t)INT32_MAX ||
+        array_type->size % element_type->size != 0) {
+        return false;
+    }
+    element_count = (uint64_t)array_type->size /
+        (uint64_t)element_type->size;
+    if (element_count == 0u || element_count > UINT32_MAX) return false;
+    if (count) *count = (uint32_t)element_count;
+    return true;
 }
 
 static bool gen_cxx_destructor_subobjects_supported32(
@@ -10714,9 +10739,21 @@ static bool gen_cxx_destructor_subobjects_supported32(
     for (field = cls->fields; field; field = field->next) {
         const Type* type = field->type;
         if (field->is_static || !type) continue;
-        if (gen_cxx_type_contains_class_array32(type) ||
-            type->cleanup_function || type->cleanup_field) {
+        if (type->cleanup_function || type->cleanup_field) {
             return false;
+        }
+        if (type->kind == TYPE_ARRAY) {
+            const Type* element_type = gen_cxx_class_array_element32(type);
+            if (element_type) {
+                uint32_t element_count;
+                if (!gen_cxx_class_array_count32(
+                        type, element_type, &element_count) ||
+                    !gen_cxx_destructor_subobjects_supported32(
+                        element_type->cxx_class, depth + 1u)) {
+                    return false;
+                }
+            }
+            continue;
         }
         if (type->cxx_class &&
             !gen_cxx_destructor_subobjects_supported32(
@@ -10896,9 +10933,35 @@ static void gen_cxx_unregister_delete_array32(Module* mod, Type* object_type,
     emit_label(mod, previous_done);
 }
 
-/* Destroy direct class members in declaration order as represented by the
- * cleanup stack: the caller supplies the complete object address in EAX and
- * each member is destroyed after the enclosing object's destructor. */
+static void gen_cxx_destroy_class_array32(Module* mod, Type* array_type) {
+    const Type* element_type = gen_cxx_class_array_element32(array_type);
+    uint32_t element_count;
+    int loop;
+    int done;
+    if (!gen_cxx_class_array_count32(
+            array_type, element_type, &element_count)) {
+        rcc_fatal("validated C++ class-array destructor has invalid layout");
+    }
+    loop = new_label();
+    done = new_label();
+    emit_push_reg(mod, EAX); /* array base */
+    emit_add_reg_imm(mod, EAX, (int32_t)(uint32_t)array_type->size);
+    emit_push_reg(mod, EAX); /* one-past-end cursor */
+    emit_label(mod, loop);
+    emit_mov_reg_mem(mod, ECX, ESP, 0);
+    emit_sub_reg_imm(mod, ECX, (int32_t)element_type->size);
+    emit_mov_reg_mem(mod, EDX, ESP, 4);
+    emit_cmp_reg_reg(mod, ECX, EDX);
+    emit_jcc_label(mod, CC_B, done);
+    emit_mov_mem_reg(mod, ESP, 0, ECX);
+    emit_mov_reg_reg(mod, EAX, ECX);
+    gen_cxx_destroy_complete32(mod, (Type*)element_type);
+    emit_jmp_label(mod, loop);
+    emit_label(mod, done);
+    emit_add_reg_imm(mod, ESP, 8);
+}
+
+/* Destroy direct class members after the enclosing destructor body. */
 static void gen_cxx_destroy_members32(Module* mod, Type* object_type) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
     TypeField** fields = NULL;
@@ -10908,7 +10971,8 @@ static void gen_cxx_destroy_members32(Module* mod, Type* object_type) {
     for (TypeParam* parameter = cls->fields; parameter;
          parameter = parameter->next) {
         if (!parameter->is_static && parameter->type &&
-            parameter->type->cxx_class) {
+            (parameter->type->cxx_class ||
+             gen_cxx_class_array_element32(parameter->type))) {
             ++field_count;
         }
     }
@@ -10917,7 +10981,8 @@ static void gen_cxx_destroy_members32(Module* mod, Type* object_type) {
     for (TypeParam* parameter = cls->fields; parameter;
          parameter = parameter->next) {
         if (!parameter->is_static && parameter->type &&
-            parameter->type->cxx_class) {
+            (parameter->type->cxx_class ||
+             gen_cxx_class_array_element32(parameter->type))) {
             TypeField* field = gen_cxx_constructor_field32(
                 object_type, parameter->name);
             if (field) fields[field_index++] = field;
@@ -10930,7 +10995,11 @@ static void gen_cxx_destroy_members32(Module* mod, Type* object_type) {
             emit_add_reg_imm(mod, ECX, (uint32_t)fields[index]->offset);
         }
         emit_mov_reg_reg(mod, EAX, ECX);
-        gen_cxx_destroy_complete32(mod, fields[index]->type);
+        if (fields[index]->type->kind == TYPE_ARRAY) {
+            gen_cxx_destroy_class_array32(mod, fields[index]->type);
+        } else {
+            gen_cxx_destroy_complete32(mod, fields[index]->type);
+        }
     }
     emit_pop_reg(mod, EAX);
     if (fields) rcc_free(fields);

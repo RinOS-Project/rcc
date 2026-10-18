@@ -3604,16 +3604,24 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
                                          bool execute)
 {
     struct VerifiedDestructorObject {
-        int* base_order;
+        int* order;
         int* member_order;
     } object_instance;
-    _Static_assert(offsetof(struct VerifiedDestructorObject, member_order) ==
+    struct VerifiedArrayDestructorObject {
+        int* order;
+        struct {
+            int* order;
+            int tag;
+        } members[4];
+    } array_instance;
+    _Static_assert(offsetof(struct VerifiedArrayDestructorObject, members) ==
                        sizeof(void*),
-                   "verified destructor fixture layout must be pointer-dense");
+                   "verified destructor array offset must match C++ layout");
     ObjectFile* object = objfile_read(path);
     ObjSection* text;
     ObjSymbol* entry_symbol;
     ObjSymbol* explicit_symbol;
+    ObjSymbol* explicit_array_symbol;
     ObjSymbol* scope_symbol;
     size_t mapping_size;
     void* memory;
@@ -3621,6 +3629,8 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
     int (RINOS_ABI *entry)(void);
     void (RINOS_ABI *explicit_destructor)(
         struct VerifiedDestructorObject*);
+    void (RINOS_ABI *explicit_array_destructor)(
+        struct VerifiedArrayDestructorObject*);
     int (RINOS_ABI *scope_destructor)(void);
     int order = 0;
     assert(object != NULL && object->arch == arch);
@@ -3628,6 +3638,8 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
     entry_symbol = objfile_find_symbol(object, "main");
     explicit_symbol = objfile_find_symbol(
         object, "verified_cxx_explicit_destructor");
+    explicit_array_symbol = objfile_find_symbol(
+        object, "verified_cxx_explicit_array_destructor");
     scope_symbol = objfile_find_symbol(
         object, "verified_cxx_scope_destructor");
     assert(text != NULL && entry_symbol != NULL &&
@@ -3636,7 +3648,10 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
            entry_symbol->section == 0 && explicit_symbol != NULL &&
            explicit_symbol->type == SYM_GLOBAL &&
            explicit_symbol->binding == BIND_CODE &&
-           explicit_symbol->section == 0 && scope_symbol != NULL &&
+           explicit_symbol->section == 0 && explicit_array_symbol != NULL &&
+           explicit_array_symbol->type == SYM_GLOBAL &&
+           explicit_array_symbol->binding == BIND_CODE &&
+           explicit_array_symbol->section == 0 && scope_symbol != NULL &&
            scope_symbol->type == SYM_GLOBAL &&
            scope_symbol->binding == BIND_CODE &&
            scope_symbol->section == 0);
@@ -3650,10 +3665,21 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
     assert(entry() == 0);
     address = symbol_address(memory, explicit_symbol);
     memcpy(&explicit_destructor, &address, sizeof(explicit_destructor));
-    object_instance.base_order = &order;
+    object_instance.order = &order;
     object_instance.member_order = &order;
     explicit_destructor(&object_instance);
     assert(order == 231);
+    order = 0;
+    address = symbol_address(memory, explicit_array_symbol);
+    memcpy(&explicit_array_destructor, &address,
+           sizeof(explicit_array_destructor));
+    array_instance.order = &order;
+    for (int index = 0; index < 4; ++index) {
+        array_instance.members[index].order = &order;
+        array_instance.members[index].tag = index + 1;
+    }
+    explicit_array_destructor(&array_instance);
+    assert(order == 943211);
     address = symbol_address(memory, scope_symbol);
     memcpy(&scope_destructor, &address, sizeof(scope_destructor));
     assert(scope_destructor() == 231);
@@ -4698,7 +4724,7 @@ int main(int argc, char** argv)
         }
         verify_cxx_destructor_object(
             argv[2], arch, arch == ARCH_X64 && sizeof(void*) == 8u);
-        puts("Verified C++ direct destructor order passed");
+    puts("Verified C++ direct and array destructor order passed");
         return 0;
     }
     if (argc == 4 && strcmp(argv[1], "--wide-scalar-object") == 0) {

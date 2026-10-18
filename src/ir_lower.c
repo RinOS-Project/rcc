@@ -13393,10 +13393,37 @@ static const TypeField* lower_struct_declared_field(
     return NULL;
 }
 
-static bool lower_cxx_type_contains_class_array(const Type* type) {
-    if (!type || type->kind != TYPE_ARRAY || !type->base) return false;
-    return type->base->cxx_class ||
-        lower_cxx_type_contains_class_array(type->base);
+static const Type* lower_cxx_class_array_element(const Type* type) {
+    bool is_array = false;
+    while (type && type->kind == TYPE_ARRAY) {
+        if (!type->base || type->array_len <= 0 || type->size <= 0) {
+            return NULL;
+        }
+        is_array = true;
+        type = type->base;
+    }
+    return is_array && type && type->cxx_class ? type : NULL;
+}
+
+static bool lower_cxx_class_array_count(const Type* array_type,
+                                        const Type* element_type,
+                                        uint64_t* count) {
+    uint64_t maximum_count = g_opts.target_arch == ARCH_X64
+        ? (uint64_t)INT64_MAX : (uint64_t)UINT32_MAX;
+    uint64_t element_count;
+    if (!array_type || array_type->kind != TYPE_ARRAY ||
+        !element_type || !element_type->cxx_class ||
+        element_type->size <= 0 || array_type->size <= 0 ||
+        (uint64_t)array_type->size > maximum_count ||
+        (uint64_t)element_type->size > (uint64_t)INT32_MAX ||
+        array_type->size % element_type->size != 0) {
+        return false;
+    }
+    element_count = (uint64_t)array_type->size /
+        (uint64_t)element_type->size;
+    if (element_count == 0u || element_count > maximum_count) return false;
+    if (count) *count = element_count;
+    return true;
 }
 
 static bool lower_cxx_destructor_subobjects_supported(
@@ -13430,10 +13457,20 @@ static bool lower_cxx_destructor_subobjects_supported(
     for (field = cls->fields; field; field = field->next) {
         const Type* type = field->type;
         if (field->is_static || !type) continue;
-        if (lower_cxx_type_contains_class_array(type)) {
-            return false;
-        }
         if (type->cleanup_function || type->cleanup_field) return false;
+        if (type->kind == TYPE_ARRAY) {
+            const Type* element_type = lower_cxx_class_array_element(type);
+            if (element_type) {
+                uint64_t element_count;
+                if (!lower_cxx_class_array_count(
+                        type, element_type, &element_count) ||
+                    !lower_cxx_destructor_subobjects_supported(
+                        element_type->cxx_class, depth + 1u)) {
+                    return false;
+                }
+            }
+            continue;
+        }
         if (type->cxx_class &&
             !lower_cxx_destructor_subobjects_supported(
                 type->cxx_class, depth + 1u)) {
@@ -13475,6 +13512,111 @@ static bool lower_cxx_emit_complete_destructor(
     RccIrLowerContext* context, const Type* type,
     RccIrLowerValue object, unsigned depth);
 
+static bool lower_cxx_emit_class_array_destructors(
+    RccIrLowerContext* context, const Type* array_type,
+    const Type* element_type, RccIrLowerValue array_address,
+    unsigned depth) {
+    RccIrInstruction* allocation;
+    RccIrLowerValue index_address;
+    RccIrLowerValue index_value;
+    RccIrLowerValue one;
+    RccIrLowerValue next_index;
+    RccIrBlock* condition_block;
+    RccIrBlock* body_block;
+    RccIrBlock* exit_block;
+    RccIrValue operands[2];
+    RccIrType index_type;
+    Type* index_language_type;
+    uint64_t element_count;
+    size_t index_size;
+    if (!context || !array_address.valid ||
+        array_address.type.kind != RCC_IR_TYPE_POINTER ||
+        !lower_cxx_class_array_count(
+            array_type, element_type, &element_count)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    index_language_type = g_opts.target_arch == ARCH_X64
+        ? type_ulong : type_uint;
+    if (!lower_type(index_language_type, &index_type) ||
+        index_type.kind != RCC_IR_TYPE_INTEGER ||
+        (index_type.bit_width != 32u && index_type.bit_width != 64u)) {
+        context->unsupported = true;
+        return false;
+    }
+    index_size = index_type.bit_width / 8u;
+    allocation = lower_append(context, RCC_IR_ALLOCA,
+                              rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
+    if (!allocation) return false;
+    rcc_ir_set_immediate(allocation, (uint64_t)index_size);
+    allocation->alignment = (uint32_t)index_size;
+    index_address = lower_value(
+        allocation->result, rcc_ir_type_pointer(0u), true);
+    index_value = lower_integer_constant(
+        context, index_type, true, (uint64_t)element_count);
+    if (!index_value.valid ||
+        !lower_store_address(context, index_address, index_value)) {
+        return false;
+    }
+    condition_block = rcc_ir_block_add(
+        context->function, "destructor.array.cond");
+    body_block = rcc_ir_block_add(
+        context->function, "destructor.array.body");
+    exit_block = rcc_ir_block_add(
+        context->function, "destructor.array.end");
+    if (!condition_block || !body_block || !exit_block ||
+        !lower_branch(context, condition_block->id)) {
+        return false;
+    }
+    context->current = condition_block;
+    context->terminated = false;
+    index_value = lower_load_address(
+        context, index_address, index_language_type);
+    if (!index_value.valid || !lower_conditional_branch(
+            context, index_value, body_block->id, exit_block->id)) {
+        return false;
+    }
+    context->current = body_block;
+    context->terminated = false;
+    index_value = lower_load_address(
+        context, index_address, index_language_type);
+    one = lower_integer_constant(context, index_type, true, 1u);
+    if (!index_value.valid || !one.valid) return false;
+    operands[0] = index_value.value;
+    operands[1] = one.value;
+    {
+        RccIrInstruction* subtract = lower_append(
+            context, RCC_IR_SUB, index_type, operands, 2u, NULL, 0u);
+        if (!subtract) return false;
+        next_index = lower_value(subtract->result, index_type, true);
+    }
+    if (!lower_store_address(context, index_address, next_index)) {
+        return false;
+    }
+    operands[0] = array_address.value;
+    operands[1] = next_index.value;
+    {
+        RccIrInstruction* address = lower_append(
+            context, RCC_IR_GEP, rcc_ir_type_pointer(0u),
+            operands, 2u, NULL, 0u);
+        RccIrLowerValue element_address;
+        if (!address) return false;
+        rcc_ir_set_immediate(address, (uint64_t)element_type->size);
+        element_address = lower_value(
+            address->result, rcc_ir_type_pointer(0u), true);
+        if (!lower_cxx_emit_complete_destructor(
+                context, element_type, element_address, depth + 1u)) {
+            return false;
+        }
+    }
+    if (context->terminated || !lower_branch(context, condition_block->id)) {
+        return false;
+    }
+    context->current = exit_block;
+    context->terminated = false;
+    return true;
+}
+
 static bool lower_cxx_emit_destructor_subobjects(
     RccIrLowerContext* context, const CxxClass* cls,
     RccIrLowerValue object, unsigned depth) {
@@ -13488,7 +13630,9 @@ static bool lower_cxx_emit_destructor_subobjects(
         return false;
     }
     for (const TypeParam* field = cls->fields; field; field = field->next) {
-        if (!field->is_static && field->type && field->type->cxx_class) {
+        if (!field->is_static && field->type &&
+            (field->type->cxx_class ||
+             lower_cxx_class_array_element(field->type))) {
             if (++field_count > 4096u ||
                 field_count > SIZE_MAX / sizeof(*fields)) {
                 context->unsupported = true;
@@ -13498,7 +13642,9 @@ static bool lower_cxx_emit_destructor_subobjects(
     }
     if (field_count != 0u) fields = rcc_alloc(field_count * sizeof(*fields));
     for (const TypeParam* field = cls->fields; field; field = field->next) {
-        if (!field->is_static && field->type && field->type->cxx_class) {
+        if (!field->is_static && field->type &&
+            (field->type->cxx_class ||
+             lower_cxx_class_array_element(field->type))) {
             fields[field_index++] = field;
         }
     }
@@ -13506,17 +13652,23 @@ static bool lower_cxx_emit_destructor_subobjects(
         const TypeParam* field = fields[--field_index];
         const TypeField* layout = lower_struct_declared_field(
             cls->type, cls, field->name);
+        const Type* element_type = field->type->kind == TYPE_ARRAY
+            ? lower_cxx_class_array_element(field->type) : NULL;
         RccIrLowerValue address;
         if (!layout || layout->offset < 0 || !layout->type ||
-            !field->type->cxx_class) {
+            (!field->type->cxx_class && !element_type)) {
             rcc_free(fields);
             context->unsupported = true;
             return false;
         }
         address = lower_byte_offset_address(
             context, object, (uint64_t)layout->offset);
-        if (!address.valid || !lower_cxx_emit_complete_destructor(
-                context, field->type, address, depth + 1u)) {
+        if (!address.valid ||
+            (element_type
+                ? !lower_cxx_emit_class_array_destructors(
+                    context, field->type, element_type, address, depth + 1u)
+                : !lower_cxx_emit_complete_destructor(
+                    context, field->type, address, depth + 1u))) {
             rcc_free(fields);
             return false;
         }
