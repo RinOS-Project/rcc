@@ -3080,13 +3080,17 @@ static bool cxx_structural_array_collect_scalar_values(
                 element_type->kind != TYPE_ENUM &&
                 element_type->kind != TYPE_FLOAT &&
                 element_type->kind != TYPE_DOUBLE &&
-                element_type->kind != TYPE_PTR) ||
+                element_type->kind != TYPE_PTR &&
+                element_type->kind != TYPE_NULLPTR) ||
                (element_type->kind == TYPE_FLOAT &&
                 element_type->size != 4) ||
                (element_type->kind == TYPE_DOUBLE &&
                 element_type->size != 8) ||
-               element_type->size <= 0 ||
                (element_type->kind != TYPE_PTR &&
+                element_type->kind != TYPE_NULLPTR &&
+                element_type->size <= 0) ||
+               (element_type->kind != TYPE_PTR &&
+                element_type->kind != TYPE_NULLPTR &&
                 element_type->size > 8)) {
         return false;
     }
@@ -3133,7 +3137,12 @@ static bool cxx_structural_array_collect_scalar_values(
             continue;
         }
         int64_t value = 0;
-        if (element_initializer && element_type->kind == TYPE_PTR) {
+        if (element_initializer &&
+            element_type->kind == TYPE_NULLPTR) {
+            if (!cxx_expr_is_nullptr_constant(element_initializer)) {
+                return false;
+            }
+        } else if (element_initializer && element_type->kind == TYPE_PTR) {
             int64_t null_pointer_constant;
             if (element_type->cxx_is_member_pointer) {
                 if (!cxx_structural_pointer_member_value(
@@ -3257,15 +3266,19 @@ static bool cxx_structural_class_collect_member_values(
                 }
             } else if (((!type_is_integer(element_type) &&
                          element_type->kind != TYPE_ENUM &&
-                         element_type->kind != TYPE_PTR) &&
+                         element_type->kind != TYPE_PTR &&
+                         element_type->kind != TYPE_NULLPTR) &&
                         element_type->kind != TYPE_FLOAT &&
                         element_type->kind != TYPE_DOUBLE) ||
                        (element_type->kind == TYPE_FLOAT &&
                         element_type->size != 4) ||
                        (element_type->kind == TYPE_DOUBLE &&
                         element_type->size != 8) ||
-                       element_type->size <= 0 ||
                        (element_type->kind != TYPE_PTR &&
+                        element_type->kind != TYPE_NULLPTR &&
+                        element_type->size <= 0) ||
+                       (element_type->kind != TYPE_PTR &&
+                        element_type->kind != TYPE_NULLPTR &&
                         element_type->size > 8)) {
                 return false;
             }
@@ -3318,6 +3331,12 @@ static bool cxx_structural_class_collect_member_values(
                     }
                 } else {
                     if (element_initializer &&
+                        element_type->kind == TYPE_NULLPTR) {
+                        if (!cxx_expr_is_nullptr_constant(
+                                element_initializer)) {
+                            return false;
+                        }
+                    } else if (element_initializer &&
                         element_type->kind == TYPE_PTR) {
                         int64_t null_pointer_constant;
                         if (element_type->cxx_is_member_pointer) {

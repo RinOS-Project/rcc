@@ -6413,3 +6413,19 @@ remains a separate open item.
 - [ ] Other dependent pack forms, additional structural member layouts,
       non-finite/extended-precision values, and uninstantiated dependent alias
       or template-definition DIEs remain open.
+
+## RCC continuation (2026-10-18, nullptr arrays in structural NTTP packs)
+
+- [x] Collect and pack fixed-bound one- and two-dimensional `decltype(nullptr)`
+      arrays in structural-class NTTP pack values, including class-value records
+      whose complete representation exceeds 64 bits.
+- [x] Decode array-element member access and emit canonical Itanium structural
+      array values; compare nonempty and empty pack symbols byte-for-byte with
+      GCC for i686 and AMD64.
+- [x] Pass native-Windows
+      `test-cxx-nested-class-template-owner-structural-value-pack` and
+      `test-cxx-nested-class-templates` (exit 0), including RCC-generated x64
+      execution and the GCC host oracle.
+- [ ] Other structural member layouts, dependent pack forms, non-finite or
+      extended-precision values, and uninstantiated dependent alias/template
+      definition DIEs remain open.

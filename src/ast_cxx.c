@@ -1156,6 +1156,25 @@ static bool cxx_structural_pointer_array_values_all_null(
     return true;
 }
 
+static bool cxx_structural_nullptr_array_leaf_count(
+    const Type* array_type, unsigned* leaf_count_out) {
+    const Type* leaf_type = array_type;
+    unsigned leaf_count = 1u;
+    if (!array_type || !leaf_count_out) return false;
+    while (leaf_type && leaf_type->kind == TYPE_ARRAY) {
+        if (leaf_type->array_len <= 0 || leaf_type->array_bound ||
+            !leaf_type->base ||
+            (unsigned)leaf_type->array_len > UINT_MAX / leaf_count) {
+            return false;
+        }
+        leaf_count *= (unsigned)leaf_type->array_len;
+        leaf_type = leaf_type->base;
+    }
+    if (!leaf_type || leaf_type->kind != TYPE_NULLPTR) return false;
+    *leaf_count_out = leaf_count;
+    return true;
+}
+
 static bool cxx_mangle_structural_value_body(
     char* buf, size_t* pos, Type* value_type, uint64_t packed_value,
     unsigned* bit_offset, CxxMangleContext* context,
@@ -1191,6 +1210,34 @@ static bool cxx_mangle_structural_scalar_array_body(
             return true;
         }
     }
+    {
+        unsigned nullptr_leaf_count = 0u;
+        if (cxx_structural_nullptr_array_leaf_count(
+                array_type, &nullptr_leaf_count)) {
+            if (append_aggregate) {
+                cxx_mangle_type_char(buf, pos, 't');
+                cxx_mangle_type_char(buf, pos, 'l');
+                cxx_mangle_type_append_context(buf, pos, array_type, context);
+            }
+            if (recorded_values) {
+                if (!recorded_index || *recorded_index < 0 ||
+                    *recorded_index > recorded_count ||
+                    nullptr_leaf_count >
+                        (unsigned)(recorded_count - *recorded_index)) {
+                    return false;
+                }
+                *recorded_index += (int)nullptr_leaf_count;
+            } else {
+                if (!bit_offset || *bit_offset > 64u ||
+                    nullptr_leaf_count > 64u - *bit_offset) {
+                    return false;
+                }
+                *bit_offset += nullptr_leaf_count;
+            }
+            cxx_mangle_type_char(buf, pos, 'E');
+            return true;
+        }
+    }
     if (append_aggregate) {
         cxx_mangle_type_char(buf, pos, 't');
         cxx_mangle_type_char(buf, pos, 'l');
@@ -1205,6 +1252,24 @@ static bool cxx_mangle_structural_scalar_array_body(
                 return false;
             }
         }
+    } else if (element_type->kind == TYPE_NULLPTR) {
+        if (recorded_values) {
+            if (!recorded_index || *recorded_index < 0 ||
+                *recorded_index > recorded_count ||
+                element_count >
+                    (unsigned)(recorded_count - *recorded_index)) {
+                return false;
+            }
+            *recorded_index += (int)element_count;
+        } else {
+            if (!bit_offset || *bit_offset > 64u ||
+                element_count > 64u - *bit_offset) {
+                return false;
+            }
+            *bit_offset += element_count;
+        }
+        cxx_mangle_type_char(buf, pos, 'E');
+        return true;
     } else if (element_type->kind == TYPE_STRUCT) {
         for (unsigned index = 0u; index < element_count; ++index) {
             if (!cxx_mangle_structural_value_body(
@@ -1345,6 +1410,25 @@ static bool cxx_mangle_structural_value_body(
                             recorded_index)) {
                         return false;
                     }
+                }
+                cxx_mangle_type_char(buf, pos, 'E');
+                continue;
+            }
+            if (element_type->kind == TYPE_NULLPTR) {
+                if (recorded_values) {
+                    if (!recorded_index || *recorded_index < 0 ||
+                        *recorded_index > recorded_count ||
+                        element_count >
+                            (unsigned)(recorded_count - *recorded_index)) {
+                        return false;
+                    }
+                    *recorded_index += (int)element_count;
+                } else {
+                    if (*bit_offset > 64u ||
+                        element_count > 64u - *bit_offset) {
+                        return false;
+                    }
+                    *bit_offset += element_count;
                 }
                 cxx_mangle_type_char(buf, pos, 'E');
                 continue;
@@ -4080,6 +4164,9 @@ static bool cxx_structural_array_element_layout(
         bits = 64u;
         leaves = 1u;
         pointers = 1u;
+    } else if (type->kind == TYPE_NULLPTR) {
+        bits = 1u;
+        leaves = 1u;
     } else {
         if ((!type_is_integer((Type*)type) && type->kind != TYPE_ENUM) &&
             !((type->kind == TYPE_FLOAT && type->size == 4) ||
@@ -4228,13 +4315,18 @@ static bool cxx_structural_pack_scalar_array_values(
          element_type->kind != TYPE_ENUM &&
          element_type->kind != TYPE_FLOAT &&
          element_type->kind != TYPE_DOUBLE &&
-         element_type->kind != TYPE_PTR) ||
-        element_type->size <= 0 ||
-        (element_type->kind != TYPE_PTR && element_type->size > 8)) {
+         element_type->kind != TYPE_PTR &&
+         element_type->kind != TYPE_NULLPTR) ||
+        (element_type->kind != TYPE_PTR &&
+         element_type->kind != TYPE_NULLPTR && element_type->size <= 0) ||
+        (element_type->kind != TYPE_PTR &&
+         element_type->kind != TYPE_NULLPTR && element_type->size > 8)) {
         return false;
     }
     unsigned element_bits = element_type->kind == TYPE_PTR
-        ? 64u : (unsigned)element_type->size * 8u;
+        ? 64u
+        : element_type->kind == TYPE_NULLPTR
+            ? 1u : (unsigned)element_type->size * 8u;
     uint64_t mask = element_bits == 64u
         ? UINT64_MAX
         : (UINT64_C(1) << element_bits) - UINT64_C(1);
@@ -4295,7 +4387,9 @@ static bool cxx_structural_class_pack_fields(
                 continue;
             }
             element_bits = element_type->kind == TYPE_PTR
-                ? 64u : (unsigned)element_type->size * 8u;
+                ? 64u
+                : element_type->kind == TYPE_NULLPTR
+                    ? 1u : (unsigned)element_type->size * 8u;
             mask = element_bits == 64u
                 ? UINT64_MAX
                 : (UINT64_C(1) << element_bits) - UINT64_C(1);
@@ -4486,6 +4580,8 @@ static bool cxx_structural_class_find_member_path(
                         recorded_values[*value_index +
                             (int)((unsigned)array_element_index *
                                   element_leaves)];
+                } else if (element_type->kind == TYPE_NULLPTR) {
+                    *member_value = 0;
                 } else {
                     uint64_t mask = element_bits == 64u
                         ? UINT64_MAX
@@ -4768,22 +4864,29 @@ bool cxx_structural_class_unpack_multidimensional_array_path(
     if (selected_type->kind == TYPE_ARRAY ||
         ((!type_is_integer((Type*)selected_type) &&
           selected_type->kind != TYPE_ENUM &&
-          selected_type->kind != TYPE_PTR) &&
+          selected_type->kind != TYPE_PTR &&
+          selected_type->kind != TYPE_NULLPTR) &&
          !((selected_type->kind == TYPE_FLOAT && selected_type->size == 4) ||
            (selected_type->kind == TYPE_DOUBLE && selected_type->size == 8))) ||
-        selected_type->size <= 0 ||
-        (selected_type->kind != TYPE_PTR && selected_type->size > 8) ||
+        (selected_type->kind != TYPE_PTR &&
+         selected_type->kind != TYPE_NULLPTR && selected_type->size <= 0) ||
+        (selected_type->kind != TYPE_PTR &&
+         selected_type->kind != TYPE_NULLPTR && selected_type->size > 8) ||
         selected_leaf > UINT_MAX - array_base_leaves) {
         return false;
     }
     scalar_bits = selected_type->kind == TYPE_PTR
-        ? 64u : (unsigned)selected_type->size * 8u;
+        ? 64u
+        : selected_type->kind == TYPE_NULLPTR
+            ? 1u : (unsigned)selected_type->size * 8u;
     if (!cxx_structural_class_value_record_resolve(
             type, packed_value, &recorded_values, &recorded_count)) {
         recorded_values = NULL;
         recorded_count = 0;
     }
-    if (recorded_values) {
+    if (selected_type->kind == TYPE_NULLPTR) {
+        *member_value = 0;
+    } else if (recorded_values) {
         unsigned value_index = array_base_leaves + selected_leaf;
         if (value_index >= (unsigned)recorded_count) return false;
         *member_value = recorded_values[value_index];

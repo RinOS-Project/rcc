@@ -6037,6 +6037,12 @@ test-cxx-nested-class-template-owner-structural-value-pack: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK25NestedStructuralPairOwnerIXtl23NestedStructuralPairKeyLin3ELi4EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZN33NestedStructuralFloatingOwnerPackIJXtl27NestedStructuralFloatingKeyLf3fa00000ELdc004000000000000EEEXtlS0_Lfbf000000ELd400a000000000000EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZN33NestedStructuralFloatingOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJXtl31NestedStructuralNullptrArrayKeytlA2_DnELi3EEEXtlS0_tlS1_ELi7EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJXtl32NestedStructuralNullptrMatrixKeytlA2_A2_DnELi5EEEXtlS0_tlS2_ELi11EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJXtl32NestedStructuralNullptrRecordKeytlA2_DnELy17ELy23EEEXtlS0_tlS1_ELy31ELy37EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK27NestedStructuralNestedOwnerIXtl19NestedStructuralKeyLi3Etl23NestedStructuralLeafKeyLan2ELt7EEEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK28NestedStructuralPointerOwnerIXtl26NestedStructuralPointerKeyEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK30NestedStructuralValueOwnerPackIJXtl24NestedStructuralOwnerKeyLi3EEEXtlS0_Li7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
@@ -6053,6 +6059,12 @@ test-cxx-nested-class-template-owner-structural-value-pack: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK25NestedStructuralPairOwnerIXtl23NestedStructuralPairKeyLin3ELi4EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZN33NestedStructuralFloatingOwnerPackIJXtl27NestedStructuralFloatingKeyLf3fa00000ELdc004000000000000EEEXtlS0_Lfbf000000ELd400a000000000000EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZN33NestedStructuralFloatingOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJXtl31NestedStructuralNullptrArrayKeytlA2_DnELi3EEEXtlS0_tlS1_ELi7EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJXtl32NestedStructuralNullptrMatrixKeytlA2_A2_DnELi5EEEXtlS0_tlS2_ELi11EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJXtl32NestedStructuralNullptrRecordKeytlA2_DnELy17ELy23EEEXtlS0_tlS1_ELy31ELy37EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK27NestedStructuralNestedOwnerIXtl19NestedStructuralKeyLi3Etl23NestedStructuralLeafKeyLan2ELt7EEEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK28NestedStructuralPointerOwnerIXtl26NestedStructuralPointerKeyEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK30NestedStructuralValueOwnerPackIJXtl24NestedStructuralOwnerKeyLi3EEEXtlS0_Li7EEEEE5InnerIPiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
@@ -6069,6 +6081,12 @@ test-cxx-nested-class-template-owner-structural-value-pack: $(RCXX_TARGET)
 	$(GREP) -F -q "_ZNK25NestedStructuralPairOwnerIXtl23NestedStructuralPairKeyLin3ELi4EEEE5InnerIiE6resultEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZN33NestedStructuralFloatingOwnerPackIJXtl27NestedStructuralFloatingKeyLf3fa00000ELdc004000000000000EEEXtlS0_Lfbf000000ELd400a000000000000EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZN33NestedStructuralFloatingOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJXtl31NestedStructuralNullptrArrayKeytlA2_DnELi3EEEXtlS0_tlS1_ELi7EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJXtl32NestedStructuralNullptrMatrixKeytlA2_A2_DnELi5EEEXtlS0_tlS2_ELi11EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJXtl32NestedStructuralNullptrRecordKeytlA2_DnELy17ELy23EEEXtlS0_tlS1_ELy31ELy37EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	g++ -std=c++20 -Wall -Wextra -Werror -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe tests/cxx_nested_class_template_owner_structural_value_pack.cpp
 	$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc-host.exe
 
@@ -6135,6 +6153,24 @@ test-cxx-nested-class-template-owner-structural-value-pack-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack)
 	$(call CXX_POSIX_ENTRY_TEST,cxx-nested-class-template-owner-structural-value-pack,cxx_nested_class_template_owner_structural_value_pack.cpp)
 	g++ -std=c++20 -S -o $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s tests/cxx_nested_class_template_owner_structural_value_pack.cpp
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJXtl31NestedStructuralNullptrArrayKeytlA2_DnELi3EEEXtlS0_tlS1_ELi7EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJXtl32NestedStructuralNullptrMatrixKeytlA2_A2_DnELi5EEEXtlS0_tlS2_ELi11EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJXtl32NestedStructuralNullptrRecordKeytlA2_DnELy17ELy23EEEXtlS0_tlS1_ELy31ELy37EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJXtl31NestedStructuralNullptrArrayKeytlA2_DnELi3EEEXtlS0_tlS1_ELi7EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJXtl32NestedStructuralNullptrMatrixKeytlA2_A2_DnELi5EEEXtlS0_tlS2_ELi11EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJXtl32NestedStructuralNullptrRecordKeytlA2_DnELy17ELy23EEEXtlS0_tlS1_ELy31ELy37EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJXtl31NestedStructuralNullptrArrayKeytlA2_DnELi3EEEXtlS0_tlS1_ELi7EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZN37NestedStructuralNullptrArrayOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJXtl32NestedStructuralNullptrMatrixKeytlA2_A2_DnELi5EEEXtlS0_tlS2_ELi11EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrMatrixOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJXtl32NestedStructuralNullptrRecordKeytlA2_DnELy17ELy23EEEXtlS0_tlS1_ELy31ELy37EEEEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
+	$(GREP) -F -q "_ZN38NestedStructuralNullptrRecordOwnerPackIJEE8combinedEv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s
 	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/gcc.s
 	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x86.s
 	$(GREP) -F -q "_ZNK24NestedStructuralZipOwnerIJXtl24NestedStructuralOwnerKeyLi1EEEXtlS0_Li2EEEEE3ZipIJXtl28NestedStructuralOwnerEnumKeyL25NestedStructuralOwnerCode3EEEXtlS3_LS4_7EEEEE8combinedIJciEEEiv" $(TEST_OUT)/cxx-nested-class-template-owner-structural-value-pack/x64.s

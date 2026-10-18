@@ -21,6 +21,22 @@ struct NestedStructuralFloatingKey {
     double offset;
 };
 
+struct NestedStructuralNullptrArrayKey {
+    decltype(nullptr) values[2];
+    int payload;
+};
+
+struct NestedStructuralNullptrMatrixKey {
+    decltype(nullptr) values[2][2];
+    int payload;
+};
+
+struct NestedStructuralNullptrRecordKey {
+    decltype(nullptr) values[2];
+    unsigned long long first;
+    unsigned long long second;
+};
+
 struct NestedStructuralEmptyKey {};
 
 struct NestedStructuralPairKey {
@@ -94,6 +110,36 @@ struct NestedStructuralFloatingOwnerPack {
         return ((Values.ratio == 1.25f && Values.offset == -2.5 ? 42 :
                  Values.ratio == -0.5f && Values.offset == 3.25 ? 73 : -1)
                 + ... + 0);
+    }
+};
+
+template <NestedStructuralNullptrArrayKey... Values>
+struct NestedStructuralNullptrArrayOwnerPack {
+    static constexpr int combined() {
+        return (((Values.values[0] == nullptr &&
+                  Values.values[1] == nullptr) ? Values.payload : -1)
+                + ... + 0);
+    }
+};
+
+template <NestedStructuralNullptrMatrixKey... Values>
+struct NestedStructuralNullptrMatrixOwnerPack {
+    static constexpr int combined() {
+        return (((Values.values[0][0] == nullptr &&
+                  Values.values[0][1] == nullptr &&
+                  Values.values[1][0] == nullptr &&
+                  Values.values[1][1] == nullptr) ? Values.payload : -1)
+                + ... + 0);
+    }
+};
+
+template <NestedStructuralNullptrRecordKey... Values>
+struct NestedStructuralNullptrRecordOwnerPack {
+    static constexpr int combined() {
+        return (((Values.values[0] == nullptr &&
+                  Values.values[1] == nullptr)
+                     ? static_cast<int>(Values.first + Values.second)
+                     : -1) + ... + 0);
     }
 };
 
@@ -263,5 +309,28 @@ int main() {
             NestedStructuralFloatingKey{-0.5f, 3.25}>::combined() != 115) {
         return 17;
     }
-    return NestedStructuralFloatingOwnerPack<>::combined() == 0 ? 0 : 18;
+    if (NestedStructuralFloatingOwnerPack<>::combined() != 0) return 18;
+    if (NestedStructuralNullptrArrayOwnerPack<
+            NestedStructuralNullptrArrayKey{{nullptr, nullptr}, 3},
+            NestedStructuralNullptrArrayKey{{nullptr, nullptr}, 7}>::combined()
+        != 10) {
+        return 19;
+    }
+    if (NestedStructuralNullptrArrayOwnerPack<>::combined() != 0) return 20;
+    if (NestedStructuralNullptrMatrixOwnerPack<
+            NestedStructuralNullptrMatrixKey{
+                {{nullptr, nullptr}, {nullptr, nullptr}}, 5},
+            NestedStructuralNullptrMatrixKey{
+                {{nullptr, nullptr}, {nullptr, nullptr}}, 11}>::combined()
+        != 16) {
+        return 21;
+    }
+    if (NestedStructuralNullptrMatrixOwnerPack<>::combined() != 0) return 22;
+    if (NestedStructuralNullptrRecordOwnerPack<
+            NestedStructuralNullptrRecordKey{{nullptr, nullptr}, 17, 23},
+            NestedStructuralNullptrRecordKey{{nullptr, nullptr}, 31, 37}>::combined()
+        != 108) {
+        return 23;
+    }
+    return NestedStructuralNullptrRecordOwnerPack<>::combined() == 0 ? 0 : 24;
 }
