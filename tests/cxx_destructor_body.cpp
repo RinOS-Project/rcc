@@ -30,6 +30,16 @@ struct OrderedMember {
     }
 };
 
+extern "C" void record_cleanup_order(int* order);
+
+struct OrderedCleanupToken {
+    int* order;
+
+    ~OrderedCleanupToken() noexcept {
+        if (order != 0) record_cleanup_order(order);
+    }
+};
+
 struct OrderedDerived : OrderedBase {
     OrderedMember member;
 
@@ -68,6 +78,19 @@ struct OrderedArrayDerived : OrderedBase {
         *order = *order * 10 + 9;
     }
 };
+
+struct OrderedCleanupDerived {
+    int* order;
+    OrderedCleanupToken token;
+
+    ~OrderedCleanupDerived() noexcept {
+        *order = *order * 10 + 9;
+    }
+};
+
+extern "C" void record_cleanup_order(int* order) {
+    *order = *order * 10 + 4;
+}
 
 int local_destructor() {
     int count = 0;
@@ -116,9 +139,20 @@ int local_array_subobject_destructor() {
     return order == 943211 ? 0 : 1;
 }
 
+int local_custom_cleanup_subobject_destructor() {
+    int order = 0;
+    {
+        OrderedCleanupDerived value;
+        value.order = &order;
+        value.token.order = &order;
+    }
+    return order == 94 ? 0 : 1;
+}
+
 int main() {
     return local_destructor() + heap_destructor() +
         explicit_subobject_destructor() + local_subobject_destructor() +
         explicit_array_subobject_destructor() +
-        local_array_subobject_destructor();
+        local_array_subobject_destructor() +
+        local_custom_cleanup_subobject_destructor();
 }

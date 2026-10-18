@@ -17293,7 +17293,7 @@ test-verified-cxx-destructor: $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/cxx-destructor-x86.ro \
 		tests/verified_backend_cxx_destructor.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-destructor-x86.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-destructor-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-destructor-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
@@ -17301,7 +17301,7 @@ test-verified-cxx-destructor: $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/cxx-destructor-x64.ro \
 		tests/verified_backend_cxx_destructor.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-destructor-x64.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-destructor-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-destructor-x64.log,0)
 	$(CC) $(CFLAGS) -I$(INCDIR) \

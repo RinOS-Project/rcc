@@ -3614,6 +3614,10 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
             int tag;
         } members[4];
     } array_instance;
+    struct VerifiedCleanupDestructorObject {
+        int* order;
+        int* cleanup_order;
+    } cleanup_instance;
     _Static_assert(offsetof(struct VerifiedArrayDestructorObject, members) ==
                        sizeof(void*),
                    "verified destructor array offset must match C++ layout");
@@ -3622,6 +3626,7 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
     ObjSymbol* entry_symbol;
     ObjSymbol* explicit_symbol;
     ObjSymbol* explicit_array_symbol;
+    ObjSymbol* explicit_cleanup_symbol;
     ObjSymbol* scope_symbol;
     size_t mapping_size;
     void* memory;
@@ -3631,6 +3636,8 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
         struct VerifiedDestructorObject*);
     void (RINOS_ABI *explicit_array_destructor)(
         struct VerifiedArrayDestructorObject*);
+    void (RINOS_ABI *explicit_cleanup_destructor)(
+        struct VerifiedCleanupDestructorObject*);
     int (RINOS_ABI *scope_destructor)(void);
     int order = 0;
     assert(object != NULL && object->arch == arch);
@@ -3640,6 +3647,8 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
         object, "verified_cxx_explicit_destructor");
     explicit_array_symbol = objfile_find_symbol(
         object, "verified_cxx_explicit_array_destructor");
+    explicit_cleanup_symbol = objfile_find_symbol(
+        object, "verified_cxx_explicit_cleanup_destructor");
     scope_symbol = objfile_find_symbol(
         object, "verified_cxx_scope_destructor");
     assert(text != NULL && entry_symbol != NULL &&
@@ -3654,7 +3663,10 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
            explicit_array_symbol->section == 0 && scope_symbol != NULL &&
            scope_symbol->type == SYM_GLOBAL &&
            scope_symbol->binding == BIND_CODE &&
-           scope_symbol->section == 0);
+           scope_symbol->section == 0 && explicit_cleanup_symbol != NULL &&
+           explicit_cleanup_symbol->type == SYM_GLOBAL &&
+           explicit_cleanup_symbol->binding == BIND_CODE &&
+           explicit_cleanup_symbol->section == 0);
     if (!execute) {
         objfile_free(object);
         return;
@@ -3683,6 +3695,14 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
     address = symbol_address(memory, scope_symbol);
     memcpy(&scope_destructor, &address, sizeof(scope_destructor));
     assert(scope_destructor() == 231);
+    order = 0;
+    address = symbol_address(memory, explicit_cleanup_symbol);
+    memcpy(&explicit_cleanup_destructor, &address,
+           sizeof(explicit_cleanup_destructor));
+    cleanup_instance.order = &order;
+    cleanup_instance.cleanup_order = &order;
+    explicit_cleanup_destructor(&cleanup_instance);
+    assert(order == 94);
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }

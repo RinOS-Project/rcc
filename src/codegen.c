@@ -10711,12 +10711,31 @@ static bool gen_cxx_class_array_count32(const Type* array_type,
     return true;
 }
 
+static bool gen_cxx_destructor_cleanup_hook_supported32(const Type* type) {
+    if (!type) return false;
+    if (!type->cleanup_function && !type->cleanup_field) return true;
+    if (!type->cleanup_function || !type->cleanup_function[0] ||
+        !type->cleanup_field || !type->cxx_class ||
+        !type->cxx_class->destructor_method) {
+        return false;
+    }
+    for (const TypeField* field = type->fields; field; field = field->next) {
+        if (field != type->cleanup_field) continue;
+        return field->type && field->type->size > 0 &&
+            field->type->size <= 8 &&
+            (type_is_integer(field->type) ||
+             field->type->kind == TYPE_ENUM ||
+             field->type->kind == TYPE_PTR);
+    }
+    return false;
+}
+
 static bool gen_cxx_destructor_subobjects_supported32(
     const CxxClass* cls, unsigned depth) {
     const TypeParam* field;
     if (!cls || !cls->type || depth >= 64u ||
-        cls->virtual_base_count != 0 || cls->type->cleanup_function ||
-        cls->type->cleanup_field) {
+        cls->virtual_base_count != 0 ||
+        !gen_cxx_destructor_cleanup_hook_supported32(cls->type)) {
         return false;
     }
     if (cls->destructor_method) {
@@ -10739,7 +10758,7 @@ static bool gen_cxx_destructor_subobjects_supported32(
     for (field = cls->fields; field; field = field->next) {
         const Type* type = field->type;
         if (field->is_static || !type) continue;
-        if (type->cleanup_function || type->cleanup_field) {
+        if (!gen_cxx_destructor_cleanup_hook_supported32(type)) {
             return false;
         }
         if (type->kind == TYPE_ARRAY) {

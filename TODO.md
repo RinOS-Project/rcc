@@ -983,9 +983,17 @@
         explicit-call and automatic-scope tests also pass. The complete
         `test-cxx`, `test-verified-backend`, `test-optimize`, and
         `test-debug-info` gates pass.
-  - [ ] Extend explicit-destructor subobject cleanup to virtual bases, custom
-        cleanup hooks, and potentially-throwing destructor trees, with
-        lowering and execution coverage for each.
+  - [x] Extend explicit-destructor subobject cleanup through validated scalar
+        cleanup-hook wrapper members. The enclosing destructor body runs first,
+        then the validated member cleanup runs exactly once; verify automatic
+        scope cleanup in the legacy backend and explicit destruction in typed
+        SSA, with order `94`, i686/AMD64 emission, 13 verified functions, and
+        zero fallback in `test-cxx-destructor-body` and
+        `test-verified-cxx-destructor`. The full `test-cxx` and
+        `test-verified-backend` gates pass.
+  - [ ] Extend explicit-destructor subobject cleanup to virtual bases and
+        potentially-throwing destructor trees, with lowering and execution
+        coverage for both.
   - [x] Resolve data-member access exposed through a virtual base using the
         active subobject's vbtable and member-in-base offset; verify inherited
         access from both arms of a shared virtual diamond during destruction,
