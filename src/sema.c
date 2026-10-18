@@ -3227,7 +3227,7 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         if (method->kind != TYPE_METHOD_FUNCTION ||
             !method->function_decl || !method->return_type ||
             !method->name || strcmp(method->name, "operator conversion") != 0 ||
-            method->cxx_access != ACCESS_PUBLIC || method->is_explicit ||
+            method->is_explicit ||
             method->function_decl->func_params) {
             continue;
         }
@@ -8325,7 +8325,6 @@ static TypeMethod* sema_find_contextual_bool_method(Type* aggregate) {
         if (method->name &&
             strcmp(method->name, "operator conversion") == 0 &&
             method->return_type && method->return_type->kind == TYPE_BOOL &&
-            method->cxx_access == ACCESS_PUBLIC &&
             ((method->field && method->kind != TYPE_METHOD_FUNCTION) ||
              (method->kind == TYPE_METHOD_FUNCTION &&
               method->function_decl && !method->function_decl->func_params))) {
