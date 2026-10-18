@@ -21,6 +21,11 @@ struct NestedStructuralFloatingKey {
     double offset;
 };
 
+struct NestedStructuralNonfiniteKey {
+    float single;
+    double wide;
+};
+
 struct NestedStructuralNullptrArrayKey {
     decltype(nullptr) values[2];
     int payload;
@@ -109,6 +114,19 @@ struct NestedStructuralFloatingOwnerPack {
     static constexpr int combined() {
         return ((Values.ratio == 1.25f && Values.offset == -2.5 ? 42 :
                  Values.ratio == -0.5f && Values.offset == 3.25 ? 73 : -1)
+                + ... + 0);
+    }
+};
+
+template <NestedStructuralNonfiniteKey... Values>
+struct NestedStructuralNonfiniteOwnerPack {
+    static constexpr int combined() {
+        return (((Values.single == __builtin_inff() &&
+                  Values.wide == __builtin_inf()) ? 1 :
+                 (Values.single != Values.single &&
+                  Values.wide != Values.wide) ? 2 :
+                 (Values.single == -__builtin_inff() &&
+                  Values.wide == -__builtin_huge_val()) ? 4 : -1)
                 + ... + 0);
     }
 };
@@ -310,6 +328,17 @@ int main() {
         return 17;
     }
     if (NestedStructuralFloatingOwnerPack<>::combined() != 0) return 18;
+    if (NestedStructuralNonfiniteOwnerPack<
+            NestedStructuralNonfiniteKey{__builtin_inff(), __builtin_inf()},
+            NestedStructuralNonfiniteKey{__builtin_nanf(""), __builtin_nan("")},
+            NestedStructuralNonfiniteKey{__builtin_nanf("0x123"),
+                                         __builtin_nan("0x123")},
+            NestedStructuralNonfiniteKey{-__builtin_huge_valf(),
+                                         -__builtin_huge_val()}>::combined()
+        != 9) {
+        return 25;
+    }
+    if (NestedStructuralNonfiniteOwnerPack<>::combined() != 0) return 26;
     if (NestedStructuralNullptrArrayOwnerPack<
             NestedStructuralNullptrArrayKey{{nullptr, nullptr}, 3},
             NestedStructuralNullptrArrayKey{{nullptr, nullptr}, 7}>::combined()

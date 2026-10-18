@@ -10,6 +10,7 @@
 #include "symtab.h"
 #include <float.h>
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 
 /* External parser state (from parser.c) */
@@ -2103,6 +2104,7 @@ static bool eval_template_floating_expression(
 static bool cxx_structural_floating_member_conversion_is_valid(
     Expr* expression, Type* target_type, double source_value);
 static bool cxx_template_expression_is_floating(const Expr* expression);
+static Type* cxx_template_expression_floating_type(const Expr* expression);
 static bool cxx_class_partial_owner_pattern_matches(
     CxxTemplate* primary, CxxTemplate* specialization, Type* owner_pattern,
     int* specificity_out);
@@ -23592,6 +23594,11 @@ static bool eval_template_floating_expression(
     double evaluated;
     Type* common_type;
     if (!expression || !result) return false;
+    if (expression->kind == EXPR_CALL &&
+        rcc_sema_fold_nonfinite_builtin(expression) &&
+        expression->kind != EXPR_FLOAT_LIT) {
+        return false;
+    }
 
     if (!type_is_floating(expression->type) &&
         eval_template_integer_expression_bits(
@@ -23604,9 +23611,6 @@ static bool eval_template_floating_expression(
         case EXPR_FLOAT_LIT:
             evaluated = cxx_template_round_floating_type(
                 expression->type, expression->float_val);
-            if (!cxx_template_floating_value_is_finite(evaluated)) {
-                return false;
-            }
             *result = evaluated;
             return true;
         case EXPR_CAST:
@@ -23618,9 +23622,6 @@ static bool eval_template_floating_expression(
             }
             evaluated = cxx_template_round_floating_type(
                 expression->cast_type, evaluated);
-            if (!cxx_template_floating_value_is_finite(evaluated)) {
-                return false;
-            }
             *result = evaluated;
             return true;
         case EXPR_NEG:
@@ -23631,9 +23632,6 @@ static bool eval_template_floating_expression(
             }
             evaluated = cxx_template_round_floating_type(
                 expression->type, -left);
-            if (!cxx_template_floating_value_is_finite(evaluated)) {
-                return false;
-            }
             *result = evaluated;
             return true;
         case EXPR_ADD:
@@ -23666,9 +23664,6 @@ static bool eval_template_floating_expression(
             evaluated = cxx_template_round_floating_type(
                 expression->type ? expression->type : common_type,
                 evaluated);
-            if (!cxx_template_floating_value_is_finite(evaluated)) {
-                return false;
-            }
             *result = evaluated;
             return true;
         case EXPR_COND:
@@ -23683,9 +23678,6 @@ static bool eval_template_floating_expression(
             }
             evaluated = cxx_template_round_floating_type(
                 expression->type, evaluated);
-            if (!cxx_template_floating_value_is_finite(evaluated)) {
-                return false;
-            }
             *result = evaluated;
             return true;
         default:
@@ -23751,14 +23743,23 @@ static bool cxx_structural_floating_member_conversion_is_valid(
     source_type = expression->type;
     source_is_floating = type_is_floating(source_type) ||
         cxx_template_expression_is_floating(expression);
+    if (source_is_floating && !type_is_floating(source_type)) {
+        source_type = cxx_template_expression_floating_type(expression);
+    }
     if (target_type->kind == TYPE_FLOAT) {
         float converted = (float)source_value;
         converted_value = (double)converted;
+        if (source_is_floating) {
+            if (isnan(source_value) || isinf(source_value)) {
+                return source_type && source_type->kind == TYPE_FLOAT;
+            }
+            if (!cxx_template_floating_value_is_finite(converted_value)) {
+                return false;
+            }
+            return converted_value == source_value;
+        }
         if (!cxx_template_floating_value_is_finite(converted_value)) {
             return false;
-        }
-        if (source_is_floating) {
-            return converted_value == source_value;
         }
     } else {
         converted_value = source_value;
@@ -23818,6 +23819,49 @@ static bool cxx_template_expression_is_floating(const Expr* expression) {
                     expression->cond_else);
         default:
             return false;
+    }
+}
+
+static Type* cxx_template_expression_floating_type(const Expr* expression) {
+    Type* common_type;
+    if (!expression) return NULL;
+    if (type_is_floating(expression->type)) return expression->type;
+    switch (expression->kind) {
+        case EXPR_FLOAT_LIT:
+            return type_double;
+        case EXPR_CAST:
+            return type_is_floating(expression->cast_type)
+                ? expression->cast_type
+                : cxx_template_expression_floating_type(
+                      expression->cast_expr);
+        case EXPR_NEG:
+            return cxx_template_expression_floating_type(
+                expression->unary_operand);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+            common_type = cxx_template_common_floating_type(
+                expression->binary_lhs, expression->binary_rhs);
+            if (common_type) return common_type;
+            return cxx_template_expression_floating_type(
+                expression->binary_lhs)
+                ? cxx_template_expression_floating_type(
+                      expression->binary_lhs)
+                : cxx_template_expression_floating_type(
+                      expression->binary_rhs);
+        case EXPR_COND:
+            common_type = cxx_template_common_floating_type(
+                expression->cond_then, expression->cond_else);
+            if (common_type) return common_type;
+            return cxx_template_expression_floating_type(
+                expression->cond_then)
+                ? cxx_template_expression_floating_type(
+                      expression->cond_then)
+                : cxx_template_expression_floating_type(
+                      expression->cond_else);
+        default:
+            return NULL;
     }
 }
 

@@ -8,9 +8,11 @@
 #include "ast_cxx.h"
 #include "cxx_exception_type.h"
 #include "symtab.h"
+#include <errno.h>
 #include <float.h>
 #include <limits.h>
 #include <math.h>
+#include <string.h>
 
 /* The C compiler intentionally omits the C++ AST object.  Keep the namespace
  * lookup extension optional at this boundary so the C frontend remains a
@@ -17130,6 +17132,116 @@ static Type* sema_sse_builtin_return_type(const char* name) {
     return sema_sse_builtin_vector(name);
 }
 
+static bool sema_nan_builtin_payload(Expr* expression, uint64_t* payload) {
+    Expr* literal = expression;
+    char* end;
+    unsigned long long parsed;
+    if (!literal || !payload) return false;
+    while (literal->kind == EXPR_CAST) literal = literal->cast_expr;
+    if (!literal || literal->kind != EXPR_STRING_LIT ||
+        literal->str_element_width != 1u || !literal->str_val) {
+        return false;
+    }
+    if (literal->str_val[0] == '\0') {
+        *payload = 0u;
+        return true;
+    }
+    errno = 0;
+    parsed = strtoull(literal->str_val, &end, 0);
+    if (errno == ERANGE || end == literal->str_val || *end != '\0') {
+        return false;
+    }
+    *payload = (uint64_t)parsed;
+    return true;
+}
+
+static bool sema_fold_nonfinite_builtin(Expr* expression,
+                                        const char* name) {
+    Expr* function;
+    ExprList* argument;
+    Expr* payload_expression = NULL;
+    Type* result_type;
+    bool is_nan;
+    bool is_float;
+    int argument_count = 0;
+    uint64_t payload = 0u;
+    double value;
+
+    if (strcmp(name, "__builtin_inf") == 0 ||
+        strcmp(name, "__builtin_huge_val") == 0) {
+        is_nan = false;
+        is_float = false;
+    } else if (strcmp(name, "__builtin_inff") == 0 ||
+               strcmp(name, "__builtin_huge_valf") == 0) {
+        is_nan = false;
+        is_float = true;
+    } else if (strcmp(name, "__builtin_nan") == 0) {
+        is_nan = true;
+        is_float = false;
+    } else if (strcmp(name, "__builtin_nanf") == 0) {
+        is_nan = true;
+        is_float = true;
+    } else {
+        return false;
+    }
+
+    function = expression->call_func;
+    result_type = is_float ? type_float : type_double;
+    for (argument = expression->call_args; argument;
+         argument = argument->next) {
+        sema_expr(argument->expr);
+        if (!payload_expression) payload_expression = argument->expr;
+        ++argument_count;
+    }
+    if (argument_count != (is_nan ? 1 : 0)) {
+        rcc_error(expression->loc, "%s expects %d arguments, got %d", name,
+                  is_nan ? 1 : 0, argument_count);
+        function->type = type_ptr(result_type);
+        expression->type = result_type;
+        return true;
+    }
+    if (is_nan && !sema_nan_builtin_payload(payload_expression, &payload)) {
+        rcc_error(expression->loc,
+                  "%s expects a constant narrow string with a numeric NaN payload",
+                  name);
+        function->type = type_ptr(result_type);
+        expression->type = result_type;
+        return true;
+    }
+
+    if (is_nan) {
+        if (is_float) {
+            uint32_t bits = UINT32_C(0x7fc00000) |
+                ((uint32_t)payload & UINT32_C(0x003fffff));
+            float float_value;
+            memcpy(&float_value, &bits, sizeof(float_value));
+            value = (double)float_value;
+        } else {
+            uint64_t bits = UINT64_C(0x7ff8000000000000) |
+                (payload & UINT64_C(0x0007ffffffffffff));
+            memcpy(&value, &bits, sizeof(value));
+        }
+    } else {
+        value = is_float ? (double)HUGE_VALF : HUGE_VAL;
+    }
+
+    function->type = type_ptr(result_type);
+    expression->kind = EXPR_FLOAT_LIT;
+    expression->float_val = value;
+    expression->type = result_type;
+    return true;
+}
+
+bool rcc_sema_fold_nonfinite_builtin(Expr* expression) {
+    if (!expression || expression->kind != EXPR_CALL ||
+        !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT) {
+        return false;
+    }
+    return sema_fold_nonfinite_builtin(
+        expression, expression->call_func->ident_name);
+}
+
 static bool sema_compiler_builtin_call(Expr* expr) {
     Expr* function;
     Expr* first;
@@ -17149,6 +17261,7 @@ static bool sema_compiler_builtin_call(Expr* expr) {
     }
     function = expr->call_func;
     name = function->ident_name;
+    if (sema_fold_nonfinite_builtin(expr, name)) return true;
     mmx_kind = sema_mmx_builtin_kind(name);
     if (mmx_kind != RCC_MMX_BUILTIN_NONE) {
         int expected_count = mmx_kind == RCC_MMX_BUILTIN_INIT_V2SI ? 2 :
