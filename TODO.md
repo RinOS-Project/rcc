@@ -1357,9 +1357,9 @@
         nested parent/member cleanup, single and paired temporaries, exactly-once
         cleanup/comma side effects, fallback-free i686/AMD64 objects, and x64
         execution in `test-verified-cxx-temporary-cleanup`. Potentially throwing
-        calls and array-loop cleanup for automatic-object scopes remain on the
-        complete backend; fixed-size array loops in call-temporary cleanup plans
-        are covered below.
+        calls and automatic-object cleanup remain subject to the restrictions
+        described below; fixed-size array loops in call-temporary cleanup plans
+        are covered separately.
   - [x] Lower same-type noexcept class-prvalue conditional arguments bound to
         reference parameters. Pass the final lifetime-owner storage directly
         to the selected branch's sret call or capture a one-/two-register
@@ -1370,7 +1370,7 @@
         `noexcept` ordinary member-function call returning the same class is
         also covered as a branch arm. Field-backed inline member calls,
         conversions, potentially throwing expressions, and automatic-object
-        array cleanup remain outside this verified subset.
+        cleanup remain outside this conditional-temporary subset.
   - [x] Validate noexcept fixed-member cleanup plans recursively for class
         prvalue reference arguments of a selected conditional branch call;
         emit the inner temporary cleanup immediately after that call and the
@@ -1388,6 +1388,19 @@
         in both typed-SSA and regular codegen paths; typed SSA passes `-O0` and
         `-O2` on i686/AMD64 with no fallback in
         `test-verified-cxx-temporary-cleanup`.
+  - [x] Lower validated `noexcept` fixed-size array cleanup plans for automatic
+        struct/array objects with supported aggregate initialization. Emit
+        destruction on lexical block exit and every early return, including
+        nested arrays, and allocate synthetic loop indices before control-flow
+        splits so each cleanup path has a dominating slot. Verify reverse
+        destruction on normal and early exits, with no typed-SSA fallback on
+        i686/AMD64 at `-O0` and `-O2` in
+        `test-verified-cxx-automatic-array-cleanup`, included by
+        `test-verified-backend` and the production CI gate.
+  - [ ] Throwing expressions/initializers, constructor-driven partial
+        construction and unwind, `goto`/`switch`/`break`/`continue` edges,
+        cleanup-bearing `for` initializers, and other automatic cleanup-plan
+        shapes remain outside this verified subset.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering

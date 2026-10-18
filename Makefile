@@ -554,6 +554,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 .PHONY: test-cxx-structural-computed-pointer-nttp
 .PHONY: test-verified-volatile
 .PHONY: test-verified-cxx-temporary-cleanup
+.PHONY: test-verified-cxx-automatic-array-cleanup
 .PHONY: test-verified-cxx-virtual-base-value
 .PHONY: test-weak-attribute
 .PHONY: test-cxx-multi-declarator
@@ -17330,6 +17331,53 @@ test-verified-cxx-temporary-cleanup: $(RCXX_TARGET) test-verified-cxx-reference-
 		--cxx-reference-object \
 		$(TEST_OUT)/verified-backend/array-temporary-o2-x64.ro x64
 
+test-verified-cxx-automatic-array-cleanup: $(RCXX_TARGET) test-verified-cxx-reference-local
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/automatic-array-cleanup-o0-x86.ro \
+		tests/verified_backend_cxx_automatic_array_cleanup.cpp \
+		>$(TEST_OUT)/verified-backend/automatic-array-cleanup-o0-x86.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/automatic-array-cleanup-o0-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/automatic-array-cleanup-o0-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/automatic-array-cleanup-o0-x64.ro \
+		tests/verified_backend_cxx_automatic_array_cleanup.cpp \
+		>$(TEST_OUT)/verified-backend/automatic-array-cleanup-o0-x64.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/automatic-array-cleanup-o0-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/automatic-array-cleanup-o0-x64.log,0)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/automatic-array-cleanup-o2-x86.ro \
+		tests/verified_backend_cxx_automatic_array_cleanup.cpp \
+		>$(TEST_OUT)/verified-backend/automatic-array-cleanup-o2-x86.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/automatic-array-cleanup-o2-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/automatic-array-cleanup-o2-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/automatic-array-cleanup-o2-x64.ro \
+		tests/verified_backend_cxx_automatic_array_cleanup.cpp \
+		>$(TEST_OUT)/verified-backend/automatic-array-cleanup-o2-x64.log
+	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/automatic-array-cleanup-o2-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/automatic-array-cleanup-o2-x64.log,0)
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/automatic-array-cleanup-o0-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/automatic-array-cleanup-o0-x64.ro x64
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/automatic-array-cleanup-o2-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-reference-object \
+		$(TEST_OUT)/verified-backend/automatic-array-cleanup-o2-x64.ro x64
+
 test-verified-cxx-virtual-base-value: $(RCXX_TARGET) test-verified-cxx-reference-local
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
@@ -17542,7 +17590,7 @@ test-rinvalidate-dynamic-tls: $(RCC_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		--rinvalidate "$(abspath $(RINVALIDATE))" \
 		--output-dir "$(abspath $(TEST_OUT)/rinvalidate-dynamic-tls/runtime)"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \

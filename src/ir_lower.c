@@ -97,6 +97,12 @@ typedef struct RccIrLowerLabel {
     struct RccIrLowerLabel* next;
 } RccIrLowerLabel;
 
+typedef struct RccIrLowerScopeCleanup {
+    const CxxCleanupPlan* action;
+    struct RccIrLowerScopeCleanup* previous_scope;
+    struct RccIrLowerScopeCleanup* allocated_next;
+} RccIrLowerScopeCleanup;
+
 typedef struct {
     RccIrModule* module;
     RccIrFunction* function;
@@ -105,6 +111,8 @@ typedef struct {
     const Type* ast_return_type;
     RccIrBlock* current;
     RccIrLowerLocal* locals;
+    RccIrLowerScopeCleanup* scope_cleanups;
+    RccIrLowerScopeCleanup* allocated_scope_cleanups;
     RccIrLowerLabel* labels;
     RccIrLowerSwitch* current_switch;
     RccIrBlockId break_target;
@@ -200,6 +208,8 @@ static bool lower_switch_case(RccIrLowerContext* context,
                               const Stmt* statement);
 static bool lower_wide_switch_body_edge_safe(const Stmt* statement);
 static bool lower_struct_type_supported(const Type* type);
+static bool lower_storage_type_supported_internal(
+    const Type* type, unsigned depth);
 static bool lower_copy_struct_storage(
     RccIrLowerContext* context, RccIrValue destination,
     RccIrValue source, const Type* type);
@@ -6728,6 +6738,153 @@ static bool lower_temporary_cleanup_plan_supported(
         argument->cxx_temporary_owner, array_indices, 0u);
 }
 
+static bool lower_cleanup_initializer_noexcept(const Expr* initializer) {
+    if (!initializer) return true;
+    if (initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_constructor) {
+        return lower_noexcept_expression(initializer);
+    }
+    for (const ExprList* item = initializer->compound_init; item;
+         item = item->next) {
+        if (!lower_cleanup_initializer_noexcept(item->expr)) return false;
+    }
+    return true;
+}
+
+static bool lower_scope_cleanup_declaration_supported(
+    const Decl* declaration) {
+    const Decl* array_indices[32];
+    if (!declaration || declaration->kind != DECL_VAR ||
+        declaration->var_cleanup || !declaration->var_cleanups ||
+        !declaration->type || !declaration->var_init ||
+        declaration->var_is_global || declaration->var_is_static_local ||
+        declaration->var_is_thread_local ||
+        (declaration->type->kind != TYPE_STRUCT &&
+         declaration->type->kind != TYPE_ARRAY) ||
+        !lower_storage_type_supported_internal(declaration->type, 0u) ||
+        !lower_cleanup_initializer_noexcept(declaration->var_init)) {
+        return false;
+    }
+    return lower_temporary_cleanup_plan_list_supported(
+        declaration->var_cleanups, declaration, array_indices, 0u);
+}
+
+static bool lower_statement_has_scope_cleanups(const Stmt* statement) {
+    if (!statement) return false;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (lower_statement_has_scope_cleanups(item->stmt)) {
+                    return true;
+                }
+            }
+            return false;
+        case STMT_DECL:
+            return statement->decl && statement->decl->kind == DECL_VAR &&
+                (statement->decl->var_cleanup ||
+                 statement->decl->var_cleanups);
+        case STMT_IF:
+            return lower_statement_has_scope_cleanups(statement->if_then) ||
+                lower_statement_has_scope_cleanups(statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return lower_statement_has_scope_cleanups(statement->while_body);
+        case STMT_FOR:
+            return lower_statement_has_scope_cleanups(statement->for_init) ||
+                lower_statement_has_scope_cleanups(statement->for_body);
+        case STMT_SWITCH:
+            return lower_statement_has_scope_cleanups(statement->switch_body);
+        case STMT_CASE:
+            return lower_statement_has_scope_cleanups(statement->case_stmt);
+        case STMT_DEFAULT:
+            return lower_statement_has_scope_cleanups(statement->default_stmt);
+        case STMT_LABEL:
+            return lower_statement_has_scope_cleanups(statement->label_stmt);
+        case STMT_TRY:
+            if (lower_statement_has_scope_cleanups(statement->try_body)) {
+                return true;
+            }
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (lower_statement_has_scope_cleanups(handler->body)) {
+                    return true;
+                }
+            }
+            return false;
+        default:
+            return false;
+    }
+}
+
+static bool lower_statement_scope_cleanups_supported(
+    const Stmt* statement) {
+    if (!statement) return true;
+    switch (statement->kind) {
+        case STMT_NULL:
+        case STMT_ASM:
+            return true;
+        case STMT_EXPR:
+            return lower_noexcept_expression(statement->expr);
+        case STMT_BLOCK:
+            for (const StmtList* item = statement->block_stmts; item;
+                 item = item->next) {
+                if (!lower_statement_scope_cleanups_supported(item->stmt)) {
+                    return false;
+                }
+            }
+            return true;
+        case STMT_DECL:
+            if (!statement->decl || statement->decl->kind != DECL_VAR) {
+                return true;
+            }
+            if (statement->decl->var_cleanups) {
+                return lower_scope_cleanup_declaration_supported(
+                    statement->decl);
+            }
+            return !statement->decl->var_cleanup &&
+                lower_cleanup_initializer_noexcept(
+                    statement->decl->var_init);
+        case STMT_RETURN:
+            return lower_noexcept_expression(statement->return_val);
+        case STMT_IF:
+            return lower_noexcept_expression(statement->if_cond) &&
+                lower_statement_scope_cleanups_supported(
+                    statement->if_then) &&
+                lower_statement_scope_cleanups_supported(
+                    statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return lower_noexcept_expression(statement->while_cond) &&
+                lower_statement_scope_cleanups_supported(
+                    statement->while_body);
+        case STMT_FOR:
+            if (statement->for_init &&
+                statement->for_init->kind == STMT_DECL &&
+                statement->for_init->decl &&
+                statement->for_init->decl->var_cleanups) {
+                return false;
+            }
+            return lower_statement_scope_cleanups_supported(
+                       statement->for_init) &&
+                lower_noexcept_expression(statement->for_cond) &&
+                lower_noexcept_expression(statement->for_inc) &&
+                lower_statement_scope_cleanups_supported(
+                    statement->for_body);
+        case STMT_BREAK:
+        case STMT_CONTINUE:
+        case STMT_GOTO:
+        case STMT_LABEL:
+        case STMT_SWITCH:
+        case STMT_CASE:
+        case STMT_DEFAULT:
+        case STMT_TRY:
+        case STMT_THROW:
+            return false;
+    }
+    return false;
+}
+
 static bool lower_call_temporary_cleanups_supported(
     const Expr* expression) {
     const ExprList* argument;
@@ -6780,6 +6937,7 @@ static bool lower_emit_temporary_cleanup_plan_list(
 static bool lower_emit_temporary_cleanup_array_loop(
     RccIrLowerContext* context, const CxxCleanupPlan* plan) {
     RccIrInstruction* allocation;
+    RccIrLowerLocal* index_local;
     RccIrLowerValue index_address;
     RccIrLowerValue index_value;
     RccIrLowerValue one;
@@ -6792,27 +6950,38 @@ static bool lower_emit_temporary_cleanup_array_loop(
     if (!context || !plan || plan->kind != CXX_CLEANUP_ARRAY_LOOP ||
         !plan->index_decl || !plan->index_decl->type ||
         plan->index_decl->kind != DECL_VAR || plan->element_count <= 0 ||
-        !plan->body || lower_find_local(context, plan->index_decl) ||
+        !plan->body ||
         !lower_type(plan->index_decl->type, &index_type) ||
         index_type.kind != RCC_IR_TYPE_INTEGER ||
         index_type.bit_width != 32u) {
         if (context) context->unsupported = true;
         return false;
     }
-    allocation = lower_append(context, RCC_IR_ALLOCA,
-                              rcc_ir_type_pointer(0u), NULL, 0u,
-                              NULL, 0u);
-    if (!allocation) return false;
-    rcc_ir_set_immediate(allocation, 4u);
-    allocation->alignment = 4u;
-    allocation->source_declaration = plan->index_decl;
-    if (!lower_add_local(context, plan->index_decl,
-                         allocation->result, index_type)) {
-        context->unsupported = true;
-        return false;
+    index_local = lower_find_local(context, plan->index_decl);
+    if (index_local) {
+        if (index_local->type.kind != index_type.kind ||
+            index_local->type.bit_width != index_type.bit_width) {
+            context->unsupported = true;
+            return false;
+        }
+        index_address = lower_value(
+            index_local->address, rcc_ir_type_pointer(0u), true);
+    } else {
+        allocation = lower_append(context, RCC_IR_ALLOCA,
+                                  rcc_ir_type_pointer(0u), NULL, 0u,
+                                  NULL, 0u);
+        if (!allocation) return false;
+        rcc_ir_set_immediate(allocation, 4u);
+        allocation->alignment = 4u;
+        allocation->source_declaration = plan->index_decl;
+        if (!lower_add_local(context, plan->index_decl,
+                             allocation->result, index_type)) {
+            context->unsupported = true;
+            return false;
+        }
+        index_address = lower_value(
+            allocation->result, rcc_ir_type_pointer(0u), true);
     }
-    index_address = lower_value(
-        allocation->result, rcc_ir_type_pointer(0u), true);
     index_value = lower_integer_constant(
         context, index_type, true, (uint32_t)plan->element_count);
     if (!index_value.valid ||
@@ -6862,6 +7031,24 @@ static bool lower_emit_temporary_cleanup_array_loop(
     return true;
 }
 
+static bool lower_emit_temporary_cleanup_action(
+    RccIrLowerContext* context, const CxxCleanupPlan* action) {
+    if (!context || !action) return false;
+    if (action->kind == CXX_CLEANUP_ARRAY_LOOP) {
+        return lower_emit_temporary_cleanup_array_loop(context, action);
+    }
+    if (action->kind == CXX_CLEANUP_EXPRESSION) {
+        RccIrLowerValue cleanup = lower_expression(context, action->expression);
+        if (!cleanup.valid || cleanup.type.kind != RCC_IR_TYPE_VOID) {
+            context->unsupported = true;
+            return false;
+        }
+        return true;
+    }
+    context->unsupported = true;
+    return false;
+}
+
 static bool lower_emit_temporary_cleanup_plan_list(
     RccIrLowerContext* context, const CxxCleanupPlan* plan) {
     const CxxCleanupPlan** actions;
@@ -6880,28 +7067,90 @@ static bool lower_emit_temporary_cleanup_plan_list(
         actions[index++] = item;
     }
     while (index > 0u) {
-        RccIrLowerValue cleanup;
         const CxxCleanupPlan* item = actions[--index];
-        if (item->kind == CXX_CLEANUP_ARRAY_LOOP) {
-            if (!lower_emit_temporary_cleanup_array_loop(context, item)) {
-                rcc_free(actions);
-                return false;
-            }
-        } else if (item->kind == CXX_CLEANUP_EXPRESSION) {
-            cleanup = lower_expression(context, item->expression);
-            if (!cleanup.valid || cleanup.type.kind != RCC_IR_TYPE_VOID) {
-                context->unsupported = true;
-                rcc_free(actions);
-                return false;
-            }
-        } else {
-            context->unsupported = true;
+        if (!lower_emit_temporary_cleanup_action(context, item)) {
             rcc_free(actions);
             return false;
         }
     }
     rcc_free(actions);
     return true;
+}
+
+static bool lower_prepare_scope_cleanup_plan(
+    RccIrLowerContext* context, const CxxCleanupPlan* plan) {
+    for (const CxxCleanupPlan* item = plan; item; item = item->next) {
+        if (item->kind != CXX_CLEANUP_ARRAY_LOOP) continue;
+        RccIrLowerLocal* index_local = lower_find_local(
+            context, item->index_decl);
+        if (!index_local) {
+            RccIrType index_type;
+            RccIrInstruction* allocation;
+            if (!item->index_decl || !item->index_decl->type ||
+                !lower_type(item->index_decl->type, &index_type) ||
+                index_type.kind != RCC_IR_TYPE_INTEGER ||
+                index_type.bit_width != 32u) {
+                context->unsupported = true;
+                return false;
+            }
+            allocation = lower_append(
+                context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+                NULL, 0u, NULL, 0u);
+            if (!allocation) return false;
+            rcc_ir_set_immediate(allocation, 4u);
+            allocation->alignment = 4u;
+            allocation->source_declaration = item->index_decl;
+            if (!lower_add_local(context, item->index_decl,
+                                 allocation->result, index_type)) {
+                context->unsupported = true;
+                return false;
+            }
+        }
+        if (!lower_prepare_scope_cleanup_plan(context, item->body)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool lower_push_scope_cleanup_plan(
+    RccIrLowerContext* context, const CxxCleanupPlan* plan) {
+    if (!context || !plan ||
+        !lower_prepare_scope_cleanup_plan(context, plan)) return false;
+    for (const CxxCleanupPlan* item = plan; item; item = item->next) {
+        RccIrLowerScopeCleanup* cleanup = rcc_alloc(sizeof(*cleanup));
+        cleanup->action = item;
+        cleanup->previous_scope = context->scope_cleanups;
+        cleanup->allocated_next = context->allocated_scope_cleanups;
+        context->scope_cleanups = cleanup;
+        context->allocated_scope_cleanups = cleanup;
+    }
+    return true;
+}
+
+static bool lower_emit_scope_cleanups_until(
+    RccIrLowerContext* context, const RccIrLowerScopeCleanup* marker) {
+    const RccIrLowerScopeCleanup* cleanup;
+    if (!context) return false;
+    for (cleanup = context->scope_cleanups;
+         cleanup && cleanup != marker; cleanup = cleanup->previous_scope) {
+        if (!lower_emit_temporary_cleanup_action(context, cleanup->action)) {
+            return false;
+        }
+    }
+    if (cleanup != marker) {
+        context->unsupported = true;
+        return false;
+    }
+    return true;
+}
+
+static void lower_release_scope_cleanups(RccIrLowerScopeCleanup* cleanups) {
+    while (cleanups) {
+        RccIrLowerScopeCleanup* next = cleanups->allocated_next;
+        rcc_free(cleanups);
+        cleanups = next;
+    }
 }
 
 static bool lower_emit_temporary_cleanup_plan(
@@ -10554,9 +10803,13 @@ static bool lower_statement_has_switch_label(const Stmt* statement) {
 }
 
 static bool lower_block(RccIrLowerContext* context, const Stmt* block) {
+    RccIrLowerScopeCleanup* scope_marker;
+    bool owns_scope;
     if (!block || block->kind != STMT_BLOCK) {
         return lower_statement(context, block);
     }
+    scope_marker = context->scope_cleanups;
+    owns_scope = !block->block_no_scope;
     for (const StmtList* item = block->block_stmts; item;
          item = item->next) {
         if (context->terminated && item->stmt->kind != STMT_LABEL &&
@@ -10564,6 +10817,13 @@ static bool lower_block(RccIrLowerContext* context, const Stmt* block) {
             continue;
         }
         if (!lower_statement(context, item->stmt)) return false;
+    }
+    if (owns_scope) {
+        if (!context->terminated &&
+            !lower_emit_scope_cleanups_until(context, scope_marker)) {
+            return false;
+        }
+        context->scope_cleanups = scope_marker;
     }
     return !context->unsupported;
 }
@@ -13360,7 +13620,8 @@ static bool lower_declaration(RccIrLowerContext* context,
     if (declaration->var_is_global || declaration->var_is_thread_local ||
         declaration->storage == STORAGE_EXTERN ||
         declaration->storage == STORAGE_STATIC || declaration->var_cleanup ||
-        declaration->var_cleanups ||
+        (declaration->var_cleanups &&
+         !lower_scope_cleanup_declaration_supported(declaration)) ||
         (is_aggregate
              ? (declaration->type->size <= 0 ||
                 declaration->type->is_reference ||
@@ -13396,16 +13657,26 @@ static bool lower_declaration(RccIrLowerContext* context,
         return false;
     }
     if (is_array && declaration->var_init) {
-        return lower_array_initializer(
-            context, allocation->result,
-            declaration->type, declaration->var_init);
+        if (!lower_array_initializer(
+                context, allocation->result,
+                declaration->type, declaration->var_init)) {
+            return false;
+        }
+        return !declaration->var_cleanups ||
+            lower_push_scope_cleanup_plan(
+                context, declaration->var_cleanups);
     }
     if (is_struct && declaration->var_init) {
-        return lower_initialize_struct_storage(
-                   context, allocation->result,
-                   declaration->type, declaration->var_init) &&
-            lower_cxx_initialize_object_vtables(
-                context, allocation->result, declaration->type);
+        if (!lower_initialize_struct_storage(
+                 context, allocation->result,
+                 declaration->type, declaration->var_init) ||
+            !lower_cxx_initialize_object_vtables(
+                context, allocation->result, declaration->type)) {
+            return false;
+        }
+        return !declaration->var_cleanups ||
+            lower_push_scope_cleanup_plan(
+                context, declaration->var_cleanups);
     }
     if (is_union && declaration->var_init) {
         return lower_initialize_union_storage(
@@ -14092,7 +14363,8 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                 }
                 if (!result.valid ||
                     (return_count == 2u && !high.valid)) return false;
-                if (!lower_cxx_exception_release_frame(
+                if (!lower_emit_scope_cleanups_until(context, NULL) ||
+                    !lower_cxx_exception_release_frame(
                         context, context->active_exception_frame)) return false;
                 return_values[0] = result.value;
                 return_values[1] = high.value;
@@ -14116,7 +14388,8 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                     (void)lower_expression(context, statement->return_val);
                     if (context->unsupported) return false;
                 }
-                if (!lower_cxx_exception_release_frame(
+                if (!lower_emit_scope_cleanups_until(context, NULL) ||
+                    !lower_cxx_exception_release_frame(
                         context, context->active_exception_frame)) return false;
                 if (!lower_append(context, RCC_IR_RETURN,
                                   rcc_ir_type_void(), NULL, 0u, NULL, 0u)) {
@@ -14137,7 +14410,8 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                     context->unsupported = true;
                     return false;
                 }
-                if (!lower_cxx_exception_release_frame(
+                if (!lower_emit_scope_cleanups_until(context, NULL) ||
+                    !lower_cxx_exception_release_frame(
                         context, context->active_exception_frame)) return false;
                 return_values[0] = value.low.value;
                 return_values[1] = value.high.value;
@@ -14153,7 +14427,8 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                 result = lower_cast(context, result,
                                     context->ast_return_type);
                 if (!result.valid) return false;
-                if (!lower_cxx_exception_release_frame(
+                if (!lower_emit_scope_cleanups_until(context, NULL) ||
+                    !lower_cxx_exception_release_frame(
                         context, context->active_exception_frame)) return false;
                 if (!lower_append(context, RCC_IR_RETURN,
                                   rcc_ir_type_void(), &result.value, 1u,
@@ -14423,6 +14698,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     RccIrModule* module;
     RccIrFunction* function;
     RccIrBlock* entry;
+    bool has_scope_cleanups;
     if (module_out) *module_out = NULL;
     if (error && error_size != 0u) error[0] = '\0';
     if (!declaration || declaration->kind != DECL_FUNC ||
@@ -14430,6 +14706,22 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         declaration->type->kind != TYPE_FUNC ||
         !declaration->type->ret_type) {
         return RCC_IR_LOWER_UNSUPPORTED;
+    }
+    has_scope_cleanups = lower_statement_has_scope_cleanups(
+        declaration->func_body);
+    if (has_scope_cleanups) {
+        for (const DeclList* parameter = declaration->func_params;
+             parameter; parameter = parameter->next) {
+            if (parameter->decl &&
+                (parameter->decl->var_cleanup ||
+                 parameter->decl->var_cleanups)) {
+                return RCC_IR_LOWER_UNSUPPORTED;
+            }
+        }
+        if (!lower_statement_scope_cleanups_supported(
+                declaration->func_body)) {
+            return RCC_IR_LOWER_UNSUPPORTED;
+        }
     }
     if (lower_abi_is_aggregate(declaration->type->ret_type)) {
         aggregate_return_kind = lower_abi_return_layout(
@@ -14488,6 +14780,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     if (!lower_parameters(&context, declaration) ||
         !lower_collect_labels(&context, declaration->func_body) ||
         !lower_statement(&context, declaration->func_body)) {
+        lower_release_scope_cleanups(context.allocated_scope_cleanups);
         lower_release_locals(context.locals);
         lower_release_labels(context.labels);
         rcc_ir_module_destroy(module);
@@ -14498,6 +14791,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         if (return_type.kind != RCC_IR_TYPE_VOID ||
             !lower_append(&context, RCC_IR_RETURN, rcc_ir_type_void(),
                           NULL, 0u, NULL, 0u)) {
+            lower_release_scope_cleanups(context.allocated_scope_cleanups);
             lower_release_locals(context.locals);
             lower_release_labels(context.labels);
             rcc_ir_module_destroy(module);
@@ -14505,6 +14799,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         }
         context.terminated = true;
     }
+    lower_release_scope_cleanups(context.allocated_scope_cleanups);
     lower_release_locals(context.locals);
     lower_release_labels(context.labels);
     context.labels = NULL;
