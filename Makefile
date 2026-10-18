@@ -18187,6 +18187,8 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 
 test-generic: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/generic)
+	$(CC) -std=c17 -Wall -Wextra -Werror -fsyntax-only \
+		tests/generic_selection.c
 	$(RCC_TARGET) --target i686-unknown-rinos -c \
 		-o $(TEST_OUT)/generic/x86.ro tests/generic_selection.c
 	$(RCC_TARGET) --target x86_64-unknown-rinos -c \

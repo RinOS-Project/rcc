@@ -862,10 +862,7 @@ static Type* parse_declarator(Type* base_type, const char** name,
                               DeclList** parameters);
 
 static Type* generic_selection_type(Type* type) {
-    if (!type) return NULL;
-    if (type->kind == TYPE_ARRAY) return type_ptr(type->base);
-    if (type->kind == TYPE_FUNC) return type_ptr(type);
-    return type;
+    return type_generic_selection_control(type);
 }
 
 /* Evaluate the integer-constant-expression subset required by C17
@@ -977,7 +974,8 @@ static bool eval_integer_constant_typed(Expr* expr,
                      expr->generic_associations;
                  association; association = association->next) {
                 if (!association->type) fallback = association;
-                else if (type_is_compatible(control, association->type)) {
+                else if (type_is_compatible_qualified(
+                             control, association->type)) {
                     selected = association;
                 }
             }
@@ -1291,7 +1289,8 @@ static Expr* parse_generic_selection(SourceLoc loc) {
             for (GenericAssociation* previous = associations; previous;
                  previous = previous->next) {
                 if (previous->type &&
-                    type_is_compatible(previous->type, association_type)) {
+                    type_is_compatible_qualified(previous->type,
+                                                 association_type)) {
                     rcc_error(association_loc,
                               "generic selection has compatible duplicate types");
                     break;

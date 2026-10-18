@@ -407,6 +407,8 @@ bool type_is_vector(Type* t);
 bool type_is_function(Type* t);
 bool type_is_complete(Type* t);
 bool type_is_compatible(Type* a, Type* b);
+bool type_is_compatible_qualified(Type* a, Type* b);
+Type* type_generic_selection_control(Type* type);
 /* Exact type identity for C++ type template arguments. Unlike general
  * compatibility, this retains cv qualification at every nested type level. */
 bool type_is_same_template_argument(Type* a, Type* b);

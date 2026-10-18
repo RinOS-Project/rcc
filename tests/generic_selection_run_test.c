@@ -66,9 +66,11 @@ int main(int argc, char** argv)
         ObjSection* code = code_section(x64);
         const char* names[] = {
             "generic_int", "generic_string", "generic_array",
-            "generic_side_effect", "generic_lvalue", "generic_function"
+            "generic_side_effect", "generic_lvalue", "generic_function",
+            "generic_const_scalar", "generic_nested_pointer_qualification",
+            "generic_top_level_pointer_qualification"
         };
-        int expected[] = {5, 13, 14, 7, 9, 16};
+        int expected[] = {5, 13, 14, 7, 9, 16, 31, 42, 51};
         long page_size = sysconf(_SC_PAGESIZE);
         size_t mapping_size;
         uint8_t* mapping;

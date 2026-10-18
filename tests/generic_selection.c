@@ -1,8 +1,23 @@
 typedef unsigned int rin_word;
+static _Atomic int generic_atomic_control;
 
 _Static_assert(
     _Generic((rin_word)0, int: 0, unsigned int: 1, default: 0),
     "typedef-compatible unsigned selection");
+
+_Static_assert(
+    _Generic((const int)0, int: 1, const int: 2, default: 3) == 1,
+    "qualified control expression uses its converted type");
+_Static_assert(
+    _Generic((int*)0, const int*: 1, int*: 2, default: 3) == 2,
+    "nested pointer qualification remains significant");
+_Static_assert(
+    _Generic((const int* const)0,
+             const int*: 4, const int* const: 5, default: 6) == 4,
+    "top-level pointer qualification is removed");
+_Static_assert(
+    _Generic(generic_atomic_control, int: 7, _Atomic int: 8, default: 9) == 7,
+    "atomic control expression uses its non-atomic value type");
 
 int generic_global = _Generic((rin_word)0,
                               int: 11,
@@ -61,4 +76,23 @@ int generic_function(void)
     return _Generic(generic_callee,
                     int (*)(void): 16,
                     default: 17);
+}
+
+int generic_const_scalar(void)
+{
+    const int value = 0;
+    return _Generic(value, int: 31, const int: 32, default: 33);
+}
+
+int generic_nested_pointer_qualification(void)
+{
+    int* pointer = 0;
+    return _Generic(pointer, const int*: 41, int*: 42, default: 43);
+}
+
+int generic_top_level_pointer_qualification(void)
+{
+    const int* const pointer = 0;
+    return _Generic(pointer, const int*: 51,
+                    const int* const: 52, default: 53);
 }

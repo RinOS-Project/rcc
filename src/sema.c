@@ -14254,7 +14254,7 @@ static Type* sema_expr(Expr* expr) {
             break;
 
         case EXPR_GENERIC: {
-            Type* control = generic_selection_type(
+            Type* control = type_generic_selection_control(
                 sema_expr(expr->generic_control));
             GenericAssociation* selected = NULL;
             GenericAssociation* fallback = NULL;
@@ -14264,9 +14264,8 @@ static Type* sema_expr(Expr* expr) {
                 sema_expr(association->expr);
                 if (!association->type) {
                     fallback = association;
-                } else if (control &&
-                           type_is_compatible(control,
-                                              association->type)) {
+                } else if (control && type_is_compatible_qualified(
+                                          control, association->type)) {
                     if (selected) {
                         rcc_error(association->loc,
                                   "generic selection matches more than one association");

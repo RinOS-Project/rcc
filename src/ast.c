@@ -627,6 +627,75 @@ bool type_is_compatible(Type* a, Type* b) {
     return true;
 }
 
+/* Generic-association matching needs the C-compatible type relation with
+ * qualifiers retained at nested pointer/array/function layers. The general
+ * compatibility predicate intentionally erases those qualifiers for other
+ * semantic contexts. */
+static bool type_is_compatible_qualified_impl(
+    Type* a, Type* b, bool ignore_top_qualifiers, unsigned depth) {
+    if (!a || !b || depth >= 128u || !type_is_compatible(a, b)) {
+        return false;
+    }
+    if (a->kind != TYPE_FUNC && !ignore_top_qualifiers &&
+        (a->is_const != b->is_const ||
+         a->is_volatile != b->is_volatile ||
+         a->is_atomic != b->is_atomic ||
+         a->is_restrict != b->is_restrict)) {
+        return false;
+    }
+    switch (a->kind) {
+        case TYPE_PTR:
+        case TYPE_ARRAY:
+        case TYPE_VECTOR:
+            return type_is_compatible_qualified_impl(
+                a->base, b->base, false, depth + 1u);
+        case TYPE_FUNC: {
+            TypeParam* left;
+            TypeParam* right;
+            if (!type_is_compatible_qualified_impl(
+                    a->ret_type, b->ret_type, false, depth + 1u)) {
+                return false;
+            }
+            if (!a->has_prototype || !b->has_prototype) return true;
+            left = a->params;
+            right = b->params;
+            while (left && right) {
+                if (!type_is_compatible_qualified_impl(
+                        left->type, right->type, true, depth + 1u)) {
+                    return false;
+                }
+                left = left->next;
+                right = right->next;
+            }
+            return left == NULL && right == NULL;
+        }
+        default:
+            return true;
+    }
+}
+
+bool type_is_compatible_qualified(Type* a, Type* b) {
+    return type_is_compatible_qualified_impl(a, b, false, 0u);
+}
+
+Type* type_generic_selection_control(Type* type) {
+    Type* adjusted;
+    if (!type) return NULL;
+    if (type->kind == TYPE_ARRAY) return type_ptr(type->base);
+    if (type->kind == TYPE_FUNC) return type_ptr(type);
+    if (!type->is_const && !type->is_volatile && !type->is_atomic &&
+        !type->is_restrict) {
+        return type;
+    }
+    adjusted = rcc_alloc(sizeof(*adjusted));
+    *adjusted = *type;
+    adjusted->is_const = false;
+    adjusted->is_volatile = false;
+    adjusted->is_atomic = false;
+    adjusted->is_restrict = false;
+    return adjusted;
+}
+
 bool type_is_same_template_argument(Type* a, Type* b) {
     TypeParam* left_parameter;
     TypeParam* right_parameter;

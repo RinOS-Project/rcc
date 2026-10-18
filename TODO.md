@@ -6236,3 +6236,16 @@ remains a separate open item.
       C++20, i686/AMD64 generation, and the native execution gate agree.
 - [ ] Other multi-step standard conversions, reference-binding shapes, and
       general C++20 conversion-sequence ordering remain open.
+
+## RCC continuation (2026-10-18, C17 generic selection qualifiers)
+
+- [x] Apply C generic-selection controlling-type conversions to top-level
+      qualifiers and `_Atomic`, while preserving qualifiers in array decay and
+      nested pointer targets. Compare association types with recursively
+      qualifier-sensitive compatibility so `int*` and `const int*` remain
+      distinct and valid associations.
+- [x] Add GCC C17 syntax-oracle and constant-expression regressions for
+      qualified scalar controls, top-level-qualified pointer controls, and
+      nested pointer qualification; generate i686 and AMD64 `.ro` objects.
+      `test-generic` and the full native-Windows `test-c17` aggregate pass.
+- [ ] Broader C17 qualifier/effective-type conformance remains open.
