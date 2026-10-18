@@ -6820,7 +6820,8 @@ static bool lower_statement_has_scope_cleanups(const Stmt* statement) {
 }
 
 static bool lower_statement_scope_cleanups_supported_impl(
-    const Stmt* statement, unsigned loop_depth) {
+    const Stmt* statement, unsigned loop_depth, unsigned breakable_depth,
+    unsigned switch_depth) {
     if (!statement) return true;
     switch (statement->kind) {
         case STMT_NULL:
@@ -6832,7 +6833,8 @@ static bool lower_statement_scope_cleanups_supported_impl(
             for (const StmtList* item = statement->block_stmts; item;
                  item = item->next) {
                 if (!lower_statement_scope_cleanups_supported_impl(
-                        item->stmt, loop_depth)) {
+                        item->stmt, loop_depth, breakable_depth,
+                        switch_depth)) {
                     return false;
                 }
             }
@@ -6853,14 +6855,17 @@ static bool lower_statement_scope_cleanups_supported_impl(
         case STMT_IF:
             return lower_noexcept_expression(statement->if_cond) &&
                 lower_statement_scope_cleanups_supported_impl(
-                    statement->if_then, loop_depth) &&
+                    statement->if_then, loop_depth, breakable_depth,
+                    switch_depth) &&
                 lower_statement_scope_cleanups_supported_impl(
-                    statement->if_else, loop_depth);
+                    statement->if_else, loop_depth, breakable_depth,
+                    switch_depth);
         case STMT_WHILE:
         case STMT_DO:
             return lower_noexcept_expression(statement->while_cond) &&
                 lower_statement_scope_cleanups_supported_impl(
-                    statement->while_body, loop_depth + 1u);
+                    statement->while_body, loop_depth + 1u,
+                    breakable_depth + 1u, switch_depth);
         case STMT_FOR:
             if (statement->for_init &&
                 statement->for_init->kind == STMT_DECL &&
@@ -6869,29 +6874,46 @@ static bool lower_statement_scope_cleanups_supported_impl(
                 return false;
             }
             return lower_statement_scope_cleanups_supported_impl(
-                       statement->for_init, loop_depth) &&
+                       statement->for_init, loop_depth, breakable_depth,
+                       switch_depth) &&
                 lower_noexcept_expression(statement->for_cond) &&
                 lower_noexcept_expression(statement->for_inc) &&
                 lower_statement_scope_cleanups_supported_impl(
-                    statement->for_body, loop_depth + 1u);
+                    statement->for_body, loop_depth + 1u,
+                    breakable_depth + 1u, switch_depth);
         case STMT_BREAK:
+            return breakable_depth != 0u;
         case STMT_CONTINUE:
             return loop_depth != 0u;
         case STMT_GOTO:
         case STMT_LABEL:
-        case STMT_SWITCH:
-        case STMT_CASE:
-        case STMT_DEFAULT:
         case STMT_TRY:
         case STMT_THROW:
             return false;
+        case STMT_SWITCH:
+            return lower_noexcept_expression(statement->switch_expr) &&
+                lower_statement_scope_cleanups_supported_impl(
+                    statement->switch_body, loop_depth,
+                    breakable_depth + 1u, switch_depth + 1u);
+        case STMT_CASE:
+            return switch_depth != 0u &&
+                lower_noexcept_expression(statement->case_val) &&
+                lower_statement_scope_cleanups_supported_impl(
+                    statement->case_stmt, loop_depth, breakable_depth,
+                    switch_depth);
+        case STMT_DEFAULT:
+            return switch_depth != 0u &&
+                lower_statement_scope_cleanups_supported_impl(
+                    statement->default_stmt, loop_depth, breakable_depth,
+                    switch_depth);
     }
     return false;
 }
 
 static bool lower_statement_scope_cleanups_supported(
     const Stmt* statement) {
-    return lower_statement_scope_cleanups_supported_impl(statement, 0u);
+    return lower_statement_scope_cleanups_supported_impl(
+        statement, 0u, 0u, 0u);
 }
 
 static bool lower_call_temporary_cleanups_supported(
@@ -7160,6 +7182,20 @@ static void lower_release_scope_cleanups(RccIrLowerScopeCleanup* cleanups) {
         rcc_free(cleanups);
         cleanups = next;
     }
+}
+
+static bool lower_statement_subscope(
+    RccIrLowerContext* context, const Stmt* statement) {
+    RccIrLowerScopeCleanup* marker;
+    bool success;
+    if (!context) return false;
+    marker = context->scope_cleanups;
+    success = lower_statement(context, statement);
+    if (success && !context->terminated) {
+        success = lower_emit_scope_cleanups_until(context, marker);
+    }
+    context->scope_cleanups = marker;
+    return success && !context->unsupported;
 }
 
 static bool lower_emit_temporary_cleanup_plan(
@@ -10866,7 +10902,7 @@ static bool lower_if(RccIrLowerContext* context, const Stmt* statement) {
         lower_restore_wide_states(baseline);
         context->current = then_block;
         context->terminated = false;
-        if (!lower_statement(context, statement->if_then)) {
+        if (!lower_statement_subscope(context, statement->if_then)) {
             lower_release_wide_states(baseline);
             return false;
         }
@@ -10907,7 +10943,7 @@ static bool lower_if(RccIrLowerContext* context, const Stmt* statement) {
     lower_restore_wide_states(baseline);
     context->current = then_block;
     context->terminated = false;
-    if (!lower_statement(context, statement->if_then)) {
+    if (!lower_statement_subscope(context, statement->if_then)) {
         lower_release_wide_states(baseline);
         return false;
     }
@@ -10923,7 +10959,7 @@ static bool lower_if(RccIrLowerContext* context, const Stmt* statement) {
     lower_restore_wide_states(baseline);
     context->current = else_block;
     context->terminated = false;
-    if (!lower_statement(context, statement->if_else)) {
+    if (!lower_statement_subscope(context, statement->if_else)) {
         lower_release_wide_states(then_states);
         lower_release_wide_states(baseline);
         return false;
@@ -11045,7 +11081,7 @@ static bool lower_while_wide_ssa(
     context->wide_loop = &frame;
     context->current = body_block;
     context->terminated = false;
-    if (!lower_statement(context, statement->while_body)) {
+    if (!lower_statement_subscope(context, statement->while_body)) {
         context->wide_loop = previous_loop;
         lower_release_wide_loop_edges(frame.breaks);
         lower_release_wide_loop_edges(frame.continues);
@@ -11180,7 +11216,7 @@ static bool lower_for_wide_ssa(
     context->wide_loop = &frame;
     context->current = body_block;
     context->terminated = false;
-    if (!lower_statement(context, statement->for_body)) {
+    if (!lower_statement_subscope(context, statement->for_body)) {
         context->wide_loop = previous_loop;
         lower_release_wide_loop_edges(frame.breaks);
         lower_release_wide_loop_edges(frame.continues);
@@ -11318,7 +11354,7 @@ static bool lower_do_wide_ssa(
     context->break_cleanup_marker = context->scope_cleanups;
     context->continue_cleanup_marker = context->scope_cleanups;
     context->wide_loop = &frame;
-    if (!lower_statement(context, statement->while_body)) {
+    if (!lower_statement_subscope(context, statement->while_body)) {
         context->wide_loop = previous_loop;
         lower_release_wide_loop_edges(frame.breaks);
         lower_release_wide_loop_edges(frame.continues);
@@ -11432,7 +11468,7 @@ static bool lower_while(RccIrLowerContext* context,
     context->continue_cleanup_marker = context->scope_cleanups;
     context->current = body_block;
     context->terminated = false;
-    if (!lower_statement(context, statement->while_body)) return false;
+    if (!lower_statement_subscope(context, statement->while_body)) return false;
     if (!context->terminated && !lower_branch(context, condition_block->id)) {
         return false;
     }
@@ -11473,7 +11509,7 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
     context->continue_cleanup_marker = context->scope_cleanups;
     context->current = body_block;
     context->terminated = false;
-    if (!lower_statement(context, statement->while_body)) return false;
+    if (!lower_statement_subscope(context, statement->while_body)) return false;
     /* A return/break may terminate the lexical fallthrough, while continue
      * edges can still make the condition block reachable.  Lower it either
      * way so every allocated block has a terminator. */
@@ -11544,7 +11580,7 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     context->continue_cleanup_marker = context->scope_cleanups;
     context->current = body_block;
     context->terminated = false;
-    if (!lower_statement(context, statement->for_body)) return false;
+    if (!lower_statement_subscope(context, statement->for_body)) return false;
     if (!context->terminated && !lower_branch(context, increment_block->id)) {
         return false;
     }
@@ -11767,6 +11803,7 @@ static bool lower_switch(RccIrLowerContext* context,
     RccIrBlock* scan_block;
     RccIrBlock* exit_block;
     RccIrBlockId old_break;
+    RccIrLowerScopeCleanup* old_break_cleanup;
     RccIrValue compare_operands[2];
     bool body_ok;
     memset(&switch_context, 0, sizeof(switch_context));
@@ -11877,16 +11914,19 @@ static bool lower_switch(RccIrLowerContext* context,
         switch_context.wide_loop_owner = context->wide_loop;
     }
     old_break = context->break_target;
+    old_break_cleanup = context->break_cleanup_marker;
     context->break_target = exit_block->id;
+    context->break_cleanup_marker = context->scope_cleanups;
     context->current_switch = &switch_context;
     context->current = scan_block;
     context->terminated = false;
-    body_ok = lower_statement(context, statement->switch_body);
+    body_ok = lower_statement_subscope(context, statement->switch_body);
     if (body_ok && !context->terminated) {
         body_ok = lower_branch(context, exit_block->id);
     }
     context->current_switch = switch_context.previous;
     context->break_target = old_break;
+    context->break_cleanup_marker = old_break_cleanup;
     if (!body_ok) {
         lower_release_wide_loop_edges(switch_context.wide_breaks);
         lower_release_wide_states(switch_context.wide_baseline);
