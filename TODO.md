@@ -967,11 +967,17 @@
         `test-cxx-function-template-references`; the complete `test-cxx` gate
         and related virtual-base, array-destructor, member-lifetime, and global-
         constructor gates pass.
-  - [ ] Complete an explicit user-defined destructor invocation by destroying
-        non-static class members and direct bases in reverse construction order
-        after the user body. A verified AMD64 inspection of
-        `VerifiedDerived::~VerifiedDerived` currently shows only the user body;
-        add direct-call and scope-exit execution coverage for member/base order.
+  - [x] For non-virtual, `noexcept` destructor trees without class-array or
+        custom cleanup subobjects, explicitly invoked user destructor bodies
+        destroy members and direct bases in reverse construction order after
+        the body. Complete scope-exit destruction runs exactly once. Verify
+        i686/AMD64 emission with zero fallback and x64 direct-call/scope-exit
+        execution in `test-verified-cxx-destructor` and
+        `test-cxx-destructor-body`; the complete `test-verified-backend` gate
+        passes.
+  - [ ] Extend explicit-destructor subobject cleanup to virtual bases,
+        class-array members, custom cleanup hooks, and potentially-throwing
+        destructor trees, with lowering and execution coverage for each.
   - [x] Resolve data-member access exposed through a virtual base using the
         active subobject's vbtable and member-in-base offset; verify inherited
         access from both arms of a shared virtual diamond during destruction,

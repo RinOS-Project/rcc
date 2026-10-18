@@ -9956,6 +9956,58 @@ static Decl* sema_cxx_destructor_function(Type* object_type) {
     return method->decl;
 }
 
+static bool sema_cxx_type_contains_class_array(const Type* type) {
+    if (!type || type->kind != TYPE_ARRAY || !type->base) return false;
+    return type->base->cxx_class ||
+        sema_cxx_type_contains_class_array(type->base);
+}
+
+/* Keep lifetime cleanup in lockstep with the complete-destructor paths in
+ * both legacy code generators and typed-SSA lowering.  A supported
+ * non-virtual noexcept destructor owns destruction of its own bases and
+ * members; separately registering those subobjects would destroy them
+ * twice when the complete destructor is called at scope exit. */
+static bool sema_cxx_destructor_subobjects_supported(
+    const CxxClass* cls, unsigned depth) {
+    const TypeParam* field;
+    if (!cls || !cls->type || depth >= 64u ||
+        cls->virtual_base_count != 0 || cls->type->cleanup_function ||
+        cls->type->cleanup_field) {
+        return false;
+    }
+    if (cls->destructor_method) {
+        const Decl* destructor = cls->destructor_method->decl;
+        if (!destructor || !destructor->func_body ||
+            !destructor->func_is_cxx_destructor ||
+            !destructor->func_is_noexcept || !destructor->func_this_param ||
+            destructor->func_params) {
+            return false;
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        if (!base || cls->bases[index].is_virtual || !cls->base_offsets ||
+            cls->base_offsets[index] < 0 ||
+            !sema_cxx_destructor_subobjects_supported(base, depth + 1u)) {
+            return false;
+        }
+    }
+    for (field = cls->fields; field; field = field->next) {
+        const Type* type = field->type;
+        if (field->is_static || !type) continue;
+        if (sema_cxx_type_contains_class_array(type) ||
+            type->cleanup_function || type->cleanup_field) {
+            return false;
+        }
+        if (type->cxx_class &&
+            !sema_cxx_destructor_subobjects_supported(
+                type->cxx_class, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static TypeField* sema_cxx_object_field(Type* object_type,
                                         const char* name) {
     for (TypeField* field = object_type ? object_type->fields : NULL;
@@ -10292,6 +10344,16 @@ static bool sema_cxx_append_object_cleanups(Decl* declaration,
         !sema_cxx_destructor_function(object_type) &&
         !(object_type->cleanup_function && object_type->cleanup_field)) {
         return false;
+    }
+    if (!is_union && sema_cxx_destructor_function(object_type) &&
+        sema_cxx_destructor_subobjects_supported(cls, 0u)) {
+        Expr* destructor = sema_cxx_destructor_call_for_object(
+            object_type, object,
+            declaration ? declaration->loc : object->loc);
+        if (!destructor || *cleanup_budget <= 0) return false;
+        --*cleanup_budget;
+        sema_cxx_cleanup_append_expression(cleanups, destructor);
+        return true;
     }
     if (!is_union && include_virtual_bases) {
         for (int index = 0; index < cls->virtual_base_count; ++index) {
@@ -15416,6 +15478,22 @@ static Type* sema_expr(Expr* expr) {
                 }
                 if (member->kind == EXPR_PTR_MEMBER) {
                     owner = get_pointer_base(owner);
+                }
+                if (member->member_is_explicit_destructor) {
+                    const CxxClass* destructor_owner =
+                        owner ? owner->cxx_class : NULL;
+                    if (!destructor_owner || !member->member_destructor_name ||
+                        !destructor_owner->name ||
+                        strcmp(destructor_owner->name,
+                               member->member_destructor_name) != 0) {
+                        rcc_error(expr->loc,
+                                  "explicit destructor name does not match the object's class");
+                    }
+                    if (expr->call_args) {
+                        rcc_error(expr->loc,
+                                  "explicit destructor call takes no arguments");
+                    }
+                    expr->call_is_explicit_destructor = true;
                 }
                 if (owner &&
                     (owner->cxx_dependent ||

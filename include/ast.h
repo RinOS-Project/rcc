@@ -793,6 +793,7 @@ struct Expr {
             Expr* call_member_pointer_application;
             TypeMethod* call_method; /* Validated inline C++ accessor. */
             bool call_is_virtual;
+            bool call_is_explicit_destructor;
             int call_virtual_index;
             Expr* call_virtual_object;
             /* C++ new-expression metadata.  The ordinary call fields retain
@@ -838,6 +839,8 @@ struct Expr {
             Expr* member_base;
             const char* member_name;
             TypeField* member_field; /* Resolved during sema */
+            bool member_is_explicit_destructor;
+            const char* member_destructor_name;
             bool member_has_template_arguments;
             CxxParsedTemplateArgument* member_template_arguments;
             int member_template_argument_count;

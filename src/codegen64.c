@@ -1742,6 +1742,7 @@ static void gen64_float_add_one(Module* mod, Expr* expression,
 static void emit64_label(Module* mod, int label);
 static void emit64_jcc_label(Module* mod, int cc, int label);
 static Type* current_function_return_type64 = NULL;
+static Decl* current_function_decl64 = NULL;
 /* The active handler still owns the transferred payload until its body has
  * completed.  INT_MAX means that code is not being emitted inside a catch. */
 static int active_cxx_exception_frame_offset64 = INT_MAX;
@@ -6665,6 +6666,94 @@ static void gen64_cxx_destroy_members(Module* mod, Type* object_type) {
     if (fields) rcc_free(fields);
 }
 
+static bool gen64_cxx_type_contains_class_array(const Type* type) {
+    if (!type || type->kind != TYPE_ARRAY || !type->base) return false;
+    return type->base->cxx_class ||
+        gen64_cxx_type_contains_class_array(type->base);
+}
+
+static bool gen64_cxx_destructor_subobjects_supported(
+    const CxxClass* cls, unsigned depth) {
+    const TypeParam* field;
+    if (!cls || !cls->type || depth >= 64u ||
+        cls->virtual_base_count != 0 || cls->type->cleanup_function ||
+        cls->type->cleanup_field) {
+        return false;
+    }
+    if (cls->destructor_method) {
+        const Decl* destructor = cls->destructor_method->decl;
+        if (!destructor || !destructor->func_body ||
+            !destructor->func_is_cxx_destructor ||
+            !destructor->func_is_noexcept || !destructor->func_this_param ||
+            destructor->func_params) {
+            return false;
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (!cls->bases[index].base || cls->bases[index].is_virtual ||
+            !cls->base_offsets || cls->base_offsets[index] < 0 ||
+            !gen64_cxx_destructor_subobjects_supported(
+                cls->bases[index].base, depth + 1u)) {
+            return false;
+        }
+    }
+    for (field = cls->fields; field; field = field->next) {
+        const Type* type = field->type;
+        if (field->is_static || !type) continue;
+        if (gen64_cxx_type_contains_class_array(type) ||
+            type->cleanup_function || type->cleanup_field) {
+            return false;
+        }
+        if (type->cxx_class &&
+            !gen64_cxx_destructor_subobjects_supported(
+                type->cxx_class, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void gen64_cxx_destroy_bases(Module* mod, Type* object_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    if (!cls || cls->base_count <= 0 || !cls->base_offsets) return;
+    emit64_push_reg(mod, RAX);
+    for (int index = cls->base_count - 1; index >= 0; --index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base || cls->bases[index].is_virtual ||
+            cls->base_offsets[index] < 0) {
+            continue;
+        }
+        emit64_mov_reg_mem(mod, RCX, RSP, 0);
+        if (cls->base_offsets[index]) {
+            emit64_add_reg_imm(mod, RCX,
+                               (uint32_t)cls->base_offsets[index]);
+        }
+        emit64_mov_reg_reg(mod, RAX, RCX);
+        gen64_cxx_destroy_complete(mod, base->type);
+    }
+    emit64_pop_reg(mod, RAX);
+}
+
+static void gen64_cxx_destroy_subobjects(Module* mod, Type* object_type) {
+    gen64_cxx_destroy_members(mod, object_type);
+    gen64_cxx_destroy_bases(mod, object_type);
+}
+
+static void gen64_cxx_destroy_current_function_subobjects(Module* mod) {
+    Decl* declaration = current_function_decl64;
+    CxxClass* cls = declaration && declaration->func_method_owner
+        ? declaration->func_method_owner->cxx_class : NULL;
+    if (!declaration || !declaration->func_is_cxx_destructor || !cls ||
+        !declaration->func_this_param ||
+        !gen64_cxx_destructor_subobjects_supported(cls, 0u)) {
+        return;
+    }
+    emit64_load_typed(mod, RAX, RBP,
+                      declaration->func_this_param->var_offset,
+                      declaration->func_this_param->type);
+    gen64_cxx_destroy_subobjects(mod, cls->type);
+}
+
 static void gen64_cxx_destroy_complete(Module* mod, Type* object_type) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
     Decl* destructor = cls && cls->destructor_method
@@ -6697,8 +6786,11 @@ static void gen64_cxx_destroy_complete(Module* mod, Type* object_type) {
         }
         emit64_label(mod, skip_cleanup);
     }
-    emit64_mov_reg_mem(mod, RAX, RSP, 0);
-    gen64_cxx_destroy_members(mod, object_type);
+    if (!destructor || !destructor->func_body ||
+        !gen64_cxx_destructor_subobjects_supported(cls, 0u)) {
+        emit64_mov_reg_mem(mod, RAX, RSP, 0);
+        gen64_cxx_destroy_subobjects(mod, object_type);
+    }
     emit64_pop_reg(mod, RAX);
 }
 
@@ -12690,6 +12782,7 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 }
             }
             gen64_vla_scopes_until(mod, NULL);
+            gen64_cxx_destroy_current_function_subobjects(mod);
             if (stmt->return_val &&
                 gen64_is_floating(current_function_return_type64)) {
                 emit64_mov_xmm_from_gpr(
@@ -12984,6 +13077,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     int old_va_overflow_offset;
     int old_va_reg_save_offset;
     int old_active_frame_offset;
+    Decl* old_function_decl;
     DeclList implicit_this_parameter;
     DeclList* all_parameters = decl->func_params;
     if (!decl->func_body) return;
@@ -13172,6 +13266,8 @@ static void gen64_function(Module* mod, Decl* decl) {
     gen64_vla_parameter_extents(mod, decl);
 
     /* Generate body */
+    old_function_decl = current_function_decl64;
+    current_function_decl64 = decl;
     old_return_type = current_function_return_type64;
     old_active_frame_offset = active_cxx_exception_frame_offset64;
     old_sret_offset = current_function_sret_offset64;
@@ -13212,6 +13308,7 @@ static void gen64_function(Module* mod, Decl* decl) {
      * reconstructing virtual bases that the most-derived caller already
      * initialized. */
     gen64_stmt(mod, decl->func_body);
+    gen64_cxx_destroy_current_function_subobjects(mod);
     discard64_cleanups_until(NULL);
     discard64_vla_scopes_until(NULL);
     active_cleanups64 = old_cleanups;
@@ -13220,6 +13317,7 @@ static void gen64_function(Module* mod, Decl* decl) {
     continue_vla_marker64 = old_continue_vla;
     codegen64_release_named_labels();
     current_function_return_type64 = old_return_type;
+    current_function_decl64 = old_function_decl;
     active_cxx_exception_frame_offset64 = old_active_frame_offset;
     active_cxx_exception_cleanup_marker64 = NULL;
     active_cxx_exception_cleanup_frame_offset64 = INT_MAX;

@@ -13393,6 +13393,192 @@ static const TypeField* lower_struct_declared_field(
     return NULL;
 }
 
+static bool lower_cxx_type_contains_class_array(const Type* type) {
+    if (!type || type->kind != TYPE_ARRAY || !type->base) return false;
+    return type->base->cxx_class ||
+        lower_cxx_type_contains_class_array(type->base);
+}
+
+static bool lower_cxx_destructor_subobjects_supported(
+    const CxxClass* cls, unsigned depth) {
+    const TypeParam* field;
+    if (!cls || !cls->type || depth >= 64u ||
+        cls->virtual_base_count != 0 || cls->type->cleanup_function ||
+        cls->type->cleanup_field) {
+        return false;
+    }
+    if (cls->destructor_method) {
+        const Decl* destructor = cls->destructor_method->decl;
+        if (!destructor || !destructor->func_body ||
+            !destructor->func_is_cxx_destructor ||
+            !destructor->func_is_noexcept || !destructor->func_this_param ||
+            destructor->func_params || !destructor->type ||
+            destructor->type->kind != TYPE_FUNC ||
+            !destructor->type->ret_type ||
+            destructor->type->ret_type->kind != TYPE_VOID) {
+            return false;
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        if (!base || cls->bases[index].is_virtual || !cls->base_offsets ||
+            cls->base_offsets[index] < 0 ||
+            !lower_cxx_destructor_subobjects_supported(base, depth + 1u)) {
+            return false;
+        }
+    }
+    for (field = cls->fields; field; field = field->next) {
+        const Type* type = field->type;
+        if (field->is_static || !type) continue;
+        if (lower_cxx_type_contains_class_array(type)) {
+            return false;
+        }
+        if (type->cleanup_function || type->cleanup_field) return false;
+        if (type->cxx_class &&
+            !lower_cxx_destructor_subobjects_supported(
+                type->cxx_class, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool lower_cxx_emit_destructor_call(
+    RccIrLowerContext* context, const Decl* destructor,
+    RccIrLowerValue object) {
+    const TypeParam* parameter;
+    RccIrInstruction* call;
+    if (!context || !destructor || !destructor->func_body ||
+        !destructor->func_is_cxx_destructor || !destructor->link_name ||
+        !destructor->func_this_param || destructor->func_params ||
+        !destructor->type || destructor->type->kind != TYPE_FUNC ||
+        !destructor->type->ret_type ||
+        destructor->type->ret_type->kind != TYPE_VOID || !object.valid ||
+        object.type.kind != RCC_IR_TYPE_POINTER) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    parameter = destructor->type->params;
+    if (!parameter || !parameter->type || parameter->type->kind != TYPE_PTR ||
+        parameter->next) {
+        context->unsupported = true;
+        return false;
+    }
+    call = lower_append(context, RCC_IR_CALL, rcc_ir_type_void(),
+                        &object.value, 1u, NULL, 0u);
+    if (!call) return false;
+    rcc_ir_set_callee(call, decl_link_name(destructor));
+    return true;
+}
+
+static bool lower_cxx_emit_complete_destructor(
+    RccIrLowerContext* context, const Type* type,
+    RccIrLowerValue object, unsigned depth);
+
+static bool lower_cxx_emit_destructor_subobjects(
+    RccIrLowerContext* context, const CxxClass* cls,
+    RccIrLowerValue object, unsigned depth) {
+    const TypeParam** fields = NULL;
+    size_t field_count = 0u;
+    size_t field_index = 0u;
+    if (!context || !cls || !object.valid ||
+        object.type.kind != RCC_IR_TYPE_POINTER || depth >= 64u ||
+        !lower_cxx_destructor_subobjects_supported(cls, depth)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    for (const TypeParam* field = cls->fields; field; field = field->next) {
+        if (!field->is_static && field->type && field->type->cxx_class) {
+            if (++field_count > 4096u ||
+                field_count > SIZE_MAX / sizeof(*fields)) {
+                context->unsupported = true;
+                return false;
+            }
+        }
+    }
+    if (field_count != 0u) fields = rcc_alloc(field_count * sizeof(*fields));
+    for (const TypeParam* field = cls->fields; field; field = field->next) {
+        if (!field->is_static && field->type && field->type->cxx_class) {
+            fields[field_index++] = field;
+        }
+    }
+    while (field_index > 0u) {
+        const TypeParam* field = fields[--field_index];
+        const TypeField* layout = lower_struct_declared_field(
+            cls->type, cls, field->name);
+        RccIrLowerValue address;
+        if (!layout || layout->offset < 0 || !layout->type ||
+            !field->type->cxx_class) {
+            rcc_free(fields);
+            context->unsupported = true;
+            return false;
+        }
+        address = lower_byte_offset_address(
+            context, object, (uint64_t)layout->offset);
+        if (!address.valid || !lower_cxx_emit_complete_destructor(
+                context, field->type, address, depth + 1u)) {
+            rcc_free(fields);
+            return false;
+        }
+    }
+    rcc_free(fields);
+    for (int index = cls->base_count - 1; index >= 0; --index) {
+        const CxxClass* base = cls->bases[index].base;
+        RccIrLowerValue address;
+        if (!base || !cls->base_offsets || cls->base_offsets[index] < 0) {
+            context->unsupported = true;
+            return false;
+        }
+        address = lower_byte_offset_address(
+            context, object, (uint64_t)cls->base_offsets[index]);
+        if (!address.valid || !lower_cxx_emit_complete_destructor(
+                context, base->type, address, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool lower_cxx_emit_complete_destructor(
+    RccIrLowerContext* context, const Type* type,
+    RccIrLowerValue object, unsigned depth) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    const Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (!context || !type || !cls || depth >= 64u ||
+        !lower_cxx_destructor_subobjects_supported(cls, depth)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    if (destructor && destructor->func_body) {
+        return lower_cxx_emit_destructor_call(context, destructor, object);
+    }
+    return lower_cxx_emit_destructor_subobjects(
+        context, cls, object, depth + 1u);
+}
+
+static bool lower_cxx_emit_current_destructor_subobjects(
+    RccIrLowerContext* context) {
+    const Decl* declaration = context ? context->declaration : NULL;
+    const CxxClass* cls = declaration && declaration->func_method_owner
+        ? declaration->func_method_owner->cxx_class : NULL;
+    RccIrLowerValue object;
+    if (!declaration || !declaration->func_is_cxx_destructor) return true;
+    if (!cls || !declaration->func_this_param ||
+        context->function->parameter_count == 0u) {
+        context->unsupported = true;
+        return false;
+    }
+    /* Complex trees retain the existing caller-owned cleanup plan.  Only
+     * emit child destruction in the destructor body when the complete
+     * non-virtual noexcept path is available; otherwise marking this body
+     * unsupported would unnecessarily eject array cleanup from typed SSA. */
+    if (!lower_cxx_destructor_subobjects_supported(cls, 0u)) return true;
+    object = lower_value(context->function->parameters[0],
+                         rcc_ir_type_pointer(0u), true);
+    return lower_cxx_emit_destructor_subobjects(context, cls, object, 0u);
+}
+
 static bool lower_initialize_struct_field(
     RccIrLowerContext* context, RccIrValue base,
     const TypeField* field, const Expr* initializer) {
@@ -14958,6 +15144,9 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                 if (!lower_emit_scope_cleanups_until(context, NULL) ||
                     !lower_cxx_exception_release_frame(
                         context, context->active_exception_frame)) return false;
+                if (!lower_cxx_emit_current_destructor_subobjects(context)) {
+                    return false;
+                }
                 if (!lower_append(context, RCC_IR_RETURN,
                                   rcc_ir_type_void(), NULL, 0u, NULL, 0u)) {
                     return false;
@@ -15374,6 +15563,14 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
                                    : RCC_IR_LOWER_INVALID;
     }
     if (!context.terminated) {
+        if (!lower_cxx_emit_current_destructor_subobjects(&context)) {
+            lower_release_scope_cleanups(context.allocated_scope_cleanups);
+            lower_release_locals(context.locals);
+            lower_release_labels(context.labels);
+            rcc_ir_module_destroy(module);
+            return context.unsupported ? RCC_IR_LOWER_UNSUPPORTED
+                                       : RCC_IR_LOWER_INVALID;
+        }
         if (return_type.kind != RCC_IR_TYPE_VOID ||
             !lower_append(&context, RCC_IR_RETURN, rcc_ir_type_void(),
                           NULL, 0u, NULL, 0u)) {

@@ -10679,6 +10679,53 @@ static void gen_cxx_init_default_class_array32(Module* mod, Expr* expr) {
 }
 
 static void gen_cxx_destroy_complete32(Module* mod, Type* object_type);
+
+static bool gen_cxx_type_contains_class_array32(const Type* type) {
+    if (!type || type->kind != TYPE_ARRAY || !type->base) return false;
+    return type->base->cxx_class ||
+        gen_cxx_type_contains_class_array32(type->base);
+}
+
+static bool gen_cxx_destructor_subobjects_supported32(
+    const CxxClass* cls, unsigned depth) {
+    const TypeParam* field;
+    if (!cls || !cls->type || depth >= 64u ||
+        cls->virtual_base_count != 0 || cls->type->cleanup_function ||
+        cls->type->cleanup_field) {
+        return false;
+    }
+    if (cls->destructor_method) {
+        const Decl* destructor = cls->destructor_method->decl;
+        if (!destructor || !destructor->func_body ||
+            !destructor->func_is_cxx_destructor ||
+            !destructor->func_is_noexcept || !destructor->func_this_param ||
+            destructor->func_params) {
+            return false;
+        }
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        if (!cls->bases[index].base || cls->bases[index].is_virtual ||
+            !cls->base_offsets || cls->base_offsets[index] < 0 ||
+            !gen_cxx_destructor_subobjects_supported32(
+                cls->bases[index].base, depth + 1u)) {
+            return false;
+        }
+    }
+    for (field = cls->fields; field; field = field->next) {
+        const Type* type = field->type;
+        if (field->is_static || !type) continue;
+        if (gen_cxx_type_contains_class_array32(type) ||
+            type->cleanup_function || type->cleanup_field) {
+            return false;
+        }
+        if (type->cxx_class &&
+            !gen_cxx_destructor_subobjects_supported32(
+                type->cxx_class, depth + 1u)) {
+            return false;
+        }
+    }
+    return true;
+}
 /* A deleting destructor can transfer control through the active C++
  * exception frame before the delete expression reaches its member-destruction
  * code.  Register only the direct member subobjects here; the complete
@@ -10889,6 +10936,48 @@ static void gen_cxx_destroy_members32(Module* mod, Type* object_type) {
     if (fields) rcc_free(fields);
 }
 
+static void gen_cxx_destroy_bases32(Module* mod, Type* object_type) {
+    CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+    if (!cls || cls->base_count <= 0 || !cls->base_offsets) return;
+    emit_push_reg(mod, EAX);
+    for (int index = cls->base_count - 1; index >= 0; --index) {
+        CxxClass* base = cls->bases[index].base;
+        if (!base || cls->bases[index].is_virtual ||
+            cls->base_offsets[index] < 0) {
+            continue;
+        }
+        emit_mov_reg_mem(mod, ECX, ESP, 0);
+        if (cls->base_offsets[index]) {
+            emit_add_reg_imm(mod, ECX,
+                             (uint32_t)cls->base_offsets[index]);
+        }
+        emit_mov_reg_reg(mod, EAX, ECX);
+        gen_cxx_destroy_complete32(mod, base->type);
+    }
+    emit_pop_reg(mod, EAX);
+}
+
+static void gen_cxx_destroy_subobjects32(Module* mod, Type* object_type) {
+    gen_cxx_destroy_members32(mod, object_type);
+    gen_cxx_destroy_bases32(mod, object_type);
+}
+
+static Decl* current_function_decl32 = NULL;
+
+static void gen_cxx_destroy_current_function_subobjects32(Module* mod) {
+    Decl* declaration = current_function_decl32;
+    CxxClass* cls = declaration && declaration->func_method_owner
+        ? declaration->func_method_owner->cxx_class : NULL;
+    if (!declaration || !declaration->func_is_cxx_destructor || !cls ||
+        !declaration->func_this_param ||
+        !gen_cxx_destructor_subobjects_supported32(cls, 0u)) {
+        return;
+    }
+    emit_mov_reg_mem(mod, EAX, EBP,
+                     declaration->func_this_param->var_offset);
+    gen_cxx_destroy_subobjects32(mod, cls->type);
+}
+
 static void gen_cxx_destroy_complete32(Module* mod, Type* object_type) {
     CxxClass* cls = object_type ? object_type->cxx_class : NULL;
     Decl* destructor = cls && cls->destructor_method
@@ -10945,8 +11034,11 @@ static void gen_cxx_destroy_complete32(Module* mod, Type* object_type) {
         }
         emit_label(mod, skip_cleanup);
     }
-    emit_mov_reg_mem(mod, EAX, ESP, 0);
-    gen_cxx_destroy_members32(mod, object_type);
+    if (!destructor || !destructor->func_body ||
+        !gen_cxx_destructor_subobjects_supported32(cls, 0u)) {
+        emit_mov_reg_mem(mod, EAX, ESP, 0);
+        gen_cxx_destroy_subobjects32(mod, object_type);
+    }
     emit_pop_reg(mod, EAX);
 }
 
@@ -18272,6 +18364,7 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 }
             }
             gen_vla_scopes_until(mod, NULL);
+            gen_cxx_destroy_current_function_subobjects32(mod);
             if (stmt->return_val &&
                 gen_is_floating(current_function_return_type)) {
                 emit_x87_double_value_from_raw(
@@ -18468,6 +18561,7 @@ static void gen_function(Module* mod, Decl* decl) {
     int frame_alignment;
     Type* old_return_type;
     int old_active_frame_offset;
+    Decl* old_function_decl;
     CleanupCodegen* old_cleanups;
     VLAScopeCodegen* old_vla_scopes;
     VLAScopeCodegen* old_break_vla;
@@ -18526,12 +18620,15 @@ static void gen_function(Module* mod, Decl* decl) {
     break_vla_marker = NULL;
     continue_vla_marker = NULL;
     named_codegen_labels = NULL;
+    old_function_decl = current_function_decl32;
+    current_function_decl32 = decl;
     /* Constructor storage initialization is emitted by the complete-object
      * caller.  The constructor symbol itself contains only the user body;
      * this lets a derived constructor invoke a base constructor without
      * reconstructing virtual bases that the most-derived caller already
      * initialized. */
     gen_stmt(mod, decl->func_body);
+    gen_cxx_destroy_current_function_subobjects32(mod);
     discard_cleanups_until(NULL);
     discard_vla_scopes_until(NULL);
     active_cleanups = old_cleanups;
@@ -18540,6 +18637,7 @@ static void gen_function(Module* mod, Decl* decl) {
     continue_vla_marker = old_continue_vla;
     codegen_release_named_labels();
     current_function_return_type = old_return_type;
+    current_function_decl32 = old_function_decl;
     active_cxx_exception_frame_offset = old_active_frame_offset;
     active_cxx_exception_cleanup_marker = NULL;
     active_cxx_exception_cleanup_frame_offset = INT_MAX;

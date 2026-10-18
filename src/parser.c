@@ -2135,25 +2135,49 @@ static Expr* parse_postfix_tail(Expr* e) {
             e = expr_index(e, index, loc);
         } else if (match(TOK_DOT)) {
             if (parser_cxx_mode) (void)match(TOK_TEMPLATE);
-            Token* name = expect(TOK_IDENT, "member name");
-            if (name) {
-                e = expr_member(e, name->value.str_val, loc);
-                if (parser_cxx_mode &&
-                    rcc_parse_cxx_member_template_arguments) {
-                    (void)rcc_parse_cxx_member_template_arguments(e);
+            if (parser_cxx_mode && match(TOK_TILDE)) {
+                Token* destructor_name = expect(TOK_IDENT,
+                                                "destructor name");
+                if (destructor_name) {
+                    e = expr_member(e, "~dtor", loc);
+                    e->member_is_explicit_destructor = true;
+                    e->member_destructor_name =
+                        destructor_name->value.str_val;
+                }
+            } else {
+                Token* name = expect(TOK_IDENT, "member name");
+                if (name) {
+                    e = expr_member(e, name->value.str_val, loc);
+                    if (parser_cxx_mode &&
+                        rcc_parse_cxx_member_template_arguments) {
+                        (void)rcc_parse_cxx_member_template_arguments(e);
+                    }
                 }
             }
         } else if (match(TOK_ARROW)) {
             if (parser_cxx_mode) (void)match(TOK_TEMPLATE);
-            Token* name = expect(TOK_IDENT, "member name");
-            if (name) {
-                Expr* m = expr_member(e, name->value.str_val, loc);
-                m->kind = EXPR_PTR_MEMBER;
-                if (parser_cxx_mode &&
-                    rcc_parse_cxx_member_template_arguments) {
-                    (void)rcc_parse_cxx_member_template_arguments(m);
+            if (parser_cxx_mode && match(TOK_TILDE)) {
+                Token* destructor_name = expect(TOK_IDENT,
+                                                "destructor name");
+                if (destructor_name) {
+                    Expr* m = expr_member(e, "~dtor", loc);
+                    m->kind = EXPR_PTR_MEMBER;
+                    m->member_is_explicit_destructor = true;
+                    m->member_destructor_name =
+                        destructor_name->value.str_val;
+                    e = m;
                 }
-                e = m;
+            } else {
+                Token* name = expect(TOK_IDENT, "member name");
+                if (name) {
+                    Expr* m = expr_member(e, name->value.str_val, loc);
+                    m->kind = EXPR_PTR_MEMBER;
+                    if (parser_cxx_mode &&
+                        rcc_parse_cxx_member_template_arguments) {
+                        (void)rcc_parse_cxx_member_template_arguments(m);
+                    }
+                    e = m;
+                }
             }
         } else if (match(TOK_INC)) {
             e = expr_unary(EXPR_POSTINC, e, loc);
