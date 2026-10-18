@@ -2539,8 +2539,15 @@ remains a separate open item.
   `const ReferenceConversionResult&` (`143` rather than `243`). The
   `test-cxx-conversion-operator` fixture and full native-Windows `test-cxx`
   aggregate cover the behavior.
-- [ ] Distinct user-defined conversion sequences and implicit-object parameter
-  ranking remain outside this bounded tie-break.
+- [x] Parse target-specific `using Base::operator T` declarations and rank a
+      reintroduced base conversion against a same-target derived conversion.
+      Compare result-conversion rank when only the base candidate needs a
+      derived-to-base implicit-object conversion, then prefer the exact derived
+      object binding on a tie. GCC C++20 agrees for `int`/`long` result choices;
+      `test-cxx-conversion-operator` passes i686/AMD64 generation and RCC/GCC
+      host execution.
+- [ ] Ranking between distinct user-defined conversion sequences and the full
+      set of implicit-object conversion relationships remain open.
 - [x] Do not let a reference wrapper alone make a function-template pattern
   more specialized than its by-value counterpart when the non-pack scalar,
   class, or one-level unqualified-pointee pointer parameter lists become

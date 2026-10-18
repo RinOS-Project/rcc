@@ -187,6 +187,27 @@ public:
     }
 };
 
+class ConversionImplicitObjectBase {
+public:
+    operator int() const {
+        return 223;
+    }
+
+    operator long() const {
+        return 229;
+    }
+};
+
+class ConversionImplicitObjectDerived : public ConversionImplicitObjectBase {
+public:
+    using ConversionImplicitObjectBase::operator int;
+    using ConversionImplicitObjectBase::operator long;
+
+    operator int() const {
+        return 227;
+    }
+};
+
 class TemplatedConversionSource {
 public:
     template <class T>
@@ -670,6 +691,7 @@ long return_long() {
 
 int main() {
     Meter meter{7};
+    ConversionImplicitObjectDerived implicit_object_conversion_source;
     RefQualifiedConversionSource ref_qualified_source;
     const CvRefQualifiedConversionSource const_ref_qualified_source{};
     FunctionReferenceConversionSource function_reference_source;
@@ -727,6 +749,8 @@ int main() {
     double reference_promoted = take_double_reference(floating_promotion_meter);
 
     if (!flag) return 1;
+    if (take_integer(implicit_object_conversion_source) != 227) return 2;
+    if (take_long(implicit_object_conversion_source) != 229) return 3;
     if (direct != 7 || templated_direct != 67 ||
         templated_argument != 67 || argument != 7 || widened != 7 ||
         reference_widened != 307 || rvalue_reference_widened != 407 ||

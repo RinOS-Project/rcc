@@ -130,6 +130,7 @@ struct CxxClass {
     struct {
         const char* base_name;
         const char* member_name;
+        Type* conversion_type; /* Exact target in `using Base::operator T`. */
         Type* base_type_pattern; /* Dependent base retained until substitution. */
         AccessSpec access;
         SourceLoc loc;
@@ -555,6 +556,7 @@ bool cxx_structural_class_unpack_multidimensional_array_path(
 void cxx_class_add_base_ptr(CxxClass* cls, CxxClass* base, AccessSpec access, bool is_virtual);
 void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
                                      const char* member_name,
+                                     Type* conversion_type,
                                      Type* base_type_pattern,
                                      AccessSpec access, SourceLoc loc);
 void cxx_class_add_friend_class(CxxClass* cls, const char* friend_name);

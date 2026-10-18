@@ -5554,6 +5554,59 @@ static bool cxx_using_starts_with_template_id_base(void) {
     return false;
 }
 
+/* A conversion-function-id ends in `:: operator type-id`, unlike ordinary
+ * qualified names whose final component is always an identifier. */
+static bool cxx_using_starts_with_conversion_function_id(void) {
+    Token* token = parser.cur;
+    if (token && token->type == TOK_SCOPE) token = token->next;
+    if (!token || token->type != TOK_IDENT) return false;
+    while (token && token->type == TOK_IDENT) {
+        Token* separator = token->next;
+        if (!separator || separator->type != TOK_SCOPE ||
+            !separator->next) {
+            return false;
+        }
+        if (separator->next->type == TOK_OPERATOR) return true;
+        if (separator->next->type != TOK_IDENT) return false;
+        token = separator->next;
+    }
+    return false;
+}
+
+static const char* parse_cxx_using_conversion_base_name(void) {
+    char buffer[512] = "";
+    size_t length = 0u;
+    if (match(TOK_SCOPE)) {
+        buffer[length++] = ':';
+        buffer[length++] = ':';
+        buffer[length] = '\0';
+    }
+    while (check(TOK_IDENT)) {
+        Token* component = advance();
+        size_t component_length = strlen(component->value.str_val);
+        if (length + component_length >= sizeof(buffer)) {
+            rcc_error(component->loc,
+                      "qualified base name in conversion using-declaration is too long");
+            return NULL;
+        }
+        memcpy(buffer + length, component->value.str_val,
+               component_length);
+        length += component_length;
+        buffer[length] = '\0';
+        if (!match(TOK_SCOPE)) break;
+        if (check(TOK_OPERATOR)) break;
+        if (length + 2u >= sizeof(buffer)) {
+            rcc_error(component->loc,
+                      "qualified base name in conversion using-declaration is too long");
+            return NULL;
+        }
+        memcpy(buffer + length, "::", 2u);
+        length += 2u;
+        buffer[length] = '\0';
+    }
+    return length != 0u ? rcc_intern(buffer) : NULL;
+}
+
 static bool pending_cxx_nodiscard;
 static bool pending_cxx_deprecated;
 static bool pending_cxx_no_unique_address;
@@ -9560,6 +9613,49 @@ static bool class_has_using_base_member_name(CxxClass* cls,
     return false;
 }
 
+static bool cxx_class_declares_conversion_target(CxxClass* cls,
+                                                 Type* conversion_type) {
+    if (!cls || !conversion_type) return false;
+    for (struct CxxMember* member = cls->members; member;
+         member = member->next) {
+        CxxMethod* method = member->method;
+        Type* declared_type = method && method->decl && method->decl->type &&
+                              method->decl->type->kind == TYPE_FUNC
+            ? method->decl->type->ret_type : NULL;
+        if (method && method->source_name &&
+            strcmp(method->source_name, "operator conversion") == 0 &&
+            declared_type &&
+            type_is_same_template_argument(declared_type, conversion_type)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool class_uses_base_conversion_target(CxxClass* cls, CxxClass* base,
+                                              Type* conversion_type) {
+    if (!cls || !base || !conversion_type) return false;
+    for (int index = 0; index < cls->using_base_member_count; ++index) {
+        const char* base_name = cls->using_base_members[index].base_name;
+        const char* member_name = cls->using_base_members[index].member_name;
+        const char* suffix;
+        Type* declared_type = cls->using_base_members[index].conversion_type;
+        if (!base_name || !member_name || !declared_type ||
+            strcmp(member_name, "operator conversion") != 0 ||
+            !type_is_same_template_argument(declared_type, conversion_type)) {
+            continue;
+        }
+        if (strcmp(base_name, base->name) == 0) return true;
+        suffix = strstr(base_name, "::");
+        while (suffix) {
+            suffix += 2;
+            if (strcmp(suffix, base->name) == 0) return true;
+            suffix = strstr(suffix, "::");
+        }
+    }
+    return false;
+}
+
 static bool class_has_method_declaration(CxxClass* cls, Decl* declaration) {
     if (!cls || !declaration) return false;
     for (TypeMethod* method = cls->type ? cls->type->methods : NULL;
@@ -9675,14 +9771,23 @@ static void register_inherited_class_methods(CxxClass* cls,
         }
         for (method = base->type->methods; method; method = method->next) {
             TypeMethod* inherited;
+            bool is_conversion = method->name &&
+                strcmp(method->name, "operator conversion") == 0;
             if (method->kind != TYPE_METHOD_FUNCTION || !method->name ||
                 !method->function_decl ||
                 (class_has_method_declaration(cls, method->function_decl) &&
                  class_method_declares_shared_virtual_base(
                      cls, method->function_decl)) ||
-                ((class_declares_method_name(cls, method->name) ||
-                  class_has_using_base_member_name(cls, method->name)) &&
-                 !class_uses_base_member(cls, base, method->name))) {
+                (is_conversion
+                     ? (cxx_class_declares_conversion_target(
+                            cls, method->return_type) &&
+                        !class_uses_base_conversion_target(
+                            cls, base, method->return_type))
+                     : ((class_declares_method_name(cls, method->name) ||
+                         class_has_using_base_member_name(cls,
+                                                          method->name)) &&
+                        !class_uses_base_member(cls, base,
+                                                method->name)))) {
                 continue;
             }
             inherited = ast_arena_alloc(sizeof(*inherited));
@@ -11006,16 +11111,51 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                         skip_cxx_template_arguments();
                     }
                     expect(TOK_SCOPE, ":: in dependent base using-declaration");
-                    member_token = expect(TOK_IDENT,
-                                          "member in dependent base using-declaration");
+                    Type* conversion_type = NULL;
+                    const char* member_name = NULL;
+                    if (match(TOK_OPERATOR)) {
+                        conversion_type = parse_cxx_type_spec();
+                        conversion_type = rcc_parser_parse_cxx_declarator(
+                            conversion_type, NULL, NULL);
+                        member_name = rcc_intern("operator conversion");
+                    } else {
+                        member_token = expect(
+                            TOK_IDENT,
+                            "member in dependent base using-declaration");
+                        if (member_token) {
+                            member_name = member_token->value.str_val;
+                        }
+                    }
                     if (!base_type || base_type->kind != TYPE_STRUCT ||
-                        !member_token) {
+                        !member_name) {
                         rcc_error(using_loc,
                                   "dependent base using-declaration requires a class type and member");
                     } else {
                         cxx_class_add_using_base_member(
-                            cls, base_type->tag, member_token->value.str_val,
-                            base_type, current_access, using_loc);
+                            cls, base_type->tag, member_name,
+                            conversion_type, base_type, current_access,
+                            using_loc);
+                    }
+                    expect(TOK_SEMICOLON, ";");
+                    continue;
+                }
+                if (cxx_using_starts_with_conversion_function_id()) {
+                    const char* base_name =
+                        parse_cxx_using_conversion_base_name();
+                    Type* conversion_type = NULL;
+                    expect(TOK_OPERATOR,
+                           "operator in conversion using-declaration");
+                    conversion_type = parse_cxx_type_spec();
+                    conversion_type = rcc_parser_parse_cxx_declarator(
+                        conversion_type, NULL, NULL);
+                    if (!base_name || !conversion_type) {
+                        rcc_error(using_loc,
+                                  "conversion using-declaration requires a base and conversion type");
+                    } else {
+                        cxx_class_add_using_base_member(
+                            cls, base_name,
+                            rcc_intern("operator conversion"),
+                            conversion_type, NULL, current_access, using_loc);
                     }
                     expect(TOK_SEMICOLON, ";");
                     continue;
@@ -11039,7 +11179,7 @@ static CxxClass* parse_cxx_class_named(SourceLoc loc, bool is_struct,
                         cxx_class_add_using_base_member(
                             cls, rcc_intern(base_name),
                             rcc_intern(separator + 1), NULL,
-                            current_access, using_loc);
+                            NULL, current_access, using_loc);
                     }
                 }
                 expect(TOK_SEMICOLON, ";");

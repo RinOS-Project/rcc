@@ -13372,6 +13372,7 @@ void cxx_class_add_base_pattern(CxxClass* cls, Type* type_pattern,
 
 void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
                                      const char* member_name,
+                                     Type* conversion_type,
                                      Type* base_type_pattern,
                                      AccessSpec access, SourceLoc loc) {
     if (!cls || !base_name || !member_name) return;
@@ -13385,6 +13386,8 @@ void cxx_class_add_using_base_member(CxxClass* cls, const char* base_name,
         base_name;
     cls->using_base_members[cls->using_base_member_count].member_name =
         member_name;
+    cls->using_base_members[cls->using_base_member_count].conversion_type =
+        conversion_type;
     cls->using_base_members[cls->using_base_member_count].base_type_pattern =
         base_type_pattern;
     cls->using_base_members[cls->using_base_member_count].access = access;
