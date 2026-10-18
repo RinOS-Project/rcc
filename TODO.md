@@ -6478,3 +6478,17 @@ remains a separate open item.
       object harness. `test-verified-goto` passes.
 - [ ] Arbitrary-label SSA predecessor/phi construction, nested structured
       wide-scalar loop edges, and VLA stack restoration remain open.
+
+## RCC continuation (2026-10-19, inherited conversion-function ranking)
+
+- [x] Rank inherited conversion-function candidates using the implied object's
+      class and cv/ref binding before comparing result-to-destination
+      conversions. Preserve the derived declaration when it hides an inherited
+      conversion with the same type.
+- [x] Add a positive GCC-checked case where a non-const derived conversion
+      wins despite a worse result conversion, plus a distinct-result case that
+      must remain ambiguous. The conversion-operator gate passes on i686 and
+      AMD64, including native execution.
+- [x] Pass the full native-Windows `test-cxx` aggregate (exit 0).
+- [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
+      and full C++20 overload-resolution conformance remain open.
