@@ -3033,13 +3033,14 @@ static int sema_cxx_reference_conversion_source_relation(
  * functions use the same ref-qualifier and cv rules as other member calls. */
 static int sema_cxx_conversion_object_rank(TypeMethod* method,
                                            Expr* source_expression,
-                                           bool* derived_to_base) {
+                                           bool* inherited_from_base) {
     Type* source_type;
     Type* this_pointer_type;
     Type* this_type;
+    Type implied_object_type;
     bool source_is_lvalue;
     int rank = 0;
-    if (derived_to_base) *derived_to_base = false;
+    if (inherited_from_base) *inherited_from_base = false;
     if (!method) return -1;
     if (!source_expression || !source_expression->type) return 0;
     source_type = source_expression->type;
@@ -3070,7 +3071,17 @@ static int sema_cxx_conversion_object_rank(TypeMethod* method,
                                         &this_class_type, NULL)) {
             return -1;
         }
-        if (derived_to_base) *derived_to_base = true;
+        if (inherited_from_base) *inherited_from_base = true;
+        /* A conversion function inherited from a base still has an implicit
+         * object parameter based on the class of the implied object argument.
+         * Validate the declaring-base relationship above, but rank its cv/ref
+         * binding as if the function were a member of the source class. */
+        implied_object_type = *source_type;
+        implied_object_type.is_const = this_type->is_const;
+        implied_object_type.is_volatile = this_type->is_volatile;
+        implied_object_type.is_reference = false;
+        implied_object_type.is_rvalue_reference = false;
+        this_type = &implied_object_type;
     }
     if ((source_type->is_const && !this_type->is_const) ||
         (source_type->is_volatile && !this_type->is_volatile)) {
@@ -3126,7 +3137,7 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         Type* result_type;
         int result_rank;
         int object_rank;
-        bool derived_to_base_object;
+        bool inherited_from_base;
     } ConversionCandidate;
     TypeMethod* method;
     ConversionCandidate* candidates;
@@ -3152,7 +3163,7 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
     for (method = aggregate->methods; method; method = method->next) {
         Type* result_type;
         int object_rank;
-        bool derived_to_base_object;
+        bool inherited_from_base;
         int rank;
         if (method->kind != TYPE_METHOD_FUNCTION ||
             !method->function_decl || !method->return_type ||
@@ -3162,7 +3173,7 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
             continue;
         }
         object_rank = sema_cxx_conversion_object_rank(
-            method, source_expression, &derived_to_base_object);
+            method, source_expression, &inherited_from_base);
         if (object_rank < 0) continue;
         result_type = method->return_type;
         if (target->is_reference &&
@@ -3191,8 +3202,8 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         candidates[candidate_count].result_type = result_type;
         candidates[candidate_count].result_rank = rank;
         candidates[candidate_count].object_rank = object_rank;
-        candidates[candidate_count].derived_to_base_object =
-            derived_to_base_object;
+        candidates[candidate_count].inherited_from_base =
+            inherited_from_base;
         ++candidate_count;
     }
     for (size_t index = 0u; index < candidate_count; ++index) {
@@ -3200,27 +3211,17 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
         for (size_t other = 0u; other < candidate_count; ++other) {
             int relation;
             if (index == other) continue;
-            if (candidates[other].derived_to_base_object !=
-                candidates[index].derived_to_base_object) {
-                /* When one conversion function requires a derived-to-base
-                 * object conversion, first compare the conversion from its
-                 * result to the requested destination.  This preserves the
-                 * standard preference for an exact result conversion over
-                 * a promotion while still preferring the derived object's
-                 * own function when result conversions tie. */
-                if (candidates[other].result_rank <
-                    candidates[index].result_rank) {
-                    relation = 1;
-                } else if (candidates[other].result_rank >
-                           candidates[index].result_rank) {
-                    relation = -1;
-                } else if (!candidates[other].derived_to_base_object) {
-                    relation = 1;
-                } else {
-                    relation = -1;
-                }
+            if (candidates[other].inherited_from_base !=
+                    candidates[index].inherited_from_base &&
+                cxx_same_parameter_type(
+                    candidates[other].result_type,
+                    candidates[index].result_type, true)) {
+                /* A derived conversion function hides an inherited function
+                 * with the same conversion type, including when a using-
+                 * declaration made the base declaration visible. */
+                relation = candidates[other].inherited_from_base ? -1 : 1;
             } else if (candidates[other].object_rank <
-                       candidates[index].object_rank) {
+                candidates[index].object_rank) {
                 relation = 1;
             } else if (candidates[other].object_rank >
                        candidates[index].object_rank) {

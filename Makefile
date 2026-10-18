@@ -7675,6 +7675,14 @@ test-cxx-class-template-member-function-templates-posix: $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/conversion-template-x64.ro tests/cxx_conversion_function_template_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/conversion-template-x64.log)
 	$(GREP) -F -q "ambiguous overload for 'choose_templated_conversion'" $(TEST_OUT)/cxx-conversion-operator/conversion-template-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/conversion-template-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-operator/inherited-result-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.ro tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.log)
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.ro tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.log)
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.ro)
 	@echo "RCC++ user-defined conversion operator tests completed"
 
 test-cxx-nonmember-operator-posix: $(RCXX_TARGET)
@@ -8317,6 +8325,14 @@ test-cxx-conversion-operator: $(RCXX_TARGET) test-cxx-conversion-reference-ranki
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/conversion-template-x64.ro tests/cxx_conversion_function_template_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/conversion-template-x64.log)
 	$(GREP) -F -q "ambiguous overload for 'choose_templated_conversion'" $(TEST_OUT)/cxx-conversion-operator/conversion-template-x64.log
 	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/conversion-template-x64.ro)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -Wall -Wextra -Werror -fsyntax-only tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-gcc.log)
+	$(GREP) -F -q "ambiguous" $(TEST_OUT)/cxx-conversion-operator/inherited-result-gcc.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.ro tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.log)
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x86.ro)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.ro tests/cxx_conversion_inherited_result_ambiguous.cpp,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.log)
+	$(GREP) -F -q "incompatible C++ return type" $(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/cxx-conversion-operator/inherited-result-x64.ro)
 
 test-cxx-nonmember-operator: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-nonmember-operator)
