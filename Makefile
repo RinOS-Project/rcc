@@ -18113,7 +18113,11 @@ test-optimize: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
 		-o $(TEST_OUT)/optimize/invalid-qualifiers.ro \
 		tests/invalid_qualifiers.c,$(TEST_OUT)/optimize/invalid-qualifiers.log)
-	$(call CHECK_COUNT,requires modifiable lvalue,$(TEST_OUT)/optimize/invalid-qualifiers.log,4)
+	$(call CHECK_COUNT,requires modifiable lvalue,$(TEST_OUT)/optimize/invalid-qualifiers.log,5)
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
+		-o $(TEST_OUT)/optimize/invalid-atomic-array-qualifier.ro \
+		tests/invalid_atomic_array_qualifier.c,$(TEST_OUT)/optimize/invalid-atomic-array-qualifier.log)
+	$(call CHECK_COUNT,_Atomic qualifier cannot modify,$(TEST_OUT)/optimize/invalid-atomic-array-qualifier.log,1)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -O1 -c \
 		-o $(TEST_OUT)/optimize/qualifier-conversions.ro \
 		tests/qualifier_conversions.c \

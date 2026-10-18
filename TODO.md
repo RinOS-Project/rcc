@@ -122,6 +122,9 @@
         `void*` と関数pointer間の暗黙変換、C++の`void*`からobject pointer
         への暗黙変換も拒否し、Cのobject pointer↔`void*`は維持。
         C17/C++20正例・負例をi686/AMD64で回帰検証
+  - [x] typedef配列へ適用する`const`を要素型へ伝播し、要素の書き換えを拒否。
+        配列typedefの`_Atomic` qualifierも明示的に診断し、RCCの`test-optimize`
+        で正例・負例を検証
 - [ ] VLA、compound literal、designator列・brace省略・上書きを含む初期化子の完全実装
   - [x] brace省略列でbraced／文字列aggregate節を一つのsubobjectとして
        扱い、その後のscalar節を次のsubobjectへ進める。未指定長の多次元

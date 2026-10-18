@@ -27,3 +27,12 @@ int invalid_const_member(const struct QualifierPair* pair)
     pair->value = 4;
     return pair->value;
 }
+
+typedef int QualifierArray[2];
+
+int invalid_const_typedef_array_element(void)
+{
+    const QualifierArray values = {1, 2};
+    values[0] = 5;
+    return values[0];
+}

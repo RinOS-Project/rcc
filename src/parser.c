@@ -3786,6 +3786,25 @@ static Type* parser_qualify_type(Type* type, bool is_const,
     Type* qualified;
     if (!type || (!is_const && !is_volatile && !is_atomic &&
                   !is_restrict)) return type;
+    if (type->kind == TYPE_ARRAY) {
+        /* C17 6.7.3p9 applies array type qualifiers to the element type,
+         * rather than making a separately qualified array type. This also
+         * matters when the array type came from a typedef: `const A a` must
+         * make `a[i]` const even though the qualifier was parsed after the
+         * array declarator had already been formed. */
+        qualified = ast_arena_alloc(sizeof(*qualified));
+        *qualified = *type;
+        qualified->base = parser_qualify_type(
+            type->base, type->is_const || is_const,
+            type->is_volatile || is_volatile,
+            type->is_atomic || is_atomic,
+            type->is_restrict || is_restrict);
+        qualified->is_const = false;
+        qualified->is_volatile = false;
+        qualified->is_atomic = false;
+        qualified->is_restrict = false;
+        return qualified;
+    }
     qualified = ast_arena_alloc(sizeof(*qualified));
     *qualified = *type;
     qualified->is_const = qualified->is_const || is_const;
@@ -3852,6 +3871,7 @@ static Type* parse_type_spec(void) {
     bool is_const = false;
     bool is_volatile = false;
     bool is_atomic = false;
+    SourceLoc atomic_qualifier_loc = { 0 };
     bool is_restrict = false;
     bool saw_complex = false;
     bool saw_imaginary = false;
@@ -3897,9 +3917,9 @@ static Type* parse_type_spec(void) {
                 }
                 expect(TOK_RPAREN, "')' after _Atomic type-name");
                 t = parser_atomic_type(atomic_base, atomic_loc);
-                is_atomic = true;
             } else {
                 is_atomic = true;
+                atomic_qualifier_loc = atomic_loc;
             }
         } else {
             break;
@@ -4102,6 +4122,12 @@ static Type* parse_type_spec(void) {
         if (previous()->type == TOK_CONST) is_const = true;
         else if (previous()->type == TOK_VOLATILE) is_volatile = true;
         else is_restrict = true;
+    }
+    if (is_atomic && t &&
+        (t->kind == TYPE_ARRAY || t->kind == TYPE_FUNC)) {
+        rcc_error(atomic_qualifier_loc,
+                  "_Atomic qualifier cannot modify an array or function type");
+        is_atomic = false;
     }
     t = parser_qualify_type(t, is_const, is_volatile, is_atomic,
                             is_restrict);
