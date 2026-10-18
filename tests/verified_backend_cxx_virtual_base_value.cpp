@@ -30,13 +30,18 @@ struct VerifiedVirtualCleanupRoot {};
 struct VerifiedVirtualCleanupLeaf : virtual VerifiedVirtualCleanupRoot {
     int* cleanup_count;
     int cleanup_increment;
+    int cleanup_increment_extra_a;
+    int cleanup_increment_extra_b;
 
     explicit VerifiedVirtualCleanupLeaf(
-            int* count, int increment) noexcept
-        : cleanup_count(count), cleanup_increment(increment) {}
+            int* count, int increment, int extra_a, int extra_b) noexcept
+        : cleanup_count(count), cleanup_increment(increment),
+          cleanup_increment_extra_a(extra_a),
+          cleanup_increment_extra_b(extra_b) {}
 
     ~VerifiedVirtualCleanupLeaf() noexcept {
-        *cleanup_count += cleanup_increment;
+        *cleanup_count += cleanup_increment + cleanup_increment_extra_a +
+                          cleanup_increment_extra_b;
     }
 };
 
@@ -61,7 +66,7 @@ int main() {
         return 1;
     }
     if (consume_verified_virtual_cleanup_root(
-            VerifiedVirtualCleanupLeaf(&cleanup_count, 7)) != 101) {
+            VerifiedVirtualCleanupLeaf(&cleanup_count, 2, 3, 2)) != 101) {
         return 2;
     }
     return cleanup_count == 7 ? 0 : 3;

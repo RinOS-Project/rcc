@@ -435,10 +435,11 @@
         virtual-base-to-value call argument conversionをlowerし、complete objectの
         destructorがcall後に一度だけ実行されることをi686/AMD64で確認。
         `test-verified-cxx-virtual-base-value` はfallbackなしで両objectを実行する。
-  - [x] 上記constructor loweringを2個までのscalar member/parameterへ拡張。
-        constructor引数を一度ずつ評価し、member initializerから対応parameterへ
-        mapする。virtual-base prvalue cleanup regressionで2個目のscalar fieldを
-        destructorが読み、ローカルcounterへ反映することをi686/AMD64両方で確認。
+  - [x] 上記constructor loweringを任意個数のscalar member/parameterへ拡張。
+        constructor引数を一度ずつ評価し、member initializerから重複のない対応
+        parameterへmapする。virtual-base prvalue cleanup regressionを4 member/4
+        parameterへ拡張し、destructorが全fieldを読み、ローカルcounterへ反映する
+        ことをi686/AMD64のverified object実行でfallbackなしに確認。
   - [ ] verified backendでempty-body/noexcept constructorとscalar memberを超える
         constructor/body、nontrivial base initialization、nontrivial/deleted target
         copy constructor、call引数以外のfull-expression cleanup、例外経路を実装・検証。
