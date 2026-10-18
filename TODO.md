@@ -6223,5 +6223,9 @@ remains a separate open item.
       `void*` sequence now wins over pointer-to-bool; GCC agrees, and the
       `test-cxx-conversion-operator` gate passes with i686/AMD64 code generation
       and native execution.
+- [x] Compare a single conversion-function result of `Derived*` against
+      `void*` and `const void*` overload targets. The unqualified `void*`
+      target wins over the sequence that adds pointee qualification; GCC
+      C++20, i686/AMD64 generation, and the native execution gate agree.
 - [ ] Other multi-step standard conversions, reference-binding shapes, and
       general C++20 conversion-sequence ordering remain open.
