@@ -6476,8 +6476,14 @@ remains a separate open item.
       five functions to emit without fallback at `-O0`/`-O2`; execute zero- and
       three-iteration cases from both AMD64 generated objects via the host
       object harness. `test-verified-goto` passes.
+- [x] Cover a forward `goto` from a nested wide-scalar loop to an outer-loop
+      join and a backward `goto` within a nested-loop body that re-enters the
+      structured outer-loop backedge. Odd/even and zero-iteration cases pass
+      GCC host execution; i686/AMD64 emit without fallback at `-O0`/`-O2`, and
+      both AMD64 generated objects execute successfully.
 - [ ] Arbitrary-label SSA predecessor/phi construction, nested structured
-      wide-scalar loop edges, and VLA stack restoration remain open.
+      wide-scalar loop edges beyond these cases, and VLA stack restoration
+      remain open.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)
 
