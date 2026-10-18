@@ -1925,23 +1925,70 @@ static Decl* resolve_inline_function_pointer_initializer(
 static bool inline_statement_has_nonlocal_entry(const Stmt* statement);
 static bool inline_statement_preserves_function_pointer_target(
     const Stmt* statement, const Decl* variable, const Decl* target);
+static void inline_local_function_pointer_fact_set(
+    Decl* variable, Decl* target);
 
-static void inline_local_function_pointer_facts_clear(void) {
-    while (inline_local_function_pointer_facts) {
-        InlineLocalFunctionPointerFact* next =
-            inline_local_function_pointer_facts->next;
-        rcc_free(inline_local_function_pointer_facts);
-        inline_local_function_pointer_facts = next;
+static void inline_local_function_pointer_facts_free(
+    InlineLocalFunctionPointerFact* facts) {
+    while (facts) {
+        InlineLocalFunctionPointerFact* next = facts->next;
+        rcc_free(facts);
+        facts = next;
     }
 }
 
-static Decl* inline_local_function_pointer_fact(const Decl* variable) {
-    for (InlineLocalFunctionPointerFact* fact =
-             inline_local_function_pointer_facts;
+static void inline_local_function_pointer_facts_clear(void) {
+    inline_local_function_pointer_facts_free(
+        inline_local_function_pointer_facts);
+    inline_local_function_pointer_facts = NULL;
+}
+
+static Decl* inline_local_function_pointer_fact_in(
+    const InlineLocalFunctionPointerFact* facts, const Decl* variable) {
+    for (const InlineLocalFunctionPointerFact* fact = facts;
          fact; fact = fact->next) {
         if (fact->variable == variable) return fact->target;
     }
     return NULL;
+}
+
+static InlineLocalFunctionPointerFact*
+inline_local_function_pointer_facts_clone(
+    const InlineLocalFunctionPointerFact* facts) {
+    InlineLocalFunctionPointerFact* copy = NULL;
+    InlineLocalFunctionPointerFact** tail = &copy;
+    for (; facts; facts = facts->next) {
+        *tail = rcc_alloc(sizeof(**tail));
+        (*tail)->variable = facts->variable;
+        (*tail)->target = facts->target;
+        (*tail)->next = NULL;
+        tail = &(*tail)->next;
+    }
+    return copy;
+}
+
+static void inline_local_function_pointer_facts_replace(
+    InlineLocalFunctionPointerFact* facts) {
+    inline_local_function_pointer_facts_clear();
+    inline_local_function_pointer_facts = facts;
+}
+
+static void inline_local_function_pointer_facts_merge(
+    const InlineLocalFunctionPointerFact* left,
+    const InlineLocalFunctionPointerFact* right) {
+    inline_local_function_pointer_facts_clear();
+    for (; left; left = left->next) {
+        if (inline_local_function_pointer_fact_in(right, left->variable) ==
+            left->target) {
+            inline_local_function_pointer_fact_set(left->variable,
+                                                   left->target);
+        }
+    }
+}
+
+static Decl* inline_local_function_pointer_fact(const Decl* variable) {
+    return inline_local_function_pointer_fact_in(
+        inline_local_function_pointer_facts, variable);
 }
 
 static void inline_local_function_pointer_fact_set(
@@ -4020,8 +4067,17 @@ static void optimize_block(Stmt* statement) {
         link = &item->next;
     }
     /* The propagation pass revisits expressions without source-order facts. */
-    inline_local_function_pointer_facts_clear();
-    propagate_block_constants(statement);
+    {
+        InlineLocalFunctionPointerFact* facts =
+            inline_local_function_pointer_facts_clone(
+                inline_local_function_pointer_facts);
+        bool track_local_targets = optimize_inline_local_targets_enabled;
+        inline_local_function_pointer_facts_clear();
+        optimize_inline_local_targets_enabled = false;
+        propagate_block_constants(statement);
+        optimize_inline_local_targets_enabled = track_local_targets;
+        inline_local_function_pointer_facts_replace(facts);
+    }
 
     /* Propagation may turn a conditional into an unconditional transfer. */
     reachable = true;
@@ -6342,11 +6398,26 @@ static void optimize_stmt(Stmt* statement) {
                     }
                 }
             }
-            inline_local_function_pointer_facts_clear();
-            optimize_stmt(statement->if_then);
-            inline_local_function_pointer_facts_clear();
-            optimize_stmt(statement->if_else);
-            inline_local_function_pointer_facts_clear();
+            {
+                InlineLocalFunctionPointerFact* before =
+                    inline_local_function_pointer_facts_clone(
+                        inline_local_function_pointer_facts);
+                InlineLocalFunctionPointerFact* then_facts;
+                InlineLocalFunctionPointerFact* else_facts;
+                optimize_stmt(statement->if_then);
+                then_facts = inline_local_function_pointer_facts_clone(
+                    inline_local_function_pointer_facts);
+                inline_local_function_pointer_facts_replace(
+                    inline_local_function_pointer_facts_clone(before));
+                optimize_stmt(statement->if_else);
+                else_facts = inline_local_function_pointer_facts_clone(
+                    inline_local_function_pointer_facts);
+                inline_local_function_pointer_facts_merge(then_facts,
+                                                         else_facts);
+                inline_local_function_pointer_facts_free(before);
+                inline_local_function_pointer_facts_free(then_facts);
+                inline_local_function_pointer_facts_free(else_facts);
+            }
             break;
         case STMT_WHILE:
             inline_local_function_pointer_facts_clear();

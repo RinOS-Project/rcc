@@ -6377,9 +6377,12 @@ remains a separate open item.
       call shape and execute the x64 result. `test-optimize` passes on native
       Windows.
 - [x] Track direct different-target assignments in straight-line local code
-      at each call site; discard facts at branch joins and preserve indirect
-      calls there. Verify optimized i686/AMD64 call shape and execute both
-      branch outcomes and the sequential reassignment result.
+      at each call site; preserve indirect calls at divergent branch joins.
+      Verify optimized i686/AMD64 call shape and execute both branch outcomes
+      and the sequential reassignment result.
+- [x] Merge reaching callback facts across conditional branches when both arms
+      assign the same target; retain indirect calls when an arm leaves a
+      different target. Verify i686/AMD64 call shape and both x64 outcomes.
 - [ ] General local callback dataflow, alias analysis, and indirect-call target
       sets across distinct functions remain open.
 
