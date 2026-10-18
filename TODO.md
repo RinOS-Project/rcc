@@ -6134,3 +6134,13 @@ remains a separate open item.
       case where `int*` and `int Owner::*` remain ambiguous; compare against GCC
       C++20 and reject without output on i686/AMD64. The focused
       `test-cxx-function-template-overloads` gate passes.
+
+## RCC continuation (2026-10-18, native Windows production regression gate)
+
+- [x] Run the complete native Windows `test-ci` aggregate with the configured
+      Clang toolchain. Exit code 0; C17/C++20, typed IR/MIR, verified backend,
+      ABI execution, inline asm, intrinsic headers, image-format goldens,
+      property/fuzz checks, and reproducible dual-architecture stage0/stage1/
+      stage2 bootstrap all passed.
+- [ ] Verify the hosted GitHub Actions Windows job; local execution does not
+      establish hosted-runner setup or status.
