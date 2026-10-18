@@ -224,6 +224,24 @@ public:
     }
 };
 
+class ConversionRefQualifiedInheritedBase {
+public:
+    operator int() && {
+        return 431;
+    }
+
+    operator long() const & {
+        return 433;
+    }
+};
+
+class ConversionRefQualifiedInheritedDerived
+    : public ConversionRefQualifiedInheritedBase {
+public:
+    using ConversionRefQualifiedInheritedBase::operator int;
+    using ConversionRefQualifiedInheritedBase::operator long;
+};
+
 class NonTemplateWinsConversionSource {
 public:
     operator int() const {
@@ -794,6 +812,7 @@ int main() {
     Meter meter{7};
     ConversionImplicitObjectDerived implicit_object_conversion_source;
     ConversionObjectRankDerived object_rank_conversion_source;
+    ConversionRefQualifiedInheritedDerived inherited_ref_conversion_source;
     NonTemplateWinsConversionSource non_template_wins_conversion_source;
     ConversionPointerVoidResultSource pointer_void_result_source;
     ConversionPointerClassResultSource pointer_class_result_source;
@@ -865,6 +884,10 @@ int main() {
     if (take_integer(implicit_object_conversion_source) != 227) return 2;
     if (take_long(implicit_object_conversion_source) != 229) return 3;
     if (take_integer(object_rank_conversion_source) != 277) return 4;
+    if (take_long(inherited_ref_conversion_source) != 433 ||
+        take_long(ConversionRefQualifiedInheritedDerived{}) != 431) {
+        return 6;
+    }
     if (take_integer(non_template_wins_conversion_source) != 283) return 5;
     if (direct != 7 || templated_direct != 67 ||
         templated_argument != 67 || argument != 7 || widened != 7 ||
