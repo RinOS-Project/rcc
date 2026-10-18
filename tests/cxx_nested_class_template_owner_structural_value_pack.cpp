@@ -16,6 +16,11 @@ struct NestedStructuralOwnerNullPointerKey {
     const int* value;
 };
 
+struct NestedStructuralFloatingKey {
+    float ratio;
+    double offset;
+};
+
 struct NestedStructuralEmptyKey {};
 
 struct NestedStructuralPairKey {
@@ -81,6 +86,15 @@ template <NestedStructuralOwnerNullPointerKey... Values>
 template <typename Element>
 struct NestedStructuralNullPointerOwnerPack<Values...>::Inner<Element*> {
     int result() const { return 25; }
+};
+
+template <NestedStructuralFloatingKey... Values>
+struct NestedStructuralFloatingOwnerPack {
+    static constexpr int combined() {
+        return ((Values.ratio == 1.25f && Values.offset == -2.5 ? 42 :
+                 Values.ratio == -0.5f && Values.offset == 3.25 ? 73 : -1)
+                + ... + 0);
+    }
 };
 
 template <NestedStructuralOwnerKey Value>
@@ -243,5 +257,11 @@ int main() {
     if (reordered_type_second.result() != 47) return 13;
     if (reordered_primary_fallback.result() != 13) return 14;
     if (zipped_structural_values.combined<char, int>() != 18) return 15;
-    return empty_structural_values.combined<>() == 0 ? 0 : 16;
+    if (empty_structural_values.combined<>() != 0) return 16;
+    if (NestedStructuralFloatingOwnerPack<
+            NestedStructuralFloatingKey{1.25f, -2.5},
+            NestedStructuralFloatingKey{-0.5f, 3.25}>::combined() != 115) {
+        return 17;
+    }
+    return NestedStructuralFloatingOwnerPack<>::combined() == 0 ? 0 : 18;
 }

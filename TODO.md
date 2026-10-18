@@ -6045,9 +6045,13 @@ remains a separate open item.
       pointer DIE to the array DIE, retains the bound of two, and resolves the
       heterogeneous element types (`short` and `long`) on i686 and AMD64. Check
       the exact Itanium symbol against GCC and pass `test-debug-info`.
-- [ ] Other dependent function parameter pack forms, non-integral structural
-      non-type packs, and uninstantiated dependent alias/template-definition
-      DIEs remain open.
+- [x] Cover structural-class non-type parameter packs whose values contain
+      `float` and `double` members, including an empty pack. Compare exact GCC
+      Itanium symbols, generate i686/AMD64 output, and execute the RCC result
+      through `test-cxx-nested-class-template-owner-structural-value-pack`.
+- [ ] Other dependent function parameter pack forms, additional structural
+      non-type member layouts, and uninstantiated dependent alias/template-
+      definition DIEs remain open.
 
 ## RCC continuation (2026-10-18, nested structural multi-pack folds)
 
@@ -6396,3 +6400,16 @@ remains a separate open item.
       Linux `test-ci` and native-Windows debug gate.
 - [ ] Other dependent pack forms and structural non-integral NTTP packs remain
       open.
+
+## RCC continuation (2026-10-18, floating structural NTTP packs)
+
+- [x] Expand a C++20 structural-class non-type parameter pack containing both
+      `float` and `double` members through a fold expression; also verify the
+      empty-pack identity. The exact nonempty and empty Itanium symbols match
+      GCC, and both i686/AMD64 generated outputs contain them.
+- [x] Run the RCC-generated x64 entry point and GCC host oracle. The focused
+      `test-cxx-nested-class-template-owner-structural-value-pack` gate exits 0
+      and is part of the native-Windows `test-cxx` aggregate.
+- [ ] Other dependent pack forms, additional structural member layouts,
+      non-finite/extended-precision values, and uninstantiated dependent alias
+      or template-definition DIEs remain open.
