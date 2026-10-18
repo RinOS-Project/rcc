@@ -1317,9 +1317,10 @@
   - [x] scalar ASTのalloca/load/store、scaled pointer GEP、短絡条件・論理式SSA loweringとif/while/do/for/switch CFG verification
   - [x] non-escaping entry scalar allocaのdominance-frontier mem2regとphi挿入
 - [x] 定数条件分岐のSSA branch化、到達不能blockと不要phi入力の除去
-- [x] cleanup/VLA跨ぎを伴わないC goto/labelを事前収集したSSA CFG blockへ
-      lowerし、i686/AMD64 verified backend emit回帰を追加。cleanup/VLA跨ぎは
-      引き続き明示的にverified subset外として扱う。
+- [x] VLA stack-restore境界を跨がないC goto/labelを事前収集したSSA CFG
+      blockへlowerする。C++では検証済みnoexcept cleanupを伴うscope退出gotoも
+      後続のcleanup拡張で対応済み。VLA stack restorationとthrowing/partial
+      construction cleanupは引き続きsubset外。
 - [ ] aggregate/vector/exceptionを含む全frontendのtyped SSA lowering
   - [x] `switch`の`case`ラベルを`while`/`do`/`for`本体内から収集し、通常のswitch
         dispatchとloop backedgeを保ったverified SSA CFGへlowerする。i686/AMD64
@@ -1357,9 +1358,9 @@
         nested parent/member cleanup, single and paired temporaries, exactly-once
         cleanup/comma side effects, fallback-free i686/AMD64 objects, and x64
         execution in `test-verified-cxx-temporary-cleanup`. Potentially throwing
-        calls and automatic-object cleanup remain subject to the restrictions
-        described below; fixed-size array loops in call-temporary cleanup plans
-        are covered separately.
+        calls and other unsupported automatic-object cleanup-plan shapes remain
+        subject to the restrictions described below; fixed-size array loops in
+        call-temporary cleanup plans are covered separately.
   - [x] Lower same-type noexcept class-prvalue conditional arguments bound to
         reference parameters. Pass the final lifetime-owner storage directly
         to the selected branch's sret call or capture a one-/two-register
@@ -1399,8 +1400,8 @@
         `test-verified-cxx-automatic-array-cleanup`, included by
         `test-verified-backend` and the production CI gate.
   - [ ] Throwing expressions/initializers, constructor-driven partial
-        construction and unwind, `goto` cleanup edges, and other automatic
-        cleanup-plan shapes remain outside this verified subset.
+        construction and unwind, VLA stack restoration, and other unvalidated
+        automatic cleanup-plan shapes remain outside this verified subset.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering
@@ -6344,3 +6345,16 @@ remains a separate open item.
       checks.
 - [ ] Throwing cleanup/unwind, partial construction, VLA stack restoration,
       and other cleanup-plan shapes remain open.
+
+## RCC continuation (2026-10-18, i686 wide-scalar goto/label state)
+
+- [x] Materialize coherent two-word local mirrors before goto and live
+      fallthrough label edges, then resume wide-scalar reads from the stack
+      mirror at labels. This avoids using a path-local SSA pair after control
+      flow merges at forward or backward labels.
+- [x] Add forward-join and backward-loop goto regressions. Require verified
+      emission for i686 and AMD64 at `-O0`/`-O2`, then execute the actual
+      x86-64 verified `.ro` object to check both branch outcomes and
+      loop-carried values through its `main` entry point.
+- [ ] Gotos inside structured wide-scalar loop lowering, VLA stack restoration,
+      and full SSA predecessor-phi construction at arbitrary labels remain open.

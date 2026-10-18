@@ -519,6 +519,37 @@ static bool lower_set_wide_local_ssa(
     return true;
 }
 
+/* Labels may have multiple predecessors that were not built through the
+ * structured wide-SSA merge helpers.  Locals keep a coherent stack mirror, so
+ * materialize the current pair before a goto/label boundary and resume from
+ * memory at the destination instead of carrying a path-specific SSA value. */
+static bool lower_flush_wide_locals(RccIrLowerContext* context) {
+    if (!context) return false;
+    for (RccIrLowerLocal* local = context->locals; local;
+         local = local->next) {
+        RccIrLowerValue address;
+        if (!local->wide_ssa) continue;
+        if (!local->wide_value.valid) return false;
+        address = lower_value(
+            local->address, rcc_ir_type_pointer(0u), true);
+        if (!lower_wide_scalar_store(context, address, local->wide_value)) {
+            return false;
+        }
+        local->wide_ssa = false;
+        local->wide_ssa_block = NULL;
+    }
+    return true;
+}
+
+static void lower_invalidate_wide_locals(RccIrLowerContext* context) {
+    if (!context) return;
+    for (RccIrLowerLocal* local = context->locals; local;
+         local = local->next) {
+        local->wide_ssa = false;
+        local->wide_ssa_block = NULL;
+    }
+}
+
 static bool lower_wide_ssa_expression_safe(const Expr* expression) {
     if (!expression || !expression->type || expression->type->is_volatile ||
         !type_is_integer(expression->type)) {
@@ -14653,6 +14684,7 @@ static bool lower_statement_impl(RccIrLowerContext* context,
             RccIrLowerLabel* label;
             const RccIrLowerScopeCleanup* cleanup_marker;
             if (statement->goto_vla_count != 0u ||
+                !lower_flush_wide_locals(context) ||
                 !lower_scope_cleanup_marker_for_count(
                     context, statement->goto_cleanup_count,
                     &cleanup_marker) ||
@@ -14674,12 +14706,18 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                 context->unsupported = true;
                 return false;
             }
+            if (!context->terminated &&
+                !lower_flush_wide_locals(context)) {
+                context->unsupported = true;
+                return false;
+            }
             if (!context->terminated && context->current != label->block &&
                 !lower_branch(context, label->block->id)) {
                 return false;
             }
             context->current = label->block;
             context->terminated = false;
+            lower_invalidate_wide_locals(context);
             return statement->label_stmt
                 ? lower_statement(context, statement->label_stmt) : true;
         }
