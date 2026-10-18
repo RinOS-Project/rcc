@@ -312,6 +312,20 @@ public:
     }
 };
 
+class ConversionPointerClassCvResultSource {
+public:
+    ConversionMiddlePointerTarget middle_value;
+    ConversionLeafPointerTarget leaf_value;
+
+    operator ConversionMiddlePointerTarget*() {
+        return &middle_value;
+    }
+
+    operator const ConversionLeafPointerTarget*() {
+        return &leaf_value;
+    }
+};
+
 class ConversionPointerVoidResultSource {
 public:
     ConversionBasePointerTarget base_value;
@@ -322,6 +336,20 @@ public:
     }
 
     operator ConversionDerivedPointerTarget*() {
+        return &derived_value;
+    }
+};
+
+class ConversionPointerVoidCvResultSource {
+public:
+    ConversionBasePointerTarget base_value;
+    ConversionDerivedPointerTarget derived_value;
+
+    operator ConversionBasePointerTarget*() {
+        return &base_value;
+    }
+
+    operator const ConversionDerivedPointerTarget*() {
         return &derived_value;
     }
 };
@@ -771,6 +799,11 @@ int main() {
     ConversionPointerClassResultSource pointer_class_result_source;
     ConversionBasePointerTarget* pointer_class_result =
         pointer_class_result_source;
+    ConversionPointerClassCvResultSource pointer_class_cv_result_source;
+    const ConversionBasePointerTarget* pointer_class_cv_result =
+        pointer_class_cv_result_source;
+    ConversionPointerVoidCvResultSource pointer_void_cv_result_source;
+    const void* pointer_void_cv_result = pointer_void_cv_result_source;
     RefQualifiedConversionSource ref_qualified_source;
     const CvRefQualifiedConversionSource const_ref_qualified_source{};
     FunctionReferenceConversionSource function_reference_source;
@@ -894,6 +927,11 @@ int main() {
         pointer_class_result !=
             static_cast<ConversionBasePointerTarget*>(
                 &pointer_class_result_source.middle_value) ||
+        pointer_class_cv_result !=
+            static_cast<const ConversionBasePointerTarget*>(
+                &pointer_class_cv_result_source.middle_value) ||
+        pointer_void_cv_result != static_cast<const void*>(
+                                     &pointer_void_cv_result_source.base_value) ||
         choose_template_pointer_conversion(0, pointer_source) != 79 ||
         take_pointer_conversion_bool(pointer_bool_source) != 109 ||
         take_pointer_conversion_bool(null_pointer_bool_source) != 113 ||

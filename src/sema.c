@@ -3135,9 +3135,7 @@ static int sema_cxx_pointer_result_source_relation(
          target_pointer->base->kind != TYPE_STRUCT) ||
         !left_pointer->base || !right_pointer->base ||
         left_pointer->base->kind != TYPE_STRUCT ||
-        right_pointer->base->kind != TYPE_STRUCT ||
-        left_pointer->base->is_const != right_pointer->base->is_const ||
-        left_pointer->base->is_volatile != right_pointer->base->is_volatile) {
+        right_pointer->base->kind != TYPE_STRUCT) {
         return 0;
     }
     left_class = left_pointer->base->cxx_class;
@@ -3155,7 +3153,8 @@ static int sema_cxx_pointer_result_source_relation(
     }
     /* [over.ics.rank]: A* -> void* is better than B* -> void* when B derives
      * from A; likewise, B* -> A* is better than C* -> A* when C derives from
-     * B. */
+     * B. Each result's viability check has already accounted for any cv
+     * adjustment to the common target, so differing source cv is permitted. */
     if (sema_cxx_class_derives_from(right_class, left_class, 0u)) return 1;
     if (sema_cxx_class_derives_from(left_class, right_class, 0u)) return -1;
     return 0;
