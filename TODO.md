@@ -6481,9 +6481,13 @@ remains a separate open item.
       structured outer-loop backedge. Odd/even and zero-iteration cases pass
       GCC host execution; i686/AMD64 emit without fallback at `-O0`/`-O2`, and
       both AMD64 generated objects execute successfully.
+- [x] Cover two distinct `goto` edges and a fallthrough edge carrying different
+      64-bit values into one label. All three runtime paths agree with the GCC
+      host oracle; i686/AMD64 verified emissions pass at `-O0`/`-O2` without
+      fallback, and both AMD64 objects execute successfully.
 - [ ] Arbitrary-label SSA predecessor/phi construction, nested structured
-      wide-scalar loop edges beyond these cases, and VLA stack restoration
-      remain open.
+      wide-scalar loop edges beyond the tested join/backedge shapes, and VLA
+      stack restoration remain open.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)
 

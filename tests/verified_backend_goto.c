@@ -114,6 +114,25 @@ long long verified_goto_wide_nested_backward(unsigned int outer_count,
     return value;
 }
 
+long long verified_goto_wide_multiple_predecessors(unsigned int first,
+                                                   unsigned int second,
+                                                   long long initial)
+{
+    long long value = initial;
+    if (first != 0u) {
+        value += 0x0000000100000001LL;
+        goto joined;
+    }
+    if (second != 0u) {
+        value += 0x0000000200000002LL;
+        goto joined;
+    }
+    value += 0x0000000300000003LL;
+
+joined:
+    return value;
+}
+
 int main(void)
 {
     if (verified_goto_wide_forward(1, 100) != 105) return 1;
@@ -127,5 +146,11 @@ int main(void)
     if (verified_goto_wide_nested_backward(2u, 0u, 7) != 10) return 8;
     if (verified_goto_wide_nested_backward(1u, 1u, 0) !=
         4294967298LL) return 9;
+    if (verified_goto_wide_multiple_predecessors(1u, 1u, 5) !=
+        4294967302LL) return 10;
+    if (verified_goto_wide_multiple_predecessors(0u, 1u, 7) !=
+        8589934601LL) return 11;
+    if (verified_goto_wide_multiple_predecessors(0u, 0u, 9) !=
+        12884901900LL) return 12;
     return 0;
 }
