@@ -104,6 +104,12 @@ int debug_template_dependent_reference_pack(
 }
 
 template <typename... Owners>
+int debug_template_dependent_const_reference_pack(
+    typename Owners::value_type const&... values) {
+    return static_cast<int>(sizeof...(Owners));
+}
+
+template <typename... Owners>
 int debug_template_dependent_member_pointer_pack(
     typename Owners::value_type Owners::*... values) {
     return ((values != nullptr) + ... + 0);
@@ -141,6 +147,9 @@ int debug_template_dependent_compound_pack_entry() {
                DebugTemplateCompoundPackShortOwner,
                DebugTemplateCompoundPackLongOwner>(&short_value, &long_value) +
            debug_template_dependent_reference_pack<
+               DebugTemplateCompoundPackShortOwner,
+               DebugTemplateCompoundPackLongOwner>(short_value, long_value) +
+           debug_template_dependent_const_reference_pack<
                DebugTemplateCompoundPackShortOwner,
                DebugTemplateCompoundPackLongOwner>(short_value, long_value) +
            debug_template_dependent_member_pointer_pack<

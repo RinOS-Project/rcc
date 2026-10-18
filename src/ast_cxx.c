@@ -8155,6 +8155,25 @@ static int template_pending_pack_parameter_index(const CxxTemplate* tmpl,
     return -1;
 }
 
+static Type* template_apply_pattern_qualifiers(const Type* pattern,
+                                               Type* replacement) {
+    Type* qualified;
+    if (!pattern || !replacement ||
+        ((!pattern->is_const || replacement->is_const) &&
+         (!pattern->is_volatile || replacement->is_volatile) &&
+         (!pattern->is_restrict || replacement->is_restrict) &&
+         (!pattern->is_atomic || replacement->is_atomic))) {
+        return replacement;
+    }
+    qualified = ast_arena_alloc(sizeof(*qualified));
+    *qualified = *replacement;
+    qualified->is_const = qualified->is_const || pattern->is_const;
+    qualified->is_volatile = qualified->is_volatile || pattern->is_volatile;
+    qualified->is_restrict = qualified->is_restrict || pattern->is_restrict;
+    qualified->is_atomic = qualified->is_atomic || pattern->is_atomic;
+    return qualified;
+}
+
 static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                                       Type** args, int arg_count,
                                       const int64_t* value_args,
@@ -8168,8 +8187,9 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
 
     if (!type) return NULL;
     if (type->cxx_dependent_alias_template) {
-        return template_substitute_dependent_alias_template_type(
+        replacement = template_substitute_dependent_alias_template_type(
             tmpl, type, args, arg_count, value_args, value_present);
+        return template_apply_pattern_qualifiers(type, replacement);
     }
     if (type->cxx_dependent && type->cxx_template_param_index >= 0 &&
         type->cxx_template_param_index < arg_count && args &&
@@ -8235,9 +8255,10 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 access_context, &nested_type, &alias_ambiguous,
                 &alias_accessible);
         if (nested_path_resolved && nested_type) {
-            return template_substitute_type(
+            replacement = template_substitute_type(
                 tmpl, nested_type, args, arg_count, value_args,
                 value_present);
+            return template_apply_pattern_qualifiers(type, replacement);
         }
         {
             Type* unresolved = ast_arena_alloc(sizeof(*unresolved));
@@ -8369,9 +8390,10 @@ static Type* template_substitute_type(CxxTemplate* tmpl, Type* type,
                 access_context, &nested_type, &alias_ambiguous,
                 &alias_accessible);
         if (nested_path_resolved && nested_type) {
-            return template_substitute_type(
+            replacement = template_substitute_type(
                 tmpl, nested_type, args, arg_count, value_args,
                 value_present);
+            return template_apply_pattern_qualifiers(type, replacement);
         }
         {
             Type* unresolved = ast_arena_alloc(sizeof(*unresolved));

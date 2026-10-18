@@ -1379,6 +1379,8 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z39debug_template_dependent_reference_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpRNT_10value_typeE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
+	$(GREP) -F -x -q '_Z45debug_template_dependent_const_reference_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpRKNT_10value_typeE' \
+		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z44debug_template_dependent_member_pointer_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpMT_NS2_10value_typeE' \
 		$(TEST_OUT)/debug-info/cxx-template-gcc-strings.log
 	$(GREP) -F -x -q '_Z42debug_template_pack_with_variadic_ellipsisIJiEEiDpT_z' \
@@ -1460,6 +1462,8 @@ test-debug-info: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET)
 	$(GREP) -F -x -q '_Z37debug_template_dependent_pointer_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpPNT_10value_typeE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z39debug_template_dependent_reference_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpRNT_10value_typeE' \
+		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
+	$(GREP) -F -x -q '_Z45debug_template_dependent_const_reference_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpRKNT_10value_typeE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log
 	$(GREP) -F -x -q '_Z44debug_template_dependent_member_pointer_packIJ35DebugTemplateCompoundPackShortOwner34DebugTemplateCompoundPackLongOwnerEEiDpMT_NS2_10value_typeE' \
 		$(TEST_OUT)/debug-info/cxx-template-rcc-strings.log

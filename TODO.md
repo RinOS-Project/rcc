@@ -1944,6 +1944,9 @@
         `short`／`long`の異なるalias型を持つ2 ownerでi686/AMD64のparameter
         DWARF DIEとarray boundを検証し、GCC C++20とのItanium symbol一致および
         `test-debug-info`全体の成功を確認
+  - [x] const lvalue-referenceを含むheterogeneous nested-alias function
+        parameter pack expansionを追加し、i686/AMD64 formal-parameter DIEの
+        reference -> const-qualified type -> alias base typeを検証
   - [ ] その他のdependent function parameter pack expansion、non-integral
         structural non-type packs、および未instantiateのdependent
         alias/template-definition DIEは引き続き未完
@@ -6375,3 +6378,14 @@ remains a separate open item.
       Windows.
 - [ ] General local callback dataflow, alias analysis, and indirect-call target
       sets across distinct functions remain open.
+
+## RCC continuation (2026-10-18, const dependent-alias reference packs)
+
+- [x] Expand a function parameter pack of `const typename Owner::value_type&`
+      over owners resolving to distinct `short` and `long` types. Verify the
+      GCC C++20 Itanium symbol, then check each i686/AMD64 formal-parameter
+      DIE follows reference -> const-qualified type -> correct base type.
+- [x] Gate the new regression through `test-debug-info`, already part of RCC's
+      Linux `test-ci` and native-Windows debug gate.
+- [ ] Other dependent pack forms and structural non-integral NTTP packs remain
+      open.
