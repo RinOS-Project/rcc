@@ -3531,11 +3531,21 @@ static void verify_cxx_object(const char* path, bool execute)
 
 static void verify_cxx_reference_local_object(const char* path,
                                               uint16_t arch,
-                                              bool execute)
+                                              bool execute,
+                                              bool verify_base_constructor)
 {
+    struct VerifiedBaseConstructorResult {
+        int* cleanup_order;
+        int value;
+    };
+    struct VerifiedConversionSource {
+        int* cleanup_order;
+        int value;
+    };
     ObjectFile* object = objfile_read(path);
     ObjSection* text;
     ObjSymbol* entry_symbol;
+    ObjSymbol* base_constructor_symbol;
     size_t mapping_size;
     void* memory;
     void* address;
@@ -3544,10 +3554,20 @@ static void verify_cxx_reference_local_object(const char* path,
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     entry_symbol = objfile_find_symbol(object, "main");
+    base_constructor_symbol = objfile_find_symbol(
+        object,
+        "_ZNK24VerifiedConversionSourcecv15VerifiedDerivedEv");
     assert(text != NULL && entry_symbol != NULL &&
            entry_symbol->type == SYM_GLOBAL &&
            entry_symbol->binding == BIND_CODE &&
            entry_symbol->section == 0);
+    if (verify_base_constructor) {
+        assert(base_constructor_symbol != NULL &&
+               (base_constructor_symbol->type == SYM_GLOBAL ||
+                base_constructor_symbol->type == SYM_WEAK) &&
+               base_constructor_symbol->binding == BIND_CODE &&
+               base_constructor_symbol->section == 0);
+    }
     if (!execute) {
         objfile_free(object);
         return;
@@ -3561,6 +3581,21 @@ static void verify_cxx_reference_local_object(const char* path,
                 result);
     }
     assert(result == 0);
+    if (verify_base_constructor) {
+        struct VerifiedBaseConstructorResult
+            (RINOS_ABI *make_base)(
+                const struct VerifiedConversionSource*);
+        struct VerifiedConversionSource source;
+        struct VerifiedBaseConstructorResult constructed;
+        int cleanup_order = 0;
+        address = symbol_address(memory, base_constructor_symbol);
+        memcpy(&make_base, &address, sizeof(make_base));
+        source.cleanup_order = &cleanup_order;
+        source.value = 47;
+        constructed = make_base(&source);
+        assert(constructed.cleanup_order == &cleanup_order &&
+               constructed.value == 47 && cleanup_order == 0);
+    }
     assert(verified_unmap(memory, mapping_size) == 0);
     objfile_free(object);
 }
@@ -4574,8 +4609,12 @@ int main(int argc, char** argv)
         puts("Verified x86-64 SysV aggregate straddle object passed");
         return 0;
     }
-    if (argc == 4 && strcmp(argv[1], "--cxx-reference-object") == 0) {
+    if (argc == 4 &&
+        (strcmp(argv[1], "--cxx-reference-object") == 0 ||
+         strcmp(argv[1], "--cxx-reference-object-base-constructor") == 0)) {
         uint16_t arch;
+        bool verify_base_constructor =
+            strcmp(argv[1], "--cxx-reference-object-base-constructor") == 0;
         if (strcmp(argv[3], "x86") == 0) {
             arch = ARCH_X86;
         } else {
@@ -4583,7 +4622,8 @@ int main(int argc, char** argv)
             arch = ARCH_X64;
         }
         verify_cxx_reference_local_object(
-            argv[2], arch, arch == ARCH_X64 && sizeof(void*) == 8u);
+            argv[2], arch, arch == ARCH_X64 && sizeof(void*) == 8u,
+            verify_base_constructor);
         puts("Verified C++ local reference object passed");
         return 0;
     }

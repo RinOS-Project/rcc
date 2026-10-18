@@ -17262,7 +17262,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-x86.ro \
 		tests/verified_backend_cxx_reference_local.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-reference-local-x86.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
@@ -17270,7 +17270,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-x64.ro \
 		tests/verified_backend_cxx_reference_local.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-reference-local-x64.log
-	$(GREP) -F -q 'Verified backend: 3 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x64.log,0)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
@@ -17278,10 +17278,10 @@ test-verified-cxx-reference-local: $(RCXX_TARGET)
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
 		$(SRCDIR)/utils.c
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
-		--cxx-reference-object \
+		--cxx-reference-object-base-constructor \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x86.ro x86
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
-		--cxx-reference-object \
+		--cxx-reference-object-base-constructor \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x64.ro x64
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-reference-local)
 	$(call CXX_WINDOWS_ENTRY_TEST,verified-cxx-reference-local,verified_backend_cxx_reference_local.cpp)

@@ -6336,6 +6336,187 @@ static bool lower_cxx_empty_trivial_subobject(
     return true;
 }
 
+static int lower_cxx_constructor_parameter_index(
+    const CxxConstructorInfo* constructor, const Decl* declaration) {
+    const DeclList* parameter;
+    int index = 0;
+    if (!constructor || !constructor->method ||
+        !constructor->method->decl || !declaration) {
+        return -1;
+    }
+    for (parameter = constructor->method->decl->func_params;
+         parameter; parameter = parameter->next, ++index) {
+        if (parameter->decl == declaration) return index;
+    }
+    return -1;
+}
+
+static bool lower_cxx_base_name_matches(
+    const CxxClass* base, const char* declared_name,
+    const CxxConstructorInitializer* initializer) {
+    const char* field;
+    if (!base || !initializer) return false;
+    if (initializer->base_type_pattern &&
+        initializer->base_type_pattern->cxx_class == base) {
+        return true;
+    }
+    field = initializer->field;
+    return field &&
+        ((declared_name && strcmp(field, declared_name) == 0) ||
+         (base->name && strcmp(field, base->name) == 0));
+}
+
+static const CxxConstructorInitializer* lower_cxx_find_base_initializer(
+    const CxxClass* cls, const CxxConstructorInfo* constructor,
+    int base_index, bool* duplicate) {
+    const CxxConstructorInitializer* result = NULL;
+    const CxxClass* base;
+    if (duplicate) *duplicate = false;
+    if (!cls || !constructor || base_index < 0 ||
+        base_index >= cls->base_count) {
+        return NULL;
+    }
+    base = cls->bases[base_index].base;
+    for (const CxxConstructorInitializer* initializer =
+             constructor->initializers;
+         initializer; initializer = initializer->next) {
+        if (!initializer->is_base_initializer ||
+            !lower_cxx_base_name_matches(
+                base, cls->bases[base_index].base_name, initializer)) {
+            continue;
+        }
+        if (result && duplicate) *duplicate = true;
+        if (!result) result = initializer;
+    }
+    return result;
+}
+
+/* A directly constructed base is safe to inline only when its constructor
+ * has no body effects and initializes each scalar field from one of its
+ * scalar parameters. The arguments forwarded by the derived constructor
+ * must in turn be simple references to that constructor's parameters. */
+static bool lower_cxx_scalar_base_constructor_supported(
+    const CxxClass* cls, const CxxConstructorInfo* constructor,
+    const ExprList* arguments, const CxxConstructorInfo* parent_constructor) {
+    const TypeParam* parameter_type;
+    const DeclList* parameter_decl;
+    const ExprList* argument;
+    const TypeParam* member;
+    unsigned parameter_count = 0u;
+    unsigned member_count = 0u;
+    unsigned member_initializer_count = 0u;
+    if (!cls || !constructor || !constructor->method ||
+        !constructor->method->decl || !parent_constructor ||
+        !constructor->method->decl->func_is_noexcept ||
+        !constructor->body_is_empty || constructor->is_deleted ||
+        !constructor->initializers_are_supported ||
+        constructor->parameter_count < 0 || cls->has_field_initializer ||
+        cls->base_count != 0 || cls->virtual_base_count != 0 ||
+        cls->vtable_size != 0) {
+        return false;
+    }
+    parameter_type = constructor->parameters;
+    parameter_decl = constructor->method->decl->func_params;
+    argument = arguments;
+    while (parameter_type || parameter_decl || argument) {
+        const Expr* forwarded;
+        int parent_parameter_index;
+        if (parameter_count >= (unsigned)constructor->parameter_count ||
+            !parameter_type || !parameter_type->type ||
+            !type_is_scalar(parameter_type->type) ||
+            parameter_type->type->cxx_is_member_pointer ||
+            lower_i686_wide_scalar_type(parameter_type->type) ||
+            !parameter_decl || !parameter_decl->decl || !argument ||
+            argument->designator_kind != INIT_DESIGNATOR_NONE ||
+            !(forwarded = argument->expr) ||
+            forwarded->kind != EXPR_IDENT || !forwarded->ident_decl ||
+            !forwarded->type || !type_is_scalar(forwarded->type) ||
+            forwarded->type->cxx_is_member_pointer ||
+            lower_i686_wide_scalar_type(forwarded->type) ||
+            (parent_parameter_index =
+                 lower_cxx_constructor_parameter_index(
+                     parent_constructor, forwarded->ident_decl)) < 0) {
+            return false;
+        }
+        ++parameter_count;
+        parameter_type = parameter_type->next;
+        parameter_decl = parameter_decl->next;
+        argument = argument->next;
+    }
+    if (parameter_count != (unsigned)constructor->parameter_count) {
+        return false;
+    }
+    for (member = cls->fields; member; member = member->next) {
+        if (member->is_static) continue;
+        if (member_count == UINT_MAX || member->is_bitfield ||
+            !member->name || !member->type ||
+            !type_is_scalar(member->type) ||
+            member->type->cxx_is_member_pointer || member->type->is_volatile ||
+            member->type->is_atomic ||
+            lower_i686_wide_scalar_type(member->type)) {
+            return false;
+        }
+        ++member_count;
+    }
+    for (const CxxConstructorInitializer* initializer =
+             constructor->initializers;
+         initializer; initializer = initializer->next) {
+        const TypeParam* field;
+        const Expr* value;
+        int initialized_parameter_index;
+        if (initializer->is_base_initializer ||
+            initializer->is_delegating_constructor ||
+            initializer->is_virtual_base_initializer ||
+            initializer->is_default_member_initializer ||
+            initializer->is_pack_expansion || initializer->constructor ||
+            !initializer->field || !initializer->arguments ||
+            initializer->arguments->next ||
+            !(value = initializer->arguments->expr) ||
+            value->kind != EXPR_IDENT || !value->ident_decl ||
+            initializer->value != value ||
+            (initialized_parameter_index =
+                 lower_cxx_constructor_parameter_index(
+                     constructor, value->ident_decl)) < 0) {
+            return false;
+        }
+        for (field = cls->fields; field; field = field->next) {
+            if (!field->is_static && field->name &&
+                strcmp(field->name, initializer->field) == 0) {
+                break;
+            }
+        }
+        if (!field || member_initializer_count >= member_count) return false;
+        for (const CxxConstructorInitializer* previous =
+                 constructor->initializers;
+             previous != initializer; previous = previous->next) {
+            if (!previous->is_base_initializer &&
+                ((previous->field &&
+                  strcmp(previous->field, initializer->field) == 0) ||
+                 (previous->arguments && previous->arguments->expr &&
+                  previous->arguments->expr->ident_decl ==
+                      value->ident_decl))) {
+                return false;
+            }
+        }
+        {
+            const TypeParam* source_parameter = constructor->parameters;
+            while (source_parameter &&
+                   initialized_parameter_index-- > 0) {
+                source_parameter = source_parameter->next;
+            }
+            if (!source_parameter || !source_parameter->type ||
+                (!type_is_compatible((Type*)field->type,
+                                     (Type*)source_parameter->type) &&
+                 !(type_is_arithmetic((Type*)field->type) &&
+                   type_is_arithmetic((Type*)source_parameter->type)))) {
+                return false;
+            }
+        }
+        ++member_initializer_count;
+    }
+    return member_initializer_count == member_count;
+}
+
 /* The inline-cleanup path may accept a class temporary only if its selected
  * constructor and every base initialization are proven non-throwing. Keep
  * construction explicit: an empty noexcept body, empty trivial bases, and
@@ -6407,8 +6588,32 @@ static bool lower_cxx_empty_noop_constructor_supported(
     }
     for (base_index = 0; base_index < cls->base_count; ++base_index) {
         const CxxClass* base = cls->bases[base_index].base;
-        if (!base || !lower_cxx_empty_trivial_subobject(
-                         base->type, 0u)) {
+        const CxxConstructorInitializer* base_initializer;
+        bool duplicate_initializer = false;
+        if (!base) {
+            return false;
+        }
+        base_initializer = lower_cxx_find_base_initializer(
+            cls, constructor, base_index, &duplicate_initializer);
+        if (duplicate_initializer) return false;
+        if (!base_initializer || !base_initializer->constructor) {
+            if ((base_initializer &&
+                 (base_initializer->value || base_initializer->arguments)) ||
+                !lower_cxx_empty_trivial_subobject(base->type, 0u)) {
+                return false;
+            }
+        } else if (cls->vtable_size != 0 ||
+                   cls->bases[base_index].is_virtual ||
+                   base_initializer->is_virtual_base_initializer ||
+                   base_initializer->is_delegating_constructor ||
+                   base_initializer->is_default_member_initializer ||
+                   base_initializer->is_pack_expansion ||
+                   base_initializer->value !=
+                       (base_initializer->arguments
+                            ? base_initializer->arguments->expr : NULL) ||
+                   !lower_cxx_scalar_base_constructor_supported(
+                       base, base_initializer->constructor,
+                       base_initializer->arguments, constructor)) {
             return false;
         }
     }
@@ -6424,13 +6629,51 @@ static bool lower_cxx_empty_noop_constructor_supported(
          initializer = initializer->next) {
         if (initializer->is_delegating_constructor ||
             initializer->is_default_member_initializer ||
-            initializer->constructor) {
+            initializer->is_pack_expansion) {
             return false;
         }
         if (initializer->is_base_initializer) {
-            if (initializer->value || initializer->arguments) return false;
+            bool found_base = false;
+            if (initializer->is_virtual_base_initializer) {
+                for (virtual_base_index = 0;
+                     virtual_base_index < cls->virtual_base_count;
+                     ++virtual_base_index) {
+                    const CxxClass* virtual_base =
+                        cls->virtual_bases[virtual_base_index].base;
+                    if (lower_cxx_base_name_matches(
+                            virtual_base,
+                            virtual_base ? virtual_base->name : NULL,
+                            initializer)) {
+                        found_base = true;
+                        break;
+                    }
+                }
+                if (!found_base || initializer->constructor ||
+                    initializer->value || initializer->arguments) {
+                    return false;
+                }
+                continue;
+            }
+            for (base_index = 0; base_index < cls->base_count; ++base_index) {
+                bool duplicate_initializer = false;
+                const CxxConstructorInitializer* selected =
+                    lower_cxx_find_base_initializer(
+                        cls, constructor, base_index,
+                        &duplicate_initializer);
+                if (duplicate_initializer) return false;
+                if (selected == initializer) {
+                    found_base = true;
+                    break;
+                }
+            }
+            if (!found_base) return false;
+            if (!initializer->constructor &&
+                (initializer->value || initializer->arguments)) {
+                return false;
+            }
             continue;
         }
+        if (initializer->constructor) return false;
         if (!initializer->arguments || initializer->arguments->next ||
             !initializer->arguments->expr ||
             initializer->arguments->expr->kind != EXPR_IDENT ||
@@ -13179,6 +13422,80 @@ static bool lower_initialize_struct_field(
         context, address.value, field->type, initializer);
 }
 
+static bool lower_initialize_cxx_scalar_base_constructor(
+    RccIrLowerContext* context, RccIrValue base_address,
+    const CxxClass* base_class,
+    const CxxConstructorInfo* base_constructor,
+    const ExprList* base_arguments,
+    const CxxConstructorInfo* parent_constructor,
+    const RccIrLowerValue* parent_arguments) {
+    const CxxConstructorInitializer* member_initializer;
+    if (!context || !base_address || !base_class || !base_constructor ||
+        !parent_constructor ||
+        (base_constructor->parameter_count != 0 && !base_arguments) ||
+        (parent_constructor->parameter_count != 0 && !parent_arguments)) {
+        return false;
+    }
+    for (member_initializer = base_constructor->initializers;
+         member_initializer; member_initializer = member_initializer->next) {
+        const TypeField* field = lower_struct_declared_field(
+            base_class->type, base_class, member_initializer->field);
+        const Expr* forwarded;
+        const ExprList* base_argument;
+        const TypeParam* base_parameter;
+        RccIrLowerValue value;
+        RccIrLowerValue object;
+        RccIrLowerValue address;
+        int member_parameter_index;
+        int parent_parameter_index;
+        int index;
+        if (!field || !field->type ||
+            !member_initializer->arguments ||
+            !(forwarded = member_initializer->arguments->expr) ||
+            forwarded->kind != EXPR_IDENT || !forwarded->ident_decl ||
+            (member_parameter_index =
+                 lower_cxx_constructor_parameter_index(
+                     base_constructor, forwarded->ident_decl)) < 0) {
+            return false;
+        }
+        base_argument = base_arguments;
+        for (index = 0; index < member_parameter_index && base_argument;
+             ++index) {
+            base_argument = base_argument->next;
+        }
+        if (!base_argument || !base_argument->expr ||
+            base_argument->expr->kind != EXPR_IDENT ||
+            !base_argument->expr->ident_decl ||
+            (parent_parameter_index =
+                 lower_cxx_constructor_parameter_index(
+                     parent_constructor,
+                     base_argument->expr->ident_decl)) < 0) {
+            return false;
+        }
+        base_parameter = base_constructor->parameters;
+        for (index = 0; index < member_parameter_index && base_parameter;
+             ++index) {
+            base_parameter = base_parameter->next;
+        }
+        if (!base_parameter || !base_parameter->type ||
+            parent_parameter_index >= parent_constructor->parameter_count) {
+            return false;
+        }
+        value = lower_cast(
+            context, parent_arguments[parent_parameter_index],
+            base_parameter->type);
+        value = lower_cast(context, value, field->type);
+        object = lower_value(base_address, rcc_ir_type_pointer(0u), true);
+        address = lower_byte_offset_address(
+            context, object, (uint64_t)field->offset);
+        if (!value.valid || !address.valid ||
+            !lower_store_address(context, address, value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool lower_struct_initializer(
     RccIrLowerContext* context, RccIrValue base,
     const Type* type, const Expr* initializer) {
@@ -13243,7 +13560,54 @@ static bool lower_struct_initializer(
             RccIrLowerValue member_value;
             const DeclList* parameter_decl;
             int parameter_index = -1;
-            if (member_initializer->is_base_initializer) continue;
+            if (member_initializer->is_base_initializer) {
+                const CxxClass* cls = type->cxx_class;
+                const CxxClass* base_class = NULL;
+                int base_index;
+                if (!cls->base_offsets ||
+                    member_initializer->is_virtual_base_initializer ||
+                    !member_initializer->constructor) {
+                    continue;
+                }
+                for (base_index = 0; base_index < cls->base_count;
+                     ++base_index) {
+                    bool duplicate_initializer = false;
+                    const CxxConstructorInitializer* selected =
+                        lower_cxx_find_base_initializer(
+                            cls, initializer->compound_constructor,
+                            base_index, &duplicate_initializer);
+                    if (duplicate_initializer) {
+                        context->unsupported = true;
+                        goto constructor_lowering_failure;
+                    }
+                    if (selected == member_initializer) {
+                        base_class = cls->bases[base_index].base;
+                        break;
+                    }
+                }
+                if (!base_class || base_index < 0 ||
+                    base_index >= cls->base_count ||
+                    cls->bases[base_index].is_virtual ||
+                    cls->base_offsets[base_index] < 0) {
+                    context->unsupported = true;
+                    goto constructor_lowering_failure;
+                }
+                object = lower_value(base, rcc_ir_type_pointer(0u), true);
+                address = lower_byte_offset_address(
+                    context, object,
+                    (uint64_t)cls->base_offsets[base_index]);
+                if (!address.valid ||
+                    !lower_initialize_cxx_scalar_base_constructor(
+                        context, address.value, base_class,
+                        member_initializer->constructor,
+                        member_initializer->arguments,
+                        initializer->compound_constructor,
+                        constructor_arguments)) {
+                    context->unsupported = true;
+                    goto constructor_lowering_failure;
+                }
+                continue;
+            }
             if (!member_initializer->arguments ||
                 !member_initializer->arguments->expr ||
                 !member_initializer->arguments->expr->ident_decl) {

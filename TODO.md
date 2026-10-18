@@ -967,6 +967,11 @@
         `test-cxx-function-template-references`; the complete `test-cxx` gate
         and related virtual-base, array-destructor, member-lifetime, and global-
         constructor gates pass.
+  - [ ] Complete an explicit user-defined destructor invocation by destroying
+        non-static class members and direct bases in reverse construction order
+        after the user body. A verified AMD64 inspection of
+        `VerifiedDerived::~VerifiedDerived` currently shows only the user body;
+        add direct-call and scope-exit execution coverage for member/base order.
   - [x] Resolve data-member access exposed through a virtual base using the
         active subobject's vbtable and member-in-base offset; verify inherited
         access from both arms of a shared virtual diamond during destruction,
@@ -1350,6 +1355,11 @@
         addresses in SSA; verify a user-defined `T&&` conversion return has no
         fallback on i686/AMD64 and execute the generated x64 `.ro` alias test
         in `test-verified-cxx-reference-return`.
+  - [x] Inline a non-virtual direct base constructor in typed SSA when it is
+        `noexcept`, has an empty body, and initializes scalar base fields from
+        forwarded scalar parameters. Verify the derived conversion-return path
+        has zero fallback on i686/AMD64 and execute its x64 `.ro` result check
+        in `test-verified-cxx-reference-local`.
   - [x] Lower supported trivial-aggregate conditional prvalues into one
         branch-selected object slot and pass that slot to a reference parameter;
         verify i686 sret and x64 register-return paths emit without fallback,
