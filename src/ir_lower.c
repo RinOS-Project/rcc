@@ -117,6 +117,8 @@ typedef struct {
     RccIrLowerSwitch* current_switch;
     RccIrBlockId break_target;
     RccIrBlockId continue_target;
+    RccIrLowerScopeCleanup* break_cleanup_marker;
+    RccIrLowerScopeCleanup* continue_cleanup_marker;
     RccIrLowerLoopFrame* wide_loop;
     const Stmt* current_statement;
     size_t active_debug_inline_call_plus_one;
@@ -6817,8 +6819,8 @@ static bool lower_statement_has_scope_cleanups(const Stmt* statement) {
     }
 }
 
-static bool lower_statement_scope_cleanups_supported(
-    const Stmt* statement) {
+static bool lower_statement_scope_cleanups_supported_impl(
+    const Stmt* statement, unsigned loop_depth) {
     if (!statement) return true;
     switch (statement->kind) {
         case STMT_NULL:
@@ -6829,7 +6831,8 @@ static bool lower_statement_scope_cleanups_supported(
         case STMT_BLOCK:
             for (const StmtList* item = statement->block_stmts; item;
                  item = item->next) {
-                if (!lower_statement_scope_cleanups_supported(item->stmt)) {
+                if (!lower_statement_scope_cleanups_supported_impl(
+                        item->stmt, loop_depth)) {
                     return false;
                 }
             }
@@ -6849,15 +6852,15 @@ static bool lower_statement_scope_cleanups_supported(
             return lower_noexcept_expression(statement->return_val);
         case STMT_IF:
             return lower_noexcept_expression(statement->if_cond) &&
-                lower_statement_scope_cleanups_supported(
-                    statement->if_then) &&
-                lower_statement_scope_cleanups_supported(
-                    statement->if_else);
+                lower_statement_scope_cleanups_supported_impl(
+                    statement->if_then, loop_depth) &&
+                lower_statement_scope_cleanups_supported_impl(
+                    statement->if_else, loop_depth);
         case STMT_WHILE:
         case STMT_DO:
             return lower_noexcept_expression(statement->while_cond) &&
-                lower_statement_scope_cleanups_supported(
-                    statement->while_body);
+                lower_statement_scope_cleanups_supported_impl(
+                    statement->while_body, loop_depth + 1u);
         case STMT_FOR:
             if (statement->for_init &&
                 statement->for_init->kind == STMT_DECL &&
@@ -6865,14 +6868,15 @@ static bool lower_statement_scope_cleanups_supported(
                 statement->for_init->decl->var_cleanups) {
                 return false;
             }
-            return lower_statement_scope_cleanups_supported(
-                       statement->for_init) &&
+            return lower_statement_scope_cleanups_supported_impl(
+                       statement->for_init, loop_depth) &&
                 lower_noexcept_expression(statement->for_cond) &&
                 lower_noexcept_expression(statement->for_inc) &&
-                lower_statement_scope_cleanups_supported(
-                    statement->for_body);
+                lower_statement_scope_cleanups_supported_impl(
+                    statement->for_body, loop_depth + 1u);
         case STMT_BREAK:
         case STMT_CONTINUE:
+            return loop_depth != 0u;
         case STMT_GOTO:
         case STMT_LABEL:
         case STMT_SWITCH:
@@ -6883,6 +6887,11 @@ static bool lower_statement_scope_cleanups_supported(
             return false;
     }
     return false;
+}
+
+static bool lower_statement_scope_cleanups_supported(
+    const Stmt* statement) {
+    return lower_statement_scope_cleanups_supported_impl(statement, 0u);
 }
 
 static bool lower_call_temporary_cleanups_supported(
@@ -10993,6 +11002,10 @@ static bool lower_while_wide_ssa(
         context->function, "while.wide.end");
     RccIrBlockId old_break = context->break_target;
     RccIrBlockId old_continue = context->continue_target;
+    RccIrLowerScopeCleanup* old_break_cleanup =
+        context->break_cleanup_marker;
+    RccIrLowerScopeCleanup* old_continue_cleanup =
+        context->continue_cleanup_marker;
     RccIrLowerLoopFrame frame;
     RccIrLowerLoopFrame* previous_loop = context->wide_loop;
     RccIrLowerWideState* backedge = NULL;
@@ -11027,6 +11040,8 @@ static bool lower_while_wide_ssa(
     lower_set_wide_state_block(baseline, body_block);
     context->break_target = exit_block->id;
     context->continue_target = latch_block->id;
+    context->break_cleanup_marker = context->scope_cleanups;
+    context->continue_cleanup_marker = context->scope_cleanups;
     context->wide_loop = &frame;
     context->current = body_block;
     context->terminated = false;
@@ -11079,6 +11094,8 @@ static bool lower_while_wide_ssa(
     }
     context->break_target = old_break;
     context->continue_target = old_continue;
+    context->break_cleanup_marker = old_break_cleanup;
+    context->continue_cleanup_marker = old_continue_cleanup;
     context->current = exit_block;
     context->terminated = false;
     if (frame.breaks) {
@@ -11118,6 +11135,10 @@ static bool lower_for_wide_ssa(
         context->function, "for.wide.end");
     RccIrBlockId old_break = context->break_target;
     RccIrBlockId old_continue = context->continue_target;
+    RccIrLowerScopeCleanup* old_break_cleanup =
+        context->break_cleanup_marker;
+    RccIrLowerScopeCleanup* old_continue_cleanup =
+        context->continue_cleanup_marker;
     RccIrLowerLoopFrame frame;
     RccIrLowerLoopFrame* previous_loop = context->wide_loop;
     RccIrLowerWideState* backedge = NULL;
@@ -11154,6 +11175,8 @@ static bool lower_for_wide_ssa(
     lower_set_wide_state_block(baseline, body_block);
     context->break_target = exit_block->id;
     context->continue_target = latch_block->id;
+    context->break_cleanup_marker = context->scope_cleanups;
+    context->continue_cleanup_marker = context->scope_cleanups;
     context->wide_loop = &frame;
     context->current = body_block;
     context->terminated = false;
@@ -11228,6 +11251,8 @@ static bool lower_for_wide_ssa(
     }
     context->break_target = old_break;
     context->continue_target = old_continue;
+    context->break_cleanup_marker = old_break_cleanup;
+    context->continue_cleanup_marker = old_continue_cleanup;
     context->current = exit_block;
     context->terminated = false;
     if (frame.breaks) {
@@ -11265,6 +11290,10 @@ static bool lower_do_wide_ssa(
         context->function, "do.wide.end");
     RccIrBlockId old_break = context->break_target;
     RccIrBlockId old_continue = context->continue_target;
+    RccIrLowerScopeCleanup* old_break_cleanup =
+        context->break_cleanup_marker;
+    RccIrLowerScopeCleanup* old_continue_cleanup =
+        context->continue_cleanup_marker;
     RccIrLowerLoopFrame frame;
     RccIrLowerLoopFrame* previous_loop = context->wide_loop;
     RccIrLowerWideState* condition_exit = NULL;
@@ -11286,6 +11315,8 @@ static bool lower_do_wide_ssa(
     }
     context->break_target = exit_block->id;
     context->continue_target = condition_block->id;
+    context->break_cleanup_marker = context->scope_cleanups;
+    context->continue_cleanup_marker = context->scope_cleanups;
     context->wide_loop = &frame;
     if (!lower_statement(context, statement->while_body)) {
         context->wide_loop = previous_loop;
@@ -11338,6 +11369,8 @@ static bool lower_do_wide_ssa(
     }
     context->break_target = old_break;
     context->continue_target = old_continue;
+    context->break_cleanup_marker = old_break_cleanup;
+    context->continue_cleanup_marker = old_continue_cleanup;
     context->current = exit_block;
     context->terminated = false;
     if (frame.breaks) {
@@ -11377,6 +11410,10 @@ static bool lower_while(RccIrLowerContext* context,
                                                "while.end");
     RccIrBlockId old_break = context->break_target;
     RccIrBlockId old_continue = context->continue_target;
+    RccIrLowerScopeCleanup* old_break_cleanup =
+        context->break_cleanup_marker;
+    RccIrLowerScopeCleanup* old_continue_cleanup =
+        context->continue_cleanup_marker;
     RccIrLowerValue condition;
     if (!condition_block || !body_block || !exit_block ||
         !lower_branch(context, condition_block->id)) {
@@ -11391,6 +11428,8 @@ static bool lower_while(RccIrLowerContext* context,
     }
     context->break_target = exit_block->id;
     context->continue_target = condition_block->id;
+    context->break_cleanup_marker = context->scope_cleanups;
+    context->continue_cleanup_marker = context->scope_cleanups;
     context->current = body_block;
     context->terminated = false;
     if (!lower_statement(context, statement->while_body)) return false;
@@ -11399,6 +11438,8 @@ static bool lower_while(RccIrLowerContext* context,
     }
     context->break_target = old_break;
     context->continue_target = old_continue;
+    context->break_cleanup_marker = old_break_cleanup;
+    context->continue_cleanup_marker = old_continue_cleanup;
     context->current = exit_block;
     context->terminated = false;
     return true;
@@ -11417,6 +11458,10 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
     RccIrBlock* exit_block = rcc_ir_block_add(context->function, "do.end");
     RccIrBlockId old_break = context->break_target;
     RccIrBlockId old_continue = context->continue_target;
+    RccIrLowerScopeCleanup* old_break_cleanup =
+        context->break_cleanup_marker;
+    RccIrLowerScopeCleanup* old_continue_cleanup =
+        context->continue_cleanup_marker;
     RccIrLowerValue condition;
     if (!body_block || !condition_block || !exit_block ||
         !lower_branch(context, body_block->id)) {
@@ -11424,6 +11469,8 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
     }
     context->break_target = exit_block->id;
     context->continue_target = condition_block->id;
+    context->break_cleanup_marker = context->scope_cleanups;
+    context->continue_cleanup_marker = context->scope_cleanups;
     context->current = body_block;
     context->terminated = false;
     if (!lower_statement(context, statement->while_body)) return false;
@@ -11442,6 +11489,8 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
     }
     context->break_target = old_break;
     context->continue_target = old_continue;
+    context->break_cleanup_marker = old_break_cleanup;
+    context->continue_cleanup_marker = old_continue_cleanup;
     context->current = exit_block;
     context->terminated = false;
     return true;
@@ -11454,6 +11503,10 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     RccIrBlock* exit_block;
     RccIrBlockId old_break = context->break_target;
     RccIrBlockId old_continue = context->continue_target;
+    RccIrLowerScopeCleanup* old_break_cleanup =
+        context->break_cleanup_marker;
+    RccIrLowerScopeCleanup* old_continue_cleanup =
+        context->continue_cleanup_marker;
     RccIrLowerValue condition;
     if (statement->for_init &&
         !lower_statement(context, statement->for_init)) {
@@ -11487,6 +11540,8 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     }
     context->break_target = exit_block->id;
     context->continue_target = increment_block->id;
+    context->break_cleanup_marker = context->scope_cleanups;
+    context->continue_cleanup_marker = context->scope_cleanups;
     context->current = body_block;
     context->terminated = false;
     if (!lower_statement(context, statement->for_body)) return false;
@@ -11504,6 +11559,8 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     if (!lower_branch(context, condition_block->id)) return false;
     context->break_target = old_break;
     context->continue_target = old_continue;
+    context->break_cleanup_marker = old_break_cleanup;
+    context->continue_cleanup_marker = old_continue_cleanup;
     context->current = exit_block;
     context->terminated = false;
     return true;
@@ -14447,6 +14504,10 @@ static bool lower_statement_impl(RccIrLowerContext* context,
         case STMT_FOR:
             return lower_for(context, statement);
         case STMT_BREAK:
+            if (!lower_emit_scope_cleanups_until(
+                    context, context->break_cleanup_marker)) {
+                return false;
+            }
             if (context->current_switch &&
                 context->current_switch->wide_ssa &&
                 context->wide_loop ==
@@ -14464,6 +14525,10 @@ static bool lower_statement_impl(RccIrLowerContext* context,
             }
             return lower_branch(context, context->break_target);
         case STMT_CONTINUE:
+            if (!lower_emit_scope_cleanups_until(
+                    context, context->continue_cleanup_marker)) {
+                return false;
+            }
             if (context->wide_loop &&
                 !lower_record_wide_loop_edge(context, false)) {
                 return false;

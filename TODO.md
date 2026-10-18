@@ -1390,17 +1390,18 @@
         `test-verified-cxx-temporary-cleanup`.
   - [x] Lower validated `noexcept` fixed-size array cleanup plans for automatic
         struct/array objects with supported aggregate initialization. Emit
-        destruction on lexical block exit and every early return, including
-        nested arrays, and allocate synthetic loop indices before control-flow
-        splits so each cleanup path has a dominating slot. Verify reverse
-        destruction on normal and early exits, with no typed-SSA fallback on
-        i686/AMD64 at `-O0` and `-O2` in
+        destruction on lexical block exit, early return, and loop `break` /
+        `continue`, including nested arrays, and allocate synthetic loop
+        indices before control-flow splits so each cleanup path has a dominating
+        slot. Verify reverse destruction on normal and early exits plus exactly
+        once cleanup on loop exits, with no typed-SSA fallback on i686/AMD64 at
+        `-O0` and `-O2` in
         `test-verified-cxx-automatic-array-cleanup`, included by
         `test-verified-backend` and the production CI gate.
   - [ ] Throwing expressions/initializers, constructor-driven partial
-        construction and unwind, `goto`/`switch`/`break`/`continue` edges,
-        cleanup-bearing `for` initializers, and other automatic cleanup-plan
-        shapes remain outside this verified subset.
+        construction and unwind, `goto`/`switch` edges, cleanup-bearing `for`
+        initializers, and other automatic cleanup-plan shapes remain outside
+        this verified subset.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering
