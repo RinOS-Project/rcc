@@ -6214,8 +6214,9 @@ remains a separate open item.
       AMD64 regressions.
 - [x] Pass `test-optimize`, the complete native-Windows `test-cxx` aggregate,
       and `test-debug-info` (exit 0).
-- [ ] General alias analysis, mutable callback writes, and variable-index
-      function-pointer arrays with heterogeneous targets remain open.
+- [ ] General alias analysis, mutable callback writes, and aliased or
+      cross-function callback target sets remain open. A later bounded
+      dispatch item covers proven local fixed-array targets.
 
 ## RCC continuation (2026-10-18, uniform-target dynamic local callback arrays)
 
@@ -6227,8 +6228,9 @@ remains a separate open item.
 - [x] Verify optimized i686/AMD64 indirect-call shape, run AMD64 with both valid
       indices, and verify a side-effecting index is evaluated exactly once.
       Native-Windows `test-optimize` passes.
-- [ ] Heterogeneous-target variable-index arrays and general alias analysis
-      remain open.
+- [ ] General alias analysis, mutable array writes, and callback target sets
+      involving aliases or cross-function dataflow remain open. Proven local
+      fixed-array heterogeneous dispatch is covered below.
 
 ## RCC continuation (2026-10-18, nullptr conversion-sequence rank)
 
@@ -6429,3 +6431,16 @@ remains a separate open item.
 - [ ] Other structural member layouts, dependent pack forms, non-finite or
       extended-precision values, and uninstantiated dependent alias/template
       definition DIEs remain open.
+
+## RCC continuation (2026-10-19, bounded heterogeneous callback-array dispatch)
+
+- [x] Lower calls through side-effect-free variable indices of proven,
+      unmodified fixed local callback arrays (2–8 fully initialized entries)
+      into a bounded comparison chain with direct calls for each target.
+      Keep written/escaped arrays, volatile or side-effecting indices,
+      side-effecting or non-scalar arguments, and larger arrays indirect.
+- [x] Apply the per-caller AST expansion budget and check optimized i686/AMD64
+      objects for removal of the indirect call; execute both valid index paths
+      on native Windows. `test-optimize` passes (exit 0).
+- [ ] General alias analysis, mutable callback writes, and target sets that
+      require interprocedural or nonlocal dataflow remain open.

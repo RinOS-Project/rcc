@@ -2306,6 +2306,187 @@ static Decl* resolve_inline_readonly_function_pointer_array(Expr* callee) {
         variable->type->base, element->expr);
 }
 
+enum { INLINE_CALLBACK_DISPATCH_TARGET_LIMIT = 8 };
+
+/* Collect a small, fixed local callback array whose dynamic indices can be
+ * dispatched without loading the stored function pointer.  This is kept
+ * separate from the single-target resolver above: arrays with one target
+ * continue to take its cheaper path, while this path is only for a proven,
+ * heterogeneous initializer. */
+static bool inline_heterogeneous_callback_array_targets(
+    Expr* callee, Decl** targets, size_t* target_count) {
+    Expr* initializer;
+    ExprList* element;
+    Decl* variable;
+    size_t count = 0u;
+    bool heterogeneous = false;
+    if (!callee || callee->kind != EXPR_INDEX || !callee->index_base ||
+        callee->index_base->kind != EXPR_IDENT ||
+        !callee->index_base->ident_decl || !callee->index_expr ||
+        expression_has_side_effect(callee->index_expr)) {
+        return false;
+    }
+    {
+        int64_t constant_index;
+        if (expr_eval_integer_constant(callee->index_expr,
+                                      &constant_index)) {
+            return false;
+        }
+    }
+    variable = callee->index_base->ident_decl;
+    if ((!inline_readonly_initialized_variable(variable) &&
+         !inline_unmodified_local_variable(variable)) ||
+        !variable->type || variable->type->kind != TYPE_ARRAY ||
+        variable->type->array_len < 2 ||
+        variable->type->array_len > INLINE_CALLBACK_DISPATCH_TARGET_LIMIT ||
+        !variable->type->base || variable->type->base->kind != TYPE_PTR ||
+        variable->type->base->is_volatile ||
+        !variable->type->base->base ||
+        variable->type->base->base->kind != TYPE_FUNC ||
+        (!variable->var_is_constexpr &&
+         !variable->type->base->is_const && !variable->type->is_const &&
+         !inline_unmodified_local_variable(variable))) {
+        return false;
+    }
+    initializer = variable->var_init;
+    if (!initializer || initializer->kind != EXPR_COMPOUND ||
+        initializer->compound_designator_wrapper ||
+        initializer->compound_constructor) {
+        return false;
+    }
+    element = initializer->compound_init;
+    while (element && count < (size_t)variable->type->array_len) {
+        Decl* target;
+        if (element->designator_kind != INIT_DESIGNATOR_NONE) return false;
+        target = resolve_inline_function_pointer_initializer(
+            variable->type->base, element->expr);
+        if (!target) return false;
+        if (count != 0u && target != targets[0]) heterogeneous = true;
+        targets[count++] = target;
+        element = element->next;
+    }
+    if (element || count != (size_t)variable->type->array_len ||
+        !heterogeneous) {
+        return false;
+    }
+    *target_count = count;
+    return true;
+}
+
+static Expr* inline_callback_array_direct_call(const Expr* original,
+                                              Decl* target) {
+    Expr* callee;
+    Expr* call;
+    ExprList* arguments = NULL;
+    const ExprList* argument;
+    if (!original || !target || target->kind != DECL_FUNC ||
+        original->cxx_close_call || original->cxx_move_assignment ||
+        original->cxx_temporary_owner ||
+        original->cxx_temporary_cleanups ||
+        (original->type && original->type->cleanup_function)) {
+        return NULL;
+    }
+    for (argument = original->call_args; argument; argument = argument->next) {
+        Expr* copy;
+        if (!argument->expr || argument->designator_kind !=
+                                   INIT_DESIGNATOR_NONE ||
+            !type_is_scalar(argument->expr->type) ||
+            expression_has_side_effect(argument->expr) ||
+            (argument->expr->type &&
+             argument->expr->type->cleanup_function)) {
+            return NULL;
+        }
+        copy = clone_inline_pure_scalar_expression(argument->expr);
+        if (!copy) return NULL;
+        exprlist_append(&arguments, copy);
+    }
+    callee = expr_ident(target->name, original->loc);
+    callee->ident_decl = target;
+    callee->type = target->type;
+    call = expr_call(callee, arguments, original->loc);
+    call->type = original->type;
+    call->cxx_call_is_noexcept = original->cxx_call_is_noexcept;
+    call->call_abi_function_type = original->call_abi_function_type;
+    return call;
+}
+
+static bool inline_dispatch_heterogeneous_callback_array(
+    Expr** expression_out) {
+    Expr* original;
+    Expr* callee;
+    Expr* dispatch;
+    Decl* targets[INLINE_CALLBACK_DISPATCH_TARGET_LIMIT];
+    size_t target_count = 0u;
+    size_t index;
+    size_t expansion_cost;
+    if (!expression_out || !(original = *expression_out) ||
+        original->kind != EXPR_CALL || !original->call_func ||
+        original->call_new_args || original->call_new_count ||
+        original->call_is_new || original->call_is_delete ||
+        original->call_is_virtual || original->cxx_close_call ||
+        original->cxx_move_assignment || !type_is_scalar(original->type)) {
+        return false;
+    }
+    callee = original->call_func;
+    if (!inline_heterogeneous_callback_array_targets(
+            callee, targets, &target_count)) {
+        return false;
+    }
+    /* Bound both the compare chain and duplicated, pure argument trees. */
+    expansion_cost = target_count * 2u + (target_count - 1u) * 3u;
+    {
+        size_t index_cost = inline_pure_scalar_expression_cost(
+            callee->index_expr);
+        if (index_cost == (size_t)-1 ||
+            index_cost > ((size_t)-1 - expansion_cost) /
+                             (target_count - 1u)) {
+            return false;
+        }
+        expansion_cost += index_cost * (target_count - 1u);
+    }
+    for (const ExprList* argument = original->call_args; argument;
+         argument = argument->next) {
+        size_t argument_cost = inline_pure_scalar_expression_cost(
+            argument->expr);
+        if (argument_cost == (size_t)-1 ||
+            argument_cost + 1u > ((size_t)-1 - expansion_cost) /
+                                     target_count) {
+            return false;
+        }
+        expansion_cost += (argument_cost + 1u) * target_count;
+    }
+    if (!inline_caller_budget_can_charge(optimize_inline_caller,
+                                         expansion_cost)) {
+        return false;
+    }
+    dispatch = inline_callback_array_direct_call(
+        original, targets[target_count - 1u]);
+    if (!dispatch) return false;
+    for (index = target_count - 1u; index > 0u; --index) {
+        Expr* index_copy = clone_inline_pure_scalar_expression(
+            callee->index_expr);
+        Expr* index_value = expr_int((int64_t)(index - 1u), original->loc);
+        Expr* comparison;
+        Expr* condition;
+        Expr* selected;
+        if (!index_copy) return false;
+        index_value->type = callee->index_expr->type;
+        comparison = expr_binary(EXPR_EQ, index_copy, index_value,
+                                 original->loc);
+        comparison->type = type_int;
+        selected = inline_callback_array_direct_call(
+            original, targets[index - 1u]);
+        if (!selected) return false;
+        condition = expr_cond(comparison, selected, dispatch, original->loc);
+        condition->type = original->type;
+        dispatch = condition;
+    }
+    *expression_out = dispatch;
+    inline_caller_budget_charge(optimize_inline_caller, expansion_cost);
+    optimize_inline_changed = true;
+    return true;
+}
+
 static Decl* resolve_inline_indirect_call_target(Expr* callee) {
     Decl* declaration;
     if (!callee) return NULL;
@@ -2347,7 +2528,10 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         return false;
     }
     function = resolve_inline_indirect_call_target(expression->call_func);
-    if (!function) return false;
+    if (!function) {
+        return inline_dispatch_heterogeneous_callback_array(
+            expression_out);
+    }
     function = resolve_inline_function_definition(function);
     if (function->kind != DECL_FUNC || !function->func_body ||
         function->func_this_param != NULL || !type_is_scalar(expression->type)) {

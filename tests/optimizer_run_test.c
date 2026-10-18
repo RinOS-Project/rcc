@@ -188,10 +188,10 @@ static void verify_smaller(const char* unoptimized_path,
         "inline_local_branch_same_target_function_pointer_call",
         "inline_local_same_target_reassigned_function_pointer_call",
         "inline_local_mutable_function_pointer_array_call",
-        "inline_local_uniform_function_pointer_array_dynamic_call"
+        "inline_local_uniform_function_pointer_array_dynamic_call",
+        "inline_local_mutable_function_pointer_array_dynamic_call"
     };
     static const char* const unresolved_pointer_calls[] = {
-        "inline_local_mutable_function_pointer_array_dynamic_call",
         "inline_local_uniform_function_pointer_array_side_effect_index",
         "inline_local_aliased_mutable_function_pointer_call",
         "inline_local_branch_reassigned_function_pointer_call",
@@ -1134,6 +1134,7 @@ static void execute_inline_namespace_case(const char* path)
            sizeof(local_aliased_mutable_pointer));
     assert(local_mutable_pointer(5) == 28);
     assert(local_mutable_pointer_array(5) == 11);
+    assert(local_mutable_pointer_array_dynamic(0, 5) == 28);
     assert(local_mutable_pointer_array_dynamic(1, 5) == 11);
     assert(local_uniform_pointer_array_dynamic(0, 5) == 28);
     assert(local_uniform_pointer_array_dynamic(1, 5) == 28);
@@ -1458,6 +1459,7 @@ static void execute_inline_namespace_case(const char* path)
            sizeof(local_aliased_mutable_pointer));
     assert(local_mutable_pointer(5) == 28);
     assert(local_mutable_pointer_array(5) == 11);
+    assert(local_mutable_pointer_array_dynamic(0, 5) == 28);
     assert(local_mutable_pointer_array_dynamic(1, 5) == 11);
     assert(local_uniform_pointer_array_dynamic(0, 5) == 28);
     assert(local_uniform_pointer_array_dynamic(1, 5) == 28);
