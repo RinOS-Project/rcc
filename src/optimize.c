@@ -1925,9 +1925,26 @@ static bool inline_readonly_initialized_variable(Decl* variable) {
              !variable->type->base->is_volatile));
 }
 
-static Decl* resolve_inline_readonly_function_pointer(Decl* variable) {
-    if (!inline_readonly_initialized_variable(variable) ||
+static bool inline_unmodified_local_variable(Decl* variable) {
+    if (!variable || variable->kind != DECL_VAR ||
+        variable->var_is_global || variable->var_is_static_local ||
+        variable->var_is_thread_local || variable->var_dynamic_initializer ||
+        variable->var_is_vla || !variable->type ||
+        variable->type->is_volatile || variable->type->is_reference ||
+        (variable->type->kind == TYPE_ARRAY && variable->type->base &&
+         variable->type->base->is_volatile) ||
+        !optimize_inline_caller || !optimize_inline_caller->func_body) {
+        return false;
+    }
+    return !statement_modifies_decl(optimize_inline_caller->func_body,
+                                    variable);
+}
+
+static Decl* resolve_inline_function_pointer_variable(Decl* variable) {
+    if ((!inline_readonly_initialized_variable(variable) &&
+         !inline_unmodified_local_variable(variable)) ||
         !variable->type || variable->type->kind != TYPE_PTR ||
+        variable->type->is_reference || variable->type->is_volatile ||
         !variable->type->base || variable->type->base->kind != TYPE_FUNC) {
         return NULL;
     }
@@ -1940,6 +1957,7 @@ static Decl* resolve_inline_readonly_function_pointer_array(Expr* callee) {
     ExprList* element;
     Decl* variable;
     int64_t index;
+    bool unmodified_local;
     if (!callee || callee->kind != EXPR_INDEX || !callee->index_base ||
         callee->index_base->kind != EXPR_IDENT ||
         !callee->index_base->ident_decl || !callee->index_expr ||
@@ -1949,14 +1967,18 @@ static Decl* resolve_inline_readonly_function_pointer_array(Expr* callee) {
         return NULL;
     }
     variable = callee->index_base->ident_decl;
-    if (!inline_readonly_initialized_variable(variable) ||
+    unmodified_local = inline_unmodified_local_variable(variable);
+    if ((!inline_readonly_initialized_variable(variable) &&
+         !unmodified_local) ||
         !variable->type || variable->type->kind != TYPE_ARRAY ||
         variable->type->array_len < 0 || index >= variable->type->array_len ||
         !variable->type->base || variable->type->base->kind != TYPE_PTR ||
+        variable->type->base->is_volatile ||
         !variable->type->base->base ||
         variable->type->base->base->kind != TYPE_FUNC ||
         (!variable->var_is_constexpr &&
-         !variable->type->base->is_const && !variable->type->is_const)) {
+         !variable->type->base->is_const && !variable->type->is_const &&
+         !unmodified_local)) {
         return NULL;
     }
     initializer = variable->var_init;
@@ -1989,7 +2011,7 @@ static Decl* resolve_inline_indirect_call_target(Expr* callee) {
     if (callee->kind != EXPR_IDENT || !callee->ident_decl) return NULL;
     declaration = callee->ident_decl;
     if (declaration->kind == DECL_FUNC) return declaration;
-    return resolve_inline_readonly_function_pointer(declaration);
+    return resolve_inline_function_pointer_variable(declaration);
 }
 
 static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
@@ -2418,10 +2440,33 @@ static bool expression_modifies_decl(const Expr* expression,
                    expression_modifies_decl(expression->binary_rhs,
                                             declaration);
         case EXPR_CALL:
-            /* A call can mutate a local through a pointer/reference argument.
-             * Treat any mentioned local as an escape and therefore block
-             * loop-invariant propagation. */
-            return expression_mentions_decl(expression, declaration);
+        {
+            const Expr* callee = expression->call_func;
+            bool direct_indirect_call_read = callee &&
+                callee->kind == EXPR_IDENT &&
+                callee->ident_decl == declaration;
+            if (callee && callee->kind == EXPR_INDEX &&
+                callee->index_base &&
+                callee->index_base->kind == EXPR_IDENT &&
+                callee->index_base->ident_decl == declaration &&
+                !expression_mentions_decl(callee->index_expr,
+                                          declaration)) {
+                direct_indirect_call_read = true;
+            }
+            if (!direct_indirect_call_read) {
+                return expression_mentions_decl(expression, declaration);
+            }
+            /* Reading a proven local function pointer as the callee cannot
+             * change that local.  Passing it, taking its address, or using it
+             * in any other callee shape remains an escape and blocks the
+             * local-target proof. */
+            return expression_list_mentions_decl(expression->call_args,
+                                                  declaration) ||
+                   expression_mentions_decl(expression->call_new_count,
+                                             declaration) ||
+                   expression_list_mentions_decl(expression->call_new_args,
+                                                  declaration);
+        }
         case EXPR_ADDR:
             return expression_mentions_decl(expression->unary_operand,
                                             declaration);
@@ -2573,8 +2618,18 @@ static bool statement_modifies_decl(const Stmt* statement,
             return expression_modifies_decl(statement->return_val,
                                             declaration);
         case STMT_DECL:
-            return statement->decl && statement->decl != declaration &&
-                   expression_modifies_decl(statement->decl->var_init,
+            if (!statement->decl || statement->decl == declaration) {
+                return false;
+            }
+            if (expression_modifies_decl(statement->decl->var_init,
+                                         declaration)) {
+                return true;
+            }
+            /* A reference local aliases its initializer rather than copying
+             * the value.  Treat such a binding as an escape of the target. */
+            return statement->decl->type &&
+                   statement->decl->type->is_reference &&
+                   expression_mentions_decl(statement->decl->var_init,
                                             declaration);
         case STMT_ASM:
             return true;

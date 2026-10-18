@@ -104,3 +104,53 @@ extern "C" int inline_local_const_function_pointer_array_call(int value)
     };
     return callbacks[1](value);
 }
+
+extern "C" int inline_local_mutable_function_pointer_call(int value)
+{
+    int (*callback)(int) = &inline_constexpr_array_first;
+    return callback(value);
+}
+
+extern "C" int inline_local_reassigned_function_pointer_call(int value)
+{
+    int (*callback)(int) = &inline_constexpr_array_first;
+    callback = &inline_constexpr_array_second;
+    return callback(value);
+}
+
+extern "C" int inline_local_mutable_function_pointer_array_call(int value)
+{
+    int (*callbacks[])(int) = {
+        &inline_constexpr_array_first,
+        &inline_constexpr_array_second
+    };
+    return callbacks[1](value);
+}
+
+extern "C" int inline_local_mutated_function_pointer_array_call(int value)
+{
+    int (*callbacks[])(int) = {
+        &inline_constexpr_array_first,
+        &inline_constexpr_array_second
+    };
+    callbacks[1] = &inline_constexpr_array_first;
+    return callbacks[1](value);
+}
+
+extern "C" int inline_local_mutable_function_pointer_array_dynamic_call(
+    int index, int value)
+{
+    int (*callbacks[])(int) = {
+        &inline_constexpr_array_first,
+        &inline_constexpr_array_second
+    };
+    return callbacks[index](value);
+}
+
+extern "C" int inline_local_aliased_mutable_function_pointer_call(int value)
+{
+    int (*callback)(int) = &inline_constexpr_array_first;
+    int (**alias)(int) = &callback;
+    *alias = &inline_constexpr_array_second;
+    return callback(value);
+}

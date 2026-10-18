@@ -1985,8 +1985,13 @@
         i686/AMD64 -O0/-O1 objectを生成し、AMD64では間接call比較と実行で検証。
         `test-optimize`は成功。compiler sourceは`8582d8c`から未変更で、同commitの後に
         `test-debug-info`と完全な`test-cxx`も成功済み
-  - [ ] mutable local pointer/array、mutable alias、可変添字など一般のaliased/indirect
-        callは未実装。calleeを静的に安全確定できない呼び出しは引き続き対象外
+  - [x] automatic localのmutable function-pointer scalarと固定長arrayは、関数全体を
+        調べて再代入・要素書込み・escapeがないこと、非volatile、直接の互換function
+        initializer、scalarではcallee type一致、arrayでは範囲内の整数定数添字を確認
+        できる場合にinline化。i686/AMD64の-O1 indirect-call形状とAMD64実行を検証
+  - [ ] mutable localの再代入・要素書込み、pointer/reference aliasによるescape、可変添字、
+        より一般のaliased/indirect callの解析・最適化は未実装。calleeを静的に安全確定
+        できない呼び出しは引き続き間接callとして保持
   - [x] 最適化でstorageが除去されたimmutable unsigned scalar localの値を
         `DW_AT_const_value`の`DW_FORM_udata`で保持し、符号付き負値からunsigned型への
         modulo変換と`UINT64_MAX`をi686/AMD64で検証。signed localには`sdata`を使い、
@@ -6071,3 +6076,18 @@ remains a separate open item.
 - [x] Verify standard-invalid conversions through direct and indirect virtual
       bases remain rejected for data and member-function pointers; compare
       GCC/RCC diagnostics on i686 and AMD64.
+
+## RCC continuation (2026-10-18, bounded local mutable callback inlining)
+
+- [x] Inline automatic mutable function-pointer scalars and fixed-size local
+      function-pointer arrays only after proving across the whole function that
+      the candidate is neither modified nor escaped. Require non-volatile
+      storage, a direct compatible function initializer, and (for arrays) an
+      in-range integer constant index.
+- [x] Keep reassigned pointers, written array elements, address/reference
+      aliases, and dynamic array indices indirect. Check optimized x86 and x64
+      call shapes and execute the AMD64 regressions.
+- [x] Pass `test-optimize`, the complete native-Windows `test-cxx` aggregate,
+      and `test-debug-info` (exit 0).
+- [ ] General alias analysis, mutable callback writes, and variable-index
+      function-pointer arrays remain open.

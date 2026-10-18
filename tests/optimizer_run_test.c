@@ -176,6 +176,22 @@ static void verify_smaller(const char* unoptimized_path,
     static const uint8_t signed_div_ecx[] = {0xF7u, 0xF9u};
     static const uint8_t signed64_div_ecx[] = {0x48u, 0xF7u, 0xF9u};
     static const uint8_t indirect_call_r11[] = {0x41u, 0xFFu, 0xD3u};
+    static const uint8_t indirect_call_eax[] = {0xFFu, 0xD0u};
+    static const char* const known_pointer_calls[] = {
+        "inline_const_function_pointer_call",
+        "inline_const_function_pointer_array_call",
+        "inline_local_constexpr_function_pointer_call",
+        "inline_local_const_function_pointer_call",
+        "inline_local_const_function_pointer_array_call",
+        "inline_local_mutable_function_pointer_call",
+        "inline_local_mutable_function_pointer_array_call"
+    };
+    static const char* const unresolved_pointer_calls[] = {
+        "inline_local_mutable_function_pointer_array_dynamic_call",
+        "inline_local_aliased_mutable_function_pointer_call",
+        "inline_local_reassigned_function_pointer_call",
+        "inline_local_mutated_function_pointer_array_call"
+    };
     static const char* const signed64_high_power_functions[] = {
         "strength_reduce_signed_64_div_high_power",
         "strength_reduce_signed_64_mod_high_power",
@@ -186,24 +202,48 @@ static void verify_smaller(const char* unoptimized_path,
     assert(unoptimized->arch == architecture && optimized->arch == architecture);
     if (architecture == ARCH_X64 &&
         objfile_find_symbol(optimized,
-                            "inline_local_constexpr_function_pointer_call")) {
-        static const char* const immutable_pointer_calls[] = {
-            "inline_const_function_pointer_call",
-            "inline_const_function_pointer_array_call",
-            "inline_local_constexpr_function_pointer_call",
-            "inline_local_const_function_pointer_call",
-            "inline_local_const_function_pointer_array_call"
-        };
+                            "inline_local_mutable_function_pointer_call")) {
         for (size_t index = 0u;
-             index < sizeof(immutable_pointer_calls) /
-                         sizeof(immutable_pointer_calls[0]);
+             index < sizeof(known_pointer_calls) /
+                         sizeof(known_pointer_calls[0]);
              ++index) {
             assert(function_contains_sequence(
-                unoptimized, immutable_pointer_calls[index],
+                unoptimized, known_pointer_calls[index],
                 indirect_call_r11, sizeof(indirect_call_r11)));
             assert(!function_contains_sequence(
-                optimized, immutable_pointer_calls[index],
+                optimized, known_pointer_calls[index],
                 indirect_call_r11, sizeof(indirect_call_r11)));
+        }
+        for (size_t index = 0u;
+             index < sizeof(unresolved_pointer_calls) /
+                         sizeof(unresolved_pointer_calls[0]);
+             ++index) {
+            assert(function_contains_sequence(
+                unoptimized, unresolved_pointer_calls[index],
+                indirect_call_r11, sizeof(indirect_call_r11)));
+            assert(function_contains_sequence(
+                optimized, unresolved_pointer_calls[index],
+                indirect_call_r11, sizeof(indirect_call_r11)));
+        }
+    }
+    if (architecture == ARCH_X86 &&
+        objfile_find_symbol(optimized,
+                            "inline_local_mutable_function_pointer_call")) {
+        for (size_t index = 0u;
+             index < sizeof(known_pointer_calls) /
+                         sizeof(known_pointer_calls[0]);
+             ++index) {
+            assert(!function_contains_sequence(
+                optimized, known_pointer_calls[index],
+                indirect_call_eax, sizeof(indirect_call_eax)));
+        }
+        for (size_t index = 0u;
+             index < sizeof(unresolved_pointer_calls) /
+                         sizeof(unresolved_pointer_calls[0]);
+             ++index) {
+            assert(function_contains_sequence(
+                optimized, unresolved_pointer_calls[index],
+                indirect_call_eax, sizeof(indirect_call_eax)));
         }
     }
     unoptimized_code = code_section(unoptimized);
@@ -977,6 +1017,7 @@ static void execute_inline_budget_case(const char* path)
 static void execute_inline_namespace_case(const char* path)
 {
     typedef int (__attribute__((sysv_abi)) *SysvIntUnary)(int);
+    typedef int (__attribute__((sysv_abi)) *SysvIntBinary)(int, int);
     ObjectFile* object = objfile_read(path);
     ObjSection* code;
     ObjSymbol* symbol;
@@ -991,6 +1032,12 @@ static void execute_inline_namespace_case(const char* path)
     SysvIntUnary local_constexpr_pointer;
     SysvIntUnary local_const_pointer;
     SysvIntUnary local_const_pointer_array;
+    SysvIntUnary local_mutable_pointer;
+    SysvIntUnary local_mutable_pointer_array;
+    SysvIntUnary local_aliased_mutable_pointer;
+    SysvIntUnary local_reassigned_mutable_pointer;
+    SysvIntUnary local_mutated_mutable_pointer_array;
+    SysvIntBinary local_mutable_pointer_array_dynamic;
     assert(object != NULL && object->arch == ARCH_X64);
     if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
         objfile_free(object);
@@ -1045,6 +1092,41 @@ static void execute_inline_namespace_case(const char* path)
     assert(local_const_pointer_array(5) == 11);
     assert(global_const_pointer(5) == 28);
     assert(global_const_pointer_array(5) == 11);
+    symbol = function_symbol(
+        object, "inline_local_mutable_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_mutable_pointer, &address, sizeof(local_mutable_pointer));
+    symbol = function_symbol(
+        object, "inline_local_mutable_function_pointer_array_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_mutable_pointer_array, &address,
+           sizeof(local_mutable_pointer_array));
+    symbol = function_symbol(
+        object, "inline_local_mutable_function_pointer_array_dynamic_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_mutable_pointer_array_dynamic, &address,
+           sizeof(local_mutable_pointer_array_dynamic));
+    symbol = function_symbol(
+        object, "inline_local_aliased_mutable_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_aliased_mutable_pointer, &address,
+           sizeof(local_aliased_mutable_pointer));
+    assert(local_mutable_pointer(5) == 28);
+    assert(local_mutable_pointer_array(5) == 11);
+    assert(local_mutable_pointer_array_dynamic(1, 5) == 11);
+    assert(local_aliased_mutable_pointer(5) == 11);
+    symbol = function_symbol(
+        object, "inline_local_reassigned_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_reassigned_mutable_pointer, &address,
+           sizeof(local_reassigned_mutable_pointer));
+    symbol = function_symbol(
+        object, "inline_local_mutated_function_pointer_array_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_mutated_mutable_pointer_array, &address,
+           sizeof(local_mutated_mutable_pointer_array));
+    assert(local_reassigned_mutable_pointer(5) == 11);
+    assert(local_mutated_mutable_pointer_array(5) == 28);
     assert(VirtualFree(mapping, 0u, MEM_RELEASE));
     objfile_free(object);
     puts("Windows AMD64 C++ inline namespace identity execution passed");
@@ -1234,6 +1316,12 @@ static void execute_inline_namespace_case(const char* path)
     int (*local_constexpr_pointer)(int);
     int (*local_const_pointer)(int);
     int (*local_const_pointer_array)(int);
+    int (*local_mutable_pointer)(int);
+    int (*local_mutable_pointer_array)(int);
+    int (*local_aliased_mutable_pointer)(int);
+    int (*local_reassigned_mutable_pointer)(int);
+    int (*local_mutated_mutable_pointer_array)(int);
+    int (*local_mutable_pointer_array_dynamic)(int, int);
     assert(object != NULL && object->arch == ARCH_X64);
     if (!objfile_find_symbol(object, "inline_scope_collision_entry")) {
         objfile_free(object);
@@ -1286,6 +1374,41 @@ static void execute_inline_namespace_case(const char* path)
     assert(local_const_pointer_array(5) == 11);
     assert(global_const_pointer(5) == 28);
     assert(global_const_pointer_array(5) == 11);
+    symbol = function_symbol(
+        object, "inline_local_mutable_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_mutable_pointer, &address, sizeof(local_mutable_pointer));
+    symbol = function_symbol(
+        object, "inline_local_mutable_function_pointer_array_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_mutable_pointer_array, &address,
+           sizeof(local_mutable_pointer_array));
+    symbol = function_symbol(
+        object, "inline_local_mutable_function_pointer_array_dynamic_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_mutable_pointer_array_dynamic, &address,
+           sizeof(local_mutable_pointer_array_dynamic));
+    symbol = function_symbol(
+        object, "inline_local_aliased_mutable_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_aliased_mutable_pointer, &address,
+           sizeof(local_aliased_mutable_pointer));
+    assert(local_mutable_pointer(5) == 28);
+    assert(local_mutable_pointer_array(5) == 11);
+    assert(local_mutable_pointer_array_dynamic(1, 5) == 11);
+    assert(local_aliased_mutable_pointer(5) == 11);
+    symbol = function_symbol(
+        object, "inline_local_reassigned_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_reassigned_mutable_pointer, &address,
+           sizeof(local_reassigned_mutable_pointer));
+    symbol = function_symbol(
+        object, "inline_local_mutated_function_pointer_array_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_mutated_mutable_pointer_array, &address,
+           sizeof(local_mutated_mutable_pointer_array));
+    assert(local_reassigned_mutable_pointer(5) == 11);
+    assert(local_mutated_mutable_pointer_array(5) == 28);
     assert(munmap(mapping, code->size) == 0);
     objfile_free(object);
     puts("AMD64 C++ inline namespace identity execution passed");
