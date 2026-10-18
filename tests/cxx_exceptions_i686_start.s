@@ -167,23 +167,73 @@ rin_cpp_exception_unregister_current_cleanup:
     ret
 
 rin_cpp_exception_unwind_cleanups:
+    xor %ecx, %ecx
+    jmp .Lrin_cpp_exception_unwind_cleanups
+
+rin_cpp_exception_unwind_cleanups_during_throw:
+    mov $1, %ecx
+
+.Lrin_cpp_exception_unwind_cleanups:
     mov 4(%esp), %eax
     test %eax, %eax
     jz 5f
-    mov 36(%eax), %edx
-    movl $0, 36(%eax)
-11:
+    push %ebx
+    push %esi
+    sub $8, %esp
+    mov %eax, %ebx
+    mov %ecx, %esi
+.Lrin_cpp_exception_cleanup_loop:
+    mov 36(%ebx), %edx
     test %edx, %edx
-    jz 12f
+    jz .Lrin_cpp_exception_cleanup_done
     mov 8(%edx), %ecx
-    mov 4(%edx), %eax
+    mov %ecx, 36(%ebx)
+    mov 0(%edx), %eax
+    mov 4(%edx), %ecx
+    test %esi, %esi
+    jz .Lrin_cpp_exception_cleanup_direct
     push %ecx
     push %eax
-    call *0(%edx)
+    call rin_cpp_exception_invoke_cleanup
+    add $8, %esp
+    jmp .Lrin_cpp_exception_cleanup_loop
+.Lrin_cpp_exception_cleanup_direct:
+    push %ecx
+    call *%eax
     add $4, %esp
-    pop %edx
-    jmp 11b
-12:
+    jmp .Lrin_cpp_exception_cleanup_loop
+.Lrin_cpp_exception_cleanup_done:
+    add $8, %esp
+    pop %esi
+    pop %ebx
+    ret
+
+rin_cpp_exception_invoke_cleanup:
+    push %ebp
+    mov %esp, %ebp
+    sub $60, %esp
+    mov 8(%ebp), %eax
+    mov %eax, -4(%ebp)
+    mov 12(%ebp), %eax
+    mov %eax, -8(%ebp)
+    lea -48(%ebp), %eax
+    push %eax
+    call setjmp
+    add $4, %esp
+    test %eax, %eax
+    jnz abort
+    lea -48(%ebp), %eax
+    push %eax
+    call rin_cpp_exception_install
+    add $4, %esp
+    push -8(%ebp)
+    call *-4(%ebp)
+    add $4, %esp
+    lea -48(%ebp), %eax
+    push %eax
+    call rin_cpp_exception_leave
+    add $4, %esp
+    leave
     ret
 
 rin_cpp_exception_install:
@@ -198,11 +248,14 @@ rin_cpp_exception_leave:
     mov 4(%esp), %eax
     cmp %eax, rin_cpp_exception_top
     jne 2f
-    mov 24(%eax), %edx
-    mov %edx, rin_cpp_exception_top
     push %eax
     call rin_cpp_exception_unwind_cleanups
     add $4, %esp
+    pop %eax
+    cmp %eax, rin_cpp_exception_top
+    jne 2f
+    mov 24(%eax), %edx
+    mov %edx, rin_cpp_exception_top
 2:
     ret
 
@@ -222,7 +275,7 @@ rin_cpp_exception_throw_owned:
     mov %eax, rin_cpp_exception_top
     push %edx
     push %edx
-    call rin_cpp_exception_unwind_cleanups
+    call rin_cpp_exception_unwind_cleanups_during_throw
     add $4, %esp
     pop %edx
     pop %ecx

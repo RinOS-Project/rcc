@@ -1,9 +1,9 @@
 struct VerifiedThrowingCleanupBase {
-    ~VerifiedThrowingCleanupBase() noexcept {}
+    ~VerifiedThrowingCleanupBase() noexcept(false) {}
 };
 
 struct VerifiedThrowingCleanupMember {
-    ~VerifiedThrowingCleanupMember() noexcept {}
+    ~VerifiedThrowingCleanupMember() noexcept(false) {}
 };
 
 struct VerifiedThrowingCleanupDerived : VerifiedThrowingCleanupBase {

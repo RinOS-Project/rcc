@@ -169,22 +169,60 @@ rin_cpp_exception_unregister_current_cleanup:
     ret
 
 rin_cpp_exception_unwind_cleanups:
+    xor %esi, %esi
+    jmp .Lrin_cpp_exception_unwind_cleanups
+
+rin_cpp_exception_unwind_cleanups_during_throw:
+    mov $1, %esi
+
+.Lrin_cpp_exception_unwind_cleanups:
     test %rdi, %rdi
     jz 5f
-    mov 88(%rdi), %rax
-    movq $0, 88(%rdi)
-11:
+    push %rbx
+    push %r12
+    sub $8, %rsp
+    mov %rdi, %rbx
+    mov %esi, %r12d
+.Lrin_cpp_exception_cleanup_loop:
+    mov 88(%rbx), %rax
     test %rax, %rax
-    jz 12f
+    jz .Lrin_cpp_exception_cleanup_done
     mov 16(%rax), %rcx
-    mov 8(%rax), %rdx
+    mov %rcx, 88(%rbx)
     mov 0(%rax), %r8
-    push %rcx
-    mov %rdx, %rdi
+    mov 8(%rax), %rsi
+    test %r12d, %r12d
+    jz .Lrin_cpp_exception_cleanup_direct
+    mov %r8, %rdi
+    call rin_cpp_exception_invoke_cleanup
+    jmp .Lrin_cpp_exception_cleanup_loop
+.Lrin_cpp_exception_cleanup_direct:
+    mov %rsi, %rdi
     call *%r8
-    pop %rax
-    jmp 11b
-12:
+    jmp .Lrin_cpp_exception_cleanup_loop
+.Lrin_cpp_exception_cleanup_done:
+    add $8, %rsp
+    pop %r12
+    pop %rbx
+    ret
+
+rin_cpp_exception_invoke_cleanup:
+    push %rbp
+    mov %rsp, %rbp
+    sub $112, %rsp
+    mov %rdi, -8(%rbp)
+    mov %rsi, -16(%rbp)
+    lea -112(%rbp), %rdi
+    call setjmp
+    test %eax, %eax
+    jnz abort
+    lea -112(%rbp), %rdi
+    call rin_cpp_exception_install
+    mov -16(%rbp), %rdi
+    call *-8(%rbp)
+    lea -112(%rbp), %rdi
+    call rin_cpp_exception_leave
+    leave
     ret
 
 rin_cpp_exception_install:
@@ -198,9 +236,14 @@ rin_cpp_exception_leave:
     mov rin_cpp_exception_top(%rip), %rax
     cmp %rdi, %rax
     jne 2f
+    push %rdi
+    call rin_cpp_exception_unwind_cleanups
+    pop %rdi
+    mov rin_cpp_exception_top(%rip), %rax
+    cmp %rdi, %rax
+    jne 2f
     mov 64(%rdi), %rax
     mov %rax, rin_cpp_exception_top(%rip)
-    call rin_cpp_exception_unwind_cleanups
 2:
     ret
 
@@ -218,7 +261,7 @@ rin_cpp_exception_throw_owned:
     push %rcx
     sub $8, %rsp
     mov %rdx, %rdi
-    call rin_cpp_exception_unwind_cleanups
+    call rin_cpp_exception_unwind_cleanups_during_throw
     add $8, %rsp
     pop %rcx
     pop %rdx

@@ -3,8 +3,36 @@ extern "C" int cxx_exception_cleanup_callee(int value);
 extern "C" int cxx_exception_cleanup_total = 0;
 extern "C" int cxx_exception_destructor_total = 0;
 extern "C" int cxx_exception_array_order = 0;
+extern "C" void* rin_malloc(unsigned long size);
 extern "C" void rin_free(void* pointer);
+extern "C" void rin_cpp_exception_register_current_cleanup(
+    void (*callback)(void*), void* object);
 static int explicit_throwing_destructor_should_throw;
+static int explicit_throwing_child_root_should_throw;
+
+class ExplicitThrowingChild {
+public:
+    ~ExplicitThrowingChild() noexcept(false) {
+        *order = *order * 10 + digit;
+        if (digit == 2 && *throw_child) throw 53;
+    }
+
+    int* order;
+    int* throw_child;
+    int digit;
+};
+
+class ExplicitThrowingChildRoot {
+public:
+    ~ExplicitThrowingChildRoot() noexcept(false) {
+        *order = *order * 10 + 9;
+        if (explicit_throwing_child_root_should_throw) throw 59;
+    }
+
+    int* order;
+    ExplicitThrowingChild first;
+    ExplicitThrowingChild second;
+};
 
 class ExplicitThrowingMember {
 public:
@@ -87,6 +115,22 @@ extern "C" int cxx_exception_cleanup_direct() {
     } catch (int caught) {
         return caught + count * 100;
     }
+}
+
+static void cxx_exception_cleanup_throw_on_leave(void*) {
+    throw 61;
+}
+
+extern "C" int cxx_exception_cleanup_throwing_on_leave() {
+    int caught = 0;
+    try {
+        int token = 0;
+        rin_cpp_exception_register_current_cleanup(
+            cxx_exception_cleanup_throw_on_leave, &token);
+    } catch (int exception_value) {
+        caught = exception_value;
+    }
+    return caught;
 }
 
 extern "C" int cxx_exception_cleanup_handler() {
@@ -313,6 +357,24 @@ extern "C" int cxx_exception_cleanup_explicit_throwing_destructor_callee(
     return -1;
 }
 
+extern "C" int cxx_exception_cleanup_explicit_throwing_child_callee(
+    int* order, int* throw_child, ExplicitThrowingChildRoot** storage) {
+    ExplicitThrowingChildRoot* value =
+        static_cast<ExplicitThrowingChildRoot*>(
+            rin_malloc(sizeof(ExplicitThrowingChildRoot)));
+    if (!value) return -1;
+    value->order = order;
+    value->first.order = order;
+    value->first.throw_child = throw_child;
+    value->first.digit = 1;
+    value->second.order = order;
+    value->second.throw_child = throw_child;
+    value->second.digit = 2;
+    *storage = value;
+    value->~ExplicitThrowingChildRoot();
+    return -1;
+}
+
 static int run_explicit_throwing_destructor_case(int should_throw) {
     int order = 0;
     int caught = 0;
@@ -336,8 +398,43 @@ extern "C" int cxx_exception_cleanup_explicit_throwing_destructor() {
         run_explicit_throwing_destructor_case(0);
 }
 
+static int run_explicit_throwing_child_case(int should_throw) {
+    int order = 0;
+    int caught = 0;
+    ExplicitThrowingChildRoot* storage = 0;
+    explicit_throwing_child_root_should_throw = 0;
+    try {
+        cxx_exception_cleanup_explicit_throwing_child_callee(
+            &order, &should_throw, &storage);
+    } catch (int exception_value) {
+        caught = exception_value;
+    }
+    rin_free(static_cast<void*>(storage));
+    return caught == (should_throw ? 53 : 0) && order == 921 ? 0 : 1;
+}
+
+extern "C" int cxx_exception_cleanup_explicit_throwing_child() {
+    return run_explicit_throwing_child_case(1) +
+        run_explicit_throwing_child_case(0);
+}
+
+extern "C" int cxx_exception_cleanup_double_throw() {
+    int order = 0;
+    int should_throw = 1;
+    ExplicitThrowingChildRoot* storage = 0;
+    explicit_throwing_child_root_should_throw = 1;
+    try {
+        cxx_exception_cleanup_explicit_throwing_child_callee(
+            &order, &should_throw, &storage);
+    } catch (int) {
+        return 0;
+    }
+    return 0;
+}
+
 extern "C" int main() {
     return cxx_exception_cleanup_direct() == 141 &&
+                   cxx_exception_cleanup_throwing_on_leave() == 61 &&
                    cxx_exception_cleanup_handler() == 7 &&
                    cxx_exception_cleanup_total == 2 &&
                    cxx_exception_cleanup_rethrow() == 105 &&
@@ -349,7 +446,8 @@ extern "C" int main() {
                    cxx_exception_cleanup_dependent_dmi() == 1719 &&
                    cxx_exception_cleanup_completed_dmi_then_throw() == 1723 &&
                    cxx_exception_cleanup_array_delete_throw() == 21043 &&
-                   cxx_exception_cleanup_explicit_throwing_destructor() == 0
+                   cxx_exception_cleanup_explicit_throwing_destructor() == 0 &&
+                   cxx_exception_cleanup_explicit_throwing_child() == 0
                ? 0
                : 1;
 }

@@ -10100,12 +10100,12 @@ static bool sema_cxx_destructor_tree_has_virtual_base(
 }
 
 /* Explicit destructor calls need a separate complete-object cleanup plan
- * when the ordinary destructor body cannot inline its subobject walk.  The
- * explicitly invoked root destructor may throw; its separately emitted
- * subobject cleanup callbacks must remain noexcept so exception unwinding
- * cannot replace the active exception.  A virtual base is included only
- * for a complete object; base-subobject destructor calls must leave shared
- * virtual bases to the most-derived destructor. */
+ * when the ordinary destructor body cannot inline its subobject walk.  Every
+ * completed subobject destructor is independently registered with the active
+ * exception frame, so a throwing destructor consumes itself before the
+ * remaining callbacks continue the partial-progress cleanup.  A virtual base
+ * is included only for a complete object; base-subobject destructor calls
+ * leave shared virtual bases to the most-derived destructor. */
 static bool sema_cxx_explicit_destructor_tree_supported(
     const Type* type, unsigned depth, bool complete_object,
     bool allow_throwing_destructor) {
@@ -10117,7 +10117,7 @@ static bool sema_cxx_explicit_destructor_tree_supported(
             return true;
         }
         return sema_cxx_explicit_destructor_tree_supported(
-            type->base, depth + 1u, true, false);
+            type->base, depth + 1u, true, allow_throwing_destructor);
     }
     cls = type->cxx_class;
     if (!cls) return true;
@@ -10144,7 +10144,8 @@ static bool sema_cxx_explicit_destructor_tree_supported(
             if (!base || !base->type ||
                 cls->virtual_bases[index].offset < 0 ||
                 !sema_cxx_explicit_destructor_tree_supported(
-                    base->type, depth + 1u, false, false)) {
+                    base->type, depth + 1u, false,
+                    allow_throwing_destructor)) {
                 return false;
             }
         }
@@ -10155,7 +10156,8 @@ static bool sema_cxx_explicit_destructor_tree_supported(
         if (!base || !base->type || !cls->base_offsets ||
             cls->base_offsets[index] < 0 ||
             !sema_cxx_explicit_destructor_tree_supported(
-                base->type, depth + 1u, false, false)) {
+                base->type, depth + 1u, false,
+                allow_throwing_destructor)) {
             return false;
         }
     }
@@ -10163,7 +10165,8 @@ static bool sema_cxx_explicit_destructor_tree_supported(
         if (field->is_static || !field->type) continue;
         if (!sema_cxx_destructor_cleanup_hook_supported(field->type) ||
             !sema_cxx_explicit_destructor_tree_supported(
-                field->type, depth + 1u, true, false)) {
+                field->type, depth + 1u, true,
+                allow_throwing_destructor)) {
             return false;
         }
     }

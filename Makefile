@@ -13798,7 +13798,7 @@ test-cxx-cross-translation-unit-virtual-posix: $(RCXX_TARGET)
 	@echo "RCC++ cross-translation-unit virtual/ODR tests completed"
 
 ifeq ($(OS),Windows_NT)
-test-cxx-exception-cleanup: $(RCXX_TARGET)
+test-cxx-exception-cleanup: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-exception-cleanup)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/x86.s tests/cxx_exception_cleanup.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.o $(TEST_OUT)/cxx-exception-cleanup/x86.s
@@ -13808,9 +13808,8 @@ test-cxx-exception-cleanup: $(RCXX_TARGET)
 	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.o $(TEST_OUT)/cxx-exception-cleanup/x64.s
 	objdump -f $(TEST_OUT)/cxx-exception-cleanup/x64.o > $(TEST_OUT)/cxx-exception-cleanup/x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exception-cleanup/x64-arch.log
-	$(CC) -x assembler-with-cpp -c -o $(TEST_OUT)/cxx-exception-cleanup/runtime-x64.o tests/cxx_exceptions_x64_start.s
 	objcopy --redefine-sym main=rcc_test_main $(TEST_OUT)/cxx-exception-cleanup/x64.o
-	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-exception-cleanup/x64-host tests/cxx_exception_cleanup_host.c $(TEST_OUT)/cxx-exception-cleanup/x64.o $(TEST_OUT)/cxx-exception-cleanup/runtime-x64.o
+	$(CC) $(CFLAGS) -o $(TEST_OUT)/cxx-exception-cleanup/x64-host tests/cxx_exception_cleanup_host.c $(TEST_OUT)/cxx-exception-cleanup/x64.o $(CXX_WINDOWS_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/cxx-exception-cleanup/x64-host
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s tests/cxx_exception_cleanup_call_rejected.cpp
 	$(CC) -m32 -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x86.o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s
@@ -13820,8 +13819,12 @@ test-cxx-exception-cleanup: $(RCXX_TARGET)
 	$(CC) -c -o $(TEST_OUT)/cxx-exception-cleanup/call-x64.o $(TEST_OUT)/cxx-exception-cleanup/call-x64.s
 	objdump -f $(TEST_OUT)/cxx-exception-cleanup/call-x64.o > $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
-	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.ro tests/cxx_exception_cleanup.cpp
-	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.ro tests/cxx_exception_cleanup.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.ro tests/cxx_exception_cleanup.cpp >$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log,1)
+	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_dependent_dmi' is outside the typed SSA subset" $(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.ro tests/cxx_exception_cleanup.cpp >$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log,1)
+	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_dependent_dmi' is outside the typed SSA subset" $(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
 	@echo "RCC++ cross-call exception cleanup registration object tests completed; runtime execution requires RinOS exception runtime"
 else
 test-cxx-exception-cleanup: test-cxx-exception-cleanup-posix
@@ -13853,6 +13856,20 @@ test-cxx-exception-cleanup-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-exception-cleanup/x64-start.o \
 		$(TEST_OUT)/cxx-exception-cleanup/x64.o
 	$(TEST_OUT)/cxx-exception-cleanup/x64
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-exception-cleanup/x86.ro \
+		tests/cxx_exception_cleanup.cpp \
+		>$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log,1)
+	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_dependent_dmi' is outside the typed SSA subset" \
+		$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
+		-o $(TEST_OUT)/cxx-exception-cleanup/x64.ro \
+		tests/cxx_exception_cleanup.cpp \
+		>$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log,1)
+	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_dependent_dmi' is outside the typed SSA subset" \
+		$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s \
 		tests/cxx_exception_cleanup_call_rejected.cpp

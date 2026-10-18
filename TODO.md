@@ -1011,10 +1011,22 @@
         order destruction. Verify both runtime symbols are present, with zero
         fallback for i686/AMD64 in
         `test-verified-cxx-explicit-throwing-destructor`.
-  - [ ] Extend throwing cleanup to subobject destructors that may themselves
-        throw, with correct partial-progress/unwind semantics and typed-SSA
-        callback coverage for those throwing descendants; verify zero fallback
-        before marking it complete.
+  - [x] Extend throwing cleanup to subobject destructors that may themselves
+        throw. Sema now carries the throwing-destructor allowance through
+        nested bases and members; typed SSA registers their callbacks and
+        drains them in reverse order. The dedicated
+        `test-verified-cxx-explicit-throwing-destructor` covers a potentially
+        throwing base and member with zero fallback on i686/AMD64. Runtime
+        cleanup now preserves unconsumed records
+        during normal scope exit, catches a cleanup exception in the frame being
+        left, and terminates if a callback throws while another exception is
+        unwinding. `test-cxx-exception-cleanup` verifies partial progress/order
+        `921` and catch value `53`, normal-leave catch value `61`, and isolated
+        double-throw termination. The production `rin_runtime.c` builds into
+        signed runtime RLLs for both architectures in
+        `test-rinvalidate-dynamic-tls`; bootstrap source syntax checks pass for
+        both target widths. The broader cleanup fixture pins its one unrelated
+        `dependent_dmi` fallback explicitly.
   - [x] Resolve data-member access exposed through a virtual base using the
         active subobject's vbtable and member-in-base offset; verify inherited
         access from both arms of a shared virtual diamond during destruction,
