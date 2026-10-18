@@ -45,6 +45,18 @@ struct VerifiedVirtualCleanupLeaf : virtual VerifiedVirtualCleanupRoot {
     }
 };
 
+static int* record_cleanup_pointer_argument(
+        int* evaluations, int* value) noexcept {
+    ++*evaluations;
+    return value;
+}
+
+static int record_cleanup_scalar_argument(
+        int* evaluations, int value) noexcept {
+    ++*evaluations;
+    return value;
+}
+
 int consume_verified_virtual_value_root(
         VerifiedVirtualValueRoot value) noexcept {
     return value.value;
@@ -58,6 +70,7 @@ int consume_verified_virtual_cleanup_root(
 
 int main() {
     int cleanup_count = 0;
+    int argument_evaluations = 0;
     VerifiedVirtualValueLeaf value;
     value.value = 101;
     value.leaf_value = 53;
@@ -66,8 +79,15 @@ int main() {
         return 1;
     }
     if (consume_verified_virtual_cleanup_root(
-            VerifiedVirtualCleanupLeaf(&cleanup_count, 2, 3, 2)) != 101) {
+            VerifiedVirtualCleanupLeaf(
+                record_cleanup_pointer_argument(
+                    &argument_evaluations, &cleanup_count),
+                record_cleanup_scalar_argument(&argument_evaluations, 2),
+                record_cleanup_scalar_argument(&argument_evaluations, 3),
+                record_cleanup_scalar_argument(&argument_evaluations, 2))) !=
+            101) {
         return 2;
     }
-    return cleanup_count == 7 ? 0 : 3;
+    if (argument_evaluations != 4) return 3;
+    return cleanup_count == 7 ? 0 : 4;
 }
