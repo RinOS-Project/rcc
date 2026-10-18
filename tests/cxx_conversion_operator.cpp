@@ -303,6 +303,19 @@ public:
     }
 };
 
+class ConversionPointerToBoolTieSource {
+    int storage = 1;
+
+public:
+    operator int() const {
+        return 0;
+    }
+
+    operator const int*() const {
+        return &storage;
+    }
+};
+
 struct ConversionMemberPointerToBoolTarget {
     int value;
 };
@@ -744,6 +757,7 @@ int main() {
     int pointer_bool_value = 1;
     ConversionPointerToBoolSource pointer_bool_source{&pointer_bool_value};
     ConversionPointerToBoolSource null_pointer_bool_source{nullptr};
+    ConversionPointerToBoolTieSource pointer_to_bool_tie_source;
     ConversionMemberPointerToBoolSource member_pointer_bool_source;
     member_pointer_bool_source.value =
         &ConversionMemberPointerToBoolTarget::value;
@@ -842,6 +856,7 @@ int main() {
         choose_template_pointer_conversion(0, pointer_source) != 79 ||
         take_pointer_conversion_bool(pointer_bool_source) != 109 ||
         take_pointer_conversion_bool(null_pointer_bool_source) != 113 ||
+        take_pointer_conversion_bool(pointer_to_bool_tie_source) != 113 ||
         take_pointer_conversion_bool_reference(pointer_bool_source) != 127 ||
         take_pointer_conversion_bool_rvalue_reference(
             null_pointer_bool_source) != 139 ||

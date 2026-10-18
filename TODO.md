@@ -6494,5 +6494,9 @@ remains a separate open item.
       conversion-function-template specialization. Add a GCC-checked runtime
       regression; the focused conversion-operator gate and full native-Windows
       `test-cxx` aggregate both pass (exit 0).
+- [x] At equal Conversion rank, prefer an integer-to-`bool` result conversion
+      over pointer-to-`bool` when comparing distinct conversion functions.
+      GCC-checked runtime regression; focused and full native-Windows
+      `test-cxx` gates pass (exit 0).
 - [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
       and full C++20 overload-resolution conformance remain open.

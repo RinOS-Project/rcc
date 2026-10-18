@@ -3101,6 +3101,18 @@ static int sema_cxx_conversion_object_rank(TypeMethod* method,
     return rank;
 }
 
+static bool sema_cxx_conversion_result_uses_pointer_to_bool(
+    Type* result_type, Type* target) {
+    if (!result_type || !target) return false;
+    if (target->is_reference) target = target->base;
+    if (result_type->is_reference) result_type = result_type->base;
+    if (!target || target->kind != TYPE_BOOL || !result_type) return false;
+    /* Array and function results decay before pointer-to-bool.  TYPE_PTR also
+     * covers pointers to members, which have the same special ranking. */
+    return result_type->kind == TYPE_PTR || result_type->kind == TYPE_ARRAY ||
+           result_type->kind == TYPE_FUNC;
+}
+
 static void sema_register_materialized_member_templates(Type* aggregate) {
     if (!current_ast || !aggregate || !aggregate->cxx_class) return;
     for (TypeMethod* method = aggregate->methods; method;
@@ -3233,9 +3245,22 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
                        candidates[index].result_rank) {
                 relation = -1;
             } else {
-                relation = sema_cxx_reference_conversion_source_relation(
-                    candidates[other].result_type,
-                    candidates[index].result_type, target);
+                bool other_uses_pointer_to_bool =
+                    sema_cxx_conversion_result_uses_pointer_to_bool(
+                        candidates[other].result_type, target);
+                bool index_uses_pointer_to_bool =
+                    sema_cxx_conversion_result_uses_pointer_to_bool(
+                        candidates[index].result_type, target);
+                if (other_uses_pointer_to_bool != index_uses_pointer_to_bool) {
+                    /* [over.ics.rank]: at equal standard-conversion rank, a
+                     * conversion that does not convert a pointer or pointer
+                     * to member to bool is better. */
+                    relation = other_uses_pointer_to_bool ? -1 : 1;
+                } else {
+                    relation = sema_cxx_reference_conversion_source_relation(
+                        candidates[other].result_type,
+                        candidates[index].result_type, target);
+                }
                 if (relation == 0) {
                     bool other_is_template =
                         candidates[other].method->function_decl
