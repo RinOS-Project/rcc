@@ -21,6 +21,15 @@ static void eliminate_block_dead_stores(Stmt* statement);
 static bool optimize_inline_changed;
 static AST* optimize_inline_ast;
 static Decl* optimize_inline_caller;
+static bool optimize_inline_local_targets_enabled;
+
+typedef struct InlineLocalFunctionPointerFact {
+    Decl* variable;
+    Decl* target;
+    struct InlineLocalFunctionPointerFact* next;
+} InlineLocalFunctionPointerFact;
+
+static InlineLocalFunctionPointerFact* inline_local_function_pointer_facts;
 
 enum { INLINE_CALLER_EXPANSION_LIMIT = 32 };
 
@@ -1917,6 +1926,63 @@ static bool inline_statement_has_nonlocal_entry(const Stmt* statement);
 static bool inline_statement_preserves_function_pointer_target(
     const Stmt* statement, const Decl* variable, const Decl* target);
 
+static void inline_local_function_pointer_facts_clear(void) {
+    while (inline_local_function_pointer_facts) {
+        InlineLocalFunctionPointerFact* next =
+            inline_local_function_pointer_facts->next;
+        rcc_free(inline_local_function_pointer_facts);
+        inline_local_function_pointer_facts = next;
+    }
+}
+
+static Decl* inline_local_function_pointer_fact(const Decl* variable) {
+    for (InlineLocalFunctionPointerFact* fact =
+             inline_local_function_pointer_facts;
+         fact; fact = fact->next) {
+        if (fact->variable == variable) return fact->target;
+    }
+    return NULL;
+}
+
+static void inline_local_function_pointer_fact_set(
+    Decl* variable, Decl* target) {
+    InlineLocalFunctionPointerFact** link =
+        &inline_local_function_pointer_facts;
+    if (!variable) return;
+    while (*link && (*link)->variable != variable) {
+        link = &(*link)->next;
+    }
+    if (!target) {
+        if (*link) {
+            InlineLocalFunctionPointerFact* removed = *link;
+            *link = removed->next;
+            rcc_free(removed);
+        }
+        return;
+    }
+    if (!*link) {
+        *link = rcc_alloc(sizeof(**link));
+        (*link)->variable = variable;
+        (*link)->next = NULL;
+    }
+    (*link)->target = target;
+}
+
+static void inline_local_function_pointer_facts_invalidate_expression(
+    const Expr* expression) {
+    InlineLocalFunctionPointerFact** link =
+        &inline_local_function_pointer_facts;
+    while (*link) {
+        InlineLocalFunctionPointerFact* fact = *link;
+        if (!expression_modifies_decl(expression, fact->variable)) {
+            link = &fact->next;
+            continue;
+        }
+        *link = fact->next;
+        rcc_free(fact);
+    }
+}
+
 static bool inline_readonly_initialized_variable(Decl* variable) {
     return variable && variable->kind == DECL_VAR &&
            !variable->var_is_thread_local &&
@@ -1973,24 +2039,29 @@ static Decl* resolve_inline_function_pointer_variable(Decl* variable) {
         variable->type, variable->var_init);
 }
 
-/* A local callback remains statically known after reassignment only when
- * every write is a direct assignment of the exact initializer target. */
+/* For a non-NULL target, prove that every write preserves that target.  With
+ * a NULL target, accept only direct writes of resolvable function targets. */
 static bool inline_statement_preserves_function_pointer_target(
     const Stmt* statement, const Decl* variable, const Decl* target) {
-    if (!statement || !variable || !target) return true;
+    if (!statement || !variable) return true;
     if (!statement_modifies_decl(statement, variable)) return true;
     switch (statement->kind) {
         case STMT_EXPR: {
             const Expr* expression = statement->expr;
-            return expression && expression->kind == EXPR_ASSIGN &&
-                   expression->binary_lhs &&
-                   expression->binary_lhs->kind == EXPR_IDENT &&
-                   expression->binary_lhs->ident_decl == variable &&
-                   expression->binary_rhs &&
-                   !expression_mentions_decl(expression->binary_rhs,
-                                             variable) &&
-                   resolve_inline_function_pointer_initializer(
-                       variable->type, expression->binary_rhs) == target;
+            Decl* assigned_target;
+            if (!expression || expression->kind != EXPR_ASSIGN ||
+                !expression->binary_lhs ||
+                expression->binary_lhs->kind != EXPR_IDENT ||
+                expression->binary_lhs->ident_decl != variable ||
+                !expression->binary_rhs ||
+                expression_mentions_decl(expression->binary_rhs,
+                                          variable)) {
+                return false;
+            }
+            assigned_target = resolve_inline_function_pointer_initializer(
+                variable->type, expression->binary_rhs);
+            return assigned_target != NULL &&
+                   (!target || assigned_target == target);
         }
         case STMT_BLOCK:
             for (const StmtList* item = statement->block_stmts; item;
@@ -2049,6 +2120,23 @@ static bool inline_statement_preserves_function_pointer_target(
             return false;
     }
     return false;
+}
+
+static bool inline_local_function_pointer_trackable(Decl* variable) {
+    return optimize_inline_local_targets_enabled && variable &&
+           variable->kind == DECL_VAR && !variable->var_is_global &&
+           !variable->var_is_static_local &&
+           !variable->var_is_thread_local &&
+           !variable->var_dynamic_initializer && !variable->var_is_vla &&
+           variable->type && variable->type->kind == TYPE_PTR &&
+           !variable->type->is_reference &&
+           !variable->type->is_volatile && variable->type->base &&
+           variable->type->base->kind == TYPE_FUNC &&
+           optimize_inline_caller && optimize_inline_caller->func_body &&
+           !inline_statement_has_nonlocal_entry(
+               optimize_inline_caller->func_body) &&
+           inline_statement_preserves_function_pointer_target(
+               optimize_inline_caller->func_body, variable, NULL);
 }
 
 /* A switch dispatch or goto can enter a scope past an automatic initializer.
@@ -2180,6 +2268,11 @@ static Decl* resolve_inline_indirect_call_target(Expr* callee) {
     if (callee->kind != EXPR_IDENT || !callee->ident_decl) return NULL;
     declaration = callee->ident_decl;
     if (declaration->kind == DECL_FUNC) return declaration;
+    {
+        Decl* local_target =
+            inline_local_function_pointer_fact(declaration);
+        if (local_target) return local_target;
+    }
     return resolve_inline_function_pointer_variable(declaration);
 }
 
@@ -3926,6 +4019,8 @@ static void optimize_block(Stmt* statement) {
         if (statement_transfers_control(item->stmt)) reachable = false;
         link = &item->next;
     }
+    /* The propagation pass revisits expressions without source-order facts. */
+    inline_local_function_pointer_facts_clear();
     propagate_block_constants(statement);
 
     /* Propagation may turn a conditional into an unconditional transfer. */
@@ -6183,17 +6278,49 @@ static bool fold_constant_switch(Stmt* statement) {
 static void optimize_stmt(Stmt* statement) {
     if (!statement) return;
     switch (statement->kind) {
-        case STMT_EXPR:
+        case STMT_EXPR: {
+            Decl* assigned_variable = NULL;
+            if (statement->expr && statement->expr->kind == EXPR_ASSIGN &&
+                statement->expr->binary_lhs &&
+                statement->expr->binary_lhs->kind == EXPR_IDENT) {
+                Decl* candidate =
+                    statement->expr->binary_lhs->ident_decl;
+                if (inline_local_function_pointer_trackable(candidate)) {
+                    assigned_variable = candidate;
+                }
+            }
+            if (!assigned_variable) {
+                inline_local_function_pointer_facts_invalidate_expression(
+                    statement->expr);
+            } else {
+                inline_local_function_pointer_facts_invalidate_expression(
+                    statement->expr->binary_rhs);
+            }
             optimize_expr(&statement->expr);
+            if (assigned_variable) {
+                Decl* assigned_target = NULL;
+                if (statement->expr &&
+                    statement->expr->kind == EXPR_ASSIGN) {
+                    assigned_target =
+                        resolve_inline_function_pointer_initializer(
+                            assigned_variable->type,
+                            statement->expr->binary_rhs);
+                }
+                inline_local_function_pointer_fact_set(
+                    assigned_variable, assigned_target);
+            }
             if (!expression_has_side_effect(statement->expr)) {
                 statement->kind = STMT_NULL;
                 statement->expr = NULL;
             }
             break;
+        }
         case STMT_BLOCK:
             optimize_block(statement);
             break;
         case STMT_IF:
+            inline_local_function_pointer_facts_invalidate_expression(
+                statement->if_cond);
             optimize_expr(&statement->if_cond);
             {
                 int64_t condition;
@@ -6215,10 +6342,14 @@ static void optimize_stmt(Stmt* statement) {
                     }
                 }
             }
+            inline_local_function_pointer_facts_clear();
             optimize_stmt(statement->if_then);
+            inline_local_function_pointer_facts_clear();
             optimize_stmt(statement->if_else);
+            inline_local_function_pointer_facts_clear();
             break;
         case STMT_WHILE:
+            inline_local_function_pointer_facts_clear();
             optimize_expr(&statement->while_cond);
             {
                 int64_t condition;
@@ -6230,15 +6361,22 @@ static void optimize_stmt(Stmt* statement) {
                     return;
                 }
             }
+            inline_local_function_pointer_facts_clear();
             optimize_stmt(statement->while_body);
+            inline_local_function_pointer_facts_clear();
             break;
         case STMT_DO:
+            inline_local_function_pointer_facts_clear();
             optimize_expr(&statement->while_cond);
+            inline_local_function_pointer_facts_clear();
             optimize_stmt(statement->while_body);
+            inline_local_function_pointer_facts_clear();
             eliminate_zero_condition_do(statement);
             break;
         case STMT_FOR:
+            inline_local_function_pointer_facts_clear();
             optimize_stmt(statement->for_init);
+            inline_local_function_pointer_facts_clear();
             optimize_expr(&statement->for_cond);
             {
                 int64_t condition;
@@ -6259,7 +6397,9 @@ static void optimize_stmt(Stmt* statement) {
                     return;
                 }
             }
+            inline_local_function_pointer_facts_clear();
             optimize_expr(&statement->for_inc);
+            inline_local_function_pointer_facts_clear();
             if (eliminate_zero_iteration_for(statement)) {
                 optimize_block(statement);
             } else {
@@ -6274,41 +6414,69 @@ static void optimize_stmt(Stmt* statement) {
                     optimize_stmt(statement->for_body);
                 }
             }
+            inline_local_function_pointer_facts_clear();
             break;
         case STMT_SWITCH:
+            inline_local_function_pointer_facts_clear();
             optimize_expr(&statement->switch_expr);
             optimize_stmt(statement->switch_body);
             (void)fold_constant_switch(statement);
+            inline_local_function_pointer_facts_clear();
             break;
         case STMT_CASE:
+            inline_local_function_pointer_facts_clear();
             optimize_expr(&statement->case_val);
             optimize_stmt(statement->case_stmt);
+            inline_local_function_pointer_facts_clear();
             break;
         case STMT_DEFAULT:
+            inline_local_function_pointer_facts_clear();
             optimize_stmt(statement->default_stmt);
+            inline_local_function_pointer_facts_clear();
             break;
         case STMT_RETURN:
+            inline_local_function_pointer_facts_invalidate_expression(
+                statement->return_val);
             optimize_expr(&statement->return_val);
             break;
         case STMT_TRY:
+            inline_local_function_pointer_facts_clear();
             optimize_stmt(statement->try_body);
             for (CxxCatch* handler = statement->try_catches; handler;
                  handler = handler->next) {
+                inline_local_function_pointer_facts_clear();
                 optimize_stmt(handler->body);
             }
+            inline_local_function_pointer_facts_clear();
             break;
         case STMT_THROW:
+            inline_local_function_pointer_facts_invalidate_expression(
+                statement->throw_expr);
             optimize_expr(&statement->throw_expr);
             break;
         case STMT_LABEL:
+            inline_local_function_pointer_facts_clear();
             optimize_stmt(statement->label_stmt);
+            inline_local_function_pointer_facts_clear();
             break;
         case STMT_DECL:
             if (statement->decl && statement->decl->kind == DECL_VAR) {
+                Decl* variable = statement->decl;
+                bool trackable =
+                    inline_local_function_pointer_trackable(variable);
+                inline_local_function_pointer_facts_invalidate_expression(
+                    variable->var_init);
                 optimize_expr(&statement->decl->var_init);
+                if (trackable) {
+                    inline_local_function_pointer_fact_set(
+                        variable,
+                        resolve_inline_function_pointer_initializer(
+                            variable->type, variable->var_init));
+                }
             }
             break;
         case STMT_ASM:
+            inline_local_function_pointer_facts_clear();
             for (AsmOperand* operand = statement->asm_outputs; operand;
                  operand = operand->next) {
                 optimize_expr(&operand->expr);
@@ -6317,6 +6485,7 @@ static void optimize_stmt(Stmt* statement) {
                  operand = operand->next) {
                 optimize_expr(&operand->expr);
             }
+            inline_local_function_pointer_facts_clear();
             break;
         default:
             break;
@@ -6328,6 +6497,8 @@ void rcc_optimize(AST* ast) {
     size_t lowered_functions = 0u;
     inline_debug_origins_clear();
     inline_caller_budgets_clear();
+    inline_local_function_pointer_facts_clear();
+    optimize_inline_local_targets_enabled = false;
     optimize_inline_caller = NULL;
     inline_debug_clone_owner = NULL;
     inline_debug_clone_caller = NULL;
@@ -6342,17 +6513,24 @@ void rcc_optimize(AST* ast) {
         for (DeclList* item = ast->decls; item; item = item->next) {
             Decl* declaration = item->decl;
             if (!declaration) continue;
+            inline_local_function_pointer_facts_clear();
             optimize_inline_caller = declaration->kind == DECL_FUNC
                 ? declaration : NULL;
             if (declaration->kind == DECL_VAR) {
+                optimize_inline_local_targets_enabled = false;
                 optimize_expr(&declaration->var_init);
             } else if (declaration->kind == DECL_FUNC) {
+                optimize_inline_local_targets_enabled = true;
                 optimize_stmt(declaration->func_body);
             }
+            inline_local_function_pointer_facts_clear();
+            optimize_inline_local_targets_enabled = false;
         }
         if (!optimize_inline_changed) break;
     }
     optimize_inline_caller = NULL;
+    inline_local_function_pointer_facts_clear();
+    optimize_inline_local_targets_enabled = false;
     optimize_inline_ast = NULL;
     inline_debug_clone_owner = NULL;
     inline_debug_clone_caller = NULL;

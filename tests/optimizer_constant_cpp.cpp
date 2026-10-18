@@ -114,7 +114,18 @@ extern "C" int inline_local_mutable_function_pointer_call(int value)
 extern "C" int inline_local_reassigned_function_pointer_call(int value)
 {
     int (*callback)(int) = &inline_constexpr_array_first;
+    int before_reassignment = callback(value);
     callback = &inline_constexpr_array_second;
+    return before_reassignment + callback(value);
+}
+
+extern "C" int inline_local_branch_reassigned_function_pointer_call(
+    int value)
+{
+    int (*callback)(int) = &inline_constexpr_array_first;
+    if (value < 0) {
+        callback = &inline_constexpr_array_second;
+    }
     return callback(value);
 }
 

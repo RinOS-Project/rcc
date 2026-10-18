@@ -184,6 +184,7 @@ static void verify_smaller(const char* unoptimized_path,
         "inline_local_const_function_pointer_call",
         "inline_local_const_function_pointer_array_call",
         "inline_local_mutable_function_pointer_call",
+        "inline_local_reassigned_function_pointer_call",
         "inline_local_same_target_reassigned_function_pointer_call",
         "inline_local_mutable_function_pointer_array_call",
         "inline_local_uniform_function_pointer_array_dynamic_call"
@@ -192,7 +193,7 @@ static void verify_smaller(const char* unoptimized_path,
         "inline_local_mutable_function_pointer_array_dynamic_call",
         "inline_local_uniform_function_pointer_array_side_effect_index",
         "inline_local_aliased_mutable_function_pointer_call",
-        "inline_local_reassigned_function_pointer_call",
+        "inline_local_branch_reassigned_function_pointer_call",
         "inline_local_mutated_function_pointer_array_call"
     };
     static const char* const signed64_high_power_functions[] = {
@@ -1040,6 +1041,7 @@ static void execute_inline_namespace_case(const char* path)
     SysvIntUnary local_mutable_pointer_array;
     SysvIntUnary local_aliased_mutable_pointer;
     SysvIntUnary local_reassigned_mutable_pointer;
+    SysvIntUnary local_branch_reassigned_pointer;
     SysvIntUnary local_same_target_reassigned_pointer;
     SysvIntUnary local_mutated_mutable_pointer_array;
     SysvIntBinary local_mutable_pointer_array_dynamic;
@@ -1151,11 +1153,18 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&local_reassigned_mutable_pointer, &address,
            sizeof(local_reassigned_mutable_pointer));
     symbol = function_symbol(
+        object, "inline_local_branch_reassigned_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_branch_reassigned_pointer, &address,
+           sizeof(local_branch_reassigned_pointer));
+    symbol = function_symbol(
         object, "inline_local_mutated_function_pointer_array_call");
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_mutated_mutable_pointer_array, &address,
            sizeof(local_mutated_mutable_pointer_array));
-    assert(local_reassigned_mutable_pointer(5) == 11);
+    assert(local_reassigned_mutable_pointer(5) == 39);
+    assert(local_branch_reassigned_pointer(-5) == -19);
+    assert(local_branch_reassigned_pointer(5) == 28);
     assert(local_mutated_mutable_pointer_array(5) == 28);
     assert(VirtualFree(mapping, 0u, MEM_RELEASE));
     objfile_free(object);
@@ -1350,6 +1359,7 @@ static void execute_inline_namespace_case(const char* path)
     int (*local_mutable_pointer_array)(int);
     int (*local_aliased_mutable_pointer)(int);
     int (*local_reassigned_mutable_pointer)(int);
+    int (*local_branch_reassigned_pointer)(int);
     int (*local_same_target_reassigned_pointer)(int);
     int (*local_mutated_mutable_pointer_array)(int);
     int (*local_mutable_pointer_array_dynamic)(int, int);
@@ -1459,11 +1469,18 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&local_reassigned_mutable_pointer, &address,
            sizeof(local_reassigned_mutable_pointer));
     symbol = function_symbol(
+        object, "inline_local_branch_reassigned_function_pointer_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_branch_reassigned_pointer, &address,
+           sizeof(local_branch_reassigned_pointer));
+    symbol = function_symbol(
         object, "inline_local_mutated_function_pointer_array_call");
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_mutated_mutable_pointer_array, &address,
            sizeof(local_mutated_mutable_pointer_array));
-    assert(local_reassigned_mutable_pointer(5) == 11);
+    assert(local_reassigned_mutable_pointer(5) == 39);
+    assert(local_branch_reassigned_pointer(-5) == -19);
+    assert(local_branch_reassigned_pointer(5) == 28);
     assert(local_mutated_mutable_pointer_array(5) == 28);
     assert(munmap(mapping, code->size) == 0);
     objfile_free(object);
