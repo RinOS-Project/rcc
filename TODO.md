@@ -6576,8 +6576,21 @@ remains a separate open item.
       preserving indirect calls for divergent branch facts and address-escaped
       sources. `test-optimize` passes on native Windows with i686/AMD64 call
       shape checks and generated x64 execution. Implementation: `974f842`.
-- [ ] Compound/conditional RHS forms, callback-array element dataflow, alias
-      writes, and cross-function target sets remain open.
+- [ ] Divergent conditional target sets, callback-array element dataflow,
+      alias writes, and cross-function target sets remain open.
+
+## RCC continuation (2026-10-20, uniform conditional callback targets)
+
+- [x] Resolve conditional function-pointer values when both arms have the same
+      proven target, including current local CFG facts; retain indirect calls
+      for differing targets. Preserve evaluation of a side-effecting condition.
+- [x] Verify same-target and divergent-target call shapes for i686/AMD64 and
+      execute both divergent arms. The condition side effect occurs exactly
+      once in each case; native-Windows `test-optimize` passes. Implementation:
+      `61d1273`.
+- [ ] General finite target-set dispatch for conditional callback values,
+      callback-array element dataflow, alias writes, and cross-function target
+      sets remain open.
 
 ## RCC continuation (2026-10-19, callback-array alias safety)
 
