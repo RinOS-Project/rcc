@@ -15070,6 +15070,11 @@ static bool lower_cxx_constructor_initializer_expression_supported(
                        context, expression->binary_lhs, depth + 1u) &&
                 lower_cxx_constructor_initializer_expression_supported(
                        context, expression->binary_rhs, depth + 1u);
+        case EXPR_COMMA:
+            return lower_cxx_constructor_initializer_expression_supported(
+                       context, expression->binary_lhs, depth + 1u) &&
+                lower_cxx_constructor_initializer_expression_supported(
+                       context, expression->binary_rhs, depth + 1u);
         case EXPR_COND:
             return lower_cxx_constructor_initializer_expression_supported(
                        context, expression->cond_test, depth + 1u) &&

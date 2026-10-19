@@ -153,7 +153,7 @@ struct VerifiedCallInitializer {
 
     VerifiedCallInitializer(int* order, int initial) noexcept
         : second(verified_initializer_effect(order, initial + 1)),
-          first(verified_initializer_effect(order, initial)) {
+          first((verified_initializer_effect(order, initial), initial * 10)) {
         first = first + 0;
     }
 };
