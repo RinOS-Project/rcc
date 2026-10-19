@@ -6890,6 +6890,23 @@ remains a separate open item.
       emission with 8 functions and zero fallbacks, executes both verified
       objects, assembles ordinary i686 output, and executes ordinary AMD64 host
       output. Implementation/test commit: `ab380ab`.
-- [ ] General constructor bodies, nontrivial base and copy construction,
-      full-expression cleanup outside call arguments, and exception/unwind
-      interactions remain open.
+- [ ] General constructor bodies, copy construction, full-expression cleanup
+      outside call arguments, and exception/unwind interactions remain open.
+
+## RCC continuation (2026-10-20, verified direct-base construction)
+
+- [x] Lower direct non-virtual base constructors before members in declared
+      base order when the derived/base constructors are `noexcept`, the direct
+      bases have no further inheritance or virtual dispatch, and their ABI
+      arguments are supported scalar expressions. Preserve per-base subobject
+      offsets and call each real constructor body; retain full-backend routing
+      for unsupported lifetime/unwind shapes.
+- [x] Add a two-base regression whose constructors mutate shared local state
+      and initialize distinct fields, checking declaration-order side effects
+      and non-zero secondary-base offset handling. `test-verified-cxx-reference-local`
+      passes i686/AMD64 `-O0`/`-O2` with 12 emitted functions, zero fallback,
+      verified-object execution, and ordinary backend checks.
+- [ ] Virtual/inherited bases, potentially-throwing base constructors and
+      partial-construction unwind, base/member copy construction, general
+      constructor bodies, and full-expression cleanup outside call arguments
+      remain open.
