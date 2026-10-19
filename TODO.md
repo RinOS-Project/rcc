@@ -7199,7 +7199,7 @@ remains a separate open item.
       converted subobject bindings remain outside this path.
 - [x] Add a regression where evaluation of a later call argument throws after
       the reference-bound temporary is initialized. `test-verified-cxx-throwing-temporary`
-      emits all twenty functions with zero fallback for i686/AMD64 at `-O0`
+      emits all twenty-one functions with zero fallback for i686/AMD64 at `-O0`
       and `-O2`. It executes the emitted AMD64 objects at both levels and
       checks direct and nested-conditional exception unwinding, normal cleanup,
       initializer-throw behavior, and constructor-prvalue lifetime; i686
@@ -7219,14 +7219,18 @@ remains a separate open item.
       `first` member (`59031`), an enclosing-body throw destroys
       `second.inner` then `first` (`58231`), and successful construction runs
       exactly one reverse-order cleanup (`2231`) on both explicit and implicit
-      return paths. The focused target emits twenty functions with zero
+      return paths. The focused target emits twenty-one functions with zero
       fallback on i686/AMD64 at `-O0`/`-O2` and executes both AMD64 objects.
       Implementation/test commit: `2a7fb2e` (extends the earlier constructor
       prvalue coverage in `d14b5d0`).
 - [x] Automatic references bound to direct and nested members of a class
       temporary now keep the complete object alive and project the bound
-      subobject address. Converted reference bindings, static/TLS lifetime,
-      and other full-expression cleanup forms remain open.
+      subobject address.
+- [x] A public conversion function returning a nontrivial class prvalue from
+      a named local source can bind to `const T&`; the converted temporary
+      survives to scope exit and is destroyed exactly once. The focused target
+      emits twenty-one functions with zero fallback on i686/AMD64 at `-O0`/
+      `-O2` and runs the AMD64 generated and legacy paths (`65707`).
 
 ## RCC continuation (2026-10-20, conditional local reference temporaries)
 
@@ -7237,7 +7241,7 @@ remains a separate open item.
       preserve the existing call-argument path.
 - [x] Cover direct and nested conditional arms when a later argument throws,
       plus normal local-reference scope exit and a throwing initializer.
-      `test-verified-cxx-throwing-temporary` emits all twenty functions with
+      `test-verified-cxx-throwing-temporary` emits all twenty-one functions with
       zero fallback for i686/AMD64 at `-O0` and `-O2`; emitted AMD64 runtime
       checks verify `533`, `534`, `535`, `65`, `5303`, `560`, `66`, `59031`,
       `58231`, and `2231`.
@@ -7252,7 +7256,7 @@ remains a separate open item.
       references into class temporaries. Store and destroy the complete
       temporary, while initializing the reference with the address of its
       selected member; preserve normal scope-exit and exception-unwind cleanup.
-- [x] Verify `test-verified-cxx-throwing-temporary`: all twenty functions emit
+- [x] Verify `test-verified-cxx-throwing-temporary`: all twenty-one functions emit
       with zero verified-backend fallback on i686/AMD64 at `-O0`/`-O2`; AMD64
       generated-object and legacy-host runs verify early-unwind result `5303`
       and nested-member scope-exit result `65`. Static-subobject reference
@@ -7265,3 +7269,15 @@ remains a separate open item.
 - [ ] Converted references, static/TLS local lifetime extension, additional
       conditional/subobject expression forms, and remaining full-expression
       cleanup paths remain open.
+
+## RCC continuation (2026-10-20, converted local reference temporaries)
+
+- [x] Cover a public class conversion function returning a nontrivial prvalue
+      bound to an automatic `const T&` from a named local source. Verify the
+      converted object is alive before scope exit and destroyed once at exit.
+      `test-verified-cxx-throwing-temporary` passes with twenty-one functions,
+      zero fallback on i686/AMD64 at `-O0`/`-O2`, and AMD64 runtime/legacy
+      execution (`65707`). Implementation/test commit: `27deec0`.
+- [ ] A conversion receiver that is itself a prvalue currently falls back in
+      typed SSA; other converted-reference shapes and static/TLS lifetime
+      extension remain open.
