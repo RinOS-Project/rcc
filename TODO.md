@@ -4245,11 +4245,13 @@ remains a separate open item.
   `test-cxx-variadic-scalar-promotions` gate passes (exit 0).
 - [x] Re-run the complete native-Windows MinGW GCC `test-cxx` aggregate after
   adding the inferred `unsigned int` enum case; the full aggregate exits 0.
-- [ ] Execute the interoperability fixture as a native i686 process, if a
-  compatible 32-bit host runtime becomes available. This host has only
-  `x86_64-w64-mingw32`; no i686 MinGW runtime or QEMU is installed. Current
-  coverage generates and assembles both i686 caller/callee objects and
-  executes GCC/RCC interop in both AMD64 directions.
+- [x] Execute the interoperability fixture as native i686 Linux processes on
+  the POSIX host: GCC caller with RCC callee and RCC caller with GCC callee.
+  `test-cxx-variadic-scalar-promotions` now assembles and links both
+  combinations on POSIX, then runs them; WSL passes in both directions. The
+  production CI Ubuntu image installs the multilib toolchain, so this is also
+  reached through `test-cxx`/`test-ci`. This does not claim RinOS target-runtime
+  or physical-hardware execution.
 
 ## RCC continuation (2026-10-14, variadic aggregate register rollback)
 

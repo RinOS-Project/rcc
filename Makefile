@@ -3192,6 +3192,24 @@ test-cxx-variadic-scalar-promotions: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-variadic-scalar-promotions/host-callee.o \
 		$(TEST_OUT)/cxx-variadic-scalar-promotions/rcc-caller-x64.s
 	$(TEST_OUT)/cxx-variadic-scalar-promotions/rcc-caller-host-callee$(EXE_SUFFIX)
+ifneq ($(OS),Windows_NT)
+	$(CXX) -m32 -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-variadic-scalar-promotions/host-caller-x86.o \
+		tests/cxx_variadic_scalar_promotions_host.cpp
+	$(CC) -m32 -no-pie \
+		-o $(TEST_OUT)/cxx-variadic-scalar-promotions/rcc-callee-host-caller-x86 \
+		$(TEST_OUT)/cxx-variadic-scalar-promotions/host-caller-x86.o \
+		$(TEST_OUT)/cxx-variadic-scalar-promotions/rcc-callee-x86.o
+	$(TEST_OUT)/cxx-variadic-scalar-promotions/rcc-callee-host-caller-x86
+	$(CXX) -m32 -std=c++20 -DRCC_VARIADIC_HOST_CALLEE -c \
+		-o $(TEST_OUT)/cxx-variadic-scalar-promotions/host-callee-x86.o \
+		tests/cxx_variadic_scalar_promotions_host.cpp
+	$(CC) -m32 -no-pie \
+		-o $(TEST_OUT)/cxx-variadic-scalar-promotions/rcc-caller-host-callee-x86 \
+		$(TEST_OUT)/cxx-variadic-scalar-promotions/host-callee-x86.o \
+		$(TEST_OUT)/cxx-variadic-scalar-promotions/rcc-caller-x86.o
+	$(TEST_OUT)/cxx-variadic-scalar-promotions/rcc-caller-host-callee-x86
+endif
 	@echo "C++ scalar ellipsis default-promotion interoperability tests completed"
 
 test-cxx-variadic-aggregate: $(RCXX_TARGET)
