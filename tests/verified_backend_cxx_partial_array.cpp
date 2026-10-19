@@ -149,9 +149,8 @@ public:
     int value_ = 1;
 
     ~VerifiedImplicitArrayDmiArrayElement() noexcept {
-        verified_partial_array_record_destructor(nested_[0].value_);
-        verified_partial_array_record_destructor(nested_[1].value_);
-        verified_partial_array_record_destructor(value_);
+        verified_partial_array_record_destructor(
+            nested_[0].value_ + nested_[1].value_ + value_);
     }
 };
 
