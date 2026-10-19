@@ -9857,6 +9857,60 @@ static bool sema_cxx_default_member_constant(Type* field_type,
     return true;
 }
 
+static bool sema_cxx_default_member_initializer_supported(
+    Type* field_type, Expr* initializer) {
+    CxxConstructorInfo* constructor;
+    Decl* declaration;
+    TypeParam* parameter;
+    DeclList* parameter_declaration;
+    ExprList* argument;
+    unsigned parameter_count = 0u;
+    if (sema_cxx_default_member_constant(field_type, initializer)) {
+        return true;
+    }
+    if (!field_type || field_type->kind != TYPE_STRUCT || !initializer ||
+        initializer->kind != EXPR_COMPOUND ||
+        !sema_expr(initializer) ||
+        !(constructor = initializer->compound_constructor) ||
+        !constructor->method ||
+        !(declaration = constructor->method->decl) ||
+        !declaration->func_is_cxx_constructor ||
+        !declaration->func_is_noexcept || constructor->is_deleted ||
+        !constructor->initializers_are_supported ||
+        constructor->parameter_count < 0 ||
+        constructor->parameter_count > 64 ||
+        !initializer->type ||
+        !type_is_compatible(field_type, initializer->type)) {
+        return false;
+    }
+    parameter = constructor->parameters;
+    parameter_declaration = declaration->func_params;
+    argument = initializer->compound_init;
+    while (parameter || parameter_declaration || argument) {
+        if (parameter_count >= (unsigned)constructor->parameter_count ||
+            !parameter || !parameter->type ||
+            !type_is_scalar(parameter->type) ||
+            parameter->type->cxx_is_member_pointer ||
+            (g_opts.target_arch == ARCH_X86 && parameter->type->size > 4) ||
+            (g_opts.target_arch == ARCH_X64 && parameter->type->size > 8) ||
+            !parameter_declaration || !parameter_declaration->decl ||
+            !type_is_compatible(
+                parameter->type, parameter_declaration->decl->type) ||
+            !argument ||
+            argument->designator_kind != INIT_DESIGNATOR_NONE ||
+            !argument->expr || !argument->expr->type ||
+            !type_is_scalar(argument->expr->type) ||
+            argument->expr->type->cxx_is_member_pointer) {
+            return false;
+        }
+        ++parameter_count;
+        parameter = parameter->next;
+        parameter_declaration = parameter_declaration->next;
+        argument = argument->next;
+    }
+    return parameter_count == (unsigned)constructor->parameter_count;
+}
+
 static bool sema_cxx_type_has_default_member_initializers(
     Type* type, int depth) {
     if (!type || depth > 32) return false;
@@ -9907,7 +9961,7 @@ static bool sema_cxx_validate_default_member_subobjects(
     }
     for (TypeField* field = type->fields; field; field = field->next) {
         if (field->initializer) {
-            if (!sema_cxx_default_member_constant(
+            if (!sema_cxx_default_member_initializer_supported(
                     field->type, field->initializer)) {
                 return false;
             }

@@ -14897,6 +14897,17 @@ lower_cxx_implicit_subobject_default_constructor(const Type* type) {
     return selected;
 }
 
+static bool lower_cxx_implicit_class_value_initializer_supported(
+    const Type* type, const Expr* initializer) {
+    return type && type->kind == TYPE_STRUCT && initializer &&
+        initializer->kind == EXPR_COMPOUND &&
+        initializer->type &&
+        type_is_compatible((Type*)type, initializer->type) &&
+        initializer->compound_constructor &&
+        lower_cleanup_initializer_supported(initializer) &&
+        !lower_cleanup_initializer_may_throw(initializer);
+}
+
 static bool lower_cxx_implicit_default_member_subobject_supported(
     const Type* type, unsigned depth, bool* has_initializers) {
     const CxxClass* cls;
@@ -14972,13 +14983,18 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
     }
     for (field = type->fields; field; field = field->next) {
         bool nested_initializer = false;
+        bool explicit_class_value = field->initializer &&
+            lower_cxx_implicit_class_value_initializer_supported(
+                field->type, field->initializer);
         if (!field->type || field->is_bitfield) return false;
-        if (!lower_cxx_implicit_default_member_subobject_supported(
+        if (!explicit_class_value &&
+            !lower_cxx_implicit_default_member_subobject_supported(
                 field->type, depth + 1u, &nested_initializer)) {
             return false;
         }
         if (field->initializer) {
-            if (type_is_scalar((Type*)field->type) &&
+            if (!explicit_class_value &&
+                type_is_scalar((Type*)field->type) &&
                 !lower_noexcept_expression(field->initializer)) {
                 return false;
             }
@@ -15021,13 +15037,18 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
     }
     for (const TypeField* field = type->fields; field; field = field->next) {
         bool nested_initializer = false;
+        bool explicit_class_value = field->initializer &&
+            lower_cxx_implicit_class_value_initializer_supported(
+                field->type, field->initializer);
         if (!field->type || field->is_bitfield ||
-            !lower_cxx_implicit_default_member_subobject_supported(
-                field->type, 0u, &nested_initializer)) {
+            (!explicit_class_value &&
+             !lower_cxx_implicit_default_member_subobject_supported(
+                 field->type, 0u, &nested_initializer))) {
             return false;
         }
         if (field->initializer) {
-            if (type_is_scalar((Type*)field->type) &&
+            if (!explicit_class_value &&
+                type_is_scalar((Type*)field->type) &&
                 !lower_noexcept_expression(field->initializer)) {
                 return false;
             }
