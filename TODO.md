@@ -6605,7 +6605,7 @@ remains a separate open item.
       allocation on i686/AMD64 at `-O0`/`-O2`, with x64 execution in
       `test-verified-goto`.
 - [ ] General typed-SSA VLA lowering remains incomplete for aggregate
-      initialization/copy forms, volatile objects, C++ class lifetime hooks,
+      initialization/copy forms, atomic objects, C++ class lifetime hooks,
       and broader cleanup/unwind plus goto/loop-edge combinations.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)
@@ -6654,7 +6654,7 @@ remains a separate open item.
       verified-backend generation with zero fallbacks and x64 object execution.
       IR, lowering, classic VLA-runtime, and dual-architecture stage0-to-stage2
       bootstrap gates pass. RCC `main` commit: `6b25abe`. No push.
-- [ ] VLA aggregate initialization/copy, volatile elements, C++ class lifetime
+- [ ] VLA aggregate initialization/copy, atomic elements, C++ class lifetime
       lowering, and cleanup/unwind/control-flow interactions remain open.
 
 ## RCC continuation (2026-10-20, typed-SSA multidimensional runtime-bound VLAs)
@@ -6668,8 +6668,21 @@ remains a separate open item.
       execution, IR, IR-lowering, and classic VLA-runtime tests pass.
 - [x] Pass the full native-Windows `test-ci` gate, including dual-architecture
       bootstrap reproducibility. RCC `main` commit: `685868d`. No push.
-- [ ] Aggregate-element, initialized, and volatile VLA forms, plus broader
+- [ ] Aggregate initialization/copy, atomic VLA forms, plus broader
       cleanup/unwind and control-flow interactions, remain open.
+
+## RCC continuation (2026-10-20, volatile scalar typed-SSA VLA elements)
+
+- [x] Permit volatile scalar VLA elements through typed SSA and preserve their
+      observable load/store accesses; keep atomic and volatile aggregate forms
+      outside this supported subset.
+- [x] Add a runtime regression that writes and reads volatile elements at both
+      ends of a VLA. The verified-backend i686/AMD64 `-O0`/`-O2` gates emit all
+      28 functions with zero fallbacks and x64 execution passes. IR/lowering,
+      classic VLA-runtime, and dual-architecture stage0-to-stage2 bootstrap
+      gates pass. RCC `main` implementation commit: `8f67474`. No push.
+- [ ] VLA aggregate initialization/copy, atomic objects, C++ class lifetime,
+      and cleanup/unwind/control-flow interactions remain open.
 
 ## RCC continuation (2026-10-19, nested virtual-base class-array initialization)
 
