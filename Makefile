@@ -12955,13 +12955,13 @@ test-cxx-default-member-initializer-posix: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-default-member-initializer/invalid-x86.ro \
 		tests/cxx_default_member_initializer_array_invalid.cpp \
 		>$(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log 2>&1
-	$(GREP) -q "new requires scalar constant default member initializers" \
+	$(GREP) -q "new requires constant default member initializers with supported subobjects" \
 		$(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log
 	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/cxx-default-member-initializer/invalid-x64.ro \
 		tests/cxx_default_member_initializer_array_invalid.cpp \
 		>$(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log 2>&1
-	$(GREP) -q "new requires scalar constant default member initializers" \
+	$(GREP) -q "new requires constant default member initializers with supported subobjects" \
 		$(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log
 	@echo "C++ default member initializer tests completed"
 
@@ -13124,9 +13124,9 @@ test-cxx-default-member-initializer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-default-member-initializer)
 	$(call CXX_WINDOWS_CONSTRUCTOR_TEST,cxx-default-member-initializer,cxx_default_member_initializer.cpp,cxx_default_member_initializer_run_test.c)
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-default-member-initializer/invalid-x86.ro tests/cxx_default_member_initializer_array_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log)
-	$(GREP) -F -q "new requires scalar constant default member initializers" $(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log
+	$(GREP) -F -q "new requires constant default member initializers with supported subobjects" $(TEST_OUT)/cxx-default-member-initializer/invalid-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-default-member-initializer/invalid-x64.ro tests/cxx_default_member_initializer_array_invalid.cpp,$(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log)
-	$(GREP) -F -q "new requires scalar constant default member initializers" $(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log
+	$(GREP) -F -q "new requires constant default member initializers with supported subobjects" $(TEST_OUT)/cxx-default-member-initializer/invalid-x64.log
 
 test-cxx-delegating-constructor: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-delegating-constructor)

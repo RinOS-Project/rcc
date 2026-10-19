@@ -14417,7 +14417,13 @@ static bool lower_cxx_delete_subobject_cleanup_change(
     const CxxClass* cls = type ? type->cxx_class : NULL;
     const Decl* destructor = cls && cls->destructor_method
         ? cls->destructor_method->decl : NULL;
-    if (!type || !type->cxx_nontrivial) return true;
+    /* A default member initializer makes default construction non-trivial,
+     * but a subobject without a destructor or cleanup hook needs no unwind
+     * registration when its enclosing class-array element is destroyed. */
+    if (!type || !type->cxx_nontrivial ||
+        (!destructor && !type->cleanup_function && !type->cleanup_field)) {
+        return true;
+    }
     if (!cls || depth >= 64u ||
         !lower_cxx_destructor_subobjects_supported_impl(
             cls, depth, lower_cxx_destructor_subobjects_leaf(cls)) ||
@@ -14858,7 +14864,7 @@ static RccIrLowerValue lower_cxx_delete_array_expression(
 }
 
 static bool lower_cxx_implicit_default_member_subobject_supported(
-    const Type* type, unsigned depth) {
+    const Type* type, unsigned depth, bool* has_initializers) {
     const CxxClass* cls;
     const TypeField* field;
     if (!type || depth >= 32u || type->size <= 0 || type->is_reference ||
@@ -14871,26 +14877,50 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
     if (type->kind == TYPE_ARRAY) {
         return type->array_len > 0 && type->base &&
             lower_cxx_implicit_default_member_subobject_supported(
-                type->base, depth + 1u);
+                type->base, depth + 1u, has_initializers);
     }
     if ((type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) ||
-        !type->is_complete || type->cxx_nontrivial ||
-        type->cleanup_function || type->cleanup_field) {
+        !type->is_complete || type->cleanup_function || type->cleanup_field) {
         return false;
     }
     cls = type->cxx_class;
-    if (cls && (cls->has_user_constructor || cls->constructors ||
-                cls->has_field_initializer || cls->base_count != 0 ||
-                cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
-                cls->secondary_vtable_count != 0 ||
-                cls->destructor_method)) {
+    if ((type->cxx_nontrivial &&
+         (!cls || !cls->has_field_initializer)) ||
+        (cls && (cls->has_user_constructor || cls->constructors ||
+                 cls->base_count != 0 || cls->virtual_base_count != 0 ||
+                 cls->vtable_size != 0 ||
+                 cls->secondary_vtable_count != 0 ||
+                 cls->destructor_method))) {
         return false;
     }
+    if (type->kind == TYPE_UNION) {
+        if (cls && cls->has_field_initializer) return false;
+        for (field = type->fields; field; field = field->next) {
+            bool nested_initializer = false;
+            if (!field->type || field->is_bitfield ||
+                !lower_cxx_implicit_default_member_subobject_supported(
+                    field->type, depth + 1u, &nested_initializer) ||
+                nested_initializer) {
+                return false;
+            }
+        }
+        return true;
+    }
     for (field = type->fields; field; field = field->next) {
-        if (!field->type || field->is_bitfield ||
-            !lower_cxx_implicit_default_member_subobject_supported(
-                field->type, depth + 1u)) {
+        bool nested_initializer = false;
+        if (!field->type || field->is_bitfield) return false;
+        if (!lower_cxx_implicit_default_member_subobject_supported(
+                field->type, depth + 1u, &nested_initializer)) {
             return false;
+        }
+        if (field->initializer) {
+            if (type_is_scalar((Type*)field->type) &&
+                !lower_noexcept_expression(field->initializer)) {
+                return false;
+            }
+            if (has_initializers) *has_initializers = true;
+        } else if (nested_initializer && has_initializers) {
+            *has_initializers = true;
         }
     }
     return true;
@@ -14899,66 +14929,105 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
 static bool lower_cxx_implicit_default_member_initializers_supported(
     const Type* type) {
     const CxxClass* cls = type ? type->cxx_class : NULL;
-    const TypeField* field;
     bool has_initializer = false;
     if (!type || type->kind != TYPE_STRUCT || !type->is_complete ||
-        type->size <= 0 || !cls || !cls->has_field_initializer ||
-        cls->has_user_constructor || cls->constructors ||
-        cls->base_count != 0 || cls->vtable_size != 0 ||
+        type->size <= 0 || !cls || cls->has_user_constructor ||
+        cls->constructors || cls->base_count != 0 ||
+        cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
         cls->secondary_vtable_count != 0 || type->cleanup_function ||
-        type->cleanup_field) {
+        type->cleanup_field ||
+        !lower_storage_type_supported_internal(type, 0u)) {
         return false;
     }
-    for (field = type->fields; field; field = field->next) {
+    for (const TypeField* field = type->fields; field; field = field->next) {
+        bool nested_initializer = false;
         if (!field->type || field->is_bitfield ||
             !lower_cxx_implicit_default_member_subobject_supported(
-                field->type, 0u)) {
+                field->type, 0u, &nested_initializer)) {
             return false;
         }
         if (field->initializer) {
             if (type_is_scalar((Type*)field->type) &&
-                !lower_noexcept_expression(field->initializer)) return false;
+                !lower_noexcept_expression(field->initializer)) {
+                return false;
+            }
+            has_initializer = true;
+        } else if (nested_initializer) {
             has_initializer = true;
         }
     }
     return has_initializer;
 }
 
+static bool lower_cxx_initialize_implicit_default_member_subobjects(
+    RccIrLowerContext* context, RccIrValue object, const Type* type,
+    unsigned depth) {
+    if (!context || !object || !type || depth >= 32u) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        if (type->array_len <= 0 || type->array_len > 4096 || !type->base) {
+            context->unsupported = true;
+            return false;
+        }
+        for (int index = 0; index < type->array_len; ++index) {
+            RccIrLowerValue element = lower_array_element_address(
+                context, object, type->base, (uint64_t)index);
+            if (!element.valid ||
+                !lower_cxx_initialize_implicit_default_member_subobjects(
+                    context, element.value, type->base, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (type->kind != TYPE_STRUCT) return true;
+    {
+        RccIrLowerValue base = lower_value(
+            object, rcc_ir_type_pointer(0u), true);
+        for (const TypeField* field = type->fields; field;
+             field = field->next) {
+            RccIrLowerValue address = lower_byte_offset_address(
+                context, base, (uint64_t)field->offset);
+            if (!address.valid) return false;
+            if (field->initializer) {
+                if (field->type->kind == TYPE_ARRAY) {
+                    if (!lower_array_initializer(
+                            context, address.value, field->type,
+                            field->initializer)) return false;
+                } else if (field->type->kind == TYPE_STRUCT) {
+                    if (!lower_initialize_struct_storage(
+                            context, address.value, field->type,
+                            field->initializer)) return false;
+                } else if (field->type->kind == TYPE_UNION) {
+                    if (!lower_initialize_union_storage(
+                            context, address.value, field->type,
+                            field->initializer)) return false;
+                } else if (!lower_initialize_scalar_storage(
+                               context, address.value, field->type,
+                               field->initializer)) {
+                    return false;
+                }
+            } else if (
+                !lower_cxx_initialize_implicit_default_member_subobjects(
+                    context, address.value, field->type, depth + 1u)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static bool lower_cxx_initialize_implicit_default_member_initializers(
     RccIrLowerContext* context, RccIrValue object, const Type* type) {
-    const TypeField* field;
-    RccIrLowerValue base;
-    if (!context || !object || !type ||
+    if (!context || !object ||
         !lower_cxx_implicit_default_member_initializers_supported(type)) {
         if (context) context->unsupported = true;
         return false;
     }
-    base = lower_value(object, rcc_ir_type_pointer(0u), true);
-    for (field = type->fields; field; field = field->next) {
-        RccIrLowerValue address;
-        if (!field->initializer) continue;
-        address = lower_byte_offset_address(
-            context, base, (uint64_t)field->offset);
-        if (!address.valid) return false;
-        if (field->type->kind == TYPE_ARRAY) {
-            if (!lower_array_initializer(
-                    context, address.value, field->type,
-                    field->initializer)) return false;
-        } else if (field->type->kind == TYPE_STRUCT) {
-            if (!lower_initialize_struct_storage(
-                    context, address.value, field->type,
-                    field->initializer)) return false;
-        } else if (field->type->kind == TYPE_UNION) {
-            if (!lower_initialize_union_storage(
-                    context, address.value, field->type,
-                    field->initializer)) return false;
-        } else if (!lower_initialize_scalar_storage(
-                       context, address.value, field->type,
-                       field->initializer)) {
-            return false;
-        }
-    }
-    return true;
+    return lower_cxx_initialize_implicit_default_member_subobjects(
+        context, object, type, 0u);
 }
 
 static RccIrLowerValue lower_cxx_new_array_expression(

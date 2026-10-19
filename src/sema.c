@@ -9857,20 +9857,58 @@ static bool sema_cxx_default_member_constant(Type* field_type,
     return true;
 }
 
+static bool sema_cxx_type_has_default_member_initializers(
+    Type* type, int depth) {
+    if (!type || depth > 32) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->base && sema_cxx_type_has_default_member_initializers(
+            type->base, depth + 1);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return false;
+    if (type->cxx_class && type->cxx_class->has_field_initializer) {
+        return true;
+    }
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (sema_cxx_type_has_default_member_initializers(
+                field->type, depth + 1)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool sema_cxx_validate_default_member_subobjects(
+    Type* type, SourceLoc loc, int depth) {
+    if (!type || depth > 32) return false;
+    if (type->kind == TYPE_ARRAY) {
+        return type->base && sema_cxx_validate_default_member_subobjects(
+            type->base, loc, depth + 1);
+    }
+    if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    for (TypeField* field = type->fields; field; field = field->next) {
+        if (field->initializer) {
+            if (!sema_cxx_default_member_constant(
+                    field->type, field->initializer)) {
+                return false;
+            }
+            continue;
+        }
+        if (!sema_cxx_validate_default_member_subobjects(
+                field->type, loc, depth + 1)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool sema_cxx_validate_default_member_initializers(
     Type* object_type, SourceLoc loc) {
     if (!object_type || !object_type->cxx_class ||
-        !object_type->cxx_class->has_field_initializer) {
+        !sema_cxx_validate_default_member_subobjects(
+            object_type, loc, 0)) {
+        rcc_error(loc,
+                  "new requires constant default member initializers with supported subobjects");
         return false;
-    }
-    for (TypeField* field = object_type->fields; field; field = field->next) {
-        if (!field->initializer) continue;
-        if (!sema_cxx_default_member_constant(
-                field->type, field->initializer)) {
-            rcc_error(loc,
-                      "new requires scalar constant default member initializers");
-            return false;
-        }
     }
     return true;
 }
@@ -15588,7 +15626,8 @@ static Type* sema_expr(Expr* expr) {
                                     default_arguments;
                             }
                         } else if (!has_user_constructor && cls &&
-                                   cls->has_field_initializer) {
+                                   sema_cxx_type_has_default_member_initializers(
+                                       object_type, 0)) {
                             if (!sema_cxx_validate_default_member_initializers(
                                     object_type, expr->loc)) {
                                 return expr->type;
