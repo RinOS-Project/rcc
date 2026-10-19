@@ -6941,7 +6941,8 @@ remains a separate open item.
       objects, assembles ordinary i686 output, and executes ordinary AMD64 host
       output. Implementation/test commit: `ab380ab`.
 - [ ] General constructor bodies, copy construction, full-expression cleanup
-      outside call arguments, and exception/unwind interactions remain open.
+      outside call arguments, and exception/unwind interactions beyond the
+      direct same-type automatic reference-temporary case remain open.
 
 ## RCC continuation (2026-10-20, verified direct-base construction)
 
@@ -7185,3 +7186,19 @@ remains a separate open item.
       negative displacements not rooted at a statically indexed array element,
       target-adjusting casts, dynamic pointer expressions, and optimized
       register/piece location tracking remain open.
+
+## RCC continuation (2026-10-20, typed-SSA reference temporary unwind)
+
+- [x] Lower a direct same-type class prvalue bound to an automatic local
+      reference in typed SSA. Materialize the complete object, register its
+      destructor after initialization with the active exception frame, and
+      unregister then destroy it on normal scope exit. Static/TLS owners and
+      converted subobject bindings remain outside this path.
+- [x] Add a regression where evaluation of a later call argument throws after
+      the reference-bound temporary is initialized. `test-verified-cxx-throwing-temporary`
+      emits all seven functions with zero fallback for i686/AMD64 at `-O0` and
+      `-O2`; the host execution returns `533`, confirming catch value 53 and one
+      destructor invocation. Implementation/test commit: `523a46d`.
+- [ ] Potentially-throwing temporary initialization and partial-construction
+      unwind, converted or subobject reference bindings, static/TLS lifetime,
+      and other full-expression cleanup forms remain open.
