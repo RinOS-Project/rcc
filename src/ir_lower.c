@@ -13915,7 +13915,7 @@ static bool lower_cxx_destructor_subobjects_supported_impl(
     bool allow_throwing_root_destructor) {
     const TypeParam* field;
     if (!cls || !cls->type || depth >= 64u ||
-        cls->virtual_base_count != 0 ||
+        (cls->virtual_base_count != 0 && !cls->virtual_bases) ||
         !lower_cxx_destructor_cleanup_hook_supported(cls->type)) {
         return false;
     }
@@ -13935,11 +13935,24 @@ static bool lower_cxx_destructor_subobjects_supported_impl(
     }
     for (int index = 0; index < cls->base_count; ++index) {
         const CxxClass* base = cls->bases[index].base;
-        if (!base || cls->bases[index].is_virtual || !cls->base_offsets ||
-            cls->base_offsets[index] < 0 ||
-            !lower_cxx_destructor_subobjects_supported_impl(
+        if (!base || !cls->base_offsets || cls->base_offsets[index] < 0) {
+            return false;
+        }
+        if (cls->bases[index].is_virtual) continue;
+        if (!lower_cxx_destructor_subobjects_supported_impl(
                 base, depth + 1u,
-                lower_cxx_destructor_subobjects_leaf(base))) {
+                lower_cxx_destructor_subobjects_leaf(base))) return false;
+    }
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        const CxxClass* base = cls->virtual_bases[index].base;
+        /* The verified destructor path currently handles virtual-base
+         * subobjects whose complete destruction is a leaf operation. */
+        if (!base || !base->type || base->type->size <= 0 ||
+            cls->virtual_bases[index].offset < 0 ||
+            cls->virtual_bases[index].offset > cls->type->size ||
+            base->type->size > cls->type->size -
+                cls->virtual_bases[index].offset ||
+            !lower_cxx_destructor_subobjects_leaf(base)) {
             return false;
         }
     }
@@ -14191,12 +14204,29 @@ static bool lower_cxx_emit_destructor_subobjects_impl(
             context->unsupported = true;
             return false;
         }
+        if (cls->bases[index].is_virtual) continue;
         address = lower_byte_offset_address(
             context, object, (uint64_t)cls->base_offsets[index]);
         if (!address.valid ||
             (allow_throwing_root_destructor && base->type->cxx_nontrivial &&
              !lower_cxx_delete_subobject_cleanup_change(
                  context, base->type, address, false, depth + 1u)) ||
+            !lower_cxx_emit_delete_subobject_destructor(
+                context, base->type, address, depth + 1u)) {
+            return false;
+        }
+    }
+    for (int index = cls->virtual_base_count - 1; index >= 0; --index) {
+        const CxxClass* base = cls->virtual_bases[index].base;
+        RccIrLowerValue address;
+        if (!base || cls->virtual_bases[index].offset < 0 ||
+            !lower_cxx_destructor_subobjects_leaf(base)) {
+            context->unsupported = true;
+            return false;
+        }
+        address = lower_byte_offset_address(
+            context, object, (uint64_t)cls->virtual_bases[index].offset);
+        if (!address.valid ||
             !lower_cxx_emit_delete_subobject_destructor(
                 context, base->type, address, depth + 1u)) {
             return false;
@@ -14897,6 +14927,9 @@ lower_cxx_implicit_subobject_default_constructor(const Type* type) {
     return selected;
 }
 
+static bool lower_cxx_initialize_object_vtables(
+    RccIrLowerContext* context, RccIrValue object, const Type* type);
+
 static bool lower_cxx_implicit_class_value_initializer_supported(
     const Type* type, const Expr* initializer) {
     return type && type->kind == TYPE_STRUCT && initializer &&
@@ -14948,17 +14981,39 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
         (!cls->bases || !cls->base_offsets)) {
         return false;
     }
+    if (cls && cls->virtual_base_count > 0 && !cls->virtual_bases) {
+        return false;
+    }
     if (cls) {
         for (int index = 0; index < cls->base_count; ++index) {
             const CxxClass* base = cls->bases[index].base;
             bool nested_initializer = false;
             int offset = cls->base_offsets[index];
-            if (!base || cls->bases[index].is_virtual || offset < 0 ||
+            if (!base || offset < 0 ||
                 !base->type || base->type->size <= 0 ||
                 offset > type->size ||
                 base->type->size > type->size - offset ||
                 !lower_cxx_implicit_default_member_subobject_supported(
                     base->type, depth + 1u, &nested_initializer)) {
+                return false;
+            }
+            if (nested_initializer && has_initializers) {
+                *has_initializers = true;
+            }
+        }
+        for (int index = 0; index < cls->virtual_base_count; ++index) {
+            const CxxVirtualBaseInfo* virtual_base =
+                &cls->virtual_bases[index];
+            bool nested_initializer = false;
+            if (!virtual_base->base || virtual_base->offset < 0 ||
+                !virtual_base->base->type ||
+                virtual_base->offset > type->size ||
+                virtual_base->base->type->size <= 0 ||
+                virtual_base->base->type->size >
+                    type->size - virtual_base->offset ||
+                !lower_cxx_implicit_default_member_subobject_supported(
+                    virtual_base->base->type, depth + 1u,
+                    &nested_initializer)) {
                 return false;
             }
             if (nested_initializer && has_initializers) {
@@ -15012,8 +15067,7 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
     bool has_initializer = false;
     if (!type || type->kind != TYPE_STRUCT || !type->is_complete ||
         type->size <= 0 || !cls || cls->has_user_constructor ||
-        cls->constructors || cls->virtual_base_count != 0 ||
-        cls->vtable_size != 0 ||
+        cls->constructors || cls->vtable_size != 0 ||
         cls->secondary_vtable_count != 0 || type->cleanup_function ||
         type->cleanup_field ||
         !lower_storage_type_supported_internal(type, 0u)) {
@@ -15022,15 +15076,33 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
     if (cls->base_count > 0 && (!cls->bases || !cls->base_offsets)) {
         return false;
     }
+    if (cls->virtual_base_count > 0 && !cls->virtual_bases) {
+        return false;
+    }
     for (int index = 0; index < cls->base_count; ++index) {
         const CxxClass* base = cls->bases[index].base;
         bool nested_initializer = false;
         int offset = cls->base_offsets[index];
-        if (!base || cls->bases[index].is_virtual || offset < 0 ||
+        if (!base || offset < 0 ||
             !base->type || base->type->size <= 0 ||
             offset > type->size || base->type->size > type->size - offset ||
             !lower_cxx_implicit_default_member_subobject_supported(
                 base->type, 0u, &nested_initializer)) {
+            return false;
+        }
+        if (nested_initializer) has_initializer = true;
+    }
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        const CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[index];
+        bool nested_initializer = false;
+        if (!virtual_base->base || virtual_base->offset < 0 ||
+            !virtual_base->base->type ||
+            virtual_base->offset > type->size ||
+            virtual_base->base->type->size <= 0 ||
+            virtual_base->base->type->size >
+                type->size - virtual_base->offset ||
+            !lower_cxx_implicit_default_member_subobject_supported(
+                virtual_base->base->type, 0u, &nested_initializer)) {
             return false;
         }
         if (nested_initializer) has_initializer = true;
@@ -15062,7 +15134,7 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
 
 static bool lower_cxx_initialize_implicit_default_member_subobjects(
     RccIrLowerContext* context, RccIrValue object, const Type* type,
-    unsigned depth) {
+    unsigned depth, bool initialize_virtual_bases) {
     if (!context || !object || !type || depth >= 32u) {
         if (context) context->unsupported = true;
         return false;
@@ -15077,7 +15149,8 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
                 context, object, type->base, (uint64_t)index);
             if (!element.valid ||
                 !lower_cxx_initialize_implicit_default_member_subobjects(
-                    context, element.value, type->base, depth + 1u)) {
+                    context, element.value, type->base, depth + 1u,
+                    initialize_virtual_bases)) {
                 return false;
             }
         }
@@ -15108,6 +15181,34 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
             return true;
         }
         if (cls) {
+            if (initialize_virtual_bases) {
+                if (cls->virtual_base_count > 0 && !cls->virtual_bases) {
+                    context->unsupported = true;
+                    return false;
+                }
+                for (int index = 0; index < cls->virtual_base_count; ++index) {
+                    const CxxVirtualBaseInfo* virtual_base =
+                        &cls->virtual_bases[index];
+                    RccIrLowerValue address;
+                    if (!virtual_base->base || virtual_base->offset < 0 ||
+                        !virtual_base->base->type ||
+                        virtual_base->base->type->size <= 0 ||
+                        virtual_base->offset > type->size ||
+                        virtual_base->base->type->size >
+                            type->size - virtual_base->offset) {
+                        context->unsupported = true;
+                        return false;
+                    }
+                    address = lower_byte_offset_address(
+                        context, base, (uint64_t)virtual_base->offset);
+                    if (!address.valid ||
+                        !lower_cxx_initialize_implicit_default_member_subobjects(
+                            context, address.value, virtual_base->base->type,
+                            depth + 1u, false)) {
+                        return false;
+                    }
+                }
+            }
             if (cls->base_count > 0 &&
                 (!cls->bases || !cls->base_offsets)) {
                 context->unsupported = true;
@@ -15116,18 +15217,18 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
             for (int index = 0; index < cls->base_count; ++index) {
                 const CxxClass* base_class = cls->bases[index].base;
                 RccIrLowerValue address;
-                if (!base_class || cls->bases[index].is_virtual ||
-                    cls->base_offsets[index] < 0) {
+                if (!base_class || cls->base_offsets[index] < 0) {
                     context->unsupported = true;
                     return false;
                 }
+                if (cls->bases[index].is_virtual) continue;
                 address = lower_byte_offset_address(
                     context, base,
                     (uint64_t)cls->base_offsets[index]);
                 if (!address.valid ||
                     !lower_cxx_initialize_implicit_default_member_subobjects(
                         context, address.value, base_class->type,
-                        depth + 1u)) {
+                        depth + 1u, false)) {
                     return false;
                 }
             }
@@ -15157,9 +15258,13 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
                 }
             } else if (
                 !lower_cxx_initialize_implicit_default_member_subobjects(
-                    context, address.value, field->type, depth + 1u)) {
+                    context, address.value, field->type, depth + 1u, true)) {
                 return false;
             }
+        }
+        if (initialize_virtual_bases &&
+            !lower_cxx_initialize_object_vtables(context, object, type)) {
+            return false;
         }
     }
     return true;
@@ -15173,7 +15278,7 @@ static bool lower_cxx_initialize_implicit_default_member_initializers(
         return false;
     }
     return lower_cxx_initialize_implicit_default_member_subobjects(
-        context, object, type, 0u);
+        context, object, type, 0u, true);
 }
 
 static RccIrLowerValue lower_cxx_new_array_expression(

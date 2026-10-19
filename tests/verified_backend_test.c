@@ -3984,6 +3984,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
     ObjSymbol* implicit_nested_dmi_fixed_symbol;
     ObjSymbol* implicit_base_dmi_symbol;
     ObjSymbol* implicit_base_dmi_fixed_symbol;
+    ObjSymbol* implicit_virtual_dmi_symbol;
+    ObjSymbol* implicit_virtual_dmi_fixed_symbol;
     ObjSymbol* implicit_array_dmi_symbol;
     ObjSymbol* implicit_array_dmi_fixed_symbol;
     ObjSymbol* implicit_ctor_member_dmi_symbol;
@@ -4033,6 +4035,10 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         object, "verified_cxx_partial_array_implicit_base_dmi");
     implicit_base_dmi_fixed_symbol = objfile_find_symbol(
         object, "verified_cxx_partial_array_implicit_base_dmi_fixed");
+    implicit_virtual_dmi_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_implicit_virtual_dmi");
+    implicit_virtual_dmi_fixed_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_implicit_virtual_dmi_fixed");
     implicit_array_dmi_symbol = objfile_find_symbol(
         object, "verified_cxx_partial_array_implicit_array_dmi");
     implicit_array_dmi_fixed_symbol = objfile_find_symbol(
@@ -4120,6 +4126,14 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
            implicit_base_dmi_fixed_symbol->type == SYM_GLOBAL &&
            implicit_base_dmi_fixed_symbol->binding == BIND_CODE &&
            implicit_base_dmi_fixed_symbol->section == 0 &&
+           implicit_virtual_dmi_symbol != NULL &&
+           implicit_virtual_dmi_symbol->type == SYM_GLOBAL &&
+           implicit_virtual_dmi_symbol->binding == BIND_CODE &&
+           implicit_virtual_dmi_symbol->section == 0 &&
+           implicit_virtual_dmi_fixed_symbol != NULL &&
+           implicit_virtual_dmi_fixed_symbol->type == SYM_GLOBAL &&
+           implicit_virtual_dmi_fixed_symbol->binding == BIND_CODE &&
+           implicit_virtual_dmi_fixed_symbol->section == 0 &&
            implicit_array_dmi_symbol != NULL &&
            implicit_array_dmi_symbol->type == SYM_GLOBAL &&
            implicit_array_dmi_symbol->binding == BIND_CODE &&
@@ -4175,6 +4189,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         int (RINOS_ABI *implicit_nested_dmi_fixed)(void);
         int (RINOS_ABI *implicit_base_dmi)(int);
         int (RINOS_ABI *implicit_base_dmi_fixed)(void);
+        int (RINOS_ABI *implicit_virtual_dmi)(int);
+        int (RINOS_ABI *implicit_virtual_dmi_fixed)(void);
         int (RINOS_ABI *implicit_array_dmi)(int);
         int (RINOS_ABI *implicit_array_dmi_fixed)(void);
         int (RINOS_ABI *implicit_ctor_member_dmi)(int);
@@ -4343,6 +4359,22 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         verified_partial_array_destructor_order = 0;
         verified_runtime_free_count = 0u;
         assert(implicit_base_dmi_fixed() == 0);
+        assert(verified_partial_array_destructor_order == 9);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, implicit_virtual_dmi_symbol);
+        memcpy(&implicit_virtual_dmi, &address,
+               sizeof(implicit_virtual_dmi));
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(implicit_virtual_dmi(2) == 2);
+        assert(verified_partial_array_destructor_order == 99);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, implicit_virtual_dmi_fixed_symbol);
+        memcpy(&implicit_virtual_dmi_fixed, &address,
+               sizeof(implicit_virtual_dmi_fixed));
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(implicit_virtual_dmi_fixed() == 0);
         assert(verified_partial_array_destructor_order == 9);
         assert(verified_runtime_free_count == 1u);
         address = symbol_address(memory, implicit_array_dmi_symbol);
