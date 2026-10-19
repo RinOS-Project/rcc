@@ -6929,8 +6929,7 @@ remains a separate open item.
 
 - [x] Lower side-effect-free scalar member initializers composed of literals,
       constructor parameters, arithmetic/bitwise/comparison/logical operators,
-      casts, and conditional expressions. Continue routing calls and
-      side-effecting expressions through the existing full backend path.
+      casts, and conditional expressions.
 - [x] Add a two-parameter constructor regression for `first + second` and
       `first * 2 - second`. `test-verified-cxx-reference-local` checks 15
       emitted functions, zero fallback, and execution for i686/AMD64 at
@@ -6945,7 +6944,13 @@ remains a separate open item.
       focused target passes i686/AMD64 at `-O0`/`-O2`, emits 17 verified
       functions with zero fallback, executes all four verified objects, and
       assembles/runs ordinary backend output.
+- [x] Lower comma expressions whose operands are in the supported initializer
+      subset, preserving left-to-right evaluation; the regression also checks
+      a side-effecting helper call before the comma's final scalar value.
+      `test-verified-cxx-reference-local` passes all i686/AMD64 `-O0`/`-O2`
+      verified-object and ordinary-backend checks.
 - [ ] Potentially-throwing or indirect calls, calls with temporary-producing
-      arguments, non-scalar/class-valued member initializers, arbitrary
-      constructor bodies, nontrivial copy constructors, and full-expression
-      cleanup beyond supported call arguments remain open.
+      arguments, parameter assignments/increments, non-scalar/class-valued
+      member initializers, arbitrary constructor bodies, nontrivial copy
+      constructors, and full-expression cleanup beyond supported call
+      arguments remain open.
