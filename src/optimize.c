@@ -1252,6 +1252,36 @@ static const Expr* inline_scalar_return_tree(const Stmt* statement,
     return conditional;
 }
 
+static Expr* inline_scalar_debug_const_expression(const Decl* declaration) {
+    Expr* expression;
+    if (!declaration || !declaration->type ||
+        !declaration->var_debug_const_value_valid) return NULL;
+    if (declaration->var_debug_const_value_float) {
+        if (declaration->var_debug_const_float_size == 4u) {
+            uint32_t bits = (uint32_t)declaration->var_debug_const_float_bits;
+            float value;
+            memcpy(&value, &bits, sizeof(value));
+            expression = expr_float((double)value, declaration->loc);
+        } else if (declaration->var_debug_const_float_size == 8u) {
+            uint64_t bits = declaration->var_debug_const_float_bits;
+            double value;
+            memcpy(&value, &bits, sizeof(value));
+            expression = expr_float(value, declaration->loc);
+        } else {
+            return NULL;
+        }
+    } else if (declaration->var_debug_const_value_unsigned) {
+        expression = expr_integer_literal(
+            declaration->var_debug_const_unsigned_value, 10u, true,
+            declaration->type->size > 4 ? 1u : 0u, declaration->loc);
+    } else {
+        expression = expr_int(declaration->var_debug_const_value,
+                              declaration->loc);
+    }
+    expression->type = declaration->type;
+    return expression;
+}
+
 /* Keep the multi-statement inline shape deliberately narrow.  A block may
  * contain only scalar, non-volatile automatic declarations with pure
  * initializers, direct side-effect-free assignments to locals, discarded
@@ -1280,6 +1310,16 @@ static bool collect_inline_scalar_body(
         if (!statement) return false;
         if (statement->kind == STMT_DECL) {
             const Decl* declaration = statement->decl;
+            const Expr* initializer = declaration
+                ? declaration->var_init : NULL;
+            if (!initializer && declaration &&
+                declaration->var_debug_const_value_valid) {
+                /* Dead-store elimination can remove a pure const initializer
+                 * before inline expansion; its saved value is sufficient to
+                 * reconstruct the side-effect-free scalar literal. */
+                initializer =
+                    inline_scalar_debug_const_expression(declaration);
+            }
             if (!declaration || declaration->kind != DECL_VAR ||
                 *returned != NULL ||
                 declaration->var_is_global ||
@@ -1288,7 +1328,7 @@ static bool collect_inline_scalar_body(
                 !declaration->name || declaration->name[0] == '\0' ||
                 !declaration->type || declaration->type->is_volatile ||
                 !type_is_scalar(declaration->type) ||
-                !declaration->var_init || declaration->var_cleanup ||
+                !initializer || declaration->var_cleanup ||
                 declaration->var_cleanups ||
                 *operation_count >= INLINE_SCALAR_BINDING_LIMIT) {
                 return false;
@@ -1296,7 +1336,7 @@ static bool collect_inline_scalar_body(
             operations[*operation_count].kind =
                 INLINE_SCALAR_LOCAL_INITIALIZER;
             operations[*operation_count].declaration = declaration;
-            operations[*operation_count].expression = declaration->var_init;
+            operations[*operation_count].expression = initializer;
             operations[*operation_count].assignment_operator = EXPR_INT_LIT;
             ++*operation_count;
             continue;

@@ -1540,6 +1540,19 @@ static void debug_collect_inline_files(const Module* mod,
                                parameter->decl->loc.filename);
             }
         }
+        if (call->callee && call->callee->func_body &&
+            call->callee->func_body->kind == STMT_BLOCK) {
+            for (const StmtList* local = call->callee->func_body->block_stmts;
+                 local; local = local->next) {
+                const Decl* declaration = local->stmt &&
+                    local->stmt->kind == STMT_DECL
+                    ? local->stmt->decl : NULL;
+                if (declaration && declaration->loc.line > 0) {
+                    debug_file_add(files, file_count, file_capacity,
+                                   declaration->loc.filename);
+                }
+            }
+        }
     }
 }
 
@@ -3895,6 +3908,13 @@ typedef struct DebugInlineOrigin {
     uint32_t die_offset;
 } DebugInlineOrigin;
 
+typedef struct DebugInlineLocalOrigin {
+    const Decl* function;
+    const Decl* declaration;
+    uint32_t die_offset;
+    struct DebugInlineLocalOrigin* next;
+} DebugInlineLocalOrigin;
+
 static DebugInlineOrigin* debug_inline_origin_find(
     DebugInlineOrigin* origins, size_t origin_count,
     const Decl* declaration) {
@@ -3905,12 +3925,128 @@ static DebugInlineOrigin* debug_inline_origin_find(
     return NULL;
 }
 
+static bool debug_inline_local_constant_supported(const Decl* declaration) {
+    const Type* type = declaration ? declaration->type : NULL;
+    if (!declaration || declaration->kind != DECL_VAR ||
+        !declaration->name || !declaration->name[0] ||
+        !declaration->loc.filename || declaration->loc.line <= 0 ||
+        declaration->loc.column < 0 || declaration->var_is_global ||
+        declaration->var_is_static_local ||
+        declaration->var_is_thread_local || declaration->var_is_vla ||
+        declaration->var_cleanup || declaration->var_cleanups || !type ||
+        !type->is_const || type->is_volatile || type->is_reference ||
+        !declaration->var_debug_const_value_valid) {
+        return false;
+    }
+    if (declaration->var_debug_const_value_float) {
+        return (type->kind == TYPE_FLOAT &&
+                declaration->var_debug_const_float_size == 4u) ||
+            (type->kind == TYPE_DOUBLE &&
+             declaration->var_debug_const_float_size == 8u);
+    }
+    return ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
+            type->kind == TYPE_ENUM) &&
+        type->size > 0 && type->size <= 8;
+}
+
+static DebugInlineLocalOrigin* debug_inline_local_origin_find(
+    DebugInlineLocalOrigin* origins, const Decl* function,
+    const Decl* declaration) {
+    for (; origins; origins = origins->next) {
+        if (origins->function == function &&
+            origins->declaration == declaration) return origins;
+    }
+    return NULL;
+}
+
+static void debug_emit_inline_local_origin(
+    ObjSection* info, ObjSection* strings, DebugTypeContext* types,
+    const char* const* files, int file_count, const Decl* function,
+    DebugInlineLocalOrigin** origins) {
+    const StmtList* item;
+    if (!info || !strings || !types || !function || !origins ||
+        !function->func_body ||
+        function->func_body->kind != STMT_BLOCK) return;
+    for (item = function->func_body->block_stmts; item; item = item->next) {
+        const Decl* local = item->stmt && item->stmt->kind == STMT_DECL
+            ? item->stmt->decl : NULL;
+        DebugTypeEntry* type_entry;
+        int file_index;
+        DebugInlineLocalOrigin* origin;
+        if (!debug_inline_local_constant_supported(local)) continue;
+        type_entry = debug_type_find(types, local->type);
+        file_index = debug_line_file_index(
+            files, file_count, local->loc.filename);
+        if (!type_entry || file_index <= 0 || info->size > UINT32_MAX) {
+            continue;
+        }
+        origin = rcc_alloc(sizeof(*origin));
+        origin->function = function;
+        origin->declaration = local;
+        origin->die_offset = (uint32_t)info->size;
+        origin->next = *origins;
+        *origins = origin;
+        /* Abbreviation 32 is the declaration-only form of a local variable:
+         * the abstract origin carries identity/type/source, while the
+         * concrete inlined instance below carries the actual constant. */
+        section_add_byte(info, 32u);
+        debug_line_u32(info, debug_str_add(strings, local->name));
+        debug_line_u32(info, type_entry->offset);
+        debug_line_u32(info, (uint32_t)file_index);
+        debug_line_u32(info, (uint32_t)local->loc.line);
+        debug_line_u32(info, (uint32_t)local->loc.column);
+    }
+}
+
+static void debug_emit_inline_local_instance(
+    ObjSection* info, DebugInlineLocalOrigin* origins,
+    const Decl* function, const Decl* declaration) {
+    DebugInlineLocalOrigin* origin = debug_inline_local_origin_find(
+        origins, function, declaration);
+    if (!info || !origin ||
+        !debug_inline_local_constant_supported(declaration)) return;
+    if (declaration->var_debug_const_value_float) {
+        section_add_byte(info, 62u);
+        debug_line_u32(info, origin->die_offset);
+        section_add_byte(info, declaration->var_debug_const_float_size);
+        for (uint8_t byte = 0u;
+             byte < declaration->var_debug_const_float_size; ++byte) {
+            section_add_byte(
+                info, (uint8_t)(declaration->var_debug_const_float_bits >>
+                                (byte * 8u)));
+        }
+    } else if (declaration->var_debug_const_value_unsigned) {
+        section_add_byte(info, 61u);
+        debug_line_u32(info, origin->die_offset);
+        debug_line_uleb(info,
+                        declaration->var_debug_const_unsigned_value);
+    } else {
+        section_add_byte(info, 60u);
+        debug_line_u32(info, origin->die_offset);
+        debug_line_sleb(info, declaration->var_debug_const_value);
+    }
+}
+
+static void debug_emit_inline_local_instances(
+    ObjSection* info, DebugInlineLocalOrigin* origins,
+    const Decl* function) {
+    if (!info || !function || !function->func_body ||
+        function->func_body->kind != STMT_BLOCK) return;
+    for (const StmtList* item = function->func_body->block_stmts;
+         item; item = item->next) {
+        const Decl* local = item->stmt && item->stmt->kind == STMT_DECL
+            ? item->stmt->decl : NULL;
+        debug_emit_inline_local_instance(info, origins, function, local);
+    }
+}
+
 static void debug_emit_inline_call_tree(
     ObjectFile* obj, ObjSection* info, const char* const* files,
     int file_count, const char* filename, int info_section,
     const Module* mod, const ModuleSymbol* function,
     const Decl* function_decl, DebugInlineOrigin* origins,
-    size_t origin_count, bool* emitted, size_t call_index) {
+    size_t origin_count, DebugInlineLocalOrigin* local_origins,
+    bool* emitted, size_t call_index) {
     const ModuleDebugInlineCall* call;
     DebugInlineOrigin* origin;
     uint64_t function_end;
@@ -3964,6 +4100,8 @@ static void debug_emit_inline_call_tree(
     debug_line_u32(info, (uint32_t)call->call_location.line);
     debug_line_u32(info, (uint32_t)call->call_location.column);
 
+    debug_emit_inline_local_instances(info, local_origins, call->callee);
+
     for (child_index = 0u;
          child_index < mod->debug_inline_call_count; ++child_index) {
         const ModuleDebugInlineCall* child =
@@ -3975,7 +4113,8 @@ static void debug_emit_inline_call_tree(
         }
         debug_emit_inline_call_tree(
             obj, info, files, file_count, filename, info_section, mod,
-            function, function_decl, origins, origin_count, emitted,
+            function, function_decl, origins, origin_count, local_origins,
+            emitted,
             child_index);
     }
     section_add_byte(info, 0u);
@@ -3986,7 +4125,7 @@ static void debug_emit_inline_calls(
     int file_count, const char* filename, int info_section,
     const Module* mod, const ModuleSymbol* function,
     const Decl* function_decl, DebugInlineOrigin* origins,
-    size_t origin_count) {
+    size_t origin_count, DebugInlineLocalOrigin* local_origins) {
     bool* emitted;
     if (!mod || mod->debug_inline_call_count == 0u) return;
     if (mod->debug_inline_call_count > SIZE_MAX / sizeof(*emitted)) {
@@ -4002,7 +4141,8 @@ static void debug_emit_inline_calls(
             call->parent_index_plus_one == 0u) {
             debug_emit_inline_call_tree(
                 obj, info, files, file_count, filename, info_section, mod,
-                function, function_decl, origins, origin_count, emitted,
+                function, function_decl, origins, origin_count,
+                local_origins, emitted,
                 index);
         }
     }
@@ -4015,7 +4155,8 @@ static void debug_emit_inline_calls(
         if (call->caller == function_decl && !emitted[index]) {
             debug_emit_inline_call_tree(
                 obj, info, files, file_count, filename, info_section, mod,
-                function, function_decl, origins, origin_count, emitted,
+                function, function_decl, origins, origin_count,
+                local_origins, emitted,
                 index);
         }
     }
@@ -4029,6 +4170,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     DebugTypeContext types = {0};
     DebugTypePatchContext type_patches = {0};
     DebugInlineOrigin* inline_origins = NULL;
+    DebugInlineLocalOrigin* inline_local_origins = NULL;
     size_t inline_origin_count = 0u;
     ObjSection* strings;
     ObjSection* abbrev;
@@ -4995,6 +5137,34 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
+    /* Concrete inlined scalar locals refer to their abstract declaration. */
+    debug_line_uleb(abbrev, 60u);
+    debug_line_uleb(abbrev, 0x34u);   /* DW_TAG_variable */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0du);   /* DW_FORM_sdata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 61u);
+    debug_line_uleb(abbrev, 0x34u);   /* DW_TAG_variable */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0fu);   /* DW_FORM_udata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 62u);
+    debug_line_uleb(abbrev, 0x34u);   /* DW_TAG_variable */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0au);   /* DW_FORM_block1 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
 
     unit_length_offset = info->size;
@@ -5089,7 +5259,10 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
             debug_line_u32(info, (uint32_t)declaration->loc.line);
             debug_line_u32(info, (uint32_t)declaration->loc.column);
         }
-        section_add_byte(info, 0u); /* end of abstract-origin parameters */
+        debug_emit_inline_local_origin(
+            info, strings, &types, files, file_count, callee,
+            &inline_local_origins);
+        section_add_byte(info, 0u); /* end of abstract-origin children */
     }
 
     for (DeclList* item = mod->debug_ast ? mod->debug_ast->decls : NULL;
@@ -5387,7 +5560,8 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
             g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86);
         debug_emit_inline_calls(
             obj, info, files, file_count, filename, info_section, mod,
-            function, function_decl, inline_origins, inline_origin_count);
+            function, function_decl, inline_origins, inline_origin_count,
+            inline_local_origins);
         section_add_byte(info, 0u);    /* end of subprogram children */
     }
     section_add_byte(info, 0u);        /* end of compile-unit children */
@@ -5400,6 +5574,11 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     rcc_free(functions);
     rcc_free(files);
     rcc_free(inline_origins);
+    while (inline_local_origins) {
+        DebugInlineLocalOrigin* next = inline_local_origins->next;
+        rcc_free(inline_local_origins);
+        inline_local_origins = next;
+    }
     debug_type_context_free(&types);
 }
 
