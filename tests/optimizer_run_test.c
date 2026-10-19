@@ -187,6 +187,7 @@ static void verify_smaller(const char* unoptimized_path,
         "inline_local_function_pointer_copy_call",
         "inline_local_function_pointer_chained_copy_call",
         "inline_local_function_pointer_reaching_copy_chain_call",
+        "inline_local_function_pointer_reaching_assignment_copy_chain_call",
         "inline_local_reassigned_function_pointer_call",
         "inline_local_branch_same_target_function_pointer_call",
         "inline_local_same_target_reassigned_function_pointer_call",
@@ -200,6 +201,7 @@ static void verify_smaller(const char* unoptimized_path,
         "inline_local_aliased_mutable_function_pointer_call",
         "inline_local_function_pointer_copy_after_alias_write_call",
         "inline_local_function_pointer_divergent_reaching_copy_call",
+        "inline_local_function_pointer_divergent_assignment_copy_call",
         "inline_local_aliased_mutable_function_pointer_array_call",
         "inline_local_branch_reassigned_function_pointer_call",
         "inline_local_mutated_function_pointer_array_call"
@@ -1052,6 +1054,8 @@ static void execute_inline_namespace_case(const char* path)
     SysvIntUnary local_function_pointer_chained_copy;
     SysvIntUnary local_function_pointer_reaching_copy_chain;
     SysvIntUnary local_function_pointer_divergent_reaching_copy;
+    SysvIntUnary local_function_pointer_reaching_assignment_copy_chain;
+    SysvIntUnary local_function_pointer_divergent_assignment_copy;
     SysvIntUnary local_function_pointer_copy_after_alias_write;
     SysvIntUnary local_mutable_pointer_array;
     SysvIntUnary local_aliased_mutable_pointer;
@@ -1144,6 +1148,18 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&local_function_pointer_divergent_reaching_copy, &address,
            sizeof(local_function_pointer_divergent_reaching_copy));
     symbol = function_symbol(
+        object,
+        "inline_local_function_pointer_reaching_assignment_copy_chain_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_reaching_assignment_copy_chain, &address,
+           sizeof(local_function_pointer_reaching_assignment_copy_chain));
+    symbol = function_symbol(
+        object,
+        "inline_local_function_pointer_divergent_assignment_copy_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_divergent_assignment_copy, &address,
+           sizeof(local_function_pointer_divergent_assignment_copy));
+    symbol = function_symbol(
         object, "inline_local_function_pointer_copy_after_alias_write_call");
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_function_pointer_copy_after_alias_write, &address,
@@ -1184,6 +1200,9 @@ static void execute_inline_namespace_case(const char* path)
     assert(local_function_pointer_reaching_copy_chain(5) == 11);
     assert(local_function_pointer_divergent_reaching_copy(-5) == -19);
     assert(local_function_pointer_divergent_reaching_copy(5) == 28);
+    assert(local_function_pointer_reaching_assignment_copy_chain(5) == 11);
+    assert(local_function_pointer_divergent_assignment_copy(-5) == -19);
+    assert(local_function_pointer_divergent_assignment_copy(5) == 28);
     assert(local_function_pointer_copy_after_alias_write(5) == 11);
     assert(local_mutable_pointer_array(5) == 11);
     symbol = function_symbol(object, "inline_function_pointer_parameter_call");
@@ -1430,6 +1449,8 @@ static void execute_inline_namespace_case(const char* path)
     int (*local_function_pointer_chained_copy)(int);
     int (*local_function_pointer_reaching_copy_chain)(int);
     int (*local_function_pointer_divergent_reaching_copy)(int);
+    int (*local_function_pointer_reaching_assignment_copy_chain)(int);
+    int (*local_function_pointer_divergent_assignment_copy)(int);
     int (*local_function_pointer_copy_after_alias_write)(int);
     int (*local_mutable_pointer_array)(int);
     int (*local_aliased_mutable_pointer)(int);
@@ -1520,6 +1541,18 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&local_function_pointer_divergent_reaching_copy, &address,
            sizeof(local_function_pointer_divergent_reaching_copy));
     symbol = function_symbol(
+        object,
+        "inline_local_function_pointer_reaching_assignment_copy_chain_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_reaching_assignment_copy_chain, &address,
+           sizeof(local_function_pointer_reaching_assignment_copy_chain));
+    symbol = function_symbol(
+        object,
+        "inline_local_function_pointer_divergent_assignment_copy_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_divergent_assignment_copy, &address,
+           sizeof(local_function_pointer_divergent_assignment_copy));
+    symbol = function_symbol(
         object, "inline_local_function_pointer_copy_after_alias_write_call");
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_function_pointer_copy_after_alias_write, &address,
@@ -1565,6 +1598,9 @@ static void execute_inline_namespace_case(const char* path)
     assert(local_function_pointer_reaching_copy_chain(5) == 11);
     assert(local_function_pointer_divergent_reaching_copy(-5) == -19);
     assert(local_function_pointer_divergent_reaching_copy(5) == 28);
+    assert(local_function_pointer_reaching_assignment_copy_chain(5) == 11);
+    assert(local_function_pointer_divergent_assignment_copy(-5) == -19);
+    assert(local_function_pointer_divergent_assignment_copy(5) == 28);
     assert(local_function_pointer_copy_after_alias_write(5) == 11);
     assert(local_mutable_pointer_array(5) == 11);
     assert(local_mutable_pointer_array_dynamic(0, 5) == 28);

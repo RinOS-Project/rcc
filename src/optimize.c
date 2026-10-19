@@ -2284,8 +2284,10 @@ static bool inline_statement_preserves_function_pointer_target(
             assigned_target =
                 resolve_inline_function_pointer_initializer_or_local_copy(
                     variable->type, expression->binary_rhs);
-            return assigned_target != NULL &&
-                   (!target || assigned_target == target);
+            if (target) return assigned_target == target;
+            return expression->binary_rhs->type &&
+                   type_is_compatible(variable->type,
+                                      expression->binary_rhs->type);
         }
         case STMT_BLOCK:
             for (const StmtList* item = statement->block_stmts; item;
@@ -6719,7 +6721,7 @@ static void optimize_stmt(Stmt* statement) {
                 if (statement->expr &&
                     statement->expr->kind == EXPR_ASSIGN) {
                     assigned_target =
-                        resolve_inline_function_pointer_initializer_or_local_copy(
+                        resolve_inline_function_pointer_initializer_or_fact(
                             assigned_variable->type,
                             statement->expr->binary_rhs);
                 }
