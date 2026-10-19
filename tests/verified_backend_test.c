@@ -4685,7 +4685,7 @@ static void verify_cxx_throwing_temporary_object(
                cleanup_order == 5);
         address = symbol_address(memory, normal_cleanup_symbol);
         memcpy(&no_arguments, &address, sizeof(no_arguments));
-        assert(no_arguments() == 65);
+        assert(no_arguments() == 65707);
         address = symbol_address(memory, throwing_initializer_symbol);
         memcpy(&integer_argument, &address, sizeof(integer_argument));
         assert(integer_argument(1) == 560);

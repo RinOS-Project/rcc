@@ -12,6 +12,15 @@ struct VerifiedThrowingTemporary {
     }
 };
 
+struct VerifiedThrowingTemporaryConversionSource {
+    int* cleanup_order;
+    int cleanup_id;
+
+    operator VerifiedThrowingTemporary() const noexcept {
+        return {cleanup_order, cleanup_id, {cleanup_id + 1}};
+    }
+};
+
 struct VerifiedFirstConstructorMember {
     int* cleanup_order;
 
@@ -133,13 +142,24 @@ extern "C" int verified_cxx_throwing_conditional_cleanup(
 extern "C" int verified_cxx_local_reference_normal_cleanup() {
     int cleanup_order = 0;
     int result = 0;
+    int nested_result;
+    int conversion_observation;
     {
         const int& value =
             make_verified_throwing_temporary(
                 &cleanup_order, 5).nested.value;
         result = value + cleanup_order * 10;
     }
-    return result * 10 + cleanup_order;
+    nested_result = result * 10 + cleanup_order;
+    cleanup_order = 0;
+    {
+        VerifiedThrowingTemporaryConversionSource source{
+            &cleanup_order, 7};
+        const VerifiedThrowingTemporary& value = source;
+        conversion_observation = value.cleanup_id * 10 + cleanup_order;
+    }
+    return nested_result * 1000 + conversion_observation * 10 +
+           cleanup_order;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {

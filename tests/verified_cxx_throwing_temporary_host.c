@@ -66,9 +66,9 @@ int main(void) {
         return 6;
     }
     result = verified_cxx_local_reference_normal_cleanup();
-    if (result != 65) {
+    if (result != 65707) {
         fprintf(stderr,
-                "normal nested-subobject reference cleanup returned %d, expected 65\n",
+                "normal nested/conversion reference cleanup returned %d, expected 65707\n",
                 result);
         return 7;
     }
