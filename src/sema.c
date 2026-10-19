@@ -7653,6 +7653,7 @@ static bool sema_eval_constexpr_scalar_expr(
     int binding_count, SemaConstexprScalar* value) {
     SemaConstexprScalar left;
     SemaConstexprScalar right;
+    SemaConstexprScalar selected;
     Type* result_type;
     Type* measured;
     int64_t integer;
@@ -8167,11 +8168,20 @@ static bool sema_eval_constexpr_scalar_expr(
                                                   &left)) return false;
             if (left.is_floating ? left.floating_value != 0.0
                                  : left.integer_value != 0) {
-                return sema_eval_constexpr_scalar_expr(
-                    expression->cond_then, bindings, binding_count, value);
+                if (!sema_eval_constexpr_scalar_expr(
+                        expression->cond_then, bindings, binding_count,
+                        &selected)) return false;
+            } else if (!sema_eval_constexpr_scalar_expr(
+                           expression->cond_else, bindings, binding_count,
+                           &selected)) {
+                return false;
             }
-            return sema_eval_constexpr_scalar_expr(
-                expression->cond_else, bindings, binding_count, value);
+            if (!expression->type) {
+                *value = selected;
+                return true;
+            }
+            return sema_constexpr_scalar_convert(
+                &selected, expression->type, value);
         case EXPR_COMMA:
             if (!sema_eval_constexpr_scalar_expr(expression->binary_lhs,
                                                   bindings, binding_count,

@@ -6617,3 +6617,12 @@ remains a separate open item.
 - [ ] Explicit/non-trivial intermediate virtual-base destructor graphs,
       user-defined subobject constructors beyond the validated subset, and
       throwing DMI construction/unwind remain open.
+
+## RCC continuation (2026-10-19, constexpr conditional result conversions)
+
+- [x] Convert the selected scalar operand of a conditional expression to the
+      conditional expression's resolved type during constexpr evaluation.
+      A regression where the selected `int` arm is combined with an unselected
+      `unsigned int` arm confirms the later comparison uses the required
+      unsigned conversion; GCC C++20 agrees, and `test-cxx-constexpr` passes
+      for i686 and AMD64 with native x64 execution.

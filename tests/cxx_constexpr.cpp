@@ -164,10 +164,13 @@ constexpr int constexpr_dynamic_aggregate_array =
     dynamic_aggregate_array_value();
 constexpr int constexpr_dynamic_template_aggregate =
     dynamic_template_aggregate_value();
+constexpr bool constexpr_conditional_unsigned_comparison =
+    (true ? -1 : 0u) < 0;
 
 static_assert(constexpr_dynamic_aggregate == 42);
 static_assert(constexpr_dynamic_aggregate_array == 5);
 static_assert(constexpr_dynamic_template_aggregate == 42);
+static_assert(!constexpr_conditional_unsigned_comparison);
 
 int main(void) {
     return constexpr_global == 27 && constexpr_local == 27 &&
@@ -184,6 +187,7 @@ int main(void) {
                    constexpr_dynamic_aggregate == 42 &&
                    constexpr_dynamic_aggregate_array == 5 &&
                    constexpr_dynamic_template_aggregate == 42 &&
+                   !constexpr_conditional_unsigned_comparison &&
                    dynamic_aggregate_value() == 42 &&
                    dynamic_aggregate_array_value() == 5
                ? 0 : 1;
