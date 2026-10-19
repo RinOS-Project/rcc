@@ -6683,3 +6683,14 @@ remains a separate open item.
       and a conditional expression retaining its unsigned result type. GCC
       accepts all three `static_assert`s; `make SHELL=cmd.exe
       test-cxx-constexpr` passes for i686/AMD64 generation and x64 execution.
+
+## RCC continuation (2026-10-19, cv-qualified derived-pointer ranking)
+
+- [x] Rank a derived-to-base pointer conversion ahead of a pointer-to-`void`
+      conversion even when only the base-pointer target adds pointee
+      qualification. Cover both direct standard conversions and trailing
+      standard conversions after the same user-defined conversion function.
+      GCC C++20 agrees; `test-cxx-conversion-operator` passes for i686/AMD64
+      code generation and native x64 execution.
+- [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
+      and full C++20 overload-resolution conformance remain open.

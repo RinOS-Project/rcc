@@ -696,6 +696,15 @@ int choose_pointer_conversion(void*) {
     return 73;
 }
 
+int choose_cv_base_pointer_or_void(
+    const ConversionBasePointerTarget*) {
+    return 281;
+}
+
+int choose_cv_base_pointer_or_void(void*) {
+    return 283;
+}
+
 int choose_pointer_to_bool_or_void(bool) {
     return 227;
 }
@@ -1034,6 +1043,8 @@ int main() {
         read_conversion_reference_base(reference_ranking_source) != 83 ||
         take_long(object_vs_result_source) != 103 ||
         choose_pointer_conversion(pointer_source) != 71 ||
+        choose_cv_base_pointer_or_void(pointer_source.value) != 281 ||
+        choose_cv_base_pointer_or_void(pointer_source) != 281 ||
         choose_pointer_to_bool_or_void(pointer_source) != 229 ||
         choose_pointer_void_qualification(pointer_source) != 271 ||
         static_cast<void*>(pointer_void_result_source) !=
