@@ -17725,19 +17725,38 @@ static RccIrLowerValue lower_compound_literal_address(
         allocation->result, rcc_ir_type_pointer(0u), true);
 }
 
-static bool lower_vla_object_type_supported(const Type* type) {
+static bool lower_vla_object_type_supported_internal(
+    const Type* type, unsigned depth) {
     RccIrType lower_type_result;
-    if (!type || type->align <= 0 || type->align > 4096 ||
+    const TypeField* field;
+    if (!type || depth >= 32u || type->align <= 0 || type->align > 4096 ||
         (type->align & (type->align - 1)) != 0 || type->is_volatile) {
         return false;
     }
     if (type->kind == TYPE_ARRAY) {
         return type->base && !type->array_unspecified_bound &&
             (type->array_bound || type->array_len > 0) &&
-            lower_vla_object_type_supported(type->base);
+            lower_vla_object_type_supported_internal(
+                type->base, depth + 1u);
     }
-    return type->size > 0 && lower_type(type, &lower_type_result) &&
+    if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
+        if (type->cxx_class || type->cleanup_function ||
+            !lower_storage_type_supported_internal(type, 0u)) {
+            return false;
+        }
+        for (field = type->fields; field; field = field->next) {
+            if (!lower_vla_object_type_supported_internal(
+                    field->type, depth + 1u)) return false;
+        }
+        return true;
+    }
+    return type->size > 0 && !type->cleanup_function &&
+        lower_type(type, &lower_type_result) &&
         lower_type_result.kind != RCC_IR_TYPE_VOID;
+}
+
+static bool lower_vla_object_type_supported(const Type* type) {
+    return lower_vla_object_type_supported_internal(type, 0u);
 }
 
 static bool lower_supported_vla_declaration(

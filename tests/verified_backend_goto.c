@@ -345,6 +345,27 @@ int verified_goto_vla_multiple_runtime_dimensions(int rows, int cols)
     return values[1][2];
 }
 
+int verified_goto_vla_fixed_array_of_structs(int count)
+{
+    struct VerifiedVlaCell {
+        int value;
+        short bias;
+    } cells[count][2];
+    cells[0][1].value = 31;
+    cells[count - 1][0].bias = 11;
+    return cells[0][1].value + cells[count - 1][0].bias;
+}
+
+int verified_goto_vla_union_elements(int count)
+{
+    union VerifiedVlaCell {
+        int value;
+        short halves[2];
+    } cells[count];
+    cells[count - 1].value = 37;
+    return cells[count - 1].value;
+}
+
 int verified_goto_vla_continue(int count, int rounds)
 {
     int total = 0;
@@ -458,5 +479,7 @@ int main(void)
     if (verified_goto_vla_multiple_runtime_dimensions(4, 5) != 73) {
         return 49;
     }
+    if (verified_goto_vla_fixed_array_of_structs(4) != 42) return 50;
+    if (verified_goto_vla_union_elements(4) != 37) return 51;
     return 0;
 }
