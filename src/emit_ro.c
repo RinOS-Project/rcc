@@ -4138,19 +4138,26 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
     const Type* argument_type;
     const ModuleSymbol* symbol;
     uint8_t address_size;
+    bool function_designator = false;
     if (scoped_symbol) *scoped_symbol = NULL;
     if (!mod || !filename || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner || !scoped_symbol) {
         return NULL;
     }
     address = argument->expr;
-    if (address->kind != EXPR_ADDR || !address->unary_operand ||
-        address->unary_operand->kind != EXPR_IDENT ||
-        !address->unary_operand->ident_decl) {
+    if (address->kind == EXPR_ADDR && address->unary_operand &&
+        address->unary_operand->kind == EXPR_IDENT &&
+        address->unary_operand->ident_decl) {
+        operand = address->unary_operand;
+        source = operand->ident_decl;
+    } else if (address->kind == EXPR_IDENT && address->ident_decl &&
+               address->ident_decl->kind == DECL_FUNC) {
+        operand = address;
+        source = operand->ident_decl;
+        function_designator = true;
+    } else {
         return NULL;
     }
-    operand = address->unary_operand;
-    source = operand->ident_decl;
     parameter_type = value->declaration->type;
     argument_type = address->type;
     address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
@@ -4160,10 +4167,20 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
         parameter_type->cxx_is_member_pointer ||
         parameter_type->size != address_size || parameter_type->is_volatile ||
         parameter_type->is_reference || parameter_type->is_atomic ||
-        !argument_type || argument_type->kind != TYPE_PTR ||
-        argument_type->cxx_is_member_pointer ||
-        argument_type->size != address_size ||
         !debug_inline_parameter_body_is_read_only(callee)) {
+        return NULL;
+    }
+    if (function_designator) {
+        if (!parameter_type->base ||
+            parameter_type->base->kind != TYPE_FUNC || !argument_type ||
+            (argument_type->kind != TYPE_FUNC &&
+             (argument_type->kind != TYPE_PTR || !argument_type->base ||
+              argument_type->base->kind != TYPE_FUNC))) {
+            return NULL;
+        }
+    } else if (!argument_type || argument_type->kind != TYPE_PTR ||
+               argument_type->cxx_is_member_pointer ||
+               argument_type->size != address_size) {
         return NULL;
     }
     if (source->kind == DECL_VAR && source->var_is_global) {

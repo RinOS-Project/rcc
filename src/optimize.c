@@ -1544,6 +1544,12 @@ static bool inline_scalar_expression_shape(
 
 static bool inline_scalar_parameter_conversion(
     Type* parameter_type, Type* argument_type) {
+    bool function_pointer_decay = parameter_type && argument_type &&
+        parameter_type->kind == TYPE_PTR &&
+        !parameter_type->cxx_is_member_pointer && parameter_type->base &&
+        parameter_type->base->kind == TYPE_FUNC &&
+        argument_type->kind == TYPE_FUNC &&
+        type_is_compatible(parameter_type->base, argument_type);
     bool integer_conversion = parameter_type && argument_type &&
         (type_is_integer(parameter_type) ||
          parameter_type->kind == TYPE_ENUM) &&
@@ -1558,9 +1564,14 @@ static bool inline_scalar_parameter_conversion(
          (parameter_type->kind == TYPE_DOUBLE && parameter_type->size == 8)) &&
         ((argument_type->kind == TYPE_FLOAT && argument_type->size == 4) ||
          (argument_type->kind == TYPE_DOUBLE && argument_type->size == 8));
+    if (function_pointer_decay) {
+        return !parameter_type->is_volatile &&
+            !parameter_type->is_reference && !parameter_type->is_atomic &&
+            !argument_type->is_volatile &&
+            !argument_type->is_reference && !argument_type->is_atomic;
+    }
     return parameter_type && argument_type &&
-        (integer_conversion || null_pointer_conversion ||
-         floating_conversion) &&
+        (integer_conversion || null_pointer_conversion || floating_conversion) &&
         !parameter_type->is_volatile && !parameter_type->is_reference &&
         !parameter_type->is_atomic && !argument_type->is_volatile &&
         !argument_type->is_reference && !argument_type->is_atomic &&

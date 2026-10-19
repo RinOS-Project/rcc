@@ -164,6 +164,12 @@ int debug_inline_function_address_constant_entry(void)
         &debug_inline_addressed_function_target);
 }
 
+int debug_inline_function_designator_constant_entry(void)
+{
+    return debug_function_pointer_parameter_inline(
+        debug_inline_addressed_function_target);
+}
+
 int debug_inline_static_pointer_entry(void)
 {
     static int* debug_inline_static_pointer_source;
