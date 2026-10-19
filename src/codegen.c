@@ -16480,7 +16480,10 @@ static void codegen_assign_compound_stmt(Stmt* statement, int* bytes,
                 Decl* declaration = statement->decl;
                 Type* type = declaration->type;
                 Expr* temporary_source =
-                    gen_reference_temporary_source(declaration->var_init);
+                    declaration->var_reference_temporary_source
+                        ? declaration->var_reference_temporary_source
+                        : gen_reference_temporary_source(
+                              declaration->var_init);
                 Expr* temporary_initializer = temporary_source
                     ? temporary_source : declaration->var_init;
                 Type* temporary_type = type && type->is_reference
@@ -19215,7 +19218,9 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                 if (d->var_init &&
                     d->var_reference_temporary_offset < 0) {
                     Expr* temporary_source =
-                        gen_reference_temporary_source(d->var_init);
+                        d->var_reference_temporary_source
+                            ? d->var_reference_temporary_source
+                            : gen_reference_temporary_source(d->var_init);
                     Expr* initializer = temporary_source
                         ? temporary_source : d->var_init;
                     Type* temporary_type = d->var_reference_temporary_owner
@@ -19256,11 +19261,28 @@ static void gen_stmt(Module* mod, Stmt* stmt) {
                             mod, temporary_type, EBP,
                             d->var_reference_temporary_offset);
                     }
-                    emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
-                    emit_byte(mod, modrm(2, EAX, EBP));
-                    emit_dword(mod,
-                               (uint32_t)d->var_reference_temporary_offset);
-                    gen_cxx_reference_adjustment32_force(mod, d->var_init);
+                    if (d->var_reference_temporary_source) {
+                        bool replaced = false;
+                        Expr* subobject =
+                            gen_static_reference_subobject_rebase32(
+                                d->var_init,
+                                d->var_reference_temporary_source,
+                                d->var_reference_temporary_owner,
+                                &replaced);
+                        if (!subobject || !replaced) {
+                            rcc_error(d->loc,
+                                      "cannot rebase local reference subobject for '%s'",
+                                      d->name);
+                            return;
+                        }
+                        gen_lvalue(mod, subobject);
+                    } else {
+                        emit_byte(mod, 0x8D);  /* LEA EAX, [EBP+disp32] */
+                        emit_byte(mod, modrm(2, EAX, EBP));
+                        emit_dword(mod,
+                                   (uint32_t)d->var_reference_temporary_offset);
+                        gen_cxx_reference_adjustment32_force(mod, d->var_init);
+                    }
                     emit_store_typed32(mod, EBP, d->var_offset, EAX, d->type);
                 } else if (d->var_init &&
                            !gen_local_initializer(mod, d->type, d->var_init,

@@ -12988,7 +12988,9 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                 if (d->var_init &&
                     d->var_reference_temporary_offset < 0) {
                     Expr* temporary_source =
-                        gen64_reference_temporary_source(d->var_init);
+                        d->var_reference_temporary_source
+                            ? d->var_reference_temporary_source
+                            : gen64_reference_temporary_source(d->var_init);
                     Expr* initializer = temporary_source
                         ? temporary_source : d->var_init;
                     Type* temporary_type = d->var_reference_temporary_owner
@@ -13031,9 +13033,26 @@ static void gen64_stmt(Module* mod, Stmt* stmt) {
                             mod, temporary_type, RBP,
                             d->var_reference_temporary_offset);
                     }
-                    emit64_lea(mod, RAX, RBP,
-                               d->var_reference_temporary_offset);
-                    gen64_cxx_reference_adjustment_force(mod, d->var_init);
+                    if (d->var_reference_temporary_source) {
+                        bool replaced = false;
+                        Expr* subobject =
+                            gen64_static_reference_subobject_rebase(
+                                d->var_init,
+                                d->var_reference_temporary_source,
+                                d->var_reference_temporary_owner,
+                                &replaced);
+                        if (!subobject || !replaced) {
+                            rcc_error(d->loc,
+                                      "cannot rebase local reference subobject for '%s'",
+                                      d->name);
+                            return;
+                        }
+                        gen64_lvalue(mod, subobject);
+                    } else {
+                        emit64_lea(mod, RAX, RBP,
+                                   d->var_reference_temporary_offset);
+                        gen64_cxx_reference_adjustment_force(mod, d->var_init);
+                    }
                     emit64_store_typed(mod, RBP, d->var_offset, RAX, d->type);
                 } else if (d->var_init &&
                            !gen64_local_initializer(mod, d->type, d->var_init,

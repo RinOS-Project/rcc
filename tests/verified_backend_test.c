@@ -4665,12 +4665,12 @@ static void verify_cxx_throwing_temporary_object(
                sizeof(cleanup_order_argument));
         cleanup_order = 0;
         result = cleanup_order_argument(&cleanup_order);
-        if (result != 533 || cleanup_order != 3) {
+        if (result != 5303 || cleanup_order != 3) {
             fprintf(stderr,
-                    "verified direct throwing-reference cleanup returned %d/order %d, expected 533/order 3\n",
+                    "verified throwing subobject-reference cleanup returned %d/order %d, expected 5303/order 3\n",
                     result, cleanup_order);
         }
-        assert(result == 533 && cleanup_order == 3);
+        assert(result == 5303 && cleanup_order == 3);
         address = symbol_address(memory, conditional_throw_symbol);
         memcpy(&conditional_arguments, &address,
                sizeof(conditional_arguments));
@@ -4685,7 +4685,7 @@ static void verify_cxx_throwing_temporary_object(
                cleanup_order == 5);
         address = symbol_address(memory, normal_cleanup_symbol);
         memcpy(&no_arguments, &address, sizeof(no_arguments));
-        assert(no_arguments() == 55);
+        assert(no_arguments() == 65);
         address = symbol_address(memory, throwing_initializer_symbol);
         memcpy(&integer_argument, &address, sizeof(integer_argument));
         assert(integer_argument(1) == 560);

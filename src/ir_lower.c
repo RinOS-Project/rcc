@@ -7848,25 +7848,33 @@ static bool lower_scope_cleanup_declaration_supported(
     const Decl* declaration) {
     const Decl* array_indices[32];
     const Decl* cleanup_owner = declaration;
+    const Decl* reference_owner = declaration
+        ? declaration->var_reference_temporary_owner : NULL;
+    const Expr* reference_source = declaration
+        ? declaration->var_reference_temporary_source : NULL;
     bool reference_temporary = declaration && declaration->type &&
         declaration->type->kind == TYPE_PTR &&
         declaration->type->is_reference &&
-        declaration->var_reference_temporary_owner &&
-        declaration->var_reference_temporary_owner->type &&
-        declaration->var_reference_temporary_owner->type->kind ==
-            TYPE_STRUCT &&
+        reference_owner && reference_owner->type &&
+        (reference_owner->type->kind == TYPE_STRUCT ||
+         reference_owner->type->kind == TYPE_UNION) &&
         declaration->type->base &&
-        type_is_compatible(
-            declaration->type->base,
-            declaration->var_reference_temporary_owner->type) &&
-        type_is_compatible(
-            declaration->var_reference_temporary_owner->type,
-            declaration->type->base) &&
+        (reference_source
+             ? (reference_source->type &&
+                (reference_source->type->kind == TYPE_STRUCT ||
+                 reference_source->type->kind == TYPE_UNION) &&
+                type_is_compatible(reference_source->type,
+                                   reference_owner->type) &&
+                type_is_compatible(reference_owner->type,
+                                   reference_source->type))
+             : (type_is_compatible(declaration->type->base,
+                                   reference_owner->type) &&
+                type_is_compatible(reference_owner->type,
+                                   declaration->type->base))) &&
         !declaration->var_is_global &&
         !declaration->var_is_static_local &&
         !declaration->var_is_thread_local &&
         !declaration->var_is_block_extern &&
-        !declaration->var_reference_temporary_source &&
         declaration->var_init;
     if (!declaration || declaration->kind != DECL_VAR ||
         declaration->var_cleanup || !declaration->var_cleanups ||
@@ -18422,6 +18430,95 @@ static RccIrLowerValue lower_supported_vla_byte_size(
     return result;
 }
 
+static Expr* lower_rebase_reference_temporary_subobject(
+    const Expr* expression, const Expr* complete_object,
+    const Decl* owner, bool* replaced) {
+    Expr* copy;
+    bool child_replaced = false;
+    if (replaced) *replaced = false;
+    if (!expression || !complete_object || !owner || !replaced) return NULL;
+    if (expression == complete_object) {
+        copy = expr_ident(owner->name, expression->loc);
+        copy->ident_decl = (Decl*)owner;
+        copy->type = owner->type;
+        *replaced = true;
+        return copy;
+    }
+    switch (expression->kind) {
+        case EXPR_MEMBER:
+        case EXPR_PTR_MEMBER:
+            copy = rcc_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->member_base = lower_rebase_reference_temporary_subobject(
+                expression->member_base, complete_object, owner,
+                &child_replaced);
+            if (!copy->member_base || !child_replaced) {
+                return (Expr*)expression;
+            }
+            *replaced = true;
+            return copy;
+        case EXPR_CXX_MEMBER_PTR_DOT:
+            copy = rcc_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->binary_lhs = lower_rebase_reference_temporary_subobject(
+                expression->binary_lhs, complete_object, owner,
+                &child_replaced);
+            if (!copy->binary_lhs || !child_replaced) {
+                return (Expr*)expression;
+            }
+            *replaced = true;
+            return copy;
+        case EXPR_CAST:
+            copy = rcc_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->cast_expr = lower_rebase_reference_temporary_subobject(
+                expression->cast_expr, complete_object, owner,
+                &child_replaced);
+            if (!copy->cast_expr || !child_replaced) {
+                return (Expr*)expression;
+            }
+            *replaced = true;
+            return copy;
+        case EXPR_COMMA: {
+            bool right_replaced = false;
+            copy = rcc_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->binary_lhs = lower_rebase_reference_temporary_subobject(
+                expression->binary_lhs, complete_object, owner,
+                &child_replaced);
+            copy->binary_rhs = lower_rebase_reference_temporary_subobject(
+                expression->binary_rhs, complete_object, owner,
+                &right_replaced);
+            if (!copy->binary_lhs || !copy->binary_rhs ||
+                (!child_replaced && !right_replaced)) {
+                return (Expr*)expression;
+            }
+            *replaced = true;
+            return copy;
+        }
+        case EXPR_COND: {
+            bool then_replaced = false;
+            bool else_replaced = false;
+            copy = rcc_alloc(sizeof(*copy));
+            *copy = *expression;
+            copy->cond_then = lower_rebase_reference_temporary_subobject(
+                expression->cond_then, complete_object, owner,
+                &then_replaced);
+            copy->cond_else = lower_rebase_reference_temporary_subobject(
+                expression->cond_else, complete_object, owner,
+                &else_replaced);
+            if (!copy->cond_then || !copy->cond_else ||
+                (!then_replaced && !else_replaced)) {
+                return (Expr*)expression;
+            }
+            *replaced = true;
+            return copy;
+        }
+        default:
+            return (Expr*)expression;
+    }
+}
+
 static bool lower_declaration(RccIrLowerContext* context,
                               const Decl* declaration) {
     RccIrType type = rcc_ir_type_void();
@@ -18627,6 +18724,8 @@ static bool lower_declaration(RccIrLowerContext* context,
         RccIrLowerValue initializer;
         Expr target;
         if (declaration->type->is_reference) {
+            const Expr* temporary_source =
+                declaration->var_reference_temporary_source;
             if (!lower_mark_wide_local_address_escaped(
                     context, declaration->var_init)) {
                 return false;
@@ -18634,21 +18733,23 @@ static bool lower_declaration(RccIrLowerContext* context,
             if (declaration->var_reference_temporary_owner) {
                 const Decl* owner =
                     declaration->var_reference_temporary_owner;
-                if (declaration->var_reference_temporary_source ||
-                    !declaration->var_init->type || !owner->type ||
-                    declaration->var_init->type->kind != TYPE_STRUCT ||
+                const Expr* owner_initializer = temporary_source
+                    ? temporary_source : declaration->var_init;
+                if (!owner_initializer || !owner_initializer->type ||
+                    !owner->type ||
+                    (owner_initializer->type->kind != TYPE_STRUCT &&
+                     owner_initializer->type->kind != TYPE_UNION) ||
                     !type_is_compatible(
-                        declaration->var_init->type, owner->type) ||
+                        owner_initializer->type, owner->type) ||
                     !type_is_compatible(
-                        owner->type, declaration->var_init->type)) {
+                        owner->type, owner_initializer->type)) {
                     context->unsupported = true;
                     return false;
                 }
                 /* Materialize the complete prvalue object, keep its address
-                 * in the synthetic owner local used by the cleanup plan.
-                 * The owner local is object storage, not a pointer slot, so
-                 * both normal cleanup and exception cleanup receive the
-                 * complete object's address. */
+                 * in the synthetic owner local used by the cleanup plan,
+                 * and project a reference-bound subobject from that owner
+                 * when the initializer names one. */
                 {
                     bool previous_conditional_permission =
                         context->allow_nontrivial_temporary_conditional;
@@ -18661,14 +18762,11 @@ static bool lower_declaration(RccIrLowerContext* context,
                             context, owner);
                     if (!owner_storage.valid) return false;
                     context->allow_nontrivial_temporary_conditional = true;
-                    if (declaration->var_init->kind == EXPR_CALL ||
-                        declaration->var_init->kind == EXPR_COND) {
-                        context->aggregate_result_destination_expression =
-                            declaration->var_init;
-                        context->aggregate_result_destination = owner_storage;
-                    }
+                    context->aggregate_result_destination_expression =
+                        owner_initializer;
+                    context->aggregate_result_destination = owner_storage;
                     initializer = lower_expression(
-                        context, declaration->var_init);
+                        context, owner_initializer);
                     context->allow_nontrivial_temporary_conditional =
                         previous_conditional_permission;
                     context->aggregate_result_destination_expression =
@@ -18690,6 +18788,23 @@ static bool lower_declaration(RccIrLowerContext* context,
                     initializer.type.kind != RCC_IR_TYPE_POINTER) {
                     context->unsupported = true;
                     return false;
+                }
+                if (temporary_source) {
+                    bool replaced = false;
+                    Expr* subobject =
+                        lower_rebase_reference_temporary_subobject(
+                            declaration->var_init, temporary_source, owner,
+                            &replaced);
+                    if (!subobject || !replaced) {
+                        context->unsupported = true;
+                        return false;
+                    }
+                    initializer = lower_lvalue_address(context, subobject);
+                    if (!initializer.valid || initializer.type.kind !=
+                            RCC_IR_TYPE_POINTER) {
+                        context->unsupported = true;
+                        return false;
+                    }
                 }
             } else {
                 initializer = lower_lvalue_address(

@@ -1,6 +1,11 @@
+struct VerifiedThrowingTemporaryNested {
+    int value;
+};
+
 struct VerifiedThrowingTemporary {
     int* cleanup_order;
     int cleanup_id;
+    VerifiedThrowingTemporaryNested nested;
 
     ~VerifiedThrowingTemporary() noexcept {
         *cleanup_order = *cleanup_order * 10 + cleanup_id;
@@ -59,7 +64,7 @@ struct VerifiedThrowingConstructorTemporary {
 
 VerifiedThrowingTemporary make_verified_throwing_temporary(
     int* cleanup_order, int cleanup_id) noexcept {
-    return {cleanup_order, cleanup_id};
+    return {cleanup_order, cleanup_id, {cleanup_id + 1}};
 }
 
 VerifiedThrowingTemporary make_verified_throwing_temporary_that_may_throw(
@@ -93,17 +98,18 @@ extern "C" int verified_cxx_throwing_temporary_cleanup(int should_throw) {
 
 extern "C" int verified_cxx_throwing_argument_cleanup(int* cleanup_order) {
     int result = 0;
+    int cleanup_before_throw = 0;
     /* Keep the observed destructor state outside the setjmp/longjmp frame. */
     *cleanup_order = 0;
     try {
-        const VerifiedThrowingTemporary& value =
-            make_verified_throwing_temporary(cleanup_order, 3);
-        result = consume_verified_throwing_temporary(
-            value, throw_verified_temporary_argument());
+        const int& value =
+            make_verified_throwing_temporary(cleanup_order, 3).cleanup_id;
+        cleanup_before_throw = *cleanup_order;
+        result = value + throw_verified_temporary_argument();
     } catch (int value) {
         result = value;
     }
-    return result * 10 + *cleanup_order;
+    return result * 100 + cleanup_before_throw * 10 + *cleanup_order;
 }
 
 extern "C" int verified_cxx_throwing_conditional_cleanup(
@@ -128,9 +134,10 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     int cleanup_order = 0;
     int result = 0;
     {
-        const VerifiedThrowingTemporary& value =
-            make_verified_throwing_temporary(&cleanup_order, 5);
-        result = consume_verified_throwing_temporary(value, 0);
+        const int& value =
+            make_verified_throwing_temporary(
+                &cleanup_order, 5).nested.value;
+        result = value + cleanup_order * 10;
     }
     return result * 10 + cleanup_order;
 }

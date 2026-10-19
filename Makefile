@@ -13913,14 +13913,14 @@ test-cxx-exception-cleanup-verified: $(RCXX_TARGET)
 		-o $(TEST_OUT)/cxx-exception-cleanup/verified-x86.ro \
 		tests/cxx_exception_cleanup_verified.cpp \
 		>$(TEST_OUT)/cxx-exception-cleanup/verified-x86.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 12 function(s) emitted' \
 		$(TEST_OUT)/cxx-exception-cleanup/verified-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/verified-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-exception-cleanup/verified-x64.ro \
 		tests/cxx_exception_cleanup_verified.cpp \
 		>$(TEST_OUT)/cxx-exception-cleanup/verified-x64.log
-	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 12 function(s) emitted' \
 		$(TEST_OUT)/cxx-exception-cleanup/verified-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/verified-x64.log,0)
 

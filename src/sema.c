@@ -11272,12 +11272,12 @@ static bool sema_attach_static_initializer_guard(
 static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
     Expr* object;
     Expr* materialized_xvalue_source = NULL;
-    Expr* static_xvalue_source = NULL;
-    Expr* static_subobject_source = NULL;
+    Expr* xvalue_temporary_source = NULL;
+    Expr* reference_subobject_source = NULL;
     Type* object_type;
     bool reference_temporary = false;
     bool static_reference_temporary = false;
-    bool static_xvalue_has_temporary = false;
+    bool xvalue_has_temporary = false;
     int cleanup_budget = 4096;
     if (!rcc_parser_is_cxx_mode() || !declaration ||
         !declaration->type || declaration->var_cleanup ||
@@ -11290,30 +11290,29 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         if (!declaration->var_init) return;
         materialized_xvalue_source =
             sema_cxx_reference_temporary_source(declaration->var_init);
-        if ((declaration->var_is_global ||
-             declaration->var_is_static_local) &&
-            is_xvalue(declaration->var_init)) {
-            static_xvalue_has_temporary =
+        if (is_xvalue(declaration->var_init)) {
+            xvalue_has_temporary =
                 sema_cxx_static_reference_has_temporary_source(
                     declaration->var_init);
-            static_xvalue_source =
+            xvalue_temporary_source =
                 sema_cxx_static_reference_temporary_source(
                     declaration->var_init);
-            if (static_xvalue_has_temporary && !static_xvalue_source) {
-                rcc_error(declaration->loc,
-                          "static reference lifetime extension for this class xvalue path is unsupported");
+            if (xvalue_has_temporary && !xvalue_temporary_source) {
+                rcc_error(
+                    declaration->loc,
+                    "reference lifetime extension for this class xvalue path is unsupported");
                 return;
             }
-            if (static_xvalue_source &&
+            if (xvalue_temporary_source &&
                 sema_cxx_reference_subobject_path(
-                    declaration->var_init, static_xvalue_source)) {
-                static_subobject_source = static_xvalue_source;
+                    declaration->var_init, xvalue_temporary_source)) {
+                reference_subobject_source = xvalue_temporary_source;
             }
         }
         prvalue_initializer = !is_lvalue(declaration->var_init) &&
                               !is_xvalue(declaration->var_init);
-        object_type = static_xvalue_source
-            ? static_xvalue_source->type
+        object_type = xvalue_temporary_source
+            ? xvalue_temporary_source->type
             : materialized_xvalue_source
                 ? (declaration->var_init->type
                        ? declaration->var_init->type->base : NULL)
@@ -11342,11 +11341,11 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
             (declaration->var_is_global || declaration->var_is_static_local) &&
             !declaration->var_is_block_extern &&
             (prvalue_initializer || materialized_xvalue_source ||
-             static_xvalue_source);
+             xvalue_temporary_source);
         if (declaration->var_is_thread_local && object_type &&
             !declaration->var_is_block_extern &&
             (prvalue_initializer || materialized_xvalue_source ||
-             static_xvalue_source)) {
+             xvalue_temporary_source)) {
             static_reference_temporary = true;
         }
         reference_temporary = object_type &&
@@ -11354,8 +11353,10 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
              (!declaration->var_is_global &&
               !declaration->var_is_static_local &&
               !declaration->var_is_block_extern &&
-              (prvalue_initializer || materialized_xvalue_source)));
-        if (!static_xvalue_source && materialized_xvalue_source && object_type &&
+              (prvalue_initializer || materialized_xvalue_source ||
+               xvalue_temporary_source)));
+        if (!xvalue_temporary_source && materialized_xvalue_source &&
+            object_type &&
             (object_type->kind == TYPE_STRUCT ||
              object_type->kind == TYPE_UNION) &&
             materialized_xvalue_source->type &&
@@ -11394,7 +11395,7 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
                   "union with a nontrivial member requires an explicit cleanup");
         return;
     }
-    if (static_reference_temporary ||
+    if (static_reference_temporary || reference_subobject_source ||
         (sema_cxx_type_has_destructor_cleanup(object_type, 0) &&
          reference_temporary)) {
         Decl* owner = decl_var("__rcc_reference_temporary", object_type,
@@ -11437,7 +11438,7 @@ static void sema_prepare_variable_destructor_cleanup(Decl* declaration) {
         }
         declaration->var_reference_temporary_owner = owner;
         declaration->var_reference_temporary_source =
-            static_subobject_source;
+            reference_subobject_source;
         object = expr_ident(owner->name, declaration->loc);
         object->ident_decl = owner;
         object->type = object_type;

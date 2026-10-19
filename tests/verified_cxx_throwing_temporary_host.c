@@ -35,9 +35,9 @@ int main(void) {
     }
     int cleanup_order = 0;
     result = verified_cxx_throwing_argument_cleanup(&cleanup_order);
-    if (result != 533 || cleanup_order != 3) {
+    if (result != 5303 || cleanup_order != 3) {
         fprintf(stderr,
-                "throwing argument cleanup returned %d/order %d, expected 533/order 3\n",
+                "throwing subobject reference cleanup returned %d/order %d, expected 5303/order 3\n",
                 result, cleanup_order);
         return 3;
     }
@@ -66,9 +66,9 @@ int main(void) {
         return 6;
     }
     result = verified_cxx_local_reference_normal_cleanup();
-    if (result != 55) {
+    if (result != 65) {
         fprintf(stderr,
-                "normal local reference cleanup returned %d, expected 55\n",
+                "normal nested-subobject reference cleanup returned %d, expected 65\n",
                 result);
         return 7;
     }

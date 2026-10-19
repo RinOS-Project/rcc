@@ -1257,7 +1257,7 @@ struct Decl {
             int var_offset;         /* Stack offset (set during codegen) */
             int var_reference_temporary_offset; /* Lifetime-extended object */
             Decl* var_reference_temporary_owner; /* Complete-object cleanup */
-            Expr* var_reference_temporary_source; /* Static subobject source */
+            Expr* var_reference_temporary_source; /* Complete object for subobject binding */
             Decl* var_reference_temporary_guard; /* Static/TLS init guard */
             bool var_dynamic_initializer; /* Initialize on first use */
             int var_vla_size_offset; /* Saved runtime VLA byte size */
