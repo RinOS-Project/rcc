@@ -325,6 +325,18 @@ done:
     return value;
 }
 
+int verified_goto_vla_fixed_inner_arrays(int count)
+{
+    int value = 0;
+    {
+        int values[count][2][3];
+        values[0][1][2] = 5;
+        values[count - 1][1][2] = 17;
+        value = values[0][1][2] + values[count - 1][1][2];
+    }
+    return value;
+}
+
 int verified_goto_vla_continue(int count, int rounds)
 {
     int total = 0;
@@ -434,5 +446,6 @@ int main(void)
     if (verified_goto_vla_nested_exit(4) != 31) return 45;
     if (verified_goto_vla_while_edges(32) != 4) return 46;
     if (verified_goto_vla_do_edges(32) != 4) return 47;
+    if (verified_goto_vla_fixed_inner_arrays(4) != 22) return 48;
     return 0;
 }

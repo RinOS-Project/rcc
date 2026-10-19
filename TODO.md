@@ -1380,10 +1380,12 @@
   - [x] scalar ASTのalloca/load/store、scaled pointer GEP、短絡条件・論理式SSA loweringとif/while/do/for/switch CFG verification
   - [x] non-escaping entry scalar allocaのdominance-frontier mem2regとphi挿入
 - [x] 定数条件分岐のSSA branch化、到達不能blockと不要phi入力の除去
-- [x] VLA stack-restore境界を跨がないC goto/labelを事前収集したSSA CFG
-      blockへlowerする。C++では検証済みnoexcept cleanupを伴うscope退出gotoも
-      後続のcleanup拡張で対応済み。VLA stack restorationとthrowing/partial
-      construction cleanupは引き続きsubset外。
+- [x] C goto/labelを事前収集したSSA CFG blockへlowerし、外側に1つのruntime
+      boundを持つVLA（scalar/pointer element、および固定bound array element）の
+      scope退出でsaved stack pointerを復元する。normal scope exitと
+      `for`/`while`/`do`のbreak/continueも検証済み。C++では検証済みnoexcept
+      cleanupを伴うscope退出gotoも対応済み。追加runtime-bound次元などのVLA形式と
+      throwing/partial-construction cleanupは引き続きsubset外。
 - [ ] aggregate/vector/exceptionを含む全frontendのtyped SSA lowering
   - [x] `switch`の`case`ラベルを`while`/`do`/`for`本体内から収集し、通常のswitch
         dispatchとloop backedgeを保ったverified SSA CFGへlowerする。i686/AMD64
@@ -1474,9 +1476,9 @@
         `test-verified-backend` and the production CI gate.
   - [ ] Throwing argument/initializer evaluation before a cleanup owner is
         fully constructed, constructor-driven partial construction and unwind,
-        potentially throwing cleanup callbacks, VLA stack restoration, and
-        other unvalidated automatic cleanup-plan shapes remain outside this
-        verified subset.
+        potentially throwing cleanup callbacks, VLA forms outside the currently
+        verified subset (and VLA interaction with throwing cleanup), and other
+        unvalidated automatic cleanup-plan shapes remain outside this subset.
 - [x] target-independent MIR
   - [x] virtual register/block/phi/callを持つscalar MIRとIR→MIR shadow lowering/verifier
   - [x] critical-edge分類とcycle-safe parallel-copy schedulingによるphi edge lowering
@@ -6418,10 +6420,10 @@ remains a separate open item.
       fallback at `-O0`/`-O2` on i686/AMD64. The focused target and complete
       `test-verified-backend`, `test-ir`, and `test-optimize` pass on native
       Windows.
-- [ ] Throwing initialization/unwind, partial construction, VLA stack-restore
-      edges, `goto` into a protected object lifetime, and other cleanup-plan
-      forms remain open. Gotos that leave initialized automatic-object scopes
-      are covered by the continuation below.
+- [ ] Throwing initialization/unwind, partial construction, unsupported VLA
+      forms and their interaction with cleanup, `goto` into a protected object
+      lifetime, and other cleanup-plan forms remain open. Gotos that leave
+      initialized automatic-object scopes are covered by the continuation below.
 
 ## RCC continuation (2026-10-18, automatic cleanup on `goto` exits)
 
@@ -6437,8 +6439,8 @@ remains a separate open item.
       and `test-optimize` on native Windows. Correct the automatic-cleanup
       fixture's exact emitted-function count in its four architecture/opt
       checks.
-- [ ] Throwing cleanup/unwind, partial construction, VLA stack restoration,
-      and other cleanup-plan shapes remain open.
+- [ ] Throwing cleanup/unwind, partial construction, unsupported VLA forms or
+      their interaction with cleanup, and other cleanup-plan shapes remain open.
 
 ## RCC continuation (2026-10-18, i686 wide-scalar goto/label state)
 
@@ -6450,8 +6452,8 @@ remains a separate open item.
       emission for i686 and AMD64 at `-O0`/`-O2`, then execute the actual
       x86-64 verified `.ro` object to check both branch outcomes and
       loop-carried values through its `main` entry point.
-- [ ] Gotos inside structured wide-scalar loop lowering, VLA stack restoration,
-      and full SSA predecessor-phi construction at arbitrary labels remain open.
+- [ ] Gotos inside structured wide-scalar loop lowering and full SSA
+      predecessor-phi construction at arbitrary labels remain open.
 
 ## RCC continuation (2026-10-18, same-target local callback reassignment)
 
@@ -6592,17 +6594,21 @@ remains a separate open item.
       times, with the result checked against GCC. Both i686 and AMD64 generated
       executables pass in `test-vla-runtime`; this target is part of the C17
       production regression gate.
-- [x] Lower the supported single-dimension VLA subset through typed SSA with
-      explicit stack save/restore and dynamic stack allocation. `goto` exits
-      restore one or multiple nested VLA scopes; normal scope exit and
-      `break`/`continue` restore VLA storage in `for`, `while`, and `do` loops.
-      The verified goto gate covers partial and full nested-scope exits,
-      repeated backward jumps, and loop edges on i686/AMD64 at `-O0`/`-O2`.
-- [ ] Extend typed-SSA VLA lowering beyond the currently supported
-      single-dimension, uninitialized, non-volatile VLA with lowerable
-      fixed-size element type. Add multidimensional/array-element VLAs,
-      aggregate and initialized cases, and the remaining cleanup/unwind and
-      goto/loop edge combinations before claiming general VLA support.
+- [x] Lower the supported VLA subset through typed SSA with explicit stack
+      save/restore and dynamic stack allocation. `goto` exits restore one or
+      multiple nested VLA scopes; normal scope exit and `break`/`continue`
+      restore storage in `for`, `while`, and `do` loops. The verified goto gate
+      covers partial/full nested-scope exits, repeated backward jumps, and loop
+      edges on i686/AMD64 at `-O0`/`-O2`.
+- [x] Support recursively fixed-bound array elements under one outer runtime
+      bound. Verify `int values[count][2][3]` indexing/stride and dynamic
+      allocation on i686/AMD64 at `-O0`/`-O2`, with x64 execution in
+      `test-verified-goto`.
+- [ ] Extend typed-SSA VLA lowering beyond an uninitialized, non-volatile VLA
+      with one outer runtime bound and scalar/pointer or recursively fixed-array
+      element type. Additional runtime-bound dimensions, aggregate and
+      initialized VLA forms, plus cleanup/unwind and goto/loop edge combinations
+      remain required for general VLA support.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)
 

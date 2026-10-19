@@ -17615,24 +17615,38 @@ static RccIrLowerValue lower_compound_literal_address(
         allocation->result, rcc_ir_type_pointer(0u), true);
 }
 
-static bool lower_scalar_vla_declaration_supported(
+static bool lower_vla_fixed_element_type_supported(const Type* type) {
+    RccIrType lower_type_result;
+    if (!type || type->size <= 0 || type->align <= 0 ||
+        type->align > 4096 ||
+        (type->align & (type->align - 1)) != 0 || type->is_volatile) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->base && type->array_len > 0 && !type->array_bound &&
+            !type->array_unspecified_bound &&
+            lower_vla_fixed_element_type_supported(type->base);
+    }
+    return lower_type(type, &lower_type_result) &&
+        lower_type_result.kind != RCC_IR_TYPE_VOID;
+}
+
+static bool lower_supported_vla_declaration(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
     const Type* element = type && type->kind == TYPE_ARRAY
         ? type->base : NULL;
-    RccIrType element_type;
     return declaration && declaration->var_is_vla &&
         type && type->kind == TYPE_ARRAY && type->array_bound &&
-        element && element->kind != TYPE_ARRAY && element->size > 0 &&
+        element &&
+        lower_vla_fixed_element_type_supported(element) &&
         element->align > 0 && element->align <= 4096 &&
         (element->align & (element->align - 1)) == 0 &&
         !declaration->var_init && !declaration->var_cleanup &&
-        !declaration->var_cleanups && !element->is_volatile &&
-        lower_type(element, &element_type) &&
-        element_type.kind != RCC_IR_TYPE_VOID;
+        !declaration->var_cleanups;
 }
 
-static RccIrLowerValue lower_scalar_vla_byte_size(
+static RccIrLowerValue lower_supported_vla_byte_size(
     RccIrLowerContext* context, const Type* type) {
     RccIrType size_type;
     RccIrLowerValue bound;
@@ -17676,8 +17690,8 @@ static bool lower_declaration(RccIrLowerContext* context,
         type_is_cxx_member_function_pointer(declaration->type);
     bool is_aggregate = is_array || is_struct || is_union ||
         is_member_function_pointer;
-    bool is_scalar_vla = declaration && declaration->var_is_vla &&
-        lower_scalar_vla_declaration_supported(declaration);
+    bool is_supported_vla = declaration && declaration->var_is_vla &&
+        lower_supported_vla_declaration(declaration);
     bool wide_scalar = declaration->type &&
         lower_i686_wide_scalar_type(declaration->type);
     bool wide_ssa = wide_scalar && !declaration->type->is_volatile &&
@@ -17714,7 +17728,7 @@ static bool lower_declaration(RccIrLowerContext* context,
         (declaration->var_cleanups &&
          !lower_scope_cleanup_declaration_supported(declaration)) ||
         (is_aggregate
-             ? ((!is_scalar_vla && declaration->type->size <= 0) ||
+             ? ((!is_supported_vla && declaration->type->size <= 0) ||
                 declaration->type->is_reference ||
                 declaration->type->is_volatile ||
                 (declaration->type->cleanup_function &&
@@ -17733,12 +17747,12 @@ static bool lower_declaration(RccIrLowerContext* context,
         context->unsupported = true;
         return false;
     }
-    if (declaration->var_is_vla && !is_scalar_vla) {
+    if (declaration->var_is_vla && !is_supported_vla) {
         context->unsupported = true;
         return false;
     }
-    if (is_scalar_vla) {
-        RccIrLowerValue byte_size = lower_scalar_vla_byte_size(
+    if (is_supported_vla) {
+        RccIrLowerValue byte_size = lower_supported_vla_byte_size(
             context, declaration->type);
         RccIrLowerValue stack_pointer;
         RccIrInstruction* dynamic_allocation;
