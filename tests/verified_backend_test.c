@@ -4597,6 +4597,7 @@ static void verify_cxx_throwing_temporary_object(
     ObjSymbol* conditional_throw_symbol;
     ObjSymbol* normal_cleanup_symbol;
     ObjSymbol* throwing_initializer_symbol;
+    ObjSymbol* throwing_constructor_symbol;
     ObjSymbol* temporary_cleanup_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
@@ -4608,6 +4609,8 @@ static void verify_cxx_throwing_temporary_object(
         object, "verified_cxx_local_reference_normal_cleanup");
     throwing_initializer_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_initializer_cleanup");
+    throwing_constructor_symbol = objfile_find_symbol(
+        object, "verified_cxx_throwing_constructor_reference_cleanup");
     temporary_cleanup_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_temporary_cleanup");
     assert(text != NULL && direct_throw_symbol != NULL &&
@@ -4622,6 +4625,9 @@ static void verify_cxx_throwing_temporary_object(
            throwing_initializer_symbol != NULL &&
            throwing_initializer_symbol->binding == BIND_CODE &&
            throwing_initializer_symbol->section == 0 &&
+           throwing_constructor_symbol != NULL &&
+           throwing_constructor_symbol->binding == BIND_CODE &&
+           throwing_constructor_symbol->section == 0 &&
            temporary_cleanup_symbol != NULL &&
            temporary_cleanup_symbol->binding == BIND_CODE &&
            temporary_cleanup_symbol->section == 0);
@@ -4631,6 +4637,7 @@ static void verify_cxx_throwing_temporary_object(
         void* address;
         int (RINOS_ABI *no_arguments)(void);
         int (RINOS_ABI *integer_argument)(int);
+        int (RINOS_ABI *constructor_argument)(int);
         int (RINOS_ABI *cleanup_order_argument)(int*);
         int (RINOS_ABI *conditional_arguments)(int, int, int*);
         int result;
@@ -4683,6 +4690,23 @@ static void verify_cxx_throwing_temporary_object(
         memcpy(&integer_argument, &address, sizeof(integer_argument));
         assert(integer_argument(1) == 560);
         assert(integer_argument(0) == 66);
+        address = symbol_address(memory, throwing_constructor_symbol);
+        memcpy(&constructor_argument, &address,
+               sizeof(constructor_argument));
+        result = constructor_argument(1);
+        if (result != 5800) {
+            fprintf(stderr,
+                    "verified throwing constructor temporary returned %d, expected 5800\n",
+                    result);
+        }
+        assert(result == 5800);
+        result = constructor_argument(0);
+        if (result != 707) {
+            fprintf(stderr,
+                    "verified normal constructor temporary returned %d, expected 707\n",
+                    result);
+        }
+        assert(result == 707);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);

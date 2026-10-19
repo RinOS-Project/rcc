@@ -7,6 +7,21 @@ struct VerifiedThrowingTemporary {
     }
 };
 
+struct VerifiedThrowingConstructorTemporary {
+    int* cleanup_order;
+    int marker;
+
+    VerifiedThrowingConstructorTemporary(
+        int* cleanup_order, int should_throw)
+        : cleanup_order(cleanup_order), marker(7) {
+        if (should_throw) throw 58;
+    }
+
+    ~VerifiedThrowingConstructorTemporary() noexcept {
+        *cleanup_order = *cleanup_order * 10 + marker;
+    }
+};
+
 VerifiedThrowingTemporary make_verified_throwing_temporary(
     int* cleanup_order, int cleanup_id) noexcept {
     return {cleanup_order, cleanup_id};
@@ -97,6 +112,21 @@ extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {
         result = value;
     }
     return result * 10 + cleanup_order;
+}
+
+extern "C" int verified_cxx_throwing_constructor_reference_cleanup(
+    int should_throw) {
+    int cleanup_order = 0;
+    int result = 0;
+    try {
+        const VerifiedThrowingConstructorTemporary& value =
+            VerifiedThrowingConstructorTemporary(
+                &cleanup_order, should_throw);
+        result = value.marker;
+    } catch (int value) {
+        result = value;
+    }
+    return result * 100 + cleanup_order;
 }
 
 extern "C" int main() {

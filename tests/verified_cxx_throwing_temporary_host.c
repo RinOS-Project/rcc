@@ -16,6 +16,8 @@ extern int verified_cxx_throwing_conditional_cleanup(
 extern int verified_cxx_local_reference_normal_cleanup(void) RINOS_TEST_ABI;
 extern int verified_cxx_throwing_initializer_cleanup(int should_throw)
     RINOS_TEST_ABI;
+extern int verified_cxx_throwing_constructor_reference_cleanup(
+    int should_throw) RINOS_TEST_ABI;
 extern int rcc_test_main(void) RINOS_TEST_ABI;
 
 int main(void) {
@@ -83,6 +85,20 @@ int main(void) {
                 "successful initializer cleanup returned %d, expected 66\n",
                 result);
         return 9;
+    }
+    result = verified_cxx_throwing_constructor_reference_cleanup(1);
+    if (result != 5800) {
+        fprintf(stderr,
+                "throwing constructor temporary returned %d, expected 5800\n",
+                result);
+        return 10;
+    }
+    result = verified_cxx_throwing_constructor_reference_cleanup(0);
+    if (result != 707) {
+        fprintf(stderr,
+                "successful constructor temporary returned %d, expected 707\n",
+                result);
+        return 11;
     }
     return rcc_test_main();
 }
