@@ -11199,11 +11199,27 @@ static bool sema_append_cxx_constructor_default_arguments(
         declaration = declaration->next;
     }
     while (parameter && declaration) {
-        exprlist_append(arguments, declaration->decl->param_default);
+        Expr* default_argument = declaration->decl
+            ? declaration->decl->param_default : NULL;
+        if (!default_argument || !parameter->type) return false;
+        /* Class member declarations are not top-level AST declarations, so
+         * their default expressions may not have gone through the ordinary
+         * function-declaration semantic pass. Analyze them before reusing
+         * the expression in a constructor call. */
+        if (!default_argument->type) sema_expr(default_argument);
+        if (!default_argument->type ||
+            cxx_conversion_rank(default_argument, parameter->type) < 0) {
+            rcc_error(default_argument->loc,
+                      "default argument is incompatible with parameter %d",
+                      index + 1);
+            return false;
+        }
+        exprlist_append(arguments, default_argument);
         parameter = parameter->next;
         declaration = declaration->next;
+        ++index;
     }
-    return true;
+    return parameter == NULL && declaration == NULL;
 }
 
 static CxxConstructorInfo* sema_select_cxx_delegating_constructor(
@@ -11580,23 +11596,23 @@ static void sema_resolve_cxx_constructor_initializers(
  * signature; mixing constructor arities would otherwise produce a partially
  * initialized allocation. */
 static CxxConstructorInfo* sema_select_cxx_array_constructor(
-    Type* object_type, ExprList* initializers, SourceLoc loc) {
+    Type* object_type, ExprList* initializers, SourceLoc loc,
+    ExprList** default_arguments) {
     CxxConstructorInfo* constructor;
     ExprList one;
     ExprList* selected_arguments = NULL;
     ExprList* one_arguments = NULL;
     TypeParam* parameter;
 
+    if (default_arguments) *default_arguments = NULL;
     if (!object_type || !object_type->cxx_class) return NULL;
     if (!initializers) {
         constructor = sema_select_cxx_new_constructor(
             object_type, &selected_arguments, loc);
-        /* The array backend has one flat initializer list and no per-element
-         * argument list for an omitted constructor argument.  Reject that
-         * shape explicitly instead of emitting a short ABI call in the
-         * default-constructor loop. */
-        return constructor && constructor->parameter_count == 0
-            ? constructor : NULL;
+        if (constructor && default_arguments) {
+            *default_arguments = selected_arguments;
+        }
+        return constructor;
     }
     if (initializers->next) {
         one = *initializers;
@@ -15528,6 +15544,7 @@ static Type* sema_expr(Expr* expr) {
                             rcc_parser_cxx_constructor_arity_mask(object_type);
                         bool has_user_constructor = cls &&
                             cls->constructors != NULL;
+                        expr->call_new_default_args = NULL;
                         if (object_type->kind != TYPE_STRUCT || !cls ||
                             (!sema_cxx_trivially_destructible(object_type, 0) &&
                              !destructor && !has_cleanup &&
@@ -15538,14 +15555,20 @@ static Type* sema_expr(Expr* expr) {
                             return expr->type;
                         }
                         if (has_constructor) {
+                            ExprList* array_default_arguments = NULL;
                             constructor = sema_select_cxx_array_constructor(
-                                object_type, expr->call_new_args, expr->loc);
+                                object_type, expr->call_new_args, expr->loc,
+                                &array_default_arguments);
                             if (!constructor) {
                                 rcc_error(expr->loc,
                                           "array new has no lowerable constructor for its element initializers");
                                 return expr->type;
                             }
                             expr->call_new_constructor = constructor;
+                            if (!expr->call_new_args) {
+                                expr->call_new_default_args =
+                                    array_default_arguments;
+                            }
                             if (expr->call_new_args &&
                                 element_count > argument_count) {
                                 ExprList* default_arguments = NULL;
@@ -15553,15 +15576,15 @@ static Type* sema_expr(Expr* expr) {
                                     sema_select_cxx_new_constructor(
                                         object_type, &default_arguments,
                                         expr->loc);
-                                if (!default_constructor ||
-                                    default_constructor->parameter_count != 0 ||
-                                    default_arguments) {
+                                if (!default_constructor) {
                                     rcc_error(expr->loc,
                                               "array new omitted elements require a lowerable zero-argument default constructor");
                                     return expr->type;
                                 }
                                 expr->call_new_default_constructor =
                                     default_constructor;
+                                expr->call_new_default_args =
+                                    default_arguments;
                             }
                         }
                         if (destructor || has_cleanup || has_member_cleanup) {

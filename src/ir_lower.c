@@ -14889,6 +14889,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     RccIrInstruction* arithmetic;
     size_t word_size;
     size_t initialized_count = 0u;
+    size_t default_argument_count = 0u;
     uint64_t maximum_size;
     int64_t constant_count;
     bool dynamic_count;
@@ -14932,7 +14933,28 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     if (default_constructor &&
         (!default_constructor_decl ||
          !default_constructor_decl->func_is_cxx_constructor ||
-         default_constructor->parameter_count != 0)) {
+         default_constructor->parameter_count < 0 ||
+         default_constructor->parameter_count > 64)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (!expression->call_new_args) {
+        default_constructor = expression->call_new_constructor;
+        default_constructor_decl = constructor_decl;
+    }
+    for (argument = expression->call_new_default_args;
+         argument; argument = argument->next) {
+        if (default_argument_count == 64u || !argument->expr ||
+            argument->designator_kind != INIT_DESIGNATOR_NONE) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        ++default_argument_count;
+    }
+    if ((default_constructor &&
+         default_argument_count !=
+             (size_t)default_constructor->parameter_count) ||
+        (!default_constructor && default_argument_count != 0u)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -14943,10 +14965,6 @@ static RccIrLowerValue lower_cxx_new_array_expression(
             return lower_invalid_value();
         }
         ++initialized_count;
-    }
-    if (!expression->call_new_args) {
-        default_constructor = expression->call_new_constructor;
-        default_constructor_decl = constructor_decl;
     }
     /* Array bounds with explicit initializers are compile-time validated by
      * sema. The constructor for an omitted suffix is retained separately. */
@@ -14965,7 +14983,8 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     register_cleanups = !constructor_decl->func_is_noexcept ||
         (default_constructor_decl &&
          !default_constructor_decl->func_is_noexcept) ||
-        !lower_noexcept_expression_list(expression->call_new_args);
+        !lower_noexcept_expression_list(expression->call_new_args) ||
+        !lower_noexcept_expression_list(expression->call_new_default_args);
     word_language_type = g_opts.target_arch == ARCH_X64
         ? type_ulong : type_uint;
     word_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
@@ -15131,6 +15150,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         initializer.type = expression->call_new_type;
         initializer.compound_constructor =
             (CxxConstructorInfo*)default_constructor;
+        initializer.compound_init = expression->call_new_default_args;
         if (!lower_initialize_struct_storage(
                 context, element.value, expression->call_new_type,
                 &initializer) ||
@@ -15224,6 +15244,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
             initializer.type = expression->call_new_type;
             initializer.compound_constructor =
                 (CxxConstructorInfo*)default_constructor;
+            initializer.compound_init = expression->call_new_default_args;
             if (!lower_initialize_struct_storage(
                     context, element.value, expression->call_new_type,
                     &initializer)) {

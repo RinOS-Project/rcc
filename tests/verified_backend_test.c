@@ -3972,6 +3972,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
     ObjSymbol* normal_ctor_symbol;
     ObjSymbol* dynamic_bound_symbol;
     ObjSymbol* dynamic_throw_symbol;
+    ObjSymbol* default_argument_symbol;
+    ObjSymbol* default_argument_suffix_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     partial_init_symbol = objfile_find_symbol(
@@ -3988,6 +3990,10 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         object, "verified_cxx_partial_array_dynamic");
     dynamic_throw_symbol = objfile_find_symbol(
         object, "verified_cxx_partial_array_dynamic_throw");
+    default_argument_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_default_argument");
+    default_argument_suffix_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_default_argument_suffix");
     assert(text != NULL && partial_init_symbol != NULL &&
            partial_init_symbol->type == SYM_GLOBAL &&
            partial_init_symbol->binding == BIND_CODE &&
@@ -4009,7 +4015,15 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
            dynamic_bound_symbol->section == 0 && dynamic_throw_symbol != NULL &&
            dynamic_throw_symbol->type == SYM_GLOBAL &&
            dynamic_throw_symbol->binding == BIND_CODE &&
-           dynamic_throw_symbol->section == 0);
+           dynamic_throw_symbol->section == 0 &&
+           default_argument_symbol != NULL &&
+           default_argument_symbol->type == SYM_GLOBAL &&
+           default_argument_symbol->binding == BIND_CODE &&
+           default_argument_symbol->section == 0 &&
+           default_argument_suffix_symbol != NULL &&
+           default_argument_suffix_symbol->type == SYM_GLOBAL &&
+           default_argument_suffix_symbol->binding == BIND_CODE &&
+           default_argument_suffix_symbol->section == 0);
     if (execute) {
         size_t mapping_size;
         void* memory;
@@ -4021,6 +4035,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         int (RINOS_ABI *normal_ctor)(void);
         int (RINOS_ABI *dynamic_bound)(int);
         int (RINOS_ABI *dynamic_throw)(int);
+        int (RINOS_ABI *default_argument)(int);
+        int (RINOS_ABI *default_argument_suffix)(void);
         assert(arch == ARCH_X64 && sizeof(void*) == 8u);
         memory = map_text(object, text, &mapping_size);
         address = symbol_address(memory, partial_init_symbol);
@@ -4081,6 +4097,25 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         assert(dynamic_throw(4) == 43);
         assert(verified_partial_array_ctor_attempts == 3);
         assert(verified_partial_array_destructor_order == 21);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, default_argument_symbol);
+        memcpy(&default_argument, &address, sizeof(default_argument));
+        verified_partial_array_ctor_attempts = 0;
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(default_argument(3) == 3);
+        assert(verified_partial_array_ctor_attempts == 3);
+        assert(verified_partial_array_destructor_order == 321);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, default_argument_suffix_symbol);
+        memcpy(&default_argument_suffix, &address,
+               sizeof(default_argument_suffix));
+        verified_partial_array_ctor_attempts = 0;
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(default_argument_suffix() == 0);
+        assert(verified_partial_array_ctor_attempts == 2);
+        assert(verified_partial_array_destructor_order == 219);
         assert(verified_runtime_free_count == 1u);
         assert(verified_unmap(memory, mapping_size) == 0);
     }

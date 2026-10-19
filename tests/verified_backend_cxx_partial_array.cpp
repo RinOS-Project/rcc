@@ -53,6 +53,18 @@ public:
     int value_;
 };
 
+class VerifiedDynamicDefaultArgumentArrayElement final {
+public:
+    explicit VerifiedDynamicDefaultArgumentArrayElement(
+        int value = verified_partial_array_next_ctor()) : value_(value) {}
+
+    ~VerifiedDynamicDefaultArgumentArrayElement() noexcept {
+        verified_partial_array_record_destructor(value_);
+    }
+
+    int value_;
+};
+
 static const VerifiedPartialArrayInput* verified_partial_array_argument(
     const VerifiedPartialArrayInput* input) {
     if (input->value == 3) throw 43;
@@ -148,6 +160,20 @@ extern "C" int verified_cxx_partial_array_dynamic_throw(int count) {
         return exception_value;
     }
     return -1;
+}
+
+extern "C" int verified_cxx_partial_array_default_argument(int count) {
+    VerifiedDynamicDefaultArgumentArrayElement* values =
+        new VerifiedDynamicDefaultArgumentArrayElement[count];
+    delete[] values;
+    return count;
+}
+
+extern "C" int verified_cxx_partial_array_default_argument_suffix() {
+    VerifiedDynamicDefaultArgumentArrayElement* values =
+        new VerifiedDynamicDefaultArgumentArrayElement[3]{9};
+    delete[] values;
+    return 0;
 }
 
 int main() {

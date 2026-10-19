@@ -7272,7 +7272,11 @@ static bool cxx_template_redeclaration_expr_matches(
                  !cxx_template_redeclaration_expr_list_matches(
                      left->call_new_args, left_template, left_requires_params,
                      right->call_new_args, right_template,
-                     right_requires_params, depth + 1))) {
+                     right_requires_params, depth + 1) ||
+                 !cxx_template_redeclaration_expr_list_matches(
+                     left->call_new_default_args, left_template,
+                     left_requires_params, right->call_new_default_args,
+                     right_template, right_requires_params, depth + 1))) {
                 return false;
             }
             return (!left->call_is_delete ||
@@ -12149,6 +12153,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
              * substituted class specialization. */
             copy->call_new_constructor = NULL;
             copy->call_new_default_constructor = NULL;
+            copy->call_new_default_args = NULL;
             copy->call_is_delete = expression->call_is_delete;
             copy->call_delete_is_array = expression->call_delete_is_array;
             copy->call_delete_destructor = NULL;

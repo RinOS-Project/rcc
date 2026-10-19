@@ -1187,6 +1187,7 @@ Expr* expr_call(Expr* func, ExprList* args, SourceLoc loc) {
     e->call_new_args = NULL;
     e->call_new_constructor = NULL;
     e->call_new_default_constructor = NULL;
+    e->call_new_default_args = NULL;
     e->call_is_delete = false;
     e->call_delete_is_array = false;
     e->call_delete_cleanup = NULL;
