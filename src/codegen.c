@@ -163,15 +163,19 @@ static bool debug_inline_capture_float_literal(
     const ExprList* argument, const Type* parameter_type,
     ModuleDebugInlineParameterValue* value) {
     const Type* argument_type;
+    Type* evaluated_type = NULL;
     double converted_value;
     if (!argument || !argument->expr || argument->cxx_temporary_owner ||
-        argument->expr->kind != EXPR_FLOAT_LIT || !parameter_type ||
-        !argument->expr->type || parameter_type->is_volatile ||
+        !parameter_type || !argument->expr->type ||
+        parameter_type->is_volatile ||
         parameter_type->is_reference || parameter_type->is_atomic) {
         return false;
     }
     argument_type = argument->expr->type;
-    if (!((argument_type->kind == TYPE_FLOAT && argument_type->size == 4) ||
+    if (!rcc_sema_eval_constexpr_floating_constant(
+            argument->expr, &converted_value, &evaluated_type) ||
+        !evaluated_type || evaluated_type->kind != argument_type->kind ||
+        !((argument_type->kind == TYPE_FLOAT && argument_type->size == 4) ||
           (argument_type->kind == TYPE_DOUBLE &&
            argument_type->size == 8)) ||
         !((parameter_type->kind == TYPE_FLOAT && parameter_type->size == 4) ||
@@ -179,7 +183,6 @@ static bool debug_inline_capture_float_literal(
            parameter_type->size == 8))) {
         return false;
     }
-    converted_value = argument->expr->float_val;
     if (argument_type->kind == TYPE_FLOAT) {
         if (!(converted_value <= FLT_MAX &&
               converted_value >= -FLT_MAX)) {

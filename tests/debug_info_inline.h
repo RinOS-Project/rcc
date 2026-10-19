@@ -54,3 +54,8 @@ inline float debug_double_to_float_parameter_inline(float value)
 {
     return value;
 }
+
+inline double debug_float_expression_parameter_inline(double value)
+{
+    return value;
+}

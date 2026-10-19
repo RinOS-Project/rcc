@@ -6989,7 +6989,7 @@ remains a separate open item.
       `test-optimize` and `test-debug-info` validate i686/AMD64, legacy and
       verified optimized DWARF; `1.1f`→`double` and `1.1`→`float` values match
       exact expected bits.
-- [ ] Long-double conversions, nonliteral folded expressions, pointer and
+- [ ] Long-double conversions, nonconstant floating expressions, pointer and
       enum conversion attribution, mutable parameter locations, and general
       optimized inline-variable location tracking remain open.
 
@@ -7004,3 +7004,16 @@ remains a separate open item.
 - [ ] Other implementation-defined integer conversions, nonliteral folded
       arguments, enum/pointer attribution, mutable parameter locations, and
       general optimized inline-variable location tracking remain open.
+
+## RCC continuation (2026-10-20, inline floating constant expressions)
+
+- [x] Evaluate bounded floating constant expressions through the semantic
+      constexpr scalar evaluator when recording optimized inline parameters.
+      Preserve source-type rounding before destination conversion; dynamic,
+      non-finite, and out-of-range expressions remain unattributed.
+- [x] Verify `1.1f + 2.2f` is rounded as `float` before promotion to `double`
+      and compare its exact 8-byte value in legacy/verified optimized i686/AMD64
+      DWARF. Native-Windows `test-debug-info` passes.
+- [ ] Dynamic floating arguments, long-double support, pointer/enum
+      attribution, mutable parameter locations, and optimized inline-variable
+      location tracking remain open.

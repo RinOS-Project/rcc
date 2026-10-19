@@ -8583,6 +8583,25 @@ bool rcc_sema_eval_constexpr_arithmetic_constant(Expr* expression) {
         (value.is_floating || sema_constexpr_integer_type(value.type));
 }
 
+bool rcc_sema_eval_constexpr_floating_constant(Expr* expression,
+                                               double* value,
+                                               Type** type) {
+    SemaConstexprScalar evaluated;
+    if (!expression || !value ||
+        !sema_eval_constexpr_scalar_expr(
+            expression, NULL, 0, &evaluated) ||
+        !evaluated.is_floating || evaluated.is_pointer ||
+        !evaluated.type ||
+        (evaluated.type->kind != TYPE_FLOAT &&
+         evaluated.type->kind != TYPE_DOUBLE) ||
+        !isfinite(evaluated.floating_value)) {
+        return false;
+    }
+    *value = evaluated.floating_value;
+    if (type) *type = evaluated.type;
+    return true;
+}
+
 bool rcc_sema_eval_constexpr_aggregate_constant(Expr* expression,
                                                 Type* type) {
     unsigned char* object_bytes;
