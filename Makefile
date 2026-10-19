@@ -2814,6 +2814,12 @@ test-cxx-constexpr: $(RCXX_TARGET)
 	$(GREP) -F -q "constexpr variable requires an initializer" $(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	$(GREP) -F -q "constexpr variable initializer is not a supported constant expression" $(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	$(GREP) -F -q "consteval call is not a constant expression" $(TEST_OUT)/cxx-constexpr/invalid-x64.log
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constexpr/signed-overflow-x86.ro tests/cxx_constexpr_signed_overflow_invalid.cpp,$(TEST_OUT)/cxx-constexpr/signed-overflow-x86.log)
+	$(call CHECK_COUNT,constexpr variable initializer is not a supported constant expression,$(TEST_OUT)/cxx-constexpr/signed-overflow-x86.log,8)
+	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-constexpr/signed-overflow-x64.ro tests/cxx_constexpr_signed_overflow_invalid.cpp,$(TEST_OUT)/cxx-constexpr/signed-overflow-x64.log)
+	$(call CHECK_COUNT,constexpr variable initializer is not a supported constant expression,$(TEST_OUT)/cxx-constexpr/signed-overflow-x64.log,8)
+	$(call EXPECT_FAILURE,g++ -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_constexpr_signed_overflow_invalid.cpp,$(TEST_OUT)/cxx-constexpr/signed-overflow-gcc.log)
+	$(GREP) -F -q "overflow in constant expression" $(TEST_OUT)/cxx-constexpr/signed-overflow-gcc.log
 	@echo "RCC++ scalar constexpr folding tests completed"
 else
 test-cxx-constexpr: test-cxx-constexpr-posix
@@ -2865,6 +2871,21 @@ test-cxx-constexpr-posix: $(RCXX_TARGET)
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
 	$(GREP) -q "consteval call is not a constant expression" \
 		$(TEST_OUT)/cxx-constexpr/invalid-x64.log
+	! $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-constexpr/signed-overflow-x86.ro \
+		tests/cxx_constexpr_signed_overflow_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr/signed-overflow-x86.log 2>&1
+	$(call CHECK_COUNT,constexpr variable initializer is not a supported constant expression,$(TEST_OUT)/cxx-constexpr/signed-overflow-x86.log,8)
+	! $(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/cxx-constexpr/signed-overflow-x64.ro \
+		tests/cxx_constexpr_signed_overflow_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr/signed-overflow-x64.log 2>&1
+	$(call CHECK_COUNT,constexpr variable initializer is not a supported constant expression,$(TEST_OUT)/cxx-constexpr/signed-overflow-x64.log,8)
+	! g++ -std=c++20 -pedantic-errors -fsyntax-only \
+		tests/cxx_constexpr_signed_overflow_invalid.cpp \
+		>$(TEST_OUT)/cxx-constexpr/signed-overflow-gcc.log 2>&1
+	$(GREP) -q "overflow in constant expression" \
+		$(TEST_OUT)/cxx-constexpr/signed-overflow-gcc.log
 	@echo "RCC++ scalar constexpr folding tests completed"
 
 ifeq ($(OS),Windows_NT)

@@ -6694,3 +6694,18 @@ remains a separate open item.
       code generation and native x64 execution.
 - [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
       and full C++20 overload-resolution conformance remain open.
+
+## RCC continuation (2026-10-19, signed constexpr overflow)
+
+- [x] Reject signed overflow using the width of the C++ operation type for
+      addition, subtraction, multiplication, division/remainder edge cases,
+      left shift, and unary negation. Apply the same checks to both the typed
+      evaluator and the legacy evaluator fallback; retain integer promotions
+      before compound assignment so a `signed char` increment remains valid.
+- [x] Add eight invalid constant-expression cases, including overflow inside
+      a called `constexpr` function, and GCC C++20 comparisons. Verify all eight
+      RCC diagnostics on i686 and AMD64, plus valid `int` endpoints and signed
+      narrow conversion at runtime. `test-cxx-constexpr` and the complete
+      native-Windows `test-cxx` aggregate pass.
+- [ ] Broader C++20 constant-evaluation coverage, including remaining pointer,
+      floating-point, and aggregate edge cases, remains open.

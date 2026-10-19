@@ -188,6 +188,18 @@ constexpr bool constexpr_ull_conditional_preserves_unsigned =
     (true ? 18446744073709551615ULL : 0ULL) >
     9223372036854775807ULL;
 
+constexpr int constexpr_int_max = 2147483647;
+constexpr int constexpr_int_min = -2147483647 - 1;
+
+constexpr signed char constexpr_increment_signed_char_max() {
+    signed char value = 127;
+    ++value;
+    return value;
+}
+
+constexpr signed char constexpr_signed_char_incremented =
+    constexpr_increment_signed_char_max();
+
 static_assert(constexpr_dynamic_aggregate == 42);
 static_assert(constexpr_dynamic_aggregate_array == 5);
 static_assert(constexpr_dynamic_template_aggregate == 42);
@@ -197,6 +209,9 @@ static_assert(constexpr_ull_max_exceeds_signed_max);
 static_assert(constexpr_ull_wrapped_sum_is_zero);
 static_assert(constexpr_ull_shift_keeps_top_bit);
 static_assert(constexpr_ull_conditional_preserves_unsigned);
+static_assert(constexpr_int_max == 2147483647);
+static_assert(constexpr_int_min == (-2147483647 - 1));
+static_assert(constexpr_signed_char_incremented == -128);
 
 int main(void) {
     return constexpr_global == 27 && constexpr_local == 27 &&
@@ -216,6 +231,9 @@ int main(void) {
                    constexpr_ull_wrapped_sum_is_zero &&
                    constexpr_ull_shift_keeps_top_bit &&
                    constexpr_ull_conditional_preserves_unsigned &&
+                   constexpr_int_max == 2147483647 &&
+                   constexpr_int_min == (-2147483647 - 1) &&
+                   constexpr_signed_char_incremented == -128 &&
                    !constexpr_conditional_unsigned_comparison &&
                    !constexpr_ull_max_less_than_one &&
                    constexpr_ull_max_exceeds_signed_max &&

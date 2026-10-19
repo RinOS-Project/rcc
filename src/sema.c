@@ -4415,6 +4415,41 @@ static bool sema_constexpr_convert(int64_t input, Type* type,
     return true;
 }
 
+static bool sema_constexpr_signed_range(Type* type, int64_t* minimum,
+                                       int64_t* maximum) {
+    unsigned bits;
+    uint64_t sign_bit;
+    if (!type || (!minimum && !maximum) || type->is_unsigned ||
+        !sema_constexpr_integer_type(type) || type->size <= 0) {
+        return false;
+    }
+    bits = (unsigned)type->size * 8u;
+    if (bits == 0u || bits > 64u) return false;
+    if (bits == 64u) {
+        if (minimum) *minimum = INT64_MIN;
+        if (maximum) *maximum = INT64_MAX;
+        return true;
+    }
+    sign_bit = UINT64_C(1) << (bits - 1u);
+    if (minimum) *minimum = -(int64_t)sign_bit;
+    if (maximum) *maximum = (int64_t)(sign_bit - 1u);
+    return true;
+}
+
+static bool sema_constexpr_signed_value_fits(Type* type, int64_t value) {
+    int64_t minimum;
+    int64_t maximum;
+    return sema_constexpr_signed_range(type, &minimum, &maximum) &&
+           value >= minimum && value <= maximum;
+}
+
+static bool sema_constexpr_signed_expression_overflows(Type* type,
+                                                       int64_t value) {
+    return type && !type->is_unsigned &&
+           sema_constexpr_integer_type(type) &&
+           !sema_constexpr_signed_value_fits(type, value);
+}
+
 static bool sema_constexpr_add(int64_t left, int64_t right, int64_t* result) {
 #if defined(__GNUC__) || defined(__clang__)
     return !__builtin_add_overflow(left, right, result);
@@ -4540,6 +4575,23 @@ static bool sema_eval_constexpr_expr(
                 assigned = right;
             } else {
                 left = bindings[binding_index].value;
+                Type* left_type = expression->binary_lhs
+                    ? expression->binary_lhs->type : NULL;
+                Type* right_type = expression->binary_rhs
+                    ? expression->binary_rhs->type : NULL;
+                Type* operation_type = NULL;
+                if (left_type && right_type &&
+                    sema_constexpr_integer_type(left_type) &&
+                    sema_constexpr_integer_type(right_type)) {
+                    left_type = sema_integer_promotion(left_type);
+                    if (expression->kind == EXPR_LSHIFT_ASSIGN ||
+                        expression->kind == EXPR_RSHIFT_ASSIGN) {
+                        operation_type = left_type;
+                    } else {
+                        right_type = sema_integer_promotion(right_type);
+                        operation_type = type_common(left_type, right_type);
+                    }
+                }
                 switch (expression->kind) {
                     case EXPR_ADD_ASSIGN:
                         if (!sema_constexpr_add(left, right, &assigned)) {
@@ -4559,18 +4611,39 @@ static bool sema_eval_constexpr_expr(
                     case EXPR_DIV_ASSIGN:
                         if (right == 0 ||
                             (left == INT64_MIN && right == -1)) return false;
+                        if (operation_type && !operation_type->is_unsigned) {
+                            int64_t minimum;
+                            if (!sema_constexpr_signed_range(
+                                    operation_type, &minimum, NULL) ||
+                                (left == minimum && right == -1)) return false;
+                        }
                         assigned = left / right;
                         break;
                     case EXPR_MOD_ASSIGN:
                         if (right == 0 ||
                             (left == INT64_MIN && right == -1)) return false;
+                        if (operation_type && !operation_type->is_unsigned) {
+                            int64_t minimum;
+                            if (!sema_constexpr_signed_range(
+                                    operation_type, &minimum, NULL) ||
+                                (left == minimum && right == -1)) return false;
+                        }
                         assigned = left % right;
                         break;
                     case EXPR_AND_ASSIGN: assigned = left & right; break;
                     case EXPR_OR_ASSIGN: assigned = left | right; break;
                     case EXPR_XOR_ASSIGN: assigned = left ^ right; break;
                     case EXPR_LSHIFT_ASSIGN:
-                        if (right < 0 || right >= 64) return false;
+                        if (right < 0 || right >= 64 || left < 0 ||
+                            (right == 63 && left != 0) ||
+                            (right < 63 && left > (INT64_MAX >> right))) {
+                            return false;
+                        }
+                        if (operation_type && !operation_type->is_unsigned &&
+                            (left < 0 || right >=
+                                (int64_t)operation_type->size * 8)) {
+                            return false;
+                        }
                         assigned = left << right;
                         break;
                     case EXPR_RSHIFT_ASSIGN:
@@ -4580,6 +4653,8 @@ static bool sema_eval_constexpr_expr(
                     default:
                         return false;
                 }
+                if (sema_constexpr_signed_expression_overflows(
+                        operation_type, assigned)) return false;
             }
             if (!sema_constexpr_convert(
                     assigned, bindings[binding_index].declaration->type,
@@ -4605,9 +4680,13 @@ static bool sema_eval_constexpr_expr(
             } else if (!sema_constexpr_sub(old_value, 1, &right)) {
                 return false;
             }
+            Type* value_type = bindings[binding_index].declaration->type;
+            Type* operation_type = sema_constexpr_integer_type(value_type)
+                ? sema_integer_promotion(value_type) : value_type;
+            if (sema_constexpr_signed_expression_overflows(
+                    operation_type, right)) return false;
             if (!sema_constexpr_convert(
-                    right, bindings[binding_index].declaration->type,
-                    &right)) {
+                    right, value_type, &right)) {
                 return false;
             }
             bindings[binding_index].value = right;
@@ -4620,8 +4699,20 @@ static bool sema_eval_constexpr_expr(
                                            bindings, binding_count, &left)) {
                 return false;
             }
-            if (left == INT64_MIN) return false;
-            *value = -left;
+            {
+                Type* result_type = expression->type;
+                int64_t minimum;
+                if (left == INT64_MIN) return false;
+                if (result_type && !result_type->is_unsigned &&
+                    sema_constexpr_integer_type(result_type) &&
+                    (!sema_constexpr_signed_range(
+                         result_type, &minimum, NULL) || left == minimum)) {
+                    return false;
+                }
+                *value = -left;
+                if (sema_constexpr_signed_expression_overflows(
+                        result_type, *value)) return false;
+            }
             return true;
         case EXPR_NOT:
             if (!sema_eval_constexpr_expr(expression->unary_operand,
@@ -4725,20 +4816,42 @@ static bool sema_eval_constexpr_expr(
             }
             switch (expression->kind) {
                 case EXPR_ADD:
-                    return sema_constexpr_add(left, right, value);
+                    if (!sema_constexpr_add(left, right, value)) return false;
+                    return !sema_constexpr_signed_expression_overflows(
+                        expression->type, *value);
                 case EXPR_SUB:
-                    return sema_constexpr_sub(left, right, value);
+                    if (!sema_constexpr_sub(left, right, value)) return false;
+                    return !sema_constexpr_signed_expression_overflows(
+                        expression->type, *value);
                 case EXPR_MUL:
-                    return sema_constexpr_mul(left, right, value);
+                    if (!sema_constexpr_mul(left, right, value)) return false;
+                    return !sema_constexpr_signed_expression_overflows(
+                        expression->type, *value);
                 case EXPR_DIV:
                     if (right == 0 || (left == INT64_MIN && right == -1)) {
                         return false;
+                    }
+                    if (expression->type &&
+                        !expression->type->is_unsigned &&
+                        sema_constexpr_integer_type(expression->type)) {
+                        int64_t minimum;
+                        if (!sema_constexpr_signed_range(
+                                expression->type, &minimum, NULL) ||
+                            (left == minimum && right == -1)) return false;
                     }
                     *value = left / right;
                     return true;
                 case EXPR_MOD:
                     if (right == 0 || (left == INT64_MIN && right == -1)) {
                         return false;
+                    }
+                    if (expression->type &&
+                        !expression->type->is_unsigned &&
+                        sema_constexpr_integer_type(expression->type)) {
+                        int64_t minimum;
+                        if (!sema_constexpr_signed_range(
+                                expression->type, &minimum, NULL) ||
+                            (left == minimum && right == -1)) return false;
                     }
                     *value = left % right;
                     return true;
@@ -4758,7 +4871,8 @@ static bool sema_eval_constexpr_expr(
                         return false;
                     }
                     *value = left << right;
-                    return true;
+                    return !sema_constexpr_signed_expression_overflows(
+                        expression->type, *value);
                 case EXPR_RSHIFT:
                     if (right < 0 || right >= 64) return false;
                     *value = left >> right;
@@ -6712,32 +6826,56 @@ static bool sema_constexpr_scalar_binary(
         }
     }
     switch (expression_kind) {
-        case EXPR_ADD:
-            return sema_constexpr_add(converted_left.integer_value,
-                                      converted_right.integer_value,
-                                      &output->integer_value);
-        case EXPR_SUB:
-            return sema_constexpr_sub(converted_left.integer_value,
-                                      converted_right.integer_value,
-                                      &output->integer_value);
-        case EXPR_MUL:
-            return sema_constexpr_mul(converted_left.integer_value,
-                                      converted_right.integer_value,
-                                      &output->integer_value);
-        case EXPR_DIV:
-            if (converted_right.integer_value == 0 ||
-                (converted_left.integer_value == INT64_MIN &&
+        case EXPR_ADD: {
+            int64_t result;
+            if (!sema_constexpr_add(converted_left.integer_value,
+                                    converted_right.integer_value, &result) ||
+                !sema_constexpr_signed_value_fits(result_type, result)) {
+                return false;
+            }
+            output->integer_value = result;
+            return true;
+        }
+        case EXPR_SUB: {
+            int64_t result;
+            if (!sema_constexpr_sub(converted_left.integer_value,
+                                    converted_right.integer_value, &result) ||
+                !sema_constexpr_signed_value_fits(result_type, result)) {
+                return false;
+            }
+            output->integer_value = result;
+            return true;
+        }
+        case EXPR_MUL: {
+            int64_t result;
+            if (!sema_constexpr_mul(converted_left.integer_value,
+                                    converted_right.integer_value, &result) ||
+                !sema_constexpr_signed_value_fits(result_type, result)) {
+                return false;
+            }
+            output->integer_value = result;
+            return true;
+        }
+        case EXPR_DIV: {
+            int64_t minimum;
+            if (!sema_constexpr_signed_range(result_type, &minimum, NULL) ||
+                converted_right.integer_value == 0 ||
+                (converted_left.integer_value == minimum &&
                  converted_right.integer_value == -1)) return false;
             output->integer_value = converted_left.integer_value /
                                     converted_right.integer_value;
             return true;
-        case EXPR_MOD:
-            if (converted_right.integer_value == 0 ||
-                (converted_left.integer_value == INT64_MIN &&
+        }
+        case EXPR_MOD: {
+            int64_t minimum;
+            if (!sema_constexpr_signed_range(result_type, &minimum, NULL) ||
+                converted_right.integer_value == 0 ||
+                (converted_left.integer_value == minimum &&
                  converted_right.integer_value == -1)) return false;
             output->integer_value = converted_left.integer_value %
                                     converted_right.integer_value;
             return true;
+        }
         case EXPR_BITAND:
             output->integer_value = converted_left.integer_value &
                                     converted_right.integer_value;
@@ -6762,6 +6900,8 @@ static bool sema_constexpr_scalar_binary(
             }
             output->integer_value = converted_left.integer_value <<
                                     sema_constexpr_integer_signed(&converted_right);
+            if (!sema_constexpr_signed_value_fits(
+                    result_type, output->integer_value)) return false;
             return true;
         case EXPR_RSHIFT:
             if (sema_constexpr_integer_signed(&converted_right) < 0 ||
@@ -6779,11 +6919,14 @@ static bool sema_constexpr_scalar_assign(
     int expression_kind, const SemaConstexprScalar* current,
     const SemaConstexprScalar* right, Type* variable_type,
     SemaConstexprScalar* assigned) {
+    SemaConstexprScalar computed;
+    Type* operation_type = variable_type;
+    int operation;
     if (!current || !right || !variable_type || !assigned) return false;
     if (expression_kind == EXPR_ASSIGN) {
         return sema_constexpr_scalar_convert(right, variable_type, assigned);
     }
-    return sema_constexpr_scalar_binary(
+    operation =
         expression_kind == EXPR_ADD_ASSIGN ? EXPR_ADD :
         expression_kind == EXPR_SUB_ASSIGN ? EXPR_SUB :
         expression_kind == EXPR_MUL_ASSIGN ? EXPR_MUL :
@@ -6792,8 +6935,32 @@ static bool sema_constexpr_scalar_assign(
         expression_kind == EXPR_AND_ASSIGN ? EXPR_BITAND :
         expression_kind == EXPR_OR_ASSIGN ? EXPR_BITOR :
         expression_kind == EXPR_XOR_ASSIGN ? EXPR_BITXOR :
-        expression_kind == EXPR_LSHIFT_ASSIGN ? EXPR_LSHIFT : EXPR_RSHIFT,
-        current, right, variable_type, assigned);
+        expression_kind == EXPR_LSHIFT_ASSIGN ? EXPR_LSHIFT : EXPR_RSHIFT;
+    if (!current->is_pointer && !right->is_pointer && current->type &&
+        right->type && sema_constexpr_scalar_type(current->type) &&
+        sema_constexpr_scalar_type(right->type)) {
+        Type* left_type = current->type;
+        Type* right_type = right->type;
+        if (operation == EXPR_LSHIFT || operation == EXPR_RSHIFT) {
+            if (sema_constexpr_integer_type(left_type)) {
+                operation_type = sema_integer_promotion(left_type);
+            }
+        } else {
+            if (sema_constexpr_integer_type(left_type)) {
+                left_type = sema_integer_promotion(left_type);
+            }
+            if (sema_constexpr_integer_type(right_type)) {
+                right_type = sema_integer_promotion(right_type);
+            }
+            operation_type = type_common(left_type, right_type);
+        }
+    }
+    if (!operation_type ||
+        !sema_constexpr_scalar_binary(operation, current, right,
+                                      operation_type, &computed)) {
+        return false;
+    }
+    return sema_constexpr_scalar_convert(&computed, variable_type, assigned);
 }
 
 static bool sema_eval_constexpr_scalar_statement(
@@ -8145,8 +8312,13 @@ static bool sema_eval_constexpr_scalar_expr(
                     sema_constexpr_integer_mask(result_type));
             } else {
                 int64_t signed_value = sema_constexpr_integer_signed(&left);
-                if (signed_value == INT64_MIN) return false;
+                int64_t minimum;
+                if (!sema_constexpr_signed_range(
+                        result_type, &minimum, NULL) ||
+                    signed_value == minimum) return false;
                 value->integer_value = -signed_value;
+                if (!sema_constexpr_signed_value_fits(
+                        result_type, value->integer_value)) return false;
             }
             return true;
         case EXPR_NOT:
