@@ -18,3 +18,9 @@ inline int debug_constant_inline(int value)
 {
     return value + 3;
 }
+
+inline unsigned long long debug_unsigned_constant_inline(
+    unsigned long long value)
+{
+    return value;
+}

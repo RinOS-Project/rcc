@@ -91,7 +91,9 @@ typedef struct ModuleDebugFrameSave {
 typedef struct ModuleDebugInlineParameterValue {
     const Decl* declaration;
     int64_t value;
+    uint64_t unsigned_value;
     bool has_signed_integer_constant;
+    bool has_unsigned_integer_constant;
 } ModuleDebugInlineParameterValue;
 
 typedef struct ModuleDebugInlineCall {

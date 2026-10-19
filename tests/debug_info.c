@@ -69,6 +69,11 @@ int debug_inline_constant_entry(void)
     return debug_constant_inline(23);
 }
 
+unsigned long long debug_inline_unsigned_constant_entry(void)
+{
+    return debug_unsigned_constant_inline(18446744073709551615ull);
+}
+
 int debug_tls_static_local_read(void)
 {
     static _Thread_local int debug_tls_static_local = 17;

@@ -75,6 +75,13 @@ static bool debug_inline_signed_integer_type(const Type* type) {
          type->kind == TYPE_ENUM);
 }
 
+static bool debug_inline_unsigned_integer_type(const Type* type) {
+    return type && type->is_unsigned && !type->is_volatile &&
+        !type->is_reference && type->size > 0 && type->size <= 8 &&
+        ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
+         type->kind == TYPE_ENUM);
+}
+
 static void debug_inline_capture_parameter_values(
     ModuleDebugInlineCall* call, const Decl* callee,
     const ExprList* arguments) {
@@ -103,7 +110,9 @@ static void debug_inline_capture_parameter_values(
         value = &call->parameter_values[index++];
         value->declaration = declaration;
         value->value = 0;
+        value->unsigned_value = 0u;
         value->has_signed_integer_constant = false;
+        value->has_unsigned_integer_constant = false;
         parameter_type = declaration->type;
         argument_type = argument && argument->expr
             ? argument->expr->type : NULL;
@@ -115,6 +124,17 @@ static void debug_inline_capture_parameter_values(
             expr_eval_integer_constant(argument->expr, &constant)) {
             value->value = constant;
             value->has_signed_integer_constant = true;
+        } else if (argument && !argument->cxx_temporary_owner &&
+                   debug_inline_unsigned_integer_type(parameter_type) &&
+                   debug_inline_unsigned_integer_type(argument_type) &&
+                   parameter_type->kind == argument_type->kind &&
+                   parameter_type->size == argument_type->size) {
+            uint64_t unsigned_constant;
+            if (expr_eval_integer_constant_u64(
+                    argument->expr, &unsigned_constant)) {
+                value->unsigned_value = unsigned_constant;
+                value->has_unsigned_integer_constant = true;
+            }
         }
         if (argument) argument = argument->next;
     }
