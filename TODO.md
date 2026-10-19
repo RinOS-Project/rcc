@@ -7103,17 +7103,18 @@ remains a separate open item.
       function-designator decay. Include read-only global data, direct
       `&function` addresses, and representation-preserving object-pointer cast
       chains that need no target adjustment. Preserve the byte addend for a
-      literal in-bounds or one-past subscript of a defined static array;
-      exclude member pointers and dynamic addresses.
+      literal in-bounds or one-past subscript of a defined static array and a
+      direct non-bitfield data member with a fixed offset; exclude virtual-base
+      adjustments, member pointers, and dynamic addresses.
 - [x] Verify mutable global, read-only global, function-local static object,
       static function addresses, bare function-designator decay, and an
-      explicit object-pointer cast to `const void*` plus `&array[2]` with its
-      nonzero relocation addend in legacy and verified optimized DWARF for
-      i686/AMD64. Extend bounded scalar inlining to accept only type-compatible
-      function-to-pointer decay. The native-Windows `test-debug-info` target
-      passes.
-- [ ] General pointer arithmetic, member-subobject/interior offsets, pointer
-      casts requiring a target adjustment, dynamic pointer expressions, and
+      explicit object-pointer cast to `const void*`, `&array[2]` (byte addend
+      8), and `&aggregate.member` (byte addend 4) in legacy and verified
+      optimized DWARF for i686/AMD64. Extend bounded scalar inlining to accept
+      only type-compatible function-to-pointer decay. The native-Windows
+      `test-debug-info` target passes.
+- [ ] General pointer arithmetic, nested member/array subobject paths, pointer
+      casts requiring target adjustment, dynamic pointer expressions, and
       general register/piece location tracking remain open.
 
 ## RIN/RLL/DRV fini-array format matrix (2026-10-20)

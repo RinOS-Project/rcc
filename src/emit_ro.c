@@ -4214,6 +4214,28 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
         element_size = indexed->type->size;
         if (element_index > INT64_MAX / element_size) return NULL;
         *address_addend = element_index * element_size;
+    } else if (address->kind == EXPR_ADDR && address->unary_operand &&
+               address->unary_operand->kind == EXPR_MEMBER &&
+               address->unary_operand->member_base &&
+               address->unary_operand->member_base->kind == EXPR_IDENT &&
+               address->unary_operand->member_base->ident_decl &&
+               address->unary_operand->member_field) {
+        const Expr* member = address->unary_operand;
+        const TypeField* field = member->member_field;
+        operand = member->member_base;
+        source = operand->ident_decl;
+        if (source->kind != DECL_VAR || !source->type ||
+            (source->type->kind != TYPE_STRUCT &&
+             source->type->kind != TYPE_UNION) ||
+            field->is_bitfield || field->from_virtual_base ||
+            field->offset < 0 || !field->type || field->type->size <= 0 ||
+            source->type->size <= 0 ||
+            field->offset > source->type->size - field->type->size ||
+            member->cxx_virtual_base_adjustment ||
+            member->cxx_virtual_base_member_access) {
+            return NULL;
+        }
+        *address_addend = field->offset;
     } else if (address->kind == EXPR_IDENT && address->ident_decl &&
                address->ident_decl->kind == DECL_FUNC) {
         operand = address;
