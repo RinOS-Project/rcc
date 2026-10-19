@@ -183,6 +183,48 @@ int debug_inline_array_element_address_constant_entry(void)
         &debug_inline_addressed_array_source[2]);
 }
 
+int debug_inline_array_plus_constant_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        debug_inline_addressed_array_source + (1 + 2));
+}
+
+int debug_inline_constant_plus_array_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        1 + debug_inline_addressed_array_source);
+}
+
+int debug_inline_array_one_past_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        debug_inline_addressed_array_source + 4);
+}
+
+int debug_inline_array_cast_constant_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        debug_inline_addressed_array_source + (unsigned char)260);
+}
+
+int debug_inline_array_unsigned_modulo_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        debug_inline_addressed_array_source + (-2 % 3u));
+}
+
+int debug_inline_object_one_past_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_pointer_source + 1);
+}
+
+int debug_inline_array_out_of_bounds_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        debug_inline_addressed_array_source + (unsigned char)261);
+}
+
 int debug_inline_member_address_constant_entry(void)
 {
     return debug_global_pointer_parameter_inline(

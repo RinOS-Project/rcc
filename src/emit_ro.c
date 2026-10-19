@@ -4142,6 +4142,277 @@ static bool debug_inline_literal_array_index(const Expr* expression,
 
 static bool debug_inline_static_address_path(
     const Expr* expression, const Decl** source, int64_t* address_addend,
+    bool allow_one_past, unsigned int depth);
+
+static const Expr* debug_inline_static_array_designator(
+    const Expr* expression, const Type** array_type) {
+    if (array_type) *array_type = NULL;
+    while (expression && expression->kind == EXPR_CAST &&
+           expression->cast_expr) {
+        const Type* cast_type = expression->cast_type;
+        const Type* source_type = expression->cast_expr->type;
+        int address_size = g_opts.target_arch == ARCH_X64 ? 8 : 4;
+        if (!cast_type || cast_type->kind != TYPE_PTR || !source_type ||
+            cast_type->cxx_is_member_pointer ||
+            cast_type->size != address_size ||
+            expression->cxx_pointer_adjustment_valid ||
+            expression->cxx_member_pointer_adjustment_valid ||
+            expression->cxx_virtual_base_adjustment ||
+            (source_type->kind != TYPE_ARRAY &&
+             source_type->kind != TYPE_PTR) ||
+            (source_type->kind == TYPE_PTR &&
+             (source_type->size != address_size ||
+              source_type->cxx_is_member_pointer))) {
+            return NULL;
+        }
+        expression = expression->cast_expr;
+    }
+    if (!expression) return NULL;
+    if (expression->type && expression->type->kind == TYPE_ARRAY) {
+        if (array_type) *array_type = expression->type;
+        return expression;
+    }
+    if (expression->kind == EXPR_IDENT && expression->ident_decl &&
+        expression->ident_decl->kind == DECL_VAR &&
+        expression->ident_decl->type &&
+        expression->ident_decl->type->kind == TYPE_ARRAY) {
+        if (array_type) *array_type = expression->ident_decl->type;
+        return expression;
+    }
+    return NULL;
+}
+
+static bool debug_inline_integer_constant_type(const Type* type) {
+    return type &&
+        ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
+         type->kind == TYPE_ENUM);
+}
+
+static bool debug_inline_convert_integer_constant(
+    int64_t input, const Type* type, int64_t* output) {
+    uint64_t bits;
+    uint64_t mask;
+    unsigned int width;
+    uint64_t sign_bit;
+    if (!output || !debug_inline_integer_constant_type(type) ||
+        type->size <= 0 || type->size > 8) {
+        return false;
+    }
+    if (type->kind == TYPE_BOOL) {
+        *output = input != 0;
+        return true;
+    }
+    width = (unsigned int)type->size * 8u;
+    mask = width == 64u ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
+    bits = (uint64_t)input & mask;
+    if (type->is_unsigned) {
+        if (bits > (uint64_t)INT64_MAX) return false;
+        *output = (int64_t)bits;
+        return true;
+    }
+    sign_bit = UINT64_C(1) << (width - 1u);
+    if ((bits & sign_bit) == 0u) {
+        *output = (int64_t)bits;
+    } else if (width == 64u) {
+        uint64_t magnitude = (~bits) + 1u;
+        if (magnitude == sign_bit) {
+            *output = INT64_MIN;
+        } else {
+            *output = -(int64_t)magnitude;
+        }
+    } else {
+        *output = -(int64_t)((UINT64_C(1) << width) - bits);
+    }
+    return true;
+}
+
+static bool debug_inline_integer_constant_value(
+    const Expr* expression, int64_t* value, unsigned int depth) {
+    int64_t left;
+    int64_t right;
+    int64_t result;
+    if (!expression || !value || depth >= 32u ||
+        !debug_inline_integer_constant_type(expression->type)) {
+        return false;
+    }
+    if (expression->kind == EXPR_INT_LIT) {
+        return debug_inline_convert_integer_constant(
+            expression->int_val, expression->type, value);
+    }
+    if (expression->kind == EXPR_CHAR_LIT) {
+        return debug_inline_convert_integer_constant(
+            expression->char_val, expression->type, value);
+    }
+    if (expression->kind == EXPR_CAST) {
+        if (!expression->cast_expr ||
+            !debug_inline_integer_constant_type(expression->cast_type) ||
+            !debug_inline_integer_constant_value(
+                expression->cast_expr, &left, depth + 1u)) {
+            return false;
+        }
+        return debug_inline_convert_integer_constant(
+            left, expression->cast_type, value);
+    }
+    if (expression->kind == EXPR_NEG) {
+        if (!expression->unary_operand ||
+            !debug_inline_integer_constant_value(
+                expression->unary_operand, &left, depth + 1u) ||
+            left == INT64_MIN) {
+            return false;
+        }
+        return debug_inline_convert_integer_constant(
+            -left, expression->type, value);
+    }
+    if (expression->kind != EXPR_ADD && expression->kind != EXPR_SUB &&
+        expression->kind != EXPR_MUL && expression->kind != EXPR_DIV &&
+        expression->kind != EXPR_MOD) {
+        return false;
+    }
+    if (!expression->binary_lhs || !expression->binary_rhs ||
+        !debug_inline_integer_constant_value(
+            expression->binary_lhs, &left, depth + 1u) ||
+        !debug_inline_integer_constant_value(
+            expression->binary_rhs, &right, depth + 1u)) {
+        return false;
+    }
+    if (!debug_inline_convert_integer_constant(
+            left, expression->type, &left) ||
+        !debug_inline_convert_integer_constant(
+            right, expression->type, &right)) {
+        return false;
+    }
+    switch (expression->kind) {
+        case EXPR_ADD:
+            if ((right > 0 && left > INT64_MAX - right) ||
+                (right < 0 && left < INT64_MIN - right)) return false;
+            result = left + right;
+            break;
+        case EXPR_SUB:
+            if ((right < 0 && left > INT64_MAX + right) ||
+                (right > 0 && left < INT64_MIN + right)) return false;
+            result = left - right;
+            break;
+        case EXPR_MUL:
+            if (left > 0) {
+                if ((right > 0 && left > INT64_MAX / right) ||
+                    (right < 0 && right < INT64_MIN / left)) return false;
+            } else if (left < 0) {
+                if ((right > 0 && left < INT64_MIN / right) ||
+                    (right < 0 && left < INT64_MAX / right)) return false;
+            }
+            result = left * right;
+            break;
+        case EXPR_DIV:
+            if (right == 0 || (left == INT64_MIN && right == -1)) {
+                return false;
+            }
+            result = left / right;
+            break;
+        case EXPR_MOD:
+            if (right == 0 || (left == INT64_MIN && right == -1)) {
+                return false;
+            }
+            result = left % right;
+            break;
+        default:
+            return false;
+    }
+    return debug_inline_convert_integer_constant(
+        result, expression->type, value);
+}
+
+static bool debug_inline_nonnegative_integer_constant(
+    const Expr* expression, int64_t* value) {
+    int64_t constant;
+    if (!value || !debug_inline_integer_constant_value(
+            expression, &constant, 0u) || constant < 0) {
+        return false;
+    }
+    *value = constant;
+    return true;
+}
+
+static bool debug_inline_static_pointer_addition(
+    const Expr* expression, const Decl** source, int64_t* address_addend) {
+    const Expr* pointer_expression;
+    const Expr* offset_expression;
+    const Expr* array_designator;
+    const Type* pointer_type;
+    const Type* array_type = NULL;
+    const Type* element_type;
+    int64_t element_count;
+    int64_t base_addend;
+    int64_t object_extent;
+    int64_t byte_offset;
+    bool subtract;
+    if (!expression || !source || !address_addend ||
+        (expression->kind != EXPR_ADD && expression->kind != EXPR_SUB) ||
+        !expression->type || expression->type->kind != TYPE_PTR ||
+        expression->type->cxx_is_member_pointer ||
+        !expression->type->base || expression->type->base->kind == TYPE_FUNC ||
+        expression->type->base->size <= 0) {
+        return false;
+    }
+    subtract = expression->kind == EXPR_SUB;
+    pointer_expression = expression->binary_lhs;
+    offset_expression = expression->binary_rhs;
+    if (!subtract && pointer_expression &&
+        pointer_expression->type &&
+        pointer_expression->type->kind != TYPE_PTR &&
+        pointer_expression->type->kind != TYPE_ARRAY) {
+        pointer_expression = expression->binary_rhs;
+        offset_expression = expression->binary_lhs;
+    }
+    if (!pointer_expression || !pointer_expression->type ||
+        (pointer_expression->type->kind != TYPE_PTR &&
+         pointer_expression->type->kind != TYPE_ARRAY) ||
+        pointer_expression->type->cxx_is_member_pointer ||
+        !debug_inline_nonnegative_integer_constant(
+            offset_expression, &element_count) ||
+        (subtract && element_count != 0)) {
+        return false;
+    }
+    pointer_type = expression->type;
+    element_type = pointer_type->base;
+    if (element_count > INT64_MAX / element_type->size) return false;
+    byte_offset = element_count * element_type->size;
+    array_designator = debug_inline_static_array_designator(
+        pointer_expression, &array_type);
+    if (array_designator) {
+        if (!array_type || array_type->size <= 0 ||
+            array_type->array_len < 0 ||
+            !debug_inline_static_address_path(
+                array_designator, source, &base_addend, false, 0u)) {
+            return false;
+        }
+        object_extent = array_type->size;
+    } else if (pointer_expression->kind == EXPR_ADDR &&
+               pointer_expression->unary_operand &&
+               debug_inline_static_address_path(
+                   pointer_expression->unary_operand, source,
+                   &base_addend, false, 0u)) {
+        const Type* pointed_object_type =
+            pointer_expression->unary_operand->type;
+        if (!pointed_object_type || pointed_object_type->size <= 0 ||
+            element_type->size > pointed_object_type->size) {
+            return false;
+        }
+        object_extent = element_type->size;
+    } else {
+        return false;
+    }
+    if (base_addend < 0 || byte_offset > object_extent ||
+        base_addend > INT64_MAX - byte_offset ||
+        !*source || !(*source)->type || (*source)->type->size <= 0 ||
+        base_addend > (*source)->type->size - object_extent) {
+        return false;
+    }
+    *address_addend = base_addend + byte_offset;
+    return true;
+}
+
+static bool debug_inline_static_address_path(
+    const Expr* expression, const Decl** source, int64_t* address_addend,
     bool allow_one_past, unsigned int depth) {
     if (!expression || !source || !address_addend || depth >= 32u) {
         return false;
@@ -4271,7 +4542,13 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
         }
         address = address->cast_expr;
     }
-    if (address->kind == EXPR_ADDR && address->unary_operand &&
+    if ((address->kind == EXPR_ADD || address->kind == EXPR_SUB) &&
+        debug_inline_static_pointer_addition(
+            address, &source, address_addend)) {
+        /* The pointer arithmetic helper has already proved that the
+         * displacement stays inside its statically named object or reaches
+         * its one-past address. */
+    } else if (address->kind == EXPR_ADDR && address->unary_operand &&
         debug_inline_static_address_path(
             address->unary_operand, &source, address_addend, true, 0u)) {
         if (!source->type || *address_addend > source->type->size) {

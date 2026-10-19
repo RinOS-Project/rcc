@@ -3412,6 +3412,46 @@ static void verify_inline_frame_parameter_die(const ObjSection* info,
     assert(*cursor == expression_end && frame_offset != 0);
 }
 
+static void verify_inline_parameter_address_constant(
+    const ObjSection* info, uint64_t call_die, uint16_t architecture,
+    const char* symbol_name, int64_t expected_addend) {
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t concrete_parameter;
+    uint32_t origin_parameter;
+    uint64_t address_offset;
+    bool found_address_relocation = false;
+    assert(info && info->data && call_die < info->size && symbol_name);
+    concrete_parameter = call_die + 1u + 4u + address_size + 4u + 12u;
+    origin_parameter = read_u32(info->data, call_die + 1u) + 27u;
+    address_offset = concrete_parameter + 5u;
+    assert(info->data[concrete_parameter] == 68u);
+    assert(read_u32(info->data, concrete_parameter + 1u) == origin_parameter);
+    for (uint64_t byte = 0u; byte < address_size; ++byte) {
+        assert(info->data[address_offset + byte] == 0u);
+    }
+    for (const ObjReloc* relocation = info->relocs;
+         relocation; relocation = relocation->next) {
+        if (relocation->offset == address_offset &&
+            relocation->type == (architecture == ARCH_X64
+                ? RELOC_ABS64 : RELOC_ABS32U) &&
+            relocation->addend == expected_addend &&
+            relocation->symbol_name &&
+            strcmp(relocation->symbol_name, symbol_name) == 0) {
+            found_address_relocation = true;
+            break;
+        }
+    }
+    assert(found_address_relocation);
+}
+
+static void verify_inline_parameter_is_not_attributed(
+    const ObjSection* info, uint64_t call_die, uint16_t architecture) {
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t first_child = call_die + 1u + 4u + address_size + 4u + 12u;
+    assert(info && info->data && call_die < info->size);
+    assert(first_child < info->size && info->data[first_child] == 0u);
+}
+
 static void verify_inline_debug_object(const char* path,
                                       uint16_t architecture)
 {
@@ -3491,6 +3531,13 @@ static void verify_inline_debug_object(const char* path,
     uint64_t readonly_address_constant_inline_call = UINT64_MAX;
     uint64_t cast_address_constant_inline_call = UINT64_MAX;
     uint64_t array_element_address_constant_inline_call = UINT64_MAX;
+    uint64_t array_plus_constant_inline_call = UINT64_MAX;
+    uint64_t constant_plus_array_inline_call = UINT64_MAX;
+    uint64_t array_one_past_inline_call = UINT64_MAX;
+    uint64_t array_cast_constant_inline_call = UINT64_MAX;
+    uint64_t array_unsigned_modulo_inline_call = UINT64_MAX;
+    uint64_t object_one_past_inline_call = UINT64_MAX;
+    uint64_t array_out_of_bounds_inline_call = UINT64_MAX;
     uint64_t member_address_constant_inline_call = UINT64_MAX;
     uint64_t nested_array_address_constant_inline_call = UINT64_MAX;
     uint64_t function_address_constant_inline_call = UINT64_MAX;
@@ -3795,6 +3842,27 @@ static void verify_inline_debug_object(const char* path,
                        "debug_inline_array_element_address_constant_entry") == 0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
+                       "debug_inline_array_plus_constant_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_constant_plus_array_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_array_one_past_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_array_cast_constant_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_array_unsigned_modulo_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_object_one_past_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_array_out_of_bounds_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
                        "debug_inline_member_address_constant_entry") == 0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
@@ -3967,6 +4035,55 @@ static void verify_inline_debug_object(const char* path,
                        strcmp(inline_name,
                               "debug_global_pointer_parameter_inline") == 0 &&
                        strcmp(relocation->symbol_name,
+                              "debug_inline_array_plus_constant_entry") == 0 &&
+                       array_plus_constant_inline_call == UINT64_MAX) {
+                array_plus_constant_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_constant_plus_array_entry") == 0 &&
+                       constant_plus_array_inline_call == UINT64_MAX) {
+                constant_plus_array_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_array_one_past_entry") == 0 &&
+                       array_one_past_inline_call == UINT64_MAX) {
+                array_one_past_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_array_cast_constant_entry") == 0 &&
+                       array_cast_constant_inline_call == UINT64_MAX) {
+                array_cast_constant_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_array_unsigned_modulo_entry") == 0 &&
+                       array_unsigned_modulo_inline_call == UINT64_MAX) {
+                array_unsigned_modulo_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_object_one_past_entry") == 0 &&
+                       object_one_past_inline_call == UINT64_MAX) {
+                object_one_past_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_array_out_of_bounds_entry") == 0 &&
+                       array_out_of_bounds_inline_call == UINT64_MAX) {
+                array_out_of_bounds_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
                               "debug_inline_member_address_constant_entry") == 0 &&
                        member_address_constant_inline_call == UINT64_MAX) {
                 member_address_constant_inline_call = die;
@@ -4034,6 +4151,13 @@ static void verify_inline_debug_object(const char* path,
     assert(readonly_address_constant_inline_call != UINT64_MAX);
     assert(cast_address_constant_inline_call != UINT64_MAX);
     assert(array_element_address_constant_inline_call != UINT64_MAX);
+    assert(array_plus_constant_inline_call != UINT64_MAX);
+    assert(constant_plus_array_inline_call != UINT64_MAX);
+    assert(array_one_past_inline_call != UINT64_MAX);
+    assert(array_cast_constant_inline_call != UINT64_MAX);
+    assert(array_unsigned_modulo_inline_call != UINT64_MAX);
+    assert(object_one_past_inline_call != UINT64_MAX);
+    assert(array_out_of_bounds_inline_call != UINT64_MAX);
     assert(member_address_constant_inline_call != UINT64_MAX);
     assert(nested_array_address_constant_inline_call != UINT64_MAX);
     assert(function_address_constant_inline_call != UINT64_MAX);
@@ -4575,6 +4699,26 @@ static void verify_inline_debug_object(const char* path,
             &source_frame_offset));
         assert(source_has_location && source_frame_offset == frame_offset);
     }
+    verify_inline_parameter_address_constant(
+        info, array_plus_constant_inline_call, architecture,
+        "debug_inline_addressed_array_source", 12);
+    verify_inline_parameter_address_constant(
+        info, constant_plus_array_inline_call, architecture,
+        "debug_inline_addressed_array_source", 4);
+    verify_inline_parameter_address_constant(
+        info, array_one_past_inline_call, architecture,
+        "debug_inline_addressed_array_source", 16);
+    verify_inline_parameter_address_constant(
+        info, array_cast_constant_inline_call, architecture,
+        "debug_inline_addressed_array_source", 16);
+    verify_inline_parameter_address_constant(
+        info, array_unsigned_modulo_inline_call, architecture,
+        "debug_inline_addressed_array_source", 8);
+    verify_inline_parameter_address_constant(
+        info, object_one_past_inline_call, architecture,
+        "debug_inline_addressed_pointer_source", 4);
+    verify_inline_parameter_is_not_attributed(
+        info, array_out_of_bounds_inline_call, architecture);
     objfile_free(object);
 }
 

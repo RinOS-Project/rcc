@@ -7162,3 +7162,22 @@ remains a separate open item.
       add the missing i686 library and driver artifacts to
       `test-global-finalizers`. The updated target passes on native Windows.
 - [ ] Hardware loader execution of finalizers remains outside host validation.
+
+## RCC continuation (2026-10-20, bounded inline pointer arithmetic in DWARF)
+
+- [x] Record an optimized inline pointer formal as a symbolic address plus
+      target-width relocation for statically named array designators combined
+      with a nonnegative constant formed from integer/character literals,
+      unary minus, `+`/`-`/`*`/`/`/`%`, and integer casts (`array + N` or
+      `N + array`). Apply the target integer width and usual arithmetic result
+      type before scaling by the pointer element size; retain only displacements
+      within the named object, including one-past.
+- [x] Verify exact symbol/addend pairs for `array + (1 + 2)`, `1 + array`,
+      array one-past, a cast-narrowed `(unsigned char)260`, mixed signed/unsigned
+      `(-2 % 3u)`, and `&object + 1`; verify an out-of-bounds casted index is
+      not attributed. Check i686 and
+      AMD64 legacy and verified optimized DWARF through `test-debug-info` on
+      native Windows.
+- [ ] Pointer arithmetic from interior/nested subobjects, general negative
+      displacements, target-adjusting casts, dynamic pointer expressions, and
+      optimized register/piece location tracking remain open.
