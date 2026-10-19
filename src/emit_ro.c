@@ -4321,17 +4321,6 @@ static bool debug_inline_integer_constant_value(
         result, expression->type, value);
 }
 
-static bool debug_inline_nonnegative_integer_constant(
-    const Expr* expression, int64_t* value) {
-    int64_t constant;
-    if (!value || !debug_inline_integer_constant_value(
-            expression, &constant, 0u) || constant < 0) {
-        return false;
-    }
-    *value = constant;
-    return true;
-}
-
 static bool debug_inline_static_pointer_addition(
     const Expr* expression, const Decl** source, int64_t* address_addend) {
     const Expr* pointer_expression;
@@ -4341,9 +4330,13 @@ static bool debug_inline_static_pointer_addition(
     const Type* array_type = NULL;
     const Type* element_type;
     int64_t element_count;
+    int64_t integer_offset;
     int64_t base_addend;
+    int64_t object_start;
     int64_t object_extent;
+    int64_t object_end;
     int64_t byte_offset;
+    int64_t result_addend;
     bool subtract;
     if (!expression || !source || !address_addend ||
         (expression->kind != EXPR_ADD && expression->kind != EXPR_SUB) ||
@@ -4367,14 +4360,22 @@ static bool debug_inline_static_pointer_addition(
         (pointer_expression->type->kind != TYPE_PTR &&
          pointer_expression->type->kind != TYPE_ARRAY) ||
         pointer_expression->type->cxx_is_member_pointer ||
-        !debug_inline_nonnegative_integer_constant(
-            offset_expression, &element_count) ||
-        (subtract && element_count != 0)) {
+        !debug_inline_integer_constant_value(
+            offset_expression, &integer_offset, 0u)) {
         return false;
+    }
+    if (subtract) {
+        if (integer_offset == INT64_MIN) return false;
+        element_count = -integer_offset;
+    } else {
+        element_count = integer_offset;
     }
     pointer_type = expression->type;
     element_type = pointer_type->base;
-    if (element_count > INT64_MAX / element_type->size) return false;
+    if (element_count > 0 &&
+        element_count > INT64_MAX / element_type->size) return false;
+    if (element_count < 0 &&
+        element_count < INT64_MIN / element_type->size) return false;
     byte_offset = element_count * element_type->size;
     array_designator = debug_inline_static_array_designator(
         pointer_expression, &array_type);
@@ -4385,29 +4386,77 @@ static bool debug_inline_static_pointer_addition(
                 array_designator, source, &base_addend, false, 0u)) {
             return false;
         }
+        object_start = base_addend;
         object_extent = array_type->size;
     } else if (pointer_expression->kind == EXPR_ADDR &&
-               pointer_expression->unary_operand &&
-               debug_inline_static_address_path(
-                   pointer_expression->unary_operand, source,
-                   &base_addend, false, 0u)) {
+               pointer_expression->unary_operand) {
         const Type* pointed_object_type =
             pointer_expression->unary_operand->type;
-        if (!pointed_object_type || pointed_object_type->size <= 0 ||
-            element_type->size > pointed_object_type->size) {
-            return false;
+        const Expr* addressed_array = NULL;
+        const Type* addressed_array_type = NULL;
+        if (pointer_expression->unary_operand->kind == EXPR_INDEX &&
+            pointer_expression->unary_operand->index_base &&
+            pointer_expression->unary_operand->index_expr) {
+            int64_t array_index;
+            int64_t indexed_byte_offset;
+            int64_t array_end;
+            addressed_array = debug_inline_static_array_designator(
+                pointer_expression->unary_operand->index_base,
+                &addressed_array_type);
+            if (!addressed_array || !addressed_array_type ||
+                addressed_array_type->array_len < 0 ||
+                !addressed_array_type->base ||
+                addressed_array_type->base->size <= 0 ||
+                !debug_inline_integer_constant_value(
+                    pointer_expression->unary_operand->index_expr,
+                    &array_index, 0u) ||
+                array_index < 0 ||
+                array_index >= addressed_array_type->array_len ||
+                !debug_inline_static_address_path(
+                    addressed_array, source, &object_start, false, 0u) ||
+                array_index > INT64_MAX /
+                    addressed_array_type->base->size ||
+                object_start < 0 ||
+                object_start > INT64_MAX - addressed_array_type->size) {
+                return false;
+            }
+            indexed_byte_offset = array_index *
+                addressed_array_type->base->size;
+            array_end = object_start + addressed_array_type->size;
+            if (object_start > INT64_MAX - indexed_byte_offset) {
+                return false;
+            }
+            base_addend = object_start + indexed_byte_offset;
+            if (base_addend > array_end) return false;
+            object_extent = addressed_array_type->size;
+        } else {
+            if (!pointed_object_type || pointed_object_type->size <= 0 ||
+                element_type->size > pointed_object_type->size ||
+                !debug_inline_static_address_path(
+                    pointer_expression->unary_operand, source,
+                    &base_addend, false, 0u)) {
+                return false;
+            }
+            object_start = base_addend;
+            object_extent = element_type->size;
         }
-        object_extent = element_type->size;
     } else {
         return false;
     }
-    if (base_addend < 0 || byte_offset > object_extent ||
-        base_addend > INT64_MAX - byte_offset ||
+    if (object_start < 0 || base_addend < object_start ||
+        object_extent < 0 || object_start > INT64_MAX - object_extent ||
+        (byte_offset > 0 && base_addend > INT64_MAX - byte_offset) ||
+        (byte_offset < 0 && base_addend < INT64_MIN - byte_offset) ||
         !*source || !(*source)->type || (*source)->type->size <= 0 ||
-        base_addend > (*source)->type->size - object_extent) {
+        object_start > (*source)->type->size - object_extent) {
         return false;
     }
-    *address_addend = base_addend + byte_offset;
+    object_end = object_start + object_extent;
+    result_addend = base_addend + byte_offset;
+    if (result_addend < object_start || result_addend > object_end) {
+        return false;
+    }
+    *address_addend = result_addend;
     return true;
 }
 

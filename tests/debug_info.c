@@ -213,6 +213,24 @@ int debug_inline_array_unsigned_modulo_entry(void)
         debug_inline_addressed_array_source + (-2 % 3u));
 }
 
+int debug_inline_array_interior_minus_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_array_source[2] - 1);
+}
+
+int debug_inline_array_interior_plus_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_array_source[1] + 2);
+}
+
+int debug_inline_array_before_begin_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_array_source[0] - 1);
+}
+
 int debug_inline_object_one_past_entry(void)
 {
     return debug_global_pointer_parameter_inline(

@@ -7169,15 +7169,17 @@ remains a separate open item.
       target-width relocation for statically named array designators combined
       with a nonnegative constant formed from integer/character literals,
       unary minus, `+`/`-`/`*`/`/`/`%`, and integer casts (`array + N` or
-      `N + array`). Apply the target integer width and usual arithmetic result
-      type before scaling by the pointer element size; retain only displacements
-      within the named object, including one-past.
+      `N + array`), plus `&array[i] ± N` when `i` and `N` are statically known.
+      Apply the target integer width and usual arithmetic result type before
+      scaling by the pointer element size; retain only displacements within the
+      same named array, including one-past.
 - [x] Verify exact symbol/addend pairs for `array + (1 + 2)`, `1 + array`,
       array one-past, a cast-narrowed `(unsigned char)260`, mixed signed/unsigned
-      `(-2 % 3u)`, and `&object + 1`; verify an out-of-bounds casted index is
-      not attributed. Check i686 and
+      `(-2 % 3u)`, `&object + 1`, `&array[2] - 1`, and `&array[1] + 2`; verify
+      out-of-bounds and before-begin results are not attributed. Check i686 and
       AMD64 legacy and verified optimized DWARF through `test-debug-info` on
       native Windows.
-- [ ] Pointer arithmetic from interior/nested subobjects, general negative
-      displacements, target-adjusting casts, dynamic pointer expressions, and
-      optimized register/piece location tracking remain open.
+- [ ] Nested member/subarray paths, negative displacements not rooted at a
+      statically indexed direct array element, target-adjusting casts, dynamic
+      pointer expressions, and optimized register/piece location tracking
+      remain open.
