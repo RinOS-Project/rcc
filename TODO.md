@@ -6604,11 +6604,11 @@ remains a separate open item.
       bound. Verify `int values[count][2][3]` indexing/stride and dynamic
       allocation on i686/AMD64 at `-O0`/`-O2`, with x64 execution in
       `test-verified-goto`.
-- [ ] Extend typed-SSA VLA lowering beyond an uninitialized, non-volatile VLA
-      with one outer runtime bound and scalar/pointer or recursively fixed-array
-      element type. Additional runtime-bound dimensions, aggregate and
-      initialized VLA forms, plus cleanup/unwind and goto/loop edge combinations
-      remain required for general VLA support.
+- [ ] Extend typed-SSA VLA lowering beyond uninitialized, non-volatile
+      declarations whose element type is scalar/pointer or a fixed-bound array
+      chain, including multiple runtime-bound dimensions. Aggregate leaves,
+      initialized/volatile VLA forms, and broader cleanup/unwind plus
+      goto/loop-edge combinations remain required for general VLA support.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)
 
@@ -6645,6 +6645,20 @@ remains a separate open item.
       over `T&&` for `const T&`; the full focused conversion-operator gate passes.
 - [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
       and full C++20 overload-resolution conformance remain open.
+
+## RCC continuation (2026-10-20, typed-SSA multidimensional runtime-bound VLAs)
+
+- [x] Lower VLA declarations with multiple runtime-bound dimensions and mixed
+      fixed/runtime dimensions through typed SSA. Evaluate each bound once at
+      declaration and retain the computed per-dimension byte extents so later
+      indexing keeps the original row stride if a bound variable changes.
+- [x] Add a verified-backend runtime regression that mutates the inner bound
+      after allocation and then indexes the VLA. i686/AMD64 `-O0`/`-O2`, x64
+      execution, IR, IR-lowering, and classic VLA-runtime tests pass.
+- [x] Pass the full native-Windows `test-ci` gate, including dual-architecture
+      bootstrap reproducibility. RCC `main` commit: `685868d`. No push.
+- [ ] Aggregate-element, initialized, and volatile VLA forms, plus broader
+      cleanup/unwind and control-flow interactions, remain open.
 
 ## RCC continuation (2026-10-19, nested virtual-base class-array initialization)
 
