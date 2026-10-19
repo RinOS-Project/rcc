@@ -23,6 +23,40 @@
 #define RINOS_ABI
 #endif
 
+extern void RINOS_ABI rin_cpp_exception_register_current_cleanup(
+    void* callback, void* object);
+extern void RINOS_ABI rin_cpp_exception_unregister_current_cleanup(
+    void* callback, void* object);
+extern void RINOS_ABI rin_cpp_exception_install(void);
+extern void RINOS_ABI rin_cpp_exception_leave(void);
+extern void RINOS_ABI rin_cpp_exception_throw(void);
+extern void RINOS_ABI rin_cpp_exception_rethrow(void);
+extern void RINOS_ABI rin_cpp_exception_throw_object(void);
+extern void RINOS_ABI rin_cpp_exception_throw_object_with_cleanup(void);
+extern void RINOS_ABI rin_cpp_exception_rethrow_frame(void);
+extern void RINOS_ABI rin_cpp_exception_release_frame(void);
+extern void RINOS_ABI rin_cpp_exception_register_cleanup(void);
+extern void RINOS_ABI rin_cpp_exception_unregister_cleanup(void);
+extern void RINOS_ABI rin_cpp_exception_unwind_cleanups(void);
+extern void* RINOS_ABI rin_malloc(unsigned long size);
+extern void RINOS_ABI rin_free(void* pointer);
+extern int RINOS_ABI verified_runtime_setjmp(void* buffer) __asm__("setjmp");
+extern void RINOS_ABI verified_runtime_longjmp(
+    void* buffer, int value) __asm__("longjmp");
+static void* verified_runtime_import_address(const char* symbol_name);
+static unsigned long verified_runtime_free_count;
+
+void* RINOS_ABI rin_malloc(unsigned long size)
+{
+    return malloc((size_t)size);
+}
+
+void RINOS_ABI rin_free(void* pointer)
+{
+    ++verified_runtime_free_count;
+    free(pointer);
+}
+
 struct VerifiedSysvMixedAggregate {
     int integer;
     double floating;
@@ -141,9 +175,14 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
     size_t text_size;
     size_t rodata_offset;
     size_t rodata_size = 0u;
+    size_t content_size;
+    size_t trampoline_capacity = 0u;
+    size_t trampoline_offset;
     size_t size;
     int rodata_index = 0;
     ObjSection* rodata;
+    const ObjSection* relocation_sources[2];
+    size_t relocation_bases[2];
     void* memory;
     assert(text != NULL && text->size != 0u && page != 0u);
     assert(text->size <= (uint64_t)SIZE_MAX);
@@ -168,20 +207,36 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
         }
         assert(rodata_index < object->section_count);
     }
-    assert(rodata_offset + rodata_size <= SIZE_MAX - ((size_t)page - 1u));
-    size = ((rodata_offset + rodata_size + (size_t)page - 1u) / page) * page;
+    assert(rodata_offset <= SIZE_MAX - rodata_size);
+    content_size = rodata_offset + rodata_size;
+    relocation_sources[0] = text;
+    relocation_sources[1] = rodata;
+    relocation_bases[0] = 0u;
+    relocation_bases[1] = rodata_offset;
+    for (size_t source_index = 0u; source_index < 2u; ++source_index) {
+        const ObjSection* source = relocation_sources[source_index];
+        if (!source) continue;
+        for (ObjReloc* relocation = source->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->type == RELOC_REL32) {
+                assert(trampoline_capacity < SIZE_MAX / 16u);
+                ++trampoline_capacity;
+            }
+        }
+    }
+    assert(trampoline_capacity <= (SIZE_MAX - content_size) / 16u);
+    trampoline_offset = content_size;
+    content_size += trampoline_capacity * 16u;
+    assert(content_size <= SIZE_MAX - ((size_t)page - 1u));
+    size = ((content_size + (size_t)page - 1u) / page) * page;
     memory = verified_map(size);
     assert(memory != NULL);
     memcpy(memory, text->data, text_size);
     if (rodata_size) memcpy((uint8_t*)memory + rodata_offset,
                             rodata->data, rodata_size);
     {
-        const ObjSection* relocation_sources[] = {text, rodata};
-        size_t relocation_bases[] = {0u, rodata_offset};
         for (size_t source_index = 0u;
-             source_index < sizeof(relocation_sources) /
-                                sizeof(relocation_sources[0]);
-             ++source_index) {
+             source_index < 2u; ++source_index) {
             const ObjSection* source = relocation_sources[source_index];
             if (!source) continue;
             for (ObjReloc* relocation = source->relocs; relocation;
@@ -189,26 +244,54 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
                 ObjSymbol* symbol = objfile_find_symbol(
                     object, relocation->symbol_name);
                 uint8_t* place;
-                size_t target_offset;
+                uintptr_t target_address;
                 int64_t target;
                 int64_t delta;
                 int32_t encoded;
                 assert(symbol != NULL &&
                        relocation->offset <= source->size);
                 if (symbol->section == 0) {
-                    target_offset = (size_t)symbol->value;
-                } else {
-                    assert(symbol->section == rodata_index &&
+                    target_address = (uintptr_t)memory +
+                        (uintptr_t)symbol->value;
+                } else if (symbol->section == rodata_index &&
                            rodata_size != 0u &&
-                           symbol->value <= rodata_size);
-                    target_offset = rodata_offset +
-                        (size_t)symbol->value;
+                           symbol->value <= rodata_size) {
+                    target_address = (uintptr_t)memory + rodata_offset +
+                        (uintptr_t)symbol->value;
+                } else {
+                    void* external_address =
+                        verified_runtime_import_address(symbol->name);
+                    if (symbol->section >= 0 || !external_address) {
+                        fprintf(stderr,
+                                "unresolved verified test symbol '%s' in section %d\n",
+                                symbol->name, symbol->section);
+                        abort();
+                    }
+                    target_address = (uintptr_t)external_address;
                 }
                 place = (uint8_t*)memory + relocation_bases[source_index] +
                     relocation->offset;
-                target = (int64_t)(uintptr_t)memory +
-                    (int64_t)target_offset + relocation->addend;
                 if (relocation->type == RELOC_REL32) {
+                    if (symbol->section < 0) {
+                        static const uint8_t trampoline_prefix[] = {
+                            0x48u, 0xb8u
+                        };
+                        uint8_t* trampoline =
+                            (uint8_t*)memory + trampoline_offset;
+                        uint64_t absolute_target = (uint64_t)target_address;
+                        memcpy(trampoline, trampoline_prefix,
+                               sizeof(trampoline_prefix));
+                        memcpy(trampoline + 2u, &absolute_target,
+                               sizeof(absolute_target));
+                        trampoline[10] = 0xffu;
+                        trampoline[11] = 0xe0u;
+                        target = (int64_t)(uintptr_t)trampoline +
+                            relocation->addend;
+                        trampoline_offset += 16u;
+                    } else {
+                        target = (int64_t)target_address +
+                            relocation->addend;
+                    }
                     assert(sizeof(encoded) <=
                            source->size - relocation->offset);
                     delta = target -
@@ -217,12 +300,14 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
                     assert((int64_t)encoded == delta);
                     memcpy(place, &encoded, sizeof(encoded));
                 } else if (relocation->type == RELOC_ABS32U) {
+                    target = (int64_t)target_address + relocation->addend;
                     uint32_t absolute = (uint32_t)target;
                     assert(sizeof(absolute) <=
                                source->size - relocation->offset &&
                            (uint64_t)absolute == (uint64_t)target);
                     memcpy(place, &absolute, sizeof(absolute));
                 } else {
+                    target = (int64_t)target_address + relocation->addend;
                     uint64_t absolute = (uint64_t)target;
                     assert(relocation->type == RELOC_ABS64 &&
                            sizeof(absolute) <=
@@ -241,6 +326,74 @@ static void* symbol_address(void* text_memory, const ObjSymbol* symbol)
 {
     assert(text_memory != NULL && symbol != NULL && symbol->section == 0);
     return (uint8_t*)text_memory + symbol->value;
+}
+
+static void* verified_runtime_import_address(const char* symbol_name)
+{
+    union {
+        void (RINOS_ABI *generic)(void);
+        void (RINOS_ABI *cleanup)(void*, void*);
+        void* (RINOS_ABI *allocator)(unsigned long);
+        void (RINOS_ABI *deallocator)(void*);
+        int (RINOS_ABI *setjmp_function)(void*);
+        void (RINOS_ABI *longjmp_function)(void*, int);
+    } function;
+    void* address = NULL;
+    memset(&function, 0, sizeof(function));
+    if (strcmp(symbol_name,
+               "rin_cpp_exception_register_current_cleanup") == 0) {
+        function.cleanup = rin_cpp_exception_register_current_cleanup;
+    } else if (strcmp(symbol_name,
+                      "rin_cpp_exception_unregister_current_cleanup") == 0) {
+        function.cleanup = rin_cpp_exception_unregister_current_cleanup;
+    } else if (strcmp(symbol_name, "rin_cpp_exception_install") == 0) {
+        function.generic = rin_cpp_exception_install;
+    } else if (strcmp(symbol_name, "rin_cpp_exception_leave") == 0) {
+        function.generic = rin_cpp_exception_leave;
+    } else if (strcmp(symbol_name, "rin_cpp_exception_throw") == 0) {
+        function.generic = rin_cpp_exception_throw;
+    } else if (strcmp(symbol_name, "rin_cpp_exception_rethrow") == 0) {
+        function.generic = rin_cpp_exception_rethrow;
+    } else if (strcmp(symbol_name, "rin_cpp_exception_throw_object") == 0) {
+        function.generic = rin_cpp_exception_throw_object;
+    } else if (strcmp(
+                   symbol_name,
+                   "rin_cpp_exception_throw_object_with_cleanup") == 0) {
+        function.generic = rin_cpp_exception_throw_object_with_cleanup;
+    } else if (strcmp(
+                   symbol_name,
+                   "rin_cpp_exception_rethrow_frame") == 0) {
+        function.generic = rin_cpp_exception_rethrow_frame;
+    } else if (strcmp(
+                   symbol_name,
+                   "rin_cpp_exception_release_frame") == 0) {
+        function.generic = rin_cpp_exception_release_frame;
+    } else if (strcmp(
+                   symbol_name,
+                   "rin_cpp_exception_register_cleanup") == 0) {
+        function.generic = rin_cpp_exception_register_cleanup;
+    } else if (strcmp(
+                   symbol_name,
+                   "rin_cpp_exception_unregister_cleanup") == 0) {
+        function.generic = rin_cpp_exception_unregister_cleanup;
+    } else if (strcmp(
+                   symbol_name,
+                   "rin_cpp_exception_unwind_cleanups") == 0) {
+        function.generic = rin_cpp_exception_unwind_cleanups;
+    } else if (strcmp(symbol_name, "rin_malloc") == 0) {
+        function.allocator = rin_malloc;
+    } else if (strcmp(symbol_name, "rin_free") == 0) {
+        function.deallocator = rin_free;
+    } else if (strcmp(symbol_name, "setjmp") == 0) {
+        function.setjmp_function = verified_runtime_setjmp;
+    } else if (strcmp(symbol_name, "longjmp") == 0) {
+        function.longjmp_function = verified_runtime_longjmp;
+    } else {
+        return NULL;
+    }
+    assert(sizeof(address) <= sizeof(function));
+    memcpy(&address, &function, sizeof(address));
+    return address;
 }
 
 static bool symbol_has_sysv_variadic_call_setup(
@@ -3714,6 +3867,50 @@ static void verify_cxx_destructor_object(const char* path, uint16_t arch,
     objfile_free(object);
 }
 
+static void verify_cxx_delete_object(const char* path, uint16_t arch,
+                                     bool execute)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* throwing_delete_symbol;
+    ObjSymbol* normal_delete_symbol;
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    throwing_delete_symbol = objfile_find_symbol(
+        object, "verified_cxx_delete_throw");
+    normal_delete_symbol = objfile_find_symbol(
+        object, "verified_cxx_delete_normal");
+    assert(text != NULL && throwing_delete_symbol != NULL &&
+           throwing_delete_symbol->type == SYM_GLOBAL &&
+           throwing_delete_symbol->binding == BIND_CODE &&
+           throwing_delete_symbol->section == 0 &&
+           normal_delete_symbol != NULL &&
+           normal_delete_symbol->type == SYM_GLOBAL &&
+           normal_delete_symbol->binding == BIND_CODE &&
+           normal_delete_symbol->section == 0);
+    if (execute) {
+        size_t mapping_size;
+        void* memory;
+        void* address;
+        int (RINOS_ABI *throwing_delete)(void);
+        int (RINOS_ABI *normal_delete)(void);
+        assert(arch == ARCH_X64 && sizeof(void*) == 8u);
+        memory = map_text(object, text, &mapping_size);
+        address = symbol_address(memory, throwing_delete_symbol);
+        memcpy(&throwing_delete, &address, sizeof(throwing_delete));
+        verified_runtime_free_count = 0u;
+        assert(throwing_delete() == 21037);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, normal_delete_symbol);
+        memcpy(&normal_delete, &address, sizeof(normal_delete));
+        verified_runtime_free_count = 0u;
+        assert(normal_delete() == 2100);
+        assert(verified_runtime_free_count == 1u);
+        assert(verified_unmap(memory, mapping_size) == 0);
+    }
+    objfile_free(object);
+}
+
 static void verify_member_methods_object(const char* path, uint16_t arch,
                                          bool execute)
 {
@@ -4752,6 +4949,21 @@ int main(int argc, char** argv)
         verify_cxx_destructor_object(
             argv[2], arch, arch == ARCH_X64 && sizeof(void*) == 8u);
     puts("Verified C++ direct and array destructor order passed");
+        return 0;
+    }
+    if (argc == 4 && strcmp(argv[1], "--cxx-delete-object") == 0) {
+        uint16_t arch;
+        if (strcmp(argv[3], "x86") == 0) {
+            arch = ARCH_X86;
+        } else {
+            assert(strcmp(argv[3], "x64") == 0);
+            arch = ARCH_X64;
+        }
+        verify_cxx_delete_object(
+            argv[2], arch, arch == ARCH_X64 && sizeof(void*) == 8u);
+        puts(arch == ARCH_X64 && sizeof(void*) == 8u
+                 ? "Verified typed-SSA dynamic delete runtime passed"
+                 : "Verified typed-SSA dynamic delete object passed");
         return 0;
     }
     if (argc == 4 && strcmp(argv[1], "--wide-scalar-object") == 0) {

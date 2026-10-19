@@ -6503,11 +6503,8 @@ static bool lower_cxx_scalar_subobject_constructor_supported(
                  constructor->initializers;
              previous != initializer; previous = previous->next) {
             if (!previous->is_base_initializer &&
-                ((previous->field &&
-                  strcmp(previous->field, initializer->field) == 0) ||
-                 (previous->arguments && previous->arguments->expr &&
-                  previous->arguments->expr->ident_decl ==
-                      value->ident_decl))) {
+                previous->field &&
+                strcmp(previous->field, initializer->field) == 0) {
                 return false;
             }
         }
@@ -6722,11 +6719,7 @@ static bool lower_cxx_empty_noop_constructor_supported(
                 if (previous_initializer->is_base_initializer) continue;
                 if ((previous_initializer->field && initializer->field &&
                      strcmp(previous_initializer->field,
-                            initializer->field) == 0) ||
-                    (previous_initializer->arguments &&
-                     previous_initializer->arguments->expr &&
-                     previous_initializer->arguments->expr->ident_decl ==
-                         initialized_parameter)) {
+                            initializer->field) == 0)) {
                     return false;
                 }
             }
@@ -14380,90 +14373,13 @@ cleanup:
     return success;
 }
 
-static bool lower_cxx_emit_new_constructor_call(
-    RccIrLowerContext* context, const CxxConstructorInfo* constructor,
-    const ExprList* arguments, RccIrLowerValue object) {
-    const Decl* declaration = constructor && constructor->method
-        ? constructor->method->decl : NULL;
-    const TypeParam* parameter;
-    const ExprList* argument;
-    RccIrValue* operands;
-    RccIrInstruction* call;
-    size_t count = 0u;
-    size_t index = 1u;
-    if (!context || !constructor || constructor->parameter_count < 0 ||
-        constructor->parameter_count > 64 || constructor->is_deleted ||
-        !constructor->initializers_are_supported || !declaration ||
-        !declaration->func_is_cxx_constructor ||
-        !declaration->link_name ||
-        !declaration->type || declaration->type->kind != TYPE_FUNC ||
-        declaration->type->variadic || !declaration->type->ret_type ||
-        declaration->type->ret_type->kind != TYPE_VOID ||
-        !object.valid || object.type.kind != RCC_IR_TYPE_POINTER) {
-        if (context) context->unsupported = true;
-        return false;
-    }
-    parameter = constructor->parameters;
-    argument = arguments;
-    while (parameter || argument) {
-        RccIrType ignored_type;
-        if (++count > (size_t)constructor->parameter_count || !parameter ||
-            !parameter->type || parameter->type->cxx_is_member_pointer ||
-            lower_i686_wide_scalar_type(parameter->type) ||
-            !lower_abi_native_scalar_type(parameter->type, &ignored_type) ||
-            !argument || !argument->expr || argument->cxx_temporary_owner ||
-            argument->cxx_temporary_cleanups ||
-            argument->designator_kind != INIT_DESIGNATOR_NONE) {
-            context->unsupported = true;
-            return false;
-        }
-        parameter = parameter->next;
-        argument = argument->next;
-    }
-    if (count != (size_t)constructor->parameter_count) {
-        context->unsupported = true;
-        return false;
-    }
-    if (count + 1u > SIZE_MAX / sizeof(*operands)) {
-        context->unsupported = true;
-        return false;
-    }
-    operands = rcc_alloc((count + 1u) * sizeof(*operands));
-    operands[0] = object.value;
-    parameter = constructor->parameters;
-    argument = arguments;
-    while (parameter && argument) {
-        RccIrLowerValue value;
-        if (parameter->type->kind == TYPE_PTR &&
-            parameter->type->is_reference) {
-            value = lower_lvalue_address(context, argument->expr);
-        } else {
-            value = lower_expression(context, argument->expr);
-            value = lower_cast(context, value, parameter->type);
-        }
-        if (!value.valid) {
-            rcc_free(operands);
-            return false;
-        }
-        operands[index++] = value.value;
-        parameter = parameter->next;
-        argument = argument->next;
-    }
-    call = lower_append(context, RCC_IR_CALL, rcc_ir_type_void(),
-                        operands, count + 1u, NULL, 0u);
-    rcc_free(operands);
-    if (!call) return false;
-    rcc_ir_set_callee(call, decl_link_name(declaration));
-    return true;
-}
-
 static RccIrLowerValue lower_cxx_new_expression(
     RccIrLowerContext* context, const Expr* expression) {
     Expr allocation_expression;
     Type* allocator_result_type;
     RccIrLowerValue storage;
     RccIrLowerValue result;
-    const CxxConstructorInfo* constructor;
+    CxxConstructorInfo* constructor;
     const Decl* constructor_decl;
     bool register_free = false;
     bool initialized;
@@ -14527,8 +14443,20 @@ static RccIrLowerValue lower_cxx_new_expression(
     }
 
     if (constructor) {
-        initialized = lower_cxx_emit_new_constructor_call(
-            context, constructor, expression->call_new_args, result);
+        Expr initializer;
+        memset(&initializer, 0, sizeof(initializer));
+        initializer.kind = EXPR_COMPOUND;
+        initializer.type = expression->call_new_type;
+        initializer.compound_constructor = constructor;
+        initializer.compound_init = expression->call_new_args;
+        initialized = expression->call_new_type->kind == TYPE_STRUCT
+            ? lower_initialize_struct_storage(
+                  context, result.value, expression->call_new_type,
+                  &initializer)
+            : false;
+        if (!initialized && !context->unsupported) {
+            context->unsupported = true;
+        }
     } else if (expression->call_new_type->kind == TYPE_STRUCT ||
                expression->call_new_type->kind == TYPE_UNION) {
         if (expression->call_new_value_init &&
@@ -16114,7 +16042,9 @@ static bool lower_cxx_try(RccIrLowerContext* context,
     }
     condition = lower_truth(context, setjmp_result);
     {
-        RccIrBlockId targets[2] = {body_block->id, dispatch_block->id};
+        /* setjmp returns zero on its initial return and nonzero after
+         * longjmp, so true must enter exception dispatch, not the try body. */
+        RccIrBlockId targets[2] = {dispatch_block->id, body_block->id};
         if (!condition.valid ||
             !lower_append(context, RCC_IR_COND_BRANCH, rcc_ir_type_void(),
                           &condition.value, 1u, targets, 2u)) {

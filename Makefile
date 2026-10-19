@@ -189,15 +189,17 @@ $(1)
 endef
 endif
 
+CXX_HOST_EXCEPTION_RUNTIME = $(TEST_OUT)/cxx-host-exception-runtime-x64.o
+
+$(CXX_HOST_EXCEPTION_RUNTIME): tests/cxx_exceptions_x64_start.s
+	$(call MKDIR_P,$(TEST_OUT))
+	$(CC) -DRINOS_HOST_RUNTIME -x assembler-with-cpp -c -o $@ $<
+
 ifeq ($(OS),Windows_NT)
 # Windows has no RinOS int 0x80/syscall runtime.  Compile the i686 image to a
 # PE object for target/ABI verification, then execute the x64 image through a
 # real native CRT adapter that calls the generated main function.
-CXX_WINDOWS_EXCEPTION_RUNTIME = $(TEST_OUT)/cxx-host-exception-runtime-x64.o
-
-$(CXX_WINDOWS_EXCEPTION_RUNTIME): tests/cxx_exceptions_x64_start.s
-	$(call MKDIR_P,$(TEST_OUT))
-	$(CC) -DRINOS_HOST_RUNTIME -x assembler-with-cpp -c -o $@ $<
+CXX_WINDOWS_EXCEPTION_RUNTIME = $(CXX_HOST_EXCEPTION_RUNTIME)
 
 define CXX_WINDOWS_MAIN
 $(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S -o $(TEST_OUT)/$(1)/$(2)-x86.s tests/$(3)
@@ -475,6 +477,7 @@ endif
 .PHONY: test-verified-i686-floating-comparisons test-verified-i686-floating-operations
 .PHONY: test-verified-switch-nested
 .PHONY: test-verified-cxx-explicit-throwing-destructor
+.PHONY: test-verified-cxx-delete
 .PHONY: test-verified-cxx-throwing-temporary
 .PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-cxx-variable-templates
@@ -17291,7 +17294,7 @@ test-verified-volatile: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/volatile-cxx-x64.log
 	@echo "Verified backend volatile scalar access tests completed"
 
-test-verified-cxx-reference-local: $(RCXX_TARGET)
+test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
@@ -17312,7 +17315,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-run \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
-		$(SRCDIR)/utils.c
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
 		--cxx-reference-object-base-constructor \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x86.ro x86
@@ -17322,7 +17325,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-reference-local)
 	$(call CXX_WINDOWS_ENTRY_TEST,verified-cxx-reference-local,verified_backend_cxx_reference_local.cpp)
 
-test-verified-cxx-destructor: $(RCXX_TARGET)
+test-verified-cxx-destructor: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
@@ -17343,13 +17346,36 @@ test-verified-cxx-destructor: $(RCXX_TARGET)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/cxx-destructor-run \
 		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
-		$(SRCDIR)/utils.c
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/verified-backend/cxx-destructor-run \
 		--cxx-destructor-object $(TEST_OUT)/verified-backend/cxx-destructor-x86.ro x86
 	$(TEST_OUT)/verified-backend/cxx-destructor-run \
 		--cxx-destructor-object $(TEST_OUT)/verified-backend/cxx-destructor-x64.ro x64
 	$(call MKDIR_P,$(TEST_OUT)/verified-cxx-destructor)
 	$(call CXX_WINDOWS_ENTRY_TEST,verified-cxx-destructor,verified_backend_cxx_destructor.cpp)
+
+test-verified-cxx-delete: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-delete-x86.ro \
+		tests/verified_backend_cxx_delete.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-delete-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-delete-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-delete-x64.ro \
+		tests/verified_backend_cxx_delete.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-delete-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-delete-x64.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/cxx-delete-run \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/verified-backend/cxx-delete-run \
+		--cxx-delete-object $(TEST_OUT)/verified-backend/cxx-delete-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-delete-run \
+		--cxx-delete-object $(TEST_OUT)/verified-backend/cxx-delete-x64.ro x64
 
 test-verified-cxx-explicit-throwing-destructor: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
@@ -17629,7 +17655,7 @@ test-verified-cxx-virtual-base-value: $(RCXX_TARGET) test-verified-cxx-reference
 	$(call MKDIR_P,$(TEST_OUT)/cxx-virtual-base-value)
 	$(call CXX_WINDOWS_ENTRY_TEST,cxx-virtual-base-value,verified_backend_cxx_virtual_base_value.cpp)
 
-test-verified-i686-floating-arithmetic: $(RCC_TARGET) $(RCXX_TARGET)
+test-verified-i686-floating-arithmetic: $(RCC_TARGET) $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-i686-x86.ro tests/verified_backend_float_i686_arithmetic.c >$(TEST_OUT)/verified-backend/float-i686-x86.log
 	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' $(TEST_OUT)/verified-backend/float-i686-x86.log
@@ -17643,7 +17669,7 @@ test-verified-i686-floating-arithmetic: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-i686-cxx-x86-o2.ro tests/verified_backend_float_i686_arithmetic.c >$(TEST_OUT)/verified-backend/float-i686-cxx-x86-o2.log
 	$(GREP) -F -q 'Verified backend: 13 function(s) emitted' $(TEST_OUT)/verified-backend/float-i686-cxx-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-i686-cxx-x86-o2.log,0)
-	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/verified-backend/verify-float-i686-x87 tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/verified-backend/verify-float-i686-x87 tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/verified-backend/verify-float-i686-x87 --i686-float-arithmetic-object $(TEST_OUT)/verified-backend/float-i686-x86.ro
 	$(TEST_OUT)/verified-backend/verify-float-i686-x87 --i686-float-arithmetic-object $(TEST_OUT)/verified-backend/float-i686-x86-o2.ro
 	$(TEST_OUT)/verified-backend/verify-float-i686-x87 --i686-float-arithmetic-object $(TEST_OUT)/verified-backend/float-i686-cxx-x86.ro
@@ -17660,7 +17686,7 @@ test-verified-i686-floating-arithmetic: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-i686-cxx-x86-o2-run,$(TEST_OUT)/verified-backend/float-i686-cxx-x86-o2.s $(TEST_OUT)/verified-backend/float-i686-harness.s)
 	@echo "Verified i686 x87 typed floating arithmetic C/C++ O0/O2 execution passed"
 
-test-verified-i686-floating-comparisons: $(RCC_TARGET) $(RCXX_TARGET)
+test-verified-i686-floating-comparisons: $(RCC_TARGET) $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-compare-i686-x86.ro tests/verified_backend_i686_float_compare.c >$(TEST_OUT)/verified-backend/float-compare-i686-x86.log
 	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' $(TEST_OUT)/verified-backend/float-compare-i686-x86.log
@@ -17674,7 +17700,7 @@ test-verified-i686-floating-comparisons: $(RCC_TARGET) $(RCXX_TARGET)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-compare-i686-cxx-x86-o2.ro tests/verified_backend_i686_float_compare.c >$(TEST_OUT)/verified-backend/float-compare-i686-cxx-x86-o2.log
 	$(GREP) -F -q 'Verified backend: 4 function(s) emitted' $(TEST_OUT)/verified-backend/float-compare-i686-cxx-x86-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/float-compare-i686-cxx-x86-o2.log,0)
-	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/verified-backend/verify-float-i686-compare tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/verified-backend/verify-float-i686-compare tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/verified-backend/verify-float-i686-compare --i686-float-comparison-object $(TEST_OUT)/verified-backend/float-compare-i686-x86.ro
 	$(TEST_OUT)/verified-backend/verify-float-i686-compare --i686-float-comparison-object $(TEST_OUT)/verified-backend/float-compare-i686-x86-o2.ro
 	$(TEST_OUT)/verified-backend/verify-float-i686-compare --i686-float-comparison-object $(TEST_OUT)/verified-backend/float-compare-i686-cxx-x86.ro
@@ -17691,7 +17717,7 @@ test-verified-i686-floating-comparisons: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call RUN_COMPILER_BUILTINS_X86,$(TEST_OUT)/verified-backend/float-compare-i686-cxx-x86-o2-run,$(TEST_OUT)/verified-backend/float-compare-i686-cxx-x86-o2.s $(TEST_OUT)/verified-backend/float-compare-i686-harness.s)
 	@echo "Verified i686 x87 floating comparison/truth C/C++ O0/O2 execution passed"
 
-test-verified-i686-floating-operations: $(RCC_TARGET) $(RCXX_TARGET)
+test-verified-i686-floating-operations: $(RCC_TARGET) $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -std=c17 -fverified-backend -v -c -o $(TEST_OUT)/verified-backend/float-ops-i686-x86.ro tests/verified_backend_i686_float_operations.c >$(TEST_OUT)/verified-backend/float-ops-i686-x86.log
 	$(GREP) -F -q 'Verified backend: 20 function(s) emitted' $(TEST_OUT)/verified-backend/float-ops-i686-x86.log
@@ -17726,7 +17752,7 @@ test-verified-i686-floating-operations: $(RCC_TARGET) $(RCXX_TARGET)
 	$(TEST_OUT)/verified-backend/verified-i686-float-operations-asm $(TEST_OUT)/verified-backend/float-convert-i686-x86-o2.ro $(TEST_OUT)/verified-backend/float-convert-i686-x86-o2.s
 	$(TEST_OUT)/verified-backend/verified-i686-float-operations-asm $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86.ro $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86.s
 	$(TEST_OUT)/verified-backend/verified-i686-float-operations-asm $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-o2.ro $(TEST_OUT)/verified-backend/float-convert-i686-cxx-x86-o2.s
-	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/verified-backend/verify-float-i686-ops tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+	$(CC) $(CFLAGS) -I$(INCDIR) -o $(TEST_OUT)/verified-backend/verify-float-i686-ops tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/verified-backend/verify-float-i686-ops --i686-float-operations-object $(TEST_OUT)/verified-backend/float-ops-i686-x86.ro
 	$(TEST_OUT)/verified-backend/verify-float-i686-ops --i686-float-operations-object $(TEST_OUT)/verified-backend/float-ops-i686-x86-o2.ro
 	$(TEST_OUT)/verified-backend/verify-float-i686-ops --i686-float-operations-object $(TEST_OUT)/verified-backend/float-ops-i686-cxx-x86.ro
@@ -17814,7 +17840,7 @@ test-rinvalidate-dynamic-tls: $(RCC_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		--rinvalidate "$(abspath $(RINVALIDATE))" \
 		--output-dir "$(abspath $(TEST_OUT)/rinvalidate-dynamic-tls/runtime)"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \
@@ -18202,10 +18228,10 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/virtual-dispatch-x64.log,0)
 	$(CC) $(VERIFIED_BACKEND_X86_HOST_CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/verify-x86 \
-		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/verify-x64 \
-		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/verified-backend/verify-x64 \
 		--sysv-sse-aggregate-return-object \
 		$(TEST_OUT)/verified-backend/array-fallback.ro \
@@ -18326,7 +18352,7 @@ test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/verified-backend/tls-cxx-x64.ro x64
 	@echo "Verified backend production object and fallback tests completed"
 
-test-verified-switch-nested: $(RCC_TARGET)
+test-verified-switch-nested: $(RCC_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-switch-nested)
 	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-switch-nested/nested.ro \
@@ -18344,7 +18370,7 @@ test-verified-switch-nested: $(RCC_TARGET)
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-switch-nested/nested-o2.log,0)
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-switch-nested/verify \
-		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/verified-switch-nested/verify --switch-nested-case \
 		$(TEST_OUT)/verified-switch-nested/nested.ro
 	$(TEST_OUT)/verified-switch-nested/verify --switch-nested-case \
