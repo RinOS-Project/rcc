@@ -40,6 +40,20 @@ struct VerifiedConversionSource {
     }
 };
 
+struct VerifiedBodyConstructor {
+    int value;
+
+    explicit VerifiedBodyConstructor(int initial) noexcept
+        : value(initial) {
+        value = value * 3 + 2;
+    }
+};
+
+int verified_body_constructor_result() {
+    VerifiedBodyConstructor object(13);
+    return object.value;
+}
+
 int main() {
     int value = 40;
     if (update_lvalue_reference_local(value) != 41) {
@@ -47,6 +61,9 @@ int main() {
     }
     if (update_rvalue_reference_local(static_cast<int&&>(value)) != 43) {
         return 2;
+    }
+    if (verified_body_constructor_result() != 41) {
+        return 3;
     }
     return value != 43;
 }

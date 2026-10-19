@@ -16810,7 +16810,7 @@ static bool lower_cxx_emit_constructor_call(
     size_t operand_count;
     size_t index = 1u;
     if (!context || !lower_cleanup_constructor_call_supported(initializer) ||
-        !object || object == RCC_IR_VALUE_NONE) {
+        object == RCC_IR_VALUE_NONE) {
         if (context) context->unsupported = true;
         return false;
     }
