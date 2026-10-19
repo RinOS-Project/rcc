@@ -7209,11 +7209,12 @@ remains a separate open item.
       conditional lowering when its selected object is lifetime-extended by an
       automatic local reference. Keep the destructor plan attached to the
       complete selected object and preserve the existing call-argument path.
-- [x] Cover both conditional arms when a later argument throws, plus normal
-      local-reference scope exit. `test-verified-cxx-throwing-temporary` emits
-      all nine functions with zero fallback for i686/AMD64 at `-O0` and `-O2`;
-      host execution verifies `533`, `534`, and `55`. Implementation/test
-      commit: `a52eac6`.
+- [x] Cover direct and nested conditional arms when a later argument throws,
+      plus normal local-reference scope exit.
+      `test-verified-cxx-throwing-temporary` emits all nine functions with zero
+      fallback for i686/AMD64 at `-O0` and `-O2`; host execution verifies
+      `533`, `534`, `535`, and `55`. Implementation/test commits:
+      `a52eac6`, `319cc2d`.
 - [ ] Other conditional arm forms, potentially-throwing initialization and
       partial-construction unwind, converted/subobject bindings, static/TLS
       lifetime, and other full-expression cleanup remain open.
