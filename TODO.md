@@ -6709,3 +6709,17 @@ remains a separate open item.
       native-Windows `test-cxx` aggregate pass.
 - [ ] Broader C++20 constant-evaluation coverage, including remaining pointer,
       floating-point, and aggregate edge cases, remains open.
+
+## RCC continuation (2026-10-19, constexpr array-to-pointer decay)
+
+- [x] Evaluate global/static and local array identifiers as pointers to their
+      first element in constant-expression contexts. Preserve symbolic pointer
+      provenance through pointer initialization, arithmetic, one-past values,
+      comparison/subtraction, and constexpr-local array reads.
+- [x] Add a GCC-compared regression for mutable global array decay and pointer
+      arithmetic plus a constexpr function with a local array. Both target
+      assemblies and x64 runtime execution pass; the focused
+      `test-cxx-constexpr-pointer` target and complete native-Windows
+      `test-cxx` aggregate pass.
+- [ ] Remaining constexpr pointer-provenance, floating-point, and aggregate
+      edge cases remain open.

@@ -7884,6 +7884,20 @@ static bool sema_eval_constexpr_scalar_expr(
             binding_index = sema_constexpr_binding_index(
                 expression, bindings, binding_count);
             if (binding_index >= 0) {
+                if (bindings[binding_index].is_object &&
+                    bindings[binding_index].type &&
+                    bindings[binding_index].type->kind == TYPE_ARRAY &&
+                    bindings[binding_index].type->base) {
+                    value->type = expression->type &&
+                        type_is_pointer(expression->type)
+                        ? expression->type
+                        : type_ptr(bindings[binding_index].type->base);
+                    value->is_pointer = true;
+                    value->pointer_declaration =
+                        bindings[binding_index].declaration;
+                    value->pointer_offset = 0;
+                    return true;
+                }
                 value->type = bindings[binding_index].type;
                 value->integer_value = bindings[binding_index].value;
                 value->floating_value = bindings[binding_index].floating_value;
@@ -7913,6 +7927,23 @@ static bool sema_eval_constexpr_scalar_expr(
                 --constexpr_eval_depth;
                 return result && sema_constexpr_scalar_convert(
                     value, expression->ident_decl->type, value);
+            }
+            if (expression->ident_decl &&
+                expression->ident_decl->kind == DECL_VAR &&
+                expression->ident_decl->type &&
+                expression->ident_decl->type->kind == TYPE_ARRAY &&
+                expression->ident_decl->type->base &&
+                (expression->ident_decl->var_is_global ||
+                 expression->ident_decl->var_is_static_local)) {
+                Decl* declaration = expression->ident_decl;
+                value->type = expression->type &&
+                    type_is_pointer(expression->type)
+                    ? expression->type
+                    : type_ptr(declaration->type->base);
+                value->is_pointer = true;
+                value->pointer_declaration = declaration;
+                value->pointer_offset = 0;
+                return true;
             }
             if (expression->ident_decl &&
                 expression->ident_decl->kind == DECL_FUNC) {

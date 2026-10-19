@@ -10771,6 +10771,9 @@ ifeq ($(OS),Windows_NT)
 test-cxx-constexpr-pointer: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer)
 	$(call CXX_WINDOWS_C_RUN_TEST,cxx-constexpr-pointer,cxx_constexpr_pointer.cpp,cxx_constexpr_pointer_run_test.c)
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_constexpr_pointer_array_decay.cpp
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer-array-decay)
+	$(call CXX_WINDOWS_CONSTEXPR_TEST,cxx-constexpr-pointer-array-decay,cxx_constexpr_pointer_array_decay.cpp)
 	@echo "C++ constexpr pointer tests completed"
 else
 test-cxx-constexpr-pointer: test-cxx-constexpr-pointer-posix
@@ -10796,6 +10799,9 @@ test-cxx-constexpr-pointer-posix: $(RCXX_TARGET)
 		tests/cxx_constexpr_pointer_run_test.c \
 		$(TEST_OUT)/cxx-constexpr-pointer/x64.o
 	$(TEST_OUT)/cxx-constexpr-pointer/x64
+	$(CXX) -std=c++20 -pedantic-errors -fsyntax-only tests/cxx_constexpr_pointer_array_decay.cpp
+	$(call MKDIR_P,$(TEST_OUT)/cxx-constexpr-pointer-array-decay)
+	$(call CXX_POSIX_ENTRY_TEST,cxx-constexpr-pointer-array-decay,cxx_constexpr_pointer_array_decay.cpp)
 	@echo "C++ constexpr pointer tests completed"
 
 ifeq ($(OS),Windows_NT)
