@@ -3101,6 +3101,31 @@ static int sema_cxx_conversion_object_qualification_rank(
     return rank;
 }
 
+static bool sema_cxx_conversion_same_object_signature(
+    TypeMethod* left, TypeMethod* right) {
+    Type* left_this_pointer;
+    Type* right_this_pointer;
+    Type* left_this;
+    Type* right_this;
+    if (!left || !right || left->ref_qualifier != right->ref_qualifier ||
+        !left->function_decl || !right->function_decl) {
+        return false;
+    }
+    left_this_pointer = left->function_decl->func_this_param
+        ? left->function_decl->func_this_param->type : NULL;
+    right_this_pointer = right->function_decl->func_this_param
+        ? right->function_decl->func_this_param->type : NULL;
+    left_this = left_this_pointer && left_this_pointer->kind == TYPE_PTR
+        ? left_this_pointer->base : NULL;
+    right_this = right_this_pointer && right_this_pointer->kind == TYPE_PTR
+        ? right_this_pointer->base : NULL;
+    return left_this && right_this &&
+        left_this->kind == TYPE_STRUCT &&
+        right_this->kind == TYPE_STRUCT &&
+        left_this->is_const == right_this->is_const &&
+        left_this->is_volatile == right_this->is_volatile;
+}
+
 static bool sema_cxx_conversion_result_uses_pointer_to_bool(
     Type* result_type, Type* target) {
     if (!result_type || !target) return false;
@@ -3275,12 +3300,16 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
             if (index == other) continue;
             if (candidates[other].inherited_from_base !=
                     candidates[index].inherited_from_base &&
+                sema_cxx_conversion_same_object_signature(
+                    candidates[other].method, candidates[index].method) &&
                 cxx_same_parameter_type(
                     candidates[other].result_type,
                     candidates[index].result_type, true)) {
-                /* A derived conversion function hides an inherited function
-                 * with the same conversion type, including when a using-
-                 * declaration made the base declaration visible. */
+                /* A same-target derived conversion hides an inherited
+                 * declaration only when both implicit object parameters
+                 * have the same cv/ref signature. With a using-declaration,
+                 * ref-qualified variants remain overload candidates and must
+                 * be ranked by their object conversions below. */
                 relation = candidates[other].inherited_from_base ? -1 : 1;
             } else if (source_expression && !is_lvalue(source_expression) &&
                        candidates[other].method->ref_qualifier !=

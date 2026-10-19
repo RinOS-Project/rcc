@@ -260,6 +260,23 @@ public:
     using ConversionCvRefQualifiedInheritedBase::operator long;
 };
 
+class ConversionSameTypeRefQualifiedInheritedBase {
+public:
+    operator int() && {
+        return 487;
+    }
+};
+
+class ConversionSameTypeRefQualifiedInheritedDerived
+    : public ConversionSameTypeRefQualifiedInheritedBase {
+public:
+    using ConversionSameTypeRefQualifiedInheritedBase::operator int;
+
+    operator int() const && {
+        return 491;
+    }
+};
+
 class ConversionCvRefQualifiedSource {
 public:
     operator int() const & {
@@ -937,6 +954,8 @@ int main() {
         take_integer(ConversionCvRefQualifiedInheritedDerived{}) != 467) {
         return 9;
     }
+    if (take_integer(ConversionSameTypeRefQualifiedInheritedDerived{}) !=
+        487) return 10;
     if (take_integer(ConversionCvRefQualifiedSource{}) != 457) return 7;
     if (take_integer(ConversionUnqualifiedRefQualifiedSource{}) != 461) {
         return 8;

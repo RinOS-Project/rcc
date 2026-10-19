@@ -6614,6 +6614,12 @@ remains a separate open item.
       `Derived* -> void*` when conversion functions return related class
       pointers. GCC-checked runtime regression; focused and full native-Windows
       `test-cxx` gates pass (exit 0).
+- [x] Apply inherited-conversion hiding for a same-target derived declaration
+      only when its implicit-object cv/ref signature matches the base
+      declaration. Otherwise keep both `using`-exposed ref-qualified
+      conversions viable and rank their object bindings; GCC C++20 selects
+      inherited `Base::operator int() &&` over `Derived::operator int() const &&`
+      for an rvalue. `test-cxx-conversion-operator` and its GCC host oracle pass.
 - [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
       and full C++20 overload-resolution conformance remain open.
 
