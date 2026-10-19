@@ -24,3 +24,13 @@ inline unsigned long long debug_unsigned_constant_inline(
 {
     return value;
 }
+
+inline int debug_converted_signed_inline(int value)
+{
+    return value;
+}
+
+inline unsigned int debug_converted_unsigned_inline(unsigned int value)
+{
+    return value;
+}

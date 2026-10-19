@@ -2196,6 +2196,8 @@ int main(int argc, char** argv)
         int (*inline_budget_many_calls)(int);
         int (*inlined_repeated_complex_argument_call)(int);
         int (*inlined_conditional_cast_call)(int);
+        int (*inlined_short_to_int_parameter_call)(short);
+        unsigned int (*inlined_signed_to_unsigned_parameter_call)(int);
         int (*preserved_large_inline_call)(int);
         int (*inlined_forward_chain)(int);
         int (*inlined_deep_forward_chain)(int);
@@ -2803,6 +2805,20 @@ int main(int argc, char** argv)
             address = mapping + inlined_conditional_cast_call_symbol->value;
             memcpy(&inlined_conditional_cast_call, &address,
                    sizeof(inlined_conditional_cast_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_short_to_int_parameter_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_short_to_int_parameter_call, &address,
+                   sizeof(inlined_short_to_int_parameter_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_signed_to_unsigned_parameter_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_signed_to_unsigned_parameter_call, &address,
+                   sizeof(inlined_signed_to_unsigned_parameter_call));
         }
         {
             ObjSymbol* preserved_large_inline_call_symbol = function_symbol(
@@ -3442,6 +3458,8 @@ int main(int argc, char** argv)
         assert(inlined_repeated_complex_argument_call(-8) == -46);
         assert(inlined_conditional_cast_call(-8) == 8);
         assert(inlined_conditional_cast_call(8) == 12);
+        assert(inlined_short_to_int_parameter_call((short)-123) == -123);
+        assert(inlined_signed_to_unsigned_parameter_call(-1) == UINT32_MAX);
         assert(preserved_large_inline_call(2) == 32);
         assert(inlined_forward_chain(-8) == 1);
         assert(inlined_deep_forward_chain(-8) == 1);

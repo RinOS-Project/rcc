@@ -1542,6 +1542,17 @@ static bool inline_scalar_expression_shape(
     }
 }
 
+static bool inline_scalar_integer_parameter_conversion(
+    Type* parameter_type, Type* argument_type) {
+    return parameter_type && argument_type &&
+        type_is_integer(parameter_type) && type_is_integer(argument_type) &&
+        !parameter_type->is_volatile && !parameter_type->is_reference &&
+        !parameter_type->is_atomic && !argument_type->is_volatile &&
+        !argument_type->is_reference && !argument_type->is_atomic &&
+        parameter_type->size > 0 && parameter_type->size <= 8 &&
+        argument_type->size > 0 && argument_type->size <= 8;
+}
+
 static Expr* clone_inline_scalar_expression(
     const Expr* expression, const InlineScalarBinding* bindings,
     size_t binding_count) {
@@ -2810,13 +2821,20 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             if (!parameter || !parameter->decl || !argument ||
                 !argument->expr || parameter->decl->kind != DECL_PARAM ||
                 !type_is_scalar(parameter->decl->type) ||
-                !type_is_compatible(parameter->decl->type,
-                                    argument->expr->type) ||
+                (!type_is_compatible(parameter->decl->type,
+                                     argument->expr->type) &&
+                 !inline_scalar_integer_parameter_conversion(
+                     parameter->decl->type, argument->expr->type)) ||
                 expression_has_side_effect(argument->expr)) {
                 return false;
             }
             bindings[binding_count].parameter = parameter->decl;
-            bindings[binding_count].argument = argument->expr;
+            bindings[binding_count].argument =
+                type_is_compatible(parameter->decl->type,
+                                   argument->expr->type)
+                ? argument->expr
+                : expr_cast(parameter->decl->type, argument->expr,
+                            argument->expr->loc);
             bindings[binding_count].uses = 0u;
             ++binding_count;
         }

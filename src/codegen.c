@@ -70,16 +70,79 @@ static void codegen_expr_loc(SourceLoc* location, const Expr* expression) {
 
 static bool debug_inline_signed_integer_type(const Type* type) {
     return type && !type->is_unsigned && !type->is_volatile &&
-        !type->is_reference && type->size > 0 && type->size <= 8 &&
+        !type->is_reference && !type->is_atomic &&
+        type->size > 0 && type->size <= 8 &&
         ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
          type->kind == TYPE_ENUM);
 }
 
 static bool debug_inline_unsigned_integer_type(const Type* type) {
     return type && type->is_unsigned && !type->is_volatile &&
-        !type->is_reference && type->size > 0 && type->size <= 8 &&
+        !type->is_reference && !type->is_atomic &&
+        type->size > 0 && type->size <= 8 &&
         ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
          type->kind == TYPE_ENUM);
+}
+
+static bool debug_inline_integer_type(const Type* type) {
+    return type && !type->is_volatile && !type->is_reference &&
+        !type->is_atomic && type->size > 0 && type->size <= 8 &&
+        ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
+         type->kind == TYPE_ENUM);
+}
+
+static bool debug_inline_capture_converted_integer(
+    const ExprList* argument, const Type* parameter_type,
+    ModuleDebugInlineParameterValue* value) {
+    const Type* argument_type;
+    int64_t signed_value = 0;
+    uint64_t unsigned_value = 0u;
+    bool argument_is_unsigned;
+    unsigned int width;
+    if (!argument || !argument->expr || argument->cxx_temporary_owner ||
+        !debug_inline_integer_type(parameter_type) ||
+        !debug_inline_integer_type(argument->expr->type)) {
+        return false;
+    }
+    argument_type = argument->expr->type;
+    argument_is_unsigned = argument_type->is_unsigned;
+    if (argument_is_unsigned) {
+        if (!expr_eval_integer_constant_u64(
+                argument->expr, &unsigned_value)) return false;
+    } else {
+        if (!expr_eval_integer_constant(argument->expr, &signed_value)) {
+            return false;
+        }
+        unsigned_value = (uint64_t)signed_value;
+    }
+    if (parameter_type->kind == TYPE_BOOL) {
+        value->value = argument_is_unsigned
+            ? (unsigned_value != 0u) : (signed_value != 0);
+        value->has_signed_integer_constant = true;
+        return true;
+    }
+    width = (unsigned int)parameter_type->size * 8u;
+    if (parameter_type->is_unsigned) {
+        if (width < 64u) {
+            unsigned_value &= (UINT64_C(1) << width) - 1u;
+        }
+        value->unsigned_value = unsigned_value;
+        value->has_unsigned_integer_constant = true;
+        return true;
+    }
+    if (argument_is_unsigned) {
+        uint64_t maximum = width == 64u
+            ? (uint64_t)INT64_MAX
+            : (UINT64_C(1) << (width - 1u)) - 1u;
+        if (unsigned_value > maximum) return false;
+        signed_value = (int64_t)unsigned_value;
+    } else if (width < 64u) {
+        int64_t limit = (int64_t)(UINT64_C(1) << (width - 1u));
+        if (signed_value < -limit || signed_value >= limit) return false;
+    }
+    value->value = signed_value;
+    value->has_signed_integer_constant = true;
+    return true;
 }
 
 static void debug_inline_capture_parameter_values(
@@ -135,6 +198,9 @@ static void debug_inline_capture_parameter_values(
                 value->unsigned_value = unsigned_constant;
                 value->has_unsigned_integer_constant = true;
             }
+        } else {
+            (void)debug_inline_capture_converted_integer(
+                argument, parameter_type, value);
         }
         if (argument) argument = argument->next;
     }

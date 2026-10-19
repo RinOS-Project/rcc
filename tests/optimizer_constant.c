@@ -669,6 +669,26 @@ int inlined_conditional_cast_call(int value)
     return inline_conditional_cast(value);
 }
 
+static int inline_integer_parameter(int value)
+{
+    return value;
+}
+
+int inlined_short_to_int_parameter_call(short value)
+{
+    return inline_integer_parameter(value);
+}
+
+static unsigned int inline_unsigned_parameter(unsigned int value)
+{
+    return value;
+}
+
+unsigned int inlined_signed_to_unsigned_parameter_call(int value)
+{
+    return inline_unsigned_parameter(value);
+}
+
 static int inline_large_pure_body(int value)
 {
     return ((value ? value : value) + (value ? value : value)) +
