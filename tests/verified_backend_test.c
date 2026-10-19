@@ -3974,6 +3974,10 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
     ObjSymbol* dynamic_throw_symbol;
     ObjSymbol* default_argument_symbol;
     ObjSymbol* default_argument_suffix_symbol;
+    ObjSymbol* implicit_default_symbol;
+    ObjSymbol* implicit_default_fixed_symbol;
+    ObjSymbol* default_argument_throw_symbol;
+    ObjSymbol* default_argument_suffix_throw_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     partial_init_symbol = objfile_find_symbol(
@@ -3994,6 +3998,15 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         object, "verified_cxx_partial_array_default_argument");
     default_argument_suffix_symbol = objfile_find_symbol(
         object, "verified_cxx_partial_array_default_argument_suffix");
+    implicit_default_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_implicit_default");
+    implicit_default_fixed_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_implicit_default_fixed");
+    default_argument_throw_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_default_argument_throw");
+    default_argument_suffix_throw_symbol = objfile_find_symbol(
+        object,
+        "verified_cxx_partial_array_default_argument_suffix_throw");
     assert(text != NULL && partial_init_symbol != NULL &&
            partial_init_symbol->type == SYM_GLOBAL &&
            partial_init_symbol->binding == BIND_CODE &&
@@ -4023,7 +4036,23 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
            default_argument_suffix_symbol != NULL &&
            default_argument_suffix_symbol->type == SYM_GLOBAL &&
            default_argument_suffix_symbol->binding == BIND_CODE &&
-           default_argument_suffix_symbol->section == 0);
+           default_argument_suffix_symbol->section == 0 &&
+           implicit_default_symbol != NULL &&
+           implicit_default_symbol->type == SYM_GLOBAL &&
+           implicit_default_symbol->binding == BIND_CODE &&
+           implicit_default_symbol->section == 0 &&
+           implicit_default_fixed_symbol != NULL &&
+           implicit_default_fixed_symbol->type == SYM_GLOBAL &&
+           implicit_default_fixed_symbol->binding == BIND_CODE &&
+           implicit_default_fixed_symbol->section == 0 &&
+           default_argument_throw_symbol != NULL &&
+           default_argument_throw_symbol->type == SYM_GLOBAL &&
+           default_argument_throw_symbol->binding == BIND_CODE &&
+           default_argument_throw_symbol->section == 0 &&
+           default_argument_suffix_throw_symbol != NULL &&
+           default_argument_suffix_throw_symbol->type == SYM_GLOBAL &&
+           default_argument_suffix_throw_symbol->binding == BIND_CODE &&
+           default_argument_suffix_throw_symbol->section == 0);
     if (execute) {
         size_t mapping_size;
         void* memory;
@@ -4037,6 +4066,10 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         int (RINOS_ABI *dynamic_throw)(int);
         int (RINOS_ABI *default_argument)(int);
         int (RINOS_ABI *default_argument_suffix)(void);
+        int (RINOS_ABI *implicit_default)(int);
+        int (RINOS_ABI *implicit_default_fixed)(void);
+        int (RINOS_ABI *default_argument_throw)(int);
+        int (RINOS_ABI *default_argument_suffix_throw)(void);
         assert(arch == ARCH_X64 && sizeof(void*) == 8u);
         memory = map_text(object, text, &mapping_size);
         address = symbol_address(memory, partial_init_symbol);
@@ -4116,6 +4149,47 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         assert(default_argument_suffix() == 0);
         assert(verified_partial_array_ctor_attempts == 2);
         assert(verified_partial_array_destructor_order == 219);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, implicit_default_symbol);
+        memcpy(&implicit_default, &address, sizeof(implicit_default));
+        verified_partial_array_ctor_attempts = 0;
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(implicit_default(3) == 3);
+        assert(verified_partial_array_destructor_order == 111);
+        assert(verified_runtime_free_count == 1u);
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(implicit_default(0) == 0);
+        assert(verified_partial_array_destructor_order == 0);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, implicit_default_fixed_symbol);
+        memcpy(&implicit_default_fixed, &address,
+               sizeof(implicit_default_fixed));
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(implicit_default_fixed() == 0);
+        assert(verified_partial_array_destructor_order == 111);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, default_argument_throw_symbol);
+        memcpy(&default_argument_throw, &address,
+               sizeof(default_argument_throw));
+        verified_partial_array_ctor_attempts = 0;
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(default_argument_throw(4) == 52);
+        assert(verified_partial_array_ctor_attempts == 3);
+        assert(verified_partial_array_destructor_order == 21);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, default_argument_suffix_throw_symbol);
+        memcpy(&default_argument_suffix_throw, &address,
+               sizeof(default_argument_suffix_throw));
+        verified_partial_array_ctor_attempts = 1;
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(default_argument_suffix_throw() == 52);
+        assert(verified_partial_array_ctor_attempts == 3);
+        assert(verified_partial_array_destructor_order == 29);
         assert(verified_runtime_free_count == 1u);
         assert(verified_unmap(memory, mapping_size) == 0);
     }

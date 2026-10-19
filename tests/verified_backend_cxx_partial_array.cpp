@@ -39,6 +39,12 @@ public:
 extern "C" int verified_partial_array_next_ctor();
 extern "C" void verified_partial_array_record_destructor(int value);
 
+static int verified_partial_array_throwing_default_argument() {
+    int value = verified_partial_array_next_ctor();
+    if (value == 3) throw 52;
+    return value;
+}
+
 class VerifiedDynamicThrowingArrayElement final {
 public:
     VerifiedDynamicThrowingArrayElement() : value_(0) {
@@ -59,6 +65,26 @@ public:
         int value = verified_partial_array_next_ctor()) : value_(value) {}
 
     ~VerifiedDynamicDefaultArgumentArrayElement() noexcept {
+        verified_partial_array_record_destructor(value_);
+    }
+
+    int value_;
+};
+
+class VerifiedImplicitDefaultArrayElement final {
+public:
+    ~VerifiedImplicitDefaultArrayElement() noexcept {
+        verified_partial_array_record_destructor(1);
+    }
+};
+
+class VerifiedThrowingDefaultArgumentArrayElement final {
+public:
+    explicit VerifiedThrowingDefaultArgumentArrayElement(
+        int value = verified_partial_array_throwing_default_argument())
+        : value_(value) {}
+
+    ~VerifiedThrowingDefaultArgumentArrayElement() noexcept {
         verified_partial_array_record_destructor(value_);
     }
 
@@ -174,6 +200,43 @@ extern "C" int verified_cxx_partial_array_default_argument_suffix() {
         new VerifiedDynamicDefaultArgumentArrayElement[3]{9};
     delete[] values;
     return 0;
+}
+
+extern "C" int verified_cxx_partial_array_implicit_default(int count) {
+    VerifiedImplicitDefaultArrayElement* values =
+        new VerifiedImplicitDefaultArrayElement[count];
+    delete[] values;
+    return count;
+}
+
+extern "C" int verified_cxx_partial_array_implicit_default_fixed() {
+    VerifiedImplicitDefaultArrayElement* values =
+        new VerifiedImplicitDefaultArrayElement[3];
+    delete[] values;
+    return 0;
+}
+
+extern "C" int verified_cxx_partial_array_default_argument_throw(int count) {
+    try {
+        VerifiedThrowingDefaultArgumentArrayElement* values =
+            new VerifiedThrowingDefaultArgumentArrayElement[count];
+        delete[] values;
+        return -1;
+    } catch (int value) {
+        return value;
+    }
+}
+
+extern "C" int
+verified_cxx_partial_array_default_argument_suffix_throw() {
+    try {
+        VerifiedThrowingDefaultArgumentArrayElement* values =
+            new VerifiedThrowingDefaultArgumentArrayElement[3]{9};
+        delete[] values;
+        return -1;
+    } catch (int value) {
+        return value;
+    }
 }
 
 int main() {

@@ -14894,12 +14894,12 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     int64_t constant_count;
     bool dynamic_count;
     bool register_cleanups;
+    bool implicit_empty_default_constructor;
     if (!context || !expression || !expression->call_new_is_array ||
         !expression->call_new_array_cookie || !expression->call_new_count ||
         !expression->call_new_type ||
         expression->call_new_type->kind != TYPE_STRUCT ||
         expression->call_new_type->size <= 0 ||
-        !expression->call_new_constructor ||
         !expression->type || expression->type->kind != TYPE_PTR ||
         expression->type->base != expression->call_new_type ||
         expression->call_new_copy_init ||
@@ -14909,16 +14909,26 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     }
     cls = expression->call_new_type->cxx_class;
     default_constructor = expression->call_new_default_constructor;
-    constructor_decl = expression->call_new_constructor->method
+    constructor_decl = expression->call_new_constructor &&
+        expression->call_new_constructor->method
         ? expression->call_new_constructor->method->decl : NULL;
     default_constructor_decl = default_constructor &&
         default_constructor->method ? default_constructor->method->decl : NULL;
+    implicit_empty_default_constructor = !constructor_decl &&
+        !expression->call_new_args && cls && !cls->has_user_constructor &&
+        !cls->constructors && !cls->has_field_initializer && !cls->fields &&
+        !expression->call_new_type->cleanup_function &&
+        !expression->call_new_type->cleanup_field &&
+        cls->base_count == 0 && cls->vtable_size == 0 &&
+        cls->secondary_vtable_count == 0;
     destructor = expression->call_new_type->cxx_class &&
         expression->call_new_type->cxx_class->destructor_method
         ? expression->call_new_type->cxx_class->destructor_method->decl
         : NULL;
-    if (!cls || !constructor_decl || !destructor ||
-        !constructor_decl->func_is_cxx_constructor ||
+    if (!cls || (!constructor_decl && !implicit_empty_default_constructor) ||
+        !destructor ||
+        (constructor_decl &&
+         !constructor_decl->func_is_cxx_constructor) ||
         !destructor->func_is_cxx_destructor || !destructor->func_body ||
         !destructor->link_name || !destructor->func_this_param ||
         destructor->func_params || !destructor->type ||
@@ -14974,13 +14984,16 @@ static RccIrLowerValue lower_cxx_new_array_expression(
          (constant_count < 0 ||
           (uint64_t)constant_count < (uint64_t)initialized_count ||
           ((uint64_t)constant_count > (uint64_t)initialized_count &&
-           !default_constructor))) ||
+           !default_constructor &&
+           !implicit_empty_default_constructor))) ||
         (dynamic_count && (initialized_count != 0u ||
-                           !default_constructor))) {
+                           (!default_constructor &&
+                            !implicit_empty_default_constructor)))) {
         context->unsupported = true;
         return lower_invalid_value();
     }
-    register_cleanups = !constructor_decl->func_is_noexcept ||
+    register_cleanups = (constructor_decl &&
+                         !constructor_decl->func_is_noexcept) ||
         (default_constructor_decl &&
          !default_constructor_decl->func_is_noexcept) ||
         !lower_noexcept_expression_list(expression->call_new_args) ||
@@ -15141,22 +15154,29 @@ static RccIrLowerValue lower_cxx_new_array_expression(
             context, user_address, build_index,
             (size_t)expression->call_new_type->size);
         Expr initializer;
-        if (!build_index.valid || !element.valid || !default_constructor) {
+        if (!build_index.valid || !element.valid ||
+            (!default_constructor &&
+             !implicit_empty_default_constructor)) {
             context->unsupported = true;
             return lower_invalid_value();
         }
-        memset(&initializer, 0, sizeof(initializer));
-        initializer.kind = EXPR_COMPOUND;
-        initializer.type = expression->call_new_type;
-        initializer.compound_constructor =
-            (CxxConstructorInfo*)default_constructor;
-        initializer.compound_init = expression->call_new_default_args;
-        if (!lower_initialize_struct_storage(
-                context, element.value, expression->call_new_type,
-                &initializer) ||
-            (register_cleanups &&
-             !lower_cxx_register_array_element_cleanup(
-                 context, cls, destructor, element, true))) {
+        if (default_constructor) {
+            memset(&initializer, 0, sizeof(initializer));
+            initializer.kind = EXPR_COMPOUND;
+            initializer.type = expression->call_new_type;
+            initializer.compound_constructor =
+                (CxxConstructorInfo*)default_constructor;
+            initializer.compound_init = expression->call_new_default_args;
+            if (!lower_initialize_struct_storage(
+                    context, element.value, expression->call_new_type,
+                    &initializer)) {
+                if (!context->unsupported) context->unsupported = true;
+                return lower_invalid_value();
+            }
+        }
+        if (register_cleanups &&
+            !lower_cxx_register_array_element_cleanup(
+                context, cls, destructor, element, true)) {
             if (!context->unsupported) context->unsupported = true;
             return lower_invalid_value();
         }
@@ -15235,21 +15255,24 @@ static RccIrLowerValue lower_cxx_new_array_expression(
             RccIrLowerValue element = lower_cxx_array_element_address(
                 context, user_address, element_index_value,
                 (size_t)expression->call_new_type->size);
-            if (!default_constructor || !element.valid) {
+            if ((!default_constructor &&
+                 !implicit_empty_default_constructor) || !element.valid) {
                 context->unsupported = true;
                 return lower_invalid_value();
             }
-            memset(&initializer, 0, sizeof(initializer));
-            initializer.kind = EXPR_COMPOUND;
-            initializer.type = expression->call_new_type;
-            initializer.compound_constructor =
-                (CxxConstructorInfo*)default_constructor;
-            initializer.compound_init = expression->call_new_default_args;
-            if (!lower_initialize_struct_storage(
-                    context, element.value, expression->call_new_type,
-                    &initializer)) {
-                if (!context->unsupported) context->unsupported = true;
-                return lower_invalid_value();
+            if (default_constructor) {
+                memset(&initializer, 0, sizeof(initializer));
+                initializer.kind = EXPR_COMPOUND;
+                initializer.type = expression->call_new_type;
+                initializer.compound_constructor =
+                    (CxxConstructorInfo*)default_constructor;
+                initializer.compound_init = expression->call_new_default_args;
+                if (!lower_initialize_struct_storage(
+                        context, element.value, expression->call_new_type,
+                        &initializer)) {
+                    if (!context->unsupported) context->unsupported = true;
+                    return lower_invalid_value();
+                }
             }
             ++element_index;
             if (register_cleanups &&
