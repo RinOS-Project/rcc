@@ -4127,10 +4127,23 @@ static bool debug_inline_parameter_body_is_read_only(const Decl* callee) {
         callee->func_body, callee, 0u);
 }
 
+static bool debug_inline_literal_array_index(const Expr* expression,
+                                             int64_t* value) {
+    if (!expression || !value || expression->kind != EXPR_INT_LIT ||
+        !expression->type ||
+        !((expression->type->kind >= TYPE_BOOL &&
+           expression->type->kind <= TYPE_LLONG) ||
+          expression->type->kind == TYPE_ENUM)) {
+        return false;
+    }
+    *value = expression->int_val;
+    return true;
+}
+
 static const ModuleSymbol* debug_inline_parameter_address_constant(
     const Module* mod, const char* filename, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
-    char** scoped_symbol) {
+    char** scoped_symbol, int64_t* address_addend) {
     const Expr* address;
     const Expr* argument_expression;
     const Expr* operand;
@@ -4140,8 +4153,10 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
     const ModuleSymbol* symbol;
     uint8_t address_size;
     if (scoped_symbol) *scoped_symbol = NULL;
+    if (address_addend) *address_addend = 0;
     if (!mod || !filename || !value || !value->declaration || !argument ||
-        !argument->expr || argument->cxx_temporary_owner || !scoped_symbol) {
+        !argument->expr || argument->cxx_temporary_owner || !scoped_symbol ||
+        !address_addend) {
         return NULL;
     }
     argument_expression = argument->expr;
@@ -4177,6 +4192,28 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
         address->unary_operand->ident_decl) {
         operand = address->unary_operand;
         source = operand->ident_decl;
+    } else if (address->kind == EXPR_ADDR && address->unary_operand &&
+               address->unary_operand->kind == EXPR_INDEX &&
+               address->unary_operand->index_base &&
+               address->unary_operand->index_base->kind == EXPR_IDENT &&
+               address->unary_operand->index_base->ident_decl &&
+               address->unary_operand->index_expr) {
+        int64_t element_index;
+        int element_size;
+        const Expr* indexed = address->unary_operand;
+        operand = indexed->index_base;
+        source = operand->ident_decl;
+        if (source->kind != DECL_VAR || !source->type ||
+            source->type->kind != TYPE_ARRAY || source->type->array_len < 0 ||
+            !indexed->type || indexed->type->size <= 0 ||
+            !debug_inline_literal_array_index(indexed->index_expr,
+                                               &element_index) ||
+            element_index < 0 || element_index > source->type->array_len) {
+            return NULL;
+        }
+        element_size = indexed->type->size;
+        if (element_index > INT64_MAX / element_size) return NULL;
+        *address_addend = element_index * element_size;
     } else if (address->kind == EXPR_IDENT && address->ident_decl &&
                address->ident_decl->kind == DECL_FUNC) {
         operand = address;
@@ -4329,6 +4366,7 @@ static void debug_emit_inline_parameter_instances(
         char* scoped_source_symbol = NULL;
         bool source_frame_based = false;
         int64_t source_frame_offset = 0;
+        int64_t address_addend = 0;
         if (value->has_signed_integer_constant && value->declaration &&
             (origin = debug_inline_parameter_origin_find(
                 origins, call->callee, value->declaration)) != NULL) {
@@ -4368,7 +4406,7 @@ static void debug_emit_inline_parameter_instances(
                        origins, call->callee, value->declaration)) != NULL &&
                    (source_symbol = debug_inline_parameter_address_constant(
                        mod, filename, call->callee, value, argument,
-                       &scoped_source_symbol)) != NULL) {
+                       &scoped_source_symbol, &address_addend)) != NULL) {
             const char* relocation_symbol = scoped_source_symbol
                 ? scoped_source_symbol : source_symbol->name;
             uint64_t address_offset;
@@ -4381,7 +4419,8 @@ static void debug_emit_inline_parameter_instances(
             }
             objfile_add_reloc(
                 obj, info_section, address_offset, relocation_symbol,
-                address_size == 8u ? RELOC_ABS64 : RELOC_ABS32U, 0);
+                address_size == 8u ? RELOC_ABS64 : RELOC_ABS32U,
+                address_addend);
             rcc_free(scoped_source_symbol);
         } else if (value->declaration &&
                    (origin = debug_inline_parameter_origin_find(

@@ -33,6 +33,7 @@ enum debug_enum {
 enum debug_enum debug_enum_data = DEBUG_ENUM_POSITIVE;
 int* debug_inline_global_pointer_source;
 int debug_inline_addressed_pointer_source;
+int debug_inline_addressed_array_source[4];
 const int debug_inline_readonly_addressed_pointer_source = 31;
 int** debug_inline_escaped_pointer;
 
@@ -162,6 +163,12 @@ int debug_inline_cast_address_constant_entry(void)
 {
     return debug_void_pointer_parameter_inline(
         (const void*)&debug_inline_addressed_pointer_source);
+}
+
+int debug_inline_array_element_address_constant_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_array_source[2]);
 }
 
 int debug_inline_function_address_constant_entry(void)
