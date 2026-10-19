@@ -4155,8 +4155,7 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
     argument_type = address->type;
     address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     if (value->declaration->kind != DECL_PARAM ||
-        source->kind != DECL_VAR ||
-        (!source->var_is_global && !source->var_is_static_local) ||
+        (source->kind != DECL_VAR && source->kind != DECL_FUNC) ||
         !parameter_type || parameter_type->kind != TYPE_PTR ||
         parameter_type->cxx_is_member_pointer ||
         parameter_type->size != address_size || parameter_type->is_volatile ||
@@ -4167,10 +4166,26 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
         !debug_inline_parameter_body_is_read_only(callee)) {
         return NULL;
     }
-    if (source->var_is_global) {
+    if (source->kind == DECL_VAR && source->var_is_global) {
         symbol = debug_find_global_symbol(mod, source);
-    } else {
+    } else if (source->kind == DECL_VAR && source->var_is_static_local) {
         symbol = debug_find_static_local_symbol(mod, source);
+    } else if (source->kind == DECL_FUNC && source->func_is_defined) {
+        const char* link_name = source->link_name
+            ? source->link_name : source->name;
+        symbol = NULL;
+        if (!link_name || link_name[0] == '\0') return NULL;
+        for (int index = 0; index < mod->symbol_count; ++index) {
+            const ModuleSymbol* candidate = &mod->symbols[index];
+            if (candidate->is_defined &&
+                candidate->section == MODULE_SYMBOL_CODE &&
+                strcmp(candidate->name, link_name) == 0) {
+                symbol = candidate;
+                break;
+            }
+        }
+    } else {
+        return NULL;
     }
     if (!symbol || symbol->section == MODULE_SYMBOL_TLS) return NULL;
     if (!symbol->is_global) {
@@ -5600,17 +5615,6 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x01u);   /* DW_FORM_addr */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
-    /* A symbolic address passed by value is a DWARF constant, not a storage
-     * location. The address-sized field below carries an object relocation. */
-    debug_line_uleb(abbrev, 68u);
-    debug_line_uleb(abbrev, 0x05u);   /* DW_TAG_formal_parameter */
-    section_add_byte(abbrev, 0u);
-    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
-    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
-    debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
-    debug_line_uleb(abbrev, 0x01u);   /* DW_FORM_addr */
-    debug_line_uleb(abbrev, 0u);
-    debug_line_uleb(abbrev, 0u);
     /* Dynamic inline parameters can reuse a stable global/static source
      * object's location when its type exactly matches the formal parameter. */
     debug_line_uleb(abbrev, 67u);
@@ -5620,6 +5624,17 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x02u);   /* DW_AT_location */
     debug_line_uleb(abbrev, 0x18u);   /* DW_FORM_exprloc */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* A symbolic address passed by value is a DWARF constant, not a storage
+     * location. The address-sized field below carries an object relocation. */
+    debug_line_uleb(abbrev, 68u);
+    debug_line_uleb(abbrev, 0x05u);   /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x01u);   /* DW_FORM_addr */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

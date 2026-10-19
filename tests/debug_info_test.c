@@ -3489,6 +3489,7 @@ static void verify_inline_debug_object(const char* path,
     uint64_t address_constant_inline_call = UINT64_MAX;
     uint64_t static_address_constant_inline_call = UINT64_MAX;
     uint64_t readonly_address_constant_inline_call = UINT64_MAX;
+    uint64_t function_address_constant_inline_call = UINT64_MAX;
     uint64_t static_pointer_inline_call = UINT64_MAX;
     uint64_t automatic_pointer_inline_call = UINT64_MAX;
 
@@ -3593,7 +3594,9 @@ static void verify_inline_debug_object(const char* path,
             strcmp(inline_name,
                    "debug_global_pointer_parameter_inline") != 0 &&
             strcmp(inline_name,
-                   "debug_const_global_pointer_parameter_inline") != 0) {
+                   "debug_const_global_pointer_parameter_inline") != 0 &&
+            strcmp(inline_name,
+                   "debug_function_pointer_parameter_inline") != 0) {
             continue;
         }
         origin_file = read_u32(info->data, origin_offset + 5u);
@@ -3618,7 +3621,9 @@ static void verify_inline_debug_object(const char* path,
             strcmp(inline_name,
                    "debug_global_pointer_parameter_inline") == 0 ||
             strcmp(inline_name,
-                   "debug_const_global_pointer_parameter_inline") == 0) {
+                   "debug_const_global_pointer_parameter_inline") == 0 ||
+            strcmp(inline_name,
+                   "debug_function_pointer_parameter_inline") == 0) {
             assert(info->data[parameter_type] == 6u);
         } else if (strcmp(inline_name,
                           "debug_enum_parameter_inline") == 0) {
@@ -3715,7 +3720,9 @@ static void verify_inline_debug_object(const char* path,
              strcmp(inline_name,
                     "debug_global_pointer_parameter_inline") == 0 ||
              strcmp(inline_name,
-                    "debug_const_global_pointer_parameter_inline") == 0)
+                    "debug_const_global_pointer_parameter_inline") == 0 ||
+             strcmp(inline_name,
+                    "debug_function_pointer_parameter_inline") == 0)
                 ? "tests/debug_info.c"
                 : "tests/debug_info_inline.h"));
         assert(line_table_file_matches(line, origin_file,
@@ -3769,6 +3776,9 @@ static void verify_inline_debug_object(const char* path,
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_readonly_address_constant_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_function_address_constant_entry") == 0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_static_pointer_entry") == 0;
@@ -3915,6 +3925,13 @@ static void verify_inline_debug_object(const char* path,
                 readonly_address_constant_inline_call = die;
             } else if (root_call &&
                        strcmp(inline_name,
+                              "debug_function_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_function_address_constant_entry") == 0 &&
+                       function_address_constant_inline_call == UINT64_MAX) {
+                function_address_constant_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
                               "debug_global_pointer_parameter_inline") == 0 &&
                        strcmp(relocation->symbol_name,
                               "debug_inline_static_pointer_entry") == 0 &&
@@ -3954,6 +3971,7 @@ static void verify_inline_debug_object(const char* path,
     assert(address_constant_inline_call != UINT64_MAX);
     assert(static_address_constant_inline_call != UINT64_MAX);
     assert(readonly_address_constant_inline_call != UINT64_MAX);
+    assert(function_address_constant_inline_call != UINT64_MAX);
     assert(static_pointer_inline_call != UINT64_MAX);
     assert(automatic_pointer_inline_call != UINT64_MAX);
     {
@@ -4287,6 +4305,35 @@ static void verify_inline_debug_object(const char* path,
                 relocation->symbol_name &&
                 strcmp(relocation->symbol_name,
                        "debug_inline_readonly_addressed_pointer_source") == 0) {
+                found_address_relocation = true;
+                break;
+            }
+        }
+        assert(found_address_relocation);
+    }
+    {
+        uint64_t concrete_parameter = function_address_constant_inline_call +
+            1u + 4u + address_size + 4u + 12u;
+        uint32_t origin_parameter = read_u32(
+            info->data, function_address_constant_inline_call + 1u) + 27u;
+        uint64_t address_offset = concrete_parameter + 5u;
+        bool found_address_relocation = false;
+        assert(info->data[concrete_parameter] == 68u);
+        assert(read_u32(info->data, concrete_parameter + 1u) ==
+               origin_parameter);
+        for (uint64_t byte = 0u; byte < address_size; ++byte) {
+            assert(info->data[address_offset + byte] == 0u);
+        }
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == address_offset &&
+                relocation->type == (architecture == ARCH_X64
+                    ? RELOC_ABS64 : RELOC_ABS32U) &&
+                relocation->symbol_name &&
+                strncmp(relocation->symbol_name, "tests/debug_info.c::",
+                        strlen("tests/debug_info.c::")) == 0 &&
+                strstr(relocation->symbol_name,
+                       "debug_inline_addressed_function_target") != NULL) {
                 found_address_relocation = true;
                 break;
             }

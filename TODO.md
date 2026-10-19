@@ -6991,10 +6991,10 @@ remains a separate open item.
       verified optimized DWARF; `1.1f`→`double` and `1.1`→`float` values match
       exact expected bits.
 - [ ] Long-double conversions, nonconstant floating expressions, dynamic
-      pointer values and symbolic addresses beyond direct global/static-object
-      address forms, additional C/C++ enum conversions and nonliteral
-      enum-value attribution, mutable parameter locations, and general
-      optimized inline-variable location tracking remain open.
+      pointer values, symbolic addresses outside the supported direct
+      global/static-data and function-address forms, additional C/C++ enum
+      conversions, nonliteral enum-value attribution, mutable parameter
+      locations, and general optimized inline-variable tracking remain open.
 
 ## RCC continuation (2026-10-20, out-of-range signed inline values)
 
@@ -7005,10 +7005,10 @@ remains a separate open item.
       execute `UINT32_MAX`→`int` plus `UINT64_MAX`→`long long` at `-O0`/`-O1`
       for i686/AMD64. Native-Windows `test-optimize` and `test-debug-info` pass.
 - [ ] Other implementation-defined integer conversions, nonliteral folded
-      arguments, dynamic pointer values and symbolic addresses beyond direct
-      global/static-object address forms, additional C/C++ enum
-      conversions and nonliteral enum-value attribution, mutable parameter
-      locations, and general optimized inline-variable location tracking
+      arguments, dynamic pointer values and symbolic addresses outside the
+      supported direct global/static-data and function-address forms, additional
+      C/C++ enum conversions, nonliteral enum-value attribution, mutable
+      parameter locations, and general optimized inline-variable tracking
       remain open.
 
 ## RCC continuation (2026-10-20, inline floating constant expressions)
@@ -7021,10 +7021,10 @@ remains a separate open item.
       and compare its exact 8-byte value in legacy/verified optimized i686/AMD64
       DWARF. Native-Windows `test-debug-info` passes.
 - [ ] Dynamic floating arguments, long-double support, dynamic pointer values
-      and symbolic addresses beyond direct global/static-object address forms,
-      additional C/C++ enum conversions and nonliteral enum-value
-      attribution, mutable parameter locations, and optimized inline-variable
-      location tracking remain open.
+      and symbolic addresses outside the supported direct global/static-data
+      and function-address forms, additional C/C++ enum conversions,
+      nonliteral enum-value attribution, mutable parameter locations, and
+      optimized inline-variable location tracking remain open.
 
 ## RCC continuation (2026-10-20, inline null-pointer parameter values)
 
@@ -7036,9 +7036,9 @@ remains a separate open item.
       pointer parameter. `test-debug-info` verifies the pointer-typed formal
       parameter DIE and zero address bytes in legacy/verified i686/AMD64 output.
 - [ ] Symbolic pointer expressions beyond direct addresses of defined
-      global/static objects, dynamic source expressions beyond supported
-      global/static and frame-backed identifiers, and full optimized
-      register/piece tracking remain open.
+      global/static data or defined functions, dynamic source expressions
+      beyond supported global/static and frame-backed identifiers, and full
+      optimized register/piece tracking remain open.
 
 ## RCC continuation (2026-10-20, bounded inline enum parameter conversions)
 
@@ -7067,8 +7067,8 @@ remains a separate open item.
       for legacy and verified optimized C++ objects on i686/AMD64.
       Native-Windows `test-debug-info` passes.
 - [ ] Symbolic pointer expressions beyond direct addresses of defined
-      global/static objects, dynamic pointer locations, and full optimized
-      register/piece tracking remain open.
+      global/static data or defined functions, dynamic pointer locations, and
+      full optimized register/piece tracking remain open.
 
 ## RCC continuation (2026-10-20, inline pointer source locations)
 
@@ -7099,14 +7099,14 @@ remains a separate open item.
 - [x] Emit a concrete inline formal-parameter DIE with `DW_AT_const_value` /
       `DW_FORM_addr` and a target-width relocation when the argument is the
       direct address of a defined non-TLS global or function-local static
-      object. Include read-only global data; exclude member pointers and
-      dynamic addresses.
-- [x] Verify mutable global, read-only global, and function-local static
-      object addresses in legacy and verified optimized DWARF for i686/AMD64.
-      The native-Windows `test-debug-info` target passes.
-- [ ] Function designators, casted/interior/offset symbolic addresses, dynamic
-      pointer expressions, and general register/piece location tracking remain
-      open.
+      object, or a defined function. Include read-only global data and direct
+      `&function` addresses; exclude member pointers and dynamic addresses.
+- [x] Verify mutable global, read-only global, function-local static object,
+      and static function addresses in legacy and verified optimized DWARF for
+      i686/AMD64. The native-Windows `test-debug-info` target passes.
+- [ ] Bare function-designator decay, casted/interior/offset symbolic
+      addresses, dynamic pointer expressions, and general register/piece
+      location tracking remain open.
 
 ## RIN/RLL/DRV fini-array format matrix (2026-10-20)
 

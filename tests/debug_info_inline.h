@@ -83,3 +83,8 @@ inline int debug_const_global_pointer_parameter_inline(const int* value)
 {
     return value != (const int*)0;
 }
+
+inline int debug_function_pointer_parameter_inline(int (*value)(void))
+{
+    return value != 0;
+}

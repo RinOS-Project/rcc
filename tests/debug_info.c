@@ -35,6 +35,11 @@ int* debug_inline_global_pointer_source;
 int debug_inline_addressed_pointer_source;
 const int debug_inline_readonly_addressed_pointer_source = 31;
 int** debug_inline_escaped_pointer;
+
+static int debug_inline_addressed_function_target(void)
+{
+    return 9;
+}
 static int debug_aggregate_sum(void)
 {
     struct debug_aggregate local = {3, 4};
@@ -151,6 +156,12 @@ int debug_inline_readonly_address_constant_entry(void)
 {
     return debug_const_global_pointer_parameter_inline(
         &debug_inline_readonly_addressed_pointer_source);
+}
+
+int debug_inline_function_address_constant_entry(void)
+{
+    return debug_function_pointer_parameter_inline(
+        &debug_inline_addressed_function_target);
 }
 
 int debug_inline_static_pointer_entry(void)
