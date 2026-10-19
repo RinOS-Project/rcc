@@ -332,6 +332,9 @@ struct ReferenceConversionResult {
     int value;
 };
 
+ReferenceConversionResult reference_conversion_lvalue_result{67};
+ReferenceConversionResult reference_conversion_xvalue_result{71};
+
 struct ConversionBasePointerTarget {
     int value;
 };
@@ -491,6 +494,18 @@ class ReferenceConversionSource {
 public:
     operator ReferenceConversionResult() && {
         return {43};
+    }
+};
+
+class ReferenceCategoryConversionSource {
+public:
+    operator ReferenceConversionResult&() const {
+        return reference_conversion_lvalue_result;
+    }
+
+    operator ReferenceConversionResult&&() const {
+        return static_cast<ReferenceConversionResult&&>(
+            reference_conversion_xvalue_result);
     }
 };
 
@@ -1009,6 +1024,7 @@ int main() {
         read_conversion_reference(RefQualifiedConversionSource{}) != 53 ||
         read_conversion_reference(const_ref_qualified_source) != 59 ||
         read_conversion_reference(CvRefQualifiedConversionSource{}) != 61 ||
+        read_conversion_reference(ReferenceCategoryConversionSource{}) != 67 ||
         lvalue_function() != 97 || rvalue_function() != 101 ||
         lvalue_function_from_rvalue() != 101 ||
         rvalue_function_from_lvalue() != 97 ||

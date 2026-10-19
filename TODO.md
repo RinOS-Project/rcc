@@ -6620,6 +6620,10 @@ remains a separate open item.
       conversions viable and rank their object bindings; GCC C++20 selects
       inherited `Base::operator int() &&` over `Derived::operator int() const &&`
       for an rvalue. `test-cxx-conversion-operator` and its GCC host oracle pass.
+- [x] Rank same-class conversion results that bind a reference by their
+      lvalue/rvalue reference category, while preserving derived-to-base result
+      ordering when both categories match. GCC C++20 selects the `T&` result
+      over `T&&` for `const T&`; the full focused conversion-operator gate passes.
 - [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
       and full C++20 overload-resolution conformance remain open.
 

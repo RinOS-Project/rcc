@@ -2987,19 +2987,17 @@ static int sema_cxx_reference_conversion_source_relation(
         !target->is_reference || !target->base) {
         return 0;
     }
-    /* [over.match.best] prefers a conversion function whose returned
-     * reference kind matches a directly-bound function reference.  Unlike
-     * object references, both function-reference categories participate in
-     * this tie-break; do not discard the non-matching result during
-     * viability checking. */
-    if (target->base->kind == TYPE_FUNC &&
-        left_result->is_reference && right_result->is_reference) {
+    /* Prefer the conversion function whose returned reference category
+     * matches the destination reference.  This applies to object references
+     * as well as function references: for example, both T& and T&& can bind
+     * to const T&, but the lvalue-reference result is the better sequence. */
+    if (left_result->is_reference && right_result->is_reference) {
         bool left_matches = left_result->is_rvalue_reference ==
                             target->is_rvalue_reference;
         bool right_matches = right_result->is_rvalue_reference ==
                              target->is_rvalue_reference;
         if (left_matches != right_matches) return left_matches ? 1 : -1;
-        return 0;
+        if (target->base->kind == TYPE_FUNC) return 0;
     }
     left_source = left_result->is_reference ? left_result->base : left_result;
     right_source = right_result->is_reference
