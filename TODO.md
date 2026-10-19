@@ -2258,6 +2258,15 @@
   - [x] Exercise the bounded memory input through the C++20 frontend on i686;
         compile the i686 fixture and verify its exact EBP-relative `movl` bytes
         alongside the C and AMD64 C++ encoding gates.
+  - [x] Encode the bounded i686 register-indirect/displacement `mov` load/store
+        and `lea` forms, including ESP SIB and EBP zero-displacement cases, plus
+        register `xor`/`test`, indirect `jmp`, and `pushl`/`popl`. Check exact
+        bytes, run the memory/branch/indirect-jump fixture on the POSIX i686
+        host gate, preserve naked assembly-owned entry/exit sequences, and keep
+        i686-only addressing from being misencoded on AMD64.
+  - [x] Resolve GNU numeric local labels and nearest `nf`/`nb` references within
+        each inline-asm template. Exercise forward conditional/unconditional
+        branches at runtime on i686 and compile a backward-reference regression.
   - [x] Preserve a generic inline-asm output value while computing its lvalue
         address; verify `=r` ECX assignment on i686 and AMD64 execution gates.
   - [x] Assign generic `=&r` outputs to a physical GPR distinct from all

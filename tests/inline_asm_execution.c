@@ -173,6 +173,92 @@ int asm_memory_input_move(int value)
     __asm__ __volatile__("movl %1, %0" : "=a"(result) : "m"(value));
     return result;
 }
+
+int asm_base_memory_move(int* source)
+{
+    int result;
+    __asm__ __volatile__("mov (%1), %0" : "=c"(result) : "a"(source));
+    return result;
+}
+
+void asm_base_memory_store(int* destination, int value)
+{
+    __asm__ __volatile__("mov %1, (%0)" : : "b"(destination), "a"(value));
+}
+
+int* asm_base_memory_lea(int* base)
+{
+    int* result;
+    __asm__ __volatile__("lea 4(%1), %0" : "=a"(result) : "c"(base));
+    return result;
+}
+
+void asm_esp_memory_move(void)
+{
+    __asm__ __volatile__("mov (%%esp), %%eax");
+}
+
+void asm_ebp_memory_move(void)
+{
+    __asm__ __volatile__("mov (%%ebp), %%eax");
+}
+
+int asm_x86_xor_test(int value, int other)
+{
+    __asm__ __volatile__("xor %1, %0\n\ttest %0, %0"
+                         : "+a"(value) : "c"(other));
+    return value;
+}
+
+void asm_x86_indirect_jump(void (*target)(void))
+{
+    __asm__ __volatile__("jmp *%0" : : "a"(target));
+}
+
+void asm_x86_push_pop(void)
+{
+    __asm__ __volatile__("pushl %%eax\n\tpopl %%eax");
+}
+
+int asm_i686_memory_branch_sequence(int* slot, int value)
+{
+    int result;
+    __asm__ __volatile__(
+        "xor %%eax, %%eax\n\t"
+        "mov %1, %%eax\n\t"
+        "mov %%eax, 0(%2)\n\t"
+        "lea 0(%2), %%edx\n\t"
+        "mov 0(%%edx), %%eax\n\t"
+        "test %%eax, %%eax\n\t"
+        "jnz 1f\n\t"
+        "mov $7, %%eax\n\t"
+        "jmp 2f\n\t"
+        "1:\n\t"
+        "mov $9, %%eax\n\t"
+        "2:\n\t"
+        "xor %%ecx, %%ecx\n\t"
+        "test %%ecx, %%ecx\n\t"
+        "jnz 3f\n\t"
+        "jmp 4f\n\t"
+        "3:\n\t"
+        "jmp 3b\n\t"
+        "4:\n\t"
+        "pushl %%eax\n\t"
+        "popl %%eax\n\t"
+        "mov %%eax, %0"
+        : "=D"(result)
+        : "b"(value), "S"(slot)
+        : "eax", "ecx", "edx", "cc", "memory");
+    return result;
+}
+
+__attribute__((naked))
+void asm_i686_indirect_tail(void (*target)(void) __attribute__((unused)))
+{
+    __asm__ __volatile__(
+        "mov 4(%%esp), %%ecx\n\t"
+        "jmp *%%ecx" : : : "ecx");
+}
 #endif
 
 #if defined(__x86_64__)

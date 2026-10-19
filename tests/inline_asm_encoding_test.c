@@ -145,6 +145,16 @@ int main(int argc, char** argv)
         0xb8u, 0x78u, 0x56u, 0x34u, 0x12u
     };
     static const uint8_t i686_memory_input[] = {0x8bu, 0x45u, 0x08u};
+    static const uint8_t i686_base_memory_load[] = {0x8bu, 0x08u};
+    static const uint8_t i686_base_memory_store[] = {0x89u, 0x03u};
+    static const uint8_t i686_base_memory_lea[] = {0x8du, 0x41u, 0x04u};
+    static const uint8_t i686_esp_memory[] = {0x8bu, 0x04u, 0x24u};
+    static const uint8_t i686_ebp_memory[] = {0x8bu, 0x45u, 0x00u};
+    static const uint8_t i686_xor_test[] = {
+        0x31u, 0xc8u, 0x85u, 0xc0u
+    };
+    static const uint8_t i686_indirect_jump[] = {0xffu, 0xe0u};
+    static const uint8_t i686_push_pop[] = {0x50u, 0x58u};
     static const uint8_t mov_imm64[] = {
         0x48u, 0xb8u, 0x88u, 0x77u, 0x66u, 0x55u,
         0x44u, 0x33u, 0x22u, 0x11u
@@ -154,6 +164,22 @@ int main(int argc, char** argv)
     verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
     verify_pattern(argv[1], ARCH_X86, "asm_memory_input_move",
                    i686_memory_input, sizeof(i686_memory_input));
+    verify_pattern(argv[1], ARCH_X86, "asm_base_memory_move",
+                   i686_base_memory_load, sizeof(i686_base_memory_load));
+    verify_pattern(argv[1], ARCH_X86, "asm_base_memory_store",
+                   i686_base_memory_store, sizeof(i686_base_memory_store));
+    verify_pattern(argv[1], ARCH_X86, "asm_base_memory_lea",
+                   i686_base_memory_lea, sizeof(i686_base_memory_lea));
+    verify_pattern(argv[1], ARCH_X86, "asm_esp_memory_move",
+                   i686_esp_memory, sizeof(i686_esp_memory));
+    verify_pattern(argv[1], ARCH_X86, "asm_ebp_memory_move",
+                   i686_ebp_memory, sizeof(i686_ebp_memory));
+    verify_pattern(argv[1], ARCH_X86, "asm_x86_xor_test",
+                   i686_xor_test, sizeof(i686_xor_test));
+    verify_pattern(argv[1], ARCH_X86, "asm_x86_indirect_jump",
+                   i686_indirect_jump, sizeof(i686_indirect_jump));
+    verify_pattern(argv[1], ARCH_X86, "asm_x86_push_pop",
+                   i686_push_pop, sizeof(i686_push_pop));
     verify_pattern(argv[4], ARCH_X86, "asm_cpp_memory_input_move",
                    i686_memory_input, sizeof(i686_memory_input));
     verify_generic(argv[1], ARCH_X86, "asm_generic_placeholder_move");

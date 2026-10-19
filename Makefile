@@ -15391,6 +15391,10 @@ test-inline-asm-validation: $(RCC_TARGET)
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	$(GREP) -q "inline asm memory constraint 'm' is supported only for i686 inputs" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
+	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/amd64-i686-address.ro tests/invalid_inline_asm_addressing.c,$(TEST_OUT)/inline-asm-validation/amd64-i686-address.log)
+	$(GREP) -q "unsupported AMD64 inline asm instruction" \
+		$(TEST_OUT)/inline-asm-validation/amd64-i686-address.log
+	$(call ASSERT_ABSENT,$(TEST_OUT)/inline-asm-validation/amd64-i686-address.ro)
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/q-immediate.ro tests/invalid_inline_asm_q_immediate.c,$(TEST_OUT)/inline-asm-validation/q-immediate.log)
 	$(GREP) -q "%qN register modifier requires a register operand" \
 		$(TEST_OUT)/inline-asm-validation/q-immediate.log

@@ -22,6 +22,17 @@ typedef int (RCC_TEST_TARGET_ABI *unary_function)(int);
 #if defined(__x86_64__)
 typedef long long (RCC_TEST_TARGET_ABI *unary_i64_function)(long long);
 #endif
+#if defined(__i386__)
+typedef int (RCC_TEST_TARGET_ABI *i686_sequence_function)(int*, int);
+typedef void (RCC_TEST_TARGET_ABI *void_target_function)(void);
+typedef void (RCC_TEST_TARGET_ABI *i686_indirect_tail_function)(
+    void_target_function);
+static int i686_indirect_target_calls;
+static void i686_indirect_target(void)
+{
+    i686_indirect_target_calls++;
+}
+#endif
 
 static ObjSection* code_section(ObjectFile* object)
 {
@@ -61,6 +72,9 @@ int main(int argc, char** argv)
     unary_function read_write;
 #if defined(__i386__)
     unary_function memory_input;
+    i686_sequence_function i686_sequence;
+    i686_indirect_tail_function i686_indirect_tail;
+    int i686_slot = 0;
 #endif
 #if defined(__x86_64__)
     unary_i64_function immediate64;
@@ -130,6 +144,10 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(read_write, object, mapping, "asm_read_write_accumulator");
 #if defined(__i386__)
     LOAD_FUNCTION(memory_input, object, mapping, "asm_memory_input_move");
+    LOAD_FUNCTION(i686_sequence, object, mapping,
+                  "asm_i686_memory_branch_sequence");
+    LOAD_FUNCTION(i686_indirect_tail, object, mapping,
+                  "asm_i686_indirect_tail");
 #endif
     LOAD_FUNCTION(immediate8, object, mapping, "asm_mov_imm8");
     LOAD_FUNCTION(immediate16, object, mapping, "asm_mov_imm16");
@@ -144,6 +162,10 @@ int main(int argc, char** argv)
     assert(placeholder(83) == 83);
 #if defined(__i386__)
     assert(memory_input(59) == 59);
+    assert(i686_sequence(&i686_slot, 0) == 7 && i686_slot == 0);
+    assert(i686_sequence(&i686_slot, 41) == 9 && i686_slot == 41);
+    i686_indirect_tail(i686_indirect_target);
+    assert(i686_indirect_target_calls == 1);
 #endif
     assert(generic_output(97) == 97);
     assert(generic_read_write(109) == 109);

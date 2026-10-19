@@ -14608,6 +14608,63 @@ static bool asm_parse_ebp_memory(const char* text, int32_t* displacement) {
     return true;
 }
 
+static bool asm_parse_x86_memory(const char* text, int* base_register,
+                                int32_t* displacement) {
+    const char* open;
+    const char* close;
+    char displacement_text[32];
+    char register_text[8];
+    size_t displacement_length;
+    size_t register_length;
+    char* end;
+    long parsed;
+    int width;
+    if (!text || !base_register || !displacement) return false;
+    open = strchr(text, '(');
+    close = strrchr(text, ')');
+    if (!open || !close || close[1] != '\0' || close <= open + 1) {
+        return false;
+    }
+    displacement_length = (size_t)(open - text);
+    register_length = (size_t)(close - open - 1);
+    if (displacement_length >= sizeof(displacement_text) ||
+        register_length >= sizeof(register_text)) return false;
+    memcpy(displacement_text, text, displacement_length);
+    displacement_text[displacement_length] = '\0';
+    memcpy(register_text, open + 1, register_length);
+    register_text[register_length] = '\0';
+    if (!asm_parse_register_width(register_text, base_register, &width) ||
+        width != 4) return false;
+    if (!displacement_length) {
+        parsed = 0;
+    } else {
+        errno = 0;
+        parsed = strtol(displacement_text, &end, 0);
+        if (errno == ERANGE || end == displacement_text || *end != '\0' ||
+            parsed < INT32_MIN || parsed > INT32_MAX) return false;
+    }
+    *displacement = (int32_t)parsed;
+    return true;
+}
+
+static void asm_emit_x86_memory_modrm(Module* mod, int reg_field, int base,
+                                      int32_t displacement) {
+    int mode;
+    int rm = base;
+    if (displacement == 0 && base != EBP) {
+        mode = 0;
+    } else if (displacement >= INT8_MIN && displacement <= INT8_MAX) {
+        mode = 1;
+    } else {
+        mode = 2;
+    }
+    if (base == ESP) rm = 4;
+    emit_byte(mod, modrm(mode, reg_field, rm));
+    if (base == ESP) emit_byte(mod, 0x24); /* no index, ESP base */
+    if (mode == 1) emit_byte(mod, (uint8_t)(int8_t)displacement);
+    else if (mode == 2) emit_dword(mod, (uint32_t)displacement);
+}
+
 static const char* asm_register_name(int reg) {
     switch (reg) {
         case EAX: return "%eax";
@@ -14927,6 +14984,28 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
             emit_byte(mod, modrm(3, destination_control, source));
             return true;
         }
+        {
+            int base;
+            int32_t displacement;
+            if (g_opts.target_arch == ARCH_X86 &&
+                asm_parse_x86_memory(op1, &base, &displacement) &&
+                asm_parse_register_width(op2, &destination,
+                                         &destination_width) &&
+                destination_width == 4) {
+                emit_byte(mod, 0x8B); /* mov r32, r/m32 */
+                asm_emit_x86_memory_modrm(mod, destination, base,
+                                          displacement);
+                return true;
+            }
+            if (g_opts.target_arch == ARCH_X86 &&
+                asm_parse_register_width(op1, &source, &source_width) &&
+                source_width == 4 &&
+                asm_parse_x86_memory(op2, &base, &displacement)) {
+                emit_byte(mod, 0x89); /* mov r/m32, r32 */
+                asm_emit_x86_memory_modrm(mod, source, base, displacement);
+                return true;
+            }
+        }
         if (asm_parse_register_width(op2, &destination,
                                      &destination_width) &&
             asm_parse_immediate_width(op1, destination_width,
@@ -14957,6 +15036,56 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
             emit_byte(mod, 0x89);
             emit_byte(mod, modrm(3, source, destination));
         }
+        return true;
+    }
+    if (strcmp(mnemonic, "lea") == 0) {
+        int base;
+        int destination;
+        int destination_width;
+        int32_t displacement;
+        if (g_opts.target_arch != ARCH_X86 ||
+            !asm_parse_x86_memory(op1, &base, &displacement) || !op2 ||
+            !asm_parse_register_width(op2, &destination,
+                                      &destination_width) ||
+            destination_width != 4) return false;
+        emit_byte(mod, 0x8D);
+        asm_emit_x86_memory_modrm(mod, destination, base, displacement);
+        return true;
+    }
+    if (strcmp(mnemonic, "xor") == 0 || strcmp(mnemonic, "test") == 0) {
+        int source;
+        int destination;
+        int source_width;
+        int destination_width;
+        if (!asm_parse_register_width(op1, &source, &source_width) ||
+            !asm_parse_register_width(op2, &destination,
+                                      &destination_width) ||
+            source_width != 4 || destination_width != 4) return false;
+        emit_byte(mod, strcmp(mnemonic, "xor") == 0 ? 0x31 : 0x85);
+        emit_byte(mod, modrm(3, source, destination));
+        return true;
+    }
+    if (g_opts.target_arch == ARCH_X86 &&
+        strcmp(mnemonic, "jmp") == 0 && op1 && op1[0] == '*' && !op2) {
+        int destination;
+        int destination_width;
+        if (!asm_parse_register_width(op1 + 1, &destination,
+                                      &destination_width) ||
+            destination_width != 4) return false;
+        emit_byte(mod, 0xFF);
+        emit_byte(mod, modrm(3, 4, destination)); /* jmp r/m32 */
+        return true;
+    }
+    if (g_opts.target_arch == ARCH_X86 &&
+        (strcmp(mnemonic, "pushl") == 0 ||
+         strcmp(mnemonic, "popl") == 0) && op1 && !op2) {
+        int reg;
+        int width;
+        if (!asm_parse_register_width(op1, &reg, &width) || width != 4) {
+            return false;
+        }
+        emit_byte(mod, (uint8_t)((strcmp(mnemonic, "pushl") == 0
+            ? 0x50 : 0x58) + reg));
         return true;
     }
 
@@ -15115,6 +15244,126 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
         return true;
     }
     return false;
+}
+
+typedef struct AsmNumericLabel {
+    unsigned number;
+    int codegen_label;
+    size_t offset;
+} AsmNumericLabel;
+
+static bool asm_parse_numeric_label_line(char* line, unsigned* number) {
+    char* cursor = line;
+    unsigned parsed = 0;
+    bool has_digit = false;
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r') cursor++;
+    while (*cursor >= '0' && *cursor <= '9') {
+        unsigned digit = (unsigned)(*cursor - '0');
+        if (parsed > (UINT_MAX - digit) / 10u) return false;
+        parsed = parsed * 10u + digit;
+        has_digit = true;
+        cursor++;
+    }
+    if (!has_digit || *cursor++ != ':') return false;
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r') cursor++;
+    if (*cursor) return false;
+    *number = parsed;
+    return true;
+}
+
+static bool asm_parse_numeric_label_reference(const char* operand,
+                                               unsigned* number,
+                                               bool* forward) {
+    const char* cursor = operand;
+    unsigned parsed = 0;
+    bool has_digit = false;
+    if (!cursor) return false;
+    while (*cursor >= '0' && *cursor <= '9') {
+        unsigned digit = (unsigned)(*cursor - '0');
+        if (parsed > (UINT_MAX - digit) / 10u) return false;
+        parsed = parsed * 10u + digit;
+        has_digit = true;
+        cursor++;
+    }
+    if (!has_digit || (cursor[0] != 'f' && cursor[0] != 'b') || cursor[1]) {
+        return false;
+    }
+    *number = parsed;
+    *forward = cursor[0] == 'f';
+    return true;
+}
+
+static size_t asm_count_numeric_labels(char* source) {
+    size_t count = 0;
+    char* cursor = source;
+    while (*cursor) {
+        char* line = cursor;
+        char saved;
+        unsigned number;
+        while (*cursor && *cursor != ';' && *cursor != '\n') cursor++;
+        saved = *cursor;
+        *cursor = '\0';
+        if (asm_parse_numeric_label_line(line, &number)) count++;
+        *cursor = saved;
+        if (saved) cursor++;
+    }
+    return count;
+}
+
+static void asm_collect_numeric_labels(char* source, AsmNumericLabel* labels) {
+    char* cursor = source;
+    size_t count = 0;
+    while (*cursor) {
+        char* line = cursor;
+        char* trimmed = line;
+        char saved;
+        unsigned number;
+        while (*cursor && *cursor != ';' && *cursor != '\n') cursor++;
+        saved = *cursor;
+        *cursor = '\0';
+        while (*trimmed == ' ' || *trimmed == '\t' || *trimmed == '\r') {
+            trimmed++;
+        }
+        if (asm_parse_numeric_label_line(line, &number)) {
+            labels[count].number = number;
+            labels[count].codegen_label = new_label();
+            labels[count].offset = (size_t)(trimmed - source);
+            count++;
+        }
+        *cursor = saved;
+        if (saved) cursor++;
+    }
+}
+
+static int asm_find_numeric_label_at(const AsmNumericLabel* labels,
+                                     size_t count, size_t offset) {
+    for (size_t index = 0; index < count; ++index) {
+        if (labels[index].offset == offset) return labels[index].codegen_label;
+    }
+    return -1;
+}
+
+static int asm_find_numeric_label_reference(const AsmNumericLabel* labels,
+                                            size_t count, unsigned number,
+                                            bool forward,
+                                            size_t source_offset) {
+    int found = -1;
+    size_t best_offset = forward ? SIZE_MAX : 0;
+    for (size_t index = 0; index < count; ++index) {
+        if (labels[index].number != number) continue;
+        if (forward) {
+            if (labels[index].offset > source_offset &&
+                labels[index].offset < best_offset) {
+                best_offset = labels[index].offset;
+                found = labels[index].codegen_label;
+            }
+        } else if (labels[index].offset < source_offset &&
+                   (found < 0 || labels[index].offset > best_offset)) {
+            best_offset = labels[index].offset;
+            found = labels[index].codegen_label;
+        }
+    }
+    return found;
 }
 
 /* Parse and emit inline assembly */
@@ -15283,6 +15532,10 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         if (operands) rcc_free(operands);
         return;
     }
+    size_t local_label_count = asm_count_numeric_labels(tmpl_copy);
+    AsmNumericLabel* local_labels = local_label_count
+        ? rcc_alloc(local_label_count * sizeof(*local_labels)) : NULL;
+    if (local_labels) asm_collect_numeric_labels(tmpl_copy, local_labels);
     char* p = tmpl_copy;
 
     bool lock_prefix = false;
@@ -15303,6 +15556,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
 
         /* Skip leading whitespace */
         while (*instr == ' ' || *instr == '\t') instr++;
+        size_t instruction_offset = (size_t)(instr - tmpl_copy);
 
         if (*instr) {
             char mnemonic[32] = {0};
@@ -15346,7 +15600,38 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
                 }
             }
 
-            if (strcmp(mnemonic, "lock") == 0 && !op1[0] && !op2[0]) {
+            int local_label = asm_find_numeric_label_at(
+                local_labels, local_label_count, instruction_offset);
+            unsigned local_number;
+            bool local_forward;
+            bool is_local_branch =
+                (strcmp(mnemonic, "jmp") == 0 ||
+                 strcmp(mnemonic, "jnz") == 0 ||
+                 strcmp(mnemonic, "jne") == 0 ||
+                 strcmp(mnemonic, "jz") == 0 ||
+                 strcmp(mnemonic, "je") == 0) &&
+                asm_parse_numeric_label_reference(op1, &local_number,
+                                                  &local_forward);
+            if (local_label >= 0) {
+                emit_label(mod, local_label);
+                lock_prefix = false;
+            } else if (is_local_branch) {
+                int target = asm_find_numeric_label_reference(
+                    local_labels, local_label_count, local_number,
+                    local_forward, instruction_offset);
+                if (target < 0) {
+                    rcc_error(stmt->loc,
+                              "inline asm numeric local-label reference has no matching definition");
+                } else if (strcmp(mnemonic, "jmp") == 0) {
+                    emit_jmp_label(mod, target);
+                } else {
+                    int condition = (strcmp(mnemonic, "jz") == 0 ||
+                                     strcmp(mnemonic, "je") == 0)
+                        ? CC_E : CC_NE;
+                    emit_jcc_label(mod, condition, target);
+                }
+                lock_prefix = false;
+            } else if (strcmp(mnemonic, "lock") == 0 && !op1[0] && !op2[0]) {
                 lock_prefix = true;
             } else if (!emit_asm_instruction(mod, mnemonic,
                                              op1[0] ? op1 : NULL,
@@ -15367,6 +15652,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
     }
 
     rcc_free(tmpl_copy);
+    if (local_labels) rcc_free(local_labels);
 
     /* Store outputs from registers to lvalues */
     for (int i = 0; i < output_count; i++) {
@@ -19069,6 +19355,13 @@ static void gen_function(Module* mod, Decl* decl) {
     VLAScopeCodegen* old_break_vla;
     VLAScopeCodegen* old_continue_vla;
     if (!decl->func_body) return;
+
+    /* Naked functions own their complete entry/exit sequence; do not insert
+     * the standard compiler-managed frame around their body. */
+    if (decl->func_is_naked) {
+        gen_stmt(mod, decl->func_body);
+        return;
+    }
 
     stack_size = codegen_required_local_bytes(decl->func_body);
     stack_size = codegen_assign_local_vla_extent_slots(
