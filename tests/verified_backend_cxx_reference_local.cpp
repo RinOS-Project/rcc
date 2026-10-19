@@ -90,7 +90,16 @@ struct VerifiedTrivialCopyMember {
     int nested_value;
 };
 
-struct VerifiedTrivialCopy {
+struct VerifiedTrivialCopyPrefix {
+    int prefix_value;
+};
+
+struct VerifiedTrivialCopyBase {
+    int base_value;
+};
+
+struct VerifiedTrivialCopy : VerifiedTrivialCopyPrefix,
+                             VerifiedTrivialCopyBase {
     int value;
     int values[2];
     VerifiedTrivialCopyMember nested;
@@ -105,17 +114,21 @@ int verified_nontrivial_base_constructor_result() {
 }
 
 int verified_trivial_copy_result() {
-    VerifiedTrivialCopy source{17, {21, 25}, {31}};
+    VerifiedTrivialCopy source{{5}, {7}, 17, {21, 25}, {31}};
     VerifiedTrivialCopy copy(source);
+    source.prefix_value = 37;
+    source.base_value = 43;
     source.value = 29;
     source.values[1] = 35;
     source.nested.nested_value = 41;
-    if (source.value != 29 || source.values[1] != 35 ||
+    if (source.prefix_value != 37 || source.base_value != 43 ||
+        source.value != 29 || source.values[1] != 35 ||
         source.nested.nested_value != 41) {
         return -1;
     }
-    return copy.value * 1000000 + copy.values[0] * 10000 +
-        copy.values[1] * 100 + copy.nested.nested_value;
+    return copy.prefix_value * 100000000 + copy.base_value * 10000000 +
+        copy.value * 100000 + copy.values[0] * 1000 +
+        copy.values[1] * 10 + copy.nested.nested_value;
 }
 
 int main() {
@@ -132,7 +145,7 @@ int main() {
     if (verified_nontrivial_base_constructor_result() != 132132) {
         return 4;
     }
-    if (verified_trivial_copy_result() != 17212531) {
+    if (verified_trivial_copy_result() != 571721281) {
         return 5;
     }
     return value != 43;

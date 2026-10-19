@@ -17148,10 +17148,26 @@ static bool lower_cxx_trivial_copy_storage_supported(
     }
     if (type->kind == TYPE_STRUCT) {
         const CxxClass* cls = type->cxx_class;
-        if (cls && (cls->base_count != 0 ||
-                    cls->virtual_base_count != 0 ||
-                    cls->vtable_size != 0)) {
-            return false;
+        if (cls) {
+            if (cls->base_count < 0 || cls->virtual_base_count != 0 ||
+                cls->vtable_size != 0 ||
+                (cls->base_count != 0 &&
+                 (!cls->bases || !cls->base_offsets))) {
+                return false;
+            }
+            for (int base_index = 0; base_index < cls->base_count;
+                 ++base_index) {
+                const CxxClass* base = cls->bases[base_index].base;
+                int offset = cls->base_offsets[base_index];
+                if (!base || cls->bases[base_index].is_virtual ||
+                    offset < 0 || !base->type ||
+                    offset > type->size ||
+                    base->type->size > type->size - offset ||
+                    !lower_cxx_trivial_copy_storage_supported(
+                        base->type, depth + 1u)) {
+                    return false;
+                }
+            }
         }
         for (const TypeField* field = type->fields; field;
              field = field->next) {
@@ -17171,6 +17187,90 @@ static bool lower_cxx_trivial_copy_storage_supported(
         !lower_i686_wide_scalar_type(type);
 }
 
+static bool lower_cxx_copy_trivial_storage(
+    RccIrLowerContext* context, RccIrValue destination,
+    RccIrValue source, const Type* type, unsigned depth) {
+    if (!context || destination == RCC_IR_VALUE_NONE ||
+        source == RCC_IR_VALUE_NONE || !type || depth >= 32u) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        for (int index = 0; index < type->array_len; ++index) {
+            RccIrLowerValue destination_element =
+                lower_array_element_address(
+                    context, destination, type->base, (uint64_t)index);
+            RccIrLowerValue source_element = lower_array_element_address(
+                context, source, type->base, (uint64_t)index);
+            if (!destination_element.valid || !source_element.valid ||
+                !lower_cxx_copy_trivial_storage(
+                    context, destination_element.value,
+                    source_element.value, type->base, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (type->kind == TYPE_STRUCT) {
+        const CxxClass* cls = type->cxx_class;
+        RccIrLowerValue destination_base = lower_value(
+            destination, rcc_ir_type_pointer(0u), true);
+        RccIrLowerValue source_base = lower_value(
+            source, rcc_ir_type_pointer(0u), true);
+        if (cls) {
+            for (int base_index = 0; base_index < cls->base_count;
+                 ++base_index) {
+                RccIrLowerValue destination_address =
+                    lower_byte_offset_address(
+                        context, destination_base,
+                        (uint64_t)cls->base_offsets[base_index]);
+                RccIrLowerValue source_address = lower_byte_offset_address(
+                    context, source_base,
+                    (uint64_t)cls->base_offsets[base_index]);
+                if (!destination_address.valid || !source_address.valid ||
+                    !lower_cxx_copy_trivial_storage(
+                        context, destination_address.value,
+                        source_address.value,
+                        cls->bases[base_index].base->type, depth + 1u)) {
+                    return false;
+                }
+            }
+        }
+        for (const TypeField* field = type->fields; field;
+             field = field->next) {
+            RccIrLowerValue destination_address = lower_byte_offset_address(
+                context, destination_base, (uint64_t)field->offset);
+            RccIrLowerValue source_address = lower_byte_offset_address(
+                context, source_base, (uint64_t)field->offset);
+            if (!destination_address.valid || !source_address.valid ||
+                !lower_cxx_copy_trivial_storage(
+                    context, destination_address.value,
+                    source_address.value, field->type, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (type->kind == TYPE_UNION || !type_is_scalar((Type*)type) ||
+        type->is_volatile || type->is_atomic ||
+        type->cxx_is_member_pointer ||
+        lower_i686_wide_scalar_type(type)) {
+        context->unsupported = true;
+        return false;
+    }
+    {
+        RccIrLowerValue destination_address = lower_value(
+            destination, rcc_ir_type_pointer(0u), true);
+        RccIrLowerValue source_address = lower_value(
+            source, rcc_ir_type_pointer(0u), true);
+        RccIrLowerValue value = lower_load_address(
+            context, source_address, (Type*)type);
+        return destination_address.valid && source_address.valid &&
+            value.valid && lower_store_address(
+                context, destination_address, value);
+    }
+}
+
 static bool lower_struct_initializer(
     RccIrLowerContext* context, RccIrValue base,
     const Type* type, const Expr* initializer) {
@@ -17186,7 +17286,6 @@ static bool lower_struct_initializer(
         const ExprList* copy = initializer->compound_init;
         RccIrLowerValue source;
         if (type->kind != TYPE_STRUCT || !type->cxx_class ||
-            type->cxx_class->base_count != 0 ||
             type->cxx_class->virtual_base_count != 0 ||
             type->cxx_class->vtable_size != 0 || !copy || copy->next ||
             !copy->expr || !copy->expr->type ||
@@ -17200,8 +17299,8 @@ static bool lower_struct_initializer(
             context->unsupported = true;
             return false;
         }
-        return lower_copy_struct_storage(
-            context, base, source.value, type);
+        return lower_cxx_copy_trivial_storage(
+            context, base, source.value, type, 0u);
     }
     if (!lower_zero_struct_storage(context, base, type)) {
         context->unsupported = true;
