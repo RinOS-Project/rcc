@@ -14863,6 +14863,40 @@ static RccIrLowerValue lower_cxx_delete_array_expression(
     }
 }
 
+static const CxxConstructorInfo*
+lower_cxx_implicit_subobject_default_constructor(const Type* type) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    const CxxConstructorInfo* selected = NULL;
+    if (!type || type->kind != TYPE_STRUCT || !cls ||
+        !cls->has_user_constructor || !cls->constructors) {
+        return NULL;
+    }
+    for (const CxxConstructorInfo* constructor = cls->constructors;
+         constructor; constructor = constructor->next) {
+        const Decl* declaration = constructor->method
+            ? constructor->method->decl : NULL;
+        Expr initializer;
+        if (constructor->parameter_count != 0 ||
+            constructor->access != ACCESS_PUBLIC ||
+            constructor->is_deleted ||
+            !constructor->initializers_are_supported || !declaration ||
+            !declaration->func_is_cxx_constructor ||
+            !declaration->func_is_noexcept || !declaration->func_body) {
+            continue;
+        }
+        memset(&initializer, 0, sizeof(initializer));
+        initializer.kind = EXPR_COMPOUND;
+        initializer.type = (Type*)type;
+        initializer.compound_constructor = (CxxConstructorInfo*)constructor;
+        if (!lower_cxx_empty_noop_constructor_supported(&initializer)) {
+            continue;
+        }
+        if (selected) return NULL;
+        selected = constructor;
+    }
+    return selected;
+}
+
 static bool lower_cxx_implicit_default_member_subobject_supported(
     const Type* type, unsigned depth, bool* has_initializers) {
     const CxxClass* cls;
@@ -14884,10 +14918,17 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
         return false;
     }
     cls = type->cxx_class;
+    if (cls && cls->has_user_constructor) {
+        if (!lower_cxx_implicit_subobject_default_constructor(type)) {
+            return false;
+        }
+        if (has_initializers) *has_initializers = true;
+        return true;
+    }
     if ((type->cxx_nontrivial &&
          (!cls || !cls->has_field_initializer)) ||
-        (cls && (cls->has_user_constructor || cls->constructors ||
-                 cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
+        (cls && (cls->constructors || cls->virtual_base_count != 0 ||
+                 cls->vtable_size != 0 ||
                  cls->secondary_vtable_count != 0 ||
                  cls->destructor_method))) {
         return false;
@@ -15026,6 +15067,25 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
         RccIrLowerValue base = lower_value(
             object, rcc_ir_type_pointer(0u), true);
         const CxxClass* cls = type->cxx_class;
+        if (cls && cls->has_user_constructor) {
+            const CxxConstructorInfo* selected =
+                lower_cxx_implicit_subobject_default_constructor(type);
+            Expr initializer;
+            if (!selected) {
+                context->unsupported = true;
+                return false;
+            }
+            memset(&initializer, 0, sizeof(initializer));
+            initializer.kind = EXPR_COMPOUND;
+            initializer.type = (Type*)type;
+            initializer.compound_constructor = (CxxConstructorInfo*)selected;
+            if (!lower_initialize_struct_storage(
+                    context, object, type, &initializer)) {
+                if (!context->unsupported) context->unsupported = true;
+                return false;
+            }
+            return true;
+        }
         if (cls) {
             if (cls->base_count > 0 &&
                 (!cls->bases || !cls->base_offsets)) {
