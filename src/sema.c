@@ -15481,6 +15481,7 @@ static Type* sema_expr(Expr* expr) {
                         expr->call_new_default_member_initializers = true;
                     }
                     int64_t element_count = 0;
+                    bool constant_element_count;
                     if (expr->call_new_args && !expr->call_new_brace_init) {
                         rcc_error(expr->loc,
                                   "array new element initializers require braces");
@@ -15491,6 +15492,13 @@ static Type* sema_expr(Expr* expr) {
                                   "array new requires an element count");
                         return expr->type;
                     }
+                    constant_element_count = expr_eval_integer_constant(
+                        expr->call_new_count, &element_count);
+                    if (constant_element_count && element_count < 0) {
+                        rcc_error(expr->loc,
+                                  "array new has a negative element count");
+                        return expr->type;
+                    }
                     /* A dynamic bound is valid for value-initialized scalar
                      * arrays and for the validated default-constructor path.
                      * Explicit per-element initializers need a constant bound
@@ -15498,9 +15506,7 @@ static Type* sema_expr(Expr* expr) {
                      * the backend still evaluates a dynamic bound exactly once
                      * for the allocation and initialization loop. */
                     if (expr->call_new_args) {
-                        if (!expr_eval_integer_constant(
-                                expr->call_new_count, &element_count) ||
-                            element_count < 0) {
+                        if (!constant_element_count) {
                             rcc_error(expr->loc,
                                       "array new element initializers require a non-negative constant count");
                             return expr->type;

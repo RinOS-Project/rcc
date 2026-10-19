@@ -36,6 +36,23 @@ public:
     const VerifiedPartialArrayInput* input_;
 };
 
+extern "C" int verified_partial_array_next_ctor();
+extern "C" void verified_partial_array_record_destructor(int value);
+
+class VerifiedDynamicThrowingArrayElement final {
+public:
+    VerifiedDynamicThrowingArrayElement() : value_(0) {
+        value_ = verified_partial_array_next_ctor();
+        if (value_ == 3) throw 43;
+    }
+
+    ~VerifiedDynamicThrowingArrayElement() {
+        verified_partial_array_record_destructor(value_);
+    }
+
+    int value_;
+};
+
 static const VerifiedPartialArrayInput* verified_partial_array_argument(
     const VerifiedPartialArrayInput* input) {
     if (input->value == 3) throw 43;
@@ -108,6 +125,29 @@ extern "C" int verified_cxx_partial_array_ctor_normal() {
         new VerifiedThrowingPartialArrayElement[2]{&first, &second};
     delete[] values;
     return order;
+}
+
+extern "C" int verified_cxx_partial_array_dynamic(int count) {
+    int order = 0;
+    VerifiedPartialArrayInput first{&order, 1};
+    VerifiedPartialArrayInput second{&order, 2};
+    VerifiedThrowingPartialArrayElement* values =
+        new VerifiedThrowingPartialArrayElement[count];
+    if (count > 0) values[0].input_ = &first;
+    if (count > 1) values[1].input_ = &second;
+    delete[] values;
+    return order;
+}
+
+extern "C" int verified_cxx_partial_array_dynamic_throw(int count) {
+    try {
+        VerifiedDynamicThrowingArrayElement* values =
+            new VerifiedDynamicThrowingArrayElement[count];
+        delete[] values;
+    } catch (int exception_value) {
+        return exception_value;
+    }
+    return -1;
 }
 
 int main() {

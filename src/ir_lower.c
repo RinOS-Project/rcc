@@ -14872,14 +14872,26 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     RccIrLowerValue allocator_address;
     RccIrLowerValue user_address;
     RccIrLowerValue result_slot;
+    RccIrLowerValue array_index_slot;
+    RccIrLowerValue maximum_count;
+    RccIrLowerValue size_valid;
+    RccIrBlock* size_valid_block;
     RccIrBlock* initialize_block;
     RccIrBlock* failed_block;
     RccIrBlock* done_block;
+    RccIrBlock* build_condition;
+    RccIrBlock* build_body;
+    RccIrBlock* build_done;
+    RccIrBlock* cleanup_condition;
+    RccIrBlock* cleanup_body;
+    RccIrBlock* cleanup_done;
     RccIrValue operands[2];
     RccIrInstruction* arithmetic;
     size_t word_size;
     size_t initialized_count = 0u;
+    uint64_t maximum_size;
     int64_t constant_count;
+    bool dynamic_count;
     bool register_cleanups;
     if (!context || !expression || !expression->call_new_is_array ||
         !expression->call_new_array_cookie || !expression->call_new_count ||
@@ -14938,12 +14950,15 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     }
     /* Array bounds with explicit initializers are compile-time validated by
      * sema. The constructor for an omitted suffix is retained separately. */
-    if (!expr_eval_integer_constant(
-            expression->call_new_count, &constant_count) ||
-        constant_count < 0 ||
-        (uint64_t)constant_count < (uint64_t)initialized_count ||
-        ((uint64_t)constant_count > (uint64_t)initialized_count &&
-         !default_constructor)) {
+    dynamic_count = !expr_eval_integer_constant(
+        expression->call_new_count, &constant_count);
+    if ((!dynamic_count &&
+         (constant_count < 0 ||
+          (uint64_t)constant_count < (uint64_t)initialized_count ||
+          ((uint64_t)constant_count > (uint64_t)initialized_count &&
+           !default_constructor))) ||
+        (dynamic_count && (initialized_count != 0u ||
+                           !default_constructor))) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -14966,6 +14981,33 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         context->unsupported = true;
         return lower_invalid_value();
     }
+    result_slot = lower_cxx_array_slot(context, word_size, word_size);
+    if (!result_slot.valid) return lower_invalid_value();
+    size_valid_block = rcc_ir_block_add(
+        context->function, "new.array.size.valid");
+    initialize_block = rcc_ir_block_add(
+        context->function, "new.array.initialize");
+    failed_block = rcc_ir_block_add(
+        context->function, "new.array.allocation.failed");
+    done_block = rcc_ir_block_add(context->function, "new.array.done");
+    if (!size_valid_block || !initialize_block || !failed_block ||
+        !done_block) {
+        return lower_invalid_value();
+    }
+    maximum_size = word_size == 8u ? UINT64_MAX : UINT32_MAX;
+    maximum_count = lower_integer_constant(
+        context, word_type, true,
+        (maximum_size - (uint64_t)word_size) /
+            (uint64_t)expression->call_new_type->size);
+    size_valid = lower_cxx_array_integer_compare(
+        context, count, maximum_count, RCC_IR_ICMP_ULE);
+    if (!maximum_count.valid || !size_valid.valid ||
+        !lower_conditional_branch(
+            context, size_valid, size_valid_block->id, failed_block->id)) {
+        return lower_invalid_value();
+    }
+    context->current = size_valid_block;
+    context->terminated = false;
     operands[0] = count.value;
     allocation_size = lower_integer_constant(
         context, word_type, true,
@@ -14994,15 +15036,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         context, "rin_malloc", rcc_ir_type_pointer(0u),
         operands, 1u);
     if (!allocator_address.valid) return lower_invalid_value();
-    result_slot = lower_cxx_array_slot(context, word_size, word_size);
-    if (!result_slot.valid) return lower_invalid_value();
-    initialize_block = rcc_ir_block_add(
-        context->function, "new.array.initialize");
-    failed_block = rcc_ir_block_add(
-        context->function, "new.array.allocation.failed");
-    done_block = rcc_ir_block_add(context->function, "new.array.done");
-    if (!initialize_block || !failed_block || !done_block ||
-        !lower_conditional_branch(
+    if (!lower_conditional_branch(
             context, allocator_address,
             initialize_block->id, failed_block->id)) {
         return lower_invalid_value();
@@ -15050,14 +15084,45 @@ static RccIrLowerValue lower_cxx_new_array_expression(
             return lower_invalid_value();
         }
     }
-    while ((uint64_t)element_index < (uint64_t)constant_count) {
-        Expr initializer;
-        RccIrLowerValue element_index_value = lower_integer_constant(
-            context, word_type, true, (uint64_t)element_index);
+    if (dynamic_count) {
+        RccIrLowerValue zero = lower_integer_constant(
+            context, word_type, true, 0u);
+        RccIrLowerValue one = lower_integer_constant(
+            context, word_type, true, 1u);
+        array_index_slot = lower_cxx_array_slot(
+            context, word_size, word_size);
+        build_condition = rcc_ir_block_add(
+            context->function, "new.array.build.cond");
+        build_body = rcc_ir_block_add(
+            context->function, "new.array.build.body");
+        build_done = rcc_ir_block_add(
+            context->function, "new.array.build.done");
+        if (!zero.valid || !one.valid || !array_index_slot.valid ||
+            !build_condition || !build_body || !build_done ||
+            !lower_store_address(context, array_index_slot, zero) ||
+            !lower_branch(context, build_condition->id)) {
+            return lower_invalid_value();
+        }
+        context->current = build_condition;
+        context->terminated = false;
+        RccIrLowerValue build_index = lower_load_address(
+            context, array_index_slot, word_language_type);
+        RccIrLowerValue has_next = lower_cxx_array_integer_compare(
+            context, build_index, count, RCC_IR_ICMP_ULT);
+        if (!build_index.valid || !has_next.valid ||
+            !lower_conditional_branch(
+                context, has_next, build_body->id, build_done->id)) {
+            return lower_invalid_value();
+        }
+        context->current = build_body;
+        context->terminated = false;
+        build_index = lower_load_address(
+            context, array_index_slot, word_language_type);
         RccIrLowerValue element = lower_cxx_array_element_address(
-            context, user_address, element_index_value,
+            context, user_address, build_index,
             (size_t)expression->call_new_type->size);
-        if (!default_constructor || !element.valid) {
+        Expr initializer;
+        if (!build_index.valid || !element.valid || !default_constructor) {
             context->unsupported = true;
             return lower_invalid_value();
         }
@@ -15068,14 +15133,109 @@ static RccIrLowerValue lower_cxx_new_array_expression(
             (CxxConstructorInfo*)default_constructor;
         if (!lower_initialize_struct_storage(
                 context, element.value, expression->call_new_type,
-                &initializer)) {
+                &initializer) ||
+            (register_cleanups &&
+             !lower_cxx_register_array_element_cleanup(
+                 context, cls, destructor, element, true))) {
             if (!context->unsupported) context->unsupported = true;
             return lower_invalid_value();
         }
-        ++element_index;
-        if (register_cleanups && !lower_cxx_register_array_element_cleanup(
-                context, cls, destructor, element, true)) {
+        build_index = lower_load_address(
+            context, array_index_slot, word_language_type);
+        RccIrValue increment_operands[2] = {
+            build_index.value, one.value};
+        arithmetic = lower_append(
+            context, RCC_IR_ADD, word_type, increment_operands, 2u,
+            NULL, 0u);
+        if (!build_index.valid || !arithmetic ||
+            !lower_store_address(
+                context, array_index_slot,
+                lower_value(arithmetic->result, word_type, true)) ||
+            !lower_branch(context, build_condition->id)) {
             return lower_invalid_value();
+        }
+        context->current = build_done;
+        context->terminated = false;
+        if (register_cleanups) {
+            cleanup_condition = rcc_ir_block_add(
+                context->function, "new.array.cleanup.cond");
+            cleanup_body = rcc_ir_block_add(
+                context->function, "new.array.cleanup.body");
+            cleanup_done = rcc_ir_block_add(
+                context->function, "new.array.cleanup.done");
+            if (!cleanup_condition || !cleanup_body || !cleanup_done ||
+                !lower_branch(context, cleanup_condition->id)) {
+                return lower_invalid_value();
+            }
+            context->current = cleanup_condition;
+            context->terminated = false;
+            RccIrLowerValue cleanup_index = lower_load_address(
+                context, array_index_slot, word_language_type);
+            RccIrLowerValue has_previous = lower_cxx_array_integer_compare(
+                context, cleanup_index, zero, RCC_IR_ICMP_UGT);
+            if (!cleanup_index.valid || !has_previous.valid ||
+                !lower_conditional_branch(
+                    context, has_previous,
+                    cleanup_body->id, cleanup_done->id)) {
+                return lower_invalid_value();
+            }
+            context->current = cleanup_body;
+            context->terminated = false;
+            cleanup_index = lower_load_address(
+                context, array_index_slot, word_language_type);
+            RccIrValue decrement_operands[2] = {
+                cleanup_index.value, one.value};
+            arithmetic = lower_append(
+                context, RCC_IR_SUB, word_type, decrement_operands, 2u,
+                NULL, 0u);
+            if (!cleanup_index.valid || !arithmetic) {
+                return lower_invalid_value();
+            }
+            cleanup_index = lower_value(arithmetic->result, word_type, true);
+            RccIrLowerValue cleanup_element =
+                lower_cxx_array_element_address(
+                    context, user_address, cleanup_index,
+                    (size_t)expression->call_new_type->size);
+            if (!cleanup_element.valid ||
+                !lower_store_address(
+                    context, array_index_slot, cleanup_index) ||
+                !lower_cxx_register_array_element_cleanup(
+                    context, cls, destructor, cleanup_element, false) ||
+                !lower_branch(context, cleanup_condition->id)) {
+                return lower_invalid_value();
+            }
+            context->current = cleanup_done;
+            context->terminated = false;
+        }
+    } else {
+        while ((uint64_t)element_index < (uint64_t)constant_count) {
+            Expr initializer;
+            RccIrLowerValue element_index_value = lower_integer_constant(
+                context, word_type, true, (uint64_t)element_index);
+            RccIrLowerValue element = lower_cxx_array_element_address(
+                context, user_address, element_index_value,
+                (size_t)expression->call_new_type->size);
+            if (!default_constructor || !element.valid) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            memset(&initializer, 0, sizeof(initializer));
+            initializer.kind = EXPR_COMPOUND;
+            initializer.type = expression->call_new_type;
+            initializer.compound_constructor =
+                (CxxConstructorInfo*)default_constructor;
+            if (!lower_initialize_struct_storage(
+                    context, element.value, expression->call_new_type,
+                    &initializer)) {
+                if (!context->unsupported) context->unsupported = true;
+                return lower_invalid_value();
+            }
+            ++element_index;
+            if (register_cleanups &&
+                !lower_cxx_register_array_element_cleanup(
+                    context, cls, destructor, element, true)) {
+                return lower_invalid_value();
+            }
         }
     }
     if (register_cleanups) {

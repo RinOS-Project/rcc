@@ -21,3 +21,8 @@ int invalid_partial_array_new() {
         new PartialArrayConstructor[3]{1};
     return values[0].value;
 }
+
+int invalid_negative_array_bound() {
+    int* values = new int[-1];
+    return values[0];
+}

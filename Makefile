@@ -2252,10 +2252,14 @@ endif
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log
 	$(GREP) -F -q 'array new omitted elements require a lowerable zero-argument default constructor' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log
+	$(GREP) -F -q 'array new has a negative element count' \
+		$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-language-core/invalid-array-new-x64.ro tests/cxx_new_array_invalid.cpp,$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log)
 	$(GREP) -q 'array new has no lowerable constructor for its element initializers' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log
 	$(GREP) -F -q 'array new omitted elements require a lowerable zero-argument default constructor' \
+		$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log
+	$(GREP) -F -q 'array new has a negative element count' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log
 	@echo "RCC++ core language tests completed"
 

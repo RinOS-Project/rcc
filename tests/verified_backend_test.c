@@ -45,6 +45,19 @@ extern void RINOS_ABI verified_runtime_longjmp(
     void* buffer, int value) __asm__("longjmp");
 static void* verified_runtime_import_address(const char* symbol_name);
 static unsigned long verified_runtime_free_count;
+static int verified_partial_array_ctor_attempts;
+static int verified_partial_array_destructor_order;
+
+int RINOS_ABI verified_partial_array_next_ctor(void)
+{
+    return ++verified_partial_array_ctor_attempts;
+}
+
+void RINOS_ABI verified_partial_array_record_destructor(int value)
+{
+    verified_partial_array_destructor_order =
+        verified_partial_array_destructor_order * 10 + value;
+}
 
 void* RINOS_ABI rin_malloc(unsigned long size)
 {
@@ -335,6 +348,8 @@ static void* verified_runtime_import_address(const char* symbol_name)
         void (RINOS_ABI *cleanup)(void*, void*);
         void* (RINOS_ABI *allocator)(unsigned long);
         void (RINOS_ABI *deallocator)(void*);
+        int (RINOS_ABI *integer_no_arguments)(void);
+        void (RINOS_ABI *integer_argument)(int);
         int (RINOS_ABI *setjmp_function)(void*);
         void (RINOS_ABI *longjmp_function)(void*, int);
     } function;
@@ -384,6 +399,13 @@ static void* verified_runtime_import_address(const char* symbol_name)
         function.allocator = rin_malloc;
     } else if (strcmp(symbol_name, "rin_free") == 0) {
         function.deallocator = rin_free;
+    } else if (strcmp(
+                   symbol_name, "verified_partial_array_next_ctor") == 0) {
+        function.integer_no_arguments = verified_partial_array_next_ctor;
+    } else if (strcmp(
+                   symbol_name,
+                   "verified_partial_array_record_destructor") == 0) {
+        function.integer_argument = verified_partial_array_record_destructor;
     } else if (strcmp(symbol_name, "setjmp") == 0) {
         function.setjmp_function = verified_runtime_setjmp;
     } else if (strcmp(symbol_name, "longjmp") == 0) {
@@ -3948,6 +3970,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
     ObjSymbol* throwing_init_symbol;
     ObjSymbol* throwing_ctor_symbol;
     ObjSymbol* normal_ctor_symbol;
+    ObjSymbol* dynamic_bound_symbol;
+    ObjSymbol* dynamic_throw_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     partial_init_symbol = objfile_find_symbol(
@@ -3960,6 +3984,10 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         object, "verified_cxx_partial_array_ctor_throw");
     normal_ctor_symbol = objfile_find_symbol(
         object, "verified_cxx_partial_array_ctor_normal");
+    dynamic_bound_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_dynamic");
+    dynamic_throw_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_dynamic_throw");
     assert(text != NULL && partial_init_symbol != NULL &&
            partial_init_symbol->type == SYM_GLOBAL &&
            partial_init_symbol->binding == BIND_CODE &&
@@ -3975,7 +4003,13 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
            throwing_ctor_symbol->section == 0 && normal_ctor_symbol != NULL &&
            normal_ctor_symbol->type == SYM_GLOBAL &&
            normal_ctor_symbol->binding == BIND_CODE &&
-           normal_ctor_symbol->section == 0);
+           normal_ctor_symbol->section == 0 && dynamic_bound_symbol != NULL &&
+           dynamic_bound_symbol->type == SYM_GLOBAL &&
+           dynamic_bound_symbol->binding == BIND_CODE &&
+           dynamic_bound_symbol->section == 0 && dynamic_throw_symbol != NULL &&
+           dynamic_throw_symbol->type == SYM_GLOBAL &&
+           dynamic_throw_symbol->binding == BIND_CODE &&
+           dynamic_throw_symbol->section == 0);
     if (execute) {
         size_t mapping_size;
         void* memory;
@@ -3985,6 +4019,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         int (RINOS_ABI *throwing_init)(void);
         int (RINOS_ABI *throwing_ctor)(void);
         int (RINOS_ABI *normal_ctor)(void);
+        int (RINOS_ABI *dynamic_bound)(int);
+        int (RINOS_ABI *dynamic_throw)(int);
         assert(arch == ARCH_X64 && sizeof(void*) == 8u);
         memory = map_text(object, text, &mapping_size);
         address = symbol_address(memory, partial_init_symbol);
@@ -4028,6 +4064,23 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
             }
             assert(result == 21043);
         }
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, dynamic_bound_symbol);
+        memcpy(&dynamic_bound, &address, sizeof(dynamic_bound));
+        verified_runtime_free_count = 0u;
+        assert(dynamic_bound(3) == 21);
+        assert(verified_runtime_free_count == 1u);
+        verified_runtime_free_count = 0u;
+        assert(dynamic_bound(0) == 0);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, dynamic_throw_symbol);
+        memcpy(&dynamic_throw, &address, sizeof(dynamic_throw));
+        verified_partial_array_ctor_attempts = 0;
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(dynamic_throw(4) == 43);
+        assert(verified_partial_array_ctor_attempts == 3);
+        assert(verified_partial_array_destructor_order == 21);
         assert(verified_runtime_free_count == 1u);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
