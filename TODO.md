@@ -2113,12 +2113,15 @@
         `test-debug-info`でconst type、abstract-origin、source file、signed値7を両archで検証し、
         `test-optimize`も成功。nested lexical localやlocation-list値は未対応
   - [x] direct inline callの引数式をIR/codegenのdebug metadataまで保持し、
-        signed/unsigned integral parameterに同型・foldableな整数定数を渡す場合は、
+        signed/unsigned integral parameterに整数定数を渡す場合は、
         concrete `DW_TAG_formal_parameter`へabstract-origin参照とcall固有の
         `DW_AT_const_value`をsigned `sdata`／unsigned `udata`で出力。
-        legacy/verifiedのi686/AMD64すべてで`test-debug-info`を実行し、
-        signed値23とunsigned値`UINT64_MAX`を検証。
-        非定数引数、型変換を伴う引数、register/location listは未対応
+        inline展開で整数型parameterへargument castを保持し、表現可能な
+        signed変換とC規定のunsigned modulo変換にも対応。legacy/verifiedの
+        i686/AMD64すべてで`test-debug-info`を実行し、signed値23、unsigned値
+        `UINT64_MAX`、`short`→`int`、`-1`→`unsigned int`を検証。
+        `test-optimize`ではruntime引数の変換結果も確認。非定数parameterと
+        register/location listは未対応
   - [x] verified backendで最適化inlineのorigin／呼出し位置をIRからMIR・x86
         legalization・encoded PC rangeまで伝播し、relocation付きDWARF inline DIEを
         出力。C++ inline host/leafのabstract origin、call-site file/line/column、
@@ -2188,7 +2191,8 @@
         `test-debug-info`全体が成功。
 - [ ] Extend the existing bounded inline DIE and frame-relative location-list
         coverage beyond the implemented direct-body const scalar values and
-        foldable same-type signed/unsigned inline-parameter constants: emit locations
+        foldable signed/unsigned inline-parameter constants and supported
+        integer conversions: emit locations
         for non-constant inlined parameters and locals, nested lexical
         locals, and track optimized variables across register and piece
         locations; describe declaration lifetimes across every optimized CFG
