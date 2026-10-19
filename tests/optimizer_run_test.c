@@ -188,6 +188,7 @@ static void verify_smaller(const char* unoptimized_path,
         "inline_local_function_pointer_chained_copy_call",
         "inline_local_function_pointer_reaching_copy_chain_call",
         "inline_local_function_pointer_reaching_assignment_copy_chain_call",
+        "inline_local_function_pointer_same_target_conditional_copy_call",
         "inline_local_reassigned_function_pointer_call",
         "inline_local_branch_same_target_function_pointer_call",
         "inline_local_same_target_reassigned_function_pointer_call",
@@ -202,6 +203,7 @@ static void verify_smaller(const char* unoptimized_path,
         "inline_local_function_pointer_copy_after_alias_write_call",
         "inline_local_function_pointer_divergent_reaching_copy_call",
         "inline_local_function_pointer_divergent_assignment_copy_call",
+        "inline_local_function_pointer_divergent_conditional_copy_call",
         "inline_local_aliased_mutable_function_pointer_array_call",
         "inline_local_branch_reassigned_function_pointer_call",
         "inline_local_mutated_function_pointer_array_call"
@@ -1057,6 +1059,8 @@ static void execute_inline_namespace_case(const char* path)
     SysvIntUnary local_function_pointer_reaching_assignment_copy_chain;
     SysvIntUnary local_function_pointer_divergent_assignment_copy;
     SysvIntUnary local_function_pointer_copy_after_alias_write;
+    SysvIntPointerBinary local_function_pointer_same_target_conditional_copy;
+    SysvIntPointerBinary local_function_pointer_divergent_conditional_copy;
     SysvIntUnary local_mutable_pointer_array;
     SysvIntUnary local_aliased_mutable_pointer;
     SysvIntUnary local_aliased_mutable_pointer_array;
@@ -1165,6 +1169,18 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&local_function_pointer_copy_after_alias_write, &address,
            sizeof(local_function_pointer_copy_after_alias_write));
     symbol = function_symbol(
+        object,
+        "inline_local_function_pointer_same_target_conditional_copy_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_same_target_conditional_copy, &address,
+           sizeof(local_function_pointer_same_target_conditional_copy));
+    symbol = function_symbol(
+        object,
+        "inline_local_function_pointer_divergent_conditional_copy_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_divergent_conditional_copy, &address,
+           sizeof(local_function_pointer_divergent_conditional_copy));
+    symbol = function_symbol(
         object, "inline_local_mutable_function_pointer_array_call");
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_mutable_pointer_array, &address,
@@ -1204,6 +1220,20 @@ static void execute_inline_namespace_case(const char* path)
     assert(local_function_pointer_divergent_assignment_copy(-5) == -19);
     assert(local_function_pointer_divergent_assignment_copy(5) == 28);
     assert(local_function_pointer_copy_after_alias_write(5) == 11);
+    {
+        int evaluations = 0;
+        assert(local_function_pointer_same_target_conditional_copy(
+                   &evaluations, 5) == 28);
+        assert(evaluations == 1);
+        evaluations = 0;
+        assert(local_function_pointer_divergent_conditional_copy(
+                   &evaluations, 5) == 11);
+        assert(evaluations == 1);
+        evaluations = 1;
+        assert(local_function_pointer_divergent_conditional_copy(
+                   &evaluations, 5) == 28);
+        assert(evaluations == 2);
+    }
     assert(local_mutable_pointer_array(5) == 11);
     symbol = function_symbol(object, "inline_function_pointer_parameter_call");
     address = (uintptr_t)mapping + symbol->value;
@@ -1431,6 +1461,7 @@ static void execute_inline_namespace_case(const char* path)
 {
     typedef int (__attribute__((sysv_abi)) *SysvIntIndirect)(
         int (*)(int), int);
+    typedef int (*SysvIntPointerBinary)(int*, int);
     ObjectFile* object = objfile_read(path);
     ObjSection* code;
     ObjSymbol* symbol;
@@ -1452,6 +1483,8 @@ static void execute_inline_namespace_case(const char* path)
     int (*local_function_pointer_reaching_assignment_copy_chain)(int);
     int (*local_function_pointer_divergent_assignment_copy)(int);
     int (*local_function_pointer_copy_after_alias_write)(int);
+    SysvIntPointerBinary local_function_pointer_same_target_conditional_copy;
+    SysvIntPointerBinary local_function_pointer_divergent_conditional_copy;
     int (*local_mutable_pointer_array)(int);
     int (*local_aliased_mutable_pointer)(int);
     int (*local_aliased_mutable_pointer_array)(int);
@@ -1558,6 +1591,18 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&local_function_pointer_copy_after_alias_write, &address,
            sizeof(local_function_pointer_copy_after_alias_write));
     symbol = function_symbol(
+        object,
+        "inline_local_function_pointer_same_target_conditional_copy_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_same_target_conditional_copy, &address,
+           sizeof(local_function_pointer_same_target_conditional_copy));
+    symbol = function_symbol(
+        object,
+        "inline_local_function_pointer_divergent_conditional_copy_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_divergent_conditional_copy, &address,
+           sizeof(local_function_pointer_divergent_conditional_copy));
+    symbol = function_symbol(
         object, "inline_local_mutable_function_pointer_array_call");
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_mutable_pointer_array, &address,
@@ -1602,6 +1647,20 @@ static void execute_inline_namespace_case(const char* path)
     assert(local_function_pointer_divergent_assignment_copy(-5) == -19);
     assert(local_function_pointer_divergent_assignment_copy(5) == 28);
     assert(local_function_pointer_copy_after_alias_write(5) == 11);
+    {
+        int evaluations = 0;
+        assert(local_function_pointer_same_target_conditional_copy(
+                   &evaluations, 5) == 28);
+        assert(evaluations == 1);
+        evaluations = 0;
+        assert(local_function_pointer_divergent_conditional_copy(
+                   &evaluations, 5) == 11);
+        assert(evaluations == 1);
+        evaluations = 1;
+        assert(local_function_pointer_divergent_conditional_copy(
+                   &evaluations, 5) == 28);
+        assert(evaluations == 2);
+    }
     assert(local_mutable_pointer_array(5) == 11);
     assert(local_mutable_pointer_array_dynamic(0, 5) == 28);
     assert(local_mutable_pointer_array_dynamic(1, 5) == 11);

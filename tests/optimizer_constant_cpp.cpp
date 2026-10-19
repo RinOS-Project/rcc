@@ -178,6 +178,24 @@ inline_local_function_pointer_divergent_assignment_copy_call(int value)
 }
 
 extern "C" int
+inline_local_function_pointer_same_target_conditional_copy_call(
+    int* evaluations, int value)
+{
+    int (*copy)(int) = (*evaluations)++
+        ? &inline_constexpr_array_first : &inline_constexpr_array_first;
+    return copy(value);
+}
+
+extern "C" int
+inline_local_function_pointer_divergent_conditional_copy_call(
+    int* evaluations, int value)
+{
+    int (*copy)(int) = (*evaluations)++
+        ? &inline_constexpr_array_first : &inline_constexpr_array_second;
+    return copy(value);
+}
+
+extern "C" int
 inline_local_function_pointer_copy_after_alias_write_call(int value)
 {
     int (*callback)(int) = &inline_constexpr_array_first;

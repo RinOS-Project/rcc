@@ -2177,6 +2177,16 @@ static Decl* resolve_inline_function_pointer_initializer_or_local_copy_depth(
            type_is_compatible(value->type, pointer_type)) {
         value = value->unary_operand;
     }
+    if (value && value->kind == EXPR_COND) {
+        Decl* then_target =
+            resolve_inline_function_pointer_initializer_or_local_copy_depth(
+                pointer_type, value->cond_then, depth + 1u);
+        Decl* else_target =
+            resolve_inline_function_pointer_initializer_or_local_copy_depth(
+                pointer_type, value->cond_else, depth + 1u);
+        return then_target && then_target == else_target
+            ? then_target : NULL;
+    }
     if (!pointer_type || pointer_type->kind != TYPE_PTR ||
         !pointer_type->base || pointer_type->base->kind != TYPE_FUNC ||
         !value || value->kind != EXPR_IDENT || !value->ident_decl ||
@@ -2215,6 +2225,16 @@ static Decl* resolve_inline_function_pointer_initializer_or_fact(
     while (value && value->kind == EXPR_CAST && value->unary_operand &&
            type_is_compatible(value->type, pointer_type)) {
         value = value->unary_operand;
+    }
+    if (value && value->kind == EXPR_COND) {
+        Decl* then_target =
+            resolve_inline_function_pointer_initializer_or_fact(
+                pointer_type, value->cond_then);
+        Decl* else_target =
+            resolve_inline_function_pointer_initializer_or_fact(
+                pointer_type, value->cond_else);
+        return then_target && then_target == else_target
+            ? then_target : NULL;
     }
     if (!value || value->kind != EXPR_IDENT || !value->ident_decl ||
         value->ident_decl->kind != DECL_VAR) {
