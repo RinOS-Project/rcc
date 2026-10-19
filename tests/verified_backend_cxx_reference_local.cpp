@@ -86,12 +86,23 @@ struct VerifiedDerivedConstructor : VerifiedPrefixConstructor,
     }
 };
 
+struct VerifiedTrivialCopy {
+    int value;
+};
+
 int verified_nontrivial_base_constructor_result() {
     int order = 0;
     VerifiedDerivedConstructor object(&order, 10);
     if (order != 123) return -1;
     return object.prefix_value * 10000 +
         object.base_value * 100 + object.tail;
+}
+
+int verified_trivial_copy_result() {
+    VerifiedTrivialCopy source{17};
+    VerifiedTrivialCopy copy(source);
+    source.value = 29;
+    return copy.value * 100 + source.value;
 }
 
 int main() {
@@ -107,6 +118,9 @@ int main() {
     }
     if (verified_nontrivial_base_constructor_result() != 132132) {
         return 4;
+    }
+    if (verified_trivial_copy_result() != 1729) {
+        return 5;
     }
     return value != 43;
 }

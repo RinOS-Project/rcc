@@ -17140,8 +17140,43 @@ static bool lower_struct_initializer(
     const TypeField* cursor;
     const ExprList* item;
     if (!lower_struct_type_supported(type) || !initializer ||
-        initializer->kind != EXPR_COMPOUND ||
-        !lower_zero_struct_storage(context, base, type)) {
+        initializer->kind != EXPR_COMPOUND) {
+        context->unsupported = true;
+        return false;
+    }
+    if (initializer->compound_copy_init &&
+        !initializer->compound_constructor) {
+        const ExprList* copy = initializer->compound_init;
+        RccIrLowerValue source;
+        if (type->kind != TYPE_STRUCT || !type->cxx_class ||
+            type->cxx_class->base_count != 0 ||
+            type->cxx_class->virtual_base_count != 0 ||
+            type->cxx_class->vtable_size != 0 || !copy || copy->next ||
+            !copy->expr || !copy->expr->type ||
+            !type_is_compatible((Type*)type, copy->expr->type)) {
+            context->unsupported = true;
+            return false;
+        }
+        for (const TypeField* field = type->fields; field;
+             field = field->next) {
+            if (!field->type || field->is_bitfield ||
+                !type_is_scalar((Type*)field->type) ||
+                field->type->is_volatile || field->type->is_atomic ||
+                field->type->cxx_is_member_pointer ||
+                lower_i686_wide_scalar_type(field->type)) {
+                context->unsupported = true;
+                return false;
+            }
+        }
+        source = lower_expression(context, copy->expr);
+        if (!source.valid || source.type.kind != RCC_IR_TYPE_POINTER) {
+            context->unsupported = true;
+            return false;
+        }
+        return lower_copy_struct_storage(
+            context, base, source.value, type);
+    }
+    if (!lower_zero_struct_storage(context, base, type)) {
         context->unsupported = true;
         return false;
     }
