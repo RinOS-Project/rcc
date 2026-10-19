@@ -2159,12 +2159,12 @@ static bool inline_unmodified_local_variable(Decl* variable) {
                                     variable);
 }
 
-/* Follow one value-copy from a proven, unchanged local pointer.  This is
- * deliberately not general alias analysis: taking the source's address,
+/* Follow a bounded chain of value-copies from proven unchanged pointers.
+ * This is deliberately not general alias analysis: taking a source's address,
  * writing it, or passing it somewhere that may write it keeps the call
  * indirect. */
-static Decl* resolve_inline_function_pointer_initializer_or_local_copy(
-    Type* pointer_type, Expr* initializer) {
+static Decl* resolve_inline_function_pointer_initializer_or_local_copy_depth(
+    Type* pointer_type, Expr* initializer, unsigned int depth) {
     Decl* target;
     Expr* value = initializer;
     Decl* source;
@@ -2172,6 +2172,7 @@ static Decl* resolve_inline_function_pointer_initializer_or_local_copy(
     target = resolve_inline_function_pointer_initializer(pointer_type,
                                                          initializer);
     if (target) return target;
+    if (depth >= 8u) return NULL;
     while (value && value->kind == EXPR_CAST && value->unary_operand &&
            type_is_compatible(value->type, pointer_type)) {
         value = value->unary_operand;
@@ -2190,8 +2191,14 @@ static Decl* resolve_inline_function_pointer_initializer_or_local_copy(
          !inline_unmodified_local_variable(source))) {
         return NULL;
     }
-    return resolve_inline_function_pointer_initializer(
-        source->type, source->var_init);
+    return resolve_inline_function_pointer_initializer_or_local_copy_depth(
+        source->type, source->var_init, depth + 1u);
+}
+
+static Decl* resolve_inline_function_pointer_initializer_or_local_copy(
+    Type* pointer_type, Expr* initializer) {
+    return resolve_inline_function_pointer_initializer_or_local_copy_depth(
+        pointer_type, initializer, 0u);
 }
 
 static Decl* resolve_inline_function_pointer_variable(Decl* variable) {

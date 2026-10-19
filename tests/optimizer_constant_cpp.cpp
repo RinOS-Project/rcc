@@ -124,6 +124,14 @@ extern "C" int inline_local_function_pointer_copy_call(int value)
     return copy(value);
 }
 
+extern "C" int inline_local_function_pointer_chained_copy_call(int value)
+{
+    int (*callback)(int) = &inline_constexpr_array_first;
+    int (*copy)(int) = callback;
+    int (*second_copy)(int) = copy;
+    return second_copy(value);
+}
+
 extern "C" int
 inline_local_function_pointer_copy_after_alias_write_call(int value)
 {
