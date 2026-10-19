@@ -9,6 +9,9 @@
 extern int verified_cxx_throwing_temporary_cleanup(int should_throw)
     RINOS_TEST_ABI;
 extern int verified_cxx_throwing_argument_cleanup(void) RINOS_TEST_ABI;
+extern int verified_cxx_throwing_conditional_cleanup(int select_other)
+    RINOS_TEST_ABI;
+extern int verified_cxx_local_reference_normal_cleanup(void) RINOS_TEST_ABI;
 extern int rcc_test_main(void) RINOS_TEST_ABI;
 
 int main(void) {
@@ -30,6 +33,27 @@ int main(void) {
                 "throwing argument cleanup returned %d, expected 533\n",
                 result);
         return 3;
+    }
+    result = verified_cxx_throwing_conditional_cleanup(0);
+    if (result != 533) {
+        fprintf(stderr,
+                "throwing conditional cleanup returned %d, expected 533\n",
+                result);
+        return 4;
+    }
+    result = verified_cxx_throwing_conditional_cleanup(1);
+    if (result != 534) {
+        fprintf(stderr,
+                "throwing conditional cleanup returned %d, expected 534\n",
+                result);
+        return 5;
+    }
+    result = verified_cxx_local_reference_normal_cleanup();
+    if (result != 55) {
+        fprintf(stderr,
+                "normal local reference cleanup returned %d, expected 55\n",
+                result);
+        return 6;
     }
     return rcc_test_main();
 }

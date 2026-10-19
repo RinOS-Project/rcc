@@ -7516,9 +7516,10 @@ static bool lower_nontrivial_temporary_conditional_supported(
         !lower_noexcept_expression(expression->cond_test)) {
         return false;
     }
-    /* The enclosing reference argument owns the selected result and has
-     * already proved its complete cleanup plan. Recursively accept nested
-     * same-type conditionals whose leaves are supported noexcept calls. */
+    /* The enclosing reference argument or lifetime-extending local reference
+     * owns the selected result and has already proved its complete cleanup
+     * plan. Recursively accept nested same-type conditionals whose leaves are
+     * supported noexcept calls. */
     return lower_nontrivial_temporary_conditional_arm_supported(
                expression->cond_then, expression->type) &&
         lower_nontrivial_temporary_conditional_arm_supported(
@@ -11786,8 +11787,8 @@ static RccIrLowerValue lower_conditional_expression(
         size_t chunk_size = lower_abi_chunk_size();
         /* Ordinary aggregate conditionals still require trivial lifetime
          * semantics. A narrowly validated same-type noexcept call conditional
-         * may use caller-owned storage when it is itself a reference temporary
-         * whose destructor plan is emitted by the enclosing call. */
+         * may use caller-owned storage when it is a reference temporary whose
+         * destructor plan belongs to the enclosing call or local reference. */
         supported_temporary_conditional =
             lower_nontrivial_temporary_conditional_supported(context,
                                                              expression);
@@ -18453,8 +18454,15 @@ static bool lower_declaration(RccIrLowerContext* context,
                 /* Materialize the complete prvalue object, keep its address
                  * in the synthetic owner local used by the cleanup plan, and
                  * then bind the source reference to that same object. */
-                initializer = lower_expression(
-                    context, declaration->var_init);
+                {
+                    bool previous_conditional_permission =
+                        context->allow_nontrivial_temporary_conditional;
+                    context->allow_nontrivial_temporary_conditional = true;
+                    initializer = lower_expression(
+                        context, declaration->var_init);
+                    context->allow_nontrivial_temporary_conditional =
+                        previous_conditional_permission;
+                }
                 if (!initializer.valid ||
                     initializer.type.kind != RCC_IR_TYPE_POINTER ||
                     !lower_bind_temporary_owner(

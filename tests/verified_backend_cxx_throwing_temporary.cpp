@@ -49,6 +49,32 @@ extern "C" int verified_cxx_throwing_argument_cleanup() {
     return result * 10 + cleanup_order;
 }
 
+extern "C" int verified_cxx_throwing_conditional_cleanup(int select_other) {
+    int cleanup_order = 0;
+    int result = 0;
+    try {
+        const VerifiedThrowingTemporary& value = select_other
+            ? make_verified_throwing_temporary(&cleanup_order, 4)
+            : make_verified_throwing_temporary(&cleanup_order, 3);
+        result = consume_verified_throwing_temporary(
+            value, throw_verified_temporary_argument());
+    } catch (int value) {
+        result = value;
+    }
+    return result * 10 + cleanup_order;
+}
+
+extern "C" int verified_cxx_local_reference_normal_cleanup() {
+    int cleanup_order = 0;
+    int result = 0;
+    {
+        const VerifiedThrowingTemporary& value =
+            make_verified_throwing_temporary(&cleanup_order, 5);
+        result = consume_verified_throwing_temporary(value, 0);
+    }
+    return result * 10 + cleanup_order;
+}
+
 extern "C" int main() {
     return 0;
 }
