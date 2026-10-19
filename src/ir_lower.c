@@ -15022,6 +15022,73 @@ static bool lower_cxx_emit_constructor_call(
     RccIrLowerContext* context, const Expr* initializer,
     RccIrValue object);
 
+static bool lower_cxx_constructor_initializer_expression_supported(
+    RccIrLowerContext* context, const Expr* expression,
+    unsigned depth) {
+    if (!context || !expression || depth >= 64u) return false;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+            return true;
+        case EXPR_IDENT:
+            return expression->ident_decl &&
+                expression->ident_decl->kind == DECL_PARAM &&
+                expression->ident_decl->type &&
+                !expression->ident_decl->type->is_volatile &&
+                !expression->ident_decl->type->is_atomic &&
+                lower_find_local(context, expression->ident_decl) != NULL;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_CAST:
+            return lower_cxx_constructor_initializer_expression_supported(
+                context,
+                expression->kind == EXPR_CAST
+                    ? expression->cast_expr : expression->unary_operand,
+                depth + 1u);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+            return lower_cxx_constructor_initializer_expression_supported(
+                       context, expression->binary_lhs, depth + 1u) &&
+                lower_cxx_constructor_initializer_expression_supported(
+                       context, expression->binary_rhs, depth + 1u);
+        case EXPR_COND:
+            return lower_cxx_constructor_initializer_expression_supported(
+                       context, expression->cond_test, depth + 1u) &&
+                lower_cxx_constructor_initializer_expression_supported(
+                       context, expression->cond_then, depth + 1u) &&
+                lower_cxx_constructor_initializer_expression_supported(
+                       context, expression->cond_else, depth + 1u);
+        case EXPR_SIZEOF:
+        case EXPR_ALIGNOF:
+        case EXPR_NOEXCEPT: {
+            int64_t ignored_constant;
+            return expr_eval_integer_constant(
+                (Expr*)expression, &ignored_constant);
+        }
+        default:
+            return false;
+    }
+}
+
 static bool lower_cxx_initialize_constructor_members(
     RccIrLowerContext* context, const Decl* declaration) {
     const CxxClass* cls;
@@ -15164,9 +15231,9 @@ static bool lower_cxx_initialize_constructor_members(
             field->type->is_volatile || field->type->is_atomic ||
             lower_i686_wide_scalar_type(field->type) ||
             (!constant_initializer &&
-             (source->kind != EXPR_IDENT || !source->ident_decl ||
-              source->ident_decl->kind != DECL_PARAM ||
-              !lower_find_local(context, source->ident_decl)))) {
+             (!lower_cxx_constructor_initializer_expression_supported(
+                  context, source, 0u) ||
+              !lower_noexcept_expression(source)))) {
             context->unsupported = true;
             return false;
         }

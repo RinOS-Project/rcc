@@ -131,6 +131,22 @@ int verified_trivial_copy_result() {
         copy.values[1] * 10 + copy.nested.nested_value;
 }
 
+struct VerifiedExpressionConstructor {
+    int sum;
+    int weighted_difference;
+
+    VerifiedExpressionConstructor(int first, int second) noexcept
+        : sum(first + second),
+          weighted_difference(first * 2 - second) {
+        sum = sum + 0;
+    }
+};
+
+int verified_expression_constructor_result() {
+    VerifiedExpressionConstructor object(10, 3);
+    return object.sum * 100 + object.weighted_difference;
+}
+
 int main() {
     int value = 40;
     if (update_lvalue_reference_local(value) != 41) {
@@ -147,6 +163,9 @@ int main() {
     }
     if (verified_trivial_copy_result() != 571721281) {
         return 5;
+    }
+    if (verified_expression_constructor_result() != 1317) {
+        return 6;
     }
     return value != 43;
 }
