@@ -211,6 +211,68 @@ long long verified_goto_wide_do_condition(long long limit)
     return value;
 }
 
+long long verified_goto_wide_while_edges(long long limit)
+{
+    long long value = 0;
+    unsigned int iterations = 0u;
+    while (iterations < 4u && value < limit) {
+        ++iterations;
+        if (iterations == 1u) {
+            value += 2LL;
+            goto joined;
+        }
+        value += 1LL;
+
+    joined:
+        value += 1LL;
+        if (iterations == 2u) continue;
+        if (value >= limit) break;
+        value += 3LL;
+    }
+    return value;
+}
+
+long long verified_goto_wide_for_edges(long long limit)
+{
+    long long value = 0;
+    for (unsigned int iterations = 0u;
+         iterations < 4u && value < limit; ++iterations) {
+        if (iterations == 0u) {
+            value += 2LL;
+            goto joined;
+        }
+        value += 1LL;
+
+    joined:
+        value += 1LL;
+        if (iterations == 1u) continue;
+        if (value >= limit) break;
+        value += 3LL;
+    }
+    return value;
+}
+
+long long verified_goto_wide_do_edges(long long limit)
+{
+    long long value = 0;
+    unsigned int iterations = 0u;
+    do {
+        ++iterations;
+        if (iterations == 1u) {
+            value += 2LL;
+            goto joined;
+        }
+        value += 1LL;
+
+    joined:
+        value += 1LL;
+        if (iterations == 2u) continue;
+        if (value >= limit) break;
+        value += 3LL;
+    } while (iterations < 4u && value < limit);
+    return value;
+}
+
 int main(void)
 {
     if (verified_goto_wide_forward(1, 100) != 105) return 1;
@@ -247,5 +309,17 @@ int main(void)
     if (verified_goto_wide_do_condition(3LL) != 3LL) return 26;
     if (verified_goto_wide_do_condition(4LL) != 4LL) return 27;
     if (verified_goto_wide_do_condition(5LL) != 6LL) return 28;
+    if (verified_goto_wide_while_edges(0LL) != 0LL) return 29;
+    if (verified_goto_wide_while_edges(1LL) != 3LL) return 30;
+    if (verified_goto_wide_while_edges(8LL) != 8LL) return 31;
+    if (verified_goto_wide_while_edges(12LL) != 13LL) return 32;
+    if (verified_goto_wide_for_edges(0LL) != 0LL) return 33;
+    if (verified_goto_wide_for_edges(1LL) != 3LL) return 34;
+    if (verified_goto_wide_for_edges(8LL) != 8LL) return 35;
+    if (verified_goto_wide_for_edges(12LL) != 13LL) return 36;
+    if (verified_goto_wide_do_edges(0LL) != 3LL) return 37;
+    if (verified_goto_wide_do_edges(1LL) != 3LL) return 38;
+    if (verified_goto_wide_do_edges(8LL) != 8LL) return 39;
+    if (verified_goto_wide_do_edges(12LL) != 13LL) return 40;
     return 0;
 }

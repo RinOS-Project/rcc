@@ -6577,6 +6577,11 @@ remains a separate open item.
       the loop-carried 64-bit value, detecting stale-header regressions. The
       i686/AMD64 `-O0`/`-O2` verified goto gate checks these phi inputs and the
       generated x64 objects execute successfully.
+- [x] Exercise wide-scalar goto joins followed by `continue` and `break` in
+      `while`, `for`, and `do-while` loops. Check zero-iteration, early-break,
+      continue-to-condition/increment, and carried-value cases against exact
+      results; the i686/AMD64 `-O0`/`-O2` verified gate emits all phi inputs and
+      both generated x64 optimization levels execute successfully.
 - [ ] Broader untested structured-loop/goto edge combinations and VLA stack
       restoration remain open.
 
