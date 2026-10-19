@@ -436,6 +436,9 @@ static const char* ir_opcode_name(RccIrOpcode opcode) {
         case RCC_IR_PHI: return "phi";
         case RCC_IR_SELECT: return "select";
         case RCC_IR_ALLOCA: return "alloca";
+        case RCC_IR_STACK_SAVE: return "stack_save";
+        case RCC_IR_STACK_RESTORE: return "stack_restore";
+        case RCC_IR_DYNAMIC_ALLOCA: return "dynamic_alloca";
         case RCC_IR_FRAME_ADDRESS: return "frame_address";
         case RCC_IR_LOAD: return "load";
         case RCC_IR_STORE: return "store";
@@ -761,6 +764,36 @@ static bool ir_verify_instruction_types(
                 instruction->immediate == 0u) {
                 return ir_verify_error(verifier,
                                        "alloca requires pointer type and size");
+            }
+            return true;
+        case RCC_IR_STACK_SAVE:
+            if (!ir_require_shape(verifier, instruction, 0u, 0u) ||
+                instruction->type.kind != RCC_IR_TYPE_POINTER) {
+                return ir_verify_error(
+                    verifier, "stack_save requires a pointer result");
+            }
+            return true;
+        case RCC_IR_STACK_RESTORE:
+            if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
+                instruction->type.kind != RCC_IR_TYPE_VOID ||
+                !ir_value_type(verifier, instruction->operands[0], &first) ||
+                first.kind != RCC_IR_TYPE_POINTER) {
+                return ir_verify_error(
+                    verifier, "stack_restore requires a saved stack pointer");
+            }
+            return true;
+        case RCC_IR_DYNAMIC_ALLOCA:
+            if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
+                instruction->type.kind != RCC_IR_TYPE_POINTER ||
+                !ir_value_type(verifier, instruction->operands[0], &first) ||
+                first.kind != RCC_IR_TYPE_INTEGER ||
+                first.bit_width > 64u || instruction->immediate == 0u ||
+                instruction->immediate > 4096u ||
+                (instruction->immediate &
+                 (instruction->immediate - 1u)) != 0u) {
+                return ir_verify_error(
+                    verifier,
+                    "dynamic_alloca requires byte count and power-of-two alignment");
             }
             return true;
         case RCC_IR_FRAME_ADDRESS:

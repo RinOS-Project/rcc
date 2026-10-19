@@ -118,6 +118,13 @@ typedef struct RccIrLowerScopeCleanup {
     struct RccIrLowerScopeCleanup* allocated_next;
 } RccIrLowerScopeCleanup;
 
+typedef struct RccIrLowerVlaAllocation {
+    const Decl* declaration;
+    RccIrValue stack_pointer;
+    struct RccIrLowerVlaAllocation* previous_scope;
+    struct RccIrLowerVlaAllocation* allocated_next;
+} RccIrLowerVlaAllocation;
+
 typedef struct {
     RccIrModule* module;
     RccIrFunction* function;
@@ -128,12 +135,16 @@ typedef struct {
     RccIrLowerLocal* locals;
     RccIrLowerScopeCleanup* scope_cleanups;
     RccIrLowerScopeCleanup* allocated_scope_cleanups;
+    RccIrLowerVlaAllocation* vla_allocations;
+    RccIrLowerVlaAllocation* allocated_vla_allocations;
     RccIrLowerLabel* labels;
     RccIrLowerSwitch* current_switch;
     RccIrBlockId break_target;
     RccIrBlockId continue_target;
     RccIrLowerScopeCleanup* break_cleanup_marker;
     RccIrLowerScopeCleanup* continue_cleanup_marker;
+    RccIrLowerVlaAllocation* break_vla_marker;
+    RccIrLowerVlaAllocation* continue_vla_marker;
     RccIrLowerLoopFrame* wide_loop;
     const Stmt* current_statement;
     size_t active_debug_inline_call_plus_one;
@@ -949,6 +960,75 @@ static RccIrLowerValue lower_integer_constant(RccIrLowerContext* context,
     if (!instruction) return lower_invalid_value();
     rcc_ir_set_immediate(instruction, immediate);
     return lower_value(instruction->result, type, is_unsigned);
+}
+
+static RccIrLowerValue lower_stack_save(RccIrLowerContext* context) {
+    RccIrInstruction* instruction = lower_append(
+        context, RCC_IR_STACK_SAVE, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    return lower_value(
+        instruction->result, rcc_ir_type_pointer(0u), true);
+}
+
+static bool lower_stack_restore(RccIrLowerContext* context,
+                                RccIrValue stack_pointer) {
+    if (stack_pointer == RCC_IR_VALUE_NONE ||
+        !lower_append(context, RCC_IR_STACK_RESTORE,
+                      rcc_ir_type_void(), &stack_pointer, 1u,
+                      NULL, 0u)) {
+        context->unsupported = true;
+        return false;
+    }
+    return true;
+}
+
+static bool lower_vla_restore_until(
+    RccIrLowerContext* context, RccIrLowerVlaAllocation* marker) {
+    RccIrLowerVlaAllocation* allocation = context
+        ? context->vla_allocations : NULL;
+    if (!context) return false;
+    if (allocation == marker) return true;
+    if (!allocation) {
+        context->unsupported = true;
+        return false;
+    }
+    while (allocation->previous_scope != marker) {
+        allocation = allocation->previous_scope;
+        if (!allocation) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    return lower_stack_restore(context, allocation->stack_pointer);
+}
+
+static bool lower_vla_restore_count(
+    RccIrLowerContext* context, size_t allocation_count) {
+    RccIrLowerVlaAllocation* allocation;
+    if (!context || allocation_count == 0u) return allocation_count == 0u;
+    allocation = context->vla_allocations;
+    for (size_t index = 1u; index < allocation_count; ++index) {
+        if (!allocation || !allocation->previous_scope) {
+            context->unsupported = true;
+            return false;
+        }
+        allocation = allocation->previous_scope;
+    }
+    if (!allocation) {
+        context->unsupported = true;
+        return false;
+    }
+    return lower_stack_restore(context, allocation->stack_pointer);
+}
+
+static void lower_release_vla_allocations(
+    RccIrLowerVlaAllocation* allocation) {
+    while (allocation) {
+        RccIrLowerVlaAllocation* next = allocation->allocated_next;
+        rcc_free(allocation);
+        allocation = next;
+    }
 }
 
 static bool lower_prepare_label_phis(
@@ -4198,6 +4278,8 @@ static bool lower_wide_loop_body_edge_safe(const Stmt* statement) {
                 if (!lower_wide_loop_body_edge_safe(item->stmt)) return false;
             }
             return true;
+        case STMT_DECL:
+            return !statement->decl || !statement->decl->var_is_vla;
         case STMT_IF:
             return lower_wide_loop_body_edge_safe(statement->if_then) &&
                 lower_wide_loop_body_edge_safe(statement->if_else);
@@ -4267,6 +4349,8 @@ static bool lower_wide_switch_case_linear(const Stmt* statement) {
         case STMT_BREAK:
         case STMT_RETURN:
             return true;
+        case STMT_DECL:
+            return !statement->decl || !statement->decl->var_is_vla;
         case STMT_CONTINUE:
         case STMT_GOTO:
         case STMT_THROW:
@@ -8253,14 +8337,18 @@ static void lower_release_scope_cleanups(RccIrLowerScopeCleanup* cleanups) {
 static bool lower_statement_subscope(
     RccIrLowerContext* context, const Stmt* statement) {
     RccIrLowerScopeCleanup* marker;
+    RccIrLowerVlaAllocation* vla_marker;
     bool success;
     if (!context) return false;
     marker = context->scope_cleanups;
+    vla_marker = context->vla_allocations;
     success = lower_statement(context, statement);
     if (success && !context->terminated) {
-        success = lower_emit_scope_cleanups_until(context, marker);
+        success = lower_emit_scope_cleanups_until(context, marker) &&
+            lower_vla_restore_until(context, vla_marker);
     }
     context->scope_cleanups = marker;
+    context->vla_allocations = vla_marker;
     return success && !context->unsupported;
 }
 
@@ -11976,11 +12064,13 @@ static bool lower_statement_has_switch_label(const Stmt* statement) {
 
 static bool lower_block(RccIrLowerContext* context, const Stmt* block) {
     RccIrLowerScopeCleanup* scope_marker;
+    RccIrLowerVlaAllocation* vla_marker;
     bool owns_scope;
     if (!block || block->kind != STMT_BLOCK) {
         return lower_statement(context, block);
     }
     scope_marker = context->scope_cleanups;
+    vla_marker = context->vla_allocations;
     owns_scope = !block->block_no_scope;
     for (const StmtList* item = block->block_stmts; item;
          item = item->next) {
@@ -11995,7 +12085,12 @@ static bool lower_block(RccIrLowerContext* context, const Stmt* block) {
             !lower_emit_scope_cleanups_until(context, scope_marker)) {
             return false;
         }
+        if (!context->terminated &&
+            !lower_vla_restore_until(context, vla_marker)) {
+            return false;
+        }
         context->scope_cleanups = scope_marker;
+        context->vla_allocations = vla_marker;
     }
     return !context->unsupported;
 }
@@ -12619,6 +12714,9 @@ static bool lower_while(RccIrLowerContext* context,
         context->break_cleanup_marker;
     RccIrLowerScopeCleanup* old_continue_cleanup =
         context->continue_cleanup_marker;
+    RccIrLowerVlaAllocation* old_break_vla = context->break_vla_marker;
+    RccIrLowerVlaAllocation* old_continue_vla =
+        context->continue_vla_marker;
     RccIrLowerValue condition;
     if (!condition_block || !body_block || !exit_block ||
         !lower_flush_wide_locals(context) ||
@@ -12637,6 +12735,8 @@ static bool lower_while(RccIrLowerContext* context,
     context->continue_target = condition_block->id;
     context->break_cleanup_marker = context->scope_cleanups;
     context->continue_cleanup_marker = context->scope_cleanups;
+    context->break_vla_marker = context->vla_allocations;
+    context->continue_vla_marker = context->vla_allocations;
     context->current = body_block;
     context->terminated = false;
     if (!lower_statement_subscope(context, statement->while_body)) return false;
@@ -12649,6 +12749,8 @@ static bool lower_while(RccIrLowerContext* context,
     context->continue_target = old_continue;
     context->break_cleanup_marker = old_break_cleanup;
     context->continue_cleanup_marker = old_continue_cleanup;
+    context->break_vla_marker = old_break_vla;
+    context->continue_vla_marker = old_continue_vla;
     context->current = exit_block;
     context->terminated = false;
     lower_invalidate_wide_locals(context);
@@ -12672,6 +12774,9 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
         context->break_cleanup_marker;
     RccIrLowerScopeCleanup* old_continue_cleanup =
         context->continue_cleanup_marker;
+    RccIrLowerVlaAllocation* old_break_vla = context->break_vla_marker;
+    RccIrLowerVlaAllocation* old_continue_vla =
+        context->continue_vla_marker;
     RccIrLowerValue condition;
     if (!body_block || !condition_block || !exit_block ||
         !lower_flush_wide_locals(context) ||
@@ -12682,6 +12787,8 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
     context->continue_target = condition_block->id;
     context->break_cleanup_marker = context->scope_cleanups;
     context->continue_cleanup_marker = context->scope_cleanups;
+    context->break_vla_marker = context->vla_allocations;
+    context->continue_vla_marker = context->vla_allocations;
     context->current = body_block;
     context->terminated = false;
     lower_invalidate_wide_locals(context);
@@ -12706,6 +12813,8 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
     context->continue_target = old_continue;
     context->break_cleanup_marker = old_break_cleanup;
     context->continue_cleanup_marker = old_continue_cleanup;
+    context->break_vla_marker = old_break_vla;
+    context->continue_vla_marker = old_continue_vla;
     context->current = exit_block;
     context->terminated = false;
     lower_invalidate_wide_locals(context);
@@ -12720,6 +12829,8 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     RccIrBlock* exit_block;
     RccIrLowerScopeCleanup* scope_marker = context->scope_cleanups;
     RccIrLowerScopeCleanup* for_scope_marker;
+    RccIrLowerVlaAllocation* scope_vla_marker = context->vla_allocations;
+    RccIrLowerVlaAllocation* for_vla_marker;
     bool has_for_scope_cleanups;
     RccIrBlockId old_break = context->break_target;
     RccIrBlockId old_continue = context->continue_target;
@@ -12727,14 +12838,20 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
         context->break_cleanup_marker;
     RccIrLowerScopeCleanup* old_continue_cleanup =
         context->continue_cleanup_marker;
+    RccIrLowerVlaAllocation* old_break_vla = context->break_vla_marker;
+    RccIrLowerVlaAllocation* old_continue_vla =
+        context->continue_vla_marker;
     RccIrLowerValue condition;
     if (statement->for_init &&
         !lower_statement(context, statement->for_init)) {
         return false;
     }
     for_scope_marker = context->scope_cleanups;
-    has_for_scope_cleanups = for_scope_marker != scope_marker;
-    if (lower_wide_loop_body_edge_safe(statement->for_body)) {
+    for_vla_marker = context->vla_allocations;
+    has_for_scope_cleanups = for_scope_marker != scope_marker ||
+        for_vla_marker != scope_vla_marker;
+    if (for_vla_marker == scope_vla_marker &&
+        lower_wide_loop_body_edge_safe(statement->for_body)) {
         RccIrLowerWideState* baseline = lower_capture_wide_states(context);
         if (baseline) {
             return lower_for_wide_ssa(
@@ -12771,6 +12888,8 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     context->continue_target = increment_block->id;
     context->break_cleanup_marker = scope_marker;
     context->continue_cleanup_marker = for_scope_marker;
+    context->break_vla_marker = scope_vla_marker;
+    context->continue_vla_marker = for_vla_marker;
     context->current = body_block;
     context->terminated = false;
     if (!lower_statement_subscope(context, statement->for_body)) return false;
@@ -12794,18 +12913,23 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     context->continue_target = old_continue;
     context->break_cleanup_marker = old_break_cleanup;
     context->continue_cleanup_marker = old_continue_cleanup;
+    context->break_vla_marker = old_break_vla;
+    context->continue_vla_marker = old_continue_vla;
     if (has_for_scope_cleanups) {
         context->current = cleanup_block;
         context->terminated = false;
         if (!lower_emit_scope_cleanups_until(context, scope_marker) ||
+            !lower_vla_restore_until(context, scope_vla_marker) ||
             !lower_flush_wide_locals(context) ||
             !lower_branch(context, exit_block->id)) {
             return false;
         }
         context->scope_cleanups = scope_marker;
+        context->vla_allocations = scope_vla_marker;
     }
     context->current = exit_block;
     context->terminated = false;
+    context->vla_allocations = scope_vla_marker;
     lower_invalidate_wide_locals(context);
     return true;
 }
@@ -13012,6 +13136,7 @@ static bool lower_switch(RccIrLowerContext* context,
     RccIrBlock* exit_block;
     RccIrBlockId old_break;
     RccIrLowerScopeCleanup* old_break_cleanup;
+    RccIrLowerVlaAllocation* old_break_vla;
     RccIrValue compare_operands[2];
     bool body_ok;
     memset(&switch_context, 0, sizeof(switch_context));
@@ -13123,8 +13248,10 @@ static bool lower_switch(RccIrLowerContext* context,
     }
     old_break = context->break_target;
     old_break_cleanup = context->break_cleanup_marker;
+    old_break_vla = context->break_vla_marker;
     context->break_target = exit_block->id;
     context->break_cleanup_marker = context->scope_cleanups;
+    context->break_vla_marker = context->vla_allocations;
     context->current_switch = &switch_context;
     context->current = scan_block;
     context->terminated = false;
@@ -13135,6 +13262,7 @@ static bool lower_switch(RccIrLowerContext* context,
     context->current_switch = switch_context.previous;
     context->break_target = old_break;
     context->break_cleanup_marker = old_break_cleanup;
+    context->break_vla_marker = old_break_vla;
     if (!body_ok) {
         lower_release_wide_loop_edges(switch_context.wide_breaks);
         lower_release_wide_states(switch_context.wide_baseline);
@@ -17487,6 +17615,49 @@ static RccIrLowerValue lower_compound_literal_address(
         allocation->result, rcc_ir_type_pointer(0u), true);
 }
 
+static bool lower_scalar_vla_declaration_supported(
+    const Decl* declaration) {
+    const Type* type = declaration ? declaration->type : NULL;
+    const Type* element = type && type->kind == TYPE_ARRAY
+        ? type->base : NULL;
+    RccIrType element_type;
+    return declaration && declaration->var_is_vla &&
+        type && type->kind == TYPE_ARRAY && type->array_bound &&
+        element && element->kind != TYPE_ARRAY && element->size > 0 &&
+        element->align > 0 && element->align <= 4096 &&
+        (element->align & (element->align - 1)) == 0 &&
+        !declaration->var_init && !declaration->var_cleanup &&
+        !declaration->var_cleanups && !element->is_volatile &&
+        lower_type(element, &element_type) &&
+        element_type.kind != RCC_IR_TYPE_VOID;
+}
+
+static RccIrLowerValue lower_scalar_vla_byte_size(
+    RccIrLowerContext* context, const Type* type) {
+    RccIrType size_type;
+    RccIrLowerValue bound;
+    RccIrLowerValue element_size;
+    RccIrValue operands[2];
+    RccIrInstruction* multiply;
+    bool x64 = g_opts.target_arch == ARCH_X64;
+    size_type = rcc_ir_type_integer(x64 ? 64u : 32u);
+    bound = lower_expression(context, type->array_bound);
+    bound = lower_cast(context, bound, x64 ? type_ulong : type_uint);
+    element_size = lower_integer_constant(
+        context, size_type, true, (uint64_t)type->base->size);
+    if (!bound.valid || !element_size.valid ||
+        !rcc_ir_type_equal(bound.type, size_type)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operands[0] = bound.value;
+    operands[1] = element_size.value;
+    multiply = lower_append(
+        context, RCC_IR_MUL, size_type, operands, 2u, NULL, 0u);
+    if (!multiply) return lower_invalid_value();
+    return lower_value(multiply->result, size_type, true);
+}
+
 static bool lower_declaration(RccIrLowerContext* context,
                               const Decl* declaration) {
     RccIrType type = rcc_ir_type_void();
@@ -17505,6 +17676,8 @@ static bool lower_declaration(RccIrLowerContext* context,
         type_is_cxx_member_function_pointer(declaration->type);
     bool is_aggregate = is_array || is_struct || is_union ||
         is_member_function_pointer;
+    bool is_scalar_vla = declaration && declaration->var_is_vla &&
+        lower_scalar_vla_declaration_supported(declaration);
     bool wide_scalar = declaration->type &&
         lower_i686_wide_scalar_type(declaration->type);
     bool wide_ssa = wide_scalar && !declaration->type->is_volatile &&
@@ -17541,7 +17714,7 @@ static bool lower_declaration(RccIrLowerContext* context,
         (declaration->var_cleanups &&
          !lower_scope_cleanup_declaration_supported(declaration)) ||
         (is_aggregate
-             ? (declaration->type->size <= 0 ||
+             ? ((!is_scalar_vla && declaration->type->size <= 0) ||
                 declaration->type->is_reference ||
                 declaration->type->is_volatile ||
                 (declaration->type->cleanup_function &&
@@ -17560,14 +17733,49 @@ static bool lower_declaration(RccIrLowerContext* context,
         context->unsupported = true;
         return false;
     }
-    allocation = lower_append(context, RCC_IR_ALLOCA,
-                              rcc_ir_type_pointer(0u), NULL, 0u, NULL, 0u);
-    if (!allocation) return false;
-    rcc_ir_set_immediate(allocation,
-                         declaration->type->size > 0
-                             ? (uint64_t)declaration->type->size : 1u);
-    allocation->alignment = declaration->type->align > 0
-        ? (uint32_t)declaration->type->align : 0u;
+    if (declaration->var_is_vla && !is_scalar_vla) {
+        context->unsupported = true;
+        return false;
+    }
+    if (is_scalar_vla) {
+        RccIrLowerValue byte_size = lower_scalar_vla_byte_size(
+            context, declaration->type);
+        RccIrLowerValue stack_pointer;
+        RccIrInstruction* dynamic_allocation;
+        RccIrLowerVlaAllocation* vla_allocation;
+        RccIrValue size_operand;
+        if (!byte_size.valid) return false;
+        stack_pointer = lower_stack_save(context);
+        if (!stack_pointer.valid) return false;
+        size_operand = byte_size.value;
+        dynamic_allocation = lower_append(
+            context, RCC_IR_DYNAMIC_ALLOCA,
+            rcc_ir_type_pointer(0u), &size_operand, 1u, NULL, 0u);
+        if (!dynamic_allocation) return false;
+        rcc_ir_set_immediate(
+            dynamic_allocation,
+            (uint64_t)declaration->type->base->align);
+        dynamic_allocation->source_declaration = declaration;
+        vla_allocation = rcc_alloc(sizeof(*vla_allocation));
+        vla_allocation->declaration = declaration;
+        vla_allocation->stack_pointer = stack_pointer.value;
+        vla_allocation->previous_scope = context->vla_allocations;
+        vla_allocation->allocated_next =
+            context->allocated_vla_allocations;
+        context->allocated_vla_allocations = vla_allocation;
+        context->vla_allocations = vla_allocation;
+        allocation = dynamic_allocation;
+    } else {
+        allocation = lower_append(context, RCC_IR_ALLOCA,
+                                  rcc_ir_type_pointer(0u),
+                                  NULL, 0u, NULL, 0u);
+        if (!allocation) return false;
+        rcc_ir_set_immediate(allocation,
+                             declaration->type->size > 0
+                                 ? (uint64_t)declaration->type->size : 1u);
+        allocation->alignment = declaration->type->align > 0
+            ? (uint32_t)declaration->type->align : 0u;
+    }
     allocation->source_declaration = declaration;
     if (is_aggregate || wide_scalar) {
         type = rcc_ir_type_pointer(0u);
@@ -18461,6 +18669,8 @@ static bool lower_statement_impl(RccIrLowerContext* context,
         case STMT_BREAK:
             if (!lower_emit_scope_cleanups_until(
                     context, context->break_cleanup_marker) ||
+                !lower_vla_restore_until(
+                    context, context->break_vla_marker) ||
                 !lower_flush_wide_locals(context)) {
                 return false;
             }
@@ -18483,6 +18693,8 @@ static bool lower_statement_impl(RccIrLowerContext* context,
         case STMT_CONTINUE:
             if (!lower_emit_scope_cleanups_until(
                     context, context->continue_cleanup_marker) ||
+                !lower_vla_restore_until(
+                    context, context->continue_vla_marker) ||
                 !lower_flush_wide_locals(context)) {
                 return false;
             }
@@ -18495,11 +18707,13 @@ static bool lower_statement_impl(RccIrLowerContext* context,
             RccIrLowerLabel* label;
             const RccIrLowerScopeCleanup* cleanup_marker;
             label = lower_find_label_name(context, statement->goto_label);
-            if (statement->goto_vla_count != 0u || !label ||
+            if (!label ||
                 !lower_scope_cleanup_marker_for_count(
                     context, statement->goto_cleanup_count,
                     &cleanup_marker) ||
-                !lower_emit_scope_cleanups_until(context, cleanup_marker)) {
+                !lower_emit_scope_cleanups_until(context, cleanup_marker) ||
+                !lower_vla_restore_count(
+                    context, statement->goto_vla_count)) {
                 context->unsupported = true;
                 return false;
             }
@@ -18828,6 +19042,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         !lower_statement(&context, declaration->func_body) ||
         !lower_finalize_label_phis(&context)) {
         lower_release_scope_cleanups(context.allocated_scope_cleanups);
+        lower_release_vla_allocations(context.allocated_vla_allocations);
         lower_release_locals(context.locals);
         lower_release_labels(context.labels);
         rcc_ir_module_destroy(module);
@@ -18837,6 +19052,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     if (!context.terminated) {
         if (!lower_cxx_emit_current_destructor_subobjects(&context)) {
             lower_release_scope_cleanups(context.allocated_scope_cleanups);
+            lower_release_vla_allocations(context.allocated_vla_allocations);
             lower_release_locals(context.locals);
             lower_release_labels(context.labels);
             rcc_ir_module_destroy(module);
@@ -18849,6 +19065,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
                     ? RCC_IR_RETURN : RCC_IR_UNREACHABLE,
                 rcc_ir_type_void(), NULL, 0u, NULL, 0u)) {
             lower_release_scope_cleanups(context.allocated_scope_cleanups);
+            lower_release_vla_allocations(context.allocated_vla_allocations);
             lower_release_locals(context.locals);
             lower_release_labels(context.labels);
             rcc_ir_module_destroy(module);
@@ -18857,6 +19074,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         context.terminated = true;
     }
     lower_release_scope_cleanups(context.allocated_scope_cleanups);
+    lower_release_vla_allocations(context.allocated_vla_allocations);
     lower_release_locals(context.locals);
     lower_release_labels(context.labels);
     context.labels = NULL;

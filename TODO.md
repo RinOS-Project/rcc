@@ -6587,9 +6587,17 @@ remains a separate open item.
       times, with the result checked against GCC. Both i686 and AMD64 generated
       executables pass in `test-vla-runtime`; this target is part of the C17
       production regression gate.
-- [ ] Add VLA-scope-exiting goto support to typed-SSA lowering and expand the
-      remaining structured-loop/goto edge coverage. `STMT_GOTO` with a nonzero
-      `goto_vla_count` remains outside the verified backend subset.
+- [x] Lower the supported single-dimension VLA subset through typed SSA with
+      explicit stack save/restore and dynamic stack allocation. `goto` exits
+      restore one or multiple nested VLA scopes; normal scope exit and
+      `break`/`continue` restore VLA storage in `for`, `while`, and `do` loops.
+      The verified goto gate covers partial and full nested-scope exits,
+      repeated backward jumps, and loop edges on i686/AMD64 at `-O0`/`-O2`.
+- [ ] Extend typed-SSA VLA lowering beyond the currently supported
+      single-dimension, uninitialized, non-volatile VLA with lowerable
+      fixed-size element type. Add multidimensional/array-element VLAs,
+      aggregate and initialized cases, and the remaining cleanup/unwind and
+      goto/loop edge combinations before claiming general VLA support.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)
 

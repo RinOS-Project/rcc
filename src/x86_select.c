@@ -297,6 +297,10 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_BITCAST: return RCC_X86_REINTERPRET;
         case RCC_MIR_SELECT: return RCC_X86_SELECT;
         case RCC_MIR_ALLOCA: return RCC_X86_STACK_ADDRESS;
+        case RCC_MIR_STACK_SAVE: return RCC_X86_STACK_SAVE;
+        case RCC_MIR_STACK_RESTORE: return RCC_X86_STACK_RESTORE;
+        case RCC_MIR_DYNAMIC_ALLOCA:
+            return RCC_X86_DYNAMIC_STACK_ADDRESS;
         case RCC_MIR_FRAME_ADDRESS: return RCC_X86_FRAME_ADDRESS;
         case RCC_MIR_LOAD: return RCC_X86_LOAD;
         case RCC_MIR_STORE: return RCC_X86_STORE;
@@ -539,6 +543,7 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
                 instruction->target_count == 0u;
         case RCC_X86_MOV_IMMEDIATE:
         case RCC_X86_STACK_ADDRESS:
+        case RCC_X86_STACK_SAVE:
         case RCC_X86_FRAME_ADDRESS:
         case RCC_X86_SYMBOL_ADDRESS:
             return instruction->has_destination &&
@@ -563,6 +568,7 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
         case RCC_X86_FLOAT_TRUNCATE:
         case RCC_X86_REINTERPRET:
         case RCC_X86_LOAD:
+        case RCC_X86_DYNAMIC_STACK_ADDRESS:
             return instruction->has_destination &&
                 instruction->operand_count == 1u &&
                 instruction->target_count == 0u;
@@ -573,6 +579,10 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
         case RCC_X86_STORE:
             return !instruction->has_destination &&
                 instruction->operand_count == 2u &&
+                instruction->target_count == 0u;
+        case RCC_X86_STACK_RESTORE:
+            return !instruction->has_destination &&
+                instruction->operand_count == 1u &&
                 instruction->target_count == 0u;
         case RCC_X86_CALL:
             return instruction->target_count == 0u &&

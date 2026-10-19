@@ -1471,6 +1471,7 @@ static bool x86_legal_selected_shape(
     switch (instruction->selected_opcode) {
         case RCC_X86_MOV_IMMEDIATE:
         case RCC_X86_STACK_ADDRESS:
+        case RCC_X86_STACK_SAVE:
         case RCC_X86_FRAME_ADDRESS:
         case RCC_X86_SYMBOL_ADDRESS:
             return instruction->has_destination &&
@@ -1482,6 +1483,8 @@ static bool x86_legal_selected_shape(
                   instruction->auxiliary <= 4096u &&
                   (instruction->auxiliary &
                    (instruction->auxiliary - 1u)) == 0u)) &&
+                (instruction->selected_opcode != RCC_X86_STACK_SAVE ||
+                 instruction->type.kind == RCC_MIR_TYPE_POINTER) &&
                 (instruction->selected_opcode != RCC_X86_FRAME_ADDRESS ||
                  instruction->immediate <= INT32_MAX) &&
                 (instruction->selected_opcode != RCC_X86_SYMBOL_ADDRESS ||
@@ -1506,6 +1509,15 @@ static bool x86_legal_selected_shape(
             return instruction->has_destination &&
                 instruction->operand_count == 1u &&
                 instruction->target_count == 0u;
+        case RCC_X86_DYNAMIC_STACK_ADDRESS:
+            return instruction->has_destination &&
+                instruction->operand_count == 1u &&
+                instruction->target_count == 0u &&
+                instruction->type.kind == RCC_MIR_TYPE_POINTER &&
+                (instruction->immediate == 0u ||
+                 (instruction->immediate <= 4096u &&
+                  (instruction->immediate &
+                   (instruction->immediate - 1u)) == 0u));
         case RCC_X86_SELECT:
             return instruction->has_destination &&
                 instruction->operand_count == 3u &&
@@ -1514,6 +1526,13 @@ static bool x86_legal_selected_shape(
             return !instruction->has_destination &&
                 instruction->operand_count == 2u &&
                 instruction->target_count == 0u;
+        case RCC_X86_STACK_RESTORE:
+            return !instruction->has_destination &&
+                instruction->operand_count == 1u &&
+                instruction->target_count == 0u &&
+                instruction->type.kind == RCC_MIR_TYPE_VOID &&
+                instruction->operand_types[0].kind ==
+                    RCC_MIR_TYPE_POINTER;
         case RCC_X86_CALL:
             return instruction->target_count == 0u &&
                 ((instruction->symbol && instruction->symbol[0] &&

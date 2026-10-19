@@ -392,6 +392,24 @@ static bool mir_verify_instruction_type(
             return mir_shape(verifier, instruction, 0u, 0u) &&
                 instruction->type.kind == RCC_MIR_TYPE_POINTER &&
                 instruction->immediate != 0u;
+        case RCC_MIR_STACK_SAVE:
+            return mir_shape(verifier, instruction, 0u, 0u) &&
+                instruction->type.kind == RCC_MIR_TYPE_POINTER;
+        case RCC_MIR_STACK_RESTORE:
+            return mir_shape(verifier, instruction, 1u, 0u) &&
+                rcc_mir_type_equal(instruction->type, void_type) &&
+                mir_operand_type(verifier, instruction, 0u,
+                                 rcc_mir_type_pointer());
+        case RCC_MIR_DYNAMIC_ALLOCA:
+            return mir_shape(verifier, instruction, 1u, 0u) &&
+                instruction->type.kind == RCC_MIR_TYPE_POINTER &&
+                mir_register_type(verifier, instruction->operands[0],
+                                  &first) &&
+                first.kind == RCC_MIR_TYPE_INTEGER &&
+                first.bit_width <= 64u && instruction->immediate != 0u &&
+                instruction->immediate <= 4096u &&
+                (instruction->immediate &
+                 (instruction->immediate - 1u)) == 0u;
         case RCC_MIR_FRAME_ADDRESS:
             return mir_shape(verifier, instruction, 0u, 0u) &&
                 instruction->type.kind == RCC_MIR_TYPE_POINTER &&

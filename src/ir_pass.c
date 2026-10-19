@@ -1642,6 +1642,9 @@ static bool ir_pass_cse_candidate(const RccIrInstruction* instruction) {
                 instruction->target_count == 0u;
         case RCC_IR_PHI:
         case RCC_IR_ALLOCA:
+        case RCC_IR_STACK_SAVE:
+        case RCC_IR_STACK_RESTORE:
+        case RCC_IR_DYNAMIC_ALLOCA:
         case RCC_IR_LOAD:
         case RCC_IR_STORE:
         case RCC_IR_CALL:
@@ -2146,6 +2149,9 @@ static bool ir_pass_instruction_is_dead(const RccIrInstruction* instruction) {
         case RCC_IR_PHI:
         case RCC_IR_SELECT:
         case RCC_IR_ALLOCA:
+        case RCC_IR_STACK_SAVE:
+        case RCC_IR_STACK_RESTORE:
+        case RCC_IR_DYNAMIC_ALLOCA:
         case RCC_IR_FRAME_ADDRESS:
         case RCC_IR_GEP:
         case RCC_IR_SYMBOL_ADDRESS:

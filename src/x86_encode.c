@@ -1792,6 +1792,95 @@ static bool x86_emit_stack_address(
     return true;
 }
 
+static RccX86Value x86_stack_pointer_value(
+    const RccX86Encoder* encoder) {
+    RccX86Value value;
+    memset(&value, 0, sizeof(value));
+    value.kind = RCC_X86_VALUE_GPR;
+    value.gpr = RCC_X86_GPR_SP;
+    value.size = encoder->function->pointer_size;
+    value.alignment = encoder->function->pointer_size;
+    return value;
+}
+
+static bool x86_emit_stack_save(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    uint16_t size = encoder->function->pointer_size;
+    if (instruction->type.kind != RCC_MIR_TYPE_POINTER ||
+        instruction->destination.size != size) {
+        return x86_encode_error(
+            encoder, "x86 stack-save contract is invalid");
+    }
+    return x86_emit_copy(
+        encoder, x86_stack_pointer_value(encoder),
+        instruction->destination, size);
+}
+
+static bool x86_emit_stack_restore(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    uint16_t size = encoder->function->pointer_size;
+    if (instruction->type.kind != RCC_MIR_TYPE_VOID ||
+        instruction->operand_types[0].kind != RCC_MIR_TYPE_POINTER ||
+        instruction->operands[0].size != size) {
+        return x86_encode_error(
+            encoder, "x86 stack-restore contract is invalid");
+    }
+    return x86_emit_copy(
+        encoder, instruction->operands[0],
+        x86_stack_pointer_value(encoder), size);
+}
+
+static bool x86_emit_dynamic_stack_address(
+    RccX86Encoder* encoder,
+    const RccX86LegalInstruction* instruction) {
+    uint16_t size = encoder->function->pointer_size;
+    uint32_t alignment;
+    RccX86Value scratch;
+    if (instruction->type.kind != RCC_MIR_TYPE_POINTER ||
+        instruction->destination.size != size ||
+        instruction->operand_types[0].kind != RCC_MIR_TYPE_INTEGER ||
+        instruction->operand_types[0].bit_width != size * 8u ||
+        instruction->operands[0].size != size ||
+        instruction->immediate == 0u || instruction->immediate > 4096u ||
+        (instruction->immediate & (instruction->immediate - 1u)) != 0u) {
+        return x86_encode_error(
+            encoder, "x86 dynamic stack-address contract is invalid");
+    }
+    alignment = (uint32_t)instruction->immediate;
+    if (alignment < encoder->function->stack_alignment) {
+        alignment = encoder->function->stack_alignment;
+    }
+    if (alignment > 4096u || (alignment & (alignment - 1u)) != 0u) {
+        return x86_encode_error(
+            encoder, "x86 dynamic stack alignment is unsupported");
+    }
+    memset(&scratch, 0, sizeof(scratch));
+    scratch.kind = RCC_X86_VALUE_GPR;
+    scratch.gpr = RCC_X86_GPR_AX;
+    scratch.size = size;
+    scratch.alignment = size;
+    if (!x86_emit_copy(
+            encoder, instruction->operands[0], scratch, size) ||
+        !x86_emit_binary_register(
+            encoder, RCC_X86_SUB, RCC_X86_GPR_SP, scratch, size)) {
+        return false;
+    }
+    if (alignment > 1u &&
+        (!x86_emit_prefix(
+             encoder, size, RCC_X86_GPR_AX, RCC_X86_GPR_SP, false) ||
+         !x86_emit_u8(encoder, 0x81u) ||
+         !x86_emit_u8(encoder, x86_modrm(
+             3u, 4u, RCC_X86_GPR_SP)) ||
+         !x86_emit_u32(encoder, 0u - alignment))) {
+        return false;
+    }
+    return x86_emit_copy(
+        encoder, x86_stack_pointer_value(encoder),
+        instruction->destination, size);
+}
+
 static bool x86_emit_frame_address(
     RccX86Encoder* encoder,
     const RccX86LegalInstruction* instruction) {
@@ -2933,6 +3022,12 @@ static bool x86_emit_instruction(
             return x86_emit_float_to_integer(encoder, instruction);
         case RCC_X86_STACK_ADDRESS:
             return x86_emit_stack_address(encoder, instruction);
+        case RCC_X86_STACK_SAVE:
+            return x86_emit_stack_save(encoder, instruction);
+        case RCC_X86_STACK_RESTORE:
+            return x86_emit_stack_restore(encoder, instruction);
+        case RCC_X86_DYNAMIC_STACK_ADDRESS:
+            return x86_emit_dynamic_stack_address(encoder, instruction);
         case RCC_X86_FRAME_ADDRESS:
             return x86_emit_frame_address(encoder, instruction);
         case RCC_X86_SYMBOL_ADDRESS:

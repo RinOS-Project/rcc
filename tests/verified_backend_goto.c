@@ -273,6 +273,112 @@ long long verified_goto_wide_do_edges(long long limit)
     return value;
 }
 
+int verified_goto_vla_backward(int count, int rounds)
+{
+    int round = 0;
+    int total = 0;
+
+again:
+    if (round >= rounds) return total;
+    {
+        int values[count];
+        values[0] = round + 1;
+        total += values[0];
+        ++round;
+        goto again;
+    }
+}
+
+int verified_goto_vla_scope_exit(int count)
+{
+    int value = 0;
+    {
+        int values[count];
+        values[0] = 23;
+        value = values[0];
+        goto done;
+    }
+done:
+    return value;
+}
+
+int verified_goto_vla_nested_exit(int count)
+{
+    int value = 0;
+    {
+        int outer[count];
+        outer[0] = 31;
+        {
+            int inner[count + 1];
+            inner[0] = 99;
+            goto keep_outer;
+        }
+keep_outer:
+        value = outer[0];
+        {
+            int inner[count + 2];
+            inner[0] = 101;
+            goto done;
+        }
+    }
+done:
+    return value;
+}
+
+int verified_goto_vla_continue(int count, int rounds)
+{
+    int total = 0;
+    for (int round = 0; round < rounds; ++round) {
+        int values[count];
+        values[0] = round + 1;
+        if (round == 0) continue;
+        total += values[0];
+    }
+    return total;
+}
+
+int verified_goto_vla_break(int count, int rounds)
+{
+    int total = 0;
+    for (int round = 0; round < rounds; ++round) {
+        int values[count];
+        values[0] = round + 1;
+        total += values[0];
+        break;
+    }
+    return total;
+}
+
+int verified_goto_vla_while_edges(int count)
+{
+    int round = 0;
+    int total = 0;
+    while (round < 5) {
+        int values[count];
+        values[0] = round + 1;
+        ++round;
+        if (round == 2) continue;
+        if (round == 4) break;
+        total += values[0];
+    }
+    return total;
+}
+
+int verified_goto_vla_do_edges(int count)
+{
+    int round = 0;
+    int total = 0;
+    do {
+        int values[count];
+        values[0] = round + 1;
+        ++round;
+        if (round == 2) continue;
+        if (round == 4) break;
+        total += values[0];
+    } while (round < 5);
+    return total;
+}
+
 int main(void)
 {
     if (verified_goto_wide_forward(1, 100) != 105) return 1;
@@ -321,5 +427,12 @@ int main(void)
     if (verified_goto_wide_do_edges(1LL) != 3LL) return 38;
     if (verified_goto_wide_do_edges(8LL) != 8LL) return 39;
     if (verified_goto_wide_do_edges(12LL) != 13LL) return 40;
+    if (verified_goto_vla_backward(32, 5000) != 12502500) return 41;
+    if (verified_goto_vla_scope_exit(4) != 23) return 42;
+    if (verified_goto_vla_continue(32, 5000) != 12502499) return 43;
+    if (verified_goto_vla_break(32, 5000) != 1) return 44;
+    if (verified_goto_vla_nested_exit(4) != 31) return 45;
+    if (verified_goto_vla_while_edges(32) != 4) return 46;
+    if (verified_goto_vla_do_edges(32) != 4) return 47;
     return 0;
 }
