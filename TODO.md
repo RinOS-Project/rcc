@@ -6604,11 +6604,9 @@ remains a separate open item.
       bound. Verify `int values[count][2][3]` indexing/stride and dynamic
       allocation on i686/AMD64 at `-O0`/`-O2`, with x64 execution in
       `test-verified-goto`.
-- [ ] Extend typed-SSA VLA lowering beyond uninitialized, non-volatile
-      declarations whose element type is scalar/pointer or a fixed-bound array
-      chain, including multiple runtime-bound dimensions. Aggregate leaves,
-      initialized/volatile VLA forms, and broader cleanup/unwind plus
-      goto/loop-edge combinations remain required for general VLA support.
+- [ ] General typed-SSA VLA lowering remains incomplete for aggregate
+      initialization/copy forms, volatile objects, C++ class lifetime hooks,
+      and broader cleanup/unwind plus goto/loop-edge combinations.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)
 
@@ -6645,6 +6643,19 @@ remains a separate open item.
       over `T&&` for `const T&`; the full focused conversion-operator gate passes.
 - [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
       and full C++20 overload-resolution conformance remain open.
+
+## RCC continuation (2026-10-20, plain aggregate typed-SSA VLA elements)
+
+- [x] Permit recursively supported, non-volatile C `struct` and `union` types
+      as typed-SSA VLA elements while excluding C++ classes and lifetime hooks
+      that need constructor/destructor lowering.
+- [x] Add runtime regressions for a VLA of fixed arrays of structures and a
+      VLA of unions. Struct/union member access passes i686/AMD64 `-O0`/`-O2`
+      verified-backend generation with zero fallbacks and x64 object execution.
+      IR, lowering, classic VLA-runtime, and dual-architecture stage0-to-stage2
+      bootstrap gates pass. RCC `main` commit: `6b25abe`. No push.
+- [ ] VLA aggregate initialization/copy, volatile elements, C++ class lifetime
+      lowering, and cleanup/unwind/control-flow interactions remain open.
 
 ## RCC continuation (2026-10-20, typed-SSA multidimensional runtime-bound VLAs)
 
