@@ -133,6 +133,27 @@ extern "C" int inline_local_function_pointer_chained_copy_call(int value)
 }
 
 extern "C" int
+inline_local_function_pointer_reaching_copy_chain_call(int value)
+{
+    int (*callback)(int) = &inline_constexpr_array_first;
+    callback = &inline_constexpr_array_second;
+    int (*copy)(int) = callback;
+    int (*second_copy)(int) = copy;
+    return second_copy(value);
+}
+
+extern "C" int
+inline_local_function_pointer_divergent_reaching_copy_call(int value)
+{
+    int (*callback)(int) = &inline_constexpr_array_first;
+    if (value < 0) {
+        callback = &inline_constexpr_array_second;
+    }
+    int (*copy)(int) = callback;
+    return copy(value);
+}
+
+extern "C" int
 inline_local_function_pointer_copy_after_alias_write_call(int value)
 {
     int (*callback)(int) = &inline_constexpr_array_first;

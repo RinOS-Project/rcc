@@ -2201,6 +2201,36 @@ static Decl* resolve_inline_function_pointer_initializer_or_local_copy(
         pointer_type, initializer, 0u);
 }
 
+/* At a declaration's program point, a source variable may already have a
+ * reaching target even when its earlier direct assignments make whole-body
+ * immutability false.  Only consume facts maintained by the local CFG walk. */
+static Decl* resolve_inline_function_pointer_initializer_or_fact(
+    Type* pointer_type, Expr* initializer) {
+    Decl* target =
+        resolve_inline_function_pointer_initializer_or_local_copy(
+            pointer_type, initializer);
+    Expr* value = initializer;
+    Decl* source;
+    if (target || !pointer_type) return target;
+    while (value && value->kind == EXPR_CAST && value->unary_operand &&
+           type_is_compatible(value->type, pointer_type)) {
+        value = value->unary_operand;
+    }
+    if (!value || value->kind != EXPR_IDENT || !value->ident_decl ||
+        value->ident_decl->kind != DECL_VAR) {
+        return NULL;
+    }
+    source = value->ident_decl;
+    if (!source->type || source->type->kind != TYPE_PTR ||
+        !source->type->base || source->type->base->kind != TYPE_FUNC ||
+        pointer_type->kind != TYPE_PTR || !pointer_type->base ||
+        pointer_type->base->kind != TYPE_FUNC ||
+        !type_is_compatible(pointer_type->base, source->type->base)) {
+        return NULL;
+    }
+    return inline_local_function_pointer_fact(source);
+}
+
 static Decl* resolve_inline_function_pointer_variable(Decl* variable) {
     bool stable_local_target = false;
     if (!variable || variable->kind != DECL_VAR || !variable->type ||
@@ -6872,7 +6902,7 @@ static void optimize_stmt(Stmt* statement) {
                 if (trackable) {
                     inline_local_function_pointer_fact_set(
                         variable,
-                        resolve_inline_function_pointer_initializer_or_local_copy(
+                        resolve_inline_function_pointer_initializer_or_fact(
                             variable->type, variable->var_init));
                 }
             }
