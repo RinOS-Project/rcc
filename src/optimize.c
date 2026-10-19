@@ -98,6 +98,7 @@ typedef struct InlineDebugOrigin {
     const Decl* caller;
     const Decl* callee;
     SourceLoc call_location;
+    const ExprList* arguments;
 } InlineDebugOrigin;
 
 static const Decl* inline_debug_clone_owner;
@@ -117,7 +118,8 @@ static void inline_debug_origins_clear(void) {
 static void inline_debug_origin_add(const Expr* expression,
                                     const Decl* caller,
                                     const Decl* callee,
-                                    SourceLoc call_location) {
+                                    SourceLoc call_location,
+                                    const ExprList* arguments) {
     InlineDebugOrigin* origin;
     if (!expression || !caller || !callee) return;
     if (inline_debug_origin_count == inline_debug_origin_capacity) {
@@ -137,6 +139,7 @@ static void inline_debug_origin_add(const Expr* expression,
     origin->caller = caller;
     origin->callee = callee;
     origin->call_location = call_location;
+    origin->arguments = arguments;
 }
 
 static bool inline_debug_same_function(const Decl* left,
@@ -167,6 +170,7 @@ static void inline_debug_origin_copy_to_clone(const Expr* source,
         const InlineDebugOrigin* origin = &inline_debug_origins[index];
         const Decl* callee;
         SourceLoc call_location;
+        const ExprList* arguments;
         if (origin->expression != source ||
             !inline_debug_same_function(
                 origin->caller, inline_debug_clone_owner)) {
@@ -174,8 +178,9 @@ static void inline_debug_origin_copy_to_clone(const Expr* source,
         }
         callee = origin->callee;
         call_location = origin->call_location;
+        arguments = origin->arguments;
         inline_debug_origin_add(clone, inline_debug_clone_caller, callee,
-                                call_location);
+                                call_location, arguments);
         return;
     }
 }
@@ -183,14 +188,18 @@ static void inline_debug_origin_copy_to_clone(const Expr* source,
 bool rcc_optimize_inline_debug_info(const Expr* expression,
                                     const Decl** caller,
                                     const Decl** callee,
-                                    SourceLoc* call_location) {
-    if (!expression || !caller || !callee || !call_location) return false;
+                                    SourceLoc* call_location,
+                                    const ExprList** arguments) {
+    if (!expression || !caller || !callee || !call_location || !arguments) {
+        return false;
+    }
     for (size_t index = 0u; index < inline_debug_origin_count; ++index) {
         const InlineDebugOrigin* origin = &inline_debug_origins[index];
         if (origin->expression != expression) continue;
         *caller = origin->caller;
         *callee = origin->callee;
         *call_location = origin->call_location;
+        *arguments = origin->arguments;
         return true;
     }
     return false;
@@ -2983,7 +2992,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
         inline_caller_budget_charge(optimize_inline_caller, expansion_cost);
         if (g_opts.debug_info) {
             inline_debug_origin_add(clone, optimize_inline_caller, function,
-                                    expression->loc);
+                                    expression->loc, expression->call_args);
         }
         *expression_out = clone;
     }

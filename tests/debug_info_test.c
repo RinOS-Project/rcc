@@ -3395,6 +3395,9 @@ static void verify_inline_debug_object(const char* path,
     static const uint8_t float_local_attributes[] = {
         0x31u, 0x13u, 0x1cu, 0x0au
     };
+    static const uint8_t signed_parameter_attributes[] = {
+        0x31u, 0x13u, 0x1cu, 0x0du
+    };
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* abbrev;
@@ -3409,6 +3412,7 @@ static void verify_inline_debug_object(const char* path,
     uint64_t inner_end = 0u;
     uint64_t inline_local_origin = UINT64_MAX;
     uint64_t inline_local_call = UINT64_MAX;
+    uint64_t constant_inline_call = UINT64_MAX;
 
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
@@ -3439,6 +3443,9 @@ static void verify_inline_debug_object(const char* path,
     verify_debug_abbreviation(abbrev, 62u, 0x34u, 0u,
                               float_local_attributes,
                               sizeof(float_local_attributes));
+    verify_debug_abbreviation(abbrev, 63u, 0x05u, 0u,
+                              signed_parameter_attributes,
+                              sizeof(signed_parameter_attributes));
 
     for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 12u <=
          info->size; ++die) {
@@ -3471,7 +3478,8 @@ static void verify_inline_debug_object(const char* path,
         inline_name = (const char*)strings->data + name_offset;
         if (strcmp(inline_name, "debug_declared_inline") != 0 &&
             strcmp(inline_name, "debug_nested_inline") != 0 &&
-            strcmp(inline_name, "debug_local_inline") != 0) {
+            strcmp(inline_name, "debug_local_inline") != 0 &&
+            strcmp(inline_name, "debug_constant_inline") != 0) {
             continue;
         }
         origin_file = read_u32(info->data, origin_offset + 5u);
@@ -3542,7 +3550,8 @@ static void verify_inline_debug_object(const char* path,
         assert(line_table_file_matches(
             line, call_file,
             (strcmp(inline_name, "debug_declared_inline") == 0 ||
-             strcmp(inline_name, "debug_local_inline") == 0)
+             strcmp(inline_name, "debug_local_inline") == 0 ||
+             strcmp(inline_name, "debug_constant_inline") == 0)
                 ? "tests/debug_info.c"
                 : "tests/debug_info_inline.h"));
         assert(line_table_file_matches(line, origin_file,
@@ -3556,7 +3565,9 @@ static void verify_inline_debug_object(const char* path,
             root_call =
                 strcmp(relocation->symbol_name, "debug_inline_entry") == 0 ||
                 strcmp(relocation->symbol_name,
-                       "debug_inline_local_entry") == 0;
+                       "debug_inline_local_entry") == 0 ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_constant_entry") == 0;
             assert(root_call ||
                    (strcmp(relocation->symbol_name,
                            "debug_declared_inline") == 0 &&
@@ -3584,6 +3595,12 @@ static void verify_inline_debug_object(const char* path,
                               "debug_inline_local_entry") == 0 &&
                        inline_local_call == UINT64_MAX) {
                 inline_local_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name, "debug_constant_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_constant_entry") == 0 &&
+                       constant_inline_call == UINT64_MAX) {
+                constant_inline_call = die;
             }
             break;
         }
@@ -3595,6 +3612,7 @@ static void verify_inline_debug_object(const char* path,
            inner_end < outer_end);
     assert(inline_local_call != UINT64_MAX);
     assert(inline_local_origin != UINT64_MAX);
+    assert(constant_inline_call != UINT64_MAX);
     assert(inner_die == outer_die + 1u + 4u + address_size + 4u + 12u);
     {
         uint64_t concrete_local =
@@ -3611,6 +3629,21 @@ static void verify_inline_debug_object(const char* path,
                inline_local_origin);
         assert(read_sleb(info->data, info->size, &value_offset) == 7);
         assert(info->data[value_offset++] == 0u);
+        assert(info->data[value_offset] == 0u);
+    }
+    {
+        uint64_t concrete_parameter = constant_inline_call + 1u + 4u +
+            address_size + 4u + 12u;
+        uint64_t value_offset = concrete_parameter + 5u;
+        uint64_t origin_parameter =
+            read_u32(info->data, constant_inline_call + 1u);
+        assert(origin_parameter < info->size &&
+               info->data[origin_parameter] == 40u);
+        origin_parameter += 27u;
+        assert(info->data[concrete_parameter] == 63u);
+        assert(read_u32(info->data, concrete_parameter + 1u) ==
+               origin_parameter);
+        assert(read_sleb(info->data, info->size, &value_offset) == 23);
         assert(info->data[value_offset] == 0u);
     }
     objfile_free(object);
@@ -6042,7 +6075,7 @@ static void verify_verified_fallback_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 38);
+    assert(argc == 40);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -6178,6 +6211,8 @@ int main(int argc, char** argv)
     verify_tls_global_object(argv[19], "debug_cpp_tls_data");
     verify_inline_debug_object(argv[24], ARCH_X86);
     verify_inline_debug_object(argv[25], ARCH_X64);
+    verify_inline_debug_object(argv[38], ARCH_X86);
+    verify_inline_debug_object(argv[39], ARCH_X64);
     verify_class_template_parameter_dies(argv[26], ARCH_X86);
     verify_class_template_parameter_dies(argv[27], ARCH_X64);
     verify_class_template_template_parameter_die(argv[26], ARCH_X86);

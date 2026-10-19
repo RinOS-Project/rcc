@@ -167,7 +167,8 @@ void rcc_ir_module_destroy(RccIrModule* module) {
 
 size_t rcc_ir_module_add_inline_call(
     RccIrModule* module, const void* caller, const void* callee,
-    const char* filename, uint32_t line, uint32_t column,
+    const struct ExprList* arguments, const char* filename,
+    uint32_t line, uint32_t column,
     size_t parent_index_plus_one) {
     size_t capacity;
     size_t index;
@@ -190,6 +191,7 @@ size_t rcc_ir_module_add_inline_call(
     index = module->inline_call_count++;
     module->inline_calls[index].caller = caller;
     module->inline_calls[index].callee = callee;
+    module->inline_calls[index].arguments = arguments;
     module->inline_calls[index].filename = filename;
     module->inline_calls[index].line = line;
     module->inline_calls[index].column = column;

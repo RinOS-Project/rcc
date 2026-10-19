@@ -11,6 +11,7 @@ void rcc_optimize(AST* ast);
 bool rcc_optimize_inline_debug_info(const Expr* expression,
                                    const Decl** caller,
                                    const Decl** callee,
-                                   SourceLoc* call_location);
+                                   SourceLoc* call_location,
+                                   const ExprList** arguments);
 
 #endif /* OPTIMIZE_H */

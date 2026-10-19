@@ -1088,7 +1088,7 @@ static bool verified_append_debug_inline_calls(
                 call->filename, (int)call->line, (int)call->column};
             size_t global_index = module_begin_debug_inline_call(
                 destination, (const Decl*)call->caller,
-                (const Decl*)call->callee, location,
+                (const Decl*)call->callee, call->arguments, location,
                 (uint32_t)(function_symbol->value + local_start),
                 call->parent_index_plus_one == 0u
                     ? 0u
@@ -1147,7 +1147,7 @@ static void verified_emit_debug_sections(
             &data_module->debug_inline_calls[index];
         size_t debug_index = module_begin_debug_inline_call(
             debug_module, call->caller, call->callee,
-            call->call_location, call->code_start,
+            call->arguments, call->call_location, call->code_start,
             call->parent_index_plus_one);
         module_end_debug_inline_call(
             debug_module, debug_index, call->code_end);

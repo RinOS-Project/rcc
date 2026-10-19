@@ -88,9 +88,18 @@ typedef struct ModuleDebugFrameSave {
     uint8_t dwarf_register;
 } ModuleDebugFrameSave;
 
+typedef struct ModuleDebugInlineParameterValue {
+    const Decl* declaration;
+    int64_t value;
+    bool has_signed_integer_constant;
+} ModuleDebugInlineParameterValue;
+
 typedef struct ModuleDebugInlineCall {
     const Decl* caller;
     const Decl* callee;
+    const ExprList* arguments;
+    ModuleDebugInlineParameterValue* parameter_values;
+    size_t parameter_value_count;
     SourceLoc call_location;
     uint32_t code_start;
     uint32_t code_end;
@@ -229,7 +238,8 @@ Module* codegen_new(void);
 void codegen_free(Module* mod);
 size_t module_begin_debug_inline_call(
     Module* mod, const Decl* caller, const Decl* callee,
-    SourceLoc call_location, uint32_t code_start,
+    const ExprList* arguments, SourceLoc call_location,
+    uint32_t code_start,
     size_t parent_index_plus_one);
 void module_end_debug_inline_call(Module* mod, size_t call_index,
                                   uint32_t code_end);

@@ -111,11 +111,13 @@ typedef struct RccIrBlock RccIrBlock;
 typedef struct RccIrFunction RccIrFunction;
 typedef struct RccIrModule RccIrModule;
 typedef struct RccIrConstant RccIrConstant;
+struct ExprList;
 
 typedef struct {
     /* Borrowed declarations and filename; valid while the source AST lives. */
     const void* caller;
     const void* callee;
+    const struct ExprList* arguments;
     const char* filename;
     uint32_t line;
     uint32_t column;
@@ -232,7 +234,8 @@ const RccIrConstant* rcc_ir_module_intern_constant(
     uint32_t alignment);
 size_t rcc_ir_module_add_inline_call(
     RccIrModule* module, const void* caller, const void* callee,
-    const char* filename, uint32_t line, uint32_t column,
+    const struct ExprList* arguments, const char* filename,
+    uint32_t line, uint32_t column,
     size_t parent_index_plus_one);
 RccIrFunction* rcc_ir_function_add(RccIrModule* module, const char* name,
                                   RccIrType return_type,

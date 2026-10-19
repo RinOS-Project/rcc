@@ -9453,6 +9453,7 @@ static void emit64_member_pointer_to_bool(Module* mod, int reg,
 static void gen64_expr(Module* mod, Expr* expr) {
     const Decl* caller = NULL;
     const Decl* callee = NULL;
+    const ExprList* arguments = NULL;
     SourceLoc call_location = {NULL, 0, 0};
     uint32_t start;
     size_t parent_index_plus_one;
@@ -9461,14 +9462,14 @@ static void gen64_expr(Module* mod, Expr* expr) {
     if (!expr) return;
     if (!g_opts.debug_info ||
         !rcc_optimize_inline_debug_info(expr, &caller, &callee,
-                                        &call_location)) {
+                                        &call_location, &arguments)) {
         gen64_expr_impl(mod, expr);
         return;
     }
     start = code_offset(mod);
     parent_index_plus_one = mod->debug_inline_active_call_plus_one;
     inline_call_index = module_begin_debug_inline_call(
-        mod, caller, callee, call_location, start,
+        mod, caller, callee, arguments, call_location, start,
         parent_index_plus_one);
     if (inline_call_index == SIZE_MAX) {
         rcc_fatal("DWARF inline-call index exceeds addressable range");

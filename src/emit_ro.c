@@ -3915,6 +3915,13 @@ typedef struct DebugInlineLocalOrigin {
     struct DebugInlineLocalOrigin* next;
 } DebugInlineLocalOrigin;
 
+typedef struct DebugInlineParameterOrigin {
+    const Decl* function;
+    const Decl* declaration;
+    uint32_t die_offset;
+    struct DebugInlineParameterOrigin* next;
+} DebugInlineParameterOrigin;
+
 static DebugInlineOrigin* debug_inline_origin_find(
     DebugInlineOrigin* origins, size_t origin_count,
     const Decl* declaration) {
@@ -3957,6 +3964,34 @@ static DebugInlineLocalOrigin* debug_inline_local_origin_find(
             origins->declaration == declaration) return origins;
     }
     return NULL;
+}
+
+static DebugInlineParameterOrigin* debug_inline_parameter_origin_find(
+    DebugInlineParameterOrigin* origins, const Decl* function,
+    const Decl* declaration) {
+    for (; origins; origins = origins->next) {
+        if (origins->function == function &&
+            origins->declaration == declaration) return origins;
+    }
+    return NULL;
+}
+
+static void debug_emit_inline_parameter_instances(
+    ObjSection* info, DebugInlineParameterOrigin* origins,
+    const ModuleDebugInlineCall* call) {
+    if (!info || !call || !call->callee || !call->parameter_values) return;
+    for (size_t index = 0u; index < call->parameter_value_count; ++index) {
+        const ModuleDebugInlineParameterValue* value =
+            &call->parameter_values[index];
+        DebugInlineParameterOrigin* origin;
+        if (value->has_signed_integer_constant && value->declaration &&
+            (origin = debug_inline_parameter_origin_find(
+                origins, call->callee, value->declaration)) != NULL) {
+            section_add_byte(info, 63u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_sleb(info, value->value);
+        }
+    }
 }
 
 static void debug_emit_inline_local_origin(
@@ -4046,6 +4081,7 @@ static void debug_emit_inline_call_tree(
     const Module* mod, const ModuleSymbol* function,
     const Decl* function_decl, DebugInlineOrigin* origins,
     size_t origin_count, DebugInlineLocalOrigin* local_origins,
+    DebugInlineParameterOrigin* parameter_origins,
     bool* emitted, size_t call_index) {
     const ModuleDebugInlineCall* call;
     DebugInlineOrigin* origin;
@@ -4101,6 +4137,8 @@ static void debug_emit_inline_call_tree(
     debug_line_u32(info, (uint32_t)call->call_location.column);
 
     debug_emit_inline_local_instances(info, local_origins, call->callee);
+    debug_emit_inline_parameter_instances(
+        info, parameter_origins, call);
 
     for (child_index = 0u;
          child_index < mod->debug_inline_call_count; ++child_index) {
@@ -4114,7 +4152,7 @@ static void debug_emit_inline_call_tree(
         debug_emit_inline_call_tree(
             obj, info, files, file_count, filename, info_section, mod,
             function, function_decl, origins, origin_count, local_origins,
-            emitted,
+            parameter_origins, emitted,
             child_index);
     }
     section_add_byte(info, 0u);
@@ -4125,7 +4163,8 @@ static void debug_emit_inline_calls(
     int file_count, const char* filename, int info_section,
     const Module* mod, const ModuleSymbol* function,
     const Decl* function_decl, DebugInlineOrigin* origins,
-    size_t origin_count, DebugInlineLocalOrigin* local_origins) {
+    size_t origin_count, DebugInlineLocalOrigin* local_origins,
+    DebugInlineParameterOrigin* parameter_origins) {
     bool* emitted;
     if (!mod || mod->debug_inline_call_count == 0u) return;
     if (mod->debug_inline_call_count > SIZE_MAX / sizeof(*emitted)) {
@@ -4142,7 +4181,7 @@ static void debug_emit_inline_calls(
             debug_emit_inline_call_tree(
                 obj, info, files, file_count, filename, info_section, mod,
                 function, function_decl, origins, origin_count,
-                local_origins, emitted,
+                local_origins, parameter_origins, emitted,
                 index);
         }
     }
@@ -4156,7 +4195,7 @@ static void debug_emit_inline_calls(
             debug_emit_inline_call_tree(
                 obj, info, files, file_count, filename, info_section, mod,
                 function, function_decl, origins, origin_count,
-                local_origins, emitted,
+                local_origins, parameter_origins, emitted,
                 index);
         }
     }
@@ -4171,6 +4210,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     DebugTypePatchContext type_patches = {0};
     DebugInlineOrigin* inline_origins = NULL;
     DebugInlineLocalOrigin* inline_local_origins = NULL;
+    DebugInlineParameterOrigin* inline_parameter_origins = NULL;
     size_t inline_origin_count = 0u;
     ObjSection* strings;
     ObjSection* abbrev;
@@ -5165,6 +5205,16 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x0au);   /* DW_FORM_block1 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
+    /* Concrete inlined signed scalar parameters carry their call value. */
+    debug_line_uleb(abbrev, 63u);
+    debug_line_uleb(abbrev, 0x05u);   /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0du);   /* DW_FORM_sdata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);
 
     unit_length_offset = info->size;
@@ -5252,6 +5302,16 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
             parameter_file_index = debug_line_file_index(
                 files, file_count, declaration->loc.filename);
             if (!parameter_type || parameter_file_index <= 0) continue;
+            if (info->size > UINT32_MAX) {
+                rcc_fatal("DWARF inline-parameter DIE offset exceeds 32-bit range");
+            }
+            DebugInlineParameterOrigin* parameter_origin =
+                rcc_alloc(sizeof(*parameter_origin));
+            parameter_origin->function = callee;
+            parameter_origin->declaration = declaration;
+            parameter_origin->die_offset = (uint32_t)info->size;
+            parameter_origin->next = inline_parameter_origins;
+            inline_parameter_origins = parameter_origin;
             section_add_byte(info, 42u);
             debug_line_u32(info, debug_str_add(strings, declaration->name));
             debug_line_u32(info, parameter_type->offset);
@@ -5561,7 +5621,7 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         debug_emit_inline_calls(
             obj, info, files, file_count, filename, info_section, mod,
             function, function_decl, inline_origins, inline_origin_count,
-            inline_local_origins);
+            inline_local_origins, inline_parameter_origins);
         section_add_byte(info, 0u);    /* end of subprogram children */
     }
     section_add_byte(info, 0u);        /* end of compile-unit children */
@@ -5578,6 +5638,11 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
         DebugInlineLocalOrigin* next = inline_local_origins->next;
         rcc_free(inline_local_origins);
         inline_local_origins = next;
+    }
+    while (inline_parameter_origins) {
+        DebugInlineParameterOrigin* next = inline_parameter_origins->next;
+        rcc_free(inline_parameter_origins);
+        inline_parameter_origins = next;
     }
     debug_type_context_free(&types);
 }

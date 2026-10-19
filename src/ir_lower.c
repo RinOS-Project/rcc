@@ -12045,15 +12045,18 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
         context ? context->active_debug_inline_call_plus_one : 0u;
     const Decl* inline_caller = NULL;
     const Decl* inline_callee = NULL;
+    const ExprList* inline_arguments = NULL;
     SourceLoc call_location = {NULL, 0, 0};
     if (context && g_opts.debug_info && expression &&
         rcc_optimize_inline_debug_info(
-            expression, &inline_caller, &inline_callee, &call_location) &&
+            expression, &inline_caller, &inline_callee, &call_location,
+            &inline_arguments) &&
         inline_caller == context->declaration && call_location.filename &&
         call_location.filename[0] && call_location.line > 0 &&
         call_location.column >= 0) {
         size_t call_index = rcc_ir_module_add_inline_call(
             context->module, inline_caller, inline_callee,
+            inline_arguments,
             call_location.filename,
             (uint32_t)call_location.line,
             (uint32_t)call_location.column,

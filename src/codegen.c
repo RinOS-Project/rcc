@@ -68,6 +68,58 @@ static void codegen_expr_loc(SourceLoc* location, const Expr* expression) {
     }
 }
 
+static bool debug_inline_signed_integer_type(const Type* type) {
+    return type && !type->is_unsigned && !type->is_volatile &&
+        !type->is_reference && type->size > 0 && type->size <= 8 &&
+        ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
+         type->kind == TYPE_ENUM);
+}
+
+static void debug_inline_capture_parameter_values(
+    ModuleDebugInlineCall* call, const Decl* callee,
+    const ExprList* arguments) {
+    const DeclList* parameter;
+    const ExprList* argument = arguments;
+    size_t count = 0u;
+    size_t index = 0u;
+    for (parameter = callee ? callee->func_params : NULL;
+         parameter; parameter = parameter->next) {
+        if (parameter->decl && parameter->decl->kind == DECL_PARAM) ++count;
+    }
+    if (count > SIZE_MAX / sizeof(*call->parameter_values)) {
+        rcc_fatal("DWARF inline-parameter value table is too large");
+    }
+    call->parameter_values = count == 0u
+        ? NULL : rcc_alloc(count * sizeof(*call->parameter_values));
+    call->parameter_value_count = count;
+    for (parameter = callee ? callee->func_params : NULL;
+         parameter; parameter = parameter->next) {
+        const Decl* declaration = parameter->decl;
+        ModuleDebugInlineParameterValue* value;
+        const Type* parameter_type;
+        const Type* argument_type;
+        int64_t constant;
+        if (!declaration || declaration->kind != DECL_PARAM) continue;
+        value = &call->parameter_values[index++];
+        value->declaration = declaration;
+        value->value = 0;
+        value->has_signed_integer_constant = false;
+        parameter_type = declaration->type;
+        argument_type = argument && argument->expr
+            ? argument->expr->type : NULL;
+        if (argument && !argument->cxx_temporary_owner &&
+            debug_inline_signed_integer_type(parameter_type) &&
+            debug_inline_signed_integer_type(argument_type) &&
+            parameter_type->kind == argument_type->kind &&
+            parameter_type->size == argument_type->size &&
+            expr_eval_integer_constant(argument->expr, &constant)) {
+            value->value = constant;
+            value->has_signed_integer_constant = true;
+        }
+        if (argument) argument = argument->next;
+    }
+}
+
 /* ═══════════════════════════════════════
  * Module Management
  * ═══════════════════════════════════════ */
@@ -147,7 +199,8 @@ Module* codegen_new(void) {
 
 size_t module_begin_debug_inline_call(
     Module* mod, const Decl* caller, const Decl* callee,
-    SourceLoc call_location, uint32_t code_start,
+    const ExprList* arguments, SourceLoc call_location,
+    uint32_t code_start,
     size_t parent_index_plus_one) {
     size_t next_capacity;
     size_t call_index;
@@ -171,6 +224,10 @@ size_t module_begin_debug_inline_call(
     ModuleDebugInlineCall* call = &mod->debug_inline_calls[call_index];
     call->caller = caller;
     call->callee = callee;
+    call->arguments = arguments;
+    call->parameter_values = NULL;
+    call->parameter_value_count = 0u;
+    debug_inline_capture_parameter_values(call, callee, arguments);
     call->call_location = call_location;
     call->code_start = code_start;
     call->code_end = code_start;
@@ -196,6 +253,9 @@ void codegen_free(Module* mod) {
     }
     for (int index = 0; index < mod->reloc_count; ++index) {
         rcc_free((void*)mod->relocs_arr[index].symbol_name);
+    }
+    for (size_t index = 0u; index < mod->debug_inline_call_count; ++index) {
+        rcc_free(mod->debug_inline_calls[index].parameter_values);
     }
     while (mod->global_initializers) {
         GlobalInitializer* next = mod->global_initializers->next;
@@ -16417,6 +16477,7 @@ static void emit_convert_integer_value(Module* mod, int reg,
 static void gen_expr(Module* mod, Expr* expr) {
     const Decl* caller = NULL;
     const Decl* callee = NULL;
+    const ExprList* arguments = NULL;
     SourceLoc call_location = {NULL, 0, 0};
     uint32_t start;
     size_t parent_index_plus_one;
@@ -16425,14 +16486,14 @@ static void gen_expr(Module* mod, Expr* expr) {
     if (!expr) return;
     if (!g_opts.debug_info ||
         !rcc_optimize_inline_debug_info(expr, &caller, &callee,
-                                        &call_location)) {
+                                        &call_location, &arguments)) {
         gen_expr_impl(mod, expr);
         return;
     }
     start = code_offset(mod);
     parent_index_plus_one = mod->debug_inline_active_call_plus_one;
     inline_call_index = module_begin_debug_inline_call(
-        mod, caller, callee, call_location, start,
+        mod, caller, callee, arguments, call_location, start,
         parent_index_plus_one);
     if (inline_call_index == SIZE_MAX) {
         rcc_fatal("DWARF inline-call index exceeds addressable range");

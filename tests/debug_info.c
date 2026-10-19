@@ -64,6 +64,11 @@ int debug_inline_local_entry(int value)
     return debug_local_inline(value);
 }
 
+int debug_inline_constant_entry(void)
+{
+    return debug_constant_inline(23);
+}
+
 int debug_tls_static_local_read(void)
 {
     static _Thread_local int debug_tls_static_local = 17;

@@ -13,3 +13,8 @@ inline int debug_local_inline(int value)
     const int inline_local_value = 7;
     return value + inline_local_value;
 }
+
+inline int debug_constant_inline(int value)
+{
+    return value + 3;
+}
