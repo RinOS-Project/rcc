@@ -554,6 +554,7 @@ test-cxx-adl-multiple-namespaces test-cxx-using-overload-namespaces \
 	test-cxx-static-reference-conversions-posix
 .PHONY: test-cxx-member-pointer-data \
 	test-cxx-member-pointer-reference-lifetime \
+	test-cxx-member-pointer-reference-lifetime-posix \
 	test-cxx-member-pointer-functions \
 	test-cxx-member-pointer-functions-posix \
 	test-cxx-member-pointer-data-posix
@@ -4029,6 +4030,33 @@ test-cxx-structural-pointer-offset-posix: $(RCXX_TARGET)
 	$(TEST_OUT)/cxx-structural-pointer-aggregate-member/gcc-host
 	@echo "C++ structural pointer array-offset NTTP tests completed"
 
+test-cxx-member-pointer-reference-lifetime-posix: $(RCXX_TARGET)
+	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-reference-lifetime)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.s \
+		tests/cxx_member_pointer_reference_lifetime.cpp
+	$(CC) -m32 -c \
+		-o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.o \
+		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.s
+	objdump -f $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86.o \
+		> $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86-arch.log
+	$(GREP) -F -q "elf32-i386" \
+		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x86-arch.log
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
+		-o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.s \
+		tests/cxx_member_pointer_reference_lifetime.cpp
+	$(CC) -c \
+		-o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.o \
+		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.s
+	$(OBJCOPY) --redefine-sym main=rcc_generated_main \
+		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.o
+	$(CC) $(CFLAGS) -no-pie \
+		-o $(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64-host \
+		tests/cxx_static_reference_host.c \
+		$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64.o
+	$(TEST_OUT)/cxx-member-pointer-reference-lifetime/x64-host
+	@echo "C++ pointer-to-member static reference lifetime tests passed for i686 and AMD64"
+
 test-cxx-member-pointer-data-posix: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/cxx-member-pointer-data)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
@@ -6199,6 +6227,7 @@ test-cxx-static-reference-retry: test-cxx-static-reference-retry-posix
 test-cxx-static-local-exception: test-cxx-static-local-exception-posix
 test-cxx-static-reference-subobjects: test-cxx-static-reference-subobjects-posix
 test-cxx-static-reference-conversions: test-cxx-static-reference-conversions-posix
+test-cxx-member-pointer-reference-lifetime: test-cxx-member-pointer-reference-lifetime-posix
 test-cxx-member-pointer-data: test-cxx-member-pointer-data-posix
 test-cxx-member-pointer-functions: test-cxx-member-pointer-functions-posix
 test-cxx-constraints: test-cxx-constraints-posix

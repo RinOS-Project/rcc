@@ -708,9 +708,22 @@
         base. `test-cxx-member-pointer-data` generates i686/AMD64 objects,
         verifies all seven typed-IR functions on both targets, and executes the
         generated AMD64 program on the host. Global and block-static reference
-        bindings through a member pointer verify retained values, lifetime, and
-        exactly-once destruction through the shared host runtime. Keep this
-        open until RinOS runtime integration is covered.
+        bindings through a side-effecting member-pointer selector applied to a
+        base subobject of a derived temporary verify retained values, one-time
+        selector evaluation, and derived-before-base destruction exactly once.
+        Native-Windows and POSIX generated AMD64 execution plus i686/AMD64 object
+        generation pass in `test-cxx-member-pointer-reference-lifetime`; the
+        POSIX `test-cxx` alias now reaches its explicit recipe instead of silently
+        skipping this phony target. Keep this open until RinOS runtime integration
+        is covered.
+  - [x] Add global and block-static reference regressions where a side-effecting
+        pointer-to-member selector applies a base-class member to a derived
+        temporary. Verify selected values, one-time selection, stable local
+        identity, and derived-before-base destruction on both host adapters.
+  - [x] Add the missing POSIX test recipe and alias for
+        `test-cxx-member-pointer-reference-lifetime`; ensure the existing C++20
+        regression aggregate executes it instead of treating the phony name as
+        an already-satisfied target.
   - [x] Complete remaining data-member-pointer conversions and contexts:
         hidden inherited data-member lookup, non-public inherited data members,
         and remaining access contexts. Unique public inherited data members now
