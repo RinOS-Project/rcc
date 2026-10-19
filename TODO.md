@@ -6568,8 +6568,16 @@ remains a separate open item.
       backward-goto loops. Keep edge stack mirrors coherent and verify i686 and
       AMD64 at `-O0`/`-O2`; `test-verified-goto` passes with generated x64
       execution.
-- [ ] Labels syntactically nested in structured loops still use the validated
-      stack-mirror path; broader loop-edge SSA modeling and VLA stack
+- [x] Construct low/high phis for loop-nested labels across forward joins,
+      nested-loop exits, backward label cycles, and loop restarts. Synchronize
+      wide-local mirrors at `while`/`do-while` conditions, `for` conditions
+      and increments, break/continue, and backedges so header loads remain
+      iteration-current and loop-local phi values do not escape their
+      dominance region. Verify a bounded loop whose condition itself reads
+      the loop-carried 64-bit value, detecting stale-header regressions. The
+      i686/AMD64 `-O0`/`-O2` verified goto gate checks these phi inputs and the
+      generated x64 objects execute successfully.
+- [ ] Broader untested structured-loop/goto edge combinations and VLA stack
       restoration remain open.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)

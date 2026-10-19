@@ -108,7 +108,6 @@ typedef struct RccIrLowerLabel {
     RccIrLowerLabelEdge* incoming;
     RccIrLowerLabelEdge* incoming_tail;
     RccIrLowerWideState* phis;
-    bool inside_loop;
     struct RccIrLowerLabel* next;
 } RccIrLowerLabel;
 
@@ -162,9 +161,6 @@ static bool lower_collect_labels(RccIrLowerContext* context,
                                  const Stmt* statement);
 static bool lower_count_label_gotos(RccIrLowerContext* context,
                                     const Stmt* statement);
-static void lower_mark_label_loop_nesting(
-    RccIrLowerContext* context, const Stmt* statement,
-    unsigned loop_depth);
 static bool lower_record_label_edge(
     RccIrLowerContext* context, RccIrLowerLabel* label);
 static bool lower_install_label_phis(
@@ -824,7 +820,6 @@ static bool lower_collect_labels(RccIrLowerContext* context,
             label->incoming = NULL;
             label->incoming_tail = NULL;
             label->phis = NULL;
-            label->inside_loop = false;
             label->block = rcc_ir_block_add(context->function, "label");
             if (!label->block) {
                 rcc_free(label);
@@ -927,69 +922,6 @@ static bool lower_count_label_gotos(RccIrLowerContext* context,
     }
 }
 
-static void lower_mark_label_loop_nesting(
-    RccIrLowerContext* context, const Stmt* statement,
-    unsigned loop_depth) {
-    const StmtList* item;
-    if (!context || !statement) return;
-    switch (statement->kind) {
-        case STMT_BLOCK:
-            for (item = statement->block_stmts; item; item = item->next) {
-                lower_mark_label_loop_nesting(
-                    context, item->stmt, loop_depth);
-            }
-            break;
-        case STMT_IF:
-            lower_mark_label_loop_nesting(
-                context, statement->if_then, loop_depth);
-            lower_mark_label_loop_nesting(
-                context, statement->if_else, loop_depth);
-            break;
-        case STMT_WHILE:
-        case STMT_DO:
-            lower_mark_label_loop_nesting(
-                context, statement->while_body, loop_depth + 1u);
-            break;
-        case STMT_FOR:
-            lower_mark_label_loop_nesting(
-                context, statement->for_init, loop_depth);
-            lower_mark_label_loop_nesting(
-                context, statement->for_body, loop_depth + 1u);
-            break;
-        case STMT_SWITCH:
-            lower_mark_label_loop_nesting(
-                context, statement->switch_body, loop_depth);
-            break;
-        case STMT_CASE:
-            lower_mark_label_loop_nesting(
-                context, statement->case_stmt, loop_depth);
-            break;
-        case STMT_DEFAULT:
-            lower_mark_label_loop_nesting(
-                context, statement->default_stmt, loop_depth);
-            break;
-        case STMT_LABEL: {
-            RccIrLowerLabel* label = lower_find_label_statement(
-                context, statement);
-            if (label) label->inside_loop = loop_depth != 0u;
-            lower_mark_label_loop_nesting(
-                context, statement->label_stmt, loop_depth);
-            break;
-        }
-        case STMT_TRY:
-            lower_mark_label_loop_nesting(
-                context, statement->try_body, loop_depth);
-            for (const CxxCatch* handler = statement->try_catches; handler;
-                 handler = handler->next) {
-                lower_mark_label_loop_nesting(
-                    context, handler->body, loop_depth);
-            }
-            break;
-        default:
-            break;
-    }
-}
-
 static RccIrInstruction* lower_append(
     RccIrLowerContext* context, RccIrOpcode opcode, RccIrType type,
     const RccIrValue* operands, size_t operand_count,
@@ -1024,7 +956,6 @@ static bool lower_prepare_label_phis(
     bool needs_placeholder = false;
     RccIrLowerValue zero;
     if (!context || !lower_count_label_gotos(context, body)) return false;
-    lower_mark_label_loop_nesting(context, body, 0u);
     for (RccIrLowerLabel* label = context->labels; label;
          label = label->next) {
         if (label->goto_count == SIZE_MAX) {
@@ -4105,7 +4036,6 @@ static bool lower_install_label_phis(
         return false;
     }
     lower_invalidate_wide_locals(context);
-    if (label->inside_loop) return true;
     if (label->incoming_count == 0u) return true;
     if (label->goto_count == 0u) {
         if (label->incoming_count == 1u) {
@@ -12691,11 +12621,13 @@ static bool lower_while(RccIrLowerContext* context,
         context->continue_cleanup_marker;
     RccIrLowerValue condition;
     if (!condition_block || !body_block || !exit_block ||
+        !lower_flush_wide_locals(context) ||
         !lower_branch(context, condition_block->id)) {
         return false;
     }
     context->current = condition_block;
     context->terminated = false;
+    lower_invalidate_wide_locals(context);
     condition = lower_expression(context, statement->while_cond);
     if (!condition.valid || !lower_conditional_branch(
             context, condition, body_block->id, exit_block->id)) {
@@ -12708,7 +12640,9 @@ static bool lower_while(RccIrLowerContext* context,
     context->current = body_block;
     context->terminated = false;
     if (!lower_statement_subscope(context, statement->while_body)) return false;
-    if (!context->terminated && !lower_branch(context, condition_block->id)) {
+    if (!context->terminated &&
+        (!lower_flush_wide_locals(context) ||
+         !lower_branch(context, condition_block->id))) {
         return false;
     }
     context->break_target = old_break;
@@ -12717,6 +12651,7 @@ static bool lower_while(RccIrLowerContext* context,
     context->continue_cleanup_marker = old_continue_cleanup;
     context->current = exit_block;
     context->terminated = false;
+    lower_invalidate_wide_locals(context);
     return true;
 }
 
@@ -12739,6 +12674,7 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
         context->continue_cleanup_marker;
     RccIrLowerValue condition;
     if (!body_block || !condition_block || !exit_block ||
+        !lower_flush_wide_locals(context) ||
         !lower_branch(context, body_block->id)) {
         return false;
     }
@@ -12748,15 +12684,19 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
     context->continue_cleanup_marker = context->scope_cleanups;
     context->current = body_block;
     context->terminated = false;
+    lower_invalidate_wide_locals(context);
     if (!lower_statement_subscope(context, statement->while_body)) return false;
     /* A return/break may terminate the lexical fallthrough, while continue
      * edges can still make the condition block reachable.  Lower it either
      * way so every allocated block has a terminator. */
-    if (!context->terminated && !lower_branch(context, condition_block->id)) {
+    if (!context->terminated &&
+        (!lower_flush_wide_locals(context) ||
+         !lower_branch(context, condition_block->id))) {
         return false;
     }
     context->current = condition_block;
     context->terminated = false;
+    lower_invalidate_wide_locals(context);
     condition = lower_expression(context, statement->while_cond);
     if (!condition.valid || !lower_conditional_branch(
             context, condition, body_block->id, exit_block->id)) {
@@ -12768,6 +12708,7 @@ static bool lower_do(RccIrLowerContext* context, const Stmt* statement) {
     context->continue_cleanup_marker = old_continue_cleanup;
     context->current = exit_block;
     context->terminated = false;
+    lower_invalidate_wide_locals(context);
     return true;
 }
 
@@ -12808,11 +12749,13 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     exit_block = rcc_ir_block_add(context->function, "for.end");
     if (!condition_block || !body_block || !increment_block ||
         (has_for_scope_cleanups && !cleanup_block) || !exit_block ||
+        !lower_flush_wide_locals(context) ||
         !lower_branch(context, condition_block->id)) {
         return false;
     }
     context->current = condition_block;
     context->terminated = false;
+    lower_invalidate_wide_locals(context);
     if (statement->for_cond) {
         condition = lower_expression(context, statement->for_cond);
     } else {
@@ -12831,18 +12774,22 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     context->current = body_block;
     context->terminated = false;
     if (!lower_statement_subscope(context, statement->for_body)) return false;
-    if (!context->terminated && !lower_branch(context, increment_block->id)) {
+    if (!context->terminated &&
+        (!lower_flush_wide_locals(context) ||
+         !lower_branch(context, increment_block->id))) {
         return false;
     }
     /* Continue edges may enter the increment block even when every normal
      * body path returns or breaks; retain and terminate that block. */
     context->current = increment_block;
     context->terminated = false;
+    lower_invalidate_wide_locals(context);
     if (statement->for_inc) {
         (void)lower_expression(context, statement->for_inc);
         if (context->unsupported) return false;
     }
-    if (!lower_branch(context, condition_block->id)) return false;
+    if (!lower_flush_wide_locals(context) ||
+        !lower_branch(context, condition_block->id)) return false;
     context->break_target = old_break;
     context->continue_target = old_continue;
     context->break_cleanup_marker = old_break_cleanup;
@@ -12851,6 +12798,7 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
         context->current = cleanup_block;
         context->terminated = false;
         if (!lower_emit_scope_cleanups_until(context, scope_marker) ||
+            !lower_flush_wide_locals(context) ||
             !lower_branch(context, exit_block->id)) {
             return false;
         }
@@ -12858,6 +12806,7 @@ static bool lower_for(RccIrLowerContext* context, const Stmt* statement) {
     }
     context->current = exit_block;
     context->terminated = false;
+    lower_invalidate_wide_locals(context);
     return true;
 }
 
@@ -18511,7 +18460,8 @@ static bool lower_statement_impl(RccIrLowerContext* context,
             return lower_for(context, statement);
         case STMT_BREAK:
             if (!lower_emit_scope_cleanups_until(
-                    context, context->break_cleanup_marker)) {
+                    context, context->break_cleanup_marker) ||
+                !lower_flush_wide_locals(context)) {
                 return false;
             }
             if (context->current_switch &&
@@ -18532,7 +18482,8 @@ static bool lower_statement_impl(RccIrLowerContext* context,
             return lower_branch(context, context->break_target);
         case STMT_CONTINUE:
             if (!lower_emit_scope_cleanups_until(
-                    context, context->continue_cleanup_marker)) {
+                    context, context->continue_cleanup_marker) ||
+                !lower_flush_wide_locals(context)) {
                 return false;
             }
             if (context->wide_loop &&

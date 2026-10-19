@@ -158,6 +158,59 @@ joined:
     return value;
 }
 
+long long verified_goto_wide_loop_condition(long long limit)
+{
+    long long value = 0;
+    unsigned int iterations = 0u;
+    while (value < limit && iterations < 4u) {
+        ++iterations;
+        if ((limit & 1LL) != 0LL) {
+            value += 2LL;
+            goto joined;
+        }
+        value += 1LL;
+
+    joined:
+        value += 1LL;
+    }
+    return value;
+}
+
+long long verified_goto_wide_for_condition(long long limit)
+{
+    long long value = 0;
+    for (unsigned int iterations = 0u;
+         value < limit && iterations < 4u; ++iterations) {
+        if ((limit & 1LL) != 0LL) {
+            value += 2LL;
+            goto joined;
+        }
+        value += 1LL;
+
+    joined:
+        value += 1LL;
+    }
+    return value;
+}
+
+long long verified_goto_wide_do_condition(long long limit)
+{
+    long long value = 0;
+    unsigned int iterations = 0u;
+    do {
+        ++iterations;
+        if ((limit & 1LL) != 0LL) {
+            value += 2LL;
+            goto joined;
+        }
+        value += 1LL;
+
+    joined:
+        value += 1LL;
+    } while (value < limit && iterations < 4u);
+    return value;
+}
+
 int main(void)
 {
     if (verified_goto_wide_forward(1, 100) != 105) return 1;
@@ -182,5 +235,17 @@ int main(void)
         8589934601LL) return 11;
     if (verified_goto_wide_multiple_predecessors(0u, 0u, 9) !=
         12884901900LL) return 12;
+    if (verified_goto_wide_loop_condition(0LL) != 0LL) return 17;
+    if (verified_goto_wide_loop_condition(3LL) != 3LL) return 18;
+    if (verified_goto_wide_loop_condition(4LL) != 4LL) return 19;
+    if (verified_goto_wide_loop_condition(5LL) != 6LL) return 20;
+    if (verified_goto_wide_for_condition(0LL) != 0LL) return 21;
+    if (verified_goto_wide_for_condition(3LL) != 3LL) return 22;
+    if (verified_goto_wide_for_condition(4LL) != 4LL) return 23;
+    if (verified_goto_wide_for_condition(5LL) != 6LL) return 24;
+    if (verified_goto_wide_do_condition(0LL) != 2LL) return 25;
+    if (verified_goto_wide_do_condition(3LL) != 3LL) return 26;
+    if (verified_goto_wide_do_condition(4LL) != 4LL) return 27;
+    if (verified_goto_wide_do_condition(5LL) != 6LL) return 28;
     return 0;
 }
