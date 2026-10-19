@@ -2579,6 +2579,7 @@ static void verify_cxx_for_initializer_scope(const char* path,
 }
 
 static void verify_multiple_return_frame_fde(const ObjSection* frame,
+                                             const char* function_symbol,
                                              uint16_t architecture);
 static void verify_saved_callee_register_rules(
     const ObjSection* frame, const char* function_symbol,
@@ -2608,7 +2609,9 @@ static void verify_optimized_verified_debug_object(
     ranges = objfile_get_section(object, ".debug_ranges");
     assert(info != NULL && strings != NULL && frame != NULL &&
            locations != NULL);
-    verify_multiple_return_frame_fde(frame, architecture);
+    verify_multiple_return_frame_fde(
+        frame, "tests/verified_backend_debug.c::verified_debug_multi_return",
+        architecture);
     verify_saved_callee_register_rules(
         frame, "verified_debug_preserved_registers", architecture);
     assert(find_variable_location(info, strings, locations, "value",
@@ -3352,9 +3355,29 @@ static void verify_verified_cpp_inline_debug(
     assert(middle_call_line == 43u && middle_call_column == 12u &&
            leaf_call_line == 38u && leaf_call_column == 12u);
     assert(middle_die < leaf_die);
-    assert(leaf_children_end + 1u < info->size &&
-           info->data[leaf_children_end] == 0u &&
-           info->data[leaf_children_end + 1u] == 0u);
+    {
+        uint64_t child = leaf_children_end;
+        while (child < info->size && info->data[child] != 0u) {
+            uint32_t parameter_origin;
+            uint64_t expression_size;
+            uint64_t expression_end;
+            int64_t frame_offset;
+            assert(info->data[child++] == 67u);
+            parameter_origin = read_u32(info->data, child);
+            child += 4u;
+            assert(parameter_origin < info->size);
+            expression_size = read_uleb(info->data, info->size, &child);
+            assert(expression_size >= 2u &&
+                   expression_size <= info->size - child);
+            expression_end = child + expression_size;
+            assert(info->data[child++] ==
+                   (architecture == ARCH_X64 ? 0x76u : 0x75u));
+            frame_offset = read_sleb(info->data, info->size, &child);
+            assert(child == expression_end && frame_offset != 0);
+        }
+        assert(child + 1u < info->size && info->data[child] == 0u &&
+               info->data[child + 1u] == 0u);
+    }
     objfile_free(object);
     verify_verified_cpp_inline_call_site(
         path, architecture, "verified_cpp_debug_inline_member_host",
@@ -3365,6 +3388,28 @@ static void verify_verified_cpp_inline_debug(
     verify_verified_cpp_inline_call_site(
         path, architecture, "verified_cpp_debug_inline_array_host",
         "verified_cpp_debug_inline_array_second", 89u, 12u);
+}
+
+static void verify_inline_frame_parameter_die(const ObjSection* info,
+                                             uint64_t* cursor,
+                                             uint16_t architecture)
+{
+    uint32_t origin;
+    uint64_t expression_size;
+    uint64_t expression_end;
+    int64_t frame_offset;
+    assert(info != NULL && cursor != NULL && *cursor < info->size);
+    assert(info->data[(*cursor)++] == 67u);
+    origin = read_u32(info->data, *cursor);
+    *cursor += 4u;
+    assert(origin < info->size && info->data[origin] == 42u);
+    expression_size = read_uleb(info->data, info->size, cursor);
+    assert(expression_size >= 2u && expression_size <= info->size - *cursor);
+    expression_end = *cursor + expression_size;
+    assert(info->data[(*cursor)++] ==
+           (architecture == ARCH_X64 ? 0x76u : 0x75u));
+    frame_offset = read_sleb(info->data, info->size, cursor);
+    assert(*cursor == expression_end && frame_offset != 0);
 }
 
 static void verify_inline_debug_object(const char* path,
@@ -3415,6 +3460,7 @@ static void verify_inline_debug_object(const char* path,
     ObjSection* abbrev;
     ObjSection* strings;
     ObjSection* line;
+    ObjSection* locations;
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint64_t outer_die = UINT64_MAX;
     uint64_t inner_die = UINT64_MAX;
@@ -3438,13 +3484,16 @@ static void verify_inline_debug_object(const char* path,
     uint64_t enum_inline_call = UINT64_MAX;
     uint64_t global_pointer_inline_call = UINT64_MAX;
     uint64_t static_pointer_inline_call = UINT64_MAX;
+    uint64_t automatic_pointer_inline_call = UINT64_MAX;
 
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
     abbrev = objfile_get_section(object, ".debug_abbrev");
     strings = objfile_get_section(object, ".debug_str");
     line = objfile_get_section(object, ".debug_line");
-    assert(info != NULL && abbrev != NULL && strings != NULL && line != NULL);
+    locations = objfile_get_section(object, ".debug_loc");
+    assert(info != NULL && abbrev != NULL && strings != NULL && line != NULL &&
+           locations != NULL);
     verify_debug_abbreviation(abbrev, 40u, 0x2eu,
                               1u,
                               origin_attributes,
@@ -3699,6 +3748,9 @@ static void verify_inline_debug_object(const char* path,
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_static_pointer_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_automatic_pointer_entry") == 0;
             assert(root_call ||
                    (strcmp(relocation->symbol_name,
                            "debug_declared_inline") == 0 &&
@@ -3823,6 +3875,13 @@ static void verify_inline_debug_object(const char* path,
                               "debug_inline_static_pointer_entry") == 0 &&
                        static_pointer_inline_call == UINT64_MAX) {
                 static_pointer_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_automatic_pointer_entry") == 0 &&
+                       automatic_pointer_inline_call == UINT64_MAX) {
+                automatic_pointer_inline_call = die;
             }
             break;
         }
@@ -3848,12 +3907,20 @@ static void verify_inline_debug_object(const char* path,
     assert(enum_inline_call != UINT64_MAX);
     assert(global_pointer_inline_call != UINT64_MAX);
     assert(static_pointer_inline_call != UINT64_MAX);
-    assert(inner_die == outer_die + 1u + 4u + address_size + 4u + 12u);
+    assert(automatic_pointer_inline_call != UINT64_MAX);
     {
-        uint64_t concrete_local =
+        uint64_t child = outer_die + 1u + 4u + address_size + 4u + 12u;
+        while (child < inner_die) {
+            verify_inline_frame_parameter_die(info, &child, architecture);
+        }
+        assert(child == inner_die);
+    }
+    {
+        uint64_t child =
             inner_die + 1u + 4u + address_size + 4u + 12u;
-        assert(info->data[concrete_local] == 0u);
-        assert(info->data[concrete_local + 1u] == 0u);
+        verify_inline_frame_parameter_die(info, &child, architecture);
+        assert(child + 1u < info->size && info->data[child] == 0u &&
+               info->data[child + 1u] == 0u);
     }
     {
         uint64_t concrete_local =
@@ -4011,13 +4078,19 @@ static void verify_inline_debug_object(const char* path,
             address_size + 4u + 12u;
         uint64_t origin_parameter =
             read_u32(info->data, null_pointer_inline_call + 1u) + 27u;
+        uint64_t second_parameter;
         assert(info->data[concrete_parameter] == 66u);
         assert(read_u32(info->data, concrete_parameter + 1u) ==
                origin_parameter);
         for (uint64_t byte = 0u; byte < address_size; ++byte) {
             assert(info->data[concrete_parameter + 5u + byte] == 0u);
         }
-        assert(info->data[concrete_parameter + 5u + address_size] == 0u);
+        second_parameter = concrete_parameter + 5u + address_size;
+        verify_inline_frame_parameter_die(info, &second_parameter,
+                                          architecture);
+        assert(second_parameter + 1u < info->size &&
+               info->data[second_parameter] == 0u &&
+               info->data[second_parameter + 1u] == 0u);
     }
     {
         uint64_t concrete_parameter = enum_inline_call + 1u + 4u +
@@ -4088,6 +4161,36 @@ static void verify_inline_debug_object(const char* path,
             }
         }
         assert(found_source_relocation);
+    }
+    {
+        uint64_t concrete_parameter = automatic_pointer_inline_call + 1u + 4u +
+            address_size + 4u + 12u;
+        uint32_t origin_parameter = read_u32(
+            info->data, automatic_pointer_inline_call + 1u) + 27u;
+        uint64_t expression_offset = concrete_parameter + 5u;
+        uint64_t expression_size = read_uleb(
+            info->data, info->size, &expression_offset);
+        uint64_t expression_end;
+        int64_t frame_offset;
+        int64_t source_frame_offset;
+        bool source_has_location;
+        bool source_is_location_list;
+        assert(info->data[concrete_parameter] == 67u);
+        assert(read_u32(info->data, concrete_parameter + 1u) ==
+               origin_parameter);
+        assert(expression_size >= 2u);
+        assert(info->data[expression_offset] ==
+               (architecture == ARCH_X64 ? 0x76u : 0x75u));
+        expression_end = expression_offset + expression_size;
+        ++expression_offset;
+        frame_offset = read_sleb(info->data, info->size, &expression_offset);
+        assert(expression_offset == expression_end && frame_offset != 0);
+        assert(find_variable_location(
+            info, strings, locations,
+            "debug_inline_automatic_pointer_source", architecture,
+            &source_has_location, &source_is_location_list,
+            &source_frame_offset));
+        assert(source_has_location && source_frame_offset == frame_offset);
     }
     objfile_free(object);
 }
@@ -4186,7 +4289,15 @@ static void verify_cxx_inline_nullptr_parameter(const char* path,
         for (uint64_t byte = 0u; byte < address_size; ++byte) {
             assert(info->data[concrete_parameter + 5u + byte] == 0u);
         }
-        assert(info->data[concrete_parameter + 5u + address_size] == 0u);
+        {
+            uint64_t second_parameter = concrete_parameter + 5u +
+                address_size;
+            verify_inline_frame_parameter_die(info, &second_parameter,
+                                              architecture);
+            assert(second_parameter + 1u < info->size &&
+                   info->data[second_parameter] == 0u &&
+                   info->data[second_parameter + 1u] == 0u);
+        }
         found = true;
         break;
     }
@@ -4843,23 +4954,41 @@ static size_t count_frame_body_restores(const ObjSection* frame,
 }
 
 static void verify_multiple_return_frame_fde(const ObjSection* frame,
+                                             const char* function_symbol,
                                              uint16_t architecture)
 {
-    uint32_t cie_length = read_u32(frame->data, 0u);
-    uint64_t fde_offset = 4u + cie_length;
-    uint32_t fde_length = read_u32(frame->data, fde_offset);
-    uint64_t instruction_offset = fde_offset + 8u +
-        (architecture == ARCH_X64 ? 16u : 8u);
-    uint64_t instruction_end = fde_offset + 4u + fde_length;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint8_t frame_register = architecture == ARCH_X64 ? 6u : 5u;
     uint8_t stack_register = architecture == ARCH_X64 ? 7u : 4u;
     uint8_t pointer_size = architecture == ARCH_X64 ? 8u : 4u;
-    assert(count_epilogue_cfa_restores(
-               frame, instruction_offset, instruction_end, stack_register,
-               frame_register, pointer_size) == 3u);
-    assert(count_frame_body_restores(
-               frame, instruction_offset, instruction_end, frame_register,
-               pointer_size) == 2u);
+    assert(frame != NULL && function_symbol != NULL);
+    for (const ObjReloc* relocation = frame->relocs; relocation;
+         relocation = relocation->next) {
+        uint64_t fde_offset;
+        uint64_t instruction_offset;
+        uint64_t instruction_end;
+        uint32_t fde_length;
+        if (!relocation->symbol_name ||
+            strcmp(relocation->symbol_name, function_symbol) != 0 ||
+            relocation->offset < 8u) {
+            continue;
+        }
+        fde_offset = relocation->offset - 8u;
+        assert(fde_offset + 8u + address_size * 2u <= frame->size);
+        fde_length = read_u32(frame->data, fde_offset);
+        instruction_offset = fde_offset + 8u + address_size * 2u;
+        instruction_end = fde_offset + 4u + fde_length;
+        assert(instruction_end <= frame->size);
+        assert(read_u32(frame->data, fde_offset + 4u) == 0u);
+        assert(count_epilogue_cfa_restores(
+                   frame, instruction_offset, instruction_end,
+                   stack_register, frame_register, pointer_size) == 3u);
+        assert(count_frame_body_restores(
+                   frame, instruction_offset, instruction_end,
+                   frame_register, pointer_size) == 2u);
+        return;
+    }
+    assert(0 && "function has no relocated multi-return debug-frame FDE");
 }
 
 static void verify_first_frame_fde(const ObjSection* frame,
@@ -6144,7 +6273,8 @@ static void verify_debug_object(const char* path, uint16_t architecture,
     assert(contains_byte(frame->data, frame->size, 0x0du));
     verify_first_frame_fde(frame, architecture);
     if (strcmp(source_file, "tests/debug_info.c") == 0) {
-        verify_multiple_return_frame_fde(frame, architecture);
+        verify_multiple_return_frame_fde(
+            frame, "tests/debug_info.c::debug_aggregate_sum", architecture);
     }
     assert(info->relocs != NULL && info->size > 16u);
     assert(info->data[4] == 4u && info->data[5] == 0u);
@@ -6452,7 +6582,9 @@ static void verify_verified_debug_object(const char* path,
         architecture == ARCH_X64 ? RELOC_ABS64 : RELOC_ABS32U));
     assert(count_line_copy_ops(line) >= 8u);
     verify_first_frame_fde(frame, architecture);
-    verify_multiple_return_frame_fde(frame, architecture);
+    verify_multiple_return_frame_fde(
+        frame, "tests/verified_backend_debug.c::verified_debug_multi_return",
+        architecture);
     assert(find_function_die(info, strings, "verified_debug_static",
                              architecture == ARCH_X64 ? 8u : 4u) !=
            UINT64_MAX);

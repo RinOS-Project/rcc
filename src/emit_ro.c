@@ -4035,16 +4035,92 @@ static bool debug_inline_parameter_storage_type_equal(
     }
 }
 
+static bool debug_inline_parameter_expression_is_read_only(
+    const Expr* expression, const Decl* callee) {
+    if (!expression || !callee) return false;
+    switch (expression->kind) {
+        case EXPR_INT_LIT:
+        case EXPR_FLOAT_LIT:
+        case EXPR_CHAR_LIT:
+        case EXPR_STRING_LIT:
+            return true;
+        case EXPR_IDENT:
+            for (const DeclList* item = callee->func_params; item;
+                 item = item->next) {
+                if (item->decl == expression->ident_decl) return true;
+            }
+            return false;
+        case EXPR_NEG:
+        case EXPR_NOT:
+        case EXPR_BITNOT:
+        case EXPR_CAST:
+            return debug_inline_parameter_expression_is_read_only(
+                expression->kind == EXPR_CAST
+                    ? expression->cast_expr : expression->unary_operand,
+                callee);
+        case EXPR_ADD:
+        case EXPR_SUB:
+        case EXPR_MUL:
+        case EXPR_DIV:
+        case EXPR_MOD:
+        case EXPR_BITAND:
+        case EXPR_BITOR:
+        case EXPR_BITXOR:
+        case EXPR_LSHIFT:
+        case EXPR_RSHIFT:
+        case EXPR_EQ:
+        case EXPR_NE:
+        case EXPR_LT:
+        case EXPR_GT:
+        case EXPR_LE:
+        case EXPR_GE:
+        case EXPR_AND:
+        case EXPR_OR:
+        case EXPR_COMMA:
+            return debug_inline_parameter_expression_is_read_only(
+                       expression->binary_lhs, callee) &&
+                   debug_inline_parameter_expression_is_read_only(
+                       expression->binary_rhs, callee);
+        case EXPR_COND:
+            return debug_inline_parameter_expression_is_read_only(
+                       expression->cond_test, callee) &&
+                   debug_inline_parameter_expression_is_read_only(
+                       expression->cond_then, callee) &&
+                   debug_inline_parameter_expression_is_read_only(
+                       expression->cond_else, callee);
+        default:
+            return false;
+    }
+}
+
+static bool debug_inline_parameter_body_is_read_only(const Decl* callee) {
+    const Stmt* body = callee ? callee->func_body : NULL;
+    const StmtList* item;
+    if (!body) return false;
+    if (body->kind == STMT_BLOCK) {
+        item = body->block_stmts;
+        if (!item || item->next) return false;
+        body = item->stmt;
+    }
+    return body && body->kind == STMT_RETURN && body->return_val &&
+        debug_inline_parameter_expression_is_read_only(
+            body->return_val, callee);
+}
+
 static const ModuleSymbol* debug_inline_parameter_source_symbol(
     const Module* mod, const char* filename,
+    const Decl* callee,
     const ModuleDebugInlineParameterValue* value,
-    const ExprList* argument, char** scoped_symbol) {
+    const ExprList* argument, char** scoped_symbol,
+    bool* frame_based, int64_t* frame_offset) {
     const Decl* parameter;
     const Decl* source;
     const ModuleSymbol* symbol;
     Type* parameter_type;
     Type* argument_type;
     if (scoped_symbol) *scoped_symbol = NULL;
+    if (frame_based) *frame_based = false;
+    if (frame_offset) *frame_offset = 0;
     if (!mod || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner ||
         argument->expr->kind != EXPR_IDENT ||
@@ -4055,7 +4131,8 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
     source = argument->expr->ident_decl;
     parameter_type = parameter->type;
     argument_type = argument->expr->type;
-    if (parameter->kind != DECL_PARAM || source->kind != DECL_VAR ||
+    if (parameter->kind != DECL_PARAM ||
+        (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
         !parameter_type || !argument_type ||
         !debug_inline_parameter_storage_type(parameter_type) ||
         !debug_inline_parameter_storage_type_equal(
@@ -4067,11 +4144,31 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
         argument_type->is_reference || argument_type->is_atomic) {
         return NULL;
     }
-    if (source->var_is_global) {
+    if (!debug_inline_parameter_body_is_read_only(callee)) return NULL;
+    if (source->kind == DECL_VAR && source->var_is_global) {
         symbol = debug_find_global_symbol(mod, source);
-    } else if (source->var_is_static_local) {
+    } else if (source->kind == DECL_VAR && source->var_is_static_local) {
         symbol = debug_find_static_local_symbol(mod, source);
     } else {
+        int64_t stable_frame_offset = source->var_offset;
+        symbol = NULL;
+        if (mod->debug_verified_backend) {
+            bool found_frame_location = false;
+            for (size_t index = 0u;
+                 index < mod->debug_variable_location_count; ++index) {
+                const DebugVariableLocation* location =
+                    &mod->debug_variable_locations[index];
+                if (location->declaration != source) continue;
+                stable_frame_offset = location->frame_offset;
+                found_frame_location = true;
+                break;
+            }
+            if (!found_frame_location) return NULL;
+        }
+        if (source->var_is_vla || !frame_based || !frame_offset ||
+            stable_frame_offset == 0) return NULL;
+        *frame_based = true;
+        *frame_offset = stable_frame_offset;
         return NULL;
     }
     if (!symbol) return NULL;
@@ -4096,6 +4193,8 @@ static void debug_emit_inline_parameter_instances(
         DebugInlineParameterOrigin* origin;
         const ModuleSymbol* source_symbol;
         char* scoped_source_symbol = NULL;
+        bool source_frame_based = false;
+        int64_t source_frame_offset = 0;
         if (value->has_signed_integer_constant && value->declaration &&
             (origin = debug_inline_parameter_origin_find(
                 origins, call->callee, value->declaration)) != NULL) {
@@ -4132,18 +4231,27 @@ static void debug_emit_inline_parameter_instances(
             }
         } else if (value->declaration &&
                    (origin = debug_inline_parameter_origin_find(
-                       origins, call->callee, value->declaration)) != NULL &&
-                   (source_symbol = debug_inline_parameter_source_symbol(
-                       mod, filename, value, argument,
-                       &scoped_source_symbol)) != NULL) {
-            const char* relocation_symbol = scoped_source_symbol
-                ? scoped_source_symbol : source_symbol->name;
-            section_add_byte(info, 67u);
-            debug_line_u32(info, origin->die_offset);
-            debug_expr_addr(
-                obj, info, info_section, relocation_symbol, architecture,
-                source_symbol->section == MODULE_SYMBOL_TLS);
-            rcc_free(scoped_source_symbol);
+                       origins, call->callee, value->declaration)) != NULL) {
+            source_symbol = debug_inline_parameter_source_symbol(
+                mod, filename, call->callee, value, argument,
+                &scoped_source_symbol, &source_frame_based,
+                &source_frame_offset);
+            if (source_symbol || source_frame_based) {
+                section_add_byte(info, 67u);
+                debug_line_u32(info, origin->die_offset);
+                if (source_symbol) {
+                    const char* relocation_symbol = scoped_source_symbol
+                        ? scoped_source_symbol : source_symbol->name;
+                    debug_expr_addr(
+                        obj, info, info_section, relocation_symbol,
+                        architecture,
+                        source_symbol->section == MODULE_SYMBOL_TLS);
+                } else {
+                    debug_expr_breg(info, architecture, source_frame_offset,
+                                    0u, false);
+                }
+                rcc_free(scoped_source_symbol);
+            }
         }
         if (argument) argument = argument->next;
     }

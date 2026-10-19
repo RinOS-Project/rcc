@@ -2190,17 +2190,18 @@
         line-table entry対応をi686/AMD64で検証し、native Windows
         `test-debug-info`全体が成功。
 - [ ] Extend the existing bounded inline DIE and frame-relative location-list
-        coverage beyond the implemented direct-body const scalar values and
+        coverage beyond the implemented direct-body const scalar values,
         foldable signed/unsigned inline-parameter constants and supported
-        integer conversions: emit locations
-        for non-constant inlined parameters and locals, nested lexical
-        locals, and track optimized variables across register and piece
-        locations; describe declaration lifetimes across every optimized CFG
-        edge. Complete CFI/unwind coverage for prologues and epilogues not
-        represented by the current fixed-frame rules. The preceding checked
-        entries document the inline call-site/origin, bounded const-local value,
-        and lexical frame-location cases already supported; these remaining
-        cases are not yet implemented.
+        integer conversions, and same-typed identifier arguments whose source
+        storage is a defined static object or an addressable frame slot and
+        whose callee body is one side-effect-free return expression. Remaining
+        work includes arbitrary nonconstant argument expressions, mutable
+        parameters, optimized-away/register-only sources, nested lexical
+        locals, tracking optimized variables across register and piece
+        locations, declaration lifetimes across every optimized CFG edge, and
+        CFI/unwind coverage for prologues and epilogues beyond current fixed-
+        frame rules. The checked entries distinguish these bounded cases from
+        the still-incomplete general variable-location implementation.
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および
@@ -7074,7 +7075,15 @@ remains a separate open item.
 - [x] Verify global and function-local static pointer sources in call-specific
       legacy and verified optimized DWARF for i686 and AMD64. The complete
       native-Windows `test-debug-info` target passes.
-- [ ] Automatic/register-backed sources, source/destination pointer type
-      conversions, compound dynamic expressions, and optimized register/piece
-      tracking remain open; this does not implement general variable-location
-      tracking.
+- [x] Emit frame-relative locations for supported same-typed identifier
+      arguments backed by addressable automatic locals or incoming parameters.
+      For the verified backend, use its recorded frame slot; otherwise use the
+      legacy backend's parameter/local frame offset. Require a side-effect-free
+      single-return callee body, and verify the parameter DIE/origin, breg
+      expression, and nonzero displacement in legacy and verified i686/AMD64
+      objects, including a pointer local whose address escapes after the call.
+      Native-Windows `test-debug-info` passes.
+- [ ] Register-only or optimized-away sources, source/destination type
+      conversions, compound dynamic expressions, mutable-parameter tracking,
+      and optimized register/piece tracking remain open; this does not
+      implement general variable-location tracking.

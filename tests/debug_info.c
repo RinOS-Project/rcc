@@ -32,6 +32,7 @@ enum debug_enum {
 };
 enum debug_enum debug_enum_data = DEBUG_ENUM_POSITIVE;
 int* debug_inline_global_pointer_source;
+int** debug_inline_escaped_pointer;
 static int debug_aggregate_sum(void)
 {
     struct debug_aggregate local = {3, 4};
@@ -138,6 +139,16 @@ int debug_inline_static_pointer_entry(void)
         debug_inline_static_pointer_source);
 }
 
+void debug_inline_pointer_sink(int** value);
+int debug_inline_automatic_pointer_entry(int* incoming)
+{
+    int* debug_inline_automatic_pointer_source = incoming;
+    int result = debug_global_pointer_parameter_inline(
+        debug_inline_automatic_pointer_source);
+    debug_inline_pointer_sink(&debug_inline_automatic_pointer_source);
+    return result;
+}
+
 int debug_tls_static_local_read(void)
 {
     static _Thread_local int debug_tls_static_local = 17;
@@ -217,4 +228,9 @@ int debug_statement_lines(int value)
         value = value + 4;
     }
     return value;
+}
+
+void debug_inline_pointer_sink(int** value)
+{
+    debug_inline_escaped_pointer = value;
 }
