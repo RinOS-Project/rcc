@@ -144,6 +144,8 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     int result = 0;
     int nested_result;
     int conversion_observation;
+    int converted_cleanup_order;
+    int receiver_observation;
     {
         const int& value =
             make_verified_throwing_temporary(
@@ -158,8 +160,17 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
         const VerifiedThrowingTemporary& value = source;
         conversion_observation = value.cleanup_id * 10 + cleanup_order;
     }
-    return nested_result * 1000 + conversion_observation * 10 +
-           cleanup_order;
+    converted_cleanup_order = cleanup_order;
+    cleanup_order = 0;
+    {
+        const VerifiedThrowingTemporary& value =
+            VerifiedThrowingTemporaryConversionSource{&cleanup_order, 8};
+        receiver_observation = value.cleanup_id * 10 + cleanup_order;
+    }
+    return nested_result == 65 && conversion_observation == 70 &&
+            converted_cleanup_order == 7 && receiver_observation == 80 &&
+            cleanup_order == 8
+        ? 65708 : -1;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {

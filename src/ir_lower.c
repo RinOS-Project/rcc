@@ -7402,7 +7402,12 @@ static bool lower_noexcept_expression(const Expr* expression) {
                 lower_noexcept_expression(expression->call_func) &&
                 lower_noexcept_expression_list(expression->call_args);
         case EXPR_COMPOUND:
-            return lower_cxx_empty_noop_constructor_supported(expression) &&
+            /* Aggregate prvalues (including a temporary used as a method
+             * receiver) have no constructor call to execute.  Their
+             * initializer expressions are still checked individually; only
+             * an explicit constructor needs the restricted no-op proof. */
+            return (!expression->compound_constructor ||
+                    lower_cxx_empty_noop_constructor_supported(expression)) &&
                 lower_noexcept_expression_list(
                     expression->compound_init);
         case EXPR_COMMA:

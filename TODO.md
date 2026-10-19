@@ -7278,6 +7278,14 @@ remains a separate open item.
       `test-verified-cxx-throwing-temporary` passes with twenty-one functions,
       zero fallback on i686/AMD64 at `-O0`/`-O2`, and AMD64 runtime/legacy
       execution (`65707`). Implementation/test commit: `27deec0`.
-- [ ] A conversion receiver that is itself a prvalue currently falls back in
-      typed SSA; other converted-reference shapes and static/TLS lifetime
-      extension remain open.
+- [x] Accept aggregate prvalue initializer expressions in no-throw cleanup
+      analysis when each initializer is itself nonthrowing, while retaining the
+      restricted proof for explicit constructor calls. Bind a conversion
+      result from a temporary receiver to a local `const T&`; the test verifies
+      the result survives the full expression and is destroyed at scope exit
+      (`65708`). `test-verified-cxx-throwing-temporary` emits all twenty-one
+      functions with zero fallback on i686/AMD64 at `-O0`/`-O2`; generated
+      AMD64 objects and the legacy host path pass.
+- [ ] Nontrivial/destructible conversion receivers, other converted-reference
+      shapes, static/TLS lifetime extension, and remaining full-expression
+      cleanup paths remain open.
