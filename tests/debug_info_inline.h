@@ -59,3 +59,8 @@ inline double debug_float_expression_parameter_inline(double value)
 {
     return value;
 }
+
+inline int debug_null_pointer_parameter_inline(int* value, int* other)
+{
+    return value == other;
+}

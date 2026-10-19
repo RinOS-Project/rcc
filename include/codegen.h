@@ -94,6 +94,7 @@ typedef struct ModuleDebugInlineParameterValue {
     uint64_t unsigned_value;
     uint64_t float_bits;
     uint8_t float_size;
+    bool has_null_pointer_constant;
     bool has_signed_integer_constant;
     bool has_unsigned_integer_constant;
     bool has_float_constant;

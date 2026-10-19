@@ -114,6 +114,11 @@ double debug_inline_float_expression_constant_entry(void)
     return debug_float_expression_parameter_inline(1.1f + 2.2f);
 }
 
+int debug_inline_null_pointer_entry(int* other)
+{
+    return debug_null_pointer_parameter_inline((int*)0, other);
+}
+
 int debug_tls_static_local_read(void)
 {
     static _Thread_local int debug_tls_static_local = 17;

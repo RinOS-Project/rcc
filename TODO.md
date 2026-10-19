@@ -7017,3 +7017,15 @@ remains a separate open item.
 - [ ] Dynamic floating arguments, long-double support, pointer/enum
       attribution, mutable parameter locations, and optimized inline-variable
       location tracking remain open.
+
+## RCC continuation (2026-10-20, inline null-pointer parameter values)
+
+- [x] Preserve direct null pointer constants for non-reference, non-volatile
+      pointer parameters when recording optimized inline DIEs. Emit
+      `DW_AT_const_value` with `DW_FORM_addr` and the target address size;
+      symbolic/non-null addresses and dynamic locations are not attributed.
+- [x] Add a C inline regression that compares the null argument with a dynamic
+      pointer parameter. `test-debug-info` verifies the pointer-typed formal
+      parameter DIE and zero address bytes in legacy/verified i686/AMD64 output.
+- [ ] Non-null symbolic pointer values, dynamic pointer locations, and full
+      optimized register/piece tracking remain open.

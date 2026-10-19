@@ -213,6 +213,47 @@ static bool debug_inline_capture_float_literal(
     return true;
 }
 
+static bool debug_inline_is_null_pointer_constant(Expr* expression) {
+    Expr* value_expression = expression;
+    int64_t value;
+    if (!expression) return false;
+    if (expression->is_cxx_nullptr ||
+        (expression->type && expression->type->kind == TYPE_NULLPTR)) {
+        return true;
+    }
+    while (value_expression && value_expression->kind == EXPR_CAST &&
+           value_expression->cast_expr) {
+        value_expression = value_expression->cast_expr;
+        if (value_expression->is_cxx_nullptr ||
+            (value_expression->type &&
+             value_expression->type->kind == TYPE_NULLPTR)) {
+            return true;
+        }
+        if (debug_inline_integer_type(value_expression->type) &&
+            expr_eval_integer_constant(value_expression, &value)) {
+            return value == 0;
+        }
+    }
+    return debug_inline_integer_type(value_expression->type) &&
+        expr_eval_integer_constant(value_expression, &value) && value == 0;
+}
+
+static bool debug_inline_capture_null_pointer(
+    const ExprList* argument, const Type* parameter_type,
+    ModuleDebugInlineParameterValue* value) {
+    uint8_t address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    if (!argument || !argument->expr || argument->cxx_temporary_owner ||
+        !parameter_type || parameter_type->kind != TYPE_PTR ||
+        parameter_type->cxx_is_member_pointer || parameter_type->is_volatile ||
+        parameter_type->is_reference || parameter_type->is_atomic ||
+        parameter_type->size != address_size ||
+        !debug_inline_is_null_pointer_constant(argument->expr)) {
+        return false;
+    }
+    value->has_null_pointer_constant = true;
+    return true;
+}
+
 static void debug_inline_capture_parameter_values(
     ModuleDebugInlineCall* call, const Decl* callee,
     const ExprList* arguments) {
@@ -244,6 +285,7 @@ static void debug_inline_capture_parameter_values(
         value->unsigned_value = 0u;
         value->float_bits = 0u;
         value->float_size = 0u;
+        value->has_null_pointer_constant = false;
         value->has_signed_integer_constant = false;
         value->has_unsigned_integer_constant = false;
         value->has_float_constant = false;
@@ -272,8 +314,11 @@ static void debug_inline_capture_parameter_values(
         } else {
             if (!debug_inline_capture_converted_integer(
                     argument, parameter_type, value)) {
-                (void)debug_inline_capture_float_literal(
-                    argument, parameter_type, value);
+                if (!debug_inline_capture_float_literal(
+                        argument, parameter_type, value)) {
+                    (void)debug_inline_capture_null_pointer(
+                        argument, parameter_type, value);
+                }
             }
         }
         if (argument) argument = argument->next;

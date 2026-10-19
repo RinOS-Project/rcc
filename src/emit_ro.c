@@ -4008,6 +4008,16 @@ static void debug_emit_inline_parameter_instances(
                 section_add_byte(
                     info, (uint8_t)(value->float_bits >> (byte * 8u)));
             }
+        } else if (value->has_null_pointer_constant &&
+                   value->declaration &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL) {
+            section_add_byte(info, 66u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_u32(info, 0u);
+            if (g_opts.target_arch == ARCH_X64) {
+                debug_line_u32(info, 0u);
+            }
         }
     }
 }
@@ -5249,6 +5259,15 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
     debug_line_uleb(abbrev, 0x0au);   /* DW_FORM_block1 */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 66u);
+    debug_line_uleb(abbrev, 0x05u);   /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x01u);   /* DW_FORM_addr */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

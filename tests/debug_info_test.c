@@ -3404,6 +3404,9 @@ static void verify_inline_debug_object(const char* path,
     static const uint8_t float_parameter_attributes[] = {
         0x31u, 0x13u, 0x1cu, 0x0au
     };
+    static const uint8_t pointer_parameter_attributes[] = {
+        0x31u, 0x13u, 0x1cu, 0x01u
+    };
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* abbrev;
@@ -3428,6 +3431,7 @@ static void verify_inline_debug_object(const char* path,
     uint64_t float_to_double_inline_call = UINT64_MAX;
     uint64_t double_to_float_inline_call = UINT64_MAX;
     uint64_t float_expression_inline_call = UINT64_MAX;
+    uint64_t null_pointer_inline_call = UINT64_MAX;
 
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
@@ -3467,6 +3471,9 @@ static void verify_inline_debug_object(const char* path,
     verify_debug_abbreviation(abbrev, 65u, 0x05u, 0u,
                               float_parameter_attributes,
                               sizeof(float_parameter_attributes));
+    verify_debug_abbreviation(abbrev, 66u, 0x05u, 0u,
+                              pointer_parameter_attributes,
+                              sizeof(pointer_parameter_attributes));
 
     for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 12u <=
          info->size; ++die) {
@@ -3511,7 +3518,9 @@ static void verify_inline_debug_object(const char* path,
             strcmp(inline_name,
                    "debug_double_to_float_parameter_inline") != 0 &&
             strcmp(inline_name,
-                   "debug_float_expression_parameter_inline") != 0) {
+                   "debug_float_expression_parameter_inline") != 0 &&
+            strcmp(inline_name,
+                   "debug_null_pointer_parameter_inline") != 0) {
             continue;
         }
         origin_file = read_u32(info->data, origin_offset + 5u);
@@ -3532,7 +3541,10 @@ static void verify_inline_debug_object(const char* path,
                strcmp((const char*)strings->data + parameter_name,
                       "value") == 0);
         assert(parameter_type < info->size &&
-               info->data[parameter_type] == 5u);
+               info->data[parameter_type] ==
+                   (strcmp(inline_name,
+                           "debug_null_pointer_parameter_inline") == 0
+                        ? 6u : 5u));
         assert(parameter_file > 0u &&
                read_u32(info->data, parameter_die + 13u) > 0u &&
                read_u32(info->data, parameter_die + 17u) > 0u);
@@ -3566,6 +3578,20 @@ static void verify_inline_debug_object(const char* path,
                 line, local_file, "tests/debug_info_inline.h"));
             assert(info->data[local_die + 21u] == 0u);
             inline_local_origin = local_die;
+        } else if (strcmp(inline_name,
+                          "debug_null_pointer_parameter_inline") == 0) {
+            uint64_t second_parameter = parameter_die + 21u;
+            uint32_t second_name = read_u32(info->data,
+                                             second_parameter + 1u);
+            uint32_t second_type = read_u32(info->data,
+                                             second_parameter + 5u);
+            assert(info->data[second_parameter] == 42u);
+            assert(second_name < strings->size &&
+                   strcmp((const char*)strings->data + second_name,
+                          "other") == 0);
+            assert(second_type < info->size &&
+                   info->data[second_type] == 6u);
+            assert(info->data[second_parameter + 21u] == 0u);
         } else {
             assert(info->data[parameter_die + 21u] == 0u);
         }
@@ -3595,7 +3621,9 @@ static void verify_inline_debug_object(const char* path,
              strcmp(inline_name,
                     "debug_double_to_float_parameter_inline") == 0 ||
              strcmp(inline_name,
-                    "debug_float_expression_parameter_inline") == 0)
+                    "debug_float_expression_parameter_inline") == 0 ||
+             strcmp(inline_name,
+                    "debug_null_pointer_parameter_inline") == 0)
                 ? "tests/debug_info.c"
                 : "tests/debug_info_inline.h"));
         assert(line_table_file_matches(line, origin_file,
@@ -3631,6 +3659,9 @@ static void verify_inline_debug_object(const char* path,
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_float_expression_constant_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_null_pointer_entry") == 0;
             assert(root_call ||
                    (strcmp(relocation->symbol_name,
                            "debug_declared_inline") == 0 &&
@@ -3727,6 +3758,13 @@ static void verify_inline_debug_object(const char* path,
                               "debug_inline_float_expression_constant_entry") == 0 &&
                        float_expression_inline_call == UINT64_MAX) {
                 float_expression_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_null_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_null_pointer_entry") == 0 &&
+                       null_pointer_inline_call == UINT64_MAX) {
+                null_pointer_inline_call = die;
             }
             break;
         }
@@ -3748,6 +3786,7 @@ static void verify_inline_debug_object(const char* path,
     assert(float_to_double_inline_call != UINT64_MAX);
     assert(double_to_float_inline_call != UINT64_MAX);
     assert(float_expression_inline_call != UINT64_MAX);
+    assert(null_pointer_inline_call != UINT64_MAX);
     assert(inner_die == outer_die + 1u + 4u + address_size + 4u + 12u);
     {
         uint64_t concrete_local =
@@ -3905,6 +3944,19 @@ static void verify_inline_debug_object(const char* path,
         assert(info->data[concrete_parameter + 12u] == 0x0au);
         assert(info->data[concrete_parameter + 13u] == 0x40u);
         assert(info->data[concrete_parameter + 14u] == 0u);
+    }
+    {
+        uint64_t concrete_parameter = null_pointer_inline_call + 1u + 4u +
+            address_size + 4u + 12u;
+        uint64_t origin_parameter =
+            read_u32(info->data, null_pointer_inline_call + 1u) + 27u;
+        assert(info->data[concrete_parameter] == 66u);
+        assert(read_u32(info->data, concrete_parameter + 1u) ==
+               origin_parameter);
+        for (uint64_t byte = 0u; byte < address_size; ++byte) {
+            assert(info->data[concrete_parameter + 5u + byte] == 0u);
+        }
+        assert(info->data[concrete_parameter + 5u + address_size] == 0u);
     }
     objfile_free(object);
 }
