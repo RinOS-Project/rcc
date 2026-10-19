@@ -184,6 +184,7 @@ static void verify_smaller(const char* unoptimized_path,
         "inline_local_const_function_pointer_call",
         "inline_local_const_function_pointer_array_call",
         "inline_local_mutable_function_pointer_call",
+        "inline_local_function_pointer_copy_call",
         "inline_local_reassigned_function_pointer_call",
         "inline_local_branch_same_target_function_pointer_call",
         "inline_local_same_target_reassigned_function_pointer_call",
@@ -195,6 +196,7 @@ static void verify_smaller(const char* unoptimized_path,
         "inline_function_pointer_parameter_call",
         "inline_local_uniform_function_pointer_array_side_effect_index",
         "inline_local_aliased_mutable_function_pointer_call",
+        "inline_local_function_pointer_copy_after_alias_write_call",
         "inline_local_aliased_mutable_function_pointer_array_call",
         "inline_local_branch_reassigned_function_pointer_call",
         "inline_local_mutated_function_pointer_array_call"
@@ -1043,6 +1045,8 @@ static void execute_inline_namespace_case(const char* path)
     SysvIntUnary local_const_pointer;
     SysvIntUnary local_const_pointer_array;
     SysvIntUnary local_mutable_pointer;
+    SysvIntUnary local_function_pointer_copy;
+    SysvIntUnary local_function_pointer_copy_after_alias_write;
     SysvIntUnary local_mutable_pointer_array;
     SysvIntUnary local_aliased_mutable_pointer;
     SysvIntUnary local_aliased_mutable_pointer_array;
@@ -1114,6 +1118,16 @@ static void execute_inline_namespace_case(const char* path)
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_mutable_pointer, &address, sizeof(local_mutable_pointer));
     symbol = function_symbol(
+        object, "inline_local_function_pointer_copy_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_copy, &address,
+           sizeof(local_function_pointer_copy));
+    symbol = function_symbol(
+        object, "inline_local_function_pointer_copy_after_alias_write_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_copy_after_alias_write, &address,
+           sizeof(local_function_pointer_copy_after_alias_write));
+    symbol = function_symbol(
         object, "inline_local_mutable_function_pointer_array_call");
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_mutable_pointer_array, &address,
@@ -1144,6 +1158,8 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&local_aliased_mutable_pointer_array, &address,
            sizeof(local_aliased_mutable_pointer_array));
     assert(local_mutable_pointer(5) == 28);
+    assert(local_function_pointer_copy(5) == 28);
+    assert(local_function_pointer_copy_after_alias_write(5) == 11);
     assert(local_mutable_pointer_array(5) == 11);
     symbol = function_symbol(object, "inline_function_pointer_parameter_call");
     address = (uintptr_t)mapping + symbol->value;
@@ -1385,6 +1401,8 @@ static void execute_inline_namespace_case(const char* path)
     int (*local_const_pointer)(int);
     int (*local_const_pointer_array)(int);
     int (*local_mutable_pointer)(int);
+    int (*local_function_pointer_copy)(int);
+    int (*local_function_pointer_copy_after_alias_write)(int);
     int (*local_mutable_pointer_array)(int);
     int (*local_aliased_mutable_pointer)(int);
     int (*local_aliased_mutable_pointer_array)(int);
@@ -1454,6 +1472,16 @@ static void execute_inline_namespace_case(const char* path)
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_mutable_pointer, &address, sizeof(local_mutable_pointer));
     symbol = function_symbol(
+        object, "inline_local_function_pointer_copy_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_copy, &address,
+           sizeof(local_function_pointer_copy));
+    symbol = function_symbol(
+        object, "inline_local_function_pointer_copy_after_alias_write_call");
+    address = (uintptr_t)mapping + symbol->value;
+    memcpy(&local_function_pointer_copy_after_alias_write, &address,
+           sizeof(local_function_pointer_copy_after_alias_write));
+    symbol = function_symbol(
         object, "inline_local_mutable_function_pointer_array_call");
     address = (uintptr_t)mapping + symbol->value;
     memcpy(&local_mutable_pointer_array, &address,
@@ -1489,6 +1517,8 @@ static void execute_inline_namespace_case(const char* path)
     memcpy(&local_aliased_mutable_pointer_array, &address,
            sizeof(local_aliased_mutable_pointer_array));
     assert(local_mutable_pointer(5) == 28);
+    assert(local_function_pointer_copy(5) == 28);
+    assert(local_function_pointer_copy_after_alias_write(5) == 11);
     assert(local_mutable_pointer_array(5) == 11);
     assert(local_mutable_pointer_array_dynamic(0, 5) == 28);
     assert(local_mutable_pointer_array_dynamic(1, 5) == 11);

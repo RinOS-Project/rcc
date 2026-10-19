@@ -2159,6 +2159,41 @@ static bool inline_unmodified_local_variable(Decl* variable) {
                                     variable);
 }
 
+/* Follow one value-copy from a proven, unchanged local pointer.  This is
+ * deliberately not general alias analysis: taking the source's address,
+ * writing it, or passing it somewhere that may write it keeps the call
+ * indirect. */
+static Decl* resolve_inline_function_pointer_initializer_or_local_copy(
+    Type* pointer_type, Expr* initializer) {
+    Decl* target;
+    Expr* value = initializer;
+    Decl* source;
+    if (!pointer_type) return NULL;
+    target = resolve_inline_function_pointer_initializer(pointer_type,
+                                                         initializer);
+    if (target) return target;
+    while (value && value->kind == EXPR_CAST && value->unary_operand &&
+           type_is_compatible(value->type, pointer_type)) {
+        value = value->unary_operand;
+    }
+    if (!pointer_type || pointer_type->kind != TYPE_PTR ||
+        !pointer_type->base || pointer_type->base->kind != TYPE_FUNC ||
+        !value || value->kind != EXPR_IDENT || !value->ident_decl ||
+        value->ident_decl->kind != DECL_VAR) {
+        return NULL;
+    }
+    source = value->ident_decl;
+    if (!source->type || source->type->kind != TYPE_PTR ||
+        !source->type->base || source->type->base->kind != TYPE_FUNC ||
+        !type_is_compatible(pointer_type->base, source->type->base) ||
+        (!inline_readonly_initialized_variable(source) &&
+         !inline_unmodified_local_variable(source))) {
+        return NULL;
+    }
+    return resolve_inline_function_pointer_initializer(
+        source->type, source->var_init);
+}
+
 static Decl* resolve_inline_function_pointer_variable(Decl* variable) {
     bool stable_local_target = false;
     if (!variable || variable->kind != DECL_VAR || !variable->type ||
@@ -2169,8 +2204,9 @@ static Decl* resolve_inline_function_pointer_variable(Decl* variable) {
     }
     if (!inline_readonly_initialized_variable(variable) &&
         !inline_unmodified_local_variable(variable)) {
-        Decl* initial_target = resolve_inline_function_pointer_initializer(
-            variable->type, variable->var_init);
+        Decl* initial_target =
+            resolve_inline_function_pointer_initializer_or_local_copy(
+                variable->type, variable->var_init);
         if (!variable->var_is_global && !variable->var_is_static_local &&
             !variable->var_is_thread_local &&
             !variable->var_dynamic_initializer && !variable->var_is_vla &&
@@ -2185,7 +2221,7 @@ static Decl* resolve_inline_function_pointer_variable(Decl* variable) {
         }
         if (!stable_local_target) return NULL;
     }
-    return resolve_inline_function_pointer_initializer(
+    return resolve_inline_function_pointer_initializer_or_local_copy(
         variable->type, variable->var_init);
 }
 
@@ -2208,8 +2244,9 @@ static bool inline_statement_preserves_function_pointer_target(
                                           variable)) {
                 return false;
             }
-            assigned_target = resolve_inline_function_pointer_initializer(
-                variable->type, expression->binary_rhs);
+            assigned_target =
+                resolve_inline_function_pointer_initializer_or_local_copy(
+                    variable->type, expression->binary_rhs);
             return assigned_target != NULL &&
                    (!target || assigned_target == target);
         }
@@ -6645,7 +6682,7 @@ static void optimize_stmt(Stmt* statement) {
                 if (statement->expr &&
                     statement->expr->kind == EXPR_ASSIGN) {
                     assigned_target =
-                        resolve_inline_function_pointer_initializer(
+                        resolve_inline_function_pointer_initializer_or_local_copy(
                             assigned_variable->type,
                             statement->expr->binary_rhs);
                 }
@@ -6828,7 +6865,7 @@ static void optimize_stmt(Stmt* statement) {
                 if (trackable) {
                     inline_local_function_pointer_fact_set(
                         variable,
-                        resolve_inline_function_pointer_initializer(
+                        resolve_inline_function_pointer_initializer_or_local_copy(
                             variable->type, variable->var_init));
                 }
             }
