@@ -3,6 +3,7 @@ int vla_reclaim(int count, int rounds);
 int vla_continue_reclaim(int count, int rounds);
 int vla_break_reclaim(int count, int rounds);
 int vla_goto(int count);
+int vla_goto_reclaim(int count, int rounds);
 int vla_matrix(int rows, int cols);
 int vla_parameter(int cols, int values[][cols]);
 int vla_pointer_parameter(int cols, int (*values)[cols]);
@@ -22,6 +23,7 @@ int main(void)
     if (vla_continue_reclaim(2048, 5000) != 4999) return 12;
     if (vla_break_reclaim(2048, 5000) != 5000) return 13;
     if (vla_goto(5) != 3) return 14;
+    if (vla_goto_reclaim(2048, 5000) != 12502500) return 24;
     if (vla_matrix(2, 3) != 7) return 15;
     if (vla_parameter(3, input) != 9) return 16;
     if (vla_pointer_parameter(3, input) != 13) return 23;
@@ -101,6 +103,25 @@ int vla_goto(int count)
     }
 done:
     return value;
+}
+
+int vla_goto_reclaim(int count, int rounds)
+{
+    int round = 0;
+    int total = 0;
+
+again:
+    if (round >= rounds) goto done;
+    {
+        int values[count];
+        values[0] = round + 1;
+        total += values[0];
+        ++round;
+        goto again;
+    }
+
+done:
+    return total;
 }
 
 int vla_matrix(int rows, int cols)

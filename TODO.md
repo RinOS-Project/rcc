@@ -6582,8 +6582,14 @@ remains a separate open item.
       continue-to-condition/increment, and carried-value cases against exact
       results; the i686/AMD64 `-O0`/`-O2` verified gate emits all phi inputs and
       both generated x64 optimization levels execute successfully.
-- [ ] Broader untested structured-loop/goto edge combinations and VLA stack
-      restoration remain open.
+- [x] Verify classic C17 codegen restores the dynamic stack when a backward
+      `goto` repeatedly exits a VLA scope: a 2048-element VLA is left 5000
+      times, with the result checked against GCC. Both i686 and AMD64 generated
+      executables pass in `test-vla-runtime`; this target is part of the C17
+      production regression gate.
+- [ ] Add VLA-scope-exiting goto support to typed-SSA lowering and expand the
+      remaining structured-loop/goto edge coverage. `STMT_GOTO` with a nonzero
+      `goto_vla_count` remains outside the verified backend subset.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)
 
