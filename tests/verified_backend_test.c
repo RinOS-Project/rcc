@@ -4687,12 +4687,12 @@ static void verify_cxx_throwing_temporary_object(
         memcpy(&no_arguments, &address, sizeof(no_arguments));
         {
             int normal_cleanup_result = no_arguments();
-            if (normal_cleanup_result != 65709) {
+            if (normal_cleanup_result != 65710) {
                 fprintf(stderr,
-                        "verified converted-reference cleanup returned %d, expected 65709\n",
+                        "verified converted-reference cleanup returned %d, expected 65710\n",
                         normal_cleanup_result);
             }
-            assert(normal_cleanup_result == 65709);
+            assert(normal_cleanup_result == 65710);
         }
         address = symbol_address(memory, throwing_initializer_symbol);
         memcpy(&integer_argument, &address, sizeof(integer_argument));

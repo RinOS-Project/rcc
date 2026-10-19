@@ -7292,11 +7292,11 @@ remains a separate open item.
       `test-verified-cxx-throwing-temporary` emits all twenty-two functions
       with zero fallback on i686/AMD64 at `-O0`/`-O2`; generated AMD64 and
       legacy host execution pass (`65708`).
-- [x] Extend the same conversion-result lifetime coverage to a mutable `T&&`
-      local. Verify the receiver dies at the end of initialization while the
-      converted object survives until scope exit (`65709`); exception-cleanup
-      verified target still emits twelve functions with zero fallback on both
-      architectures.
+- [x] Extend conversion-result lifetime coverage to mutable `T&&` and
+      `const T&&` locals. Verify each receiver dies at the end of initialization
+      while the converted object survives until scope exit (`65710`);
+      exception-cleanup verified target still emits twelve functions with zero
+      fallback on both architectures.
 - [ ] Other converted-reference shapes, static/TLS lifetime extension,
       additional conditional/subobject forms, and remaining full-expression
       cleanup paths remain open.
