@@ -6907,9 +6907,10 @@ remains a separate open item.
       passes i686/AMD64 `-O0`/`-O2` with 12 emitted functions, zero fallback,
       verified-object execution, and ordinary backend checks.
 - [ ] Virtual/inherited bases, potentially-throwing base constructors and
-      partial-construction unwind, base/member copy construction, general
-      constructor bodies, and full-expression cleanup outside call arguments
-      remain open.
+      partial-construction unwind, general constructor bodies, and
+      full-expression cleanup outside call arguments remain open. Trivial
+      non-virtual base/member copy construction is tracked in the copy section
+      below.
 
 ## RCC continuation (2026-10-20, verified trivial C++ copy construction)
 
@@ -6934,5 +6935,17 @@ remains a separate open item.
       `first * 2 - second`. `test-verified-cxx-reference-local` checks 15
       emitted functions, zero fallback, and execution for i686/AMD64 at
       `-O0`/`-O2` plus ordinary backend output.
-- [ ] General side-effecting constructor initializers, copy constructors,
-      arbitrary constructor bodies, and full-expression cleanup remain open.
+- [x] Lower direct resolved `noexcept` calls returning scalar values in scalar
+      member initializers when their arguments are supported and do not create
+      temporary owners. Emit explicit member initializers in class declaration
+      order, regardless of their textual order in the constructor initializer
+      list.
+- [x] Add a regression whose reversed initializer list calls a side-effecting
+      helper for both fields; verify call order and resulting values. The
+      focused target passes i686/AMD64 at `-O0`/`-O2`, emits 17 verified
+      functions with zero fallback, executes all four verified objects, and
+      assembles/runs ordinary backend output.
+- [ ] Potentially-throwing or indirect calls, calls with temporary-producing
+      arguments, non-scalar/class-valued member initializers, arbitrary
+      constructor bodies, nontrivial copy constructors, and full-expression
+      cleanup beyond supported call arguments remain open.
