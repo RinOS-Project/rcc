@@ -40,6 +40,26 @@ private:
     bool throw_root_;
 };
 
+struct VerifiedArrayDeleteInput {
+    int* order;
+    int* should_throw;
+    int value;
+};
+
+class VerifiedArrayDelete final {
+public:
+    explicit VerifiedArrayDelete(const VerifiedArrayDeleteInput* input)
+        : input_(input) {}
+
+    ~VerifiedArrayDelete() {
+        if (*input_->should_throw && input_->value == 3) throw 43;
+        *input_->order = *input_->order * 10 + input_->value;
+    }
+
+private:
+    const VerifiedArrayDeleteInput* input_;
+};
+
 extern "C" int verified_cxx_delete_throw() {
     int order = 0;
     try {
@@ -59,6 +79,34 @@ extern "C" int verified_cxx_delete_normal() {
     } catch (int exception_value) {
         return exception_value + order * 1000;
     }
+    return order * 100;
+}
+
+extern "C" int verified_cxx_array_delete_throw() {
+    int order = 0;
+    int should_throw = 1;
+    VerifiedArrayDeleteInput first{&order, &should_throw, 1};
+    VerifiedArrayDeleteInput second{&order, &should_throw, 2};
+    VerifiedArrayDeleteInput third{&order, &should_throw, 3};
+    try {
+        VerifiedArrayDelete* values =
+            new VerifiedArrayDelete[3]{&first, &second, &third};
+        delete[] values;
+    } catch (int exception_value) {
+        return exception_value + order * 1000;
+    }
+    return -1;
+}
+
+extern "C" int verified_cxx_array_delete_normal() {
+    int order = 0;
+    int should_throw = 0;
+    VerifiedArrayDeleteInput first{&order, &should_throw, 1};
+    VerifiedArrayDeleteInput second{&order, &should_throw, 2};
+    VerifiedArrayDeleteInput third{&order, &should_throw, 3};
+    VerifiedArrayDelete* values =
+        new VerifiedArrayDelete[3]{&first, &second, &third};
+    delete[] values;
     return order * 100;
 }
 

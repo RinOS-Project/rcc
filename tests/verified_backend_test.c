@@ -3874,12 +3874,18 @@ static void verify_cxx_delete_object(const char* path, uint16_t arch,
     ObjSection* text;
     ObjSymbol* throwing_delete_symbol;
     ObjSymbol* normal_delete_symbol;
+    ObjSymbol* throwing_array_delete_symbol;
+    ObjSymbol* normal_array_delete_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     throwing_delete_symbol = objfile_find_symbol(
         object, "verified_cxx_delete_throw");
     normal_delete_symbol = objfile_find_symbol(
         object, "verified_cxx_delete_normal");
+    throwing_array_delete_symbol = objfile_find_symbol(
+        object, "verified_cxx_array_delete_throw");
+    normal_array_delete_symbol = objfile_find_symbol(
+        object, "verified_cxx_array_delete_normal");
     assert(text != NULL && throwing_delete_symbol != NULL &&
            throwing_delete_symbol->type == SYM_GLOBAL &&
            throwing_delete_symbol->binding == BIND_CODE &&
@@ -3887,13 +3893,23 @@ static void verify_cxx_delete_object(const char* path, uint16_t arch,
            normal_delete_symbol != NULL &&
            normal_delete_symbol->type == SYM_GLOBAL &&
            normal_delete_symbol->binding == BIND_CODE &&
-           normal_delete_symbol->section == 0);
+           normal_delete_symbol->section == 0 &&
+           throwing_array_delete_symbol != NULL &&
+           throwing_array_delete_symbol->type == SYM_GLOBAL &&
+           throwing_array_delete_symbol->binding == BIND_CODE &&
+           throwing_array_delete_symbol->section == 0 &&
+           normal_array_delete_symbol != NULL &&
+           normal_array_delete_symbol->type == SYM_GLOBAL &&
+           normal_array_delete_symbol->binding == BIND_CODE &&
+           normal_array_delete_symbol->section == 0);
     if (execute) {
         size_t mapping_size;
         void* memory;
         void* address;
         int (RINOS_ABI *throwing_delete)(void);
         int (RINOS_ABI *normal_delete)(void);
+        int (RINOS_ABI *throwing_array_delete)(void);
+        int (RINOS_ABI *normal_array_delete)(void);
         assert(arch == ARCH_X64 && sizeof(void*) == 8u);
         memory = map_text(object, text, &mapping_size);
         address = symbol_address(memory, throwing_delete_symbol);
@@ -3905,6 +3921,17 @@ static void verify_cxx_delete_object(const char* path, uint16_t arch,
         memcpy(&normal_delete, &address, sizeof(normal_delete));
         verified_runtime_free_count = 0u;
         assert(normal_delete() == 2100);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, throwing_array_delete_symbol);
+        memcpy(&throwing_array_delete, &address,
+               sizeof(throwing_array_delete));
+        verified_runtime_free_count = 0u;
+        assert(throwing_array_delete() == 21043);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, normal_array_delete_symbol);
+        memcpy(&normal_array_delete, &address, sizeof(normal_array_delete));
+        verified_runtime_free_count = 0u;
+        assert(normal_array_delete() == 32100);
         assert(verified_runtime_free_count == 1u);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
