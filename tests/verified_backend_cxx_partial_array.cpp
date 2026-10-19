@@ -78,6 +78,16 @@ public:
     }
 };
 
+class VerifiedImplicitDmiArrayElement final {
+public:
+    int value_ = 6;
+    int default_initialized_only_by_lifetime_;
+
+    ~VerifiedImplicitDmiArrayElement() noexcept {
+        verified_partial_array_record_destructor(value_);
+    }
+};
+
 class VerifiedThrowingDefaultArgumentArrayElement final {
 public:
     explicit VerifiedThrowingDefaultArgumentArrayElement(
@@ -212,6 +222,20 @@ extern "C" int verified_cxx_partial_array_implicit_default(int count) {
 extern "C" int verified_cxx_partial_array_implicit_default_fixed() {
     VerifiedImplicitDefaultArrayElement* values =
         new VerifiedImplicitDefaultArrayElement[3];
+    delete[] values;
+    return 0;
+}
+
+extern "C" int verified_cxx_partial_array_implicit_dmi(int count) {
+    VerifiedImplicitDmiArrayElement* values =
+        new VerifiedImplicitDmiArrayElement[count];
+    delete[] values;
+    return count;
+}
+
+extern "C" int verified_cxx_partial_array_implicit_dmi_fixed() {
+    VerifiedImplicitDmiArrayElement* values =
+        new VerifiedImplicitDmiArrayElement[2];
     delete[] values;
     return 0;
 }

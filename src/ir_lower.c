@@ -14857,6 +14857,59 @@ static RccIrLowerValue lower_cxx_delete_array_expression(
     }
 }
 
+static bool lower_cxx_implicit_default_member_initializers_supported(
+    const Type* type) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    const TypeField* field;
+    bool has_initializer = false;
+    if (!type || type->kind != TYPE_STRUCT || !type->is_complete ||
+        type->size <= 0 || !cls || !cls->has_field_initializer ||
+        cls->has_user_constructor || cls->constructors ||
+        cls->base_count != 0 || cls->vtable_size != 0 ||
+        cls->secondary_vtable_count != 0 || type->cleanup_function ||
+        type->cleanup_field) {
+        return false;
+    }
+    for (field = type->fields; field; field = field->next) {
+        if (!field->type || field->is_bitfield ||
+            !type_is_scalar(field->type) || field->type->is_reference ||
+            field->type->is_volatile || field->type->is_atomic ||
+            field->type->cxx_is_member_pointer ||
+            !lower_storage_type_supported_internal(field->type, 0u)) {
+            return false;
+        }
+        if (field->initializer) {
+            if (!lower_noexcept_expression(field->initializer)) return false;
+            has_initializer = true;
+        }
+    }
+    return has_initializer;
+}
+
+static bool lower_cxx_initialize_implicit_default_member_initializers(
+    RccIrLowerContext* context, RccIrValue object, const Type* type) {
+    const TypeField* field;
+    RccIrLowerValue base;
+    if (!context || !object || !type ||
+        !lower_cxx_implicit_default_member_initializers_supported(type)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    base = lower_value(object, rcc_ir_type_pointer(0u), true);
+    for (field = type->fields; field; field = field->next) {
+        RccIrLowerValue address;
+        if (!field->initializer) continue;
+        address = lower_byte_offset_address(
+            context, base, (uint64_t)field->offset);
+        if (!address.valid || !lower_initialize_scalar_storage(
+                context, address.value, field->type,
+                field->initializer)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static RccIrLowerValue lower_cxx_new_array_expression(
     RccIrLowerContext* context, const Expr* expression) {
     const CxxClass* cls;
@@ -14895,6 +14948,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     bool dynamic_count;
     bool register_cleanups;
     bool implicit_empty_default_constructor;
+    bool implicit_default_member_initializers;
     if (!context || !expression || !expression->call_new_is_array ||
         !expression->call_new_array_cookie || !expression->call_new_count ||
         !expression->call_new_type ||
@@ -14902,8 +14956,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         expression->call_new_type->size <= 0 ||
         !expression->type || expression->type->kind != TYPE_PTR ||
         expression->type->base != expression->call_new_type ||
-        expression->call_new_copy_init ||
-        expression->call_new_default_member_initializers) {
+        expression->call_new_copy_init) {
         if (context) context->unsupported = true;
         return lower_invalid_value();
     }
@@ -14921,11 +14974,18 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         !expression->call_new_type->cleanup_field &&
         cls->base_count == 0 && cls->vtable_size == 0 &&
         cls->secondary_vtable_count == 0;
+    implicit_default_member_initializers = !constructor_decl &&
+        !expression->call_new_args &&
+        expression->call_new_default_member_initializers &&
+        lower_cxx_implicit_default_member_initializers_supported(
+            expression->call_new_type);
     destructor = expression->call_new_type->cxx_class &&
         expression->call_new_type->cxx_class->destructor_method
         ? expression->call_new_type->cxx_class->destructor_method->decl
         : NULL;
-    if (!cls || (!constructor_decl && !implicit_empty_default_constructor) ||
+    if (!cls || (!constructor_decl &&
+                 !implicit_empty_default_constructor &&
+                 !implicit_default_member_initializers) ||
         !destructor ||
         (constructor_decl &&
          !constructor_decl->func_is_cxx_constructor) ||
@@ -14985,10 +15045,12 @@ static RccIrLowerValue lower_cxx_new_array_expression(
           (uint64_t)constant_count < (uint64_t)initialized_count ||
           ((uint64_t)constant_count > (uint64_t)initialized_count &&
            !default_constructor &&
-           !implicit_empty_default_constructor))) ||
+           !implicit_empty_default_constructor &&
+           !implicit_default_member_initializers))) ||
         (dynamic_count && (initialized_count != 0u ||
                            (!default_constructor &&
-                            !implicit_empty_default_constructor)))) {
+                            !implicit_empty_default_constructor &&
+                            !implicit_default_member_initializers)))) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -15156,7 +15218,8 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         Expr initializer;
         if (!build_index.valid || !element.valid ||
             (!default_constructor &&
-             !implicit_empty_default_constructor)) {
+             !implicit_empty_default_constructor &&
+             !implicit_default_member_initializers)) {
             context->unsupported = true;
             return lower_invalid_value();
         }
@@ -15173,6 +15236,11 @@ static RccIrLowerValue lower_cxx_new_array_expression(
                 if (!context->unsupported) context->unsupported = true;
                 return lower_invalid_value();
             }
+        } else if (implicit_default_member_initializers &&
+                   !lower_cxx_initialize_implicit_default_member_initializers(
+                       context, element.value, expression->call_new_type)) {
+            if (!context->unsupported) context->unsupported = true;
+            return lower_invalid_value();
         }
         if (register_cleanups &&
             !lower_cxx_register_array_element_cleanup(
@@ -15256,7 +15324,8 @@ static RccIrLowerValue lower_cxx_new_array_expression(
                 context, user_address, element_index_value,
                 (size_t)expression->call_new_type->size);
             if ((!default_constructor &&
-                 !implicit_empty_default_constructor) || !element.valid) {
+                 !implicit_empty_default_constructor &&
+                 !implicit_default_member_initializers) || !element.valid) {
                 context->unsupported = true;
                 return lower_invalid_value();
             }
@@ -15273,6 +15342,12 @@ static RccIrLowerValue lower_cxx_new_array_expression(
                     if (!context->unsupported) context->unsupported = true;
                     return lower_invalid_value();
                 }
+            } else if (implicit_default_member_initializers &&
+                       !lower_cxx_initialize_implicit_default_member_initializers(
+                           context, element.value,
+                           expression->call_new_type)) {
+                if (!context->unsupported) context->unsupported = true;
+                return lower_invalid_value();
             }
             ++element_index;
             if (register_cleanups &&

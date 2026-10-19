@@ -3976,6 +3976,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
     ObjSymbol* default_argument_suffix_symbol;
     ObjSymbol* implicit_default_symbol;
     ObjSymbol* implicit_default_fixed_symbol;
+    ObjSymbol* implicit_dmi_symbol;
+    ObjSymbol* implicit_dmi_fixed_symbol;
     ObjSymbol* default_argument_throw_symbol;
     ObjSymbol* default_argument_suffix_throw_symbol;
     assert(object != NULL && object->arch == arch);
@@ -4002,6 +4004,10 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         object, "verified_cxx_partial_array_implicit_default");
     implicit_default_fixed_symbol = objfile_find_symbol(
         object, "verified_cxx_partial_array_implicit_default_fixed");
+    implicit_dmi_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_implicit_dmi");
+    implicit_dmi_fixed_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_implicit_dmi_fixed");
     default_argument_throw_symbol = objfile_find_symbol(
         object, "verified_cxx_partial_array_default_argument_throw");
     default_argument_suffix_throw_symbol = objfile_find_symbol(
@@ -4045,6 +4051,14 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
            implicit_default_fixed_symbol->type == SYM_GLOBAL &&
            implicit_default_fixed_symbol->binding == BIND_CODE &&
            implicit_default_fixed_symbol->section == 0 &&
+           implicit_dmi_symbol != NULL &&
+           implicit_dmi_symbol->type == SYM_GLOBAL &&
+           implicit_dmi_symbol->binding == BIND_CODE &&
+           implicit_dmi_symbol->section == 0 &&
+           implicit_dmi_fixed_symbol != NULL &&
+           implicit_dmi_fixed_symbol->type == SYM_GLOBAL &&
+           implicit_dmi_fixed_symbol->binding == BIND_CODE &&
+           implicit_dmi_fixed_symbol->section == 0 &&
            default_argument_throw_symbol != NULL &&
            default_argument_throw_symbol->type == SYM_GLOBAL &&
            default_argument_throw_symbol->binding == BIND_CODE &&
@@ -4068,6 +4082,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         int (RINOS_ABI *default_argument_suffix)(void);
         int (RINOS_ABI *implicit_default)(int);
         int (RINOS_ABI *implicit_default_fixed)(void);
+        int (RINOS_ABI *implicit_dmi)(int);
+        int (RINOS_ABI *implicit_dmi_fixed)(void);
         int (RINOS_ABI *default_argument_throw)(int);
         int (RINOS_ABI *default_argument_suffix_throw)(void);
         assert(arch == ARCH_X64 && sizeof(void*) == 8u);
@@ -4170,6 +4186,20 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         verified_runtime_free_count = 0u;
         assert(implicit_default_fixed() == 0);
         assert(verified_partial_array_destructor_order == 111);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, implicit_dmi_symbol);
+        memcpy(&implicit_dmi, &address, sizeof(implicit_dmi));
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(implicit_dmi(3) == 3);
+        assert(verified_partial_array_destructor_order == 666);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, implicit_dmi_fixed_symbol);
+        memcpy(&implicit_dmi_fixed, &address, sizeof(implicit_dmi_fixed));
+        verified_partial_array_destructor_order = 0;
+        verified_runtime_free_count = 0u;
+        assert(implicit_dmi_fixed() == 0);
+        assert(verified_partial_array_destructor_order == 66);
         assert(verified_runtime_free_count == 1u);
         address = symbol_address(memory, default_argument_throw_symbol);
         memcpy(&default_argument_throw, &address,

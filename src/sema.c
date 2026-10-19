@@ -15545,6 +15545,7 @@ static Type* sema_expr(Expr* expr) {
                         bool has_user_constructor = cls &&
                             cls->constructors != NULL;
                         expr->call_new_default_args = NULL;
+                        expr->call_new_default_member_initializers = false;
                         if (object_type->kind != TYPE_STRUCT || !cls ||
                             (!sema_cxx_trivially_destructible(object_type, 0) &&
                              !destructor && !has_cleanup &&
@@ -15586,6 +15587,13 @@ static Type* sema_expr(Expr* expr) {
                                 expr->call_new_default_args =
                                     default_arguments;
                             }
+                        } else if (!has_user_constructor && cls &&
+                                   cls->has_field_initializer) {
+                            if (!sema_cxx_validate_default_member_initializers(
+                                    object_type, expr->loc)) {
+                                return expr->type;
+                            }
+                            expr->call_new_default_member_initializers = true;
                         }
                         if (destructor || has_cleanup || has_member_cleanup) {
                             expr->call_new_array_cookie = true;
