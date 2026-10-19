@@ -3347,7 +3347,8 @@ static const ModuleSymbol* debug_find_global_symbol(const Module* mod,
     for (int index = 0; index < mod->symbol_count; ++index) {
         const ModuleSymbol* symbol = &mod->symbols[index];
         if (!symbol->is_defined || strcmp(symbol->name, link_name) != 0 ||
-            (symbol->section != MODULE_SYMBOL_DATA &&
+            (symbol->section != MODULE_SYMBOL_RODATA &&
+             symbol->section != MODULE_SYMBOL_DATA &&
              symbol->section != MODULE_SYMBOL_BSS &&
              symbol->section != MODULE_SYMBOL_TLS)) {
             continue;
@@ -3367,7 +3368,8 @@ static const ModuleSymbol* debug_find_static_local_symbol(
     for (int index = 0; index < mod->symbol_count; ++index) {
         const ModuleSymbol* symbol = &mod->symbols[index];
         if (!symbol->is_defined || strcmp(symbol->name, link_name) != 0 ||
-            (symbol->section != MODULE_SYMBOL_DATA &&
+            (symbol->section != MODULE_SYMBOL_RODATA &&
+             symbol->section != MODULE_SYMBOL_DATA &&
              symbol->section != MODULE_SYMBOL_BSS &&
              symbol->section != MODULE_SYMBOL_TLS)) {
             continue;
@@ -4125,6 +4127,59 @@ static bool debug_inline_parameter_body_is_read_only(const Decl* callee) {
         callee->func_body, callee, 0u);
 }
 
+static const ModuleSymbol* debug_inline_parameter_address_constant(
+    const Module* mod, const char* filename, const Decl* callee,
+    const ModuleDebugInlineParameterValue* value, const ExprList* argument,
+    char** scoped_symbol) {
+    const Expr* address;
+    const Expr* operand;
+    const Decl* source;
+    const Type* parameter_type;
+    const Type* argument_type;
+    const ModuleSymbol* symbol;
+    uint8_t address_size;
+    if (scoped_symbol) *scoped_symbol = NULL;
+    if (!mod || !filename || !value || !value->declaration || !argument ||
+        !argument->expr || argument->cxx_temporary_owner || !scoped_symbol) {
+        return NULL;
+    }
+    address = argument->expr;
+    if (address->kind != EXPR_ADDR || !address->unary_operand ||
+        address->unary_operand->kind != EXPR_IDENT ||
+        !address->unary_operand->ident_decl) {
+        return NULL;
+    }
+    operand = address->unary_operand;
+    source = operand->ident_decl;
+    parameter_type = value->declaration->type;
+    argument_type = address->type;
+    address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    if (value->declaration->kind != DECL_PARAM ||
+        source->kind != DECL_VAR ||
+        (!source->var_is_global && !source->var_is_static_local) ||
+        !parameter_type || parameter_type->kind != TYPE_PTR ||
+        parameter_type->cxx_is_member_pointer ||
+        parameter_type->size != address_size || parameter_type->is_volatile ||
+        parameter_type->is_reference || parameter_type->is_atomic ||
+        !argument_type || argument_type->kind != TYPE_PTR ||
+        argument_type->cxx_is_member_pointer ||
+        argument_type->size != address_size ||
+        !debug_inline_parameter_body_is_read_only(callee)) {
+        return NULL;
+    }
+    if (source->var_is_global) {
+        symbol = debug_find_global_symbol(mod, source);
+    } else {
+        symbol = debug_find_static_local_symbol(mod, source);
+    }
+    if (!symbol || symbol->section == MODULE_SYMBOL_TLS) return NULL;
+    if (!symbol->is_global) {
+        *scoped_symbol = module_scoped_symbol(filename, symbol->name);
+        if (!*scoped_symbol) return NULL;
+    }
+    return symbol;
+}
+
 static const ModuleSymbol* debug_inline_parameter_source_symbol(
     const Module* mod, const char* filename,
     const Decl* callee,
@@ -4247,6 +4302,26 @@ static void debug_emit_inline_parameter_instances(
             if (g_opts.target_arch == ARCH_X64) {
                 debug_line_u32(info, 0u);
             }
+        } else if (value->declaration &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   (source_symbol = debug_inline_parameter_address_constant(
+                       mod, filename, call->callee, value, argument,
+                       &scoped_source_symbol)) != NULL) {
+            const char* relocation_symbol = scoped_source_symbol
+                ? scoped_source_symbol : source_symbol->name;
+            uint64_t address_offset;
+            uint32_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+            section_add_byte(info, 68u);
+            debug_line_u32(info, origin->die_offset);
+            address_offset = info->size;
+            for (uint32_t byte = 0u; byte < address_size; ++byte) {
+                section_add_byte(info, 0u);
+            }
+            objfile_add_reloc(
+                obj, info_section, address_offset, relocation_symbol,
+                address_size == 8u ? RELOC_ABS64 : RELOC_ABS32U, 0);
+            rcc_free(scoped_source_symbol);
         } else if (value->declaration &&
                    (origin = debug_inline_parameter_origin_find(
                        origins, call->callee, value->declaration)) != NULL) {
@@ -5517,6 +5592,17 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 66u);
+    debug_line_uleb(abbrev, 0x05u);   /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x01u);   /* DW_FORM_addr */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* A symbolic address passed by value is a DWARF constant, not a storage
+     * location. The address-sized field below carries an object relocation. */
+    debug_line_uleb(abbrev, 68u);
     debug_line_uleb(abbrev, 0x05u);   /* DW_TAG_formal_parameter */
     section_add_byte(abbrev, 0u);
     debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */

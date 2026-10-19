@@ -3452,6 +3452,9 @@ static void verify_inline_debug_object(const char* path,
     static const uint8_t pointer_parameter_attributes[] = {
         0x31u, 0x13u, 0x1cu, 0x01u
     };
+    static const uint8_t symbolic_pointer_parameter_attributes[] = {
+        0x31u, 0x13u, 0x1cu, 0x01u
+    };
     static const uint8_t dynamic_parameter_attributes[] = {
         0x31u, 0x13u, 0x02u, 0x18u
     };
@@ -3483,6 +3486,9 @@ static void verify_inline_debug_object(const char* path,
     uint64_t null_pointer_inline_call = UINT64_MAX;
     uint64_t enum_inline_call = UINT64_MAX;
     uint64_t global_pointer_inline_call = UINT64_MAX;
+    uint64_t address_constant_inline_call = UINT64_MAX;
+    uint64_t static_address_constant_inline_call = UINT64_MAX;
+    uint64_t readonly_address_constant_inline_call = UINT64_MAX;
     uint64_t static_pointer_inline_call = UINT64_MAX;
     uint64_t automatic_pointer_inline_call = UINT64_MAX;
 
@@ -3532,6 +3538,9 @@ static void verify_inline_debug_object(const char* path,
     verify_debug_abbreviation(abbrev, 67u, 0x05u, 0u,
                               dynamic_parameter_attributes,
                               sizeof(dynamic_parameter_attributes));
+    verify_debug_abbreviation(abbrev, 68u, 0x05u, 0u,
+                              symbolic_pointer_parameter_attributes,
+                              sizeof(symbolic_pointer_parameter_attributes));
 
     for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 12u <=
          info->size; ++die) {
@@ -3582,7 +3591,9 @@ static void verify_inline_debug_object(const char* path,
             strcmp(inline_name,
                    "debug_enum_parameter_inline") != 0 &&
             strcmp(inline_name,
-                   "debug_global_pointer_parameter_inline") != 0) {
+                   "debug_global_pointer_parameter_inline") != 0 &&
+            strcmp(inline_name,
+                   "debug_const_global_pointer_parameter_inline") != 0) {
             continue;
         }
         origin_file = read_u32(info->data, origin_offset + 5u);
@@ -3605,7 +3616,9 @@ static void verify_inline_debug_object(const char* path,
         assert(parameter_type < info->size);
         if (strcmp(inline_name, "debug_null_pointer_parameter_inline") == 0 ||
             strcmp(inline_name,
-                   "debug_global_pointer_parameter_inline") == 0) {
+                   "debug_global_pointer_parameter_inline") == 0 ||
+            strcmp(inline_name,
+                   "debug_const_global_pointer_parameter_inline") == 0) {
             assert(info->data[parameter_type] == 6u);
         } else if (strcmp(inline_name,
                           "debug_enum_parameter_inline") == 0) {
@@ -3700,7 +3713,9 @@ static void verify_inline_debug_object(const char* path,
                     "debug_null_pointer_parameter_inline") == 0 ||
              strcmp(inline_name, "debug_enum_parameter_inline") == 0 ||
              strcmp(inline_name,
-                    "debug_global_pointer_parameter_inline") == 0)
+                    "debug_global_pointer_parameter_inline") == 0 ||
+             strcmp(inline_name,
+                    "debug_const_global_pointer_parameter_inline") == 0)
                 ? "tests/debug_info.c"
                 : "tests/debug_info_inline.h"));
         assert(line_table_file_matches(line, origin_file,
@@ -3745,6 +3760,15 @@ static void verify_inline_debug_object(const char* path,
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_global_pointer_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_address_constant_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_static_address_constant_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_readonly_address_constant_entry") == 0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_static_pointer_entry") == 0;
@@ -3872,6 +3896,27 @@ static void verify_inline_debug_object(const char* path,
                        strcmp(inline_name,
                               "debug_global_pointer_parameter_inline") == 0 &&
                        strcmp(relocation->symbol_name,
+                              "debug_inline_address_constant_entry") == 0 &&
+                       address_constant_inline_call == UINT64_MAX) {
+                address_constant_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_static_address_constant_entry") == 0 &&
+                       static_address_constant_inline_call == UINT64_MAX) {
+                static_address_constant_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_const_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_readonly_address_constant_entry") == 0 &&
+                       readonly_address_constant_inline_call == UINT64_MAX) {
+                readonly_address_constant_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
                               "debug_inline_static_pointer_entry") == 0 &&
                        static_pointer_inline_call == UINT64_MAX) {
                 static_pointer_inline_call = die;
@@ -3906,6 +3951,9 @@ static void verify_inline_debug_object(const char* path,
     assert(null_pointer_inline_call != UINT64_MAX);
     assert(enum_inline_call != UINT64_MAX);
     assert(global_pointer_inline_call != UINT64_MAX);
+    assert(address_constant_inline_call != UINT64_MAX);
+    assert(static_address_constant_inline_call != UINT64_MAX);
+    assert(readonly_address_constant_inline_call != UINT64_MAX);
     assert(static_pointer_inline_call != UINT64_MAX);
     assert(automatic_pointer_inline_call != UINT64_MAX);
     {
@@ -4161,6 +4209,89 @@ static void verify_inline_debug_object(const char* path,
             }
         }
         assert(found_source_relocation);
+    }
+    {
+        uint64_t concrete_parameter = address_constant_inline_call + 1u + 4u +
+            address_size + 4u + 12u;
+        uint32_t origin_parameter = read_u32(
+            info->data, address_constant_inline_call + 1u) + 27u;
+        uint64_t address_offset = concrete_parameter + 5u;
+        bool found_address_relocation = false;
+        assert(info->data[concrete_parameter] == 68u);
+        assert(read_u32(info->data, concrete_parameter + 1u) ==
+               origin_parameter);
+        for (uint64_t byte = 0u; byte < address_size; ++byte) {
+            assert(info->data[address_offset + byte] == 0u);
+        }
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == address_offset &&
+                relocation->type == (architecture == ARCH_X64
+                    ? RELOC_ABS64 : RELOC_ABS32U) &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name,
+                       "debug_inline_addressed_pointer_source") == 0) {
+                found_address_relocation = true;
+                break;
+            }
+        }
+        assert(found_address_relocation);
+    }
+    {
+        uint64_t concrete_parameter = static_address_constant_inline_call +
+            1u + 4u + address_size + 4u + 12u;
+        uint32_t origin_parameter = read_u32(
+            info->data, static_address_constant_inline_call + 1u) + 27u;
+        uint64_t address_offset = concrete_parameter + 5u;
+        bool found_address_relocation = false;
+        assert(info->data[concrete_parameter] == 68u);
+        assert(read_u32(info->data, concrete_parameter + 1u) ==
+               origin_parameter);
+        for (uint64_t byte = 0u; byte < address_size; ++byte) {
+            assert(info->data[address_offset + byte] == 0u);
+        }
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == address_offset &&
+                relocation->type == (architecture == ARCH_X64
+                    ? RELOC_ABS64 : RELOC_ABS32U) &&
+                relocation->symbol_name &&
+                strncmp(relocation->symbol_name, "tests/debug_info.c::",
+                        strlen("tests/debug_info.c::")) == 0 &&
+                strstr(relocation->symbol_name,
+                       "debug_inline_addressed_static_source") != NULL) {
+                found_address_relocation = true;
+                break;
+            }
+        }
+        assert(found_address_relocation);
+    }
+    {
+        uint64_t concrete_parameter = readonly_address_constant_inline_call +
+            1u + 4u + address_size + 4u + 12u;
+        uint32_t origin_parameter = read_u32(
+            info->data, readonly_address_constant_inline_call + 1u) + 27u;
+        uint64_t address_offset = concrete_parameter + 5u;
+        bool found_address_relocation = false;
+        assert(info->data[concrete_parameter] == 68u);
+        assert(read_u32(info->data, concrete_parameter + 1u) ==
+               origin_parameter);
+        for (uint64_t byte = 0u; byte < address_size; ++byte) {
+            assert(info->data[address_offset + byte] == 0u);
+        }
+        for (const ObjReloc* relocation = info->relocs; relocation;
+             relocation = relocation->next) {
+            if (relocation->offset == address_offset &&
+                relocation->type == (architecture == ARCH_X64
+                    ? RELOC_ABS64 : RELOC_ABS32U) &&
+                relocation->symbol_name &&
+                strcmp(relocation->symbol_name,
+                       "debug_inline_readonly_addressed_pointer_source") == 0) {
+                found_address_relocation = true;
+                break;
+            }
+        }
+        assert(found_address_relocation);
     }
     {
         uint64_t concrete_parameter = automatic_pointer_inline_call + 1u + 4u +

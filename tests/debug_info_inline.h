@@ -78,3 +78,8 @@ inline int debug_global_pointer_parameter_inline(int* value)
         return 0;
     }
 }
+
+inline int debug_const_global_pointer_parameter_inline(const int* value)
+{
+    return value != (const int*)0;
+}

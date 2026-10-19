@@ -32,6 +32,8 @@ enum debug_enum {
 };
 enum debug_enum debug_enum_data = DEBUG_ENUM_POSITIVE;
 int* debug_inline_global_pointer_source;
+int debug_inline_addressed_pointer_source;
+const int debug_inline_readonly_addressed_pointer_source = 31;
 int** debug_inline_escaped_pointer;
 static int debug_aggregate_sum(void)
 {
@@ -130,6 +132,25 @@ int debug_inline_global_pointer_entry(void)
 {
     return debug_global_pointer_parameter_inline(
         debug_inline_global_pointer_source);
+}
+
+int debug_inline_address_constant_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_pointer_source);
+}
+
+int debug_inline_static_address_constant_entry(void)
+{
+    static int debug_inline_addressed_static_source;
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_static_source);
+}
+
+int debug_inline_readonly_address_constant_entry(void)
+{
+    return debug_const_global_pointer_parameter_inline(
+        &debug_inline_readonly_addressed_pointer_source);
 }
 
 int debug_inline_static_pointer_entry(void)
