@@ -6989,9 +6989,10 @@ remains a separate open item.
       `test-optimize` and `test-debug-info` validate i686/AMD64, legacy and
       verified optimized DWARF; `1.1f`→`double` and `1.1`→`float` values match
       exact expected bits.
-- [ ] Long-double conversions, nonconstant floating expressions, pointer and
-      enum conversion attribution, mutable parameter locations, and general
-      optimized inline-variable location tracking remain open.
+- [ ] Long-double conversions, nonconstant floating expressions, non-null or
+      dynamic pointer values, enum conversion attribution, mutable parameter
+      locations, and general optimized inline-variable location tracking remain
+      open.
 
 ## RCC continuation (2026-10-20, out-of-range signed inline values)
 
@@ -7002,8 +7003,9 @@ remains a separate open item.
       execute `UINT32_MAX`→`int` plus `UINT64_MAX`→`long long` at `-O0`/`-O1`
       for i686/AMD64. Native-Windows `test-optimize` and `test-debug-info` pass.
 - [ ] Other implementation-defined integer conversions, nonliteral folded
-      arguments, enum/pointer attribution, mutable parameter locations, and
-      general optimized inline-variable location tracking remain open.
+      arguments, non-null/dynamic pointer values, enum attribution, mutable
+      parameter locations, and general optimized inline-variable location
+      tracking remain open.
 
 ## RCC continuation (2026-10-20, inline floating constant expressions)
 
@@ -7014,9 +7016,9 @@ remains a separate open item.
 - [x] Verify `1.1f + 2.2f` is rounded as `float` before promotion to `double`
       and compare its exact 8-byte value in legacy/verified optimized i686/AMD64
       DWARF. Native-Windows `test-debug-info` passes.
-- [ ] Dynamic floating arguments, long-double support, pointer/enum
-      attribution, mutable parameter locations, and optimized inline-variable
-      location tracking remain open.
+- [ ] Dynamic floating arguments, long-double support, non-null/dynamic pointer
+      values, enum attribution, mutable parameter locations, and optimized
+      inline-variable location tracking remain open.
 
 ## RCC continuation (2026-10-20, inline null-pointer parameter values)
 
@@ -7027,5 +7029,19 @@ remains a separate open item.
 - [x] Add a C inline regression that compares the null argument with a dynamic
       pointer parameter. `test-debug-info` verifies the pointer-typed formal
       parameter DIE and zero address bytes in legacy/verified i686/AMD64 output.
+- [ ] Non-null symbolic pointer values, dynamic pointer locations, and full
+      optimized register/piece tracking remain open.
+
+## RCC continuation (2026-10-20, C++ nullptr inline conversion)
+
+- [x] Include the standard C++ `nullptr_t`-to-object/function-pointer
+      conversion in bounded pure-scalar inlining, while excluding member-pointer
+      conversion and leaving unrelated pointer conversions unchanged.
+- [x] Verify that `nullptr` passed to a pointer formal is inlined at `-O1` but
+      remains a call at `-O0`, and that dynamic pointer comparisons execute
+      correctly on i686/AMD64. `test-optimize` passes.
+- [x] Verify the call-specific pointer formal DIE and zero `DW_FORM_addr` value
+      for legacy and verified optimized C++ objects on i686/AMD64.
+      Native-Windows `test-debug-info` passes.
 - [ ] Non-null symbolic pointer values, dynamic pointer locations, and full
       optimized register/piece tracking remain open.

@@ -309,6 +309,14 @@ static void verify_smaller(const char* unoptimized_path,
                                   0xe8u));
     assert(!function_contains_byte(optimized, "inlined_argument_call",
                                    0xe8u));
+    if (objfile_find_symbol(unoptimized, "inline_nullptr_parameter_call")) {
+        assert(objfile_find_symbol(optimized,
+                                   "inline_nullptr_parameter_call") != NULL);
+        assert(function_call_opcode_count(
+                   unoptimized, "inline_nullptr_parameter_call") >
+               function_call_opcode_count(
+                   optimized, "inline_nullptr_parameter_call"));
+    }
     {
         size_t original_calls = function_call_opcode_count(
             unoptimized, "inline_budget_many_calls");
@@ -2226,6 +2234,7 @@ int main(int argc, char** argv)
         const char* (*inlined_string_constant_call)(void);
         int (*inlined_comma_call)(int);
         int (*inlined_noexcept_call)(int*);
+        int (*inline_nullptr_parameter_call)(int*) = NULL;
         int (*inlined_pointer_index_call)(int*);
         int (*inlined_pointer_member_call)(struct OptimizerPair*);
         int (*inlined_pointer_member_deref_call)(struct OptimizerPair*);
@@ -2952,6 +2961,15 @@ int main(int argc, char** argv)
             }
         }
         {
+            ObjSymbol* symbol = objfile_find_symbol(
+                object, "inline_nullptr_parameter_call");
+            if (symbol) {
+                address = mapping + symbol->value;
+                memcpy(&inline_nullptr_parameter_call, &address,
+                       sizeof(inline_nullptr_parameter_call));
+            }
+        }
+        {
             ObjSymbol* symbol = function_symbol(
                 object, "inlined_pointer_index_call");
             address = mapping + symbol->value;
@@ -3534,6 +3552,11 @@ int main(int argc, char** argv)
             int noexcept_value = 3;
             assert(inlined_noexcept_call(&noexcept_value) == 1);
             assert(noexcept_value == 3);
+        }
+        if (inline_nullptr_parameter_call) {
+            int other = 0;
+            assert(inline_nullptr_parameter_call(NULL) == 1);
+            assert(inline_nullptr_parameter_call(&other) == 0);
         }
         {
             struct OptimizerPair pair = {17, 29};

@@ -3961,6 +3961,108 @@ static void verify_inline_debug_object(const char* path,
     objfile_free(object);
 }
 
+static void verify_cxx_inline_nullptr_parameter(const char* path,
+                                                uint16_t architecture)
+{
+    static const uint8_t pointer_parameter_attributes[] = {
+        0x31u, 0x13u, 0x1cu, 0x01u
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* abbrev;
+    ObjSection* strings;
+    ObjSection* line;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    bool found = false;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    abbrev = objfile_get_section(object, ".debug_abbrev");
+    strings = objfile_get_section(object, ".debug_str");
+    line = objfile_get_section(object, ".debug_line");
+    assert(info != NULL && abbrev != NULL && strings != NULL && line != NULL);
+    verify_debug_abbreviation(abbrev, 66u, 0x05u, 0u,
+                              pointer_parameter_attributes,
+                              sizeof(pointer_parameter_attributes));
+
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 4u + 12u <= info->size; ++die) {
+        uint32_t origin;
+        uint32_t name;
+        uint64_t first_parameter;
+        uint64_t second_parameter;
+        uint64_t low_pc_offset;
+        uint64_t concrete_parameter;
+        uint64_t call_length;
+        uint32_t value_type;
+        uint32_t other_type;
+        uint32_t call_file;
+        uint32_t call_line;
+        uint32_t call_column;
+        bool has_host_relocation = false;
+
+        if (info->data[die] != 41u) continue;
+        origin = read_u32(info->data, die + 1u);
+        if ((uint64_t)origin + 69u > info->size ||
+            info->data[origin] != 40u) continue;
+        name = read_u32(info->data, (uint64_t)origin + 1u);
+        if (name >= strings->size ||
+            strcmp((const char*)strings->data + name,
+                   "debug_nullptr_parameter_inline") != 0) continue;
+
+        first_parameter = (uint64_t)origin + 27u;
+        second_parameter = first_parameter + 21u;
+        assert(info->data[first_parameter] == 42u &&
+               info->data[second_parameter] == 42u);
+        name = read_u32(info->data, first_parameter + 1u);
+        assert(name < strings->size &&
+               strcmp((const char*)strings->data + name, "value") == 0);
+        value_type = read_u32(info->data, first_parameter + 5u);
+        assert(value_type < info->size && info->data[value_type] == 6u);
+        name = read_u32(info->data, second_parameter + 1u);
+        assert(name < strings->size &&
+               strcmp((const char*)strings->data + name, "other") == 0);
+        other_type = read_u32(info->data, second_parameter + 5u);
+        assert(other_type < info->size && info->data[other_type] == 6u);
+
+        low_pc_offset = die + 1u + 4u;
+        call_length = read_u32(info->data, low_pc_offset + address_size);
+        call_file = read_u32(info->data,
+                             low_pc_offset + address_size + 4u);
+        call_line = read_u32(info->data,
+                             low_pc_offset + address_size + 8u);
+        call_column = read_u32(info->data,
+                               low_pc_offset + address_size + 12u);
+        assert(call_length != 0u && call_file != 0u && call_line != 0u &&
+               call_column != 0u);
+        assert(line_table_file_matches(line, call_file,
+                                       "tests/debug_info_cxx_member.cpp"));
+        for (const ObjReloc* relocation = info->relocs;
+             relocation; relocation = relocation->next) {
+            if (relocation->offset != low_pc_offset) continue;
+            assert(relocation->symbol_name != NULL &&
+                   strcmp(relocation->symbol_name,
+                          "debug_nullptr_parameter_entry") == 0);
+            has_host_relocation = true;
+            break;
+        }
+        assert(has_host_relocation);
+
+        concrete_parameter = die + 1u + 4u + address_size + 4u + 12u;
+        assert(info->data[concrete_parameter] == 66u);
+        assert(read_u32(info->data, concrete_parameter + 1u) ==
+               first_parameter);
+        for (uint64_t byte = 0u; byte < address_size; ++byte) {
+            assert(info->data[concrete_parameter + 5u + byte] == 0u);
+        }
+        assert(info->data[concrete_parameter + 5u + address_size] == 0u);
+        found = true;
+        break;
+    }
+    assert(found);
+    objfile_free(object);
+}
+
 static unsigned count_line_copy_ops(const ObjSection* line)
 {
     uint64_t offset;
@@ -6387,7 +6489,7 @@ static void verify_verified_fallback_debug_object(const char* path,
 
 int main(int argc, char** argv)
 {
-    assert(argc == 40);
+    assert(argc == 44);
     verify_debug_object(argv[1], ARCH_X86, 0x000cu,
                         "tests/debug_info.c", "debug_line_entry",
                         "debug_declared_inline");
@@ -6525,6 +6627,10 @@ int main(int argc, char** argv)
     verify_inline_debug_object(argv[25], ARCH_X64);
     verify_inline_debug_object(argv[38], ARCH_X86);
     verify_inline_debug_object(argv[39], ARCH_X64);
+    verify_cxx_inline_nullptr_parameter(argv[40], ARCH_X86);
+    verify_cxx_inline_nullptr_parameter(argv[41], ARCH_X64);
+    verify_cxx_inline_nullptr_parameter(argv[42], ARCH_X86);
+    verify_cxx_inline_nullptr_parameter(argv[43], ARCH_X64);
     verify_class_template_parameter_dies(argv[26], ARCH_X86);
     verify_class_template_parameter_dies(argv[27], ARCH_X64);
     verify_class_template_template_parameter_die(argv[26], ARCH_X86);

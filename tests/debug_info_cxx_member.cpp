@@ -108,6 +108,16 @@ extern "C" int debug_cxx_for_initializer_scope(int limit) {
     return outer_value;
 }
 
+static inline int debug_nullptr_parameter_inline(int* value, int* other)
+{
+    return value == other;
+}
+
+extern "C" int debug_nullptr_parameter_entry(int* other)
+{
+    return debug_nullptr_parameter_inline(nullptr, other);
+}
+
 using DebugDataMemberPointer = int DebugMemberObject::*;
 using DebugFunctionMemberPointer = int (DebugMemberObject::*)() const;
 

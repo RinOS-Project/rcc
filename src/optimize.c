@@ -1546,13 +1546,18 @@ static bool inline_scalar_parameter_conversion(
     Type* parameter_type, Type* argument_type) {
     bool integer_conversion = parameter_type && argument_type &&
         type_is_integer(parameter_type) && type_is_integer(argument_type);
+    bool null_pointer_conversion = parameter_type && argument_type &&
+        parameter_type->kind == TYPE_PTR &&
+        !parameter_type->cxx_is_member_pointer &&
+        argument_type->kind == TYPE_NULLPTR;
     bool floating_conversion = parameter_type && argument_type &&
         ((parameter_type->kind == TYPE_FLOAT && parameter_type->size == 4) ||
          (parameter_type->kind == TYPE_DOUBLE && parameter_type->size == 8)) &&
         ((argument_type->kind == TYPE_FLOAT && argument_type->size == 4) ||
          (argument_type->kind == TYPE_DOUBLE && argument_type->size == 8));
     return parameter_type && argument_type &&
-        (integer_conversion || floating_conversion) &&
+        (integer_conversion || null_pointer_conversion ||
+         floating_conversion) &&
         !parameter_type->is_volatile && !parameter_type->is_reference &&
         !parameter_type->is_atomic && !argument_type->is_volatile &&
         !argument_type->is_reference && !argument_type->is_atomic &&

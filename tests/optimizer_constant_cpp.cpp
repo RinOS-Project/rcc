@@ -2,6 +2,16 @@ extern "C" {
 #include "optimizer_constant.c"
 }
 
+static int inline_nullptr_parameter_is_equal(int* value, int* other)
+{
+    return value == other;
+}
+
+extern "C" int inline_nullptr_parameter_call(int* other)
+{
+    return inline_nullptr_parameter_is_equal(nullptr, other);
+}
+
 static int inline_noexcept_value(int* value)
 {
     return (int)noexcept(value);
