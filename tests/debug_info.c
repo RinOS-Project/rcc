@@ -158,6 +158,12 @@ int debug_inline_readonly_address_constant_entry(void)
         &debug_inline_readonly_addressed_pointer_source);
 }
 
+int debug_inline_cast_address_constant_entry(void)
+{
+    return debug_void_pointer_parameter_inline(
+        (const void*)&debug_inline_addressed_pointer_source);
+}
+
 int debug_inline_function_address_constant_entry(void)
 {
     return debug_function_pointer_parameter_inline(

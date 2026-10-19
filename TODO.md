@@ -7100,15 +7100,19 @@ remains a separate open item.
       `DW_FORM_addr` and a target-width relocation when the argument is the
       direct address of a defined non-TLS global or function-local static
       object, a defined function, or a defined function passed by bare
-      function-designator decay. Include read-only global data and direct
-      `&function` addresses; exclude member pointers and dynamic addresses.
+      function-designator decay. Include read-only global data, direct
+      `&function` addresses, and representation-preserving object-pointer cast
+      chains that need no target adjustment; exclude member pointers and
+      dynamic addresses.
 - [x] Verify mutable global, read-only global, function-local static object,
-      static function addresses, and bare function-designator decay in legacy
-      and verified optimized DWARF for i686/AMD64. Extend bounded scalar
-      inlining to accept only type-compatible function-to-pointer decay. The
-      native-Windows `test-debug-info` target passes.
-- [ ] Casted/interior/offset symbolic addresses, dynamic pointer expressions,
-      and general register/piece location tracking remain open.
+      static function addresses, bare function-designator decay, and an
+      explicit object-pointer cast to `const void*` in legacy and verified
+      optimized DWARF for i686/AMD64. Extend bounded scalar inlining to accept
+      only type-compatible function-to-pointer decay. The native-Windows
+      `test-debug-info` target passes.
+- [ ] Interior/offset symbolic addresses, pointer casts requiring a target
+      adjustment, dynamic pointer expressions, and general register/piece
+      location tracking remain open.
 
 ## RIN/RLL/DRV fini-array format matrix (2026-10-20)
 

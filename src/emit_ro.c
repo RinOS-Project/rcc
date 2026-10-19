@@ -4132,19 +4132,46 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
     char** scoped_symbol) {
     const Expr* address;
+    const Expr* argument_expression;
     const Expr* operand;
     const Decl* source;
     const Type* parameter_type;
     const Type* argument_type;
     const ModuleSymbol* symbol;
     uint8_t address_size;
-    bool function_designator = false;
     if (scoped_symbol) *scoped_symbol = NULL;
     if (!mod || !filename || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner || !scoped_symbol) {
         return NULL;
     }
-    address = argument->expr;
+    argument_expression = argument->expr;
+    address = argument_expression;
+    address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    while (address->kind == EXPR_CAST && address->cast_expr) {
+        const Type* cast_type = address->cast_type;
+        const Type* source_type = address->cast_expr->type;
+        bool source_is_function = source_type &&
+            (source_type->kind == TYPE_FUNC ||
+             (source_type->kind == TYPE_PTR && source_type->base &&
+              source_type->base->kind == TYPE_FUNC));
+        bool target_is_function = cast_type &&
+            cast_type->kind == TYPE_PTR && cast_type->base &&
+            cast_type->base->kind == TYPE_FUNC;
+        if (!cast_type || cast_type->kind != TYPE_PTR ||
+            cast_type->cxx_is_member_pointer ||
+            cast_type->size != address_size || !source_type ||
+            address->cxx_pointer_adjustment_valid ||
+            address->cxx_member_pointer_adjustment_valid ||
+            address->cxx_virtual_base_adjustment ||
+            (source_is_function != target_is_function) ||
+            (!source_is_function &&
+             (source_type->kind != TYPE_PTR ||
+              source_type->cxx_is_member_pointer ||
+              source_type->size != address_size))) {
+            return NULL;
+        }
+        address = address->cast_expr;
+    }
     if (address->kind == EXPR_ADDR && address->unary_operand &&
         address->unary_operand->kind == EXPR_IDENT &&
         address->unary_operand->ident_decl) {
@@ -4154,13 +4181,11 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
                address->ident_decl->kind == DECL_FUNC) {
         operand = address;
         source = operand->ident_decl;
-        function_designator = true;
     } else {
         return NULL;
     }
     parameter_type = value->declaration->type;
-    argument_type = address->type;
-    address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    argument_type = argument_expression->type;
     if (value->declaration->kind != DECL_PARAM ||
         (source->kind != DECL_VAR && source->kind != DECL_FUNC) ||
         !parameter_type || parameter_type->kind != TYPE_PTR ||
@@ -4170,7 +4195,7 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
         !debug_inline_parameter_body_is_read_only(callee)) {
         return NULL;
     }
-    if (function_designator) {
+    if (source->kind == DECL_FUNC) {
         if (!parameter_type->base ||
             parameter_type->base->kind != TYPE_FUNC || !argument_type ||
             (argument_type->kind != TYPE_FUNC &&
@@ -4180,7 +4205,11 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
         }
     } else if (!argument_type || argument_type->kind != TYPE_PTR ||
                argument_type->cxx_is_member_pointer ||
-               argument_type->size != address_size) {
+               argument_type->size != address_size ||
+               !argument_type->base ||
+               argument_type->base->kind == TYPE_FUNC ||
+               !parameter_type->base ||
+               parameter_type->base->kind == TYPE_FUNC) {
         return NULL;
     }
     if (source->kind == DECL_VAR && source->var_is_global) {

@@ -88,3 +88,8 @@ inline int debug_function_pointer_parameter_inline(int (*value)(void))
 {
     return value != 0;
 }
+
+inline int debug_void_pointer_parameter_inline(const void* value)
+{
+    return value != (const void*)0;
+}
