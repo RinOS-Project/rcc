@@ -17730,7 +17730,7 @@ static bool lower_vla_object_type_supported_internal(
     RccIrType lower_type_result;
     const TypeField* field;
     if (!type || depth >= 32u || type->align <= 0 || type->align > 4096 ||
-        (type->align & (type->align - 1)) != 0 || type->is_volatile) {
+        (type->align & (type->align - 1)) != 0 || type->is_atomic) {
         return false;
     }
     if (type->kind == TYPE_ARRAY) {
@@ -17740,7 +17740,7 @@ static bool lower_vla_object_type_supported_internal(
                 type->base, depth + 1u);
     }
     if (type->kind == TYPE_STRUCT || type->kind == TYPE_UNION) {
-        if (type->cxx_class || type->cleanup_function ||
+        if (type->is_volatile || type->cxx_class || type->cleanup_function ||
             !lower_storage_type_supported_internal(type, 0u)) {
             return false;
         }
@@ -17877,7 +17877,7 @@ static bool lower_declaration(RccIrLowerContext* context,
         (is_aggregate
              ? ((!is_supported_vla && declaration->type->size <= 0) ||
                 declaration->type->is_reference ||
-                declaration->type->is_volatile ||
+                (declaration->type->is_volatile && !is_supported_vla) ||
                 (declaration->type->cleanup_function &&
                  !lower_cxx_destructor_cleanup_hook_supported(
                      declaration->type)) ||

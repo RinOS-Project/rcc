@@ -366,6 +366,14 @@ int verified_goto_vla_union_elements(int count)
     return cells[count - 1].value;
 }
 
+int verified_goto_vla_volatile_elements(int count)
+{
+    volatile int values[count];
+    values[0] = 29;
+    values[count - 1] = 13;
+    return values[0] + values[count - 1];
+}
+
 int verified_goto_vla_continue(int count, int rounds)
 {
     int total = 0;
@@ -481,5 +489,6 @@ int main(void)
     }
     if (verified_goto_vla_fixed_array_of_structs(4) != 42) return 50;
     if (verified_goto_vla_union_elements(4) != 37) return 51;
+    if (verified_goto_vla_volatile_elements(4) != 42) return 52;
     return 0;
 }
