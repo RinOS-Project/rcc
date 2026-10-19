@@ -142,8 +142,29 @@ struct VerifiedExpressionConstructor {
     }
 };
 
+int verified_initializer_effect(int* order, int value) noexcept {
+    *order = *order * 10 + value;
+    return value * 10;
+}
+
+struct VerifiedCallInitializer {
+    int first;
+    int second;
+
+    VerifiedCallInitializer(int* order, int initial) noexcept
+        : second(verified_initializer_effect(order, initial + 1)),
+          first(verified_initializer_effect(order, initial)) {
+        first = first + 0;
+    }
+};
+
 int verified_expression_constructor_result() {
     VerifiedExpressionConstructor object(10, 3);
+    int order = 0;
+    VerifiedCallInitializer called(&order, 3);
+    if (order != 34 || called.first != 30 || called.second != 40) {
+        return -1;
+    }
     return object.sum * 100 + object.weighted_difference;
 }
 

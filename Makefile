@@ -17345,7 +17345,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-x86.ro \
 		tests/verified_backend_cxx_reference_local.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-reference-local-x86.log
-	$(GREP) -F -q 'Verified backend: 15 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
@@ -17353,7 +17353,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-x64.ro \
 		tests/verified_backend_cxx_reference_local.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-reference-local-x64.log
-	$(GREP) -F -q 'Verified backend: 15 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x64.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O0 \
@@ -17361,7 +17361,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-x86-o0.ro \
 		tests/verified_backend_cxx_reference_local.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-reference-local-x86-o0.log
-	$(GREP) -F -q 'Verified backend: 15 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x86-o0.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x86-o0.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
@@ -17369,7 +17369,7 @@ test-verified-cxx-reference-local: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 		-o $(TEST_OUT)/verified-backend/cxx-reference-local-x64-o0.ro \
 		tests/verified_backend_cxx_reference_local.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-reference-local-x64-o0.log
-	$(GREP) -F -q 'Verified backend: 15 function(s) emitted' \
+	$(GREP) -F -q 'Verified backend: 17 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/cxx-reference-local-x64-o0.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-reference-local-x64-o0.log,0)
 	$(CC) $(CFLAGS) -I$(INCDIR) \

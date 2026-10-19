@@ -15084,6 +15084,26 @@ static bool lower_cxx_constructor_initializer_expression_supported(
             return expr_eval_integer_constant(
                 (Expr*)expression, &ignored_constant);
         }
+        case EXPR_CALL:
+            if (expression->call_is_new || expression->call_is_delete ||
+                !expression->cxx_call_is_noexcept ||
+                !expression->type || !type_is_scalar(expression->type) ||
+                !expression->call_func ||
+                expression->call_func->kind != EXPR_IDENT ||
+                !expression->call_func->ident_decl ||
+                expression->call_func->ident_decl->kind != DECL_FUNC ||
+                !lower_noexcept_expression(expression)) {
+                return false;
+            }
+            for (const ExprList* argument = expression->call_args;
+                 argument; argument = argument->next) {
+                if (argument->cxx_temporary_owner ||
+                    !lower_cxx_constructor_initializer_expression_supported(
+                        context, argument->expr, depth + 1u)) {
+                    return false;
+                }
+            }
+            return true;
         default:
             return false;
     }
@@ -15280,14 +15300,26 @@ static bool lower_cxx_initialize_constructor_members(
             return false;
         }
     }
-    for (const CxxConstructorInitializer* initializer =
-             constructor->initializers;
-         initializer; initializer = initializer->next) {
+    /* C++ initializes members in declaration order, independently of the
+     * order in which member initializers appear in the constructor. */
+    for (const TypeParam* member = cls->fields; member;
+         member = member->next) {
+        const CxxConstructorInitializer* initializer = NULL;
         const TypeField* field;
         const Expr* source;
         RccIrLowerValue address;
         RccIrLowerValue value;
-        if (initializer->is_base_initializer) continue;
+        if (member->is_static || !member->name) continue;
+        for (const CxxConstructorInitializer* candidate =
+                 constructor->initializers;
+             candidate; candidate = candidate->next) {
+            if (!candidate->is_base_initializer && candidate->field &&
+                strcmp(candidate->field, member->name) == 0) {
+                initializer = candidate;
+                break;
+            }
+        }
+        if (!initializer) continue;
         source = initializer->arguments->expr;
         field = lower_struct_declared_field(
             cls->type, cls, initializer->field);
