@@ -49,12 +49,15 @@ extern "C" int verified_cxx_throwing_argument_cleanup() {
     return result * 10 + cleanup_order;
 }
 
-extern "C" int verified_cxx_throwing_conditional_cleanup(int select_other) {
+extern "C" int verified_cxx_throwing_conditional_cleanup(
+    int select_outer, int select_inner) {
     int cleanup_order = 0;
     int result = 0;
     try {
-        const VerifiedThrowingTemporary& value = select_other
-            ? make_verified_throwing_temporary(&cleanup_order, 4)
+        const VerifiedThrowingTemporary& value = select_outer
+            ? (select_inner
+                   ? make_verified_throwing_temporary(&cleanup_order, 4)
+                   : make_verified_throwing_temporary(&cleanup_order, 5))
             : make_verified_throwing_temporary(&cleanup_order, 3);
         result = consume_verified_throwing_temporary(
             value, throw_verified_temporary_argument());
