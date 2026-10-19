@@ -7196,25 +7196,33 @@ remains a separate open item.
       converted subobject bindings remain outside this path.
 - [x] Add a regression where evaluation of a later call argument throws after
       the reference-bound temporary is initialized. `test-verified-cxx-throwing-temporary`
-      emits all seven functions with zero fallback for i686/AMD64 at `-O0` and
-      `-O2`; the host execution returns `533`, confirming catch value 53 and one
-      destructor invocation. Implementation/test commit: `523a46d`.
-- [ ] Potentially-throwing temporary initialization and partial-construction
-      unwind, converted or subobject reference bindings, static/TLS lifetime,
-      and other full-expression cleanup forms remain open.
+      emits all eleven functions with zero fallback for i686/AMD64 at `-O0`
+      and `-O2`. It executes the emitted AMD64 objects at both levels and
+      checks direct and nested-conditional exception unwinding, normal cleanup,
+      and initializer-throw behavior; i686 objects are checked for emission and
+      runtime imports. Earlier implementation/test commit: `523a46d`.
+- [x] Cover a same-type factory call that throws before returning its prvalue:
+      no destructor runs for the incomplete result (`560`), while successful
+      initialization is destroyed at scope exit (`66`). Both target
+      architectures emit at `-O0` and `-O2` with zero fallback; the AMD64
+      objects execute successfully at both optimization levels.
+- [ ] Throwing constructors with partially completed subobjects, converted or
+      subobject reference bindings, static/TLS lifetime, and other
+      full-expression cleanup forms remain open.
 
 ## RCC continuation (2026-10-20, conditional local reference temporaries)
 
-- [x] Permit the existing bounded same-type, `noexcept` class-prvalue
+- [x] Permit the existing bounded same-type class-prvalue
       conditional lowering when its selected object is lifetime-extended by an
       automatic local reference. Keep the destructor plan attached to the
-      complete selected object and preserve the existing call-argument path.
+      complete selected object, initialize caller-owned object storage, and
+      preserve the existing call-argument path.
 - [x] Cover direct and nested conditional arms when a later argument throws,
-      plus normal local-reference scope exit.
-      `test-verified-cxx-throwing-temporary` emits all nine functions with zero
-      fallback for i686/AMD64 at `-O0` and `-O2`; host execution verifies
-      `533`, `534`, `535`, and `55`. Implementation/test commits:
-      `a52eac6`, `319cc2d`.
-- [ ] Other conditional arm forms, potentially-throwing initialization and
-      partial-construction unwind, converted/subobject bindings, static/TLS
-      lifetime, and other full-expression cleanup remain open.
+      plus normal local-reference scope exit and a throwing initializer.
+      `test-verified-cxx-throwing-temporary` emits all eleven functions with
+      zero fallback for i686/AMD64 at `-O0` and `-O2`; emitted AMD64 runtime
+      checks verify `533`, `534`, `535`, `55`, `560`, and `66`.
+      Implementation/test commits: `a52eac6`, `319cc2d`.
+- [ ] Other conditional arm forms, throwing constructors with partially
+      completed subobjects, converted/subobject bindings, static/TLS lifetime,
+      and other full-expression cleanup remain open.
