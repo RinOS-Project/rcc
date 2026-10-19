@@ -231,6 +231,18 @@ int debug_inline_array_before_begin_entry(void)
         &debug_inline_addressed_array_source[0] - 1);
 }
 
+int debug_inline_nested_array_interior_minus_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_nested_source.values[2] - 1);
+}
+
+int debug_inline_nested_array_before_begin_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_nested_source.values[0] - 1);
+}
+
 int debug_inline_object_one_past_entry(void)
 {
     return debug_global_pointer_parameter_inline(
