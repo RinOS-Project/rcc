@@ -6538,6 +6538,19 @@ remains a separate open item.
       (including i686/AMD64 O2 verified objects), and the complete native
       Windows `test-cxx` aggregate all pass (exit 0).
 
+## RCC continuation (2026-10-20, proven local callback value copies)
+
+- [x] Resolve a one-hop initializer or assignment copy from a read-only or
+      unmodified local function-pointer variable when its initializer has a
+      direct function target. Keep the proof bounded; this is not general
+      alias or interprocedural dataflow.
+- [x] Preserve indirect calls when the source address escapes or can be
+      changed through an alias. Verify optimized i686/AMD64 call shapes and
+      execute both the direct-copy and alias-write C++ cases in
+      `test-optimize` (native Windows, exit 0). Implementation: `15f52b3`.
+- [ ] Multi-hop aliases, mutable-source reaching values, aliased callback
+      arrays, and cross-function target propagation remain open.
+
 ## RCC continuation (2026-10-19, callback-array alias safety)
 
 - [x] Treat array-to-pointer decay into another local pointer as an escape
