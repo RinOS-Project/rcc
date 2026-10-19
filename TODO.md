@@ -6733,6 +6733,10 @@ remains a separate open item.
       cases for row decay, row indexing, and pointer difference. The focused
       pointer target passes i686/AMD64 generation and x64 execution; the full
       native-Windows `test-cxx` aggregate passes.
-- [ ] Parenthesized pointer-to-array declarators (for example
-      `int (*rows)[3]`) remain a separate parser gap; broader constexpr
-      pointer provenance and floating/aggregate cases remain open.
+- [x] Route constexpr parenthesized pointer-object declarations such as
+      `int (*rows)[3]` and `int (*callback)(int)` through the common declarator
+      parser rather than the constexpr function parser. GCC C++20 regressions
+      cover row pointer arithmetic and a constexpr function pointer; the
+      focused pointer target and full native-Windows `test-cxx` pass.
+- [ ] Broader constexpr pointer provenance and floating/aggregate cases remain
+      open.

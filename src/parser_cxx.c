@@ -5363,10 +5363,40 @@ static bool cxx_template_variable_starts(void) {
     return false;
 }
 
-/* `constexpr`/`consteval` can introduce either a function or a variable.  The dedicated
- * function parser is needed for C++ parameter/body handling, while ordinary
- * declaration parsing owns the variable initializer grammar.  Stop at the
- * first declaration-level initializer boundary so a call in a variable
+/* A parenthesized pointer declarator starts a variable declaration, not a
+ * function declaration.  Distinguish `(*rows)[N]` and `(*callback)(Args)`
+ * from a function returning a pointer (`(*get())[N]`): only the latter has a
+ * parameter list nested after its direct-declarator name inside the group. */
+static bool cxx_constexpr_parenthesized_pointer_is_object(Token* open) {
+    Token* token;
+    Token* previous = NULL;
+    int depth = 1;
+    bool has_pointer_operator = false;
+
+    if (!open || open->type != TOK_LPAREN) return false;
+    for (token = open->next; token; token = token->next) {
+        if (token->type == TOK_LPAREN) {
+            if (depth == 1 && has_pointer_operator && previous &&
+                previous->type == TOK_IDENT) {
+                return false;
+            }
+            ++depth;
+        } else if (token->type == TOK_RPAREN) {
+            if (--depth == 0) return has_pointer_operator;
+        } else if (depth == 1 &&
+                   (token->type == TOK_STAR || token->type == TOK_AMP ||
+                    token->type == TOK_AND)) {
+            has_pointer_operator = true;
+        }
+        previous = token;
+    }
+    return false;
+}
+
+/* `constexpr`/`consteval` can introduce either a function or a variable.  The
+ * dedicated function parser is needed for C++ parameter/body handling, while
+ * ordinary declaration parsing owns the variable initializer grammar.  Stop
+ * at the first declaration-level initializer boundary so a call in a variable
  * initializer is not mistaken for a function declarator. */
 static bool cxx_constexpr_starts_function(void) {
     Token* token = parser.cur;
@@ -5382,7 +5412,9 @@ static bool cxx_constexpr_starts_function(void) {
                 token->type == TOK_SEMICOLON) {
                 return false;
             }
-            if (token->type == TOK_LPAREN) return true;
+            if (token->type == TOK_LPAREN) {
+                return !cxx_constexpr_parenthesized_pointer_is_object(token);
+            }
         }
         if (token->type == TOK_LPAREN) ++parentheses;
         else if (token->type == TOK_RPAREN && parentheses > 0) --parentheses;
