@@ -13916,6 +13916,7 @@ static bool lower_cxx_destructor_subobjects_supported_impl(
     const TypeParam* field;
     if (!cls || !cls->type || depth >= 64u ||
         (cls->virtual_base_count != 0 && !cls->virtual_bases) ||
+        (cls->base_count != 0 && (!cls->bases || !cls->base_offsets)) ||
         !lower_cxx_destructor_cleanup_hook_supported(cls->type)) {
         return false;
     }
@@ -13945,14 +13946,18 @@ static bool lower_cxx_destructor_subobjects_supported_impl(
     }
     for (int index = 0; index < cls->virtual_base_count; ++index) {
         const CxxClass* base = cls->virtual_bases[index].base;
-        /* The verified destructor path currently handles virtual-base
-         * subobjects whose complete destruction is a leaf operation. */
+        /* The virtual base's non-virtual subobject tree is destroyed by its
+         * subobject destructor. Nested virtual-base closures are excluded:
+         * their lifetime belongs to the most-derived object's closure. */
         if (!base || !base->type || base->type->size <= 0 ||
             cls->virtual_bases[index].offset < 0 ||
             cls->virtual_bases[index].offset > cls->type->size ||
             base->type->size > cls->type->size -
                 cls->virtual_bases[index].offset ||
-            !lower_cxx_destructor_subobjects_leaf(base)) {
+            base->virtual_base_count != 0 ||
+            !lower_cxx_destructor_subobjects_supported_impl(
+                base, depth + 1u,
+                lower_cxx_destructor_subobjects_leaf(base))) {
             return false;
         }
     }
@@ -14220,7 +14225,7 @@ static bool lower_cxx_emit_destructor_subobjects_impl(
         const CxxClass* base = cls->virtual_bases[index].base;
         RccIrLowerValue address;
         if (!base || cls->virtual_bases[index].offset < 0 ||
-            !lower_cxx_destructor_subobjects_leaf(base)) {
+            base->virtual_base_count != 0) {
             context->unsupported = true;
             return false;
         }

@@ -138,9 +138,15 @@ public:
     }
 };
 
+class VerifiedNestedVirtualDmiMember final {
+public:
+    int nested_value_ = 2;
+};
+
 class VerifiedImplicitVirtualDmiBase {
 public:
-    int base_value_ = 8;
+    VerifiedNestedVirtualDmiMember nested_;
+    int base_value_ = 3;
 };
 
 class VerifiedImplicitVirtualDmiArrayElement final
@@ -149,7 +155,8 @@ public:
     int value_ = 1;
 
     ~VerifiedImplicitVirtualDmiArrayElement() noexcept {
-        verified_partial_array_record_destructor(base_value_ + value_);
+        verified_partial_array_record_destructor(
+            nested_.nested_value_ + base_value_ + value_);
     }
 };
 

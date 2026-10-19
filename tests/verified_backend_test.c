@@ -4367,7 +4367,7 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         verified_partial_array_destructor_order = 0;
         verified_runtime_free_count = 0u;
         assert(implicit_virtual_dmi(2) == 2);
-        assert(verified_partial_array_destructor_order == 99);
+        assert(verified_partial_array_destructor_order == 66);
         assert(verified_runtime_free_count == 1u);
         address = symbol_address(memory, implicit_virtual_dmi_fixed_symbol);
         memcpy(&implicit_virtual_dmi_fixed, &address,
@@ -4375,7 +4375,7 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         verified_partial_array_destructor_order = 0;
         verified_runtime_free_count = 0u;
         assert(implicit_virtual_dmi_fixed() == 0);
-        assert(verified_partial_array_destructor_order == 9);
+        assert(verified_partial_array_destructor_order == 6);
         assert(verified_runtime_free_count == 1u);
         address = symbol_address(memory, implicit_array_dmi_symbol);
         memcpy(&implicit_array_dmi, &address, sizeof(implicit_array_dmi));
