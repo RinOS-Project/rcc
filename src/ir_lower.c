@@ -17134,6 +17134,43 @@ cleanup:
     return success;
 }
 
+static bool lower_cxx_trivial_copy_storage_supported(
+    const Type* type, unsigned depth) {
+    if (!type || depth >= 32u ||
+        !lower_storage_type_supported_internal(type, depth)) {
+        return false;
+    }
+    if (type->kind == TYPE_ARRAY) {
+        return type->base && type->array_len > 0 &&
+            type->array_len <= 4096 &&
+            lower_cxx_trivial_copy_storage_supported(
+                type->base, depth + 1u);
+    }
+    if (type->kind == TYPE_STRUCT) {
+        const CxxClass* cls = type->cxx_class;
+        if (cls && (cls->base_count != 0 ||
+                    cls->virtual_base_count != 0 ||
+                    cls->vtable_size != 0)) {
+            return false;
+        }
+        for (const TypeField* field = type->fields; field;
+             field = field->next) {
+            if (!field->type || field->is_bitfield ||
+                !lower_cxx_trivial_copy_storage_supported(
+                    field->type, depth + 1u)) {
+                return false;
+            }
+        }
+        return true;
+    }
+    /* Union representation copies would read padding; keep this path to
+     * recursively addressable members whose values can be copied directly. */
+    return type->kind != TYPE_UNION && type_is_scalar((Type*)type) &&
+        !type->is_volatile && !type->is_atomic &&
+        !type->cxx_is_member_pointer &&
+        !lower_i686_wide_scalar_type(type);
+}
+
 static bool lower_struct_initializer(
     RccIrLowerContext* context, RccIrValue base,
     const Type* type, const Expr* initializer) {
@@ -17153,20 +17190,10 @@ static bool lower_struct_initializer(
             type->cxx_class->virtual_base_count != 0 ||
             type->cxx_class->vtable_size != 0 || !copy || copy->next ||
             !copy->expr || !copy->expr->type ||
-            !type_is_compatible((Type*)type, copy->expr->type)) {
+            !type_is_compatible((Type*)type, copy->expr->type) ||
+            !lower_cxx_trivial_copy_storage_supported(type, 0u)) {
             context->unsupported = true;
             return false;
-        }
-        for (const TypeField* field = type->fields; field;
-             field = field->next) {
-            if (!field->type || field->is_bitfield ||
-                !type_is_scalar((Type*)field->type) ||
-                field->type->is_volatile || field->type->is_atomic ||
-                field->type->cxx_is_member_pointer ||
-                lower_i686_wide_scalar_type(field->type)) {
-                context->unsupported = true;
-                return false;
-            }
         }
         source = lower_expression(context, copy->expr);
         if (!source.valid || source.type.kind != RCC_IR_TYPE_POINTER) {

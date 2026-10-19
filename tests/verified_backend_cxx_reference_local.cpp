@@ -86,8 +86,14 @@ struct VerifiedDerivedConstructor : VerifiedPrefixConstructor,
     }
 };
 
+struct VerifiedTrivialCopyMember {
+    int nested_value;
+};
+
 struct VerifiedTrivialCopy {
     int value;
+    int values[2];
+    VerifiedTrivialCopyMember nested;
 };
 
 int verified_nontrivial_base_constructor_result() {
@@ -99,10 +105,17 @@ int verified_nontrivial_base_constructor_result() {
 }
 
 int verified_trivial_copy_result() {
-    VerifiedTrivialCopy source{17};
+    VerifiedTrivialCopy source{17, {21, 25}, {31}};
     VerifiedTrivialCopy copy(source);
     source.value = 29;
-    return copy.value * 100 + source.value;
+    source.values[1] = 35;
+    source.nested.nested_value = 41;
+    if (source.value != 29 || source.values[1] != 35 ||
+        source.nested.nested_value != 41) {
+        return -1;
+    }
+    return copy.value * 1000000 + copy.values[0] * 10000 +
+        copy.values[1] * 100 + copy.nested.nested_value;
 }
 
 int main() {
@@ -119,7 +132,7 @@ int main() {
     if (verified_nontrivial_base_constructor_result() != 132132) {
         return 4;
     }
-    if (verified_trivial_copy_result() != 1729) {
+    if (verified_trivial_copy_result() != 17212531) {
         return 5;
     }
     return value != 43;
