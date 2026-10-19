@@ -87,18 +87,32 @@ int main(void) {
         return 9;
     }
     result = verified_cxx_throwing_constructor_reference_cleanup(1);
-    if (result != 5800) {
+    if (result != 59031) {
         fprintf(stderr,
-                "throwing constructor temporary returned %d, expected 5800\n",
+                "throwing member constructor temporary returned %d, expected 59031\n",
                 result);
         return 10;
     }
-    result = verified_cxx_throwing_constructor_reference_cleanup(0);
-    if (result != 707) {
+    result = verified_cxx_throwing_constructor_reference_cleanup(2);
+    if (result != 58231) {
         fprintf(stderr,
-                "successful constructor temporary returned %d, expected 707\n",
+                "throwing constructor body temporary returned %d, expected 58231\n",
                 result);
         return 11;
+    }
+    result = verified_cxx_throwing_constructor_reference_cleanup(0);
+    if (result != 2231) {
+        fprintf(stderr,
+                "successful constructor temporary returned %d, expected 2231\n",
+                result);
+        return 12;
+    }
+    result = verified_cxx_throwing_constructor_reference_cleanup(3);
+    if (result != 2231) {
+        fprintf(stderr,
+                "implicitly completed constructor temporary returned %d, expected 2231\n",
+                result);
+        return 13;
     }
     return rcc_test_main();
 }

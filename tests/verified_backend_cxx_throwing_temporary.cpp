@@ -7,19 +7,54 @@ struct VerifiedThrowingTemporary {
     }
 };
 
-struct VerifiedThrowingConstructorTemporary {
+struct VerifiedFirstConstructorMember {
     int* cleanup_order;
+
+    explicit VerifiedFirstConstructorMember(int* cleanup_order) noexcept
+        : cleanup_order(cleanup_order) {}
+
+    ~VerifiedFirstConstructorMember() noexcept {
+        *cleanup_order = *cleanup_order * 10 + 1;
+    }
+};
+
+struct VerifiedInnerConstructorMember {
+    int* cleanup_order;
+
+    explicit VerifiedInnerConstructorMember(int* cleanup_order) noexcept
+        : cleanup_order(cleanup_order) {}
+
+    ~VerifiedInnerConstructorMember() noexcept {
+        *cleanup_order = *cleanup_order * 10 + 3;
+    }
+};
+
+struct VerifiedSecondConstructorMember {
+    int* cleanup_order;
+    VerifiedInnerConstructorMember inner;
     int marker;
 
-    VerifiedThrowingConstructorTemporary(
-        int* cleanup_order, int should_throw)
-        : cleanup_order(cleanup_order), marker(7) {
-        if (should_throw) throw 58;
+    VerifiedSecondConstructorMember(int* cleanup_order, int should_throw)
+        : cleanup_order(cleanup_order), inner(cleanup_order), marker(2) {
+        if (should_throw) throw 59;
     }
 
-    ~VerifiedThrowingConstructorTemporary() noexcept {
-        *cleanup_order = *cleanup_order * 10 + marker;
+    ~VerifiedSecondConstructorMember() noexcept {
+        *cleanup_order = *cleanup_order * 10 + 2;
     }
+};
+
+struct VerifiedThrowingConstructorTemporary {
+    VerifiedFirstConstructorMember first;
+    VerifiedSecondConstructorMember second;
+
+    VerifiedThrowingConstructorTemporary(int* cleanup_order, int stage)
+        : first(cleanup_order), second(cleanup_order, stage == 1) {
+        if (stage == 0) return;
+        if (stage == 2) throw 58;
+    }
+
+    ~VerifiedThrowingConstructorTemporary() noexcept {}
 };
 
 VerifiedThrowingTemporary make_verified_throwing_temporary(
@@ -115,18 +150,18 @@ extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {
 }
 
 extern "C" int verified_cxx_throwing_constructor_reference_cleanup(
-    int should_throw) {
+    int stage) {
     int cleanup_order = 0;
     int result = 0;
     try {
         const VerifiedThrowingConstructorTemporary& value =
             VerifiedThrowingConstructorTemporary(
-                &cleanup_order, should_throw);
-        result = value.marker;
+                &cleanup_order, stage);
+        result = value.second.marker;
     } catch (int value) {
         result = value;
     }
-    return result * 100 + cleanup_order;
+    return result * 1000 + cleanup_order;
 }
 
 extern "C" int main() {

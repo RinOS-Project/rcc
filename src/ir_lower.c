@@ -15250,9 +15250,8 @@ static bool lower_cxx_initialize_constructor_members(
         if (context) context->unsupported = true;
         return false;
     }
-    /* This typed-SSA path models scalar member initializers directly.  Check
-     * the complete list before emitting IR so unsupported forms never leave
-     * a partially lowered constructor behind. */
+    /* Check the complete initializer list before emitting IR so unsupported
+     * forms never leave a partially lowered constructor behind. */
     /* Validate every base and its selected initializer before generating any
      * call or member-store IR. */
     for (int base_index = 0; base_index < cls->base_count; ++base_index) {
@@ -15345,25 +15344,13 @@ static bool lower_cxx_initialize_constructor_members(
         if (initializer->is_delegating_constructor ||
             initializer->is_virtual_base_initializer ||
             initializer->is_default_member_initializer ||
-            initializer->is_pack_expansion || !initializer->field ||
-            !argument || argument->next || !(source = argument->expr) ||
-            initializer->value != source || initializer->constructor) {
+            initializer->is_pack_expansion || !initializer->field) {
             context->unsupported = true;
             return false;
         }
         field = lower_struct_declared_field(
             cls->type, cls, initializer->field);
-        constant_initializer = expr_eval_integer_constant(
-            (Expr*)source, &ignored_constant);
-        if (!field || field->is_bitfield || !field->type ||
-            !type_is_scalar(field->type) ||
-            field->type->cxx_is_member_pointer ||
-            field->type->is_volatile || field->type->is_atomic ||
-            lower_i686_wide_scalar_type(field->type) ||
-            (!constant_initializer &&
-             (!lower_cxx_constructor_initializer_expression_supported(
-                  context, source, 0u) ||
-              !lower_noexcept_expression(source)))) {
+        if (!field || field->is_bitfield || !field->type) {
             context->unsupported = true;
             return false;
         }
@@ -15375,6 +15362,53 @@ static bool lower_cxx_initialize_constructor_members(
                 context->unsupported = true;
                 return false;
             }
+        }
+        if (field->type->kind == TYPE_STRUCT && initializer->constructor) {
+            Expr member_expression;
+            const Decl* member_constructor =
+                initializer->constructor->method
+                    ? initializer->constructor->method->decl : NULL;
+            memset(&member_expression, 0, sizeof(member_expression));
+            member_expression.kind = EXPR_COMPOUND;
+            member_expression.type = field->type;
+            member_expression.compound_constructor =
+                initializer->constructor;
+            member_expression.compound_init = initializer->arguments;
+            if (!lower_cleanup_constructor_call_supported(
+                    &member_expression) || !member_constructor ||
+                !lower_noexcept_expression_list(initializer->arguments)) {
+                context->unsupported = true;
+                return false;
+            }
+            for (const ExprList* member_argument = initializer->arguments;
+                 member_argument; member_argument = member_argument->next) {
+                if (member_argument->cxx_temporary_owner ||
+                    !lower_cxx_constructor_initializer_expression_supported(
+                        context, member_argument->expr, 0u)) {
+                    context->unsupported = true;
+                    return false;
+                }
+            }
+            continue;
+        }
+        if (initializer->constructor || field->type->kind == TYPE_STRUCT ||
+            !argument || argument->next || !(source = argument->expr) ||
+            initializer->value != source) {
+            context->unsupported = true;
+            return false;
+        }
+        constant_initializer = expr_eval_integer_constant(
+            (Expr*)source, &ignored_constant);
+        if (!type_is_scalar(field->type) ||
+            field->type->cxx_is_member_pointer ||
+            field->type->is_volatile || field->type->is_atomic ||
+            lower_i686_wide_scalar_type(field->type) ||
+            (!constant_initializer &&
+             (!lower_cxx_constructor_initializer_expression_supported(
+                  context, source, 0u) ||
+              !lower_noexcept_expression(source)))) {
+            context->unsupported = true;
+            return false;
         }
     }
     this_address = lower_value(
@@ -15430,15 +15464,101 @@ static bool lower_cxx_initialize_constructor_members(
             }
         }
         if (!initializer) continue;
-        source = initializer->arguments->expr;
         field = lower_struct_declared_field(
             cls->type, cls, initializer->field);
         address = lower_byte_offset_address(
             context, object, (uint64_t)field->offset);
+        if (field->type->kind == TYPE_STRUCT && initializer->constructor) {
+            Expr member_expression;
+            memset(&member_expression, 0, sizeof(member_expression));
+            member_expression.kind = EXPR_COMPOUND;
+            member_expression.type = field->type;
+            member_expression.compound_constructor =
+                initializer->constructor;
+            member_expression.compound_init = initializer->arguments;
+            if (!address.valid ||
+                !lower_cxx_emit_constructor_call(
+                    context, &member_expression, address.value) ||
+                (field->type->cxx_nontrivial &&
+                 !lower_cxx_delete_subobject_cleanup_change(
+                     context, field->type, address, true, 0u))) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        }
+        source = initializer->arguments->expr;
         value = lower_expression(context, source);
         value = lower_cast(context, value, field->type);
         if (!address.valid || !value.valid ||
             !lower_store_address(context, address, value)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool lower_cxx_unregister_constructor_partial_member_cleanups(
+    RccIrLowerContext* context) {
+    const Decl* declaration = context ? context->declaration : NULL;
+    const CxxClass* cls = declaration && declaration->func_method_owner
+        ? declaration->func_method_owner->cxx_class : NULL;
+    const CxxConstructorInfo* constructor = NULL;
+    RccIrLowerLocal* this_local;
+    RccIrLowerValue this_address;
+    RccIrLowerValue object;
+    if (!declaration || !declaration->func_is_cxx_constructor) return true;
+    for (const CxxConstructorInfo* candidate =
+             cls ? cls->constructors : NULL;
+         candidate; candidate = candidate->next) {
+        if (candidate->method && candidate->method->decl == declaration) {
+            constructor = candidate;
+            break;
+        }
+    }
+    this_local = declaration->func_this_param
+        ? lower_find_local(context, declaration->func_this_param) : NULL;
+    if (!context || !cls || !constructor || !this_local) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    this_address = lower_value(
+        this_local->address, rcc_ir_type_pointer(0u), true);
+    object = lower_load_address(
+        context, this_address, declaration->func_this_param->type);
+    if (!object.valid || object.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return false;
+    }
+    for (const TypeParam* member = cls->fields; member; member = member->next) {
+        const CxxConstructorInitializer* initializer = NULL;
+        const TypeField* field;
+        RccIrLowerValue address;
+        if (member->is_static || !member->name || !member->type ||
+            member->type->kind != TYPE_STRUCT ||
+            !member->type->cxx_nontrivial) {
+            continue;
+        }
+        for (const CxxConstructorInitializer* candidate =
+                 constructor->initializers;
+             candidate; candidate = candidate->next) {
+            if (!candidate->is_base_initializer && candidate->field &&
+                strcmp(candidate->field, member->name) == 0) {
+                initializer = candidate;
+                break;
+            }
+        }
+        if (!initializer || !initializer->constructor) continue;
+        field = lower_struct_declared_field(
+            cls->type, cls, member->name);
+        address = field
+            ? lower_byte_offset_address(
+                  context, object, (uint64_t)field->offset)
+            : lower_invalid_value();
+        if (!field || !address.valid ||
+            !lower_cxx_delete_subobject_cleanup_change(
+                context, field->type, address, false, 0u)) {
             context->unsupported = true;
             return false;
         }
@@ -19327,6 +19447,8 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                     if (context->unsupported) return false;
                 }
                 if (!lower_emit_scope_cleanups_until(context, NULL) ||
+                    !lower_cxx_unregister_constructor_partial_member_cleanups(
+                        context) ||
                     !lower_cxx_exception_release_frame(
                         context, context->active_exception_frame)) return false;
                 if (!lower_cxx_emit_current_destructor_subobjects(context)) {
@@ -19771,7 +19893,9 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
                                    : RCC_IR_LOWER_INVALID;
     }
     if (!context.terminated) {
-        if (!lower_cxx_emit_current_destructor_subobjects(&context)) {
+        if (!lower_cxx_unregister_constructor_partial_member_cleanups(
+                &context) ||
+            !lower_cxx_emit_current_destructor_subobjects(&context)) {
             lower_release_scope_cleanups(context.allocated_scope_cleanups);
             lower_release_vla_allocations(context.allocated_vla_allocations);
             lower_release_locals(context.locals);

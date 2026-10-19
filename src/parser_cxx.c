@@ -7003,6 +7003,48 @@ static CxxConstructorInitializer* cxx_find_virtual_base_initializer(
     return result;
 }
 
+static bool cxx_constructor_expression_is_lowerable(
+    CxxConstructorInfo* constructor, Expr* expression, Type* target_type,
+    bool* parameter_used, unsigned parameter_count);
+
+/* Resolve the bounded direct-member form used by typed SSA: one unique,
+ * accessible constructor with exact arity and scalar-convertible arguments.
+ * Ambiguous or richer overload resolution remains with the general backend. */
+static CxxConstructorInfo* cxx_find_typed_member_constructor(
+    CxxConstructorInfo* owner_constructor, CxxClass* member_class,
+    ExprList* arguments) {
+    CxxConstructorInfo* selected = NULL;
+    int argument_count = cxx_constructor_argument_count(arguments);
+    if (!owner_constructor || !member_class || argument_count < 0) {
+        return NULL;
+    }
+    for (CxxConstructorInfo* candidate = member_class->constructors;
+         candidate; candidate = candidate->next) {
+        TypeParam* parameter = candidate->parameters;
+        ExprList* argument = arguments;
+        bool viable = candidate->access == ACCESS_PUBLIC &&
+            !candidate->is_deleted && !candidate->is_defaulted &&
+            candidate->parameter_count == argument_count &&
+            candidate->initializers_are_supported && candidate->method &&
+            candidate->method->decl && candidate->method->decl->func_body;
+        while (viable && parameter && argument) {
+            if (!parameter->type || !argument->expr ||
+                !cxx_constructor_expression_is_lowerable(
+                    owner_constructor, argument->expr, parameter->type,
+                    NULL, 0u)) {
+                viable = false;
+                break;
+            }
+            parameter = parameter->next;
+            argument = argument->next;
+        }
+        if (!viable || parameter || argument) continue;
+        if (selected) return NULL;
+        selected = candidate;
+    }
+    return selected;
+}
+
 static CxxConstructorInitializer* cxx_copy_constructor_initializer(
     CxxConstructorInitializer* source, const char* field, bool is_base,
     CxxConstructorInfo* base_constructor, bool is_default_member) {
@@ -7728,6 +7770,17 @@ static void complete_cxx_default_member_initializers(CxxClass* cls) {
                     field->initializer != NULL;
                 item->is_pack_expansion = false;
                 item->next = NULL;
+            } else if (item && field->type &&
+                       field->type->kind == TYPE_STRUCT &&
+                       field->type->cxx_class) {
+                item->constructor = cxx_find_typed_member_constructor(
+                    constructor, field->type->cxx_class, item->arguments);
+                if (!item->constructor) {
+                    valid = false;
+                    break;
+                }
+                item->value = item->arguments
+                    ? item->arguments->expr : NULL;
             }
             if (item) {
                 item = cxx_copy_constructor_initializer(
@@ -9937,7 +9990,9 @@ static void register_ordinary_class_methods(CxxClass* cls) {
             method->is_deleted ||
             method->is_defaulted ||
             (method->is_constructor &&
-             (!constructor || constructor->body_is_empty))) {
+             (!constructor ||
+              (constructor->body_is_empty &&
+               constructor->initializer_count == 0)))) {
             continue;
         }
 

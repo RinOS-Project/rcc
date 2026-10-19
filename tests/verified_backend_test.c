@@ -4694,19 +4694,27 @@ static void verify_cxx_throwing_temporary_object(
         memcpy(&constructor_argument, &address,
                sizeof(constructor_argument));
         result = constructor_argument(1);
-        if (result != 5800) {
+        if (result != 59031) {
             fprintf(stderr,
-                    "verified throwing constructor temporary returned %d, expected 5800\n",
+                    "verified throwing member constructor temporary returned %d, expected 59031\n",
                     result);
         }
-        assert(result == 5800);
+        assert(result == 59031);
+        result = constructor_argument(2);
+        if (result != 58231) {
+            fprintf(stderr,
+                    "verified throwing constructor body temporary returned %d, expected 58231\n",
+                    result);
+        }
+        assert(result == 58231);
         result = constructor_argument(0);
-        if (result != 707) {
+        if (result != 2231) {
             fprintf(stderr,
-                    "verified normal constructor temporary returned %d, expected 707\n",
+                    "verified normal constructor temporary returned %d, expected 2231\n",
                     result);
         }
-        assert(result == 707);
+        assert(result == 2231);
+        assert(constructor_argument(3) == 2231);
         assert(verified_unmap(memory, mapping_size) == 0);
     }
     objfile_free(object);
