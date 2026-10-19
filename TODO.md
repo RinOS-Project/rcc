@@ -2113,10 +2113,11 @@
         `test-debug-info`でconst type、abstract-origin、source file、signed値7を両archで検証し、
         `test-optimize`も成功。nested lexical localやlocation-list値は未対応
   - [x] direct inline callの引数式をIR/codegenのdebug metadataまで保持し、
-        signed integral parameterに同型・foldableな整数定数を渡す場合は、
+        signed/unsigned integral parameterに同型・foldableな整数定数を渡す場合は、
         concrete `DW_TAG_formal_parameter`へabstract-origin参照とcall固有の
-        `DW_AT_const_value`を出力。legacy/verifiedのi686/AMD64すべてで
-        `test-debug-info`を実行し、値23を検証。
+        `DW_AT_const_value`をsigned `sdata`／unsigned `udata`で出力。
+        legacy/verifiedのi686/AMD64すべてで`test-debug-info`を実行し、
+        signed値23とunsigned値`UINT64_MAX`を検証。
         非定数引数、型変換を伴う引数、register/location listは未対応
   - [x] verified backendで最適化inlineのorigin／呼出し位置をIRからMIR・x86
         legalization・encoded PC rangeまで伝播し、relocation付きDWARF inline DIEを
@@ -2187,7 +2188,7 @@
         `test-debug-info`全体が成功。
 - [ ] Extend the existing bounded inline DIE and frame-relative location-list
         coverage beyond the implemented direct-body const scalar values and
-        foldable same-type signed inline-parameter constants: emit locations
+        foldable same-type signed/unsigned inline-parameter constants: emit locations
         for non-constant inlined parameters and locals, nested lexical
         locals, and track optimized variables across register and piece
         locations; describe declaration lifetimes across every optimized CFG
