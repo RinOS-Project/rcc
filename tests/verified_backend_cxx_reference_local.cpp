@@ -54,6 +54,46 @@ int verified_body_constructor_result() {
     return object.value;
 }
 
+struct VerifiedBaseConstructor {
+    int base_value;
+
+    VerifiedBaseConstructor(int* order, int initial) noexcept
+        : base_value(initial) {
+        *order = *order * 10 + 2;
+        base_value = base_value * 2 + 1;
+    }
+};
+
+struct VerifiedPrefixConstructor {
+    int prefix_value;
+
+    VerifiedPrefixConstructor(int* order, int initial) noexcept
+        : prefix_value(initial) {
+        *order = *order * 10 + 1;
+        prefix_value += 3;
+    }
+};
+
+struct VerifiedDerivedConstructor : VerifiedPrefixConstructor,
+                                    VerifiedBaseConstructor {
+    int tail;
+
+    VerifiedDerivedConstructor(int* order, int initial) noexcept
+        : VerifiedPrefixConstructor(order, initial),
+          VerifiedBaseConstructor(order, initial), tail(initial) {
+        *order = *order * 10 + 3;
+        tail = tail * 3 + 2;
+    }
+};
+
+int verified_nontrivial_base_constructor_result() {
+    int order = 0;
+    VerifiedDerivedConstructor object(&order, 10);
+    if (order != 123) return -1;
+    return object.prefix_value * 10000 +
+        object.base_value * 100 + object.tail;
+}
+
 int main() {
     int value = 40;
     if (update_lvalue_reference_local(value) != 41) {
@@ -64,6 +104,9 @@ int main() {
     }
     if (verified_body_constructor_result() != 41) {
         return 3;
+    }
+    if (verified_nontrivial_base_constructor_result() != 132132) {
+        return 4;
     }
     return value != 43;
 }

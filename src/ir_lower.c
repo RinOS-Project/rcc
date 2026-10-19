@@ -15018,6 +15018,10 @@ static bool lower_cxx_emit_delete_subobject_destructor(
         context, cls, object, depth, false, include_virtual_bases);
 }
 
+static bool lower_cxx_emit_constructor_call(
+    RccIrLowerContext* context, const Expr* initializer,
+    RccIrValue object);
+
 static bool lower_cxx_initialize_constructor_members(
     RccIrLowerContext* context, const Decl* declaration) {
     const CxxClass* cls;
@@ -15039,7 +15043,10 @@ static bool lower_cxx_initialize_constructor_members(
     }
     if (!context || !cls || !constructor ||
         !constructor->initializers_are_supported ||
-        cls->base_count != 0 || cls->virtual_base_count != 0 ||
+        cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
+        (cls->base_count != 0 &&
+         (!cls->bases || !cls->base_offsets ||
+          !declaration->func_is_noexcept)) ||
         cls->has_field_initializer || !declaration->func_this_param ||
         !(this_local = lower_find_local(
               context, declaration->func_this_param))) {
@@ -15049,6 +15056,63 @@ static bool lower_cxx_initialize_constructor_members(
     /* This typed-SSA path models scalar member initializers directly.  Check
      * the complete list before emitting IR so unsupported forms never leave
      * a partially lowered constructor behind. */
+    /* Validate every base and its selected initializer before generating any
+     * call or member-store IR. */
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        const CxxClass* base = cls->bases[base_index].base;
+        const CxxConstructorInitializer* base_initializer;
+        bool duplicate_initializer = false;
+        if (!base || cls->bases[base_index].is_virtual ||
+            cls->base_offsets[base_index] < 0 ||
+            base->base_count != 0 || base->virtual_base_count != 0 ||
+            base->vtable_size != 0 || !base->type) {
+            context->unsupported = true;
+            return false;
+        }
+        base_initializer = lower_cxx_find_base_initializer(
+            cls, constructor, base_index, &duplicate_initializer);
+        if (duplicate_initializer) {
+            context->unsupported = true;
+            return false;
+        }
+        if (!base_initializer) {
+            if (!lower_cxx_empty_trivial_subobject(base->type, 0u)) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        }
+        if (!base_initializer->constructor ||
+            base_initializer->is_virtual_base_initializer ||
+            base_initializer->is_delegating_constructor ||
+            base_initializer->is_default_member_initializer ||
+            base_initializer->is_pack_expansion ||
+            base_initializer->value !=
+                (base_initializer->arguments
+                     ? base_initializer->arguments->expr : NULL)) {
+            context->unsupported = true;
+            return false;
+        }
+        {
+            Expr base_expression;
+            const Decl* base_declaration =
+                base_initializer->constructor->method
+                    ? base_initializer->constructor->method->decl : NULL;
+            memset(&base_expression, 0, sizeof(base_expression));
+            base_expression.kind = EXPR_COMPOUND;
+            base_expression.type = base->type;
+            base_expression.compound_constructor =
+                base_initializer->constructor;
+            base_expression.compound_init = base_initializer->arguments;
+            if (!base_declaration || !base_declaration->func_is_noexcept ||
+                !lower_noexcept_expression_list(
+                    base_initializer->arguments) ||
+                !lower_cleanup_constructor_call_supported(&base_expression)) {
+                context->unsupported = true;
+                return false;
+            }
+        }
+    }
     for (const CxxConstructorInitializer* initializer =
              constructor->initializers;
          initializer; initializer = initializer->next) {
@@ -15057,8 +15121,31 @@ static bool lower_cxx_initialize_constructor_members(
         const Expr* source;
         int64_t ignored_constant;
         bool constant_initializer;
-        if (initializer->is_base_initializer ||
-            initializer->is_delegating_constructor ||
+        if (initializer->is_base_initializer) {
+            bool found_base = false;
+            for (int base_index = 0; base_index < cls->base_count;
+                 ++base_index) {
+                bool duplicate_initializer = false;
+                const CxxConstructorInitializer* selected =
+                    lower_cxx_find_base_initializer(
+                        cls, constructor, base_index,
+                        &duplicate_initializer);
+                if (duplicate_initializer) {
+                    context->unsupported = true;
+                    return false;
+                }
+                if (selected == initializer) {
+                    found_base = true;
+                    break;
+                }
+            }
+            if (!found_base) {
+                context->unsupported = true;
+                return false;
+            }
+            continue;
+        }
+        if (initializer->is_delegating_constructor ||
             initializer->is_virtual_base_initializer ||
             initializer->is_default_member_initializer ||
             initializer->is_pack_expansion || !initializer->field ||
@@ -15101,6 +15188,31 @@ static bool lower_cxx_initialize_constructor_members(
         context->unsupported = true;
         return false;
     }
+    /* Invoke every explicit base constructor before initializing members;
+     * the declaration-order loop also enforces the language's base order. */
+    for (int base_index = 0; base_index < cls->base_count; ++base_index) {
+        const CxxConstructorInitializer* base_initializer =
+            lower_cxx_find_base_initializer(
+                cls, constructor, base_index, NULL);
+        RccIrLowerValue base_address;
+        Expr base_expression;
+        if (!base_initializer || !base_initializer->constructor) continue;
+        base_address = lower_byte_offset_address(
+            context, object,
+            (uint64_t)cls->base_offsets[base_index]);
+        memset(&base_expression, 0, sizeof(base_expression));
+        base_expression.kind = EXPR_COMPOUND;
+        base_expression.type = cls->bases[base_index].base->type;
+        base_expression.compound_constructor =
+            base_initializer->constructor;
+        base_expression.compound_init = base_initializer->arguments;
+        if (!base_address.valid ||
+            !lower_cxx_emit_constructor_call(
+                context, &base_expression, base_address.value)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
     for (const CxxConstructorInitializer* initializer =
              constructor->initializers;
          initializer; initializer = initializer->next) {
@@ -15108,6 +15220,7 @@ static bool lower_cxx_initialize_constructor_members(
         const Expr* source;
         RccIrLowerValue address;
         RccIrLowerValue value;
+        if (initializer->is_base_initializer) continue;
         source = initializer->arguments->expr;
         field = lower_struct_declared_field(
             cls->type, cls, initializer->field);
