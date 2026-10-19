@@ -138,6 +138,23 @@ public:
     }
 };
 
+class VerifiedNestedArrayDmiMember final {
+public:
+    int value_ = 5;
+};
+
+class VerifiedImplicitArrayDmiArrayElement final {
+public:
+    VerifiedNestedArrayDmiMember nested_[2];
+    int value_ = 1;
+
+    ~VerifiedImplicitArrayDmiArrayElement() noexcept {
+        verified_partial_array_record_destructor(nested_[0].value_);
+        verified_partial_array_record_destructor(nested_[1].value_);
+        verified_partial_array_record_destructor(value_);
+    }
+};
+
 class VerifiedThrowingDefaultArgumentArrayElement final {
 public:
     explicit VerifiedThrowingDefaultArgumentArrayElement(
@@ -328,6 +345,20 @@ extern "C" int verified_cxx_partial_array_implicit_base_dmi(int count) {
 extern "C" int verified_cxx_partial_array_implicit_base_dmi_fixed() {
     VerifiedImplicitBaseDmiArrayElement* values =
         new VerifiedImplicitBaseDmiArrayElement[1];
+    delete[] values;
+    return 0;
+}
+
+extern "C" int verified_cxx_partial_array_implicit_array_dmi(int count) {
+    VerifiedImplicitArrayDmiArrayElement* values =
+        new VerifiedImplicitArrayDmiArrayElement[count];
+    delete[] values;
+    return count;
+}
+
+extern "C" int verified_cxx_partial_array_implicit_array_dmi_fixed() {
+    VerifiedImplicitArrayDmiArrayElement* values =
+        new VerifiedImplicitArrayDmiArrayElement[1];
     delete[] values;
     return 0;
 }
