@@ -6549,8 +6549,22 @@ remains a separate open item.
       execute direct-copy, two-hop-copy, and alias-write C++ cases in
       `test-optimize` (native Windows, exit 0). Implementations: `15f52b3`,
       `0289893`.
-- [ ] Chains beyond the bound, mutable-source reaching values, aliased
-      callback arrays, and cross-function target propagation remain open.
+- [ ] Chains beyond the bound, reaching-value propagation for assignment
+      copies, aliased callback arrays, and cross-function target propagation
+      remain open.
+
+## RCC continuation (2026-10-20, callback copies from reaching local facts)
+
+- [x] At a local function-pointer declaration, copy the source's currently
+      proven target even when the source itself has earlier direct assignments.
+      Continue using the CFG fact merge: identical branch targets propagate,
+      divergent targets do not.
+- [x] Verify a direct reassignment followed by a two-hop value copy, and verify
+      that divergent branch targets and address-escaped alias writes remain
+      indirect. `test-optimize` passes on native Windows with i686/AMD64 call
+      shape checks and generated x64 execution. Implementation: `2be0e46`.
+- [ ] Reaching-value propagation for assignment copies, callback-array
+      elements, and cross-function target sets remains open.
 
 ## RCC continuation (2026-10-19, callback-array alias safety)
 
