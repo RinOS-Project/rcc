@@ -13,10 +13,13 @@ extern int rcc_test_main(void) RINOS_TEST_ABI;
 extern int cxx_exception_cleanup_dependent_dmi(void) RINOS_TEST_ABI;
 extern int cxx_exception_cleanup_completed_dmi_then_throw(void) RINOS_TEST_ABI;
 extern int cxx_exception_cleanup_double_throw(void) RINOS_TEST_ABI;
+extern int cxx_exception_cleanup_delete_normal(void) RINOS_TEST_ABI;
+static unsigned long rin_free_count;
 void* RINOS_TEST_ABI rin_malloc(unsigned long size) {
     return malloc((size_t)size);
 }
 void RINOS_TEST_ABI rin_free(void* pointer) {
+    ++rin_free_count;
     free(pointer);
 }
 
@@ -25,6 +28,14 @@ int main(int argc, char** argv) {
     if (argc == 2 && argv[1][0] == '-' && argv[1][1] == '-') {
         (void)cxx_exception_cleanup_double_throw();
         return 0;
+    }
+    rin_free_count = 0;
+    int normal_delete_result = cxx_exception_cleanup_delete_normal();
+    if (normal_delete_result != 2100 || rin_free_count != 1) {
+        fprintf(stderr,
+                "normal delete returned %d after %lu frees; expected 2100 after one free\n",
+                normal_delete_result, rin_free_count);
+        return 1;
     }
     int dependent_dmi_result = cxx_exception_cleanup_dependent_dmi();
     if (dependent_dmi_result != 1719) {

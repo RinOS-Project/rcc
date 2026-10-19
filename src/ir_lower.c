@@ -148,6 +148,10 @@ static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression);
 static RccIrLowerValue lower_expression_impl(
     RccIrLowerContext* context, const Expr* expression);
+static RccIrLowerValue lower_cxx_new_expression(
+    RccIrLowerContext* context, const Expr* expression);
+static RccIrLowerValue lower_cxx_delete_expression(
+    RccIrLowerContext* context, const Expr* expression);
 static bool lower_i686_wide_scalar_type(const Type* type);
 static RccIrLowerValue lower_sysv_va_builtin(
     RccIrLowerContext* context, const Expr* expression);
@@ -10847,6 +10851,12 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             (void)lower_expression(context, expression->binary_lhs);
             return lower_expression(context, expression->binary_rhs);
         case EXPR_CALL:
+            if (expression->call_is_new) {
+                return lower_cxx_new_expression(context, expression);
+            }
+            if (expression->call_is_delete) {
+                return lower_cxx_delete_expression(context, expression);
+            }
             if (expression->cxx_typeinfo_hash_code) {
                 return lower_typeinfo_field(
                     context, expression, 0u,
@@ -13866,8 +13876,24 @@ static bool lower_cxx_destructor_cleanup_hook_supported(const Type* type) {
     return false;
 }
 
-static bool lower_cxx_destructor_subobjects_supported(
-    const CxxClass* cls, unsigned depth) {
+static bool lower_cxx_destructor_subobjects_leaf(const CxxClass* cls) {
+    if (!cls || cls->base_count != 0) return false;
+    for (const TypeParam* field = cls->fields; field; field = field->next) {
+        const Type* type = field->type;
+        if (field->is_static || !type) continue;
+        if (type->kind == TYPE_ARRAY) {
+            const Type* element_type = lower_cxx_class_array_element(type);
+            if (element_type && element_type->cxx_nontrivial) return false;
+        } else if (type->cxx_class && type->cxx_nontrivial) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool lower_cxx_destructor_subobjects_supported_impl(
+    const CxxClass* cls, unsigned depth,
+    bool allow_throwing_root_destructor) {
     const TypeParam* field;
     if (!cls || !cls->type || depth >= 64u ||
         cls->virtual_base_count != 0 ||
@@ -13878,7 +13904,9 @@ static bool lower_cxx_destructor_subobjects_supported(
         const Decl* destructor = cls->destructor_method->decl;
         if (!destructor || !destructor->func_body ||
             !destructor->func_is_cxx_destructor ||
-            !destructor->func_is_noexcept || !destructor->func_this_param ||
+            (!allow_throwing_root_destructor &&
+             !destructor->func_is_noexcept) ||
+            !destructor->func_this_param ||
             destructor->func_params || !destructor->type ||
             destructor->type->kind != TYPE_FUNC ||
             !destructor->type->ret_type ||
@@ -13890,7 +13918,9 @@ static bool lower_cxx_destructor_subobjects_supported(
         const CxxClass* base = cls->bases[index].base;
         if (!base || cls->bases[index].is_virtual || !cls->base_offsets ||
             cls->base_offsets[index] < 0 ||
-            !lower_cxx_destructor_subobjects_supported(base, depth + 1u)) {
+            !lower_cxx_destructor_subobjects_supported_impl(
+                base, depth + 1u,
+                lower_cxx_destructor_subobjects_leaf(base))) {
             return false;
         }
     }
@@ -13904,20 +13934,29 @@ static bool lower_cxx_destructor_subobjects_supported(
                 uint64_t element_count;
                 if (!lower_cxx_class_array_count(
                         type, element_type, &element_count) ||
-                    !lower_cxx_destructor_subobjects_supported(
-                        element_type->cxx_class, depth + 1u)) {
+                    !lower_cxx_destructor_subobjects_supported_impl(
+                        element_type->cxx_class, depth + 1u,
+                        lower_cxx_destructor_subobjects_leaf(
+                            element_type->cxx_class))) {
                     return false;
                 }
             }
             continue;
         }
         if (type->cxx_class &&
-            !lower_cxx_destructor_subobjects_supported(
-                type->cxx_class, depth + 1u)) {
+            !lower_cxx_destructor_subobjects_supported_impl(
+                type->cxx_class, depth + 1u,
+                lower_cxx_destructor_subobjects_leaf(type->cxx_class))) {
             return false;
         }
     }
     return true;
+}
+
+static bool lower_cxx_destructor_subobjects_supported(
+    const CxxClass* cls, unsigned depth) {
+    return lower_cxx_destructor_subobjects_supported_impl(
+        cls, depth, false);
 }
 
 static bool lower_cxx_emit_destructor_call(
@@ -13927,7 +13966,7 @@ static bool lower_cxx_emit_destructor_call(
     RccIrInstruction* call;
     if (!context || !destructor || !destructor->func_body ||
         !destructor->func_is_cxx_destructor || !destructor->link_name ||
-        !destructor->func_this_param || destructor->func_params ||
+        destructor->func_params ||
         !destructor->type || destructor->type->kind != TYPE_FUNC ||
         !destructor->type->ret_type ||
         destructor->type->ret_type->kind != TYPE_VOID || !object.valid ||
@@ -13951,6 +13990,12 @@ static bool lower_cxx_emit_destructor_call(
 static bool lower_cxx_emit_complete_destructor(
     RccIrLowerContext* context, const Type* type,
     RccIrLowerValue object, unsigned depth);
+static bool lower_cxx_emit_delete_subobject_destructor(
+    RccIrLowerContext* context, const Type* type,
+    RccIrLowerValue object, unsigned depth);
+static bool lower_cxx_delete_subobject_cleanup_change(
+    RccIrLowerContext* context, const Type* type,
+    RccIrLowerValue object, bool register_cleanup, unsigned depth);
 
 static bool lower_cxx_emit_class_array_destructors(
     RccIrLowerContext* context, const Type* array_type,
@@ -14057,15 +14102,17 @@ static bool lower_cxx_emit_class_array_destructors(
     return true;
 }
 
-static bool lower_cxx_emit_destructor_subobjects(
+static bool lower_cxx_emit_destructor_subobjects_impl(
     RccIrLowerContext* context, const CxxClass* cls,
-    RccIrLowerValue object, unsigned depth) {
+    RccIrLowerValue object, unsigned depth,
+    bool allow_throwing_root_destructor) {
     const TypeParam** fields = NULL;
     size_t field_count = 0u;
     size_t field_index = 0u;
     if (!context || !cls || !object.valid ||
         object.type.kind != RCC_IR_TYPE_POINTER || depth >= 64u ||
-        !lower_cxx_destructor_subobjects_supported(cls, depth)) {
+        !lower_cxx_destructor_subobjects_supported_impl(
+            cls, depth, allow_throwing_root_destructor)) {
         if (context) context->unsupported = true;
         return false;
     }
@@ -14104,10 +14151,14 @@ static bool lower_cxx_emit_destructor_subobjects(
         address = lower_byte_offset_address(
             context, object, (uint64_t)layout->offset);
         if (!address.valid ||
+            (allow_throwing_root_destructor && !element_type &&
+             field->type->cxx_nontrivial &&
+             !lower_cxx_delete_subobject_cleanup_change(
+                 context, field->type, address, false, depth + 1u)) ||
             (element_type
                 ? !lower_cxx_emit_class_array_destructors(
                     context, field->type, element_type, address, depth + 1u)
-                : !lower_cxx_emit_complete_destructor(
+                : !lower_cxx_emit_delete_subobject_destructor(
                     context, field->type, address, depth + 1u))) {
             rcc_free(fields);
             return false;
@@ -14123,12 +14174,23 @@ static bool lower_cxx_emit_destructor_subobjects(
         }
         address = lower_byte_offset_address(
             context, object, (uint64_t)cls->base_offsets[index]);
-        if (!address.valid || !lower_cxx_emit_complete_destructor(
+        if (!address.valid ||
+            (allow_throwing_root_destructor && base->type->cxx_nontrivial &&
+             !lower_cxx_delete_subobject_cleanup_change(
+                 context, base->type, address, false, depth + 1u)) ||
+            !lower_cxx_emit_delete_subobject_destructor(
                 context, base->type, address, depth + 1u)) {
             return false;
         }
     }
     return true;
+}
+
+static bool lower_cxx_emit_destructor_subobjects(
+    RccIrLowerContext* context, const CxxClass* cls,
+    RccIrLowerValue object, unsigned depth) {
+    return lower_cxx_emit_destructor_subobjects_impl(
+        context, cls, object, depth, false);
 }
 
 static bool lower_cxx_emit_complete_destructor(
@@ -14147,6 +14209,21 @@ static bool lower_cxx_emit_complete_destructor(
     }
     return lower_cxx_emit_destructor_subobjects(
         context, cls, object, depth + 1u);
+}
+
+static bool lower_cxx_emit_delete_subobject_destructor(
+    RccIrLowerContext* context, const Type* type,
+    RccIrLowerValue object, unsigned depth) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    const Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (cls && destructor && destructor->func_body &&
+        lower_cxx_destructor_subobjects_leaf(cls) &&
+        !destructor->func_is_noexcept) {
+        return lower_cxx_emit_destructor_call(context, destructor, object);
+    }
+    return lower_cxx_emit_complete_destructor(
+        context, type, object, depth);
 }
 
 static bool lower_cxx_emit_current_destructor_subobjects(
@@ -14169,6 +14246,450 @@ static bool lower_cxx_emit_current_destructor_subobjects(
     object = lower_value(context->function->parameters[0],
                          rcc_ir_type_pointer(0u), true);
     return lower_cxx_emit_destructor_subobjects(context, cls, object, 0u);
+}
+
+static RccIrLowerValue lower_cxx_function_address(
+    RccIrLowerContext* context, const char* name) {
+    RccIrInstruction* address;
+    if (!context || !name || !name[0]) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    address = lower_append(
+        context, RCC_IR_SYMBOL_ADDRESS, rcc_ir_type_pointer(0u),
+        NULL, 0u, NULL, 0u);
+    if (!address) return lower_invalid_value();
+    rcc_ir_set_callee(address, name);
+    address->symbol_is_code = true;
+    return lower_value(address->result, rcc_ir_type_pointer(0u), true);
+}
+
+static bool lower_cxx_change_current_cleanup(
+    RccIrLowerContext* context, const char* callback_name,
+    RccIrLowerValue object, bool register_cleanup) {
+    RccIrLowerValue callback;
+    RccIrValue operands[2];
+    const char* runtime_name = register_cleanup
+        ? "rin_cpp_exception_register_current_cleanup"
+        : "rin_cpp_exception_unregister_current_cleanup";
+    if (!context || !object.valid ||
+        object.type.kind != RCC_IR_TYPE_POINTER) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    callback = lower_cxx_function_address(context, callback_name);
+    if (!callback.valid) return false;
+    operands[0] = callback.value;
+    operands[1] = object.value;
+    (void)lower_cxx_runtime_call(
+        context, runtime_name, rcc_ir_type_void(), operands, 2u);
+    return !context->unsupported;
+}
+
+static bool lower_cxx_delete_subobject_cleanup_change(
+    RccIrLowerContext* context, const Type* type,
+    RccIrLowerValue object, bool register_cleanup, unsigned depth) {
+    const CxxClass* cls = type ? type->cxx_class : NULL;
+    const Decl* destructor = cls && cls->destructor_method
+        ? cls->destructor_method->decl : NULL;
+    if (!type || !type->cxx_nontrivial) return true;
+    if (!cls || depth >= 64u ||
+        !lower_cxx_destructor_subobjects_supported_impl(
+            cls, depth, lower_cxx_destructor_subobjects_leaf(cls)) ||
+        !destructor || !destructor->func_body ||
+        !destructor->func_is_cxx_destructor || !destructor->link_name ||
+        !destructor->func_this_param || destructor->func_params ||
+        !destructor->type || destructor->type->kind != TYPE_FUNC ||
+        !destructor->type->ret_type ||
+        destructor->type->ret_type->kind != TYPE_VOID) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    return lower_cxx_change_current_cleanup(
+        context, decl_link_name(destructor), object, register_cleanup);
+}
+
+static bool lower_cxx_delete_subobject_cleanups_change(
+    RccIrLowerContext* context, const CxxClass* cls,
+    RccIrLowerValue object, unsigned depth) {
+    const TypeParam** fields = NULL;
+    size_t field_count = 0u;
+    size_t field_index = 0u;
+    bool success = false;
+    if (!context || !cls || !object.valid ||
+        object.type.kind != RCC_IR_TYPE_POINTER || depth >= 64u ||
+        !lower_cxx_destructor_subobjects_supported_impl(
+            cls, depth, true)) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    for (const TypeParam* field = cls->fields; field; field = field->next) {
+        if (!field->is_static && field->type &&
+            field->type->cxx_nontrivial) {
+            if (++field_count > 4096u ||
+                field_count > SIZE_MAX / sizeof(*fields)) {
+                context->unsupported = true;
+                return false;
+            }
+        }
+    }
+    if (field_count != 0u) fields = rcc_alloc(field_count * sizeof(*fields));
+    for (const TypeParam* field = cls->fields; field; field = field->next) {
+        if (!field->is_static && field->type &&
+            field->type->cxx_nontrivial) {
+            fields[field_index++] = field;
+        }
+    }
+
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        RccIrLowerValue address;
+        if (!base || !cls->base_offsets || cls->base_offsets[index] < 0) {
+            context->unsupported = true;
+            goto cleanup;
+        }
+        address = lower_byte_offset_address(
+            context, object, (uint64_t)cls->base_offsets[index]);
+        if (!address.valid ||
+            !lower_cxx_delete_subobject_cleanup_change(
+                context, base->type, address, true, depth + 1u)) {
+            goto cleanup;
+        }
+    }
+    for (size_t index = 0u; index < field_count; ++index) {
+        const TypeParam* field = fields[index];
+        const TypeField* layout = lower_struct_declared_field(
+            cls->type, cls, field->name);
+        RccIrLowerValue address;
+        if (!layout || layout->offset < 0 || !layout->type ||
+            layout->type->kind == TYPE_ARRAY) {
+            context->unsupported = true;
+            goto cleanup;
+        }
+        address = lower_byte_offset_address(
+            context, object, (uint64_t)layout->offset);
+        if (!address.valid ||
+            !lower_cxx_delete_subobject_cleanup_change(
+                context, field->type, address, true, depth + 1u)) {
+            goto cleanup;
+        }
+    }
+    success = true;
+cleanup:
+    rcc_free(fields);
+    return success;
+}
+
+static bool lower_cxx_emit_new_constructor_call(
+    RccIrLowerContext* context, const CxxConstructorInfo* constructor,
+    const ExprList* arguments, RccIrLowerValue object) {
+    const Decl* declaration = constructor && constructor->method
+        ? constructor->method->decl : NULL;
+    const TypeParam* parameter;
+    const ExprList* argument;
+    RccIrValue* operands;
+    RccIrInstruction* call;
+    size_t count = 0u;
+    size_t index = 1u;
+    if (!context || !constructor || constructor->parameter_count < 0 ||
+        constructor->parameter_count > 64 || constructor->is_deleted ||
+        !constructor->initializers_are_supported || !declaration ||
+        !declaration->func_is_cxx_constructor ||
+        !declaration->link_name ||
+        !declaration->type || declaration->type->kind != TYPE_FUNC ||
+        declaration->type->variadic || !declaration->type->ret_type ||
+        declaration->type->ret_type->kind != TYPE_VOID ||
+        !object.valid || object.type.kind != RCC_IR_TYPE_POINTER) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    parameter = constructor->parameters;
+    argument = arguments;
+    while (parameter || argument) {
+        RccIrType ignored_type;
+        if (++count > (size_t)constructor->parameter_count || !parameter ||
+            !parameter->type || parameter->type->cxx_is_member_pointer ||
+            lower_i686_wide_scalar_type(parameter->type) ||
+            !lower_abi_native_scalar_type(parameter->type, &ignored_type) ||
+            !argument || !argument->expr || argument->cxx_temporary_owner ||
+            argument->cxx_temporary_cleanups ||
+            argument->designator_kind != INIT_DESIGNATOR_NONE) {
+            context->unsupported = true;
+            return false;
+        }
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    if (count != (size_t)constructor->parameter_count) {
+        context->unsupported = true;
+        return false;
+    }
+    if (count + 1u > SIZE_MAX / sizeof(*operands)) {
+        context->unsupported = true;
+        return false;
+    }
+    operands = rcc_alloc((count + 1u) * sizeof(*operands));
+    operands[0] = object.value;
+    parameter = constructor->parameters;
+    argument = arguments;
+    while (parameter && argument) {
+        RccIrLowerValue value;
+        if (parameter->type->kind == TYPE_PTR &&
+            parameter->type->is_reference) {
+            value = lower_lvalue_address(context, argument->expr);
+        } else {
+            value = lower_expression(context, argument->expr);
+            value = lower_cast(context, value, parameter->type);
+        }
+        if (!value.valid) {
+            rcc_free(operands);
+            return false;
+        }
+        operands[index++] = value.value;
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    call = lower_append(context, RCC_IR_CALL, rcc_ir_type_void(),
+                        operands, count + 1u, NULL, 0u);
+    rcc_free(operands);
+    if (!call) return false;
+    rcc_ir_set_callee(call, decl_link_name(declaration));
+    return true;
+}
+
+static RccIrLowerValue lower_cxx_new_expression(
+    RccIrLowerContext* context, const Expr* expression) {
+    Expr allocation_expression;
+    Type* allocator_result_type;
+    RccIrLowerValue storage;
+    RccIrLowerValue result;
+    const CxxConstructorInfo* constructor;
+    const Decl* constructor_decl;
+    bool register_free = false;
+    bool initialized;
+    if (!context || !expression || !expression->call_func ||
+        expression->call_new_is_array || expression->call_new_array_cookie ||
+        !expression->call_new_type || expression->call_new_type->size <= 0 ||
+        !expression->type || expression->type->kind != TYPE_PTR ||
+        expression->type->base != expression->call_new_type ||
+        expression->call_new_default_member_initializers ||
+        expression->call_new_copy_init) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (expression->call_func->kind == EXPR_IDENT &&
+        expression->call_func->ident_decl &&
+        expression->call_func->ident_decl->type &&
+        expression->call_func->ident_decl->type->kind == TYPE_FUNC) {
+        allocator_result_type =
+            expression->call_func->ident_decl->type->ret_type;
+    } else if (expression->call_func->type &&
+               expression->call_func->type->kind == TYPE_FUNC) {
+        allocator_result_type = expression->call_func->type->ret_type;
+    } else {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (!allocator_result_type || allocator_result_type->kind != TYPE_PTR) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    allocation_expression = *expression;
+    allocation_expression.type = allocator_result_type;
+    allocation_expression.call_is_new = false;
+    allocation_expression.call_is_delete = false;
+    storage = lower_call(context, &allocation_expression);
+    if (!storage.valid) return lower_invalid_value();
+    result = lower_cast(context, storage, expression->type);
+    if (!result.valid || result.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+
+    constructor = expression->call_new_constructor;
+    constructor_decl = constructor && constructor->method
+        ? constructor->method->decl : NULL;
+    if (constructor && (!constructor_decl ||
+        !constructor_decl->func_is_cxx_constructor)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    for (const ExprList* argument = expression->call_new_args;
+         argument; argument = argument->next) {
+        if (!lower_noexcept_expression(argument->expr)) register_free = true;
+    }
+    if (constructor_decl && !constructor_decl->func_is_noexcept) {
+        register_free = true;
+    }
+    if (register_free && !lower_cxx_change_current_cleanup(
+            context, "rin_free", result, true)) {
+        return lower_invalid_value();
+    }
+
+    if (constructor) {
+        initialized = lower_cxx_emit_new_constructor_call(
+            context, constructor, expression->call_new_args, result);
+    } else if (expression->call_new_type->kind == TYPE_STRUCT ||
+               expression->call_new_type->kind == TYPE_UNION) {
+        if (expression->call_new_value_init &&
+            !expression->call_new_args) {
+            initialized = expression->call_new_type->kind == TYPE_STRUCT
+                ? lower_zero_struct_storage(
+                      context, result.value, expression->call_new_type)
+                : lower_zero_union_storage(
+                      context, result.value, expression->call_new_type);
+        } else if (expression->call_new_args) {
+            Expr initializer;
+            memset(&initializer, 0, sizeof(initializer));
+            initializer.kind = EXPR_COMPOUND;
+            initializer.type = expression->call_new_type;
+            initializer.compound_init = expression->call_new_args;
+            initialized = expression->call_new_type->kind == TYPE_STRUCT
+                ? lower_initialize_struct_storage(
+                      context, result.value, expression->call_new_type,
+                      &initializer)
+                : lower_initialize_union_storage(
+                      context, result.value, expression->call_new_type,
+                      &initializer);
+        } else {
+            initialized = true;
+        }
+    } else if (expression->call_new_type->kind == TYPE_ARRAY) {
+        context->unsupported = true;
+        initialized = false;
+    } else if (expression->call_new_value_init) {
+        initialized = lower_zero_scalar_storage(
+            context, result.value, expression->call_new_type);
+    } else if (expression->call_new_args) {
+        const ExprList* argument = expression->call_new_args;
+        RccIrLowerValue value;
+        initialized = argument && !argument->next &&
+            !argument->cxx_temporary_owner &&
+            !argument->cxx_temporary_cleanups;
+        if (initialized) {
+            value = lower_expression(context, argument->expr);
+            value = lower_cast(
+                context, value, expression->call_new_type);
+            initialized = value.valid && lower_store_address(
+                context, result, value);
+        } else {
+            context->unsupported = true;
+        }
+    } else {
+        initialized = true;
+    }
+    if (!initialized || context->unsupported) return lower_invalid_value();
+    if (register_free && !lower_cxx_change_current_cleanup(
+            context, "rin_free", result, false)) {
+        return lower_invalid_value();
+    }
+    return result;
+}
+
+static RccIrLowerValue lower_cxx_delete_expression(
+    RccIrLowerContext* context, const Expr* expression) {
+    const ExprList* argument;
+    const Type* object_type;
+    const Decl* destructor;
+    RccIrLowerValue object;
+    RccIrLowerValue void_result = lower_invalid_value();
+    RccIrBlock* destroy_block;
+    RccIrBlock* done_block;
+    bool register_free = false;
+    bool handle_subobjects = false;
+    if (!context || !expression || expression->call_delete_is_array ||
+        !(argument = expression->call_args) || argument->next ||
+        !argument->expr || !argument->expr->type ||
+        argument->expr->type->kind != TYPE_PTR ||
+        !argument->expr->type->base) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object = lower_expression(context, argument->expr);
+    if (!object.valid || object.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    object_type = expression->call_delete_object_type
+        ? expression->call_delete_object_type : argument->expr->type->base;
+    destructor = expression->call_delete_destructor;
+    if (expression->call_delete_cleanup ||
+        expression->call_delete_cleanup_field) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    destroy_block = rcc_ir_block_add(
+        context->function, "delete.nonnull");
+    done_block = rcc_ir_block_add(context->function, "delete.done");
+    if (!destroy_block || !done_block ||
+        !lower_conditional_branch(
+            context, object, destroy_block->id, done_block->id)) {
+        return lower_invalid_value();
+    }
+    context->current = destroy_block;
+    context->terminated = false;
+
+    if (destructor) {
+        const CxxClass* cls = object_type ? object_type->cxx_class : NULL;
+        bool complete_destruction = cls &&
+            lower_cxx_destructor_subobjects_supported(cls, 0u);
+        if (!cls || !destructor->func_is_cxx_destructor ||
+            !destructor->func_body || !destructor->link_name ||
+            !destructor->func_this_param || destructor->func_params ||
+            !destructor->type || destructor->type->kind != TYPE_FUNC ||
+            !destructor->type->ret_type ||
+            destructor->type->ret_type->kind != TYPE_VOID) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        handle_subobjects = !complete_destruction;
+        if (handle_subobjects &&
+            !lower_cxx_destructor_subobjects_supported_impl(
+                cls, 0u, true)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        register_free = !destructor->func_is_noexcept;
+        if (register_free && !lower_cxx_change_current_cleanup(
+                context, "rin_free", object, true)) {
+            return lower_invalid_value();
+        }
+        if (handle_subobjects &&
+            !lower_cxx_delete_subobject_cleanups_change(
+                context, cls, object, 0u)) {
+            return lower_invalid_value();
+        }
+        if (!lower_cxx_emit_destructor_call(
+                context, destructor, object)) {
+            return lower_invalid_value();
+        }
+        if (handle_subobjects) {
+            if (!lower_cxx_emit_destructor_subobjects_impl(
+                    context, cls, object, 0u, true)) {
+                return lower_invalid_value();
+            }
+        }
+        if (register_free && !lower_cxx_change_current_cleanup(
+                context, "rin_free", object, false)) {
+            return lower_invalid_value();
+        }
+    } else if (expression->call_delete_object_type) {
+        if (!lower_cxx_emit_complete_destructor(
+                context, object_type, object, 0u)) {
+            return lower_invalid_value();
+        }
+    }
+    (void)lower_cxx_runtime_call(
+        context, "rin_free", rcc_ir_type_void(), &object.value, 1u);
+    if (context->unsupported || context->terminated ||
+        !lower_branch(context, done_block->id)) {
+        return lower_invalid_value();
+    }
+    context->current = done_block;
+    context->terminated = false;
+    void_result.type = rcc_ir_type_void();
+    void_result.valid = true;
+    return void_result;
 }
 
 static bool lower_cxx_emit_constructor_call(

@@ -13838,10 +13838,10 @@ test-cxx-exception-cleanup: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME) test
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.ro tests/cxx_exception_cleanup.cpp >$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_delete_throw' is outside the typed SSA subset" $(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
+	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_array_delete_throw' is outside the typed SSA subset" $(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.ro tests/cxx_exception_cleanup.cpp >$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_delete_throw' is outside the typed SSA subset" $(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
+	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_array_delete_throw' is outside the typed SSA subset" $(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
 	@echo "RCC++ cross-call exception cleanup registration object tests completed; runtime execution requires RinOS exception runtime"
 else
 test-cxx-exception-cleanup: test-cxx-exception-cleanup-posix
@@ -13878,14 +13878,14 @@ test-cxx-exception-cleanup-posix: $(RCXX_TARGET) test-cxx-exception-cleanup-veri
 		tests/cxx_exception_cleanup.cpp \
 		>$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_delete_throw' is outside the typed SSA subset" \
+	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_array_delete_throw' is outside the typed SSA subset" \
 		$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-exception-cleanup/x64.ro \
 		tests/cxx_exception_cleanup.cpp \
 		>$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_delete_throw' is outside the typed SSA subset" \
+	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_array_delete_throw' is outside the typed SSA subset" \
 		$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s \
