@@ -4685,7 +4685,15 @@ static void verify_cxx_throwing_temporary_object(
                cleanup_order == 5);
         address = symbol_address(memory, normal_cleanup_symbol);
         memcpy(&no_arguments, &address, sizeof(no_arguments));
-        assert(no_arguments() == 65708);
+        {
+            int normal_cleanup_result = no_arguments();
+            if (normal_cleanup_result != 65708) {
+                fprintf(stderr,
+                        "verified prvalue receiver cleanup returned %d, expected 65708\n",
+                        normal_cleanup_result);
+            }
+            assert(normal_cleanup_result == 65708);
+        }
         address = symbol_address(memory, throwing_initializer_symbol);
         memcpy(&integer_argument, &address, sizeof(integer_argument));
         assert(integer_argument(1) == 560);

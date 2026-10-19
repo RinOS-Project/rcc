@@ -15,9 +15,17 @@ struct VerifiedThrowingTemporary {
 struct VerifiedThrowingTemporaryConversionSource {
     int* cleanup_order;
     int cleanup_id;
+    int* receiver_cleanup_order;
 
     operator VerifiedThrowingTemporary() const noexcept {
         return {cleanup_order, cleanup_id, {cleanup_id + 1}};
+    }
+
+    ~VerifiedThrowingTemporaryConversionSource() noexcept {
+        if (receiver_cleanup_order) {
+            *receiver_cleanup_order =
+                *receiver_cleanup_order * 10 + cleanup_id;
+        }
     }
 };
 
@@ -145,6 +153,7 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     int nested_result;
     int conversion_observation;
     int converted_cleanup_order;
+    int receiver_cleanup_order = 0;
     int receiver_observation;
     {
         const int& value =
@@ -162,15 +171,21 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     }
     converted_cleanup_order = cleanup_order;
     cleanup_order = 0;
+    receiver_cleanup_order = 0;
     {
         const VerifiedThrowingTemporary& value =
-            VerifiedThrowingTemporaryConversionSource{&cleanup_order, 8};
-        receiver_observation = value.cleanup_id * 10 + cleanup_order;
+            VerifiedThrowingTemporaryConversionSource{
+                &cleanup_order, 8, &receiver_cleanup_order};
+        receiver_observation = value.cleanup_id * 100 +
+            receiver_cleanup_order * 10 + cleanup_order;
     }
-    return nested_result == 65 && conversion_observation == 70 &&
-            converted_cleanup_order == 7 && receiver_observation == 80 &&
-            cleanup_order == 8
-        ? 65708 : -1;
+    if (nested_result != 65) return -1;
+    if (conversion_observation != 70) return -2;
+    if (converted_cleanup_order != 7) return -3;
+    if (receiver_observation != 880) return receiver_observation;
+    if (receiver_cleanup_order != 8) return -5;
+    if (cleanup_order != 8) return -6;
+    return 65708;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {

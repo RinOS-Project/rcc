@@ -7286,6 +7286,13 @@ remains a separate open item.
       (`65708`). `test-verified-cxx-throwing-temporary` emits all twenty-one
       functions with zero fallback on i686/AMD64 at `-O0`/`-O2`; generated
       AMD64 objects and the legacy host path pass.
-- [ ] Nontrivial/destructible conversion receivers, other converted-reference
-      shapes, static/TLS lifetime extension, and remaining full-expression
+- [x] Lower cleanup for a nontrivial/destructible class-prvalue conversion
+      receiver. Verify its destructor runs at full-expression end and the
+      converted reference-bound object is destroyed later at scope exit.
+      `test-verified-cxx-throwing-temporary` emits all twenty-two functions
+      with zero fallback on i686/AMD64 at `-O0`/`-O2`; generated AMD64 and
+      legacy host execution pass (`65708`). Exception-cleanup verified target
+      still emits twelve functions with zero fallback on both architectures.
+- [ ] Other converted-reference shapes, static/TLS lifetime extension,
+      additional conditional/subobject forms, and remaining full-expression
       cleanup paths remain open.
