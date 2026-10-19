@@ -3938,6 +3938,39 @@ static void verify_cxx_delete_object(const char* path, uint16_t arch,
     objfile_free(object);
 }
 
+static void verify_cxx_explicit_throwing_callee_object(
+    const char* path, uint16_t arch, bool execute)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* case_symbol;
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    case_symbol = objfile_find_symbol(
+        object, "verified_cxx_explicit_throwing_destructor_case");
+    assert(text != NULL && case_symbol != NULL &&
+           case_symbol->type == SYM_GLOBAL &&
+           case_symbol->binding == BIND_CODE && case_symbol->section == 0);
+    if (execute) {
+        size_t mapping_size;
+        void* memory;
+        void* address;
+        int (RINOS_ABI *run_case)(int);
+        assert(arch == ARCH_X64 && sizeof(void*) == 8u);
+        memory = map_text(object, text, &mapping_size);
+        address = symbol_address(memory, case_symbol);
+        memcpy(&run_case, &address, sizeof(run_case));
+        verified_runtime_free_count = 0u;
+        assert(run_case(0) == 0);
+        assert(verified_runtime_free_count == 1u);
+        verified_runtime_free_count = 0u;
+        assert(run_case(1) == 0);
+        assert(verified_runtime_free_count == 1u);
+        assert(verified_unmap(memory, mapping_size) == 0);
+    }
+    objfile_free(object);
+}
+
 static void verify_member_methods_object(const char* path, uint16_t arch,
                                          bool execute)
 {
@@ -4991,6 +5024,22 @@ int main(int argc, char** argv)
         puts(arch == ARCH_X64 && sizeof(void*) == 8u
                  ? "Verified typed-SSA dynamic delete runtime passed"
                  : "Verified typed-SSA dynamic delete object passed");
+        return 0;
+    }
+    if (argc == 4 &&
+        strcmp(argv[1], "--cxx-explicit-callee-object") == 0) {
+        uint16_t arch;
+        if (strcmp(argv[3], "x86") == 0) {
+            arch = ARCH_X86;
+        } else {
+            assert(strcmp(argv[3], "x64") == 0);
+            arch = ARCH_X64;
+        }
+        verify_cxx_explicit_throwing_callee_object(
+            argv[2], arch, arch == ARCH_X64 && sizeof(void*) == 8u);
+        puts(arch == ARCH_X64 && sizeof(void*) == 8u
+                 ? "Verified explicit throwing destructor runtime passed"
+                 : "Verified explicit throwing destructor object passed");
         return 0;
     }
     if (argc == 4 && strcmp(argv[1], "--wide-scalar-object") == 0) {

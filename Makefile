@@ -13840,11 +13840,9 @@ test-cxx-exception-cleanup: $(RCXX_TARGET) $(CXX_WINDOWS_EXCEPTION_RUNTIME) test
 	objdump -f $(TEST_OUT)/cxx-exception-cleanup/call-x64.o > $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
 	$(GREP) -F -q "i386:x86-64" $(TEST_OUT)/cxx-exception-cleanup/call-x64-arch.log
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-exception-cleanup/x86.ro tests/cxx_exception_cleanup.cpp >$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_explicit_throwing_destructor_callee' is outside the typed SSA subset" $(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c -o $(TEST_OUT)/cxx-exception-cleanup/x64.ro tests/cxx_exception_cleanup.cpp >$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_explicit_throwing_destructor_callee' is outside the typed SSA subset" $(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log,0)
 	@echo "RCC++ cross-call exception cleanup registration object tests completed; runtime execution requires RinOS exception runtime"
 else
 test-cxx-exception-cleanup: test-cxx-exception-cleanup-posix
@@ -13880,16 +13878,12 @@ test-cxx-exception-cleanup-posix: $(RCXX_TARGET) test-cxx-exception-cleanup-veri
 		-o $(TEST_OUT)/cxx-exception-cleanup/x86.ro \
 		tests/cxx_exception_cleanup.cpp \
 		>$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_explicit_throwing_destructor_callee' is outside the typed SSA subset" \
-		$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x86-verified.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -fverified-backend -v -c \
 		-o $(TEST_OUT)/cxx-exception-cleanup/x64.ro \
 		tests/cxx_exception_cleanup.cpp \
 		>$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
-	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log,1)
-	$(GREP) -F -q "Verified backend fallback: function 'cxx_exception_cleanup_explicit_throwing_destructor_callee' is outside the typed SSA subset" \
-		$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/cxx-exception-cleanup/x64-verified.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/cxx-exception-cleanup/call-x86.s \
 		tests/cxx_exception_cleanup_call_rejected.cpp
@@ -17377,7 +17371,7 @@ test-verified-cxx-delete: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/verified-backend/cxx-delete-run \
 		--cxx-delete-object $(TEST_OUT)/verified-backend/cxx-delete-x64.ro x64
 
-test-verified-cxx-explicit-throwing-destructor: $(RCXX_TARGET)
+test-verified-cxx-explicit-throwing-destructor: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
@@ -17397,6 +17391,30 @@ test-verified-cxx-explicit-throwing-destructor: $(RCXX_TARGET)
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x64.log,0)
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x64.ro
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/verified-backend/cxx-explicit-throwing-destructor-x64.ro
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-explicit-callee-x86.ro \
+		tests/verified_backend_cxx_explicit_throwing_callee.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-explicit-callee-x86.log
+	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-explicit-callee-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-explicit-callee-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-explicit-callee-x64.ro \
+		tests/verified_backend_cxx_explicit_throwing_callee.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-explicit-callee-x64.log
+	$(GREP) -F -q 'Verified backend: 7 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-explicit-callee-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-explicit-callee-x64.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/cxx-explicit-callee-run \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/verified-backend/cxx-explicit-callee-run \
+		--cxx-explicit-callee-object \
+		$(TEST_OUT)/verified-backend/cxx-explicit-callee-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-explicit-callee-run \
+		--cxx-explicit-callee-object \
+		$(TEST_OUT)/verified-backend/cxx-explicit-callee-x64.ro x64
 
 test-verified-cxx-throwing-temporary: $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
