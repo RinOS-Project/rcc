@@ -2112,6 +2112,12 @@
         定数initializerが最適化で消えた場合も再構成してpure-scalar inlineを維持する。
         `test-debug-info`でconst type、abstract-origin、source file、signed値7を両archで検証し、
         `test-optimize`も成功。nested lexical localやlocation-list値は未対応
+  - [x] direct inline callの引数式をIR/codegenのdebug metadataまで保持し、
+        signed integral parameterに同型・foldableな整数定数を渡す場合は、
+        concrete `DW_TAG_formal_parameter`へabstract-origin参照とcall固有の
+        `DW_AT_const_value`を出力。legacy/verifiedのi686/AMD64すべてで
+        `test-debug-info`を実行し、値23を検証。
+        非定数引数、型変換を伴う引数、register/location listは未対応
   - [x] verified backendで最適化inlineのorigin／呼出し位置をIRからMIR・x86
         legalization・encoded PC rangeまで伝播し、relocation付きDWARF inline DIEを
         出力。C++ inline host/leafのabstract origin、call-site file/line/column、
@@ -2180,8 +2186,9 @@
         line-table entry対応をi686/AMD64で検証し、native Windows
         `test-debug-info`全体が成功。
 - [ ] Extend the existing bounded inline DIE and frame-relative location-list
-        coverage beyond the implemented direct-body const scalar values: emit
-        locations for inlined parameters and non-constant locals, nested lexical
+        coverage beyond the implemented direct-body const scalar values and
+        foldable same-type signed inline-parameter constants: emit locations
+        for non-constant inlined parameters and locals, nested lexical
         locals, and track optimized variables across register and piece
         locations; describe declaration lifetimes across every optimized CFG
         edge. Complete CFI/unwind coverage for prologues and epilogues not
