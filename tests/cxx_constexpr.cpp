@@ -93,6 +93,14 @@ constexpr double loop_float(int limit) {
     return total;
 }
 
+constexpr bool unsigned_less_than_one(unsigned long long value) {
+    return value < 1ULL;
+}
+
+constexpr bool unsigned_exceeds_signed_max(unsigned long long value) {
+    return value > 9223372036854775807ULL;
+}
+
 constexpr int dynamic_value() {
     int* value = new int;
     *value = 41;
@@ -166,11 +174,17 @@ constexpr int constexpr_dynamic_template_aggregate =
     dynamic_template_aggregate_value();
 constexpr bool constexpr_conditional_unsigned_comparison =
     (true ? -1 : 0u) < 0;
+constexpr bool constexpr_ull_max_less_than_one =
+    unsigned_less_than_one(18446744073709551615ULL);
+constexpr bool constexpr_ull_max_exceeds_signed_max =
+    unsigned_exceeds_signed_max(18446744073709551615ULL);
 
 static_assert(constexpr_dynamic_aggregate == 42);
 static_assert(constexpr_dynamic_aggregate_array == 5);
 static_assert(constexpr_dynamic_template_aggregate == 42);
 static_assert(!constexpr_conditional_unsigned_comparison);
+static_assert(!constexpr_ull_max_less_than_one);
+static_assert(constexpr_ull_max_exceeds_signed_max);
 
 int main(void) {
     return constexpr_global == 27 && constexpr_local == 27 &&
@@ -188,6 +202,8 @@ int main(void) {
                    constexpr_dynamic_aggregate_array == 5 &&
                    constexpr_dynamic_template_aggregate == 42 &&
                    !constexpr_conditional_unsigned_comparison &&
+                   !constexpr_ull_max_less_than_one &&
+                   constexpr_ull_max_exceeds_signed_max &&
                    dynamic_aggregate_value() == 42 &&
                    dynamic_aggregate_array_value() == 5
                ? 0 : 1;

@@ -6626,3 +6626,17 @@ remains a separate open item.
       `unsigned int` arm confirms the later comparison uses the required
       unsigned conversion; GCC C++20 agrees, and `test-cxx-constexpr` passes
       for i686 and AMD64 with native x64 execution.
+
+## RCC continuation (2026-10-19, unsigned constexpr call folding)
+
+- [x] Prefer the typed scalar constexpr evaluator when folding integral
+      `constexpr` function calls, retaining the older integer evaluator only
+      as a fallback when the typed evaluator cannot handle the body. This
+      prevents unsigned 64-bit arguments from being compared as signed values.
+- [x] Add GCC-checked regressions for `UINT64_MAX < 1ULL` and
+      `UINT64_MAX > INT64_MAX`; the calls are folded into `constexpr` variables
+      and checked by `static_assert`. `test-cxx-constexpr`,
+      `test-cxx-non-type-templates`, `test-cxx-function-templates`, and
+      `test-cxx-function-template-overloads` pass on native Windows. Broader
+      unsigned constant-expression contexts and structural pointer NTTPs
+      remain open.

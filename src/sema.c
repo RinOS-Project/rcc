@@ -16325,24 +16325,25 @@ static Type* sema_expr(Expr* expr) {
             if (call_declaration && call_declaration->func_is_constexpr) {
                 bool constexpr_folded = false;
                 if (sema_constexpr_integer_type(expr->type)) {
-                    int64_t constexpr_value;
-                    if (sema_eval_constexpr_function(call_declaration,
-                                                      expr->call_args,
-                                                      &constexpr_value)) {
+                    SemaConstexprScalar scalar_value;
+                    if (sema_eval_constexpr_scalar_function(
+                            call_declaration, expr->call_args,
+                            NULL, 0, &scalar_value) &&
+                        !scalar_value.is_floating &&
+                        !scalar_value.is_pointer) {
                         expr->kind = EXPR_INT_LIT;
-                        expr->int_val = constexpr_value;
+                        expr->int_val = scalar_value.integer_value;
                         expr->is_cxx_nullptr = false;
                         expr->cxx_move_assignment = NULL;
                         expr->cxx_close_call = NULL;
                         constexpr_folded = true;
                     } else {
-                        SemaConstexprScalar scalar_value;
-                        if (sema_eval_constexpr_scalar_function(
+                        int64_t constexpr_value;
+                        if (sema_eval_constexpr_function(
                                 call_declaration, expr->call_args,
-                                NULL, 0, &scalar_value) &&
-                            !scalar_value.is_floating) {
+                                &constexpr_value)) {
                             expr->kind = EXPR_INT_LIT;
-                            expr->int_val = scalar_value.integer_value;
+                            expr->int_val = constexpr_value;
                             expr->is_cxx_nullptr = false;
                             expr->cxx_move_assignment = NULL;
                             expr->cxx_close_call = NULL;
