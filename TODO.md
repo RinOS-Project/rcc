@@ -7223,8 +7223,10 @@ remains a separate open item.
       fallback on i686/AMD64 at `-O0`/`-O2` and executes both AMD64 objects.
       Implementation/test commit: `2a7fb2e` (extends the earlier constructor
       prvalue coverage in `d14b5d0`).
-- [ ] Converted or subobject reference bindings, static/TLS lifetime, and
-      other full-expression cleanup forms remain open.
+- [x] Automatic references bound to direct and nested members of a class
+      temporary now keep the complete object alive and project the bound
+      subobject address. Converted reference bindings, static/TLS lifetime,
+      and other full-expression cleanup forms remain open.
 
 ## RCC continuation (2026-10-20, conditional local reference temporaries)
 
@@ -7237,9 +7239,29 @@ remains a separate open item.
       plus normal local-reference scope exit and a throwing initializer.
       `test-verified-cxx-throwing-temporary` emits all twenty functions with
       zero fallback for i686/AMD64 at `-O0` and `-O2`; emitted AMD64 runtime
-      checks verify `533`, `534`, `535`, `55`, `560`, `66`, `59031`, `58231`,
-      and `2231`.
+      checks verify `533`, `534`, `535`, `65`, `5303`, `560`, `66`, `59031`,
+      `58231`, and `2231`.
       Implementation/test commits: `a52eac6`, `319cc2d`, `d14b5d0`,
       `2a7fb2e`.
-- [ ] Other conditional arm forms, converted/subobject bindings, static/TLS
+- [ ] Other conditional arm forms, converted reference bindings, static/TLS
       lifetime, and other full-expression cleanup remain open.
+
+## RCC continuation (2026-10-20, automatic temporary subobject references)
+
+- [x] Extend automatic lifetime for direct and nested member-subobject
+      references into class temporaries. Store and destroy the complete
+      temporary, while initializing the reference with the address of its
+      selected member; preserve normal scope-exit and exception-unwind cleanup.
+- [x] Verify `test-verified-cxx-throwing-temporary`: all twenty functions emit
+      with zero verified-backend fallback on i686/AMD64 at `-O0`/`-O2`; AMD64
+      generated-object and legacy-host runs verify early-unwind result `5303`
+      and nested-member scope-exit result `65`. Static-subobject reference
+      regression targets also pass.
+- [x] Run the C++ regression targets through exception cleanup, dynamic casts,
+      bit-fields, and global constructors. Verified cleanup emits twelve
+      functions with zero fallback on both architectures; the expected count
+      was updated to reflect the earlier partial-member-unwind implementation.
+      Implementation/test commit: `c604935`.
+- [ ] Converted references, static/TLS local lifetime extension, additional
+      conditional/subobject expression forms, and remaining full-expression
+      cleanup paths remain open.
