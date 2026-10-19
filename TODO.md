@@ -1403,7 +1403,7 @@
       scope退出でsaved stack pointerを復元する。normal scope exitと
       `for`/`while`/`do`のbreak/continueも検証済み。C++では検証済みnoexcept
       cleanupを伴うscope退出gotoも対応済み。追加runtime-bound次元などのVLA形式と
-      throwing/partial-construction cleanupは引き続きsubset外。
+      ここで未実装のthrowing/partial-construction cleanup形式は引き続きsubset外。
 - [ ] aggregate/vector/exceptionを含む全frontendのtyped SSA lowering
   - [x] `switch`の`case`ラベルを`while`/`do`/`for`本体内から収集し、通常のswitch
         dispatchとloop backedgeを保ったverified SSA CFGへlowerする。i686/AMD64
@@ -1493,7 +1493,9 @@
         `test-verified-cxx-automatic-array-cleanup`, included by
         `test-verified-backend` and the production CI gate.
   - [ ] Throwing argument/initializer evaluation before a cleanup owner is
-        fully constructed, constructor-driven partial construction and unwind,
+        fully constructed, constructor-driven partial construction/unwind
+        outside the verified direct class-member path for automatic
+        reference-bound prvalues,
         potentially throwing cleanup callbacks, VLA forms outside the currently
         verified subset (and VLA interaction with throwing cleanup), and other
         unvalidated automatic cleanup-plan shapes remain outside this subset.
@@ -6957,9 +6959,10 @@ remains a separate open item.
       and non-zero secondary-base offset handling. `test-verified-cxx-reference-local`
       passes i686/AMD64 `-O0`/`-O2` with 12 emitted functions, zero fallback,
       verified-object execution, and ordinary backend checks.
-- [ ] Virtual/inherited bases, potentially-throwing base constructors and
-      partial-construction unwind, general constructor bodies, and
-      full-expression cleanup outside call arguments remain open. Trivial
+- [ ] Virtual/inherited bases, potentially-throwing base constructors,
+      partial-construction unwind outside the verified direct class-member
+      path for automatic reference-bound prvalues, general constructor bodies,
+      and full-expression cleanup outside call arguments remain open. Trivial
       non-virtual base/member copy construction is tracked in the copy section
       below.
 
@@ -7196,7 +7199,7 @@ remains a separate open item.
       converted subobject bindings remain outside this path.
 - [x] Add a regression where evaluation of a later call argument throws after
       the reference-bound temporary is initialized. `test-verified-cxx-throwing-temporary`
-      emits all fourteen functions with zero fallback for i686/AMD64 at `-O0`
+      emits all twenty functions with zero fallback for i686/AMD64 at `-O0`
       and `-O2`. It executes the emitted AMD64 objects at both levels and
       checks direct and nested-conditional exception unwinding, normal cleanup,
       initializer-throw behavior, and constructor-prvalue lifetime; i686
@@ -7207,15 +7210,21 @@ remains a separate open item.
       initialization is destroyed at scope exit (`66`). Both target
       architectures emit at `-O0` and `-O2` with zero fallback; the AMD64
       objects execute successfully at both optimization levels.
-- [x] Bind the prvalue from a user-defined constructor to a local reference.
-      A constructor-body throw after scalar-member initialization yields catch
-      result `5800` without destroying an incomplete object; successful
-      construction yields `707` after one scope-exit destructor. The focused
-      target verifies zero fallback on i686/AMD64 at `-O0`/`-O2` and executes
-      both AMD64 objects. Implementation/test commit: `d14b5d0`.
-- [ ] Throwing constructors with partially completed subobjects, converted or
-      subobject reference bindings, static/TLS lifetime, and other
-      full-expression cleanup forms remain open.
+- [x] Unwind successfully constructed class members when a later member
+      constructor or the enclosing constructor body throws. Register each
+      completed direct member after its constructor returns, then unwind in
+      reverse completion order; unregister callbacks on explicit and implicit
+      normal constructor returns. Nested `second.inner` coverage verifies a
+      later member-constructor throw destroys only `inner` and the earlier
+      `first` member (`59031`), an enclosing-body throw destroys
+      `second.inner` then `first` (`58231`), and successful construction runs
+      exactly one reverse-order cleanup (`2231`) on both explicit and implicit
+      return paths. The focused target emits twenty functions with zero
+      fallback on i686/AMD64 at `-O0`/`-O2` and executes both AMD64 objects.
+      Implementation/test commit: `2a7fb2e` (extends the earlier constructor
+      prvalue coverage in `d14b5d0`).
+- [ ] Converted or subobject reference bindings, static/TLS lifetime, and
+      other full-expression cleanup forms remain open.
 
 ## RCC continuation (2026-10-20, conditional local reference temporaries)
 
@@ -7226,10 +7235,11 @@ remains a separate open item.
       preserve the existing call-argument path.
 - [x] Cover direct and nested conditional arms when a later argument throws,
       plus normal local-reference scope exit and a throwing initializer.
-      `test-verified-cxx-throwing-temporary` emits all fourteen functions with
+      `test-verified-cxx-throwing-temporary` emits all twenty functions with
       zero fallback for i686/AMD64 at `-O0` and `-O2`; emitted AMD64 runtime
-      checks verify `533`, `534`, `535`, `55`, `560`, `66`, `5800`, and `707`.
-      Implementation/test commits: `a52eac6`, `319cc2d`, `d14b5d0`.
-- [ ] Other conditional arm forms, throwing constructors with partially
-      completed subobjects, converted/subobject bindings, static/TLS lifetime,
-      and other full-expression cleanup remain open.
+      checks verify `533`, `534`, `535`, `55`, `560`, `66`, `59031`, `58231`,
+      and `2231`.
+      Implementation/test commits: `a52eac6`, `319cc2d`, `d14b5d0`,
+      `2a7fb2e`.
+- [ ] Other conditional arm forms, converted/subobject bindings, static/TLS
+      lifetime, and other full-expression cleanup remain open.
