@@ -9819,6 +9819,8 @@ static Decl* sema_cxx_destructor_function(Type* object_type);
 static bool sema_cxx_type_has_destructor_cleanup(Type* object_type,
                                                  int depth);
 
+static bool sema_noexcept_expr(Expr* expression);
+
 static bool sema_cxx_default_member_constant(Type* field_type,
                                              Expr* initializer) {
     SemaConstexprScalar value;
@@ -9849,12 +9851,13 @@ static bool sema_cxx_default_member_constant(Type* field_type,
         return false;
     }
     if (!sema_expr(initializer) ||
-        cxx_conversion_rank(initializer, field_type) < 0 ||
-        !sema_eval_constexpr_scalar_expr(initializer, NULL, 0, &value) ||
-        !sema_constexpr_scalar_convert(&value, field_type, &value)) {
+        cxx_conversion_rank(initializer, field_type) < 0) {
         return false;
     }
-    return true;
+    if (!sema_eval_constexpr_scalar_expr(initializer, NULL, 0, &value)) {
+        return sema_noexcept_expr(initializer);
+    }
+    return sema_constexpr_scalar_convert(&value, field_type, &value);
 }
 
 static bool sema_cxx_default_member_initializer_supported(
@@ -9981,7 +9984,7 @@ static bool sema_cxx_validate_default_member_initializers(
         !sema_cxx_validate_default_member_subobjects(
             object_type, loc, 0)) {
         rcc_error(loc,
-                  "new requires constant default member initializers with supported subobjects");
+                  "new requires non-throwing default member initializers with supported subobjects");
         return false;
     }
     return true;

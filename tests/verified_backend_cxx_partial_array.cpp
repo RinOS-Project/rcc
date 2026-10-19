@@ -36,7 +36,7 @@ public:
     const VerifiedPartialArrayInput* input_;
 };
 
-extern "C" int verified_partial_array_next_ctor();
+extern "C" int verified_partial_array_next_ctor() noexcept;
 extern "C" void verified_partial_array_record_destructor(int value);
 
 static int verified_partial_array_throwing_default_argument() {
@@ -157,6 +157,28 @@ public:
     ~VerifiedImplicitVirtualDmiArrayElement() noexcept {
         verified_partial_array_record_destructor(
             nested_.nested_value_ + base_value_ + value_);
+    }
+};
+
+class VerifiedNestedVirtualDmiRoot {
+public:
+    int root_value_ = verified_partial_array_next_ctor();
+};
+
+class VerifiedNestedVirtualDmiMiddle
+    : public virtual VerifiedNestedVirtualDmiRoot {
+public:
+    int middle_value_ = 5;
+};
+
+class VerifiedNestedVirtualDmiArrayElement final
+    : public virtual VerifiedNestedVirtualDmiMiddle {
+public:
+    int leaf_value_ = 3;
+
+    ~VerifiedNestedVirtualDmiArrayElement() noexcept {
+        verified_partial_array_record_destructor(
+            root_value_ + middle_value_ + leaf_value_);
     }
 };
 
@@ -418,6 +440,28 @@ verified_cxx_partial_array_implicit_virtual_dmi_fixed() {
         new VerifiedImplicitVirtualDmiArrayElement[1];
     delete[] values;
     return 0;
+}
+
+extern "C" int verified_cxx_partial_array_nested_virtual_dmi(int count) {
+    VerifiedNestedVirtualDmiArrayElement* values =
+        new VerifiedNestedVirtualDmiArrayElement[count];
+    int total = 0;
+    for (int index = 0; index < count; ++index) {
+        total += values[index].root_value_ + values[index].middle_value_ +
+            values[index].leaf_value_;
+    }
+    delete[] values;
+    return total;
+}
+
+extern "C" int
+verified_cxx_partial_array_nested_virtual_dmi_fixed() {
+    VerifiedNestedVirtualDmiArrayElement* values =
+        new VerifiedNestedVirtualDmiArrayElement[1];
+    int total = values[0].root_value_ + values[0].middle_value_ +
+        values[0].leaf_value_;
+    delete[] values;
+    return total;
 }
 
 extern "C" int verified_cxx_partial_array_implicit_array_dmi(int count) {

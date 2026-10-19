@@ -6591,3 +6591,20 @@ remains a separate open item.
       `test-cxx` gates pass (exit 0).
 - [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
       and full C++20 overload-resolution conformance remain open.
+
+## RCC continuation (2026-10-19, nested virtual-base class-array initialization)
+
+- [x] Lower implicit default-member initialization for dynamic and fixed-bound
+      class arrays whose virtual-base closure contains nested virtual bases.
+      Resolve inherited virtual-base members through the vbtable, use each
+      base subobject's non-virtual extent for layout checks, and initialize
+      flattened inherited fields only through their owning subobject. Permit
+      non-throwing scalar DMI expressions and verify side effects happen once.
+- [x] Destroy nested virtual-base closures in reverse closure order without
+      recursively destroying a shared virtual base twice. The focused
+      `test-verified-cxx-partial-array-init` gate emits i686/AMD64 objects with
+      zero typed-SSA fallback and executes dynamic/fixed cases on x64, checking
+      DMI call counts, destructor results, and one allocation free per array.
+- [ ] Explicit/non-trivial intermediate virtual-base destructor graphs,
+      user-defined subobject constructors beyond the validated subset, and
+      throwing DMI construction/unwind remain open.

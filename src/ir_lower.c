@@ -2139,6 +2139,26 @@ static RccIrLowerValue lower_lvalue_address_impl(
             context->unsupported = true;
             return lower_invalid_value();
         }
+        if (expression->cxx_virtual_base_member_access) {
+            const CxxClass* source_class =
+                expression->cxx_virtual_base_source_class;
+            if (!source_class ||
+                expression->cxx_virtual_base_pointer_offset < 0 ||
+                expression->cxx_virtual_base_index < 0 ||
+                expression->cxx_virtual_base_index >=
+                    source_class->virtual_base_count) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            /* Flattened inherited fields carry their complete-object offset
+             * for layout and lookup.  Once the vbtable resolves the actual
+             * virtual-base subobject, use only its in-base member offset. */
+            return lower_virtual_base_member_pointer_object(
+                context, base,
+                expression->cxx_virtual_base_pointer_offset,
+                expression->cxx_virtual_base_index,
+                expression->cxx_virtual_base_nested_adjustment);
+        }
         return lower_byte_offset_address(
             context, base, (uint64_t)field->offset);
     }
@@ -13993,7 +14013,7 @@ static bool lower_cxx_destructor_subobjects_leaf(const CxxClass* cls) {
 
 static bool lower_cxx_destructor_subobjects_supported_impl(
     const CxxClass* cls, unsigned depth,
-    bool allow_throwing_root_destructor) {
+    bool allow_throwing_root_destructor, bool include_virtual_bases) {
     const TypeParam* field;
     if (!cls || !cls->type || depth >= 64u ||
         (cls->virtual_base_count != 0 && !cls->virtual_bases) ||
@@ -14014,6 +14034,14 @@ static bool lower_cxx_destructor_subobjects_supported_impl(
             destructor->type->ret_type->kind != TYPE_VOID) {
             return false;
         }
+        /* RCC currently emits one destructor entry point per class.  A
+         * user-defined destructor for a virtual-base class cannot serve as
+         * both the complete-object and base-subobject variant: its generated
+         * epilogue would destroy virtual bases in either context. */
+        if (!include_virtual_bases && cls->virtual_base_count != 0 &&
+            !cls->destructor_method->is_defaulted) {
+            return false;
+        }
     }
     for (int index = 0; index < cls->base_count; ++index) {
         const CxxClass* base = cls->bases[index].base;
@@ -14023,29 +14051,38 @@ static bool lower_cxx_destructor_subobjects_supported_impl(
         if (cls->bases[index].is_virtual) continue;
         if (!lower_cxx_destructor_subobjects_supported_impl(
                 base, depth + 1u,
-                lower_cxx_destructor_subobjects_leaf(base))) return false;
+                lower_cxx_destructor_subobjects_leaf(base), false)) {
+            return false;
+        }
     }
-    for (int index = 0; index < cls->virtual_base_count; ++index) {
+    for (int index = 0;
+         include_virtual_bases && index < cls->virtual_base_count; ++index) {
         const CxxClass* base = cls->virtual_bases[index].base;
-        /* The virtual base's non-virtual subobject tree is destroyed by its
-         * subobject destructor. Nested virtual-base closures are excluded:
-         * their lifetime belongs to the most-derived object's closure. */
-        if (!base || !base->type || base->type->size <= 0 ||
+        int base_subobject_size = base && base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
+        bool base_supported = base &&
+            lower_cxx_destructor_subobjects_supported_impl(
+                base, depth + 1u,
+                lower_cxx_destructor_subobjects_leaf(base), false);
+        /* The most-derived object's closure owns every virtual base.  Check
+         * each entry as a base subobject so nested closures are validated by
+         * their own entries rather than recursively counted twice. */
+        if (!base || !base->type || base_subobject_size <= 0 ||
             cls->virtual_bases[index].offset < 0 ||
             cls->virtual_bases[index].offset > cls->type->size ||
-            base->type->size > cls->type->size -
+            base_subobject_size > cls->type->size -
                 cls->virtual_bases[index].offset ||
-            base->virtual_base_count != 0 ||
-            !lower_cxx_destructor_subobjects_supported_impl(
-                base, depth + 1u,
-                lower_cxx_destructor_subobjects_leaf(base))) {
+            !base_supported) {
             return false;
         }
     }
     for (field = cls->fields; field; field = field->next) {
         const Type* type = field->type;
         if (field->is_static || !type) continue;
-        if (!lower_cxx_destructor_cleanup_hook_supported(type)) return false;
+        if (!lower_cxx_destructor_cleanup_hook_supported(type)) {
+            return false;
+        }
         if (type->kind == TYPE_ARRAY) {
             const Type* element_type = lower_cxx_class_array_element(type);
             if (element_type) {
@@ -14055,7 +14092,7 @@ static bool lower_cxx_destructor_subobjects_supported_impl(
                     !lower_cxx_destructor_subobjects_supported_impl(
                         element_type->cxx_class, depth + 1u,
                         lower_cxx_destructor_subobjects_leaf(
-                            element_type->cxx_class))) {
+                            element_type->cxx_class), true)) {
                     return false;
                 }
             }
@@ -14064,7 +14101,8 @@ static bool lower_cxx_destructor_subobjects_supported_impl(
         if (type->cxx_class &&
             !lower_cxx_destructor_subobjects_supported_impl(
                 type->cxx_class, depth + 1u,
-                lower_cxx_destructor_subobjects_leaf(type->cxx_class))) {
+                lower_cxx_destructor_subobjects_leaf(type->cxx_class),
+                true)) {
             return false;
         }
     }
@@ -14074,7 +14112,7 @@ static bool lower_cxx_destructor_subobjects_supported_impl(
 static bool lower_cxx_destructor_subobjects_supported(
     const CxxClass* cls, unsigned depth) {
     return lower_cxx_destructor_subobjects_supported_impl(
-        cls, depth, false);
+        cls, depth, false, true);
 }
 
 static bool lower_cxx_emit_destructor_call(
@@ -14110,7 +14148,7 @@ static bool lower_cxx_emit_complete_destructor(
     RccIrLowerValue object, unsigned depth);
 static bool lower_cxx_emit_delete_subobject_destructor(
     RccIrLowerContext* context, const Type* type,
-    RccIrLowerValue object, unsigned depth);
+    RccIrLowerValue object, unsigned depth, bool include_virtual_bases);
 static bool lower_cxx_delete_subobject_cleanup_change(
     RccIrLowerContext* context, const Type* type,
     RccIrLowerValue object, bool register_cleanup, unsigned depth);
@@ -14223,14 +14261,15 @@ static bool lower_cxx_emit_class_array_destructors(
 static bool lower_cxx_emit_destructor_subobjects_impl(
     RccIrLowerContext* context, const CxxClass* cls,
     RccIrLowerValue object, unsigned depth,
-    bool allow_throwing_root_destructor) {
+    bool allow_throwing_root_destructor, bool include_virtual_bases) {
     const TypeParam** fields = NULL;
     size_t field_count = 0u;
     size_t field_index = 0u;
     if (!context || !cls || !object.valid ||
         object.type.kind != RCC_IR_TYPE_POINTER || depth >= 64u ||
         !lower_cxx_destructor_subobjects_supported_impl(
-            cls, depth, allow_throwing_root_destructor)) {
+            cls, depth, allow_throwing_root_destructor,
+            include_virtual_bases)) {
         if (context) context->unsupported = true;
         return false;
     }
@@ -14277,7 +14316,7 @@ static bool lower_cxx_emit_destructor_subobjects_impl(
                 ? !lower_cxx_emit_class_array_destructors(
                     context, field->type, element_type, address, depth + 1u)
                 : !lower_cxx_emit_delete_subobject_destructor(
-                    context, field->type, address, depth + 1u))) {
+                    context, field->type, address, depth + 1u, true))) {
             rcc_free(fields);
             return false;
         }
@@ -14298,15 +14337,16 @@ static bool lower_cxx_emit_destructor_subobjects_impl(
              !lower_cxx_delete_subobject_cleanup_change(
                  context, base->type, address, false, depth + 1u)) ||
             !lower_cxx_emit_delete_subobject_destructor(
-                context, base->type, address, depth + 1u)) {
+                context, base->type, address, depth + 1u, false)) {
             return false;
         }
     }
-    for (int index = cls->virtual_base_count - 1; index >= 0; --index) {
+    for (int index = include_virtual_bases
+            ? cls->virtual_base_count - 1 : -1;
+         index >= 0; --index) {
         const CxxClass* base = cls->virtual_bases[index].base;
         RccIrLowerValue address;
-        if (!base || cls->virtual_bases[index].offset < 0 ||
-            base->virtual_base_count != 0) {
+        if (!base || cls->virtual_bases[index].offset < 0) {
             context->unsupported = true;
             return false;
         }
@@ -14314,7 +14354,7 @@ static bool lower_cxx_emit_destructor_subobjects_impl(
             context, object, (uint64_t)cls->virtual_bases[index].offset);
         if (!address.valid ||
             !lower_cxx_emit_delete_subobject_destructor(
-                context, base->type, address, depth + 1u)) {
+                context, base->type, address, depth + 1u, false)) {
             return false;
         }
     }
@@ -14325,7 +14365,7 @@ static bool lower_cxx_emit_destructor_subobjects(
     RccIrLowerContext* context, const CxxClass* cls,
     RccIrLowerValue object, unsigned depth) {
     return lower_cxx_emit_destructor_subobjects_impl(
-        context, cls, object, depth, false);
+        context, cls, object, depth, false, true);
 }
 
 static bool lower_cxx_emit_complete_destructor(
@@ -14348,17 +14388,29 @@ static bool lower_cxx_emit_complete_destructor(
 
 static bool lower_cxx_emit_delete_subobject_destructor(
     RccIrLowerContext* context, const Type* type,
-    RccIrLowerValue object, unsigned depth) {
+    RccIrLowerValue object, unsigned depth, bool include_virtual_bases) {
     const CxxClass* cls = type ? type->cxx_class : NULL;
     const Decl* destructor = cls && cls->destructor_method
         ? cls->destructor_method->decl : NULL;
+    bool defaulted_destructor = cls && cls->destructor_method &&
+        cls->destructor_method->is_defaulted;
     if (cls && destructor && destructor->func_body &&
         lower_cxx_destructor_subobjects_leaf(cls) &&
         !destructor->func_is_noexcept) {
         return lower_cxx_emit_destructor_call(context, destructor, object);
     }
-    return lower_cxx_emit_complete_destructor(
-        context, type, object, depth);
+    if (destructor && !include_virtual_bases && cls &&
+        cls->virtual_base_count != 0 && !defaulted_destructor) {
+        context->unsupported = true;
+        return false;
+    }
+    if (destructor && destructor->func_body &&
+        (include_virtual_bases || !defaulted_destructor ||
+         cls->virtual_base_count == 0)) {
+        return lower_cxx_emit_destructor_call(context, destructor, object);
+    }
+    return cls && lower_cxx_emit_destructor_subobjects_impl(
+        context, cls, object, depth, false, include_virtual_bases);
 }
 
 static bool lower_cxx_initialize_constructor_members(
@@ -14542,7 +14594,7 @@ static bool lower_cxx_delete_subobject_cleanup_change(
     }
     if (!cls || depth >= 64u ||
         !lower_cxx_destructor_subobjects_supported_impl(
-            cls, depth, lower_cxx_destructor_subobjects_leaf(cls)) ||
+            cls, depth, lower_cxx_destructor_subobjects_leaf(cls), true) ||
         !destructor || !destructor->func_body ||
         !destructor->func_is_cxx_destructor || !destructor->link_name ||
         !destructor->func_this_param || destructor->func_params ||
@@ -14566,7 +14618,7 @@ static bool lower_cxx_delete_subobject_cleanups_change(
     if (!context || !cls || !object.valid ||
         object.type.kind != RCC_IR_TYPE_POINTER || depth >= 64u ||
         !lower_cxx_destructor_subobjects_supported_impl(
-            cls, depth, true)) {
+            cls, depth, true, true)) {
         if (context) context->unsupported = true;
         return false;
     }
@@ -14758,7 +14810,8 @@ static RccIrLowerValue lower_cxx_delete_array_expression(
         destructor->type->kind != TYPE_FUNC ||
         !destructor->type->ret_type ||
         destructor->type->ret_type->kind != TYPE_VOID ||
-        !lower_cxx_destructor_subobjects_supported_impl(cls, 0u, true)) {
+        !lower_cxx_destructor_subobjects_supported_impl(
+            cls, 0u, true, true)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -14942,7 +14995,7 @@ static RccIrLowerValue lower_cxx_delete_array_expression(
     if (!lower_cxx_emit_destructor_call(
             context, destructor, element) ||
         !lower_cxx_emit_destructor_subobjects_impl(
-            context, cls, element, 0u, true)) {
+            context, cls, element, 0u, true, true)) {
         return lower_invalid_value();
     }
     if (!lower_store_address(
@@ -15057,8 +15110,7 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
     }
     if ((type->cxx_nontrivial &&
          (!cls || !cls->has_field_initializer)) ||
-        (cls && (cls->constructors || cls->virtual_base_count != 0 ||
-                 cls->vtable_size != 0 ||
+        (cls && (cls->constructors || cls->vtable_size != 0 ||
                  cls->secondary_vtable_count != 0 ||
                  cls->destructor_method))) {
         return false;
@@ -15075,10 +15127,15 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
             const CxxClass* base = cls->bases[index].base;
             bool nested_initializer = false;
             int offset = cls->base_offsets[index];
+            int base_subobject_size = base &&
+                    cls->bases[index].is_virtual &&
+                    base->virtual_base_count > 0
+                ? base->nonvirtual_size
+                : base && base->type ? base->type->size : 0;
             if (!base || offset < 0 ||
-                !base->type || base->type->size <= 0 ||
+                !base->type || base_subobject_size <= 0 ||
                 offset > type->size ||
-                base->type->size > type->size - offset ||
+                base_subobject_size > type->size - offset ||
                 !lower_cxx_implicit_default_member_subobject_supported(
                     base->type, depth + 1u, &nested_initializer)) {
                 return false;
@@ -15091,11 +15148,16 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
             const CxxVirtualBaseInfo* virtual_base =
                 &cls->virtual_bases[index];
             bool nested_initializer = false;
+            int base_subobject_size = virtual_base->base &&
+                    virtual_base->base->virtual_base_count > 0
+                ? virtual_base->base->nonvirtual_size
+                : virtual_base->base && virtual_base->base->type
+                    ? virtual_base->base->type->size : 0;
             if (!virtual_base->base || virtual_base->offset < 0 ||
                 !virtual_base->base->type ||
                 virtual_base->offset > type->size ||
-                virtual_base->base->type->size <= 0 ||
-                virtual_base->base->type->size >
+                base_subobject_size <= 0 ||
+                base_subobject_size >
                     type->size - virtual_base->offset ||
                 !lower_cxx_implicit_default_member_subobject_supported(
                     virtual_base->base->type, depth + 1u,
@@ -15169,9 +15231,14 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
         const CxxClass* base = cls->bases[index].base;
         bool nested_initializer = false;
         int offset = cls->base_offsets[index];
+        int base_subobject_size = base && cls->bases[index].is_virtual &&
+                base->virtual_base_count > 0
+            ? base->nonvirtual_size
+            : base && base->type ? base->type->size : 0;
         if (!base || offset < 0 ||
-            !base->type || base->type->size <= 0 ||
-            offset > type->size || base->type->size > type->size - offset ||
+            !base->type || base_subobject_size <= 0 ||
+            offset > type->size ||
+            base_subobject_size > type->size - offset ||
             !lower_cxx_implicit_default_member_subobject_supported(
                 base->type, 0u, &nested_initializer)) {
             return false;
@@ -15181,14 +15248,21 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
     for (int index = 0; index < cls->virtual_base_count; ++index) {
         const CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[index];
         bool nested_initializer = false;
+        int base_subobject_size = virtual_base->base &&
+                virtual_base->base->virtual_base_count > 0
+            ? virtual_base->base->nonvirtual_size
+            : virtual_base->base && virtual_base->base->type
+                ? virtual_base->base->type->size : 0;
+        bool base_supported = virtual_base->base &&
+            lower_cxx_implicit_default_member_subobject_supported(
+                virtual_base->base->type, 0u, &nested_initializer);
         if (!virtual_base->base || virtual_base->offset < 0 ||
             !virtual_base->base->type ||
             virtual_base->offset > type->size ||
-            virtual_base->base->type->size <= 0 ||
-            virtual_base->base->type->size >
+            base_subobject_size <= 0 ||
+            base_subobject_size >
                 type->size - virtual_base->offset ||
-            !lower_cxx_implicit_default_member_subobject_supported(
-                virtual_base->base->type, 0u, &nested_initializer)) {
+            !base_supported) {
             return false;
         }
         if (nested_initializer) has_initializer = true;
@@ -15276,11 +15350,16 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
                     const CxxVirtualBaseInfo* virtual_base =
                         &cls->virtual_bases[index];
                     RccIrLowerValue address;
+                    int base_subobject_size = virtual_base->base &&
+                            virtual_base->base->virtual_base_count > 0
+                        ? virtual_base->base->nonvirtual_size
+                        : virtual_base->base && virtual_base->base->type
+                            ? virtual_base->base->type->size : 0;
                     if (!virtual_base->base || virtual_base->offset < 0 ||
                         !virtual_base->base->type ||
-                        virtual_base->base->type->size <= 0 ||
+                        base_subobject_size <= 0 ||
                         virtual_base->offset > type->size ||
-                        virtual_base->base->type->size >
+                        base_subobject_size >
                             type->size - virtual_base->offset) {
                         context->unsupported = true;
                         return false;
@@ -15321,6 +15400,14 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
         }
         for (const TypeField* field = type->fields; field;
              field = field->next) {
+            /* Base fields are also visible in the flattened TypeField list
+             * used for lookup.  Their owning base subobject was initialized
+             * above; evaluating its initializer again at the flattened
+             * complete-object offset would duplicate observable side effects. */
+            if (type->cxx_class && field->cxx_declaring_class &&
+                field->cxx_declaring_class != type->cxx_class) {
+                continue;
+            }
             RccIrLowerValue address = lower_byte_offset_address(
                 context, base, (uint64_t)field->offset);
             if (!address.valid) return false;
@@ -15453,7 +15540,7 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         !destructor->type->ret_type ||
         destructor->type->ret_type->kind != TYPE_VOID ||
         !lower_cxx_destructor_subobjects_supported_impl(
-            cls, 0u, true)) {
+            cls, 0u, true, true)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -16058,7 +16145,7 @@ static RccIrLowerValue lower_cxx_delete_expression(
         handle_subobjects = !complete_destruction;
         if (handle_subobjects &&
             !lower_cxx_destructor_subobjects_supported_impl(
-                cls, 0u, true)) {
+                cls, 0u, true, true)) {
             context->unsupported = true;
             return lower_invalid_value();
         }
@@ -16078,7 +16165,7 @@ static RccIrLowerValue lower_cxx_delete_expression(
         }
         if (handle_subobjects) {
             if (!lower_cxx_emit_destructor_subobjects_impl(
-                    context, cls, object, 0u, true)) {
+                    context, cls, object, 0u, true, true)) {
                 return lower_invalid_value();
             }
         }
