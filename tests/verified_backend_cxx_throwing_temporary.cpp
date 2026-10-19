@@ -18,6 +18,10 @@ int consume_verified_throwing_temporary(
     return value.cleanup_id;
 }
 
+int throw_verified_temporary_argument() {
+    throw 53;
+}
+
 extern "C" int verified_cxx_throwing_temporary_cleanup(int should_throw) {
     int cleanup_order = 0;
     int result = 0;
@@ -25,6 +29,20 @@ extern "C" int verified_cxx_throwing_temporary_cleanup(int should_throw) {
         result = consume_verified_throwing_temporary(
             make_verified_throwing_temporary(&cleanup_order, 2),
             should_throw);
+    } catch (int value) {
+        result = value;
+    }
+    return result * 10 + cleanup_order;
+}
+
+extern "C" int verified_cxx_throwing_argument_cleanup() {
+    int cleanup_order = 0;
+    int result = 0;
+    try {
+        const VerifiedThrowingTemporary& value =
+            make_verified_throwing_temporary(&cleanup_order, 3);
+        result = consume_verified_throwing_temporary(
+            value, throw_verified_temporary_argument());
     } catch (int value) {
         result = value;
     }

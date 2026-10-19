@@ -7810,19 +7810,47 @@ static bool lower_unregister_partial_member_cleanups(
 static bool lower_scope_cleanup_declaration_supported(
     const Decl* declaration) {
     const Decl* array_indices[32];
+    const Decl* cleanup_owner = declaration;
+    bool reference_temporary = declaration && declaration->type &&
+        declaration->type->kind == TYPE_PTR &&
+        declaration->type->is_reference &&
+        declaration->var_reference_temporary_owner &&
+        declaration->var_reference_temporary_owner->type &&
+        declaration->var_reference_temporary_owner->type->kind ==
+            TYPE_STRUCT &&
+        declaration->type->base &&
+        type_is_compatible(
+            declaration->type->base,
+            declaration->var_reference_temporary_owner->type) &&
+        type_is_compatible(
+            declaration->var_reference_temporary_owner->type,
+            declaration->type->base) &&
+        !declaration->var_is_global &&
+        !declaration->var_is_static_local &&
+        !declaration->var_is_thread_local &&
+        !declaration->var_is_block_extern &&
+        !declaration->var_reference_temporary_source &&
+        declaration->var_init;
     if (!declaration || declaration->kind != DECL_VAR ||
         declaration->var_cleanup || !declaration->var_cleanups ||
         !declaration->type || !declaration->var_init ||
         declaration->var_is_global || declaration->var_is_static_local ||
         declaration->var_is_thread_local ||
         (declaration->type->kind != TYPE_STRUCT &&
-         declaration->type->kind != TYPE_ARRAY) ||
-        !lower_storage_type_supported_internal(declaration->type, 0u) ||
+         declaration->type->kind != TYPE_ARRAY &&
+         !reference_temporary)) {
+        return false;
+    }
+    if (reference_temporary) {
+        cleanup_owner = declaration->var_reference_temporary_owner;
+    }
+    if (!lower_storage_type_supported_internal(cleanup_owner->type, 0u) ||
         !lower_cleanup_initializer_supported(declaration->var_init)) {
         return false;
     }
     if (!lower_temporary_cleanup_plan_list_supported(
-            declaration->var_cleanups, declaration, array_indices, 0u, true)) {
+            declaration->var_cleanups, cleanup_owner,
+            array_indices, 0u, true)) {
         return false;
     }
     return true;
@@ -18409,7 +18437,35 @@ static bool lower_declaration(RccIrLowerContext* context,
                     context, declaration->var_init)) {
                 return false;
             }
-            initializer = lower_lvalue_address(context, declaration->var_init);
+            if (declaration->var_reference_temporary_owner) {
+                const Decl* owner =
+                    declaration->var_reference_temporary_owner;
+                if (declaration->var_reference_temporary_source ||
+                    !declaration->var_init->type || !owner->type ||
+                    declaration->var_init->type->kind != TYPE_STRUCT ||
+                    !type_is_compatible(
+                        declaration->var_init->type, owner->type) ||
+                    !type_is_compatible(
+                        owner->type, declaration->var_init->type)) {
+                    context->unsupported = true;
+                    return false;
+                }
+                /* Materialize the complete prvalue object, keep its address
+                 * in the synthetic owner local used by the cleanup plan, and
+                 * then bind the source reference to that same object. */
+                initializer = lower_expression(
+                    context, declaration->var_init);
+                if (!initializer.valid ||
+                    initializer.type.kind != RCC_IR_TYPE_POINTER ||
+                    !lower_bind_temporary_owner(
+                        context, owner, initializer)) {
+                    context->unsupported = true;
+                    return false;
+                }
+            } else {
+                initializer = lower_lvalue_address(
+                    context, declaration->var_init);
+            }
             if (!initializer.valid || initializer.type.kind !=
                     RCC_IR_TYPE_POINTER ||
                 !lower_store_address(
@@ -18417,7 +18473,9 @@ static bool lower_declaration(RccIrLowerContext* context,
                     lower_value(allocation->result,
                                 rcc_ir_type_pointer(0u), true),
                     initializer)) return false;
-            return true;
+            return !declaration->var_cleanups ||
+                lower_push_scope_cleanup_plan(
+                    context, declaration->var_cleanups);
         }
         initializer = lower_expression(context, declaration->var_init);
         if (!initializer.valid) return false;

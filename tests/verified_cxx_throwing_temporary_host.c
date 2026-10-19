@@ -8,6 +8,7 @@
 
 extern int verified_cxx_throwing_temporary_cleanup(int should_throw)
     RINOS_TEST_ABI;
+extern int verified_cxx_throwing_argument_cleanup(void) RINOS_TEST_ABI;
 extern int rcc_test_main(void) RINOS_TEST_ABI;
 
 int main(void) {
@@ -22,6 +23,13 @@ int main(void) {
         fprintf(stderr, "normal temporary cleanup returned %d, expected 22\n",
                 result);
         return 2;
+    }
+    result = verified_cxx_throwing_argument_cleanup();
+    if (result != 533) {
+        fprintf(stderr,
+                "throwing argument cleanup returned %d, expected 533\n",
+                result);
+        return 3;
     }
     return rcc_test_main();
 }
