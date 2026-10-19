@@ -899,6 +899,8 @@ int main() {
     const void* pointer_void_cv_result = pointer_void_cv_result_source;
     RefQualifiedConversionSource ref_qualified_source;
     const CvRefQualifiedConversionSource const_ref_qualified_source{};
+    const ReferenceConversionResult& direct_reference_category =
+        ReferenceCategoryConversionSource{};
     FunctionReferenceConversionSource function_reference_source;
     FunctionDesignatorToBoolSource function_designator_bool_source;
     FunctionReferenceConversionTarget& lvalue_function =
@@ -1025,6 +1027,7 @@ int main() {
         read_conversion_reference(const_ref_qualified_source) != 59 ||
         read_conversion_reference(CvRefQualifiedConversionSource{}) != 61 ||
         read_conversion_reference(ReferenceCategoryConversionSource{}) != 67 ||
+        direct_reference_category.value != 67 ||
         lvalue_function() != 97 || rvalue_function() != 101 ||
         lvalue_function_from_rvalue() != 101 ||
         rvalue_function_from_lvalue() != 97 ||
