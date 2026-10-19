@@ -6640,3 +6640,11 @@ remains a separate open item.
       `test-cxx-function-template-overloads` pass on native Windows. Broader
       unsigned constant-expression contexts and structural pointer NTTPs
       remain open.
+
+## RCC continuation (2026-10-19, direct unsigned constexpr expressions)
+
+- [x] Add direct C++20 constant-expression regressions for `UINT64_MAX + 1`
+      wrapping to zero, a 63-bit unsigned right shift preserving the top bit,
+      and a conditional expression retaining its unsigned result type. GCC
+      accepts all three `static_assert`s; `make SHELL=cmd.exe
+      test-cxx-constexpr` passes for i686/AMD64 generation and x64 execution.

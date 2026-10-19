@@ -178,6 +178,15 @@ constexpr bool constexpr_ull_max_less_than_one =
     unsigned_less_than_one(18446744073709551615ULL);
 constexpr bool constexpr_ull_max_exceeds_signed_max =
     unsigned_exceeds_signed_max(18446744073709551615ULL);
+constexpr unsigned long long constexpr_ull_wrapped_sum =
+    18446744073709551615ULL + 1ULL;
+constexpr bool constexpr_ull_wrapped_sum_is_zero =
+    constexpr_ull_wrapped_sum == 0ULL;
+constexpr bool constexpr_ull_shift_keeps_top_bit =
+    (18446744073709551615ULL >> 63) == 1ULL;
+constexpr bool constexpr_ull_conditional_preserves_unsigned =
+    (true ? 18446744073709551615ULL : 0ULL) >
+    9223372036854775807ULL;
 
 static_assert(constexpr_dynamic_aggregate == 42);
 static_assert(constexpr_dynamic_aggregate_array == 5);
@@ -185,6 +194,9 @@ static_assert(constexpr_dynamic_template_aggregate == 42);
 static_assert(!constexpr_conditional_unsigned_comparison);
 static_assert(!constexpr_ull_max_less_than_one);
 static_assert(constexpr_ull_max_exceeds_signed_max);
+static_assert(constexpr_ull_wrapped_sum_is_zero);
+static_assert(constexpr_ull_shift_keeps_top_bit);
+static_assert(constexpr_ull_conditional_preserves_unsigned);
 
 int main(void) {
     return constexpr_global == 27 && constexpr_local == 27 &&
@@ -201,6 +213,9 @@ int main(void) {
                    constexpr_dynamic_aggregate == 42 &&
                    constexpr_dynamic_aggregate_array == 5 &&
                    constexpr_dynamic_template_aggregate == 42 &&
+                   constexpr_ull_wrapped_sum_is_zero &&
+                   constexpr_ull_shift_keeps_top_bit &&
+                   constexpr_ull_conditional_preserves_unsigned &&
                    !constexpr_conditional_unsigned_comparison &&
                    !constexpr_ull_max_less_than_one &&
                    constexpr_ull_max_exceeds_signed_max &&
