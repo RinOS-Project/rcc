@@ -145,6 +145,38 @@ static bool debug_inline_capture_converted_integer(
     return true;
 }
 
+static bool debug_inline_capture_float_literal(
+    const ExprList* argument, const Type* parameter_type,
+    ModuleDebugInlineParameterValue* value) {
+    const Type* argument_type;
+    if (!argument || !argument->expr || argument->cxx_temporary_owner ||
+        argument->expr->kind != EXPR_FLOAT_LIT || !parameter_type ||
+        !argument->expr->type || parameter_type->is_volatile ||
+        parameter_type->is_reference || parameter_type->is_atomic) {
+        return false;
+    }
+    argument_type = argument->expr->type;
+    if (parameter_type->kind == TYPE_FLOAT && parameter_type->size == 4 &&
+        argument_type->kind == TYPE_FLOAT && argument_type->size == 4) {
+        float converted = (float)argument->expr->float_val;
+        uint32_t bits;
+        memcpy(&bits, &converted, sizeof(bits));
+        value->float_bits = bits;
+        value->float_size = (uint8_t)sizeof(bits);
+    } else if (parameter_type->kind == TYPE_DOUBLE &&
+               parameter_type->size == 8 &&
+               argument_type->kind == TYPE_DOUBLE &&
+               argument_type->size == 8) {
+        double converted = argument->expr->float_val;
+        memcpy(&value->float_bits, &converted, sizeof(converted));
+        value->float_size = (uint8_t)sizeof(converted);
+    } else {
+        return false;
+    }
+    value->has_float_constant = true;
+    return true;
+}
+
 static void debug_inline_capture_parameter_values(
     ModuleDebugInlineCall* call, const Decl* callee,
     const ExprList* arguments) {
@@ -174,8 +206,11 @@ static void debug_inline_capture_parameter_values(
         value->declaration = declaration;
         value->value = 0;
         value->unsigned_value = 0u;
+        value->float_bits = 0u;
+        value->float_size = 0u;
         value->has_signed_integer_constant = false;
         value->has_unsigned_integer_constant = false;
+        value->has_float_constant = false;
         parameter_type = declaration->type;
         argument_type = argument && argument->expr
             ? argument->expr->type : NULL;
@@ -199,8 +234,11 @@ static void debug_inline_capture_parameter_values(
                 value->has_unsigned_integer_constant = true;
             }
         } else {
-            (void)debug_inline_capture_converted_integer(
-                argument, parameter_type, value);
+            if (!debug_inline_capture_converted_integer(
+                    argument, parameter_type, value)) {
+                (void)debug_inline_capture_float_literal(
+                    argument, parameter_type, value);
+            }
         }
         if (argument) argument = argument->next;
     }

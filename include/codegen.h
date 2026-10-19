@@ -92,8 +92,11 @@ typedef struct ModuleDebugInlineParameterValue {
     const Decl* declaration;
     int64_t value;
     uint64_t unsigned_value;
+    uint64_t float_bits;
+    uint8_t float_size;
     bool has_signed_integer_constant;
     bool has_unsigned_integer_constant;
+    bool has_float_constant;
 } ModuleDebugInlineParameterValue;
 
 typedef struct ModuleDebugInlineCall {

@@ -34,3 +34,13 @@ inline unsigned int debug_converted_unsigned_inline(unsigned int value)
 {
     return value;
 }
+
+inline float debug_float_parameter_inline(float value)
+{
+    return value;
+}
+
+inline double debug_double_parameter_inline(double value)
+{
+    return value;
+}

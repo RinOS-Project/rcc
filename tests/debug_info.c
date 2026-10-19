@@ -84,6 +84,16 @@ unsigned int debug_inline_converted_unsigned_entry(void)
     return debug_converted_unsigned_inline(-1);
 }
 
+float debug_inline_float_constant_entry(void)
+{
+    return debug_float_parameter_inline(1.5f);
+}
+
+double debug_inline_double_constant_entry(void)
+{
+    return debug_double_parameter_inline(2.25);
+}
+
 int debug_tls_static_local_read(void)
 {
     static _Thread_local int debug_tls_static_local = 17;

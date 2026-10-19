@@ -3997,6 +3997,17 @@ static void debug_emit_inline_parameter_instances(
             section_add_byte(info, 64u);
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, value->unsigned_value);
+        } else if (value->has_float_constant && value->declaration &&
+                   (value->float_size == 4u || value->float_size == 8u) &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL) {
+            section_add_byte(info, 65u);
+            debug_line_u32(info, origin->die_offset);
+            section_add_byte(info, value->float_size);
+            for (uint8_t byte = 0u; byte < value->float_size; ++byte) {
+                section_add_byte(
+                    info, (uint8_t)(value->float_bits >> (byte * 8u)));
+            }
         }
     }
 }
@@ -5229,6 +5240,15 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
     debug_line_uleb(abbrev, 0x0fu);   /* DW_FORM_udata */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 65u);
+    debug_line_uleb(abbrev, 0x05u);   /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
+    debug_line_uleb(abbrev, 0x0au);   /* DW_FORM_block1 */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

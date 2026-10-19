@@ -6966,3 +6966,13 @@ remains a separate open item.
       member initializers, arbitrary constructor bodies, nontrivial copy
       constructors, and full-expression cleanup beyond supported call
       arguments remain open.
+
+## RCC continuation (2026-10-20, inline floating parameter constants)
+
+- [x] Preserve direct same-type `float`/`double` literal arguments for optimized
+      inline formal parameters as their exact IEEE-754 bit patterns, and emit
+      them as `DW_AT_const_value` block values linked to abstract parameter DIEs.
+- [x] Verify `1.5f` and `2.25` byte-for-byte for legacy and verified optimized
+      i686/AMD64 objects. The full `test-debug-info` target passes.
+- [ ] Floating conversions, folded expressions, mutable parameter locations,
+      and general optimized inline-variable location tracking remain open.

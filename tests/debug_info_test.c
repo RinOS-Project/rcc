@@ -3401,6 +3401,9 @@ static void verify_inline_debug_object(const char* path,
     static const uint8_t unsigned_parameter_attributes[] = {
         0x31u, 0x13u, 0x1cu, 0x0fu
     };
+    static const uint8_t float_parameter_attributes[] = {
+        0x31u, 0x13u, 0x1cu, 0x0au
+    };
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
     ObjSection* abbrev;
@@ -3419,6 +3422,8 @@ static void verify_inline_debug_object(const char* path,
     uint64_t unsigned_constant_inline_call = UINT64_MAX;
     uint64_t converted_signed_inline_call = UINT64_MAX;
     uint64_t converted_unsigned_inline_call = UINT64_MAX;
+    uint64_t float_inline_call = UINT64_MAX;
+    uint64_t double_inline_call = UINT64_MAX;
 
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
@@ -3455,6 +3460,9 @@ static void verify_inline_debug_object(const char* path,
     verify_debug_abbreviation(abbrev, 64u, 0x05u, 0u,
                               unsigned_parameter_attributes,
                               sizeof(unsigned_parameter_attributes));
+    verify_debug_abbreviation(abbrev, 65u, 0x05u, 0u,
+                              float_parameter_attributes,
+                              sizeof(float_parameter_attributes));
 
     for (uint64_t die = 11u; die + 1u + 4u + address_size + 4u + 12u <=
          info->size; ++die) {
@@ -3491,7 +3499,9 @@ static void verify_inline_debug_object(const char* path,
             strcmp(inline_name, "debug_constant_inline") != 0 &&
             strcmp(inline_name, "debug_unsigned_constant_inline") != 0 &&
             strcmp(inline_name, "debug_converted_signed_inline") != 0 &&
-            strcmp(inline_name, "debug_converted_unsigned_inline") != 0) {
+            strcmp(inline_name, "debug_converted_unsigned_inline") != 0 &&
+            strcmp(inline_name, "debug_float_parameter_inline") != 0 &&
+            strcmp(inline_name, "debug_double_parameter_inline") != 0) {
             continue;
         }
         origin_file = read_u32(info->data, origin_offset + 5u);
@@ -3567,7 +3577,9 @@ static void verify_inline_debug_object(const char* path,
              strcmp(inline_name,
                     "debug_unsigned_constant_inline") == 0 ||
              strcmp(inline_name, "debug_converted_signed_inline") == 0 ||
-             strcmp(inline_name, "debug_converted_unsigned_inline") == 0)
+             strcmp(inline_name, "debug_converted_unsigned_inline") == 0 ||
+             strcmp(inline_name, "debug_float_parameter_inline") == 0 ||
+             strcmp(inline_name, "debug_double_parameter_inline") == 0)
                 ? "tests/debug_info.c"
                 : "tests/debug_info_inline.h"));
         assert(line_table_file_matches(line, origin_file,
@@ -3589,7 +3601,11 @@ static void verify_inline_debug_object(const char* path,
                 strcmp(relocation->symbol_name,
                        "debug_inline_converted_signed_entry") == 0 ||
                 strcmp(relocation->symbol_name,
-                       "debug_inline_converted_unsigned_entry") == 0;
+                       "debug_inline_converted_unsigned_entry") == 0 ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_float_constant_entry") == 0 ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_double_constant_entry") == 0;
             assert(root_call ||
                    (strcmp(relocation->symbol_name,
                            "debug_declared_inline") == 0 &&
@@ -3644,6 +3660,20 @@ static void verify_inline_debug_object(const char* path,
                               "debug_inline_converted_unsigned_entry") == 0 &&
                        converted_unsigned_inline_call == UINT64_MAX) {
                 converted_unsigned_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_float_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_float_constant_entry") == 0 &&
+                       float_inline_call == UINT64_MAX) {
+                float_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_double_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_double_constant_entry") == 0 &&
+                       double_inline_call == UINT64_MAX) {
+                double_inline_call = die;
             }
             break;
         }
@@ -3659,6 +3689,8 @@ static void verify_inline_debug_object(const char* path,
     assert(unsigned_constant_inline_call != UINT64_MAX);
     assert(converted_signed_inline_call != UINT64_MAX);
     assert(converted_unsigned_inline_call != UINT64_MAX);
+    assert(float_inline_call != UINT64_MAX);
+    assert(double_inline_call != UINT64_MAX);
     assert(inner_die == outer_die + 1u + 4u + address_size + 4u + 12u);
     {
         uint64_t concrete_local =
@@ -3721,6 +3753,40 @@ static void verify_inline_debug_object(const char* path,
         assert(read_uleb(info->data, info->size, &value_offset) ==
                UINT32_MAX);
         assert(info->data[value_offset] == 0u);
+    }
+    {
+        uint64_t concrete_parameter = float_inline_call + 1u + 4u +
+            address_size + 4u + 12u;
+        uint64_t origin_parameter =
+            read_u32(info->data, float_inline_call + 1u) + 27u;
+        assert(info->data[concrete_parameter] == 65u);
+        assert(read_u32(info->data, concrete_parameter + 1u) ==
+               origin_parameter);
+        assert(info->data[concrete_parameter + 5u] == 4u);
+        assert(info->data[concrete_parameter + 6u] == 0x00u);
+        assert(info->data[concrete_parameter + 7u] == 0x00u);
+        assert(info->data[concrete_parameter + 8u] == 0xc0u);
+        assert(info->data[concrete_parameter + 9u] == 0x3fu);
+        assert(info->data[concrete_parameter + 10u] == 0u);
+    }
+    {
+        uint64_t concrete_parameter = double_inline_call + 1u + 4u +
+            address_size + 4u + 12u;
+        uint64_t origin_parameter =
+            read_u32(info->data, double_inline_call + 1u) + 27u;
+        assert(info->data[concrete_parameter] == 65u);
+        assert(read_u32(info->data, concrete_parameter + 1u) ==
+               origin_parameter);
+        assert(info->data[concrete_parameter + 5u] == 8u);
+        assert(info->data[concrete_parameter + 6u] == 0x00u);
+        assert(info->data[concrete_parameter + 7u] == 0x00u);
+        assert(info->data[concrete_parameter + 8u] == 0x00u);
+        assert(info->data[concrete_parameter + 9u] == 0x00u);
+        assert(info->data[concrete_parameter + 10u] == 0x00u);
+        assert(info->data[concrete_parameter + 11u] == 0x00u);
+        assert(info->data[concrete_parameter + 12u] == 0x02u);
+        assert(info->data[concrete_parameter + 13u] == 0x40u);
+        assert(info->data[concrete_parameter + 14u] == 0u);
     }
     objfile_free(object);
 }
