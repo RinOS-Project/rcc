@@ -6923,3 +6923,16 @@ remains a separate open item.
 - [ ] Copy construction involving virtual bases, union subobjects, or
       user-defined nontrivial copy constructors, plus general constructor
       bodies and full-expression cleanup outside call arguments, remains open.
+
+## RCC continuation (2026-10-20, pure constructor member expressions)
+
+- [x] Lower side-effect-free scalar member initializers composed of literals,
+      constructor parameters, arithmetic/bitwise/comparison/logical operators,
+      casts, and conditional expressions. Continue routing calls and
+      side-effecting expressions through the existing full backend path.
+- [x] Add a two-parameter constructor regression for `first + second` and
+      `first * 2 - second`. `test-verified-cxx-reference-local` checks 15
+      emitted functions, zero fallback, and execution for i686/AMD64 at
+      `-O0`/`-O2` plus ordinary backend output.
+- [ ] General side-effecting constructor initializers, copy constructors,
+      arbitrary constructor bodies, and full-expression cleanup remain open.
