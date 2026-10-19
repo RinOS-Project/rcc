@@ -6910,3 +6910,16 @@ remains a separate open item.
       partial-construction unwind, base/member copy construction, general
       constructor bodies, and full-expression cleanup outside call arguments
       remain open.
+
+## RCC continuation (2026-10-20, verified trivial C++ copy construction)
+
+- [x] Lower sema-approved trivial copy initialization of a non-inherited,
+      non-virtual C++ class with scalar data members in typed SSA. Copy member
+      values into the destination without reading or copying padding bytes.
+- [x] Add a local source/destination regression that mutates the source after
+      copying. `test-verified-cxx-reference-local` passes i686/AMD64 at `-O0`
+      and `-O2` with 13 emitted functions, zero fallback, verified-object
+      execution, and ordinary backend checks.
+- [ ] Copy construction involving bases, arrays/nested class members, or
+      user-defined nontrivial copy constructors, plus general constructor
+      bodies and full-expression cleanup outside call arguments, remains open.
