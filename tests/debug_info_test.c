@@ -3421,6 +3421,7 @@ static void verify_inline_debug_object(const char* path,
     uint64_t constant_inline_call = UINT64_MAX;
     uint64_t unsigned_constant_inline_call = UINT64_MAX;
     uint64_t converted_signed_inline_call = UINT64_MAX;
+    uint64_t unsigned_to_signed_inline_call = UINT64_MAX;
     uint64_t converted_unsigned_inline_call = UINT64_MAX;
     uint64_t float_inline_call = UINT64_MAX;
     uint64_t double_inline_call = UINT64_MAX;
@@ -3611,6 +3612,8 @@ static void verify_inline_debug_object(const char* path,
                 strcmp(relocation->symbol_name,
                        "debug_inline_converted_signed_entry") == 0 ||
                 strcmp(relocation->symbol_name,
+                       "debug_inline_unsigned_to_signed_entry") == 0 ||
+                strcmp(relocation->symbol_name,
                        "debug_inline_converted_unsigned_entry") == 0 ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_float_constant_entry") == 0 ||
@@ -3669,6 +3672,13 @@ static void verify_inline_debug_object(const char* path,
                 converted_signed_inline_call = die;
             } else if (root_call &&
                        strcmp(inline_name,
+                              "debug_converted_signed_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_unsigned_to_signed_entry") == 0 &&
+                       unsigned_to_signed_inline_call == UINT64_MAX) {
+                unsigned_to_signed_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
                               "debug_converted_unsigned_inline") == 0 &&
                        strcmp(relocation->symbol_name,
                               "debug_inline_converted_unsigned_entry") == 0 &&
@@ -3716,6 +3726,7 @@ static void verify_inline_debug_object(const char* path,
     assert(constant_inline_call != UINT64_MAX);
     assert(unsigned_constant_inline_call != UINT64_MAX);
     assert(converted_signed_inline_call != UINT64_MAX);
+    assert(unsigned_to_signed_inline_call != UINT64_MAX);
     assert(converted_unsigned_inline_call != UINT64_MAX);
     assert(float_inline_call != UINT64_MAX);
     assert(double_inline_call != UINT64_MAX);
@@ -3773,6 +3784,14 @@ static void verify_inline_debug_object(const char* path,
         uint64_t value_offset = concrete_parameter + 5u;
         assert(info->data[concrete_parameter] == 63u);
         assert(read_sleb(info->data, info->size, &value_offset) == 23);
+        assert(info->data[value_offset] == 0u);
+    }
+    {
+        uint64_t concrete_parameter = unsigned_to_signed_inline_call + 1u +
+            4u + address_size + 4u + 12u;
+        uint64_t value_offset = concrete_parameter + 5u;
+        assert(info->data[concrete_parameter] == 63u);
+        assert(read_sleb(info->data, info->size, &value_offset) == -1);
         assert(info->data[value_offset] == 0u);
     }
     {

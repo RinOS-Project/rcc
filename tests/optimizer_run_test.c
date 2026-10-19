@@ -2205,6 +2205,9 @@ int main(int argc, char** argv)
         int (*inlined_repeated_complex_argument_call)(int);
         int (*inlined_conditional_cast_call)(int);
         int (*inlined_short_to_int_parameter_call)(short);
+        int (*inlined_unsigned_to_signed_parameter_call)(unsigned int);
+        long long (*inlined_unsigned64_to_signed64_parameter_call)(
+            unsigned long long);
         unsigned int (*inlined_signed_to_unsigned_parameter_call)(int);
         double (*inlined_float_to_double_parameter_call)(float);
         float (*inlined_double_to_float_parameter_call)(double);
@@ -2822,6 +2825,20 @@ int main(int argc, char** argv)
             address = mapping + symbol->value;
             memcpy(&inlined_short_to_int_parameter_call, &address,
                    sizeof(inlined_short_to_int_parameter_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_unsigned_to_signed_parameter_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_unsigned_to_signed_parameter_call, &address,
+                   sizeof(inlined_unsigned_to_signed_parameter_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_unsigned64_to_signed64_parameter_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_unsigned64_to_signed64_parameter_call, &address,
+                   sizeof(inlined_unsigned64_to_signed64_parameter_call));
         }
         {
             ObjSymbol* symbol = function_symbol(
@@ -3483,6 +3500,9 @@ int main(int argc, char** argv)
         assert(inlined_conditional_cast_call(-8) == 8);
         assert(inlined_conditional_cast_call(8) == 12);
         assert(inlined_short_to_int_parameter_call((short)-123) == -123);
+        assert(inlined_unsigned_to_signed_parameter_call(UINT32_MAX) == -1);
+        assert(inlined_unsigned64_to_signed64_parameter_call(UINT64_MAX) ==
+               -1ll);
         assert(inlined_signed_to_unsigned_parameter_call(-1) == UINT32_MAX);
         assert(inlined_float_to_double_parameter_call(1.1f) ==
                (double)1.1f);

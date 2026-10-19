@@ -679,6 +679,27 @@ int inlined_short_to_int_parameter_call(short value)
     return inline_integer_parameter(value);
 }
 
+static int inline_unsigned_to_signed_parameter(int value)
+{
+    return value;
+}
+
+int inlined_unsigned_to_signed_parameter_call(unsigned int value)
+{
+    return inline_unsigned_to_signed_parameter(value);
+}
+
+static long long inline_unsigned64_to_signed64_parameter(long long value)
+{
+    return value;
+}
+
+long long inlined_unsigned64_to_signed64_parameter_call(
+    unsigned long long value)
+{
+    return inline_unsigned64_to_signed64_parameter(value);
+}
+
 static double inline_float_to_double_parameter(double value)
 {
     return value;

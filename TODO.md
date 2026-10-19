@@ -6992,3 +6992,15 @@ remains a separate open item.
 - [ ] Long-double conversions, nonliteral folded expressions, pointer and
       enum conversion attribution, mutable parameter locations, and general
       optimized inline-variable location tracking remain open.
+
+## RCC continuation (2026-10-20, out-of-range signed inline values)
+
+- [x] Record converted signed integer parameters using the RinOS i686/AMD64
+      modulo-width two's-complement rule, including unsigned values outside the
+      signed destination range, without a host out-of-range cast.
+- [x] Verify `UINT32_MAX`→`int(-1)` in call-specific legacy/verified DWARF and
+      execute `UINT32_MAX`→`int` plus `UINT64_MAX`→`long long` at `-O0`/`-O1`
+      for i686/AMD64. Native-Windows `test-optimize` and `test-debug-info` pass.
+- [ ] Other implementation-defined integer conversions, nonliteral folded
+      arguments, enum/pointer attribution, mutable parameter locations, and
+      general optimized inline-variable location tracking remain open.

@@ -92,6 +92,24 @@ static bool debug_inline_integer_type(const Type* type) {
          type->kind == TYPE_ENUM);
 }
 
+static int64_t debug_inline_sign_extend_integer(uint64_t bits,
+                                                unsigned int width) {
+    if (width == 64u) {
+        if (bits <= (uint64_t)INT64_MAX) return (int64_t)bits;
+        if (bits == (UINT64_C(1) << 63)) return INT64_MIN;
+        return -(int64_t)((~bits) + 1u);
+    }
+    {
+        uint64_t modulus = UINT64_C(1) << width;
+        uint64_t sign_bit = modulus >> 1;
+        bits &= modulus - 1u;
+        if ((bits & sign_bit) != 0u) {
+            return -(int64_t)(modulus - bits);
+        }
+        return (int64_t)bits;
+    }
+}
+
 static bool debug_inline_capture_converted_integer(
     const ExprList* argument, const Type* parameter_type,
     ModuleDebugInlineParameterValue* value) {
@@ -131,17 +149,12 @@ static bool debug_inline_capture_converted_integer(
         value->has_unsigned_integer_constant = true;
         return true;
     }
-    if (argument_is_unsigned) {
-        uint64_t maximum = width == 64u
-            ? (uint64_t)INT64_MAX
-            : (UINT64_C(1) << (width - 1u)) - 1u;
-        if (unsigned_value > maximum) return false;
-        signed_value = (int64_t)unsigned_value;
-    } else if (width < 64u) {
-        int64_t limit = (int64_t)(UINT64_C(1) << (width - 1u));
-        if (signed_value < -limit || signed_value >= limit) return false;
-    }
-    value->value = signed_value;
+    /* RinOS's i686 and AMD64 ABIs define integer narrowing and unsigned-to-
+     * signed conversion by retaining the low destination-width bits and
+     * interpreting them as two's-complement.  Mirror that target rule without
+     * relying on a host out-of-range unsigned-to-signed cast. */
+    if (!argument_is_unsigned) unsigned_value = (uint64_t)signed_value;
+    value->value = debug_inline_sign_extend_integer(unsigned_value, width);
     value->has_signed_integer_constant = true;
     return true;
 }

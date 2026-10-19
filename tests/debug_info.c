@@ -79,6 +79,11 @@ int debug_inline_converted_signed_entry(void)
     return debug_converted_signed_inline((short)23);
 }
 
+int debug_inline_unsigned_to_signed_entry(void)
+{
+    return debug_converted_signed_inline(-1u);
+}
+
 unsigned int debug_inline_converted_unsigned_entry(void)
 {
     return debug_converted_unsigned_inline(-1);
