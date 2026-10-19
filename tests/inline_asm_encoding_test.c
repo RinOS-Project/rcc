@@ -137,7 +137,7 @@ static void verify_earlyclobber_generic_read_write(
 
 int main(int argc, char** argv)
 {
-    assert(argc == 4);
+    assert(argc == 5);
     static const uint8_t interrupt[] = {0xcdu, 0x80u};
     static const uint8_t mov_imm8[] = {0xb0u, 0x7fu};
     static const uint8_t mov_imm16[] = {0x66u, 0xb8u, 0x34u, 0x12u};
@@ -153,6 +153,8 @@ int main(int argc, char** argv)
     verify(argv[2], ARCH_X64, "asm_placeholder_move");
     verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
     verify_pattern(argv[1], ARCH_X86, "asm_memory_input_move",
+                   i686_memory_input, sizeof(i686_memory_input));
+    verify_pattern(argv[4], ARCH_X86, "asm_cpp_memory_input_move",
                    i686_memory_input, sizeof(i686_memory_input));
     verify_generic(argv[1], ARCH_X86, "asm_generic_placeholder_move");
     verify_generic(argv[2], ARCH_X64, "asm_generic_placeholder_move");

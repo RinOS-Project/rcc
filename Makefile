@@ -15281,13 +15281,16 @@ test-inline-asm-encoding: $(RCC_TARGET) $(RCXX_TARGET)
 		-o $(TEST_OUT)/inline-asm-encoding/x64.ro tests/inline_asm_execution.c
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c \
 		-o $(TEST_OUT)/inline-asm-encoding/cxx-x64.ro tests/inline_asm_cpp.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c \
+		-o $(TEST_OUT)/inline-asm-encoding/cxx-x86.ro tests/inline_asm_cpp.cpp
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/inline-asm-encoding/verify \
 		tests/inline_asm_encoding_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c
 	$(TEST_OUT)/inline-asm-encoding/verify \
 		$(TEST_OUT)/inline-asm-encoding/x86.ro \
 		$(TEST_OUT)/inline-asm-encoding/x64.ro \
-		$(TEST_OUT)/inline-asm-encoding/cxx-x64.ro
+		$(TEST_OUT)/inline-asm-encoding/cxx-x64.ro \
+		$(TEST_OUT)/inline-asm-encoding/cxx-x86.ro
 	@echo "Dual-architecture inline asm placeholder encoding tests completed"
 
 test-inline-asm-ports: $(RCC_TARGET) $(RCXX_TARGET)

@@ -1,3 +1,12 @@
+#if defined(__i386__)
+extern "C" int asm_cpp_memory_input_move(int value)
+{
+    int result;
+    asm volatile("movl %1, %0" : "=a"(result) : "m"(value));
+    return result;
+}
+#endif
+
 extern "C" int asm_cpp_placeholder_move(int value)
 {
     int result;
@@ -51,6 +60,7 @@ extern "C" unsigned int asm_cpp_mov_imm32(int unused)
     return result;
 }
 
+#if defined(__x86_64__)
 extern "C" unsigned long long asm_cpp_mov_imm64(long long unused)
 {
     unsigned long long result;
@@ -58,6 +68,7 @@ extern "C" unsigned long long asm_cpp_mov_imm64(long long unused)
     asm volatile("mov $0x1122334455667788, %0" : "=a"(result));
     return result;
 }
+#endif
 
 extern "C" int asm_cpp_generic_read_write(int value)
 {
@@ -100,9 +111,11 @@ extern "C" void asm_cpp_n_modifier_interrupt()
     asm volatile("int $%n0" : : "i"(5));
 }
 
+#if defined(__x86_64__)
 extern "C" long long asm_cpp_x64_q_modifier(long long value)
 {
     long long result;
     asm volatile("mov %q1, %q0" : "=a"(result) : "b"(value));
     return result;
 }
+#endif

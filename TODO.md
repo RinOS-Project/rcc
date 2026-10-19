@@ -2255,6 +2255,9 @@
         variables and parameters; lower EBP-relative `movl` loads. Verify exact
         instruction bytes, reject global/indirect operands and AMD64 use, and
         include i686 execution in the POSIX inline-asm execution gate.
+  - [x] Exercise the bounded memory input through the C++20 frontend on i686;
+        compile the i686 fixture and verify its exact EBP-relative `movl` bytes
+        alongside the C and AMD64 C++ encoding gates.
   - [x] Preserve a generic inline-asm output value while computing its lvalue
         address; verify `=r` ECX assignment on i686 and AMD64 execution gates.
   - [x] Assign generic `=&r` outputs to a physical GPR distinct from all
