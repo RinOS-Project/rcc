@@ -7356,6 +7356,8 @@ static bool lower_cxx_empty_noop_constructor_supported(
 }
 
 static bool lower_noexcept_expression(const Expr* expression);
+static bool lower_call_temporary_cleanups_supported(
+    const Expr* expression);
 static bool lower_call_receiver_temporary_cleanup_supported(
     const Expr* expression, bool allow_throwing_destructors);
 static bool lower_temporary_cleanup_plan_supported(
@@ -7792,10 +7794,47 @@ static bool lower_cleanup_constructor_call_supported(
         !abi_parameter;
 }
 
+static bool lower_cleanup_call_initializer_supported(
+    const Expr* initializer) {
+    const Expr* call = initializer;
+    const ExprList* argument;
+    RccIrType return_type;
+    bool has_call_cleanup;
+    while (call && call->kind == EXPR_CAST && call->cast_expr &&
+           call->cast_type && call->cast_type->is_reference) {
+        call = call->cast_expr;
+    }
+    if (!call || call->kind != EXPR_CALL || !call->type ||
+        (call->type->kind != TYPE_STRUCT &&
+         call->type->kind != TYPE_UNION)) {
+        return false;
+    }
+    has_call_cleanup = call->cxx_temporary_owner != NULL ||
+        call->cxx_temporary_cleanups != NULL;
+    for (argument = call->call_args; argument; argument = argument->next) {
+        has_call_cleanup = has_call_cleanup ||
+            argument->cxx_temporary_owner != NULL ||
+            argument->cxx_temporary_cleanups != NULL;
+    }
+    /* A potentially throwing aggregate call does not make its result object
+     * live until it returns successfully.  Prove argument evaluation here;
+     * if any temporary needs cleanup, also require the call's registered
+     * exception-cleanup path. */
+    if (has_call_cleanup) {
+        if (!lower_call_temporary_cleanups_supported(call)) return false;
+    } else if (!lower_noexcept_expression(call->call_func) ||
+               !lower_noexcept_expression_list(call->call_args)) {
+        return false;
+    }
+    return lower_abi_return_layout(call->type, &return_type) !=
+        LOWER_ABI_RETURN_UNSUPPORTED;
+}
+
 static bool lower_cleanup_initializer_supported(const Expr* initializer) {
     if (!initializer) return true;
     if (initializer->kind != EXPR_COMPOUND) {
-        return lower_noexcept_expression(initializer);
+        return lower_noexcept_expression(initializer) ||
+            lower_cleanup_call_initializer_supported(initializer);
     }
     if (initializer->compound_constructor &&
         !lower_cxx_empty_noop_constructor_supported(initializer)) {

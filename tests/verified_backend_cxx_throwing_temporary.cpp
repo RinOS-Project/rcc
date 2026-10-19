@@ -17,7 +17,8 @@ struct VerifiedThrowingTemporaryConversionSource {
     int cleanup_id;
     int* receiver_cleanup_order;
 
-    operator VerifiedThrowingTemporary() const noexcept {
+    operator VerifiedThrowingTemporary() const {
+        if (cleanup_id == 11) throw 73;
         return {cleanup_order, cleanup_id, {cleanup_id + 1}};
     }
 
@@ -159,6 +160,8 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     int converted_rvalue_observation;
     int converted_const_rvalue_receiver_cleanup_order = 0;
     int converted_const_rvalue_observation;
+    int throwing_conversion_receiver_cleanup_order = 0;
+    int throwing_conversion_observation = 0;
     {
         const int& value =
             make_verified_throwing_temporary(
@@ -217,7 +220,23 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     }
     if (converted_const_rvalue_receiver_cleanup_order != 10) return -9;
     if (cleanup_order != 10) return -10;
-    return 65710;
+    cleanup_order = 0;
+    try {
+        const VerifiedThrowingTemporary& value =
+            VerifiedThrowingTemporaryConversionSource{
+                &cleanup_order, 11,
+                &throwing_conversion_receiver_cleanup_order};
+        throwing_conversion_observation = value.cleanup_id;
+    } catch (int value) {
+        throwing_conversion_observation = value * 100 +
+            throwing_conversion_receiver_cleanup_order * 10 + cleanup_order;
+    }
+    if (throwing_conversion_observation != 7410) {
+        return throwing_conversion_observation;
+    }
+    if (throwing_conversion_receiver_cleanup_order != 11) return -11;
+    if (cleanup_order != 0) return -12;
+    return 65711;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {

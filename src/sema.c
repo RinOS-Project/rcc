@@ -3429,6 +3429,10 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
     return best_count == 1 ? candidates[best_index].method : NULL;
 }
 
+static bool sema_prepare_class_prvalue_cleanup(
+    Expr* source, Decl** owner_out, CxxCleanupPlan** cleanups_out,
+    bool owner_stores_address, const char* unsupported_message);
+
 static bool cxx_reference_object_compatible(const Type* source,
                                             const Type* target) {
     Type source_unqualified;
@@ -3647,6 +3651,8 @@ reference_binding_source:
             if (!ambiguous && conversion) {
                 Type* conversion_result_object = conversion->return_type;
                 bool apply_standard_conversion;
+                Decl* receiver_owner = NULL;
+                CxxCleanupPlan* receiver_cleanups = NULL;
                 Expr* source_expression =
                     ast_arena_alloc(sizeof(*source_expression));
                 Expr* member;
@@ -3665,6 +3671,24 @@ reference_binding_source:
                                      e->loc);
                 call = expr_call(member, NULL, e->loc);
                 call->call_method = conversion;
+                /* Reference conversion candidates are built before the
+                 * ordinary member-call path has stabilized its implicit
+                 * object argument. Preserve a prvalue receiver's lifetime
+                 * independently so a throwing conversion still cleans it. */
+                if (!is_lvalue(source_expression) &&
+                    !is_xvalue(source_expression) &&
+                    (source_expression->kind == EXPR_CALL ||
+                     source_expression->kind == EXPR_COMPOUND)) {
+                    (void)sema_prepare_class_prvalue_cleanup(
+                        source_expression, &receiver_owner,
+                        &receiver_cleanups, false,
+                        "class-prvalue conversion receiver cleanup is unsupported");
+                    if (receiver_owner) {
+                        call->cxx_temporary_owner = receiver_owner;
+                        call->cxx_temporary_cleanups = receiver_cleanups;
+                        call->cxx_temporary_source = source_expression;
+                    }
+                }
                 if (apply_standard_conversion &&
                     referred->kind == TYPE_PTR &&
                     referred->cxx_is_member_pointer) {
@@ -16378,7 +16402,8 @@ static Type* sema_expr(Expr* expr) {
                         /* Establish the source object's type before deciding
                          * whether an inherited-base conversion is needed. */
                         sema_expr(this_argument);
-                        if (member->kind != EXPR_PTR_MEMBER) {
+                        if (member->kind != EXPR_PTR_MEMBER &&
+                            !expr->cxx_temporary_owner) {
                             sema_prepare_class_prvalue_cleanup(
                                 member->member_base,
                                 &expr->cxx_temporary_owner,

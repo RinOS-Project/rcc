@@ -7297,6 +7297,15 @@ remains a separate open item.
       while the converted object survives until scope exit (`65710`);
       exception-cleanup verified target still emits twelve functions with zero
       fallback on both architectures.
+- [x] Preserve a nontrivial prvalue conversion receiver across a potentially
+      throwing conversion call. Register its cleanup before the call, destroy
+      the receiver exactly once when conversion throws, and do not destroy the
+      incomplete converted result (`7410`). The lifetime-extended reference
+      initializer accepts the aggregate call only when its ABI result and
+      exception cleanup path are supported. `test-verified-cxx-throwing-temporary`
+      emits all twenty-two functions with zero fallback on i686/AMD64 at
+      `-O0`/`-O2`; generated AMD64 SSA and legacy host execution pass, as do the
+      verified exception-cleanup and function-template-reference regressions.
 - [ ] Other converted-reference shapes, static/TLS lifetime extension,
       additional conditional/subobject forms, and remaining full-expression
       cleanup paths remain open.
