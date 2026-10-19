@@ -221,6 +221,9 @@ operand conflictを検証し、AMD64の`%qN`展開、i686での拒否、`%qN`／
 診断を確認します。`test-inline-asm-encoding`は両targetおよびC/C++で`%cN`の定数表記を
 含む生成byteと、`%nN`の符号反転即値を確認します。`test-inline-asm-execute`は生成したasmを含む
 関数を実行し、operand入出力の動作を検証します。
+The i686 backend also lowers input-only `m` constraints for direct automatic
+variables and parameters to EBP-relative memory operands; the execution gate
+checks `movl` memory-to-register code and generic output lvalue preservation.
 `test-signing`は`rcc/rcc++/rld`の最終出力でdebug/release profile、空白やshell
 metacharacterを含むsigner/output path、署名失敗時の既存成果物保持、不正signer出力の拒否、
 同一出力への並行実行、およびstaging fileの確実な後始末を確認します。

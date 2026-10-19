@@ -59,6 +59,9 @@ int main(int argc, char** argv)
     unary_function general_output;
     unary_function general_read_write;
     unary_function read_write;
+#if defined(__i386__)
+    unary_function memory_input;
+#endif
 #if defined(__x86_64__)
     unary_i64_function immediate64;
 #endif
@@ -125,6 +128,9 @@ int main(int argc, char** argv)
     LOAD_FUNCTION(general_output, object, mapping, "asm_general_output_move");
     LOAD_FUNCTION(general_read_write, object, mapping, "asm_general_read_write");
     LOAD_FUNCTION(read_write, object, mapping, "asm_read_write_accumulator");
+#if defined(__i386__)
+    LOAD_FUNCTION(memory_input, object, mapping, "asm_memory_input_move");
+#endif
     LOAD_FUNCTION(immediate8, object, mapping, "asm_mov_imm8");
     LOAD_FUNCTION(immediate16, object, mapping, "asm_mov_imm16");
     LOAD_FUNCTION(immediate32, object, mapping, "asm_mov_imm32");
@@ -136,6 +142,9 @@ int main(int argc, char** argv)
     assert(earlyclobber_avoids_fixed(37, 91) == 91);
     assert(earlyclobber_read_write(37, 91) == 91);
     assert(placeholder(83) == 83);
+#if defined(__i386__)
+    assert(memory_input(59) == 59);
+#endif
     assert(generic_output(97) == 97);
     assert(generic_read_write(109) == 109);
     assert(general_input(127) == 127);

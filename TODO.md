@@ -2247,6 +2247,12 @@
   - [x] Support GCC `%nN` constant formatting in i686/AMD64 C/C++ inline asm,
         including INT64_MIN-safe sign inversion, exact negative-immediate bytes,
         and explicit diagnostics for register operands.
+  - [x] Support bounded i686 input-only `m` operands for direct automatic frame
+        variables and parameters; lower EBP-relative `movl` loads. Verify exact
+        instruction bytes, reject global/indirect operands and AMD64 use, and
+        include i686 execution in the POSIX inline-asm execution gate.
+  - [x] Preserve a generic inline-asm output value while computing its lvalue
+        address; verify `=r` ECX assignment on i686 and AMD64 execution gates.
   - [x] Assign generic `=&r` outputs to a physical GPR distinct from all
         backend-assigned generic/fixed inputs, outputs, and clobbers. Verify
         exact i686/AMD64 C and AMD64 C++ encodings, execute both target-width C

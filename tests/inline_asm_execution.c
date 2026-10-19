@@ -166,6 +166,15 @@ long asm_syscall3(long number, long first, long second, long third)
     return result;
 }
 
+#if defined(__i386__)
+int asm_memory_input_move(int value)
+{
+    int result;
+    __asm__ __volatile__("movl %1, %0" : "=a"(result) : "m"(value));
+    return result;
+}
+#endif
+
 #if defined(__x86_64__)
 long long asm_x64_q_modifier(long long value)
 {

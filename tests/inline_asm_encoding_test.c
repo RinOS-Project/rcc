@@ -144,6 +144,7 @@ int main(int argc, char** argv)
     static const uint8_t mov_imm32[] = {
         0xb8u, 0x78u, 0x56u, 0x34u, 0x12u
     };
+    static const uint8_t i686_memory_input[] = {0x8bu, 0x45u, 0x08u};
     static const uint8_t mov_imm64[] = {
         0x48u, 0xb8u, 0x88u, 0x77u, 0x66u, 0x55u,
         0x44u, 0x33u, 0x22u, 0x11u
@@ -151,6 +152,8 @@ int main(int argc, char** argv)
     verify(argv[1], ARCH_X86, "asm_placeholder_move");
     verify(argv[2], ARCH_X64, "asm_placeholder_move");
     verify(argv[3], ARCH_X64, "asm_cpp_placeholder_move");
+    verify_pattern(argv[1], ARCH_X86, "asm_memory_input_move",
+                   i686_memory_input, sizeof(i686_memory_input));
     verify_generic(argv[1], ARCH_X86, "asm_generic_placeholder_move");
     verify_generic(argv[2], ARCH_X64, "asm_generic_placeholder_move");
     verify_generic(argv[1], ARCH_X86, "asm_general_input_move");

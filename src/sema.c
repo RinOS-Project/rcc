@@ -2363,6 +2363,10 @@ static bool sema_asm_port_name(const char* name) {
     return name && strcmp(name, "Nd") == 0;
 }
 
+static bool sema_asm_memory_name(const char* name) {
+    return name && strcmp(name, "m") == 0;
+}
+
 static bool sema_asm_constraint_supported(const char* constraint,
                                           bool output, SourceLoc loc) {
     const char* name;
@@ -2405,6 +2409,14 @@ static bool sema_asm_constraint_supported(const char* constraint,
     }
     if (!output && (sema_asm_immediate_name(name) ||
                     sema_asm_port_name(name))) return true;
+    if (sema_asm_memory_name(name)) {
+        if (output || g_opts.target_arch != ARCH_X86) {
+            rcc_error(loc,
+                      "inline asm memory constraint 'm' is supported only for i686 inputs");
+            return false;
+        }
+        return true;
+    }
     if (output && sema_asm_port_name(name)) {
         rcc_error(loc, "inline asm port constraint 'Nd' is input-only");
         return false;
@@ -2763,6 +2775,20 @@ static void sema_asm_stmt(Stmt* stmt) {
                    !sema_is_integer_type(op->expr->type)) {
             rcc_error(op->expr->loc,
                       "inline asm port input must have integer type");
+        } else if (sema_asm_memory_name(op->constraint)) {
+            Decl* declaration = op->expr->kind == EXPR_IDENT
+                ? op->expr->ident_decl : NULL;
+            if (g_opts.target_arch != ARCH_X86 ||
+                !declaration ||
+                (declaration->kind != DECL_PARAM &&
+                 (declaration->kind != DECL_VAR ||
+                  declaration->var_is_global ||
+                  declaration->var_is_static_local ||
+                  declaration->var_is_thread_local)) ||
+                (declaration->type && declaration->type->is_reference)) {
+                rcc_error(op->expr->loc,
+                          "i686 inline asm memory input requires a direct automatic frame variable");
+            }
         }
     }
     for (AsmClobber* clobber = stmt->asm_clobbers; clobber;

@@ -15363,6 +15363,8 @@ test-inline-asm-validation: $(RCC_TARGET)
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "immediate input must be an integer constant expression" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
+	$(GREP) -q "i686 inline asm memory input requires a direct automatic frame variable" \
+		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(GREP) -q "%qN register modifier requires AMD64 target" \
 		$(TEST_OUT)/inline-asm-validation/x86.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/x64.ro tests/invalid_inline_asm_constraints.c,$(TEST_OUT)/inline-asm-validation/x64.log)
@@ -15383,6 +15385,8 @@ test-inline-asm-validation: $(RCC_TARGET)
 	$(GREP) -q "operand placeholder index is out of range" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	$(GREP) -q "immediate input must be an integer constant expression" \
+		$(TEST_OUT)/inline-asm-validation/x64.log
+	$(GREP) -q "inline asm memory constraint 'm' is supported only for i686 inputs" \
 		$(TEST_OUT)/inline-asm-validation/x64.log
 	$(call EXPECT_FAILURE,$(RCC_TARGET) --target x86_64-unknown-rinos -c -o $(TEST_OUT)/inline-asm-validation/q-immediate.ro tests/invalid_inline_asm_q_immediate.c,$(TEST_OUT)/inline-asm-validation/q-immediate.log)
 	$(GREP) -q "%qN register modifier requires a register operand" \

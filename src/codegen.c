@@ -14503,6 +14503,22 @@ static int asm_operand_register(const AsmOperand* operand) {
     }
 }
 
+static bool asm_memory_frame_offset(const AsmOperand* operand,
+                                   int* offset_out) {
+    Decl* declaration;
+    if (!operand || !operand->expr || !offset_out ||
+        operand->expr->kind != EXPR_IDENT) return false;
+    declaration = operand->expr->ident_decl;
+    if (!declaration ||
+        (declaration->kind != DECL_PARAM &&
+         (declaration->kind != DECL_VAR ||
+          declaration->var_is_global || declaration->var_is_static_local ||
+          declaration->var_is_thread_local)) ||
+        (declaration->type && declaration->type->is_reference)) return false;
+    *offset_out = declaration->var_offset;
+    return true;
+}
+
 static bool asm_parse_immediate8(const char* text, uint8_t* value) {
     char* end;
     long long parsed;
@@ -14568,7 +14584,28 @@ static bool asm_parse_register_width(const char* text, int* reg, int* width) {
     if (strcmp(text, "ebx") == 0) { *reg = EBX; *width = 4; return true; }
     if (strcmp(text, "esi") == 0) { *reg = ESI; *width = 4; return true; }
     if (strcmp(text, "edi") == 0) { *reg = EDI; *width = 4; return true; }
+    if (strcmp(text, "ebp") == 0) { *reg = EBP; *width = 4; return true; }
+    if (strcmp(text, "esp") == 0) { *reg = ESP; *width = 4; return true; }
     return false;
+}
+
+static bool asm_parse_ebp_memory(const char* text, int32_t* displacement) {
+    char* end;
+    long parsed;
+    if (!text || !displacement) return false;
+    errno = 0;
+    parsed = strtol(text, &end, 0);
+    if (end == text) {
+        parsed = 0;
+        if (strcmp(text, "(%ebp)") != 0) return false;
+    } else if (strcmp(end, "(%ebp)") != 0) {
+        return false;
+    }
+    if (errno == ERANGE || parsed < INT32_MIN || parsed > INT32_MAX) {
+        return false;
+    }
+    *displacement = (int32_t)parsed;
+    return true;
 }
 
 static const char* asm_register_name(int reg) {
@@ -14662,6 +14699,7 @@ static int asm_format_immediate(char* buffer, size_t capacity,
 }
 
 static char* asm_expand_template(const char* source, const int* registers,
+                                  const int* memory_offsets,
                                   const int64_t* immediate_values,
                                   const bool* immediate_flags,
                                   int operand_count, SourceLoc loc) {
@@ -14720,6 +14758,30 @@ static char* asm_expand_template(const char* source, const int* registers,
                           "i686 inline asm operand placeholder index is out of range");
                 rcc_free(expanded);
                 return NULL;
+            }
+            if (memory_offsets &&
+                memory_offsets[(size_t)index] != INT_MIN) {
+                char memory[32];
+                int written;
+                if (modifier) {
+                    rcc_error(loc,
+                              "i686 inline asm memory operands do not accept register-width modifiers");
+                    rcc_free(expanded);
+                    return NULL;
+                }
+                written = snprintf(memory, sizeof(memory), "%d(%%ebp)",
+                                   memory_offsets[(size_t)index]);
+                if (written < 0 || (size_t)written >= sizeof(memory)) {
+                    rcc_error(loc,
+                              "i686 inline asm frame-relative memory operand is too large");
+                    rcc_free(expanded);
+                    return NULL;
+                }
+                for (int character = 0; character < written; ++character) {
+                    expanded[write++] = memory[character];
+                }
+                read = digit;
+                continue;
             }
             if (immediate_flags && immediate_flags[(size_t)index]) {
                 char immediate[32];
@@ -14822,6 +14884,25 @@ static bool emit_asm_instruction(Module* mod, const char* mnemonic,
         return true;
     }
 
+    if (strcmp(mnemonic, "movl") == 0) {
+        int32_t displacement;
+        int destination;
+        int destination_width;
+        if (!op1 || !op2 ||
+            !asm_parse_ebp_memory(op1, &displacement) ||
+            !asm_parse_register_width(op2, &destination,
+                                      &destination_width) ||
+            destination_width != 4) return false;
+        emit_byte(mod, 0x8B); /* mov r32, r/m32 */
+        if (displacement >= INT8_MIN && displacement <= INT8_MAX) {
+            emit_byte(mod, modrm(1, destination, EBP));
+            emit_byte(mod, (uint8_t)(int8_t)displacement);
+        } else {
+            emit_byte(mod, modrm(2, destination, EBP));
+            emit_dword(mod, (uint32_t)displacement);
+        }
+        return true;
+    }
     if (strcmp(mnemonic, "mov") == 0) {
         int source;
         int destination;
@@ -15059,6 +15140,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
 
     OperandInfo* operands = NULL;
     int* operand_registers = NULL;
+    int* memory_offsets = NULL;
     int64_t* immediate_values = NULL;
     bool* immediate_flags = NULL;
     if (total_operands > 0) {
@@ -15081,13 +15163,31 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         }
         operand_registers = rcc_alloc((size_t)total_operands *
                                       sizeof(*operand_registers));
+        memory_offsets = rcc_alloc((size_t)total_operands *
+                                   sizeof(*memory_offsets));
         immediate_values = rcc_alloc((size_t)total_operands *
                                      sizeof(*immediate_values));
         immediate_flags = rcc_alloc((size_t)total_operands *
                                     sizeof(*immediate_flags));
         for (int index = 0; index < total_operands; ++index) {
             operand_registers[index] = operands[index].reg;
+            memory_offsets[index] = INT_MIN;
             immediate_flags[index] = false;
+            if (strcmp(asm_constraint_name(
+                          operands[index].op->constraint), "m") == 0) {
+                if (!asm_memory_frame_offset(operands[index].op,
+                                             &memory_offsets[index])) {
+                    rcc_error(operands[index].op->expr->loc,
+                              "i686 inline asm memory input has no direct frame address");
+                    rcc_free(immediate_flags);
+                    rcc_free(immediate_values);
+                    rcc_free(memory_offsets);
+                    rcc_free(operand_registers);
+                    rcc_free(operands);
+                    return;
+                }
+                operands[index].stack_offset = memory_offsets[index];
+            }
             if (operands[index].reg == -3) {
                 if (!expr_eval_integer_constant(operands[index].op->expr,
                                                  &immediate_values[index])) {
@@ -15095,6 +15195,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
                               "inline asm immediate input must be an integer constant expression");
                     rcc_free(immediate_flags);
                     rcc_free(immediate_values);
+                    rcc_free(memory_offsets);
                     rcc_free(operand_registers);
                     rcc_free(operands);
                     return;
@@ -15168,6 +15269,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
      * assigned fixed register or to the validated immediate spelling; the
      * instruction encoder still validates the resulting instruction. */
     char* tmpl_copy = asm_expand_template(tmpl, operand_registers,
+                                           memory_offsets,
                                            immediate_values, immediate_flags,
                                            total_operands, stmt->loc);
     if (!tmpl_copy) {
@@ -15175,6 +15277,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
         if (preserve_esi) emit_pop_reg(mod, ESI);
         if (preserve_ebx) emit_pop_reg(mod, EBX);
         if (operand_registers) rcc_free(operand_registers);
+        if (memory_offsets) rcc_free(memory_offsets);
         if (immediate_values) rcc_free(immediate_values);
         if (immediate_flags) rcc_free(immediate_flags);
         if (operands) rcc_free(operands);
@@ -15273,9 +15376,6 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
             gen_lvalue(mod, operands[i].op->expr);
             emit_mov_reg_reg(mod, ECX, EAX);      /* ECX = address */
             emit_pop_reg(mod, EAX);               /* EAX = result */
-            if (operands[i].reg != EAX) {
-                emit_mov_reg_reg(mod, EAX, operands[i].reg);
-            }
             emit_store_typed32(mod, ECX, 0, EAX,
                                operands[i].op->expr->type);
         }
@@ -15287,6 +15387,7 @@ static void gen_asm_stmt(Module* mod, Stmt* stmt) {
 
     if (operands) {
         if (operand_registers) rcc_free(operand_registers);
+        if (memory_offsets) rcc_free(memory_offsets);
         if (immediate_values) rcc_free(immediate_values);
         if (immediate_flags) rcc_free(immediate_flags);
         rcc_free(operands);
