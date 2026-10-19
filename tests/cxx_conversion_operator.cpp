@@ -531,6 +531,23 @@ public:
     }
 };
 
+class InheritedConstRvalueConversionBase {
+public:
+    operator ReferenceConversionResult() const {
+        return {613};
+    }
+};
+
+class InheritedConstRvalueConversionDerived
+    : public InheritedConstRvalueConversionBase {
+public:
+    using InheritedConstRvalueConversionBase::operator ReferenceConversionResult;
+
+    operator ReferenceConversionResult() const && {
+        return {617};
+    }
+};
+
 using FunctionReferenceConversionTarget = int();
 using ArrayReferenceConversionTarget = int[2];
 
@@ -1035,6 +1052,8 @@ int main() {
         read_conversion_reference(RefQualifiedConversionSource{}) != 53 ||
         read_conversion_reference(const_ref_qualified_source) != 59 ||
         read_conversion_reference(CvRefQualifiedConversionSource{}) != 61 ||
+        read_conversion_reference(
+            InheritedConstRvalueConversionDerived{}) != 617 ||
         read_conversion_reference(ReferenceCategoryConversionSource{}) != 67 ||
         direct_reference_category.value != 67 ||
         lvalue_function() != 97 || rvalue_function() != 101 ||

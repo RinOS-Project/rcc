@@ -6740,3 +6740,18 @@ remains a separate open item.
       focused pointer target and full native-Windows `test-cxx` pass.
 - [ ] Broader constexpr pointer provenance and floating/aggregate cases remain
       open.
+
+## RCC continuation (2026-10-19, inherited conversion object ranking)
+
+- [x] When inherited and same-class conversion functions produce the same
+      result type with tied result rank and object cv qualification, prefer
+      the same-class function's identity implicit-object conversion over the
+      inherited derived-to-base binding. Preserve result-sequence ranking when
+      result types differ.
+- [x] Add a GCC C++20 regression combining an inherited unqualified
+      `const` conversion function with a same-class `const&&` overload. GCC
+      selects the derived overload; RCC now agrees. Focused
+      `test-cxx-conversion-operator` and the full native-Windows `test-cxx`
+      aggregate pass for i686/AMD64 output and x64 execution.
+- [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
+      and full C++20 overload-resolution conformance remain open.

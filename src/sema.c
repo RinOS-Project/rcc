@@ -3338,13 +3338,31 @@ static TypeMethod* sema_find_cxx_conversion_method(Type* aggregate,
                        candidates[index].result_rank) {
                 relation = -1;
             } else {
+                relation = 0;
+                if (candidates[other].inherited_from_base !=
+                        candidates[index].inherited_from_base &&
+                    cxx_same_parameter_type(
+                        candidates[other].result_type,
+                        candidates[index].result_type, true) &&
+                    candidates[other].result_type->size ==
+                        candidates[index].result_type->size) {
+                    /* When the result sequences tie, a same-class
+                     * conversion function has an identity object
+                     * conversion, while its inherited counterpart binds
+                     * through the derived-to-base relation. */
+                    relation = candidates[other].inherited_from_base
+                        ? -1 : 1;
+                }
                 bool other_uses_pointer_to_bool =
                     sema_cxx_conversion_result_uses_pointer_to_bool(
                         candidates[other].result_type, target);
                 bool index_uses_pointer_to_bool =
                     sema_cxx_conversion_result_uses_pointer_to_bool(
                         candidates[index].result_type, target);
-                if (other_uses_pointer_to_bool != index_uses_pointer_to_bool) {
+                if (relation != 0) {
+                    /* The implicit-object conversion resolved this tie. */
+                } else if (other_uses_pointer_to_bool !=
+                           index_uses_pointer_to_bool) {
                     /* [over.ics.rank]: at equal standard-conversion rank, a
                      * conversion that does not convert a pointer or pointer
                      * to member to bool is better. */
