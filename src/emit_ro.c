@@ -4093,18 +4093,36 @@ static bool debug_inline_parameter_expression_is_read_only(
     }
 }
 
-static bool debug_inline_parameter_body_is_read_only(const Decl* callee) {
-    const Stmt* body = callee ? callee->func_body : NULL;
-    const StmtList* item;
-    if (!body) return false;
-    if (body->kind == STMT_BLOCK) {
-        item = body->block_stmts;
-        if (!item || item->next) return false;
-        body = item->stmt;
+static bool debug_inline_parameter_return_tree_is_read_only(
+    const Stmt* statement, const Decl* callee, unsigned int depth) {
+    if (!statement || !callee || depth > 16u) return false;
+    if (statement->kind == STMT_BLOCK) {
+        const StmtList* item = statement->block_stmts;
+        return item && !item->next &&
+            debug_inline_parameter_return_tree_is_read_only(
+                item->stmt, callee, depth + 1u);
     }
-    return body && body->kind == STMT_RETURN && body->return_val &&
-        debug_inline_parameter_expression_is_read_only(
-            body->return_val, callee);
+    if (statement->kind == STMT_RETURN) {
+        return statement->return_val &&
+            debug_inline_parameter_expression_is_read_only(
+                statement->return_val, callee);
+    }
+    if (statement->kind == STMT_IF) {
+        return statement->if_cond && statement->if_then &&
+            statement->if_else &&
+            debug_inline_parameter_expression_is_read_only(
+                statement->if_cond, callee) &&
+            debug_inline_parameter_return_tree_is_read_only(
+                statement->if_then, callee, depth + 1u) &&
+            debug_inline_parameter_return_tree_is_read_only(
+                statement->if_else, callee, depth + 1u);
+    }
+    return false;
+}
+
+static bool debug_inline_parameter_body_is_read_only(const Decl* callee) {
+    return callee && debug_inline_parameter_return_tree_is_read_only(
+        callee->func_body, callee, 0u);
 }
 
 static const ModuleSymbol* debug_inline_parameter_source_symbol(

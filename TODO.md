@@ -2194,9 +2194,9 @@
         foldable signed/unsigned inline-parameter constants and supported
         integer conversions, and same-typed identifier arguments whose source
         storage is a defined static object or an addressable frame slot and
-        whose callee body is one side-effect-free return expression. Remaining
-        work includes arbitrary nonconstant argument expressions, mutable
-        parameters, optimized-away/register-only sources, nested lexical
+        whose callee body is a bounded side-effect-free return/if-else tree.
+        Remaining work includes arbitrary nonconstant argument expressions,
+        mutable parameters, optimized-away/register-only sources, nested lexical
         locals, tracking optimized variables across register and piece
         locations, declaration lifetimes across every optimized CFG edge, and
         CFI/unwind coverage for prologues and epilogues beyond current fixed-
@@ -7078,10 +7078,11 @@ remains a separate open item.
 - [x] Emit frame-relative locations for supported same-typed identifier
       arguments backed by addressable automatic locals or incoming parameters.
       For the verified backend, use its recorded frame slot; otherwise use the
-      legacy backend's parameter/local frame offset. Require a side-effect-free
-      single-return callee body, and verify the parameter DIE/origin, breg
-      expression, and nonzero displacement in legacy and verified i686/AMD64
-      objects, including a pointer local whose address escapes after the call.
+      legacy backend's parameter/local frame offset. Permit bounded
+      side-effect-free direct-return and if/else-return trees. Verify the
+      parameter DIE/origin, breg expression, and nonzero displacement in legacy
+      and verified i686/AMD64 objects, including a pointer local whose address
+      escapes after the call.
       Native-Windows `test-debug-info` passes.
 - [ ] Register-only or optimized-away sources, source/destination type
       conversions, compound dynamic expressions, mutable-parameter tracking,
