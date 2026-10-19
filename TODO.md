@@ -6974,5 +6974,21 @@ remains a separate open item.
       them as `DW_AT_const_value` block values linked to abstract parameter DIEs.
 - [x] Verify `1.5f` and `2.25` byte-for-byte for legacy and verified optimized
       i686/AMD64 objects. The full `test-debug-info` target passes.
-- [ ] Floating conversions, folded expressions, mutable parameter locations,
-      and general optimized inline-variable location tracking remain open.
+- [ ] Floating conversions beyond the bounded cases tracked below, folded
+      expressions, mutable parameter locations, and general optimized
+      inline-variable location tracking remain open.
+
+## RCC continuation (2026-10-20, inline floating parameter conversions)
+
+- [x] Extend bounded scalar inlining to insert the parameter's typed cast for
+      `float`/`double` argument conversions. Record the converted IEEE-754
+      value for direct floating literal arguments, including source-float
+      rounding before float-to-double promotion; exclude non-finite and
+      out-of-range values from constant attribution.
+- [x] Verify runtime conversion results and actual O0-call/O1-inline behavior.
+      `test-optimize` and `test-debug-info` validate i686/AMD64, legacy and
+      verified optimized DWARF; `1.1f`→`double` and `1.1`→`float` values match
+      exact expected bits.
+- [ ] Long-double conversions, nonliteral folded expressions, pointer and
+      enum conversion attribution, mutable parameter locations, and general
+      optimized inline-variable location tracking remain open.

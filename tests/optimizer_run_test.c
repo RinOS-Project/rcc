@@ -549,6 +549,14 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_byte(optimized, "inlined_double_call", 0xe8u));
     assert(function_contains_byte(unoptimized, "inlined_float_call", 0xe8u));
     assert(!function_contains_byte(optimized, "inlined_float_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "inlined_float_to_double_parameter_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_float_to_double_parameter_call", 0xe8u));
+    assert(function_contains_byte(
+        unoptimized, "inlined_double_to_float_parameter_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_double_to_float_parameter_call", 0xe8u));
     assert(function_extent(optimized, "algebraic_integer_identities") <
            function_extent(unoptimized, "algebraic_integer_identities"));
     assert(function_extent(optimized, "algebraic_integer_mod_one") <
@@ -2198,6 +2206,8 @@ int main(int argc, char** argv)
         int (*inlined_conditional_cast_call)(int);
         int (*inlined_short_to_int_parameter_call)(short);
         unsigned int (*inlined_signed_to_unsigned_parameter_call)(int);
+        double (*inlined_float_to_double_parameter_call)(float);
+        float (*inlined_double_to_float_parameter_call)(double);
         int (*preserved_large_inline_call)(int);
         int (*inlined_forward_chain)(int);
         int (*inlined_deep_forward_chain)(int);
@@ -2819,6 +2829,20 @@ int main(int argc, char** argv)
             address = mapping + symbol->value;
             memcpy(&inlined_signed_to_unsigned_parameter_call, &address,
                    sizeof(inlined_signed_to_unsigned_parameter_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_float_to_double_parameter_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_float_to_double_parameter_call, &address,
+                   sizeof(inlined_float_to_double_parameter_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_double_to_float_parameter_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_double_to_float_parameter_call, &address,
+                   sizeof(inlined_double_to_float_parameter_call));
         }
         {
             ObjSymbol* preserved_large_inline_call_symbol = function_symbol(
@@ -3460,6 +3484,9 @@ int main(int argc, char** argv)
         assert(inlined_conditional_cast_call(8) == 12);
         assert(inlined_short_to_int_parameter_call((short)-123) == -123);
         assert(inlined_signed_to_unsigned_parameter_call(-1) == UINT32_MAX);
+        assert(inlined_float_to_double_parameter_call(1.1f) ==
+               (double)1.1f);
+        assert(inlined_double_to_float_parameter_call(1.1) == (float)1.1);
         assert(preserved_large_inline_call(2) == 32);
         assert(inlined_forward_chain(-8) == 1);
         assert(inlined_deep_forward_chain(-8) == 1);

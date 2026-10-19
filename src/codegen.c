@@ -11,6 +11,7 @@
 #include "cxx_exception_type.h"
 #include "optimize.h"
 #include <errno.h>
+#include <float.h>
 #include <limits.h>
 
 /* The C-only executable deliberately does not link the C++ frontend.  The
@@ -149,6 +150,7 @@ static bool debug_inline_capture_float_literal(
     const ExprList* argument, const Type* parameter_type,
     ModuleDebugInlineParameterValue* value) {
     const Type* argument_type;
+    double converted_value;
     if (!argument || !argument->expr || argument->cxx_temporary_owner ||
         argument->expr->kind != EXPR_FLOAT_LIT || !parameter_type ||
         !argument->expr->type || parameter_type->is_volatile ||
@@ -156,22 +158,40 @@ static bool debug_inline_capture_float_literal(
         return false;
     }
     argument_type = argument->expr->type;
-    if (parameter_type->kind == TYPE_FLOAT && parameter_type->size == 4 &&
-        argument_type->kind == TYPE_FLOAT && argument_type->size == 4) {
-        float converted = (float)argument->expr->float_val;
+    if (!((argument_type->kind == TYPE_FLOAT && argument_type->size == 4) ||
+          (argument_type->kind == TYPE_DOUBLE &&
+           argument_type->size == 8)) ||
+        !((parameter_type->kind == TYPE_FLOAT && parameter_type->size == 4) ||
+          (parameter_type->kind == TYPE_DOUBLE &&
+           parameter_type->size == 8))) {
+        return false;
+    }
+    converted_value = argument->expr->float_val;
+    if (argument_type->kind == TYPE_FLOAT) {
+        if (!(converted_value <= FLT_MAX &&
+              converted_value >= -FLT_MAX)) {
+            return false;
+        }
+        converted_value = (double)(float)converted_value;
+    } else if (!(converted_value <= DBL_MAX &&
+                 converted_value >= -DBL_MAX)) {
+        return false;
+    }
+    if (parameter_type->kind == TYPE_FLOAT) {
+        float converted;
         uint32_t bits;
+        if (!(converted_value <= FLT_MAX &&
+              converted_value >= -FLT_MAX)) {
+            return false;
+        }
+        converted = (float)converted_value;
         memcpy(&bits, &converted, sizeof(bits));
         value->float_bits = bits;
         value->float_size = (uint8_t)sizeof(bits);
-    } else if (parameter_type->kind == TYPE_DOUBLE &&
-               parameter_type->size == 8 &&
-               argument_type->kind == TYPE_DOUBLE &&
-               argument_type->size == 8) {
-        double converted = argument->expr->float_val;
-        memcpy(&value->float_bits, &converted, sizeof(converted));
-        value->float_size = (uint8_t)sizeof(converted);
     } else {
-        return false;
+        memcpy(&value->float_bits, &converted_value,
+               sizeof(converted_value));
+        value->float_size = (uint8_t)sizeof(converted_value);
     }
     value->has_float_constant = true;
     return true;

@@ -1542,10 +1542,17 @@ static bool inline_scalar_expression_shape(
     }
 }
 
-static bool inline_scalar_integer_parameter_conversion(
+static bool inline_scalar_parameter_conversion(
     Type* parameter_type, Type* argument_type) {
+    bool integer_conversion = parameter_type && argument_type &&
+        type_is_integer(parameter_type) && type_is_integer(argument_type);
+    bool floating_conversion = parameter_type && argument_type &&
+        ((parameter_type->kind == TYPE_FLOAT && parameter_type->size == 4) ||
+         (parameter_type->kind == TYPE_DOUBLE && parameter_type->size == 8)) &&
+        ((argument_type->kind == TYPE_FLOAT && argument_type->size == 4) ||
+         (argument_type->kind == TYPE_DOUBLE && argument_type->size == 8));
     return parameter_type && argument_type &&
-        type_is_integer(parameter_type) && type_is_integer(argument_type) &&
+        (integer_conversion || floating_conversion) &&
         !parameter_type->is_volatile && !parameter_type->is_reference &&
         !parameter_type->is_atomic && !argument_type->is_volatile &&
         !argument_type->is_reference && !argument_type->is_atomic &&
@@ -2823,7 +2830,7 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
                 !type_is_scalar(parameter->decl->type) ||
                 (!type_is_compatible(parameter->decl->type,
                                      argument->expr->type) &&
-                 !inline_scalar_integer_parameter_conversion(
+                 !inline_scalar_parameter_conversion(
                      parameter->decl->type, argument->expr->type)) ||
                 expression_has_side_effect(argument->expr)) {
                 return false;

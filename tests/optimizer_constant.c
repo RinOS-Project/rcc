@@ -679,6 +679,26 @@ int inlined_short_to_int_parameter_call(short value)
     return inline_integer_parameter(value);
 }
 
+static double inline_float_to_double_parameter(double value)
+{
+    return value;
+}
+
+double inlined_float_to_double_parameter_call(float value)
+{
+    return inline_float_to_double_parameter(value);
+}
+
+static float inline_double_to_float_parameter(float value)
+{
+    return value;
+}
+
+float inlined_double_to_float_parameter_call(double value)
+{
+    return inline_double_to_float_parameter(value);
+}
+
 static unsigned int inline_unsigned_parameter(unsigned int value)
 {
     return value;
