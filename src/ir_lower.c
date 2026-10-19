@@ -118,9 +118,16 @@ typedef struct RccIrLowerScopeCleanup {
     struct RccIrLowerScopeCleanup* allocated_next;
 } RccIrLowerScopeCleanup;
 
+typedef struct RccIrLowerVlaDimension {
+    const Type* type;
+    RccIrValue byte_extent;
+    struct RccIrLowerVlaDimension* next;
+} RccIrLowerVlaDimension;
+
 typedef struct RccIrLowerVlaAllocation {
     const Decl* declaration;
     RccIrValue stack_pointer;
+    RccIrLowerVlaDimension* dimensions;
     struct RccIrLowerVlaAllocation* previous_scope;
     struct RccIrLowerVlaAllocation* allocated_next;
 } RccIrLowerVlaAllocation;
@@ -1022,10 +1029,20 @@ static bool lower_vla_restore_count(
     return lower_stack_restore(context, allocation->stack_pointer);
 }
 
+static void lower_release_vla_dimensions(
+    RccIrLowerVlaDimension* dimension) {
+    while (dimension) {
+        RccIrLowerVlaDimension* next = dimension->next;
+        rcc_free(dimension);
+        dimension = next;
+    }
+}
+
 static void lower_release_vla_allocations(
     RccIrLowerVlaAllocation* allocation) {
     while (allocation) {
         RccIrLowerVlaAllocation* next = allocation->allocated_next;
+        lower_release_vla_dimensions(allocation->dimensions);
         rcc_free(allocation);
         allocation = next;
     }
@@ -1913,20 +1930,64 @@ static RccIrLowerValue lower_truth(RccIrLowerContext* context,
     return lower_value(compare->result, i1, true);
 }
 
+static const Decl* lower_vla_owner(const Expr* expression) {
+    while (expression) {
+        if (expression->kind == EXPR_INDEX) {
+            expression = expression->index_base;
+        } else if (expression->kind == EXPR_DEREF) {
+            expression = expression->unary_operand;
+        } else {
+            break;
+        }
+    }
+    if (expression && expression->kind == EXPR_IDENT &&
+        expression->ident_decl &&
+        expression->ident_decl->kind == DECL_VAR &&
+        expression->ident_decl->var_is_vla) {
+        return expression->ident_decl;
+    }
+    return NULL;
+}
+
+static bool lower_vla_saved_byte_extent(
+    const RccIrLowerContext* context, const Decl* declaration,
+    const Type* type, RccIrLowerValue* result) {
+    const RccIrLowerVlaAllocation* allocation;
+    uint16_t width = (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u);
+    if (!context || !declaration || !type || !result) return false;
+    for (allocation = context->vla_allocations; allocation;
+         allocation = allocation->previous_scope) {
+        const RccIrLowerVlaDimension* dimension;
+        if (allocation->declaration != declaration) continue;
+        for (dimension = allocation->dimensions; dimension;
+             dimension = dimension->next) {
+            if (dimension->type == type) {
+                *result = lower_value(
+                    dimension->byte_extent,
+                    rcc_ir_type_integer(width), true);
+                return result->valid;
+            }
+        }
+    }
+    return false;
+}
+
 static RccIrLowerValue lower_pointer_offset(
     RccIrLowerContext* context, RccIrLowerValue pointer,
     RccIrLowerValue index, const Type* pointer_type,
-    bool subtract_index) {
+    bool subtract_index, const Decl* vla_declaration) {
     const Type* index_type;
     RccIrLowerValue zero;
+    RccIrLowerValue dynamic_scale;
     RccIrValue operands[2];
     RccIrInstruction* instruction;
     uint64_t scale;
     if (!pointer_type ||
         (pointer_type->kind != TYPE_PTR &&
          pointer_type->kind != TYPE_ARRAY) ||
-        !pointer_type->base || pointer_type->base->size <= 0 ||
-        (uint64_t)pointer_type->base->size > (uint64_t)INT32_MAX) {
+        !pointer_type->base ||
+        (pointer_type->base->size > 0 &&
+         (uint64_t)pointer_type->base->size > (uint64_t)INT32_MAX)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
@@ -1934,6 +1995,54 @@ static RccIrLowerValue lower_pointer_offset(
         !index.valid || index.type.kind != RCC_IR_TYPE_INTEGER) {
         context->unsupported = true;
         return lower_invalid_value();
+    }
+    if (pointer_type->base->size <= 0) {
+        RccIrInstruction* scaled_offset;
+        RccIrLowerValue pointer_width_index;
+        RccIrType pointer_integer = rcc_ir_type_integer(
+            (uint16_t)(g_opts.target_arch == ARCH_X64 ? 64u : 32u));
+        if (!lower_vla_saved_byte_extent(
+                context, vla_declaration, pointer_type->base,
+                &dynamic_scale)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        pointer_width_index = lower_cast(
+            context, index, g_opts.target_arch == ARCH_X64
+                ? type_ulong : type_uint);
+        if (!pointer_width_index.valid ||
+            !rcc_ir_type_equal(pointer_width_index.type, pointer_integer)) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        if (subtract_index) {
+            zero = lower_integer_constant(
+                context, pointer_integer, true, 0u);
+            if (!zero.valid) return lower_invalid_value();
+            operands[0] = zero.value;
+            operands[1] = pointer_width_index.value;
+            instruction = lower_append(
+                context, RCC_IR_SUB, pointer_integer, operands, 2u,
+                NULL, 0u);
+            if (!instruction) return lower_invalid_value();
+            pointer_width_index = lower_value(
+                instruction->result, pointer_integer, true);
+        }
+        operands[0] = pointer_width_index.value;
+        operands[1] = dynamic_scale.value;
+        scaled_offset = lower_append(
+            context, RCC_IR_MUL, pointer_integer, operands, 2u,
+            NULL, 0u);
+        if (!scaled_offset) return lower_invalid_value();
+        operands[0] = pointer.value;
+        operands[1] = scaled_offset->result;
+        instruction = lower_append(
+            context, RCC_IR_GEP, rcc_ir_type_pointer(0u),
+            operands, 2u, NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        rcc_ir_set_immediate(instruction, 1u);
+        return lower_value(
+            instruction->result, rcc_ir_type_pointer(0u), true);
     }
     index_type = index.is_unsigned ? type_ulong : type_long;
     index = lower_cast(context, index, index_type);
@@ -1974,7 +2083,8 @@ static RccIrLowerValue lower_pointer_gep(
     index = lower_expression(context, index_expression);
     return lower_pointer_offset(context, pointer, index,
                                 pointer_expression->type,
-                                subtract_index);
+                                subtract_index,
+                                lower_vla_owner(pointer_expression));
 }
 
 static RccIrLowerValue lower_pointer_binary(
@@ -6618,7 +6728,7 @@ static RccIrLowerValue lower_compound_assignment(
         }
         result = lower_pointer_offset(
             context, left, right, expression->binary_lhs->type,
-            expression->kind == EXPR_SUB_ASSIGN);
+            expression->kind == EXPR_SUB_ASSIGN, NULL);
         if (!result.valid ||
             !lower_store_address(context, address, result)) {
             return lower_invalid_value();
@@ -6724,7 +6834,7 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
         if (!one.valid) return lower_invalid_value();
         new_value = lower_pointer_offset(
             context, old_value, one, expression->unary_operand->type,
-            !increment);
+            !increment, NULL);
         if (!new_value.valid ||
             !lower_store_address(context, address, new_value)) {
             return lower_invalid_value();
@@ -17615,61 +17725,79 @@ static RccIrLowerValue lower_compound_literal_address(
         allocation->result, rcc_ir_type_pointer(0u), true);
 }
 
-static bool lower_vla_fixed_element_type_supported(const Type* type) {
+static bool lower_vla_object_type_supported(const Type* type) {
     RccIrType lower_type_result;
-    if (!type || type->size <= 0 || type->align <= 0 ||
-        type->align > 4096 ||
+    if (!type || type->align <= 0 || type->align > 4096 ||
         (type->align & (type->align - 1)) != 0 || type->is_volatile) {
         return false;
     }
     if (type->kind == TYPE_ARRAY) {
-        return type->base && type->array_len > 0 && !type->array_bound &&
-            !type->array_unspecified_bound &&
-            lower_vla_fixed_element_type_supported(type->base);
+        return type->base && !type->array_unspecified_bound &&
+            (type->array_bound || type->array_len > 0) &&
+            lower_vla_object_type_supported(type->base);
     }
-    return lower_type(type, &lower_type_result) &&
+    return type->size > 0 && lower_type(type, &lower_type_result) &&
         lower_type_result.kind != RCC_IR_TYPE_VOID;
 }
 
 static bool lower_supported_vla_declaration(
     const Decl* declaration) {
     const Type* type = declaration ? declaration->type : NULL;
-    const Type* element = type && type->kind == TYPE_ARRAY
-        ? type->base : NULL;
     return declaration && declaration->var_is_vla &&
-        type && type->kind == TYPE_ARRAY && type->array_bound &&
-        element &&
-        lower_vla_fixed_element_type_supported(element) &&
-        element->align > 0 && element->align <= 4096 &&
-        (element->align & (element->align - 1)) == 0 &&
+        type && type->kind == TYPE_ARRAY &&
+        lower_vla_object_type_supported(type) &&
         !declaration->var_init && !declaration->var_cleanup &&
         !declaration->var_cleanups;
 }
 
 static RccIrLowerValue lower_supported_vla_byte_size(
-    RccIrLowerContext* context, const Type* type) {
+    RccIrLowerContext* context, const Type* type,
+    RccIrLowerVlaAllocation* allocation) {
     RccIrType size_type;
+    RccIrLowerValue base_size;
     RccIrLowerValue bound;
-    RccIrLowerValue element_size;
+    RccIrLowerValue result;
     RccIrValue operands[2];
     RccIrInstruction* multiply;
+    RccIrLowerVlaDimension* dimension;
     bool x64 = g_opts.target_arch == ARCH_X64;
     size_type = rcc_ir_type_integer(x64 ? 64u : 32u);
-    bound = lower_expression(context, type->array_bound);
-    bound = lower_cast(context, bound, x64 ? type_ulong : type_uint);
-    element_size = lower_integer_constant(
-        context, size_type, true, (uint64_t)type->base->size);
-    if (!bound.valid || !element_size.valid ||
+    if (!type || type->kind != TYPE_ARRAY || !type->base || !allocation) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (type->base->kind == TYPE_ARRAY) {
+        base_size = lower_supported_vla_byte_size(
+            context, type->base, allocation);
+    } else {
+        base_size = lower_integer_constant(
+            context, size_type, true, (uint64_t)type->base->size);
+    }
+    if (type->array_bound) {
+        bound = lower_expression(context, type->array_bound);
+        bound = lower_cast(context, bound, x64 ? type_ulong : type_uint);
+    } else {
+        bound = lower_integer_constant(
+            context, size_type, true, (uint64_t)type->array_len);
+    }
+    if (!base_size.valid || !bound.valid ||
+        !rcc_ir_type_equal(base_size.type, size_type) ||
         !rcc_ir_type_equal(bound.type, size_type)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
-    operands[0] = bound.value;
-    operands[1] = element_size.value;
+    operands[0] = base_size.value;
+    operands[1] = bound.value;
     multiply = lower_append(
         context, RCC_IR_MUL, size_type, operands, 2u, NULL, 0u);
     if (!multiply) return lower_invalid_value();
-    return lower_value(multiply->result, size_type, true);
+    result = lower_value(multiply->result, size_type, true);
+    dimension = rcc_alloc(sizeof(*dimension));
+    dimension->type = type;
+    dimension->byte_extent = result.value;
+    dimension->next = allocation->dimensions;
+    allocation->dimensions = dimension;
+    return result;
 }
 
 static bool lower_declaration(RccIrLowerContext* context,
@@ -17752,26 +17880,38 @@ static bool lower_declaration(RccIrLowerContext* context,
         return false;
     }
     if (is_supported_vla) {
+        RccIrLowerVlaAllocation* vla_allocation =
+            rcc_alloc(sizeof(*vla_allocation));
         RccIrLowerValue byte_size = lower_supported_vla_byte_size(
-            context, declaration->type);
+            context, declaration->type, vla_allocation);
         RccIrLowerValue stack_pointer;
         RccIrInstruction* dynamic_allocation;
-        RccIrLowerVlaAllocation* vla_allocation;
         RccIrValue size_operand;
-        if (!byte_size.valid) return false;
+        vla_allocation->declaration = declaration;
+        if (!byte_size.valid) {
+            lower_release_vla_dimensions(vla_allocation->dimensions);
+            rcc_free(vla_allocation);
+            return false;
+        }
         stack_pointer = lower_stack_save(context);
-        if (!stack_pointer.valid) return false;
+        if (!stack_pointer.valid) {
+            lower_release_vla_dimensions(vla_allocation->dimensions);
+            rcc_free(vla_allocation);
+            return false;
+        }
         size_operand = byte_size.value;
         dynamic_allocation = lower_append(
             context, RCC_IR_DYNAMIC_ALLOCA,
             rcc_ir_type_pointer(0u), &size_operand, 1u, NULL, 0u);
-        if (!dynamic_allocation) return false;
+        if (!dynamic_allocation) {
+            lower_release_vla_dimensions(vla_allocation->dimensions);
+            rcc_free(vla_allocation);
+            return false;
+        }
         rcc_ir_set_immediate(
             dynamic_allocation,
             (uint64_t)declaration->type->base->align);
         dynamic_allocation->source_declaration = declaration;
-        vla_allocation = rcc_alloc(sizeof(*vla_allocation));
-        vla_allocation->declaration = declaration;
         vla_allocation->stack_pointer = stack_pointer.value;
         vla_allocation->previous_scope = context->vla_allocations;
         vla_allocation->allocated_next =

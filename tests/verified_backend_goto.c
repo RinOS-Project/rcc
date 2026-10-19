@@ -337,6 +337,14 @@ int verified_goto_vla_fixed_inner_arrays(int count)
     return value;
 }
 
+int verified_goto_vla_multiple_runtime_dimensions(int rows, int cols)
+{
+    int values[rows][cols];
+    values[1][2] = 73;
+    cols = 1;
+    return values[1][2];
+}
+
 int verified_goto_vla_continue(int count, int rounds)
 {
     int total = 0;
@@ -447,5 +455,8 @@ int main(void)
     if (verified_goto_vla_while_edges(32) != 4) return 46;
     if (verified_goto_vla_do_edges(32) != 4) return 47;
     if (verified_goto_vla_fixed_inner_arrays(4) != 22) return 48;
+    if (verified_goto_vla_multiple_runtime_dimensions(4, 5) != 73) {
+        return 49;
+    }
     return 0;
 }
