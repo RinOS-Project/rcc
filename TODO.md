@@ -459,9 +459,14 @@
         fixtureを生成する。verified i686/AMD64 objectはfallback 0で実行成功し、
         i686 COFFもassemble、通常AMD64 hostでも成功。同じfixtureで`float`/`double`
         aggregateのvalue-initializationがゼロになることも実行確認。
-  - [ ] verified backendでempty-body/noexcept constructorとscalar memberを超える
-        constructor/body、nontrivial base initialization、nontrivial/deleted target
-        copy constructor、call引数以外のfull-expression cleanup、例外経路を実装・検証。
+  - [x] local class constructor call loweringでSSA value id `0`を有効値として
+        扱い、`RCC_IR_VALUE_NONE`だけを無効値とする。scalar memberをparameterで
+        初期化し、non-empty `noexcept` bodyでscalar演算・代入するfixtureを追加。
+        `test-verified-cxx-reference-local` はi686/AMD64 `-O2`で8関数・fallback 0、
+        両verified object実行と通常AMD64 host実行に成功。
+  - [ ] verified backendで複数scalar member/parameterやより一般的なconstructor
+        body、nontrivial base initialization、nontrivial/deleted target copy
+        constructor、call引数以外のfull-expression cleanup、例外経路を実装・検証。
         標準conversion subsequenceとpointer-to-memberを含む全rank/partial orderingも
         未完了
   - [x] Namespace extension compatibility: verify reopened named and
@@ -6866,3 +6871,17 @@ remains a separate open item.
       aggregate pass for i686/AMD64 output and x64 execution.
 - [ ] Other conversion-sequence ties, ref-qualified inheritance combinations,
       and full C++20 overload-resolution conformance remain open.
+
+## RCC continuation (2026-10-20, zero-valued local constructor operand)
+
+- [x] Treat IR value id `0` as a valid object operand for a direct local
+      constructor call, rejecting only `RCC_IR_VALUE_NONE`. The regression
+      constructs a scalar-member object whose `noexcept` constructor performs
+      arithmetic and assignment in its body.
+- [x] `test-verified-cxx-reference-local` passes i686/AMD64 `-O2` verified
+      emission with 8 functions and zero fallbacks, executes both verified
+      objects, assembles ordinary i686 output, and executes ordinary AMD64 host
+      output. Implementation/test commit: `ab380ab`.
+- [ ] General constructor bodies, nontrivial base and copy construction,
+      full-expression cleanup outside call arguments, and exception/unwind
+      interactions remain open.
