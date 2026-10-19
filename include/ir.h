@@ -13,14 +13,15 @@
 #define RCC_IR_BLOCK_NONE UINT32_MAX
 #define RCC_IR_SYSV_VA_SAVE_AREA_SIZE 176u
 
-/* RCC_IR_CAPTURE_RETURN_PAIR metadata for x86-64 SysV mixed-class results.
- * The low byte is the aggregate size; the marker identifies which eightbyte
- * is returned in XMM0. Unmarked aggregate pairs contain two INTEGER classes. */
+/* RCC_IR_CAPTURE_RETURN_PAIR metadata for x86-64 SysV aggregate results.
+ * The low byte is the aggregate size; the marker encodes the classes of the
+ * two eightbytes. SSE classes use XMM registers in increasing class order. */
 #define RCC_IR_RETURN_PAIR_SIZE_MASK UINT64_C(0xff)
 #define RCC_IR_RETURN_PAIR_KIND_MASK UINT64_C(0x300)
 #define RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER UINT64_C(0x000)
 #define RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER UINT64_C(0x100)
 #define RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE UINT64_C(0x200)
+#define RCC_IR_RETURN_PAIR_KIND_SSE_SSE UINT64_C(0x300)
 
 typedef uint32_t RccIrValue;
 typedef uint32_t RccIrBlockId;

@@ -17892,7 +17892,187 @@ test-rinvalidate-dynamic-tls: $(RCC_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		--rinvalidate "$(abspath $(RINVALIDATE))" \
 		--output-dir "$(abspath $(TEST_OUT)/rinvalidate-dynamic-tls/runtime)"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-partial-array-init test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
+test-verified-sysv-sse-pair-return: $(RCC_TARGET) $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-sse-pair-c-x64.ro \
+		tests/verified_backend_sse_pair_aggregate_return.c \
+		>$(TEST_OUT)/verified-backend/sysv-sse-pair-c-x64.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-sse-pair-c-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-sse-pair-c-x64.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-sse-pair-c-x64-o2.ro \
+		tests/verified_backend_sse_pair_aggregate_return.c \
+		>$(TEST_OUT)/verified-backend/sysv-sse-pair-c-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-sse-pair-c-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-sse-pair-c-x64-o2.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-sse-pair-cxx-x64.ro \
+		tests/verified_backend_sse_pair_aggregate_return.cpp \
+		>$(TEST_OUT)/verified-backend/sysv-sse-pair-cxx-x64.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-sse-pair-cxx-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-sse-pair-cxx-x64.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-sse-pair-cxx-x64-o2.ro \
+		tests/verified_backend_sse_pair_aggregate_return.cpp \
+		>$(TEST_OUT)/verified-backend/sysv-sse-pair-cxx-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 8 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-sse-pair-cxx-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-sse-pair-cxx-x64-o2.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-sse-single-c-x64.ro \
+		tests/verified_backend_array_fallback.c \
+		>$(TEST_OUT)/verified-backend/sysv-sse-single-c-x64.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-sse-single-c-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-sse-single-c-x64.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-sse-single-c-x64-o2.ro \
+		tests/verified_backend_array_fallback.c \
+		>$(TEST_OUT)/verified-backend/sysv-sse-single-c-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-sse-single-c-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-sse-single-c-x64-o2.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-mixed-c-x64.ro \
+		tests/verified_backend_mixed_aggregate_return.c \
+		>$(TEST_OUT)/verified-backend/sysv-mixed-c-x64.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-mixed-c-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-mixed-c-x64.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-mixed-c-x64-o2.ro \
+		tests/verified_backend_mixed_aggregate_return.c \
+		>$(TEST_OUT)/verified-backend/sysv-mixed-c-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 6 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-mixed-c-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-mixed-c-x64-o2.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64.ro \
+		tests/verified_backend_sse_aggregate_return.cpp \
+		>$(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64.log
+	$(GREP) -F -q 'Verified backend: 12 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64-o2.ro \
+		tests/verified_backend_sse_aggregate_return.cpp \
+		>$(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 12 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64-o2.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c $(SRCDIR)/utils.c \
+		$(CXX_HOST_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-sse-pair-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-sse-pair-c-x64.ro \
+		verified_sse_pair_double_round_trip verified_sse_pair_double_first \
+		verified_sse_pair_double_second verified_sse_pair_double_conditional \
+		verified_sse_triple_float_round_trip verified_sse_triple_float_first \
+		verified_sse_triple_float_third verified_sse_triple_float_conditional
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-sse-pair-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-sse-pair-c-x64-o2.ro \
+		verified_sse_pair_double_round_trip verified_sse_pair_double_first \
+		verified_sse_pair_double_second verified_sse_pair_double_conditional \
+		verified_sse_triple_float_round_trip verified_sse_triple_float_first \
+		verified_sse_triple_float_third verified_sse_triple_float_conditional
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-sse-pair-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-sse-pair-cxx-x64.ro \
+		verified_sse_pair_double_round_trip verified_sse_pair_double_first \
+		verified_sse_pair_double_second verified_sse_pair_double_conditional \
+		verified_sse_triple_float_round_trip verified_sse_triple_float_first \
+		verified_sse_triple_float_third verified_sse_triple_float_conditional
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-sse-pair-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-sse-pair-cxx-x64-o2.ro \
+		verified_sse_pair_double_round_trip verified_sse_pair_double_first \
+		verified_sse_pair_double_second verified_sse_pair_double_conditional \
+		verified_sse_triple_float_round_trip verified_sse_triple_float_first \
+		verified_sse_triple_float_third verified_sse_triple_float_conditional
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-sse-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-sse-single-c-x64.ro \
+		verified_aggregate_return_fallback verified_aggregate_return_call_value \
+		verified_aggregate_float_return_fallback \
+		verified_aggregate_float_call_value \
+		verified_aggregate_return_conditional \
+		verified_aggregate_float_return_conditional
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-sse-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-sse-single-c-x64-o2.ro \
+		verified_aggregate_return_fallback verified_aggregate_return_call_value \
+		verified_aggregate_float_return_fallback \
+		verified_aggregate_float_call_value \
+		verified_aggregate_return_conditional \
+		verified_aggregate_float_return_conditional
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-mixed-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-mixed-c-x64.ro \
+		verified_mixed_integer_sse_round_trip \
+		verified_mixed_integer_sse_call_integer \
+		verified_mixed_integer_sse_call_value \
+		verified_mixed_sse_integer_round_trip \
+		verified_mixed_sse_integer_call_value \
+		verified_mixed_sse_integer_call_integer
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-mixed-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-mixed-c-x64-o2.ro \
+		verified_mixed_integer_sse_round_trip \
+		verified_mixed_integer_sse_call_integer \
+		verified_mixed_integer_sse_call_value \
+		verified_mixed_sse_integer_round_trip \
+		verified_mixed_sse_integer_call_value \
+		verified_mixed_sse_integer_call_integer
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-sse-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64.ro \
+		verified_sse_aggregate_round_trip \
+		verified_sse_aggregate_call_value \
+		verified_sse_aggregate_float_round_trip \
+		verified_sse_aggregate_float_call_value \
+		verified_sse_aggregate_conditional \
+		verified_sse_aggregate_float_conditional
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-sse-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64-o2.ro \
+		verified_sse_aggregate_round_trip \
+		verified_sse_aggregate_call_value \
+		verified_sse_aggregate_float_round_trip \
+		verified_sse_aggregate_float_call_value \
+		verified_sse_aggregate_conditional \
+		verified_sse_aggregate_float_conditional
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-mixed-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64.ro \
+		verified_mixed_integer_sse_round_trip \
+		verified_mixed_integer_sse_call_integer \
+		verified_mixed_integer_sse_call_value \
+		verified_mixed_sse_integer_round_trip \
+		verified_mixed_sse_integer_call_value \
+		verified_mixed_sse_integer_call_integer
+	$(TEST_OUT)/verified-backend/verify-sysv-sse-pair \
+		--sysv-mixed-aggregate-return-object \
+		$(TEST_OUT)/verified-backend/sysv-single-mixed-cxx-x64-o2.ro \
+		verified_mixed_integer_sse_round_trip \
+		verified_mixed_integer_sse_call_integer \
+		verified_mixed_integer_sse_call_value \
+		verified_mixed_sse_integer_round_trip \
+		verified_mixed_sse_integer_call_value \
+		verified_mixed_sse_integer_call_integer
+	@echo "SysV two-SSE aggregate return tests completed"
+
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-partial-array-init test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested test-verified-sysv-sse-pair-return
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \

@@ -5544,6 +5544,228 @@ static void verify_sysv_mixed_aggregate_return_object(
     objfile_free(object);
 }
 
+struct VerifiedSsePairDoubleReturn {
+    double first;
+    double second;
+};
+
+struct VerifiedSseTripleFloatReturn {
+    float first;
+    float second;
+    float third;
+};
+
+static void verify_sysv_sse_pair_aggregate_return_object(
+    const char* path, const char* double_round_trip_name,
+    const char* double_first_name, const char* double_second_name,
+    const char* double_conditional_name,
+    const char* float_round_trip_name, const char* float_first_name,
+    const char* float_third_name, const char* float_conditional_name)
+{
+    static const uint64_t double_patterns[] = {
+        UINT64_C(0), UINT64_C(0x8000000000000000),
+        UINT64_C(0x3ff0000000000000), UINT64_C(0xc02a000000000000),
+        UINT64_C(0x7ff0000000000000), UINT64_C(0x7ff8000000001234),
+        UINT64_C(0x7ff0000000000001),
+    };
+    static const uint32_t float_patterns[] = {
+        UINT32_C(0), UINT32_C(0x80000000), UINT32_C(0x3f800000),
+        UINT32_C(0xc02a0000), UINT32_C(0x7f800000),
+        UINT32_C(0x7fc01234), UINT32_C(0x7f800001),
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* symbols[8];
+    const char* names[8] = {
+        double_round_trip_name, double_first_name, double_second_name,
+        double_conditional_name, float_round_trip_name, float_first_name,
+        float_third_name, float_conditional_name,
+    };
+    size_t mapping_size;
+    void* memory;
+    void* addresses[8];
+    struct VerifiedSsePairDoubleReturn (RINOS_ABI *double_round_trip)(
+        struct VerifiedSsePairDoubleReturn);
+    double (RINOS_ABI *double_first)(struct VerifiedSsePairDoubleReturn);
+    double (RINOS_ABI *double_second)(struct VerifiedSsePairDoubleReturn);
+    struct VerifiedSsePairDoubleReturn (RINOS_ABI *double_conditional)(
+        int, struct VerifiedSsePairDoubleReturn,
+        struct VerifiedSsePairDoubleReturn);
+    struct VerifiedSseTripleFloatReturn (RINOS_ABI *float_round_trip)(
+        struct VerifiedSseTripleFloatReturn);
+    float (RINOS_ABI *float_first)(struct VerifiedSseTripleFloatReturn);
+    float (RINOS_ABI *float_third)(struct VerifiedSseTripleFloatReturn);
+    struct VerifiedSseTripleFloatReturn (RINOS_ABI *float_conditional)(
+        int, struct VerifiedSseTripleFloatReturn,
+        struct VerifiedSseTripleFloatReturn);
+    assert(sizeof(struct VerifiedSsePairDoubleReturn) == 16u);
+    assert(sizeof(struct VerifiedSseTripleFloatReturn) == 12u);
+    assert(object != NULL && object->arch == ARCH_X64);
+    text = objfile_get_section(object, ".text");
+    assert(text != NULL);
+    for (size_t index = 0u; index < 8u; ++index) {
+        symbols[index] = objfile_find_symbol(object, names[index]);
+        assert(symbols[index] != NULL &&
+               symbols[index]->type == SYM_GLOBAL &&
+               symbols[index]->binding == BIND_CODE &&
+               symbols[index]->section == 0);
+    }
+    memory = map_text(object, text, &mapping_size);
+    for (size_t index = 0u; index < 8u; ++index) {
+        addresses[index] = symbol_address(memory, symbols[index]);
+    }
+    memcpy(&double_round_trip, &addresses[0], sizeof(double_round_trip));
+    memcpy(&double_first, &addresses[1], sizeof(double_first));
+    memcpy(&double_second, &addresses[2], sizeof(double_second));
+    memcpy(&double_conditional, &addresses[3], sizeof(double_conditional));
+    memcpy(&float_round_trip, &addresses[4], sizeof(float_round_trip));
+    memcpy(&float_first, &addresses[5], sizeof(float_first));
+    memcpy(&float_third, &addresses[6], sizeof(float_third));
+    memcpy(&float_conditional, &addresses[7], sizeof(float_conditional));
+    for (size_t index = 0u;
+         index < sizeof(double_patterns) / sizeof(double_patterns[0]);
+         ++index) {
+        size_t second_index =
+            (index + 3u) % (sizeof(double_patterns) /
+                            sizeof(double_patterns[0]));
+        struct VerifiedSsePairDoubleReturn input;
+        struct VerifiedSsePairDoubleReturn output;
+        uint64_t first_bits;
+        uint64_t second_bits;
+        uint64_t extracted_bits;
+        memcpy(&input.first, &double_patterns[index], sizeof(input.first));
+        memcpy(&input.second, &double_patterns[second_index],
+               sizeof(input.second));
+        output = double_round_trip(input);
+        memcpy(&first_bits, &output.first, sizeof(first_bits));
+        memcpy(&second_bits, &output.second, sizeof(second_bits));
+        assert(first_bits == double_patterns[index]);
+        assert(second_bits == double_patterns[second_index]);
+        {
+            double extracted = double_first(input);
+            memcpy(&extracted_bits, &extracted, sizeof(extracted_bits));
+        }
+        assert(extracted_bits == double_patterns[index]);
+        {
+            double extracted = double_second(input);
+            memcpy(&extracted_bits, &extracted, sizeof(extracted_bits));
+        }
+        assert(extracted_bits == double_patterns[second_index]);
+        {
+            struct VerifiedSsePairDoubleReturn alternate;
+            struct VerifiedSsePairDoubleReturn selected;
+            size_t alternate_first =
+                (index + 1u) % (sizeof(double_patterns) /
+                                sizeof(double_patterns[0]));
+            size_t alternate_second =
+                (index + 2u) % (sizeof(double_patterns) /
+                                sizeof(double_patterns[0]));
+            uint64_t selected_first_bits;
+            uint64_t selected_second_bits;
+            memcpy(&alternate.first, &double_patterns[alternate_first],
+                   sizeof(alternate.first));
+            memcpy(&alternate.second, &double_patterns[alternate_second],
+                   sizeof(alternate.second));
+            selected = double_conditional(1, input, alternate);
+            memcpy(&selected_first_bits, &selected.first,
+                   sizeof(selected_first_bits));
+            memcpy(&selected_second_bits, &selected.second,
+                   sizeof(selected_second_bits));
+            assert(selected_first_bits == double_patterns[index]);
+            assert(selected_second_bits == double_patterns[second_index]);
+            selected = double_conditional(0, input, alternate);
+            memcpy(&selected_first_bits, &selected.first,
+                   sizeof(selected_first_bits));
+            memcpy(&selected_second_bits, &selected.second,
+                   sizeof(selected_second_bits));
+            assert(selected_first_bits == double_patterns[alternate_first]);
+            assert(selected_second_bits == double_patterns[alternate_second]);
+        }
+    }
+    for (size_t index = 0u;
+         index < sizeof(float_patterns) / sizeof(float_patterns[0]);
+         ++index) {
+        size_t second_index =
+            (index + 2u) % (sizeof(float_patterns) /
+                            sizeof(float_patterns[0]));
+        size_t third_index =
+            (index + 4u) % (sizeof(float_patterns) /
+                            sizeof(float_patterns[0]));
+        struct VerifiedSseTripleFloatReturn input;
+        struct VerifiedSseTripleFloatReturn output;
+        uint32_t first_bits;
+        uint32_t second_bits;
+        uint32_t third_bits;
+        uint32_t extracted_bits;
+        memcpy(&input.first, &float_patterns[index], sizeof(input.first));
+        memcpy(&input.second, &float_patterns[second_index],
+               sizeof(input.second));
+        memcpy(&input.third, &float_patterns[third_index],
+               sizeof(input.third));
+        output = float_round_trip(input);
+        memcpy(&first_bits, &output.first, sizeof(first_bits));
+        memcpy(&second_bits, &output.second, sizeof(second_bits));
+        memcpy(&third_bits, &output.third, sizeof(third_bits));
+        assert(first_bits == float_patterns[index]);
+        assert(second_bits == float_patterns[second_index]);
+        assert(third_bits == float_patterns[third_index]);
+        {
+            float extracted = float_first(input);
+            memcpy(&extracted_bits, &extracted, sizeof(extracted_bits));
+        }
+        assert(extracted_bits == float_patterns[index]);
+        {
+            float extracted = float_third(input);
+            memcpy(&extracted_bits, &extracted, sizeof(extracted_bits));
+        }
+        assert(extracted_bits == float_patterns[third_index]);
+        {
+            struct VerifiedSseTripleFloatReturn alternate;
+            struct VerifiedSseTripleFloatReturn selected;
+            size_t alternate_first =
+                (index + 1u) % (sizeof(float_patterns) /
+                                sizeof(float_patterns[0]));
+            size_t alternate_second =
+                (index + 3u) % (sizeof(float_patterns) /
+                                sizeof(float_patterns[0]));
+            size_t alternate_third =
+                (index + 5u) % (sizeof(float_patterns) /
+                                sizeof(float_patterns[0]));
+            uint32_t selected_first_bits;
+            uint32_t selected_second_bits;
+            uint32_t selected_third_bits;
+            memcpy(&alternate.first, &float_patterns[alternate_first],
+                   sizeof(alternate.first));
+            memcpy(&alternate.second, &float_patterns[alternate_second],
+                   sizeof(alternate.second));
+            memcpy(&alternate.third, &float_patterns[alternate_third],
+                   sizeof(alternate.third));
+            selected = float_conditional(1, input, alternate);
+            memcpy(&selected_first_bits, &selected.first,
+                   sizeof(selected_first_bits));
+            memcpy(&selected_second_bits, &selected.second,
+                   sizeof(selected_second_bits));
+            memcpy(&selected_third_bits, &selected.third,
+                   sizeof(selected_third_bits));
+            assert(selected_first_bits == float_patterns[index]);
+            assert(selected_second_bits == float_patterns[second_index]);
+            assert(selected_third_bits == float_patterns[third_index]);
+            selected = float_conditional(0, input, alternate);
+            memcpy(&selected_first_bits, &selected.first,
+                   sizeof(selected_first_bits));
+            memcpy(&selected_second_bits, &selected.second,
+                   sizeof(selected_second_bits));
+            memcpy(&selected_third_bits, &selected.third,
+                   sizeof(selected_third_bits));
+            assert(selected_first_bits == float_patterns[alternate_first]);
+            assert(selected_second_bits == float_patterns[alternate_second]);
+            assert(selected_third_bits == float_patterns[alternate_third]);
+        }
+    }
+    assert(verified_unmap(memory, mapping_size) == 0);
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
     if (argc == 9 &&
@@ -5558,6 +5780,14 @@ int main(int argc, char** argv)
         verify_sysv_mixed_aggregate_return_object(
             argv[2], argv[3], argv[4], argv[5], argv[6], argv[7], argv[8]);
         puts("Verified x86-64 SysV mixed INTEGER/SSE aggregate return passed");
+        return 0;
+    }
+    if (argc == 11 &&
+        strcmp(argv[1], "--sysv-sse-pair-aggregate-return-object") == 0) {
+        verify_sysv_sse_pair_aggregate_return_object(
+            argv[2], argv[3], argv[4], argv[5], argv[6], argv[7], argv[8],
+            argv[9], argv[10]);
+        puts("Verified x86-64 SysV two-SSE aggregate return passed");
         return 0;
     }
     if (argc == 4 &&

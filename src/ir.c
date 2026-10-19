@@ -886,7 +886,10 @@ static bool ir_verify_instruction_types(
                          RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
                      (instruction->immediate &
                       RCC_IR_RETURN_PAIR_KIND_MASK) ==
-                         RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE) &&
+                         RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE ||
+                     (instruction->immediate &
+                      RCC_IR_RETURN_PAIR_KIND_MASK) ==
+                         RCC_IR_RETURN_PAIR_KIND_SSE_SSE) &&
                     (instruction->immediate &
                      ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
                        RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u &&
@@ -966,10 +969,21 @@ static bool ir_verify_instruction_types(
                     return false;
                 }
                 if (aggregate_pair &&
+                    pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_SSE &&
+                    (!ir_operand_has_type(
+                         verifier, instruction, 0u,
+                         rcc_ir_type_float(64u)) ||
+                     !ir_operand_has_type(
+                         verifier, instruction, 1u,
+                         rcc_ir_type_float(64u)))) {
+                    return false;
+                }
+                if (aggregate_pair &&
                     pair_kind !=
                         RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER &&
                     pair_kind != RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER &&
-                    pair_kind != RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE) {
+                    pair_kind != RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE &&
+                    pair_kind != RCC_IR_RETURN_PAIR_KIND_SSE_SSE) {
                     return ir_verify_error(
                         verifier, "return-pair class metadata is invalid");
                 }

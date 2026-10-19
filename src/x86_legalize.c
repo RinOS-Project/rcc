@@ -126,6 +126,12 @@ static bool x86_legal_pair_return_supported(
          instruction->operand_types[1].kind == RCC_MIR_TYPE_FLOAT &&
          instruction->operand_types[1].bit_width == 64u;
     }
+    if (pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_SSE) {
+        return instruction->operand_types[0].kind == RCC_MIR_TYPE_FLOAT &&
+         instruction->operand_types[0].bit_width == 64u &&
+         instruction->operand_types[1].kind == RCC_MIR_TYPE_FLOAT &&
+         instruction->operand_types[1].bit_width == 64u;
+    }
     return false;
 }
 
@@ -141,7 +147,8 @@ static bool x86_legal_capture_return_metadata_supported(
                        RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u &&
         (kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER ||
          kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
-         kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE);
+         kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE ||
+         kind == RCC_IR_RETURN_PAIR_KIND_SSE_SSE);
 }
 
 static uint32_t x86_legal_hardware_callee_mask(const RccX86Abi* abi) {
@@ -1338,7 +1345,13 @@ static bool x86_legalize_return(
             error, error_size)) return false;
     if (pair_return) {
         RccX86Value destinations[2];
-        if (source->operand_types[0].kind == RCC_MIR_TYPE_FLOAT ||
+        if (source->operand_types[0].kind == RCC_MIR_TYPE_FLOAT &&
+            source->operand_types[1].kind == RCC_MIR_TYPE_FLOAT) {
+            destinations[0] = x86_legal_fixed_fpr(
+                0u, source->operand_types[0], abi);
+            destinations[1] = x86_legal_fixed_fpr(
+                1u, source->operand_types[1], abi);
+        } else if (source->operand_types[0].kind == RCC_MIR_TYPE_FLOAT ||
             source->operand_types[1].kind == RCC_MIR_TYPE_FLOAT) {
             destinations[0] = source->operand_types[0].kind ==
                     RCC_MIR_TYPE_FLOAT
@@ -1520,7 +1533,8 @@ static bool x86_legal_selected_shape(
                      (pair_kind ==
                           RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER ||
                       pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
-                      pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE));
+                      pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE ||
+                      pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_SSE));
                 return !instruction->has_destination &&
                 instruction->operand_count == 1u &&
                 instruction->target_count == 0u &&
@@ -1763,19 +1777,27 @@ static bool x86_legal_verify_return(
         const RccX86LegalInstruction* input = instruction->previous;
         bool pair_return = instruction->auxiliary == 2u;
         bool found_low = false;
+        bool found_low_gpr = false;
         bool found_high = false;
-        bool found_sse = false;
+        bool found_sse0 = false;
+        bool found_sse1 = false;
         while (input && input->opcode == RCC_X86_LEGAL_COPY) {
             if (input->type.kind == RCC_MIR_TYPE_FLOAT &&
                 input->has_destination &&
                 input->destination.kind == RCC_X86_VALUE_FPR &&
                 input->destination.fpr == 0u) {
                 found_low = true;
-                found_sse = true;
+                found_sse0 = true;
+            } else if (input->type.kind == RCC_MIR_TYPE_FLOAT &&
+                input->has_destination &&
+                input->destination.kind == RCC_X86_VALUE_FPR &&
+                input->destination.fpr == 1u) {
+                found_sse1 = true;
             } else if (input->has_destination &&
                 input->destination.kind == RCC_X86_VALUE_GPR) {
                 if (input->destination.gpr == abi->return_low) {
                     found_low = true;
+                    found_low_gpr = true;
                 }
                 if (input->destination.gpr == abi->return_high) {
                     found_high = true;
@@ -1799,11 +1821,23 @@ static bool x86_legal_verify_return(
                  (pair_kind ==
                       RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER ||
                   pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
-                  pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE));
-            bool valid_registers = found_low &&
-                (pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
-                 pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE
-                     ? found_sse : found_high);
+                  pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE ||
+                  pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_SSE));
+            bool valid_registers;
+            if (function->target == RCC_X86_TARGET_I686 ||
+                pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER) {
+                valid_registers = found_low_gpr && found_high;
+            } else if (pair_kind ==
+                       RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER) {
+                valid_registers = found_sse0 && found_low_gpr;
+            } else if (pair_kind ==
+                       RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE) {
+                valid_registers = found_low_gpr && found_sse0;
+            } else if (pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_SSE) {
+                valid_registers = found_sse0 && found_sse1;
+            } else {
+                valid_registers = false;
+            }
             if (!valid_pair_metadata) {
                 return x86_legal_error(
                     error, error_size,
@@ -2037,7 +2071,10 @@ bool rcc_x86_verify_legal_function(
                          RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
                      (instruction->immediate &
                       RCC_IR_RETURN_PAIR_KIND_MASK) ==
-                         RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE)))) ||
+                         RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE ||
+                    (instruction->immediate &
+                     RCC_IR_RETURN_PAIR_KIND_MASK) ==
+                         RCC_IR_RETURN_PAIR_KIND_SSE_SSE)))) ||
                 (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
                  instruction->selected_opcode ==
                      RCC_X86_CAPTURE_RETURN_PAIR &&

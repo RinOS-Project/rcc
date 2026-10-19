@@ -258,9 +258,11 @@ static bool lower_abi_native_scalar_type(
     const Type* type, RccIrType* ir_type);
 static bool lower_abi_aggregate_supported(const Type* type);
 static bool lower_abi_single_sse_aggregate_supported(const Type* type);
+static bool lower_abi_sse_pair_aggregate_supported(const Type* type);
 static bool lower_abi_mixed_sse_aggregate_supported(
     const Type* type, int* sse_eightbyte_out);
 static uint64_t lower_abi_mixed_return_metadata(const Type* type);
+static uint64_t lower_abi_sse_pair_return_metadata(const Type* type);
 static int lower_abi_return_layout(const Type* type,
                                    RccIrType* return_type);
 static size_t lower_abi_chunk_size(void);
@@ -294,6 +296,7 @@ enum {
     LOWER_ABI_RETURN_REGISTER_SSE_AGGREGATE,
     LOWER_ABI_RETURN_REGISTER_PAIR,
     LOWER_ABI_RETURN_REGISTER_MIXED_PAIR,
+    LOWER_ABI_RETURN_REGISTER_SSE_PAIR,
     LOWER_ABI_RETURN_SRET,
     LOWER_ABI_RETURN_UNSUPPORTED,
 };
@@ -6943,6 +6946,7 @@ static bool lower_nontrivial_temporary_conditional_arm_supported(
     return return_kind == LOWER_ABI_RETURN_REGISTER_AGGREGATE ||
         return_kind == LOWER_ABI_RETURN_REGISTER_PAIR ||
         return_kind == LOWER_ABI_RETURN_REGISTER_MIXED_PAIR ||
+        return_kind == LOWER_ABI_RETURN_REGISTER_SSE_PAIR ||
         return_kind == LOWER_ABI_RETURN_SRET;
 }
 
@@ -8390,7 +8394,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                  return_kind != LOWER_ABI_RETURN_REGISTER_AGGREGATE &&
                  return_kind != LOWER_ABI_RETURN_REGISTER_SSE_AGGREGATE &&
                  return_kind != LOWER_ABI_RETURN_REGISTER_PAIR &&
-                 return_kind != LOWER_ABI_RETURN_REGISTER_MIXED_PAIR) ||
+                 return_kind != LOWER_ABI_RETURN_REGISTER_MIXED_PAIR &&
+                 return_kind != LOWER_ABI_RETURN_REGISTER_SSE_PAIR) ||
                 !context->aggregate_result_destination.valid ||
                 context->aggregate_result_destination.type.kind !=
                     RCC_IR_TYPE_POINTER) {
@@ -8868,7 +8873,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
     }
     call_type = return_type;
     if (return_kind == LOWER_ABI_RETURN_REGISTER_PAIR ||
-        return_kind == LOWER_ABI_RETURN_REGISTER_MIXED_PAIR) {
+        return_kind == LOWER_ABI_RETURN_REGISTER_MIXED_PAIR ||
+        return_kind == LOWER_ABI_RETURN_REGISTER_SSE_PAIR) {
         call_type = rcc_ir_type_void();
     }
     call = lower_append(context, RCC_IR_CALL, call_type, operands,
@@ -8907,7 +8913,8 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
         return aggregate_address;
     }
     if (return_kind == LOWER_ABI_RETURN_REGISTER_PAIR ||
-        return_kind == LOWER_ABI_RETURN_REGISTER_MIXED_PAIR) {
+        return_kind == LOWER_ABI_RETURN_REGISTER_MIXED_PAIR ||
+        return_kind == LOWER_ABI_RETURN_REGISTER_SSE_PAIR) {
         RccIrInstruction* capture = lower_append(
             context, RCC_IR_CAPTURE_RETURN_PAIR,
             rcc_ir_type_void(), &aggregate_address.value,
@@ -8917,7 +8924,9 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             capture,
             return_kind == LOWER_ABI_RETURN_REGISTER_MIXED_PAIR
                 ? lower_abi_mixed_return_metadata(expression->type)
-                : (uint64_t)expression->type->size);
+                : return_kind == LOWER_ABI_RETURN_REGISTER_SSE_PAIR
+                    ? lower_abi_sse_pair_return_metadata(expression->type)
+                    : (uint64_t)expression->type->size);
         if (!lower_emit_call_temporary_cleanups(
                 context, temporary_cleanups, cleanup_count,
                 register_temporary_cleanups)) {
@@ -11193,7 +11202,10 @@ static RccIrLowerValue lower_conditional_expression(
             expression->type->cleanup_function ||
             expression->type->cleanup_field ||
             (!lower_abi_aggregate_supported(expression->type) &&
-             !lower_abi_single_sse_aggregate_supported(expression->type))) {
+             !lower_abi_single_sse_aggregate_supported(expression->type) &&
+             !lower_abi_sse_pair_aggregate_supported(expression->type) &&
+             !lower_abi_mixed_sse_aggregate_supported(
+                 expression->type, NULL))) {
             context->unsupported = true;
             return lower_invalid_value();
         }
@@ -13267,6 +13279,18 @@ static bool lower_abi_single_sse_aggregate_supported(const Type* type) {
         classification.classes[0] == LOWER_SYSV_CLASS_SSE;
 }
 
+static bool lower_abi_sse_pair_aggregate_supported(const Type* type) {
+    LowerSysvAggregateClass classification;
+    return g_opts.target_arch == ARCH_X64 && type &&
+        type->size > 8 && type->size <= 16 && type->align > 0 &&
+        type->align <= 16 &&
+        lower_abi_naturally_aligned_internal(type, 0u, 0u) &&
+        lower_sysv_classify_aggregate(type, &classification) &&
+        !classification.memory && classification.count == 2 &&
+        classification.classes[0] == LOWER_SYSV_CLASS_SSE &&
+        classification.classes[1] == LOWER_SYSV_CLASS_SSE;
+}
+
 static bool lower_abi_mixed_sse_aggregate_supported(
     const Type* type, int* sse_eightbyte_out) {
     LowerSysvAggregateClass classification;
@@ -13301,6 +13325,11 @@ static uint64_t lower_abi_mixed_return_metadata(const Type* type) {
     return kind | (uint64_t)type->size;
 }
 
+static uint64_t lower_abi_sse_pair_return_metadata(const Type* type) {
+    if (!lower_abi_sse_pair_aggregate_supported(type)) return 0u;
+    return RCC_IR_RETURN_PAIR_KIND_SSE_SSE | (uint64_t)type->size;
+}
+
 static int lower_abi_return_layout(const Type* type,
                                    RccIrType* return_type) {
     if (!lower_abi_is_aggregate(type) || !return_type ||
@@ -13324,13 +13353,16 @@ static int lower_abi_return_layout(const Type* type,
         return LOWER_ABI_RETURN_REGISTER_PAIR;
     }
     /* A single SSE-class eightbyte has the same low XMM register transport
-     * as its scalar-width bit pattern. Keep this bounded to one eightbyte;
-     * mixed INTEGER/SSE and two-register aggregate returns need a separate
-     * multi-class return representation. */
+     * as its scalar-width bit pattern. Multi-eightbyte results use a tagged
+     * pair representation below so each ABI class gets its own return reg. */
     if (lower_abi_single_sse_aggregate_supported(type)) {
         *return_type = rcc_ir_type_float(
             type->size <= 4 ? 32u : 64u);
         return LOWER_ABI_RETURN_REGISTER_SSE_AGGREGATE;
+    }
+    if (lower_abi_sse_pair_aggregate_supported(type)) {
+        *return_type = rcc_ir_type_integer(64u);
+        return LOWER_ABI_RETURN_REGISTER_SSE_PAIR;
     }
     if (lower_abi_mixed_sse_aggregate_supported(type, NULL)) {
         *return_type = rcc_ir_type_integer(64u);
@@ -17798,6 +17830,32 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                         context, source, context->ast_return_type, 8u);
                     return_count = 2u;
                 } else if (context->aggregate_return_kind ==
+                           LOWER_ABI_RETURN_REGISTER_SSE_PAIR) {
+                    RccIrValue bitcast_operand;
+                    RccIrInstruction* low_bitcast;
+                    RccIrInstruction* high_bitcast;
+                    result = lower_load_aggregate_chunk(
+                        context, source, context->ast_return_type, 0u);
+                    high = lower_load_aggregate_chunk(
+                        context, source, context->ast_return_type, 8u);
+                    if (!result.valid || !high.valid) return false;
+                    bitcast_operand = result.value;
+                    low_bitcast = lower_append(
+                        context, RCC_IR_BITCAST,
+                        rcc_ir_type_float(64u), &bitcast_operand,
+                        1u, NULL, 0u);
+                    bitcast_operand = high.value;
+                    high_bitcast = lower_append(
+                        context, RCC_IR_BITCAST,
+                        rcc_ir_type_float(64u), &bitcast_operand,
+                        1u, NULL, 0u);
+                    if (!low_bitcast || !high_bitcast) return false;
+                    result = lower_value(
+                        low_bitcast->result, rcc_ir_type_float(64u), true);
+                    high = lower_value(
+                        high_bitcast->result, rcc_ir_type_float(64u), true);
+                    return_count = 2u;
+                } else if (context->aggregate_return_kind ==
                            LOWER_ABI_RETURN_REGISTER_MIXED_PAIR) {
                     int sse_eightbyte;
                     result = lower_load_aggregate_chunk(
@@ -17858,6 +17916,12 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                     rcc_ir_set_immediate(
                         return_instruction,
                         lower_abi_mixed_return_metadata(
+                            context->ast_return_type));
+                } else if (context->aggregate_return_kind ==
+                           LOWER_ABI_RETURN_REGISTER_SSE_PAIR) {
+                    rcc_ir_set_immediate(
+                        return_instruction,
+                        lower_abi_sse_pair_return_metadata(
                             context->ast_return_type));
                 } else if (context->aggregate_return_kind ==
                         LOWER_ABI_RETURN_SRET &&

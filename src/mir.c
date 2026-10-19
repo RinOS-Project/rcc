@@ -465,7 +465,8 @@ static bool mir_verify_instruction_type(
                      (pair_kind ==
                           RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER ||
                       pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
-                      pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE));
+                      pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE ||
+                      pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_SSE));
                 return mir_shape(verifier, instruction, 1u, 0u) &&
                     rcc_mir_type_equal(instruction->type, void_type) &&
                     valid_metadata &&
@@ -523,6 +524,14 @@ static bool mir_verify_instruction_type(
                 if (pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE) {
                     return mir_operand_type(
                                verifier, instruction, 0u, i64) &&
+                        mir_operand_type(
+                            verifier, instruction, 1u,
+                            rcc_mir_type_float(64u));
+                }
+                if (pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_SSE) {
+                    return mir_operand_type(
+                               verifier, instruction, 0u,
+                               rcc_mir_type_float(64u)) &&
                         mir_operand_type(
                             verifier, instruction, 1u,
                             rcc_mir_type_float(64u));

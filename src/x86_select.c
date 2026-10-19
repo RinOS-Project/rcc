@@ -106,6 +106,12 @@ static bool x86_pair_return_supported(
          instruction->operand_types[1].kind == RCC_MIR_TYPE_FLOAT &&
          instruction->operand_types[1].bit_width == 64u;
     }
+    if (pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_SSE) {
+        return instruction->operand_types[0].kind == RCC_MIR_TYPE_FLOAT &&
+         instruction->operand_types[0].bit_width == 64u &&
+         instruction->operand_types[1].kind == RCC_MIR_TYPE_FLOAT &&
+         instruction->operand_types[1].bit_width == 64u;
+    }
     return false;
 }
 
@@ -119,7 +125,8 @@ static bool x86_capture_return_metadata_supported(
                        RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u &&
         (kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER ||
          kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
-         kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE);
+         kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE ||
+         kind == RCC_IR_RETURN_PAIR_KIND_SSE_SSE);
 }
 
 static bool x86_align_frame(uint32_t value, uint16_t alignment,
