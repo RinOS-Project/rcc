@@ -3976,14 +3976,126 @@ static DebugInlineParameterOrigin* debug_inline_parameter_origin_find(
     return NULL;
 }
 
+static bool debug_inline_parameter_storage_type(const Type* type) {
+    return type &&
+        ((type->kind >= TYPE_BOOL && type->kind <= TYPE_LLONG) ||
+         type->kind == TYPE_FLOAT || type->kind == TYPE_DOUBLE ||
+         type->kind == TYPE_PTR || type->kind == TYPE_NULLPTR ||
+         type->kind == TYPE_ENUM);
+}
+
+static bool debug_inline_parameter_storage_type_equal(
+    const Type* left, const Type* right, unsigned int depth) {
+    if (!left || !right || depth >= 32u || left->kind != right->kind ||
+        left->size != right->size || left->is_unsigned != right->is_unsigned ||
+        left->is_plain_char != right->is_plain_char ||
+        left->is_char8 != right->is_char8 ||
+        left->is_wchar != right->is_wchar ||
+        left->is_char16 != right->is_char16 ||
+        left->is_char32 != right->is_char32 ||
+        left->is_const != right->is_const ||
+        left->is_volatile != right->is_volatile ||
+        left->is_atomic != right->is_atomic ||
+        left->is_restrict != right->is_restrict ||
+        left->is_reference != right->is_reference ||
+        left->is_rvalue_reference != right->is_rvalue_reference) {
+        return false;
+    }
+    if (left == right) return true;
+    switch (left->kind) {
+        case TYPE_PTR:
+            return left->cxx_is_member_pointer ==
+                       right->cxx_is_member_pointer &&
+                   (!left->cxx_is_member_pointer ||
+                    debug_inline_parameter_storage_type_equal(
+                        left->cxx_member_pointer_owner,
+                        right->cxx_member_pointer_owner, depth + 1u)) &&
+                   debug_inline_parameter_storage_type_equal(
+                       left->base, right->base, depth + 1u);
+        case TYPE_ENUM:
+            return left->enum_is_scoped == right->enum_is_scoped &&
+                   left->enum_tag && right->enum_tag &&
+                   strcmp(left->enum_tag, right->enum_tag) == 0 &&
+                   ((!left->cxx_namespace && !right->cxx_namespace) ||
+                    (left->cxx_namespace && right->cxx_namespace &&
+                     strcmp(left->cxx_namespace,
+                            right->cxx_namespace) == 0)) &&
+                   ((!left->cxx_scope_identity &&
+                     !right->cxx_scope_identity) ||
+                    (left->cxx_scope_identity &&
+                     right->cxx_scope_identity &&
+                     strcmp(left->cxx_scope_identity,
+                            right->cxx_scope_identity) == 0));
+        case TYPE_STRUCT:
+        case TYPE_UNION:
+            return left->cxx_class &&
+                   left->cxx_class == right->cxx_class;
+        default:
+            return left->kind != TYPE_FUNC;
+    }
+}
+
+static const ModuleSymbol* debug_inline_parameter_source_symbol(
+    const Module* mod, const char* filename,
+    const ModuleDebugInlineParameterValue* value,
+    const ExprList* argument, char** scoped_symbol) {
+    const Decl* parameter;
+    const Decl* source;
+    const ModuleSymbol* symbol;
+    Type* parameter_type;
+    Type* argument_type;
+    if (scoped_symbol) *scoped_symbol = NULL;
+    if (!mod || !value || !value->declaration || !argument ||
+        !argument->expr || argument->cxx_temporary_owner ||
+        argument->expr->kind != EXPR_IDENT ||
+        !argument->expr->ident_decl || !scoped_symbol) {
+        return NULL;
+    }
+    parameter = value->declaration;
+    source = argument->expr->ident_decl;
+    parameter_type = parameter->type;
+    argument_type = argument->expr->type;
+    if (parameter->kind != DECL_PARAM || source->kind != DECL_VAR ||
+        !parameter_type || !argument_type ||
+        !debug_inline_parameter_storage_type(parameter_type) ||
+        !debug_inline_parameter_storage_type_equal(
+            parameter_type, argument_type, 0u) ||
+        parameter_type->size == 0u ||
+        parameter_type->size != argument_type->size ||
+        parameter_type->is_volatile || parameter_type->is_reference ||
+        parameter_type->is_atomic || argument_type->is_volatile ||
+        argument_type->is_reference || argument_type->is_atomic) {
+        return NULL;
+    }
+    if (source->var_is_global) {
+        symbol = debug_find_global_symbol(mod, source);
+    } else if (source->var_is_static_local) {
+        symbol = debug_find_static_local_symbol(mod, source);
+    } else {
+        return NULL;
+    }
+    if (!symbol) return NULL;
+    if (!symbol->is_global) {
+        *scoped_symbol = module_scoped_symbol(filename, symbol->name);
+        if (!*scoped_symbol) return NULL;
+    }
+    return symbol;
+}
+
 static void debug_emit_inline_parameter_instances(
-    ObjSection* info, DebugInlineParameterOrigin* origins,
-    const ModuleDebugInlineCall* call) {
-    if (!info || !call || !call->callee || !call->parameter_values) return;
+    ObjectFile* obj, ObjSection* info, int info_section, const Module* mod,
+    const char* filename, int architecture,
+    DebugInlineParameterOrigin* origins, const ModuleDebugInlineCall* call) {
+    const ExprList* argument;
+    if (!obj || !info || !mod || !filename || info_section < 0 || !call ||
+        !call->callee || !call->parameter_values) return;
+    argument = call->arguments;
     for (size_t index = 0u; index < call->parameter_value_count; ++index) {
         const ModuleDebugInlineParameterValue* value =
             &call->parameter_values[index];
         DebugInlineParameterOrigin* origin;
+        const ModuleSymbol* source_symbol;
+        char* scoped_source_symbol = NULL;
         if (value->has_signed_integer_constant && value->declaration &&
             (origin = debug_inline_parameter_origin_find(
                 origins, call->callee, value->declaration)) != NULL) {
@@ -4018,7 +4130,22 @@ static void debug_emit_inline_parameter_instances(
             if (g_opts.target_arch == ARCH_X64) {
                 debug_line_u32(info, 0u);
             }
+        } else if (value->declaration &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   (source_symbol = debug_inline_parameter_source_symbol(
+                       mod, filename, value, argument,
+                       &scoped_source_symbol)) != NULL) {
+            const char* relocation_symbol = scoped_source_symbol
+                ? scoped_source_symbol : source_symbol->name;
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_expr_addr(
+                obj, info, info_section, relocation_symbol, architecture,
+                source_symbol->section == MODULE_SYMBOL_TLS);
+            rcc_free(scoped_source_symbol);
         }
+        if (argument) argument = argument->next;
     }
 }
 
@@ -4166,7 +4293,9 @@ static void debug_emit_inline_call_tree(
 
     debug_emit_inline_local_instances(info, local_origins, call->callee);
     debug_emit_inline_parameter_instances(
-        info, parameter_origins, call);
+        obj, info, info_section, mod, filename,
+        g_opts.target_arch == ARCH_X64 ? ARCH_X64 : ARCH_X86,
+        parameter_origins, call);
 
     for (child_index = 0u;
          child_index < mod->debug_inline_call_count; ++child_index) {
@@ -5268,6 +5397,17 @@ static void module_emit_debug_info(ObjectFile* obj, Module* mod,
     debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
     debug_line_uleb(abbrev, 0x1cu);   /* DW_AT_const_value */
     debug_line_uleb(abbrev, 0x01u);   /* DW_FORM_addr */
+    debug_line_uleb(abbrev, 0u);
+    debug_line_uleb(abbrev, 0u);
+    /* Dynamic inline parameters can reuse a stable global/static source
+     * object's location when its type exactly matches the formal parameter. */
+    debug_line_uleb(abbrev, 67u);
+    debug_line_uleb(abbrev, 0x05u);   /* DW_TAG_formal_parameter */
+    section_add_byte(abbrev, 0u);
+    debug_line_uleb(abbrev, 0x31u);   /* DW_AT_abstract_origin */
+    debug_line_uleb(abbrev, 0x13u);   /* DW_FORM_ref4 */
+    debug_line_uleb(abbrev, 0x02u);   /* DW_AT_location */
+    debug_line_uleb(abbrev, 0x18u);   /* DW_FORM_exprloc */
     debug_line_uleb(abbrev, 0u);
     debug_line_uleb(abbrev, 0u);
     section_add_byte(abbrev, 0u);

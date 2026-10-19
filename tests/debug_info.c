@@ -31,6 +31,7 @@ enum debug_enum {
     DEBUG_ENUM_POSITIVE = 6
 };
 enum debug_enum debug_enum_data = DEBUG_ENUM_POSITIVE;
+int* debug_inline_global_pointer_source;
 static int debug_aggregate_sum(void)
 {
     struct debug_aggregate local = {3, 4};
@@ -122,6 +123,19 @@ int debug_inline_null_pointer_entry(int* other)
 int debug_inline_enum_constant_entry(void)
 {
     return debug_enum_parameter_inline(DEBUG_ENUM_NEGATIVE);
+}
+
+int debug_inline_global_pointer_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        debug_inline_global_pointer_source);
+}
+
+int debug_inline_static_pointer_entry(void)
+{
+    static int* debug_inline_static_pointer_source;
+    return debug_global_pointer_parameter_inline(
+        debug_inline_static_pointer_source);
 }
 
 int debug_tls_static_local_read(void)

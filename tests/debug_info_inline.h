@@ -69,3 +69,8 @@ inline int debug_enum_parameter_inline(enum debug_enum value)
 {
     return (int)value;
 }
+
+inline int debug_global_pointer_parameter_inline(int* value)
+{
+    return value != (int*)0;
+}

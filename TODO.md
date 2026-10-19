@@ -7031,8 +7031,9 @@ remains a separate open item.
 - [x] Add a C inline regression that compares the null argument with a dynamic
       pointer parameter. `test-debug-info` verifies the pointer-typed formal
       parameter DIE and zero address bytes in legacy/verified i686/AMD64 output.
-- [ ] Non-null symbolic pointer values, dynamic pointer locations, and full
-      optimized register/piece tracking remain open.
+- [ ] Non-null symbolic pointer parameter values, dynamic source expressions
+      beyond same-typed global/static identifiers, and full optimized
+      register/piece tracking remain open.
 
 ## RCC continuation (2026-10-20, bounded inline enum parameter conversions)
 
@@ -7062,3 +7063,18 @@ remains a separate open item.
       Native-Windows `test-debug-info` passes.
 - [ ] Non-null symbolic pointer values, dynamic pointer locations, and full
       optimized register/piece tracking remain open.
+
+## RCC continuation (2026-10-20, inline pointer source locations)
+
+- [x] When an inlined pointer parameter receives a same-typed identifier backed
+      by a defined global or function-local static object, emit a concrete
+      formal-parameter DIE whose `DW_AT_location` points to that object's
+      storage. Keep the abstract parameter type/origin and emit the target-sized
+      address expression with the corresponding symbol relocation.
+- [x] Verify global and function-local static pointer sources in call-specific
+      legacy and verified optimized DWARF for i686 and AMD64. The complete
+      native-Windows `test-debug-info` target passes.
+- [ ] Automatic/register-backed sources, source/destination pointer type
+      conversions, compound dynamic expressions, and optimized register/piece
+      tracking remain open; this does not implement general variable-location
+      tracking.
