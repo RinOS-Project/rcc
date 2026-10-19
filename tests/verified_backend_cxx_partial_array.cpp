@@ -88,6 +88,22 @@ public:
     }
 };
 
+struct VerifiedImplicitAggregateDmiPair {
+    int first;
+    int second;
+};
+
+class VerifiedImplicitAggregateDmiArrayElement final {
+public:
+    VerifiedImplicitAggregateDmiPair pair_ =
+        VerifiedImplicitAggregateDmiPair{3, 4};
+    int default_initialized_only_by_lifetime_;
+
+    ~VerifiedImplicitAggregateDmiArrayElement() noexcept {
+        verified_partial_array_record_destructor(pair_.first + pair_.second);
+    }
+};
+
 class VerifiedThrowingDefaultArgumentArrayElement final {
 public:
     explicit VerifiedThrowingDefaultArgumentArrayElement(
@@ -236,6 +252,20 @@ extern "C" int verified_cxx_partial_array_implicit_dmi(int count) {
 extern "C" int verified_cxx_partial_array_implicit_dmi_fixed() {
     VerifiedImplicitDmiArrayElement* values =
         new VerifiedImplicitDmiArrayElement[2];
+    delete[] values;
+    return 0;
+}
+
+extern "C" int verified_cxx_partial_array_implicit_aggregate_dmi(int count) {
+    VerifiedImplicitAggregateDmiArrayElement* values =
+        new VerifiedImplicitAggregateDmiArrayElement[count];
+    delete[] values;
+    return count;
+}
+
+extern "C" int verified_cxx_partial_array_implicit_aggregate_dmi_fixed() {
+    VerifiedImplicitAggregateDmiArrayElement* values =
+        new VerifiedImplicitAggregateDmiArrayElement[1];
     delete[] values;
     return 0;
 }
