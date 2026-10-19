@@ -127,6 +127,11 @@ typedef struct {
     const Expr* aggregate_result_destination_call;
     RccIrLowerValue aggregate_result_destination;
     RccIrValue active_exception_frame;
+    /* While a local C++ object is being initialized, successfully completed
+     * direct class members are registered individually.  If a later member
+     * constructor throws, the active exception frame then destroys only the
+     * completed prefix instead of the not-yet-constructed complete object. */
+    const Decl* partial_construction_owner;
     int aggregate_return_kind;
     bool allow_nontrivial_temporary_conditional;
     bool terminated;
@@ -245,6 +250,8 @@ static bool lower_initialize_union_storage(
 static RccIrLowerValue lower_compound_literal_address(
     RccIrLowerContext* context, const Expr* expression);
 static bool lower_abi_is_aggregate(const Type* type);
+static bool lower_abi_native_scalar_type(
+    const Type* type, RccIrType* ir_type);
 static bool lower_abi_aggregate_supported(const Type* type);
 static bool lower_abi_single_sse_aggregate_supported(const Type* type);
 static int lower_abi_return_layout(const Type* type,
@@ -270,6 +277,9 @@ static RccIrLowerValue lower_typeinfo_field(
     uint64_t byte_offset, const Type* field_type);
 static RccIrLowerValue lower_typeinfo_before(
     RccIrLowerContext* context, const Expr* expression);
+static bool lower_change_current_exception_cleanup(
+    RccIrLowerContext* context, const CxxCleanupPlan* action,
+    bool register_cleanup);
 
 enum {
     LOWER_ABI_RETURN_SCALAR = 0,
@@ -6391,11 +6401,11 @@ static const CxxConstructorInitializer* lower_cxx_find_base_initializer(
     return result;
 }
 
-/* A directly constructed base is safe to inline only when its constructor
- * has no body effects and initializes each scalar field from one of its
- * scalar parameters. The arguments forwarded by the derived constructor
- * must in turn be simple references to that constructor's parameters. */
-static bool lower_cxx_scalar_base_constructor_supported(
+/* A directly constructed subobject is safe to inline only when its
+ * constructor has no body effects and initializes each scalar field from one
+ * of its scalar parameters. The forwarded arguments must in turn be simple
+ * references to the enclosing constructor's parameters. */
+static bool lower_cxx_scalar_subobject_constructor_supported(
     const CxxClass* cls, const CxxConstructorInfo* constructor,
     const ExprList* arguments, const CxxConstructorInfo* parent_constructor) {
     const TypeParam* parameter_type;
@@ -6407,7 +6417,6 @@ static bool lower_cxx_scalar_base_constructor_supported(
     unsigned member_initializer_count = 0u;
     if (!cls || !constructor || !constructor->method ||
         !constructor->method->decl || !parent_constructor ||
-        !constructor->method->decl->func_is_noexcept ||
         !constructor->body_is_empty || constructor->is_deleted ||
         !constructor->initializers_are_supported ||
         constructor->parameter_count < 0 || cls->has_field_initializer ||
@@ -6517,11 +6526,11 @@ static bool lower_cxx_scalar_base_constructor_supported(
     return member_initializer_count == member_count;
 }
 
-/* The inline-cleanup path may accept a class temporary only if its selected
- * constructor and every base initialization are proven non-throwing. Keep
- * construction explicit: an empty noexcept body, empty trivial bases, and
- * any number of scalar members initialized directly from distinct matching
- * scalar constructor parameters. */
+/* The inline-cleanup path accepts only constructor bodies and subobject
+ * initializers that this routine fully reduces to scalar argument evaluation
+ * and stores.  The declared exception specification need not be noexcept:
+ * no potentially throwing constructor body or subobject call is emitted on
+ * this path. */
 static bool lower_cxx_empty_noop_constructor_supported(
     const Expr* expression) {
     const CxxConstructorInfo* constructor;
@@ -6542,7 +6551,6 @@ static bool lower_cxx_empty_noop_constructor_supported(
         !(cls = expression->type->cxx_class) ||
         !(constructor = expression->compound_constructor) ||
         !constructor->method || !constructor->method->decl ||
-        !constructor->method->decl->func_is_noexcept ||
         !constructor->body_is_empty || constructor->is_deleted ||
         !constructor->initializers_are_supported ||
         constructor->parameter_count < 0 ||
@@ -6578,10 +6586,14 @@ static bool lower_cxx_empty_noop_constructor_supported(
     for (member = cls->fields; member; member = member->next) {
         if (member->is_static) continue;
         if (member_count == UINT_MAX || member->is_bitfield || !member->name ||
-            !member->type || !type_is_scalar(member->type) ||
+            !member->type ||
+            (!type_is_scalar(member->type) &&
+             (member->type->kind != TYPE_STRUCT ||
+              !member->type->cxx_class)) ||
             member->type->cxx_is_member_pointer ||
             member->type->is_volatile || member->type->is_atomic ||
-            lower_i686_wide_scalar_type(member->type)) {
+            (type_is_scalar(member->type) &&
+             lower_i686_wide_scalar_type(member->type))) {
             return false;
         }
         ++member_count;
@@ -6611,7 +6623,7 @@ static bool lower_cxx_empty_noop_constructor_supported(
                    base_initializer->value !=
                        (base_initializer->arguments
                             ? base_initializer->arguments->expr : NULL) ||
-                   !lower_cxx_scalar_base_constructor_supported(
+                   !lower_cxx_scalar_subobject_constructor_supported(
                        base, base_initializer->constructor,
                        base_initializer->arguments, constructor)) {
             return false;
@@ -6673,7 +6685,6 @@ static bool lower_cxx_empty_noop_constructor_supported(
             }
             continue;
         }
-        if (initializer->constructor) return false;
         if (!initializer->arguments || initializer->arguments->next ||
             !initializer->arguments->expr ||
             initializer->arguments->expr->kind != EXPR_IDENT ||
@@ -6717,6 +6728,18 @@ static bool lower_cxx_empty_noop_constructor_supported(
             }
             while (candidate_type && candidate_decl) {
                 if (candidate_decl->decl == initialized_parameter) {
+                    if (member->type->kind == TYPE_STRUCT) {
+                        if (!initializer->constructor ||
+                            !lower_cxx_scalar_subobject_constructor_supported(
+                                member->type->cxx_class,
+                                initializer->constructor,
+                                initializer->arguments, constructor)) {
+                            return false;
+                        }
+                        found_parameter = true;
+                        break;
+                    }
+                    if (initializer->constructor) return false;
                     bool identical_member_type =
                         type_is_compatible(
                             (Type*)member->type,
@@ -7056,15 +7079,145 @@ static bool lower_temporary_cleanup_plan_supported(
         allow_throwing_destructors);
 }
 
-static bool lower_cleanup_initializer_noexcept(const Expr* initializer) {
+static bool lower_cleanup_constructor_call_supported(
+    const Expr* initializer) {
+    const CxxConstructorInfo* constructor = initializer
+        ? initializer->compound_constructor : NULL;
+    const Decl* declaration = constructor && constructor->method
+        ? constructor->method->decl : NULL;
+    const TypeParam* abi_parameter;
+    const TypeParam* parameter;
+    const DeclList* parameter_declaration;
+    const ExprList* argument;
+    unsigned count = 0u;
+    if (!constructor || constructor->parameter_count < 0 ||
+        constructor->parameter_count > 64 || constructor->is_deleted ||
+        !constructor->initializers_are_supported || !declaration ||
+        !declaration->func_is_cxx_constructor ||
+        !declaration->func_this_param || !declaration->func_body ||
+        !declaration->link_name || !declaration->type ||
+        declaration->type->kind != TYPE_FUNC ||
+        declaration->type->variadic || !declaration->type->ret_type ||
+        declaration->type->ret_type->kind != TYPE_VOID) {
+        return false;
+    }
+    abi_parameter = declaration->type->params;
+    if (!abi_parameter || !abi_parameter->type ||
+        abi_parameter->type->kind != TYPE_PTR ||
+        !declaration->func_this_param->type ||
+        !type_is_compatible(declaration->func_this_param->type,
+                            abi_parameter->type)) {
+        return false;
+    }
+    abi_parameter = abi_parameter->next;
+    parameter = constructor->parameters;
+    parameter_declaration = declaration->func_params;
+    argument = initializer->compound_init;
+    while (parameter || parameter_declaration || argument) {
+        RccIrType ir_type;
+        if (++count > (unsigned)constructor->parameter_count ||
+            !parameter || !parameter->type ||
+            !lower_abi_native_scalar_type(parameter->type, &ir_type) ||
+            parameter->type->cxx_is_member_pointer ||
+            lower_i686_wide_scalar_type(parameter->type) ||
+            !parameter_declaration || !parameter_declaration->decl ||
+            !type_is_compatible(parameter->type,
+                                parameter_declaration->decl->type) ||
+            !abi_parameter || !abi_parameter->type ||
+            !type_is_compatible(parameter->type, abi_parameter->type) ||
+            !argument || argument->designator_kind != INIT_DESIGNATOR_NONE ||
+            !argument->expr || !type_is_scalar(argument->expr->type)) {
+            return false;
+        }
+        parameter = parameter->next;
+        parameter_declaration = parameter_declaration->next;
+        argument = argument->next;
+        abi_parameter = abi_parameter->next;
+    }
+    return count == (unsigned)constructor->parameter_count &&
+        !abi_parameter;
+}
+
+static bool lower_cleanup_initializer_supported(const Expr* initializer) {
     if (!initializer) return true;
-    if (initializer->kind != EXPR_COMPOUND ||
-        initializer->compound_constructor) {
+    if (initializer->kind != EXPR_COMPOUND) {
         return lower_noexcept_expression(initializer);
+    }
+    if (initializer->compound_constructor &&
+        !lower_cxx_empty_noop_constructor_supported(initializer)) {
+        if (!lower_cleanup_constructor_call_supported(initializer)) {
+            return false;
+        }
     }
     for (const ExprList* item = initializer->compound_init; item;
          item = item->next) {
-        if (!lower_cleanup_initializer_noexcept(item->expr)) return false;
+        if (!lower_cleanup_initializer_supported(item->expr)) return false;
+    }
+    return true;
+}
+
+static bool lower_cleanup_initializer_may_throw(const Expr* initializer) {
+    if (!initializer) return false;
+    if (initializer->kind != EXPR_COMPOUND) {
+        return !lower_noexcept_expression(initializer);
+    }
+    if (initializer->compound_constructor &&
+        !lower_cxx_empty_noop_constructor_supported(initializer)) {
+        const CxxConstructorInfo* constructor =
+            initializer->compound_constructor;
+        const Decl* declaration = constructor->method
+            ? constructor->method->decl : NULL;
+        if (!declaration || !declaration->func_is_noexcept) return true;
+    }
+    for (const ExprList* item = initializer->compound_init;
+         item; item = item->next) {
+        if (lower_cleanup_initializer_may_throw(item->expr)) return true;
+    }
+    return false;
+}
+
+static bool lower_cleanup_action_is_direct_member(
+    const CxxCleanupPlan* action, const Decl* owner,
+    const TypeField* field) {
+    const Expr* cleanup = action ? action->expression : NULL;
+    const ExprList* argument = cleanup && cleanup->kind == EXPR_CALL
+        ? cleanup->call_args : NULL;
+    const Expr* address = argument ? argument->expr : NULL;
+    const Expr* member = address && address->kind == EXPR_ADDR
+        ? address->unary_operand : NULL;
+    return owner && member && member->kind == EXPR_MEMBER &&
+        member->member_base && member->member_base->kind == EXPR_IDENT &&
+        member->member_base->ident_decl == owner && member->member_field &&
+        (!field || member->member_field == field);
+}
+
+static bool lower_register_partial_member_cleanup(
+    RccIrLowerContext* context, const TypeField* field) {
+    const Decl* owner = context
+        ? context->partial_construction_owner : NULL;
+    if (!owner || !field || !field->type || !field->type->cxx_class) {
+        return true;
+    }
+    for (const CxxCleanupPlan* action = owner->var_cleanups;
+         action; action = action->next) {
+        if (lower_cleanup_action_is_direct_member(action, owner, field)) {
+            return lower_change_current_exception_cleanup(
+                context, action, true);
+        }
+    }
+    return true;
+}
+
+static bool lower_unregister_partial_member_cleanups(
+    RccIrLowerContext* context, const Decl* owner) {
+    if (!context || !owner) return false;
+    for (const CxxCleanupPlan* action = owner->var_cleanups;
+         action; action = action->next) {
+        if (lower_cleanup_action_is_direct_member(action, owner, NULL) &&
+            !lower_change_current_exception_cleanup(
+                context, action, false)) {
+            return false;
+        }
     }
     return true;
 }
@@ -7080,7 +7233,7 @@ static bool lower_scope_cleanup_declaration_supported(
         (declaration->type->kind != TYPE_STRUCT &&
          declaration->type->kind != TYPE_ARRAY) ||
         !lower_storage_type_supported_internal(declaration->type, 0u) ||
-        !lower_cleanup_initializer_noexcept(declaration->var_init)) {
+        !lower_cleanup_initializer_supported(declaration->var_init)) {
         return false;
     }
     if (!lower_temporary_cleanup_plan_list_supported(
@@ -14018,11 +14171,64 @@ static bool lower_cxx_emit_current_destructor_subobjects(
     return lower_cxx_emit_destructor_subobjects(context, cls, object, 0u);
 }
 
+static bool lower_cxx_emit_constructor_call(
+    RccIrLowerContext* context, const Expr* initializer,
+    RccIrValue object) {
+    const CxxConstructorInfo* constructor = initializer
+        ? initializer->compound_constructor : NULL;
+    const Decl* declaration = constructor && constructor->method
+        ? constructor->method->decl : NULL;
+    const TypeParam* parameter;
+    const ExprList* argument;
+    RccIrValue* operands;
+    RccIrInstruction* call;
+    size_t operand_count;
+    size_t index = 1u;
+    if (!context || !lower_cleanup_constructor_call_supported(initializer) ||
+        !object || object == RCC_IR_VALUE_NONE) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    operand_count = (size_t)constructor->parameter_count + 1u;
+    if (operand_count > SIZE_MAX / sizeof(*operands)) {
+        context->unsupported = true;
+        return false;
+    }
+    operands = rcc_alloc(operand_count * sizeof(*operands));
+    operands[0] = object;
+    parameter = constructor->parameters;
+    argument = initializer->compound_init;
+    while (parameter && argument) {
+        RccIrLowerValue value = lower_expression(context, argument->expr);
+        value = lower_cast(context, value, parameter->type);
+        if (!value.valid || index >= operand_count) {
+            rcc_free(operands);
+            context->unsupported = true;
+            return false;
+        }
+        operands[index++] = value.value;
+        parameter = parameter->next;
+        argument = argument->next;
+    }
+    if (index != operand_count || parameter || argument) {
+        rcc_free(operands);
+        context->unsupported = true;
+        return false;
+    }
+    call = lower_append(context, RCC_IR_CALL, rcc_ir_type_void(),
+                        operands, operand_count, NULL, 0u);
+    rcc_free(operands);
+    if (!call) return false;
+    rcc_ir_set_callee(call, decl_link_name(declaration));
+    return true;
+}
+
 static bool lower_initialize_struct_field(
     RccIrLowerContext* context, RccIrValue base,
     const TypeField* field, const Expr* initializer) {
     RccIrLowerValue base_value;
     RccIrLowerValue address;
+    bool initialized;
     if (!context || !field || !field->type || !initializer) {
         if (context) context->unsupported = true;
         return false;
@@ -14032,22 +14238,23 @@ static bool lower_initialize_struct_field(
         context, base_value, (uint64_t)field->offset);
     if (!address.valid) return false;
     if (field->type->kind == TYPE_ARRAY) {
-        return lower_array_initializer(
+        initialized = lower_array_initializer(
+            context, address.value, field->type, initializer);
+    } else if (field->type->kind == TYPE_STRUCT) {
+        initialized = lower_initialize_struct_storage(
+            context, address.value, field->type, initializer);
+    } else if (field->type->kind == TYPE_UNION) {
+        initialized = lower_initialize_union_storage(
+            context, address.value, field->type, initializer);
+    } else {
+        initialized = lower_initialize_scalar_storage(
             context, address.value, field->type, initializer);
     }
-    if (field->type->kind == TYPE_STRUCT) {
-        return lower_initialize_struct_storage(
-            context, address.value, field->type, initializer);
-    }
-    if (field->type->kind == TYPE_UNION) {
-        return lower_initialize_union_storage(
-            context, address.value, field->type, initializer);
-    }
-    return lower_initialize_scalar_storage(
-        context, address.value, field->type, initializer);
+    return initialized && lower_register_partial_member_cleanup(
+        context, field);
 }
 
-static bool lower_initialize_cxx_scalar_base_constructor(
+static bool lower_initialize_cxx_scalar_subobject_constructor(
     RccIrLowerContext* context, RccIrValue base_address,
     const CxxClass* base_class,
     const CxxConstructorInfo* base_constructor,
@@ -14141,8 +14348,8 @@ static bool lower_struct_initializer(
         const ExprList* constructor_argument = initializer->compound_init;
         int argument_index;
         if (!lower_cxx_empty_noop_constructor_supported(initializer)) {
-            context->unsupported = true;
-            return false;
+            return lower_cxx_emit_constructor_call(
+                context, initializer, base);
         }
         constructor_argument_count = (size_t)
             initializer->compound_constructor->parameter_count;
@@ -14222,7 +14429,7 @@ static bool lower_struct_initializer(
                     context, object,
                     (uint64_t)cls->base_offsets[base_index]);
                 if (!address.valid ||
-                    !lower_initialize_cxx_scalar_base_constructor(
+                    !lower_initialize_cxx_scalar_subobject_constructor(
                         context, address.value, base_class,
                         member_initializer->constructor,
                         member_initializer->arguments,
@@ -14239,6 +14446,31 @@ static bool lower_struct_initializer(
                 context->unsupported = true;
                 goto constructor_lowering_failure;
             }
+            field = lower_struct_declared_field(
+                type, type->cxx_class, member_initializer->field);
+            object = lower_value(base, rcc_ir_type_pointer(0u), true);
+            address = field
+                ? lower_byte_offset_address(
+                      context, object, (uint64_t)field->offset)
+                : lower_invalid_value();
+            if (!field || !address.valid) {
+                context->unsupported = true;
+                goto constructor_lowering_failure;
+            }
+            if (field->type->kind == TYPE_STRUCT) {
+                if (!member_initializer->constructor ||
+                    !lower_initialize_cxx_scalar_subobject_constructor(
+                        context, address.value, field->type->cxx_class,
+                        member_initializer->constructor,
+                        member_initializer->arguments,
+                        initializer->compound_constructor,
+                        constructor_arguments) ||
+                    !lower_register_partial_member_cleanup(context, field)) {
+                    context->unsupported = true;
+                    goto constructor_lowering_failure;
+                }
+                continue;
+            }
             for (parameter_decl = initializer->compound_constructor->method
                      ->decl->func_params, parameter_index = 0;
                  parameter_decl; parameter_decl = parameter_decl->next,
@@ -14248,17 +14480,9 @@ static bool lower_struct_initializer(
                     break;
                 }
             }
-            field = lower_struct_declared_field(
-                type, type->cxx_class, member_initializer->field);
-            object = lower_value(base, rcc_ir_type_pointer(0u), true);
-            address = field
-                ? lower_byte_offset_address(
-                      context, object, (uint64_t)field->offset)
-                : lower_invalid_value();
-            if (!field || parameter_index < 0 ||
+            if (parameter_index < 0 ||
                 parameter_index >=
-                    initializer->compound_constructor->parameter_count ||
-                !address.valid) {
+                    initializer->compound_constructor->parameter_count) {
                 context->unsupported = true;
                 goto constructor_lowering_failure;
             }
@@ -14281,40 +14505,70 @@ static bool lower_struct_initializer(
     if (type->cxx_class && type->cxx_class->base_count > 0) {
         const CxxClass* cls = type->cxx_class;
         item = initializer->compound_init;
+        bool has_explicit_base_initializers = item && item->expr &&
+            cls->bases[0].base && cls->bases[0].base->type &&
+            item->expr->type && item->expr->type->kind == TYPE_STRUCT &&
+            type_is_compatible(
+                (Type*)cls->bases[0].base->type, item->expr->type);
         if (!cls->base_offsets) {
             context->unsupported = true;
             return false;
         }
-        for (int index = 0; index < cls->base_count; ++index) {
-            const CxxClass* base_class = cls->bases[index].base;
-            RccIrLowerValue base_value;
-            RccIrLowerValue address;
-            if (!item ||
-                item->designator_kind != INIT_DESIGNATOR_NONE ||
-                !base_class || !base_class->type ||
-                cls->bases[index].is_virtual ||
-                cls->base_offsets[index] < 0) {
+        if (!has_explicit_base_initializers) {
+            if (!cls->has_field_initializer ||
+                initializer->compound_constructor) {
                 context->unsupported = true;
                 return false;
             }
-            base_value = lower_value(base, rcc_ir_type_pointer(0u), true);
-            address = lower_byte_offset_address(
-                context, base_value,
-                (uint64_t)cls->base_offsets[index]);
-            if (!address.valid || !lower_initialize_struct_storage(
-                    context, address.value, base_class->type, item->expr)) {
-                return false;
+            for (int index = 0; index < cls->base_count; ++index) {
+                const CxxClass* base_class = cls->bases[index].base;
+                if (!base_class || !base_class->type ||
+                    cls->bases[index].is_virtual ||
+                    cls->base_offsets[index] < 0 ||
+                    base_class->has_user_constructor ||
+                    base_class->has_field_initializer ||
+                    base_class->fields || base_class->base_count != 0 ||
+                    base_class->virtual_base_count != 0 ||
+                    base_class->vtable_size != 0 ||
+                    base_class->destructor_method) {
+                    context->unsupported = true;
+                    return false;
+                }
             }
-            item = item->next;
+        } else {
+            for (int index = 0; index < cls->base_count; ++index) {
+                const CxxClass* base_class = cls->bases[index].base;
+                RccIrLowerValue base_value;
+                RccIrLowerValue address;
+                if (!item ||
+                    item->designator_kind != INIT_DESIGNATOR_NONE ||
+                    !base_class || !base_class->type ||
+                    cls->bases[index].is_virtual ||
+                    cls->base_offsets[index] < 0) {
+                    context->unsupported = true;
+                    return false;
+                }
+                base_value = lower_value(base, rcc_ir_type_pointer(0u), true);
+                address = lower_byte_offset_address(
+                    context, base_value,
+                    (uint64_t)cls->base_offsets[index]);
+                if (!address.valid || !lower_initialize_struct_storage(
+                        context, address.value, base_class->type, item->expr)) {
+                    return false;
+                }
+                item = item->next;
+            }
         }
         for (const TypeParam* member = cls->fields; member;
              member = member->next) {
             const TypeField* field;
             if (member->is_static) continue;
-            if (!item ||
-                item->designator_kind != INIT_DESIGNATOR_NONE ||
-                !(field = lower_struct_declared_field(
-                    type, cls, member->name)) ||
+            field = lower_struct_declared_field(type, cls, member->name);
+            if (!item || !field ||
+                (item->designator_kind != INIT_DESIGNATOR_NONE &&
+                 (item->designator_kind != INIT_DESIGNATOR_FIELD ||
+                  !item->designator_field ||
+                  strcmp(item->designator_field, member->name) != 0)) ||
                 !lower_initialize_struct_field(
                     context, base, field, item->expr)) {
                 context->unsupported = true;
@@ -14861,11 +15115,23 @@ static bool lower_declaration(RccIrLowerContext* context,
                 context, declaration->var_cleanups);
     }
     if (is_struct && declaration->var_init) {
-        if (!lower_initialize_struct_storage(
-            context, allocation->result,
-            declaration->type, declaration->var_init) ||
-            !lower_cxx_initialize_object_vtables(
-                context, allocation->result, declaration->type)) {
+        const Decl* previous_partial_owner =
+            context->partial_construction_owner;
+        bool track_partial_members = declaration->var_cleanups != NULL &&
+            lower_cleanup_initializer_may_throw(declaration->var_init);
+        bool initialized;
+        if (track_partial_members) {
+            context->partial_construction_owner = declaration;
+        }
+        initialized = lower_initialize_struct_storage(
+                context, allocation->result,
+                declaration->type, declaration->var_init) &&
+            lower_cxx_initialize_object_vtables(
+                context, allocation->result, declaration->type);
+        context->partial_construction_owner = previous_partial_owner;
+        if (!initialized ||
+            (track_partial_members &&
+             !lower_unregister_partial_member_cleanups(context, declaration))) {
             return false;
         }
         return !declaration->var_cleanups ||
@@ -16012,9 +16278,11 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
             return context.unsupported ? RCC_IR_LOWER_UNSUPPORTED
                                        : RCC_IR_LOWER_INVALID;
         }
-        if (return_type.kind != RCC_IR_TYPE_VOID ||
-            !lower_append(&context, RCC_IR_RETURN, rcc_ir_type_void(),
-                          NULL, 0u, NULL, 0u)) {
+        if (!lower_append(
+                &context,
+                return_type.kind == RCC_IR_TYPE_VOID
+                    ? RCC_IR_RETURN : RCC_IR_UNREACHABLE,
+                rcc_ir_type_void(), NULL, 0u, NULL, 0u)) {
             lower_release_scope_cleanups(context.allocated_scope_cleanups);
             lower_release_locals(context.locals);
             lower_release_labels(context.labels);
