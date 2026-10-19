@@ -6723,3 +6723,16 @@ remains a separate open item.
       `test-cxx` aggregate pass.
 - [ ] Remaining constexpr pointer-provenance, floating-point, and aggregate
       edge cases remain open.
+
+## RCC continuation (2026-10-19, constexpr nested-array decay)
+
+- [x] Evaluate array-valued subscript expressions such as `matrix[1]` as
+      pointers to the selected row, preserving the global declaration or
+      constexpr-local object binding and byte offset.
+- [x] Add GCC C++20-checked global and constexpr-local multidimensional-array
+      cases for row decay, row indexing, and pointer difference. The focused
+      pointer target passes i686/AMD64 generation and x64 execution; the full
+      native-Windows `test-cxx` aggregate passes.
+- [ ] Parenthesized pointer-to-array declarators (for example
+      `int (*rows)[3]`) remain a separate parser gap; broader constexpr
+      pointer provenance and floating/aggregate cases remain open.

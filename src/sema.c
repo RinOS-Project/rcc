@@ -8040,6 +8040,33 @@ static bool sema_eval_constexpr_scalar_expr(
             Type* base_type = expression->index_base
                 ? expression->index_base->type : NULL;
             int64_t index;
+            if (expression->type &&
+                expression->type->kind == TYPE_ARRAY &&
+                expression->type->base) {
+                int object_binding_index;
+                size_t object_offset;
+                Type* object_type;
+                Decl* declaration = NULL;
+                int64_t offset = 0;
+                if (bindings && sema_constexpr_binding_lvalue(
+                        expression, bindings, binding_count,
+                        &object_binding_index, &object_offset,
+                        &object_type)) {
+                    if (!object_type || object_offset > (size_t)INT64_MAX) {
+                        return false;
+                    }
+                    declaration = bindings[object_binding_index].declaration;
+                    offset = (int64_t)object_offset;
+                } else if (!sema_constexpr_address_target(
+                               expression, &declaration, &offset)) {
+                    return false;
+                }
+                value->type = type_ptr(expression->type->base);
+                value->is_pointer = true;
+                value->pointer_declaration = declaration;
+                value->pointer_offset = offset;
+                return true;
+            }
             if (bindings && sema_constexpr_load_binding_scalar(
                     expression, bindings, binding_count, value)) {
                 return true;
