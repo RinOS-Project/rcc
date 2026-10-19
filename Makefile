@@ -478,6 +478,7 @@ endif
 .PHONY: test-verified-switch-nested
 .PHONY: test-verified-cxx-explicit-throwing-destructor
 .PHONY: test-verified-cxx-delete
+.PHONY: test-verified-cxx-partial-array-init
 .PHONY: test-verified-cxx-throwing-temporary
 .PHONY: test-rinvalidate-dynamic-tls
 .PHONY: test-cxx-variable-templates
@@ -2249,8 +2250,12 @@ endif
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-language-core/invalid-array-new-x86.ro tests/cxx_new_array_invalid.cpp,$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log)
 	$(GREP) -q 'array new has no lowerable constructor for its element initializers' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log
+	$(GREP) -F -q 'array new omitted elements require a lowerable zero-argument default constructor' \
+		$(TEST_OUT)/cxx-language-core/invalid-array-new-x86.log
 	$(call EXPECT_FAILURE,$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -c -o $(TEST_OUT)/cxx-language-core/invalid-array-new-x64.ro tests/cxx_new_array_invalid.cpp,$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log)
 	$(GREP) -q 'array new has no lowerable constructor for its element initializers' \
+		$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log
+	$(GREP) -F -q 'array new omitted elements require a lowerable zero-argument default constructor' \
 		$(TEST_OUT)/cxx-language-core/invalid-array-new-x64.log
 	@echo "RCC++ core language tests completed"
 
@@ -17371,6 +17376,31 @@ test-verified-cxx-delete: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(TEST_OUT)/verified-backend/cxx-delete-run \
 		--cxx-delete-object $(TEST_OUT)/verified-backend/cxx-delete-x64.ro x64
 
+test-verified-cxx-partial-array-init: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
+	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
+	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-partial-array-x86.ro \
+		tests/verified_backend_cxx_partial_array.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-partial-array-x86.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-partial-array-x86.log,0)
+	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O2 \
+		-fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/cxx-partial-array-x64.ro \
+		tests/verified_backend_cxx_partial_array.cpp \
+		>$(TEST_OUT)/verified-backend/cxx-partial-array-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-partial-array-x64.log,0)
+	$(CC) $(CFLAGS) -I$(INCDIR) \
+		-o $(TEST_OUT)/verified-backend/cxx-partial-array-run \
+		tests/verified_backend_test.c $(SRCDIR)/emit_ro.c \
+		$(SRCDIR)/utils.c $(CXX_HOST_EXCEPTION_RUNTIME)
+	$(TEST_OUT)/verified-backend/cxx-partial-array-run \
+		--cxx-partial-array-object \
+		$(TEST_OUT)/verified-backend/cxx-partial-array-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-partial-array-run \
+		--cxx-partial-array-object \
+		$(TEST_OUT)/verified-backend/cxx-partial-array-x64.ro x64
+
 test-verified-cxx-explicit-throwing-destructor: $(RCXX_TARGET) $(CXX_HOST_EXCEPTION_RUNTIME)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
@@ -17858,7 +17888,7 @@ test-rinvalidate-dynamic-tls: $(RCC_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		--rinvalidate "$(abspath $(RINVALIDATE))" \
 		--output-dir "$(abspath $(TEST_OUT)/rinvalidate-dynamic-tls/runtime)"
 
-test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
+test-verified-backend: $(RCC_TARGET) $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE) $(CXX_HOST_EXCEPTION_RUNTIME) test-rinvalidate-dynamic-tls test-verified-goto test-verified-builtins test-verified-bitcounts test-verified-volatile test-verified-i686-floating-arithmetic test-verified-i686-floating-comparisons test-verified-i686-floating-operations test-verified-i686-variadic-fp test-verified-cxx-reference-local test-verified-cxx-destructor test-verified-cxx-delete test-verified-cxx-partial-array-init test-verified-cxx-explicit-throwing-destructor test-verified-cxx-throwing-temporary test-verified-cxx-reference-return test-verified-cxx-conditional-aggregate test-verified-cxx-temporary-cleanup test-verified-cxx-automatic-array-cleanup test-verified-cxx-virtual-base-value test-verified-switch-nested
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCC_TARGET) --target i686-unknown-rinos -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/x86.ro tests/verified_backend.c \

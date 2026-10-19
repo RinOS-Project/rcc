@@ -15540,6 +15540,23 @@ static Type* sema_expr(Expr* expr) {
                                 return expr->type;
                             }
                             expr->call_new_constructor = constructor;
+                            if (expr->call_new_args &&
+                                element_count > argument_count) {
+                                ExprList* default_arguments = NULL;
+                                CxxConstructorInfo* default_constructor =
+                                    sema_select_cxx_new_constructor(
+                                        object_type, &default_arguments,
+                                        expr->loc);
+                                if (!default_constructor ||
+                                    default_constructor->parameter_count != 0 ||
+                                    default_arguments) {
+                                    rcc_error(expr->loc,
+                                              "array new omitted elements require a lowerable zero-argument default constructor");
+                                    return expr->type;
+                                }
+                                expr->call_new_default_constructor =
+                                    default_constructor;
+                            }
                         }
                         if (destructor || has_cleanup || has_member_cleanup) {
                             expr->call_new_array_cookie = true;

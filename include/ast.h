@@ -810,6 +810,7 @@ struct Expr {
             Expr* call_new_count;
             ExprList* call_new_args;
             struct CxxConstructorInfo* call_new_constructor;
+            struct CxxConstructorInfo* call_new_default_constructor;
             /* C++ delete-expression metadata.  The ordinary call fields
              * retain the RinOS free call; these fields describe a validated
              * scalar destructor cleanup that must run before freeing. */

@@ -12148,6 +12148,7 @@ static Expr* template_clone_expr(CxxTemplate* tmpl, Expr* expression,
             /* Constructor selection is semantic and must be redone for the
              * substituted class specialization. */
             copy->call_new_constructor = NULL;
+            copy->call_new_default_constructor = NULL;
             copy->call_is_delete = expression->call_is_delete;
             copy->call_delete_is_array = expression->call_delete_is_array;
             copy->call_delete_destructor = NULL;

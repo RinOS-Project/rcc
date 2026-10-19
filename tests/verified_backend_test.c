@@ -3938,6 +3938,61 @@ static void verify_cxx_delete_object(const char* path, uint16_t arch,
     objfile_free(object);
 }
 
+static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
+                                            bool execute)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* partial_init_symbol;
+    ObjSymbol* default_init_symbol;
+    ObjSymbol* throwing_init_symbol;
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    partial_init_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_init");
+    default_init_symbol = objfile_find_symbol(
+        object, "verified_cxx_default_array_init");
+    throwing_init_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_init_throw");
+    assert(text != NULL && partial_init_symbol != NULL &&
+           partial_init_symbol->type == SYM_GLOBAL &&
+           partial_init_symbol->binding == BIND_CODE &&
+           partial_init_symbol->section == 0 && default_init_symbol != NULL &&
+           default_init_symbol->type == SYM_GLOBAL &&
+           default_init_symbol->binding == BIND_CODE &&
+           default_init_symbol->section == 0 && throwing_init_symbol != NULL &&
+           throwing_init_symbol->type == SYM_GLOBAL &&
+           throwing_init_symbol->binding == BIND_CODE &&
+           throwing_init_symbol->section == 0);
+    if (execute) {
+        size_t mapping_size;
+        void* memory;
+        void* address;
+        int (RINOS_ABI *partial_init)(void);
+        int (RINOS_ABI *default_init)(void);
+        int (RINOS_ABI *throwing_init)(void);
+        assert(arch == ARCH_X64 && sizeof(void*) == 8u);
+        memory = map_text(object, text, &mapping_size);
+        address = symbol_address(memory, partial_init_symbol);
+        memcpy(&partial_init, &address, sizeof(partial_init));
+        verified_runtime_free_count = 0u;
+        assert(partial_init() == 3219);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, default_init_symbol);
+        memcpy(&default_init, &address, sizeof(default_init));
+        verified_runtime_free_count = 0u;
+        assert(default_init() == 21);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, throwing_init_symbol);
+        memcpy(&throwing_init, &address, sizeof(throwing_init));
+        verified_runtime_free_count = 0u;
+        assert(throwing_init() == 21043);
+        assert(verified_runtime_free_count == 1u);
+        assert(verified_unmap(memory, mapping_size) == 0);
+    }
+    objfile_free(object);
+}
+
 static void verify_cxx_explicit_throwing_callee_object(
     const char* path, uint16_t arch, bool execute)
 {
@@ -5024,6 +5079,22 @@ int main(int argc, char** argv)
         puts(arch == ARCH_X64 && sizeof(void*) == 8u
                  ? "Verified typed-SSA dynamic delete runtime passed"
                  : "Verified typed-SSA dynamic delete object passed");
+        return 0;
+    }
+    if (argc == 4 &&
+        strcmp(argv[1], "--cxx-partial-array-object") == 0) {
+        uint16_t arch;
+        if (strcmp(argv[3], "x86") == 0) {
+            arch = ARCH_X86;
+        } else {
+            assert(strcmp(argv[3], "x64") == 0);
+            arch = ARCH_X64;
+        }
+        verify_cxx_partial_array_object(
+            argv[2], arch, arch == ARCH_X64 && sizeof(void*) == 8u);
+        puts(arch == ARCH_X64 && sizeof(void*) == 8u
+                 ? "Verified typed-SSA partial array initialization runtime passed"
+                 : "Verified typed-SSA partial array initialization object passed");
         return 0;
     }
     if (argc == 4 &&

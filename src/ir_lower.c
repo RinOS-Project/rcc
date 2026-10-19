@@ -6544,9 +6544,9 @@ static bool lower_cxx_scalar_subobject_constructor_supported(
     return member_initializer_count == member_count;
 }
 
-/* The inline-cleanup path accepts only constructor bodies and subobject
- * initializers that this routine fully reduces to scalar argument evaluation
- * and stores.  The declared exception specification need not be noexcept:
+/* The inline-cleanup path accepts only empty constructor bodies and scalar
+ * initializers that reduce to constant evaluation or scalar parameter
+ * forwarding. The declared exception specification need not be noexcept:
  * no potentially throwing constructor body or subobject call is emitted on
  * this path. */
 static bool lower_cxx_empty_noop_constructor_supported(
@@ -6704,21 +6704,40 @@ static bool lower_cxx_empty_noop_constructor_supported(
             continue;
         }
         if (!initializer->arguments || initializer->arguments->next ||
-            !initializer->arguments->expr ||
-            initializer->arguments->expr->kind != EXPR_IDENT ||
-            !initializer->arguments->expr->ident_decl) {
-            return false;
-        }
+            !initializer->arguments->expr) return false;
         member = cls->fields;
         while (member && (member->is_static || !initializer->field ||
                strcmp(initializer->field, member->name) != 0)) {
             member = member->next;
         }
         if (!member || member_initializer_count >= member_count ||
-            !initializer->arguments || initializer->arguments->next ||
-            !initializer->arguments->expr ||
-            initializer->value != initializer->arguments->expr ||
-            initializer->arguments->expr->kind != EXPR_IDENT ||
+            initializer->value != initializer->arguments->expr) {
+            return false;
+        }
+        for (previous_initializer = constructor->initializers;
+             previous_initializer != initializer;
+             previous_initializer = previous_initializer->next) {
+            if (!previous_initializer->is_base_initializer &&
+                previous_initializer->field && initializer->field &&
+                strcmp(previous_initializer->field,
+                       initializer->field) == 0) {
+                return false;
+            }
+        }
+        if (constructor->parameter_count == 0) {
+            int64_t constant_value;
+            if (member->type->kind == TYPE_STRUCT ||
+                initializer->constructor ||
+                !initializer->arguments->expr->type ||
+                !type_is_scalar(initializer->arguments->expr->type) ||
+                !expr_eval_integer_constant(
+                    initializer->arguments->expr, &constant_value)) {
+                return false;
+            }
+            ++member_initializer_count;
+            continue;
+        }
+        if (initializer->arguments->expr->kind != EXPR_IDENT ||
             !initializer->arguments->expr->ident_decl) {
             return false;
         }
@@ -6730,16 +6749,6 @@ static bool lower_cxx_empty_noop_constructor_supported(
             const DeclList* candidate_decl =
                 constructor->method->decl->func_params;
             bool found_parameter = false;
-            for (previous_initializer = constructor->initializers;
-                 previous_initializer != initializer;
-                 previous_initializer = previous_initializer->next) {
-                if (previous_initializer->is_base_initializer) continue;
-                if ((previous_initializer->field && initializer->field &&
-                     strcmp(previous_initializer->field,
-                            initializer->field) == 0)) {
-                    return false;
-                }
-            }
             while (candidate_type && candidate_decl) {
                 if (candidate_decl->decl == initialized_parameter) {
                     if (member->type->kind == TYPE_STRUCT) {
@@ -14746,6 +14755,8 @@ static RccIrLowerValue lower_cxx_new_array_expression(
     RccIrLowerContext* context, const Expr* expression) {
     const CxxClass* cls;
     const Decl* constructor_decl;
+    const Decl* default_constructor_decl = NULL;
+    const CxxConstructorInfo* default_constructor;
     const Decl* destructor;
     const ExprList* argument;
     Type* word_language_type;
@@ -14778,8 +14789,11 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         return lower_invalid_value();
     }
     cls = expression->call_new_type->cxx_class;
+    default_constructor = expression->call_new_default_constructor;
     constructor_decl = expression->call_new_constructor->method
         ? expression->call_new_constructor->method->decl : NULL;
+    default_constructor_decl = default_constructor &&
+        default_constructor->method ? default_constructor->method->decl : NULL;
     destructor = expression->call_new_type->cxx_class &&
         expression->call_new_type->cxx_class->destructor_method
         ? expression->call_new_type->cxx_class->destructor_method->decl
@@ -14797,6 +14811,13 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         context->unsupported = true;
         return lower_invalid_value();
     }
+    if (default_constructor &&
+        (!default_constructor_decl ||
+         !default_constructor_decl->func_is_cxx_constructor ||
+         default_constructor->parameter_count != 0)) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
     for (argument = expression->call_new_args; argument;
          argument = argument->next) {
         if (initialized_count == 4096u) {
@@ -14805,22 +14826,24 @@ static RccIrLowerValue lower_cxx_new_array_expression(
         }
         ++initialized_count;
     }
-    if (!initialized_count) {
-        /* The validated initializer list must contain at least one element. */
-        context->unsupported = true;
-        return lower_invalid_value();
+    if (!expression->call_new_args) {
+        default_constructor = expression->call_new_constructor;
+        default_constructor_decl = constructor_decl;
     }
-    /* This lowering emits one constructor call per initializer.  The front
-     * end permits a larger bound when the remaining elements are
-     * value-initialized, which needs a separate default-constructor path. */
+    /* Array bounds with explicit initializers are compile-time validated by
+     * sema. The constructor for an omitted suffix is retained separately. */
     if (!expr_eval_integer_constant(
             expression->call_new_count, &constant_count) ||
         constant_count < 0 ||
-        (uint64_t)constant_count != (uint64_t)initialized_count) {
+        (uint64_t)constant_count < (uint64_t)initialized_count ||
+        ((uint64_t)constant_count > (uint64_t)initialized_count &&
+         !default_constructor)) {
         context->unsupported = true;
         return lower_invalid_value();
     }
     register_cleanups = !constructor_decl->func_is_noexcept ||
+        (default_constructor_decl &&
+         !default_constructor_decl->func_is_noexcept) ||
         !lower_noexcept_expression_list(expression->call_new_args);
     word_language_type = g_opts.target_arch == ARCH_X64
         ? type_ulong : type_uint;
@@ -14916,6 +14939,34 @@ static RccIrLowerValue lower_cxx_new_array_expression(
             if (!context->unsupported) context->unsupported = true;
             return lower_invalid_value();
         }
+        if (register_cleanups && !lower_cxx_register_array_element_cleanup(
+                context, cls, destructor, element, true)) {
+            return lower_invalid_value();
+        }
+    }
+    while ((uint64_t)element_index < (uint64_t)constant_count) {
+        Expr initializer;
+        RccIrLowerValue element_index_value = lower_integer_constant(
+            context, word_type, true, (uint64_t)element_index);
+        RccIrLowerValue element = lower_cxx_array_element_address(
+            context, user_address, element_index_value,
+            (size_t)expression->call_new_type->size);
+        if (!default_constructor || !element.valid) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        memset(&initializer, 0, sizeof(initializer));
+        initializer.kind = EXPR_COMPOUND;
+        initializer.type = expression->call_new_type;
+        initializer.compound_constructor =
+            (CxxConstructorInfo*)default_constructor;
+        if (!lower_initialize_struct_storage(
+                context, element.value, expression->call_new_type,
+                &initializer)) {
+            if (!context->unsupported) context->unsupported = true;
+            return lower_invalid_value();
+        }
+        ++element_index;
         if (register_cleanups && !lower_cxx_register_array_element_cleanup(
                 context, cls, destructor, element, true)) {
             return lower_invalid_value();
@@ -15550,8 +15601,8 @@ static bool lower_struct_initializer(
                 continue;
             }
             if (!member_initializer->arguments ||
-                !member_initializer->arguments->expr ||
-                !member_initializer->arguments->expr->ident_decl) {
+                member_initializer->arguments->next ||
+                !member_initializer->arguments->expr) {
                 context->unsupported = true;
                 goto constructor_lowering_failure;
             }
@@ -15579,6 +15630,23 @@ static bool lower_struct_initializer(
                     goto constructor_lowering_failure;
                 }
                 continue;
+            }
+            if (initializer->compound_constructor->parameter_count == 0) {
+                member_value = lower_expression(
+                    context, member_initializer->arguments->expr);
+                member_value = lower_cast(
+                    context, member_value, field->type);
+                if (!member_value.valid ||
+                    !lower_store_address(context, address, member_value)) {
+                    context->unsupported = true;
+                    goto constructor_lowering_failure;
+                }
+                continue;
+            }
+            if (member_initializer->arguments->expr->kind != EXPR_IDENT ||
+                !member_initializer->arguments->expr->ident_decl) {
+                context->unsupported = true;
+                goto constructor_lowering_failure;
             }
             for (parameter_decl = initializer->compound_constructor->method
                      ->decl->func_params, parameter_index = 0;
