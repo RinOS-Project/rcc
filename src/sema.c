@@ -9868,6 +9868,16 @@ static bool sema_cxx_type_has_default_member_initializers(
     if (type->cxx_class && type->cxx_class->has_field_initializer) {
         return true;
     }
+    if (type->cxx_class) {
+        CxxClass* cls = type->cxx_class;
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases ? cls->bases[index].base : NULL;
+            if (base && sema_cxx_type_has_default_member_initializers(
+                            base->type, depth + 1)) {
+                return true;
+            }
+        }
+    }
     for (TypeField* field = type->fields; field; field = field->next) {
         if (sema_cxx_type_has_default_member_initializers(
                 field->type, depth + 1)) {
@@ -9885,6 +9895,16 @@ static bool sema_cxx_validate_default_member_subobjects(
             type->base, loc, depth + 1);
     }
     if (type->kind != TYPE_STRUCT && type->kind != TYPE_UNION) return true;
+    if (type->cxx_class) {
+        CxxClass* cls = type->cxx_class;
+        for (int index = 0; index < cls->base_count; ++index) {
+            CxxClass* base = cls->bases ? cls->bases[index].base : NULL;
+            if (!base || !sema_cxx_validate_default_member_subobjects(
+                             base->type, loc, depth + 1)) {
+                return false;
+            }
+        }
+    }
     for (TypeField* field = type->fields; field; field = field->next) {
         if (field->initializer) {
             if (!sema_cxx_default_member_constant(

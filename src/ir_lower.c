@@ -14887,14 +14887,37 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
     if ((type->cxx_nontrivial &&
          (!cls || !cls->has_field_initializer)) ||
         (cls && (cls->has_user_constructor || cls->constructors ||
-                 cls->base_count != 0 || cls->virtual_base_count != 0 ||
-                 cls->vtable_size != 0 ||
+                 cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
                  cls->secondary_vtable_count != 0 ||
                  cls->destructor_method))) {
         return false;
     }
+    if (cls && cls->base_count > 0 &&
+        (!cls->bases || !cls->base_offsets)) {
+        return false;
+    }
+    if (cls) {
+        for (int index = 0; index < cls->base_count; ++index) {
+            const CxxClass* base = cls->bases[index].base;
+            bool nested_initializer = false;
+            int offset = cls->base_offsets[index];
+            if (!base || cls->bases[index].is_virtual || offset < 0 ||
+                !base->type || base->type->size <= 0 ||
+                offset > type->size ||
+                base->type->size > type->size - offset ||
+                !lower_cxx_implicit_default_member_subobject_supported(
+                    base->type, depth + 1u, &nested_initializer)) {
+                return false;
+            }
+            if (nested_initializer && has_initializers) {
+                *has_initializers = true;
+            }
+        }
+    }
     if (type->kind == TYPE_UNION) {
-        if (cls && cls->has_field_initializer) return false;
+        if (cls && (cls->has_field_initializer || cls->base_count != 0)) {
+            return false;
+        }
         for (field = type->fields; field; field = field->next) {
             bool nested_initializer = false;
             if (!field->type || field->is_bitfield ||
@@ -14932,12 +14955,28 @@ static bool lower_cxx_implicit_default_member_initializers_supported(
     bool has_initializer = false;
     if (!type || type->kind != TYPE_STRUCT || !type->is_complete ||
         type->size <= 0 || !cls || cls->has_user_constructor ||
-        cls->constructors || cls->base_count != 0 ||
-        cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
+        cls->constructors || cls->virtual_base_count != 0 ||
+        cls->vtable_size != 0 ||
         cls->secondary_vtable_count != 0 || type->cleanup_function ||
         type->cleanup_field ||
         !lower_storage_type_supported_internal(type, 0u)) {
         return false;
+    }
+    if (cls->base_count > 0 && (!cls->bases || !cls->base_offsets)) {
+        return false;
+    }
+    for (int index = 0; index < cls->base_count; ++index) {
+        const CxxClass* base = cls->bases[index].base;
+        bool nested_initializer = false;
+        int offset = cls->base_offsets[index];
+        if (!base || cls->bases[index].is_virtual || offset < 0 ||
+            !base->type || base->type->size <= 0 ||
+            offset > type->size || base->type->size > type->size - offset ||
+            !lower_cxx_implicit_default_member_subobject_supported(
+                base->type, 0u, &nested_initializer)) {
+            return false;
+        }
+        if (nested_initializer) has_initializer = true;
     }
     for (const TypeField* field = type->fields; field; field = field->next) {
         bool nested_initializer = false;
@@ -14986,6 +15025,32 @@ static bool lower_cxx_initialize_implicit_default_member_subobjects(
     {
         RccIrLowerValue base = lower_value(
             object, rcc_ir_type_pointer(0u), true);
+        const CxxClass* cls = type->cxx_class;
+        if (cls) {
+            if (cls->base_count > 0 &&
+                (!cls->bases || !cls->base_offsets)) {
+                context->unsupported = true;
+                return false;
+            }
+            for (int index = 0; index < cls->base_count; ++index) {
+                const CxxClass* base_class = cls->bases[index].base;
+                RccIrLowerValue address;
+                if (!base_class || cls->bases[index].is_virtual ||
+                    cls->base_offsets[index] < 0) {
+                    context->unsupported = true;
+                    return false;
+                }
+                address = lower_byte_offset_address(
+                    context, base,
+                    (uint64_t)cls->base_offsets[index]);
+                if (!address.valid ||
+                    !lower_cxx_initialize_implicit_default_member_subobjects(
+                        context, address.value, base_class->type,
+                        depth + 1u)) {
+                    return false;
+                }
+            }
+        }
         for (const TypeField* field = type->fields; field;
              field = field->next) {
             RccIrLowerValue address = lower_byte_offset_address(
