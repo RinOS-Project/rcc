@@ -7088,3 +7088,12 @@ remains a separate open item.
       conversions, compound dynamic expressions, mutable-parameter tracking,
       and optimized register/piece tracking remain open; this does not
       implement general variable-location tracking.
+
+## RIN/RLL/DRV fini-array format matrix (2026-10-20)
+
+- [x] Validate C++ `.fini_array` images with the production `rinvalidate`
+      for i686 and AMD64 across direct RIN, RLL, and NDRV generation. The
+      existing matrix covered RIN on both architectures but only AMD64 RLL/NDRV;
+      add the missing i686 library and driver artifacts to
+      `test-global-finalizers`. The updated target passes on native Windows.
+- [ ] Hardware loader execution of finalizers remains outside host validation.

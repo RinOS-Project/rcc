@@ -16598,8 +16598,14 @@ test-global-finalizers: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 	$(RCXX_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/global-finalizers/x86.rin \
 		tests/cxx_global_finalizers.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-shared -o $(TEST_OUT)/global-finalizers/x86.rll \
+		tests/cxx_global_finalizers.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
 		-o $(TEST_OUT)/global-finalizers/x64.rin \
+		tests/cxx_global_finalizers.cpp
+	$(RCXX_TARGET) --target i686-unknown-rinos --emit-unsigned-v3 \
+		-driver -o $(TEST_OUT)/global-finalizers/x86.drv \
 		tests/cxx_global_finalizers.cpp
 	$(RCXX_TARGET) --target x86_64-unknown-rinos --emit-unsigned-v3 \
 		-shared -o $(TEST_OUT)/global-finalizers/x64.rll \
@@ -16612,8 +16618,12 @@ test-global-finalizers: $(RCXX_TARGET) $(RLD_TARGET) $(RINVALIDATE)
 		$(TEST_OUT)/global-finalizers/x64.ro
 	$(RINVALIDATE) --kind executable --arch x86 --allow-unsigned \
 		$(TEST_OUT)/global-finalizers/x86.rin
+	$(RINVALIDATE) --kind library --arch x86 --allow-unsigned \
+		$(TEST_OUT)/global-finalizers/x86.rll
 	$(RINVALIDATE) --kind executable --arch x86_64 --allow-unsigned \
 		$(TEST_OUT)/global-finalizers/x64.rin
+	$(RINVALIDATE) --kind driver --arch x86 --allow-unsigned \
+		$(TEST_OUT)/global-finalizers/x86.drv
 	$(RINVALIDATE) --kind library --arch x86_64 --allow-unsigned \
 		$(TEST_OUT)/global-finalizers/x64.rll
 	$(RINVALIDATE) --kind driver --arch x86_64 --allow-unsigned \
