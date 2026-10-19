@@ -418,12 +418,20 @@ static bool mir_phi_verify_schedule(
             locations, location_count,
             allocation->locations[edge->copies[index].destination]);
         if (current_tokens[destination] != initial_tokens[source]) {
+            size_t expected_token = initial_tokens[source];
+            size_t observed_token = current_tokens[destination];
+            bool reported = mir_phi_error(
+                error, error_size,
+                "scheduled MIR phi moves change parallel-copy semantics on "
+                "edge %u -> %u at copy %zu (source token %zu, destination "
+                "contains %zu; locations %zu/%zu)",
+                (unsigned)edge->predecessor,
+                (unsigned)edge->successor, index,
+                expected_token, observed_token, source, destination);
             rcc_free(locations);
             rcc_free(initial_tokens);
             rcc_free(current_tokens);
-            return mir_phi_error(
-                error, error_size,
-                "scheduled MIR phi moves change parallel-copy semantics");
+            return reported;
         }
     }
     rcc_free(locations);

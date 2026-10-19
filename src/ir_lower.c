@@ -38,6 +38,8 @@ typedef struct RccIrLowerLocal {
      * The address is still materialized for valid address-taking uses, but
      * ordinary reads never need to reload the stack mirror. */
     bool wide_ssa;
+    bool wide_ssa_eligible;
+    bool wide_ssa_address_escaped;
     /* A mutable pair is kept in SSA until a control-flow merge requires a
      * pair phi.  Canonical while/for loops add explicit low/high loop phis;
      * other loop edges retain the validated stack mirror until modeled. */
@@ -54,6 +56,12 @@ typedef struct RccIrLowerWideState {
     RccIrInstruction* high_phi;
     struct RccIrLowerWideState* next;
 } RccIrLowerWideState;
+
+typedef struct RccIrLowerLabelEdge {
+    RccIrBlock* block;
+    RccIrLowerWideState* states;
+    struct RccIrLowerLabelEdge* next;
+} RccIrLowerLabelEdge;
 
 typedef struct RccIrLowerLoopEdge {
     RccIrBlock* block;
@@ -94,6 +102,13 @@ typedef struct RccIrLowerLabel {
     const char* name;
     const Stmt* statement;
     RccIrBlock* block;
+    size_t goto_count;
+    size_t incoming_capacity;
+    size_t incoming_count;
+    RccIrLowerLabelEdge* incoming;
+    RccIrLowerLabelEdge* incoming_tail;
+    RccIrLowerWideState* phis;
+    bool inside_loop;
     struct RccIrLowerLabel* next;
 } RccIrLowerLabel;
 
@@ -127,6 +142,7 @@ typedef struct {
     const Expr* aggregate_result_destination_call;
     RccIrLowerValue aggregate_result_destination;
     RccIrValue active_exception_frame;
+    RccIrValue wide_phi_zero;
     /* While a local C++ object is being initialized, successfully completed
      * direct class members are registered individually.  If a later member
      * constructor throws, the active exception frame then destroys only the
@@ -144,6 +160,17 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                                  const Stmt* statement);
 static bool lower_collect_labels(RccIrLowerContext* context,
                                  const Stmt* statement);
+static bool lower_count_label_gotos(RccIrLowerContext* context,
+                                    const Stmt* statement);
+static void lower_mark_label_loop_nesting(
+    RccIrLowerContext* context, const Stmt* statement,
+    unsigned loop_depth);
+static bool lower_record_label_edge(
+    RccIrLowerContext* context, RccIrLowerLabel* label);
+static bool lower_install_label_phis(
+    RccIrLowerContext* context, RccIrLowerLabel* label);
+static bool lower_finalize_label_phis(RccIrLowerContext* context);
+static void lower_release_wide_states(RccIrLowerWideState* states);
 static RccIrLowerValue lower_expression(RccIrLowerContext* context,
                                         const Expr* expression);
 static RccIrLowerValue lower_expression_impl(
@@ -191,6 +218,9 @@ static bool lower_wide_scalar_shift(
 static bool lower_wide_scalar_store(
     RccIrLowerContext* context, RccIrLowerValue address,
     RccIrLowerWideValue value);
+static bool lower_wide_scalar_load(
+    RccIrLowerContext* context, RccIrLowerValue address,
+    bool is_unsigned, RccIrLowerWideValue* result);
 static bool lower_copy_scalar_storage(
     RccIrLowerContext* context, RccIrValue destination,
     RccIrValue source, const Type* type);
@@ -523,6 +553,8 @@ static bool lower_add_local(RccIrLowerContext* context,
     local->address = address;
     local->type = type;
     local->wide_ssa = false;
+    local->wide_ssa_eligible = false;
+    local->wide_ssa_address_escaped = false;
     local->wide_ssa_block = NULL;
     memset(&local->wide_value, 0, sizeof(local->wide_value));
     local->next = context->locals;
@@ -537,6 +569,7 @@ static bool lower_set_wide_local_ssa(
     if (!local || !value.valid || !lower_i686_wide_scalar_type(
             declaration ? declaration->type : NULL)) return false;
     local->wide_ssa = true;
+    local->wide_ssa_eligible = true;
     local->wide_ssa_block = context->current;
     local->wide_value = value;
     return true;
@@ -715,6 +748,14 @@ static void lower_release_locals(RccIrLowerLocal* local) {
 static void lower_release_labels(RccIrLowerLabel* label) {
     while (label) {
         RccIrLowerLabel* next = label->next;
+        RccIrLowerLabelEdge* edge = label->incoming;
+        while (edge) {
+            RccIrLowerLabelEdge* edge_next = edge->next;
+            lower_release_wide_states(edge->states);
+            rcc_free(edge);
+            edge = edge_next;
+        }
+        lower_release_wide_states(label->phis);
         rcc_free(label);
         label = next;
     }
@@ -728,6 +769,28 @@ static RccIrLowerLabel* lower_find_label_name(
         if (strcmp(label->name, name) == 0) return label;
     }
     return NULL;
+}
+
+static bool lower_mark_wide_local_address_escaped(
+    RccIrLowerContext* context, const Expr* expression) {
+    RccIrLowerLocal* local;
+    if (!context || !expression || expression->kind != EXPR_IDENT ||
+        !expression->ident_decl) return true;
+    local = lower_find_local(context, expression->ident_decl);
+    if (!local || !local->declaration ||
+        !lower_i686_wide_scalar_type(local->declaration->type)) return true;
+    if (local->wide_ssa && local->wide_value.valid &&
+        !lower_wide_scalar_store(
+            context, lower_value(local->address,
+                                 rcc_ir_type_pointer(0u), true),
+            local->wide_value)) {
+        context->unsupported = true;
+        return false;
+    }
+    local->wide_ssa = false;
+    local->wide_ssa_block = NULL;
+    local->wide_ssa_address_escaped = true;
+    return true;
 }
 
 static RccIrLowerLabel* lower_find_label_statement(
@@ -755,6 +818,13 @@ static bool lower_collect_labels(RccIrLowerContext* context,
             label = rcc_alloc(sizeof(*label));
             label->name = statement->label_name;
             label->statement = statement;
+            label->goto_count = 0u;
+            label->incoming_capacity = 0u;
+            label->incoming_count = 0u;
+            label->incoming = NULL;
+            label->incoming_tail = NULL;
+            label->phis = NULL;
+            label->inside_loop = false;
             label->block = rcc_ir_block_add(context->function, "label");
             if (!label->block) {
                 rcc_free(label);
@@ -801,6 +871,125 @@ static bool lower_collect_labels(RccIrLowerContext* context,
     }
 }
 
+static bool lower_count_label_gotos(RccIrLowerContext* context,
+                                    const Stmt* statement) {
+    const StmtList* item;
+    if (!context || !statement) return true;
+    switch (statement->kind) {
+        case STMT_GOTO: {
+            RccIrLowerLabel* label = lower_find_label_name(
+                context, statement->goto_label);
+            if (!label) return true;
+            if (label->goto_count == SIZE_MAX) {
+                context->unsupported = true;
+                return false;
+            }
+            ++label->goto_count;
+            return true;
+        }
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                if (!lower_count_label_gotos(context, item->stmt)) {
+                    return false;
+                }
+            }
+            return true;
+        case STMT_IF:
+            return lower_count_label_gotos(context, statement->if_then) &&
+                lower_count_label_gotos(context, statement->if_else);
+        case STMT_WHILE:
+        case STMT_DO:
+            return lower_count_label_gotos(context, statement->while_body);
+        case STMT_FOR:
+            return lower_count_label_gotos(context, statement->for_init) &&
+                lower_count_label_gotos(context, statement->for_body);
+        case STMT_SWITCH:
+            return lower_count_label_gotos(context, statement->switch_body);
+        case STMT_CASE:
+            return lower_count_label_gotos(context, statement->case_stmt);
+        case STMT_DEFAULT:
+            return lower_count_label_gotos(context, statement->default_stmt);
+        case STMT_LABEL:
+            return lower_count_label_gotos(context, statement->label_stmt);
+        case STMT_TRY:
+            if (!lower_count_label_gotos(context, statement->try_body)) {
+                return false;
+            }
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                if (!lower_count_label_gotos(context, handler->body)) {
+                    return false;
+                }
+            }
+            return true;
+        default:
+            return true;
+    }
+}
+
+static void lower_mark_label_loop_nesting(
+    RccIrLowerContext* context, const Stmt* statement,
+    unsigned loop_depth) {
+    const StmtList* item;
+    if (!context || !statement) return;
+    switch (statement->kind) {
+        case STMT_BLOCK:
+            for (item = statement->block_stmts; item; item = item->next) {
+                lower_mark_label_loop_nesting(
+                    context, item->stmt, loop_depth);
+            }
+            break;
+        case STMT_IF:
+            lower_mark_label_loop_nesting(
+                context, statement->if_then, loop_depth);
+            lower_mark_label_loop_nesting(
+                context, statement->if_else, loop_depth);
+            break;
+        case STMT_WHILE:
+        case STMT_DO:
+            lower_mark_label_loop_nesting(
+                context, statement->while_body, loop_depth + 1u);
+            break;
+        case STMT_FOR:
+            lower_mark_label_loop_nesting(
+                context, statement->for_init, loop_depth);
+            lower_mark_label_loop_nesting(
+                context, statement->for_body, loop_depth + 1u);
+            break;
+        case STMT_SWITCH:
+            lower_mark_label_loop_nesting(
+                context, statement->switch_body, loop_depth);
+            break;
+        case STMT_CASE:
+            lower_mark_label_loop_nesting(
+                context, statement->case_stmt, loop_depth);
+            break;
+        case STMT_DEFAULT:
+            lower_mark_label_loop_nesting(
+                context, statement->default_stmt, loop_depth);
+            break;
+        case STMT_LABEL: {
+            RccIrLowerLabel* label = lower_find_label_statement(
+                context, statement);
+            if (label) label->inside_loop = loop_depth != 0u;
+            lower_mark_label_loop_nesting(
+                context, statement->label_stmt, loop_depth);
+            break;
+        }
+        case STMT_TRY:
+            lower_mark_label_loop_nesting(
+                context, statement->try_body, loop_depth);
+            for (const CxxCatch* handler = statement->try_catches; handler;
+                 handler = handler->next) {
+                lower_mark_label_loop_nesting(
+                    context, handler->body, loop_depth);
+            }
+            break;
+        default:
+            break;
+    }
+}
+
 static RccIrInstruction* lower_append(
     RccIrLowerContext* context, RccIrOpcode opcode, RccIrType type,
     const RccIrValue* operands, size_t operand_count,
@@ -828,6 +1017,34 @@ static RccIrLowerValue lower_integer_constant(RccIrLowerContext* context,
     if (!instruction) return lower_invalid_value();
     rcc_ir_set_immediate(instruction, immediate);
     return lower_value(instruction->result, type, is_unsigned);
+}
+
+static bool lower_prepare_label_phis(
+    RccIrLowerContext* context, const Stmt* body) {
+    bool needs_placeholder = false;
+    RccIrLowerValue zero;
+    if (!context || !lower_count_label_gotos(context, body)) return false;
+    lower_mark_label_loop_nesting(context, body, 0u);
+    for (RccIrLowerLabel* label = context->labels; label;
+         label = label->next) {
+        if (label->goto_count == SIZE_MAX) {
+            context->unsupported = true;
+            return false;
+        }
+        label->incoming_capacity = label->goto_count + 1u;
+        if (label->incoming_capacity > SIZE_MAX / sizeof(RccIrValue) ||
+            label->incoming_capacity > SIZE_MAX / sizeof(RccIrBlockId)) {
+            context->unsupported = true;
+            return false;
+        }
+        if (label->goto_count != 0u) needs_placeholder = true;
+    }
+    if (!needs_placeholder) return true;
+    zero = lower_integer_constant(
+        context, rcc_ir_type_integer(32u), true, 0u);
+    if (!zero.valid) return false;
+    context->wide_phi_zero = zero.value;
+    return true;
 }
 
 static RccIrLowerValue lower_truth(RccIrLowerContext* context,
@@ -2071,7 +2288,12 @@ static RccIrLowerValue lower_lvalue_address_impl(
          expression->cxx_cast_kind == CXX_CAST_STATIC ||
          expression->cxx_cast_kind == CXX_CAST_CONST ||
          expression->cxx_cast_kind == CXX_CAST_DYNAMIC)) {
-        RccIrLowerValue address = lower_lvalue_address(
+        RccIrLowerValue address;
+        if (!lower_mark_wide_local_address_escaped(
+                context, expression->cast_expr)) {
+            return lower_invalid_value();
+        }
+        address = lower_lvalue_address(
             context, expression->cast_expr);
         if (expression->cxx_pointer_adjustment_valid) {
             return lower_adjusted_pointer(
@@ -3818,6 +4040,193 @@ static const RccIrLowerWideState* lower_find_wide_state(
         if (states->local == local) return states;
     }
     return NULL;
+}
+
+static RccIrLowerWideState* lower_capture_label_states(
+    RccIrLowerContext* context) {
+    RccIrLowerWideState* head = NULL;
+    if (!context || !context->current) return NULL;
+    for (RccIrLowerLocal* local = context->locals; local;
+         local = local->next) {
+        RccIrLowerWideState* state;
+        if (!local->declaration || !local->declaration->type ||
+            !lower_i686_wide_scalar_type(local->declaration->type) ||
+            local->declaration->type->is_volatile) continue;
+        state = rcc_alloc(sizeof(*state));
+        state->local = local;
+        state->block = context->current;
+        state->low_phi = NULL;
+        state->high_phi = NULL;
+        if (local->wide_ssa && local->wide_value.valid) {
+            state->value = local->wide_value;
+        } else if (!lower_wide_scalar_load(
+                       context,
+                       lower_value(local->address,
+                                   rcc_ir_type_pointer(0u), true),
+                       local->declaration->type->is_unsigned,
+                       &state->value)) {
+            rcc_free(state);
+            lower_release_wide_states(head);
+            context->unsupported = true;
+            return NULL;
+        }
+        state->next = head;
+        head = state;
+    }
+    return head;
+}
+
+static bool lower_record_label_edge(
+    RccIrLowerContext* context, RccIrLowerLabel* label) {
+    RccIrLowerLabelEdge* edge;
+    if (!context || !context->current || !label ||
+        label->incoming_count >= label->incoming_capacity) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    edge = rcc_alloc(sizeof(*edge));
+    edge->block = context->current;
+    edge->next = NULL;
+    edge->states = lower_capture_label_states(context);
+    if (context->unsupported) {
+        rcc_free(edge);
+        return false;
+    }
+    if (label->incoming_tail) label->incoming_tail->next = edge;
+    else label->incoming = edge;
+    label->incoming_tail = edge;
+    ++label->incoming_count;
+    return true;
+}
+
+static bool lower_install_label_phis(
+    RccIrLowerContext* context, RccIrLowerLabel* label) {
+    if (!context || !label || context->current != label->block) {
+        return false;
+    }
+    lower_invalidate_wide_locals(context);
+    if (label->inside_loop) return true;
+    if (label->incoming_count == 0u) return true;
+    if (label->goto_count == 0u) {
+        if (label->incoming_count == 1u) {
+            const RccIrLowerLabelEdge* edge = label->incoming;
+            for (RccIrLowerWideState* state = edge->states; state;
+                 state = state->next) {
+                RccIrLowerLocal* local = state->local;
+                if (!local || local->wide_ssa_address_escaped) continue;
+                local->wide_ssa = true;
+                local->wide_ssa_block = label->block;
+                local->wide_value = state->value;
+            }
+        }
+        return true;
+    }
+    if (label->incoming_capacity <= 1u ||
+        context->wide_phi_zero == RCC_IR_VALUE_NONE ||
+        label->incoming_capacity > SIZE_MAX / sizeof(RccIrValue)) {
+        context->unsupported = true;
+        return false;
+    }
+    for (RccIrLowerLocal* local = context->locals; local;
+         local = local->next) {
+        RccIrLowerWideState* phi_state;
+        RccIrInstruction* low_phi;
+        RccIrInstruction* high_phi;
+        RccIrValue* operands;
+        RccIrBlockId* targets;
+        bool available = true;
+        Type* type = local->declaration ? local->declaration->type : NULL;
+        if (!type || type->is_volatile || !local->wide_ssa_eligible ||
+            local->wide_ssa_address_escaped ||
+            !lower_i686_wide_scalar_type(type)) continue;
+        for (RccIrLowerLabelEdge* edge = label->incoming; edge;
+             edge = edge->next) {
+            if (!lower_find_wide_state(edge->states, local)) {
+                available = false;
+                break;
+            }
+        }
+        if (!available) continue;
+        operands = rcc_alloc(label->incoming_capacity * sizeof(*operands));
+        targets = rcc_alloc(label->incoming_capacity * sizeof(*targets));
+        for (size_t index = 0u; index < label->incoming_capacity; ++index) {
+            operands[index] = context->wide_phi_zero;
+            targets[index] = context->function->first_block->id;
+        }
+        low_phi = lower_append(
+            context, RCC_IR_PHI, rcc_ir_type_integer(32u), operands,
+            label->incoming_capacity, targets, label->incoming_capacity);
+        if (!low_phi) {
+            rcc_free(operands);
+            rcc_free(targets);
+            return false;
+        }
+        high_phi = lower_append(
+            context, RCC_IR_PHI, rcc_ir_type_integer(32u), operands,
+            label->incoming_capacity, targets, label->incoming_capacity);
+        rcc_free(operands);
+        rcc_free(targets);
+        if (!high_phi) return false;
+        phi_state = rcc_alloc(sizeof(*phi_state));
+        phi_state->local = local;
+        phi_state->block = label->block;
+        phi_state->low_phi = low_phi;
+        phi_state->high_phi = high_phi;
+        phi_state->value.low = lower_value(
+            low_phi->result, rcc_ir_type_integer(32u), true);
+        phi_state->value.high = lower_value(
+            high_phi->result, rcc_ir_type_integer(32u), true);
+        phi_state->value.is_unsigned = type->is_unsigned;
+        phi_state->value.valid = true;
+        phi_state->next = label->phis;
+        label->phis = phi_state;
+        local->wide_ssa = true;
+        local->wide_ssa_block = label->block;
+        local->wide_value = phi_state->value;
+    }
+    return true;
+}
+
+static bool lower_finalize_label_phis(RccIrLowerContext* context) {
+    if (!context) return false;
+    for (RccIrLowerLabel* label = context->labels; label;
+         label = label->next) {
+        for (RccIrLowerWideState* phi = label->phis; phi;
+             phi = phi->next) {
+            size_t index = 0u;
+            for (RccIrLowerLabelEdge* edge = label->incoming; edge;
+                 edge = edge->next) {
+                const RccIrLowerWideState* incoming = lower_find_wide_state(
+                    edge->states, phi->local);
+                if (!incoming || !incoming->value.valid ||
+                    index >= label->incoming_capacity) {
+                    context->unsupported = true;
+                    return false;
+                }
+                phi->low_phi->operands[index] = incoming->value.low.value;
+                phi->high_phi->operands[index] = incoming->value.high.value;
+                phi->low_phi->targets[index] = edge->block->id;
+                phi->high_phi->targets[index] = edge->block->id;
+                ++index;
+            }
+            if (index != 0u) {
+                phi->low_phi->operand_count = index;
+                phi->low_phi->target_count = index;
+                phi->high_phi->operand_count = index;
+                phi->high_phi->target_count = index;
+            }
+            if (g_opts.verbose && index != 0u) {
+                printf("Typed SSA wide-scalar label phi: function=%s "
+                       "label=%s local=%s predecessors=%zu\n",
+                       context->function->name,
+                       label->name ? label->name : "<anonymous>",
+                       phi->local->declaration->name
+                           ? phi->local->declaration->name : "<anonymous>",
+                       index);
+            }
+        }
+    }
+    return true;
 }
 
 static RccIrLowerWideState* lower_capture_wide_branch_states(
@@ -8648,6 +9057,11 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
                 !argument->expr->cxx_conditional_xvalue) {
                 value = lower_expression(context, argument->expr);
             } else {
+                if (!lower_mark_wide_local_address_escaped(
+                        context, argument->expr)) {
+                    rcc_free(operands);
+                    return lower_invalid_value();
+                }
                 value = lower_lvalue_address(context, argument->expr);
             }
         } else {
@@ -10726,6 +11140,10 @@ static RccIrLowerValue lower_expression_impl(RccIrLowerContext* context,
             if (type_is_cxx_member_function_pointer(expression->type)) {
                 return lower_member_function_pointer_address(
                     context, expression);
+            }
+            if (!lower_mark_wide_local_address_escaped(
+                    context, expression->unary_operand)) {
+                return lower_invalid_value();
             }
             return lower_lvalue_address(context, expression->unary_operand);
         case EXPR_DEREF:
@@ -17276,6 +17694,10 @@ static bool lower_declaration(RccIrLowerContext* context,
         RccIrLowerValue initializer;
         Expr target;
         if (declaration->type->is_reference) {
+            if (!lower_mark_wide_local_address_escaped(
+                    context, declaration->var_init)) {
+                return false;
+            }
             initializer = lower_lvalue_address(context, declaration->var_init);
             if (!initializer.valid || initializer.type.kind !=
                     RCC_IR_TYPE_POINTER ||
@@ -17880,6 +18302,12 @@ static bool lower_statement_impl(RccIrLowerContext* context,
         case STMT_DECL:
             return lower_declaration(context, statement->decl);
         case STMT_RETURN:
+            if (context->ast_return_type &&
+                context->ast_return_type->is_reference &&
+                !lower_mark_wide_local_address_escaped(
+                    context, statement->return_val)) {
+                return false;
+            }
             if (lower_abi_is_aggregate(context->ast_return_type)) {
                 RccIrLowerValue source;
                 RccIrLowerValue result;
@@ -18115,8 +18543,8 @@ static bool lower_statement_impl(RccIrLowerContext* context,
         case STMT_GOTO: {
             RccIrLowerLabel* label;
             const RccIrLowerScopeCleanup* cleanup_marker;
-            if (statement->goto_vla_count != 0u ||
-                !lower_flush_wide_locals(context) ||
+            label = lower_find_label_name(context, statement->goto_label);
+            if (statement->goto_vla_count != 0u || !label ||
                 !lower_scope_cleanup_marker_for_count(
                     context, statement->goto_cleanup_count,
                     &cleanup_marker) ||
@@ -18124,8 +18552,9 @@ static bool lower_statement_impl(RccIrLowerContext* context,
                 context->unsupported = true;
                 return false;
             }
-            label = lower_find_label_name(context, statement->goto_label);
-            if (!label || !lower_branch(context, label->block->id)) {
+            if (!lower_record_label_edge(context, label) ||
+                !lower_flush_wide_locals(context) ||
+                !lower_branch(context, label->block->id)) {
                 context->unsupported = true;
                 return false;
             }
@@ -18135,6 +18564,12 @@ static bool lower_statement_impl(RccIrLowerContext* context,
             RccIrLowerLabel* label = lower_find_label_statement(
                 context, statement);
             if (!label) {
+                context->unsupported = true;
+                return false;
+            }
+            if (!context->terminated &&
+                context->current != label->block &&
+                !lower_record_label_edge(context, label)) {
                 context->unsupported = true;
                 return false;
             }
@@ -18149,7 +18584,10 @@ static bool lower_statement_impl(RccIrLowerContext* context,
             }
             context->current = label->block;
             context->terminated = false;
-            lower_invalidate_wide_locals(context);
+            if (!lower_install_label_phis(context, label)) {
+                context->unsupported = true;
+                return false;
+            }
             return statement->label_stmt
                 ? lower_statement(context, statement->label_stmt) : true;
         }
@@ -18428,13 +18866,16 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
         aggregate_return_kind == LOWER_ABI_RETURN_SRET
             ? function->parameters[0] : RCC_IR_VALUE_NONE;
     context.active_exception_frame = RCC_IR_VALUE_NONE;
+    context.wide_phi_zero = RCC_IR_VALUE_NONE;
     context.current = entry;
     context.break_target = RCC_IR_BLOCK_NONE;
     context.continue_target = RCC_IR_BLOCK_NONE;
     if (!lower_parameters(&context, declaration) ||
         !lower_collect_labels(&context, declaration->func_body) ||
+        !lower_prepare_label_phis(&context, declaration->func_body) ||
         !lower_cxx_initialize_constructor_members(&context, declaration) ||
-        !lower_statement(&context, declaration->func_body)) {
+        !lower_statement(&context, declaration->func_body) ||
+        !lower_finalize_label_phis(&context)) {
         lower_release_scope_cleanups(context.allocated_scope_cleanups);
         lower_release_locals(context.locals);
         lower_release_labels(context.labels);

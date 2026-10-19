@@ -17094,6 +17094,9 @@ test-verified-goto: $(RCC_TARGET)
 		tests/verified_backend_goto.c \
 		>$(TEST_OUT)/verified-backend/goto-x86.log
 	$(GREP) -F -q 'Verified backend: 10 function(s) emitted' $(TEST_OUT)/verified-backend/goto-x86.log
+	$(GREP) -F -q 'Typed SSA wide-scalar label phi: function=verified_goto_wide_forward label=selected local=value predecessors=2' $(TEST_OUT)/verified-backend/goto-x86.log
+	$(GREP) -F -q 'Typed SSA wide-scalar label phi: function=verified_goto_wide_multiple_predecessors label=joined local=value predecessors=3' $(TEST_OUT)/verified-backend/goto-x86.log
+	$(GREP) -F -q 'Typed SSA wide-scalar label phi: function=verified_goto_wide_backward label=again local=value predecessors=2' $(TEST_OUT)/verified-backend/goto-x86.log
 	$(RCC_TARGET) --target i686-unknown-rinos -O2 -fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/goto-x86-o2.ro \
 		tests/verified_backend_goto.c \

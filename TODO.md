@@ -6562,9 +6562,15 @@ remains a separate open item.
       local. i686/AMD64 verified emissions pass at `-O0`/`-O2` without fallback;
       generated AMD64 execution passes both repeated-restart and zero-inner-bound
       cases in `test-verified-goto`.
-- [ ] Arbitrary-label SSA predecessor/phi construction, nested structured
-      wide-scalar loop edges beyond the tested join/backedge shapes, and VLA
-      stack restoration remain open.
+- [x] Construct low/high SSA phis for eligible, nonvolatile, non-address-escaped
+      i686 wide-scalar locals at arbitrary non-loop labels with goto
+      predecessors, including forward multi-predecessor joins and unstructured
+      backward-goto loops. Keep edge stack mirrors coherent and verify i686 and
+      AMD64 at `-O0`/`-O2`; `test-verified-goto` passes with generated x64
+      execution.
+- [ ] Labels syntactically nested in structured loops still use the validated
+      stack-mirror path; broader loop-edge SSA modeling and VLA stack
+      restoration remain open.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)
 
