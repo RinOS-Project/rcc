@@ -452,16 +452,29 @@ static bool mir_verify_instruction_type(
             }
             return true;
         case RCC_MIR_CAPTURE_RETURN_PAIR:
-            return mir_shape(verifier, instruction, 1u, 0u) &&
-                rcc_mir_type_equal(instruction->type, void_type) &&
-                (instruction->immediate == 8u ||
-                 (instruction->immediate >= 9u &&
-                  instruction->immediate <= 16u)) &&
+            {
+                uint64_t pair_kind = instruction->immediate &
+                    RCC_IR_RETURN_PAIR_KIND_MASK;
+                uint64_t pair_size = instruction->immediate &
+                    RCC_IR_RETURN_PAIR_SIZE_MASK;
+                bool valid_metadata = instruction->immediate == 8u ||
+                    (pair_size >= 9u && pair_size <= 16u &&
+                     (instruction->immediate &
+                      ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+                        RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u &&
+                     (pair_kind ==
+                          RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER ||
+                      pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
+                      pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE));
+                return mir_shape(verifier, instruction, 1u, 0u) &&
+                    rcc_mir_type_equal(instruction->type, void_type) &&
+                    valid_metadata &&
                 instruction->previous &&
                 instruction->previous->opcode == RCC_MIR_CALL &&
                 instruction->previous->type.kind == RCC_MIR_TYPE_VOID &&
                 mir_operand_type(verifier, instruction, 0u,
                                  rcc_mir_type_pointer());
+            }
         case RCC_MIR_BRANCH:
             return mir_shape(verifier, instruction, 0u, 1u) &&
                 rcc_mir_type_equal(instruction->type, void_type);
@@ -477,17 +490,44 @@ static bool mir_verify_instruction_type(
             if (instruction->operand_count == 2u) {
                 RccMirType i64 = rcc_mir_type_integer(64u);
                 RccMirType i32 = rcc_mir_type_integer(32u);
-                bool aggregate_pair = instruction->immediate >= 9u &&
-                    instruction->immediate <= 16u;
+                uint64_t pair_kind = instruction->immediate &
+                    RCC_IR_RETURN_PAIR_KIND_MASK;
+                uint64_t pair_size = instruction->immediate &
+                    RCC_IR_RETURN_PAIR_SIZE_MASK;
+                bool aggregate_pair = pair_size >= 9u &&
+                    pair_size <= 16u &&
+                    (instruction->immediate &
+                     ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+                       RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u;
                 bool i686_scalar_pair = instruction->immediate == 8u;
-                return (aggregate_pair || i686_scalar_pair) &&
-                    rcc_mir_type_equal(verifier->function->return_type,
-                                       i64) &&
-                    (aggregate_pair
-                         ? (mir_operand_type(verifier, instruction, 0u, i64) &&
-                            mir_operand_type(verifier, instruction, 1u, i64))
-                         : (mir_operand_type(verifier, instruction, 0u, i32) &&
-                            mir_operand_type(verifier, instruction, 1u, i32)));
+                if (!(aggregate_pair || i686_scalar_pair) ||
+                    !rcc_mir_type_equal(verifier->function->return_type,
+                                        i64)) return false;
+                if (i686_scalar_pair) {
+                    return mir_operand_type(
+                               verifier, instruction, 0u, i32) &&
+                        mir_operand_type(verifier, instruction, 1u, i32);
+                }
+                if (pair_kind ==
+                    RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER) {
+                    return mir_operand_type(
+                               verifier, instruction, 0u, i64) &&
+                        mir_operand_type(verifier, instruction, 1u, i64);
+                }
+                if (pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER) {
+                    return mir_operand_type(
+                               verifier, instruction, 0u,
+                               rcc_mir_type_float(64u)) &&
+                        mir_operand_type(verifier, instruction, 1u, i64);
+                }
+                if (pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE) {
+                    return mir_operand_type(
+                               verifier, instruction, 0u, i64) &&
+                        mir_operand_type(
+                            verifier, instruction, 1u,
+                            rcc_mir_type_float(64u));
+                }
+                return false;
             }
             if (verifier->function->return_type.kind == RCC_MIR_TYPE_VOID) {
                 return mir_shape(verifier, instruction, 0u, 0u);

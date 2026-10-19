@@ -69,16 +69,57 @@ static bool x86_function_return_supported(RccMirType type,
 
 static bool x86_pair_return_supported(
     const RccX86Instruction* instruction, RccX86Target target) {
-    uint16_t word_width = target == RCC_X86_TARGET_I686 ? 32u : 64u;
-    uint64_t metadata_low = target == RCC_X86_TARGET_I686 ? 8u : 9u;
-    uint64_t metadata_high = target == RCC_X86_TARGET_I686 ? 8u : 16u;
-    return instruction && instruction->operand_count == 2u &&
-        instruction->immediate >= metadata_low &&
-        instruction->immediate <= metadata_high &&
-        instruction->operand_types[0].kind == RCC_MIR_TYPE_INTEGER &&
-        instruction->operand_types[0].bit_width == word_width &&
-        instruction->operand_types[1].kind == RCC_MIR_TYPE_INTEGER &&
-        instruction->operand_types[1].bit_width == word_width;
+    uint64_t pair_kind;
+    uint64_t pair_size;
+    if (!instruction || instruction->operand_count != 2u) return false;
+    if (target == RCC_X86_TARGET_I686) {
+        return instruction->immediate == 8u &&
+            instruction->operand_types[0].kind == RCC_MIR_TYPE_INTEGER &&
+            instruction->operand_types[0].bit_width == 32u &&
+            instruction->operand_types[1].kind == RCC_MIR_TYPE_INTEGER &&
+            instruction->operand_types[1].bit_width == 32u;
+    }
+    pair_kind = instruction->immediate & RCC_IR_RETURN_PAIR_KIND_MASK;
+    pair_size = instruction->immediate & RCC_IR_RETURN_PAIR_SIZE_MASK;
+    if (target != RCC_X86_TARGET_X86_64 || pair_size < 9u ||
+        pair_size > 16u ||
+        (instruction->immediate &
+         ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+           RCC_IR_RETURN_PAIR_KIND_MASK)) != 0u) {
+        return false;
+    }
+    if (pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER) {
+        return instruction->operand_types[0].kind == RCC_MIR_TYPE_INTEGER &&
+         instruction->operand_types[0].bit_width == 64u &&
+         instruction->operand_types[1].kind == RCC_MIR_TYPE_INTEGER &&
+         instruction->operand_types[1].bit_width == 64u;
+    }
+    if (pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER) {
+        return instruction->operand_types[0].kind == RCC_MIR_TYPE_FLOAT &&
+         instruction->operand_types[0].bit_width == 64u &&
+         instruction->operand_types[1].kind == RCC_MIR_TYPE_INTEGER &&
+         instruction->operand_types[1].bit_width == 64u;
+    }
+    if (pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE) {
+        return instruction->operand_types[0].kind == RCC_MIR_TYPE_INTEGER &&
+         instruction->operand_types[0].bit_width == 64u &&
+         instruction->operand_types[1].kind == RCC_MIR_TYPE_FLOAT &&
+         instruction->operand_types[1].bit_width == 64u;
+    }
+    return false;
+}
+
+static bool x86_capture_return_metadata_supported(
+    uint64_t immediate, RccX86Target target) {
+    uint64_t kind = immediate & RCC_IR_RETURN_PAIR_KIND_MASK;
+    uint64_t size = immediate & RCC_IR_RETURN_PAIR_SIZE_MASK;
+    if (target == RCC_X86_TARGET_I686) return immediate == 8u;
+    return target == RCC_X86_TARGET_X86_64 && size >= 9u && size <= 16u &&
+        (immediate & ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+                       RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u &&
+        (kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER ||
+         kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
+         kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE);
 }
 
 static bool x86_align_frame(uint32_t value, uint16_t alignment,
@@ -536,9 +577,9 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
                 instruction->operand_count == 1u &&
                 instruction->target_count == 0u &&
                 instruction->type.kind == RCC_MIR_TYPE_VOID &&
-                (instruction->immediate == 8u ||
-                 (instruction->immediate >= 9u &&
-                  instruction->immediate <= 16u));
+                (x86_capture_return_metadata_supported(
+                     instruction->immediate, RCC_X86_TARGET_X86_64) ||
+                 instruction->immediate == 8u);
         case RCC_X86_JUMP:
             return !instruction->has_destination &&
                 instruction->operand_count == 0u &&
@@ -745,13 +786,8 @@ bool rcc_x86_verify_function(
                       RCC_MIR_TYPE_FLOAT ||
                   instruction->operand_types[0].bit_width != 64u)) ||
                 (instruction->opcode == RCC_X86_CAPTURE_RETURN_PAIR &&
-                 ((function->target == RCC_X86_TARGET_I686 &&
-                   instruction->immediate != 8u) ||
-                  (function->target == RCC_X86_TARGET_X86_64 &&
-                   (instruction->immediate < 9u ||
-                    instruction->immediate > 16u)) ||
-                  (function->target != RCC_X86_TARGET_I686 &&
-                   function->target != RCC_X86_TARGET_X86_64) ||
+                 (!x86_capture_return_metadata_supported(
+                      instruction->immediate, function->target) ||
                   instruction->operand_types[0].kind !=
                       RCC_MIR_TYPE_POINTER ||
                   !instruction->previous ||

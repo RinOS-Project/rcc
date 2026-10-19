@@ -1664,10 +1664,20 @@ static bool x86_emit_capture_return_pair(
     RccX86Value address = instruction->operands[0];
     RccX86HardwareGpr address_register = address.kind == RCC_X86_VALUE_GPR
         ? address.gpr : RCC_X86_GPR_R11;
+    uint64_t pair_kind = instruction->immediate &
+        RCC_IR_RETURN_PAIR_KIND_MASK;
+    uint64_t aggregate_size = instruction->immediate &
+        RCC_IR_RETURN_PAIR_SIZE_MASK;
     if ((encoder->function->target == RCC_X86_TARGET_I686 &&
          instruction->immediate != 8u) ||
         (encoder->function->target == RCC_X86_TARGET_X86_64 &&
-         (instruction->immediate < 9u || instruction->immediate > 16u)) ||
+         (aggregate_size < 9u || aggregate_size > 16u ||
+          (instruction->immediate &
+           ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+             RCC_IR_RETURN_PAIR_KIND_MASK)) != 0u ||
+          (pair_kind != RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER &&
+           pair_kind != RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER &&
+           pair_kind != RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE))) ||
         (encoder->function->target != RCC_X86_TARGET_I686 &&
          encoder->function->target != RCC_X86_TARGET_X86_64)) {
         return x86_encode_error(
@@ -1679,6 +1689,31 @@ static bool x86_emit_capture_return_pair(
         if (address.kind != RCC_X86_VALUE_GPR &&
             !x86_emit_load(encoder, address_register, address, word_size)) {
             return false;
+        }
+        if (pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
+            pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE) {
+            size_t sse_offset = pair_kind ==
+                    RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER
+                ? 0u : 8u;
+            size_t integer_offset = sse_offset == 0u ? 8u : 0u;
+            size_t sse_width = (size_t)aggregate_size - sse_offset;
+            size_t integer_width =
+                (size_t)aggregate_size - integer_offset;
+            RccX86HardwareGpr scratch = address_register == RCC_X86_GPR_R10
+                ? RCC_X86_GPR_R11 : RCC_X86_GPR_R10;
+            if (sse_width > 8u) sse_width = 8u;
+            if (integer_width > 8u) integer_width = 8u;
+            if ((sse_width != 4u && sse_width != 8u) ||
+                (integer_width != 4u && integer_width != 8u) ||
+                !x86_emit_indirect_store_displacement(
+                    encoder, address_register, (int32_t)integer_offset,
+                    RCC_X86_GPR_AX, (uint16_t)integer_width) ||
+                !x86_emit_xmm_gpr_bits(
+                    encoder, 0u, scratch, (uint16_t)sse_width, false) ||
+                !x86_emit_indirect_store_displacement(
+                    encoder, address_register, (int32_t)sse_offset,
+                    scratch, (uint16_t)sse_width)) return false;
+            return true;
         }
         return x86_emit_indirect_store_displacement(
                    encoder, address_register, 0, RCC_X86_GPR_AX,

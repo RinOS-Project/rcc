@@ -5427,6 +5427,123 @@ static void verify_sysv_sse_aggregate_return_object(
     objfile_free(object);
 }
 
+struct VerifiedMixedIntegerSseReturn {
+    uint64_t integer;
+    double value;
+};
+
+struct VerifiedMixedSseIntegerReturn {
+    double value;
+    uint64_t integer;
+};
+
+static void verify_sysv_mixed_aggregate_return_object(
+    const char* path, const char* integer_sse_round_trip_name,
+    const char* integer_sse_call_integer_name,
+    const char* integer_sse_call_value_name,
+    const char* sse_integer_round_trip_name,
+    const char* sse_integer_call_value_name,
+    const char* sse_integer_call_integer_name)
+{
+    static const uint64_t bit_patterns[] = {
+        UINT64_C(0), UINT64_C(0x8000000000000000),
+        UINT64_C(0x3ff0000000000000), UINT64_C(0xc02a000000000000),
+        UINT64_C(0x7ff0000000000000), UINT64_C(0x7ff8000000001234),
+        UINT64_C(0x7ff0000000000001),
+    };
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* symbols[6];
+    const char* names[6] = {
+        integer_sse_round_trip_name,
+        integer_sse_call_integer_name,
+        integer_sse_call_value_name,
+        sse_integer_round_trip_name,
+        sse_integer_call_value_name,
+        sse_integer_call_integer_name,
+    };
+    size_t mapping_size;
+    void* memory;
+    void* addresses[6];
+    struct VerifiedMixedIntegerSseReturn (RINOS_ABI *integer_sse_round_trip)(
+        struct VerifiedMixedIntegerSseReturn);
+    uint64_t (RINOS_ABI *integer_sse_call_integer)(
+        struct VerifiedMixedIntegerSseReturn);
+    double (RINOS_ABI *integer_sse_call_value)(
+        struct VerifiedMixedIntegerSseReturn);
+    struct VerifiedMixedSseIntegerReturn (RINOS_ABI *sse_integer_round_trip)(
+        struct VerifiedMixedSseIntegerReturn);
+    double (RINOS_ABI *sse_integer_call_value)(
+        struct VerifiedMixedSseIntegerReturn);
+    uint64_t (RINOS_ABI *sse_integer_call_integer)(
+        struct VerifiedMixedSseIntegerReturn);
+    assert(object != NULL && object->arch == ARCH_X64);
+    text = objfile_get_section(object, ".text");
+    for (size_t index = 0u; index < 6u; ++index) {
+        symbols[index] = objfile_find_symbol(object, names[index]);
+        assert(symbols[index] != NULL &&
+               symbols[index]->type == SYM_GLOBAL &&
+               symbols[index]->binding == BIND_CODE &&
+               symbols[index]->section == 0);
+    }
+    memory = map_text(object, text, &mapping_size);
+    for (size_t index = 0u; index < 6u; ++index) {
+        addresses[index] = symbol_address(memory, symbols[index]);
+    }
+    memcpy(&integer_sse_round_trip, &addresses[0],
+           sizeof(integer_sse_round_trip));
+    memcpy(&integer_sse_call_integer, &addresses[1],
+           sizeof(integer_sse_call_integer));
+    memcpy(&integer_sse_call_value, &addresses[2],
+           sizeof(integer_sse_call_value));
+    memcpy(&sse_integer_round_trip, &addresses[3],
+           sizeof(sse_integer_round_trip));
+    memcpy(&sse_integer_call_value, &addresses[4],
+           sizeof(sse_integer_call_value));
+    memcpy(&sse_integer_call_integer, &addresses[5],
+           sizeof(sse_integer_call_integer));
+    for (size_t index = 0u;
+         index < sizeof(bit_patterns) / sizeof(bit_patterns[0]); ++index) {
+        struct VerifiedMixedIntegerSseReturn integer_sse_input;
+        struct VerifiedMixedIntegerSseReturn integer_sse_output;
+        struct VerifiedMixedSseIntegerReturn sse_integer_input;
+        struct VerifiedMixedSseIntegerReturn sse_integer_output;
+        uint64_t integer_value =
+            UINT64_C(0xfedcba9876543210) ^ (uint64_t)index;
+        uint64_t output_bits;
+        uint64_t value_bits;
+        integer_sse_input.integer = integer_value;
+        memcpy(&integer_sse_input.value, &bit_patterns[index],
+               sizeof(integer_sse_input.value));
+        integer_sse_output = integer_sse_round_trip(integer_sse_input);
+        assert(integer_sse_output.integer == integer_value);
+        memcpy(&output_bits, &integer_sse_output.value, sizeof(output_bits));
+        assert(output_bits == bit_patterns[index]);
+        assert(integer_sse_call_integer(integer_sse_input) == integer_value);
+        {
+            double value = integer_sse_call_value(integer_sse_input);
+            memcpy(&value_bits, &value, sizeof(value_bits));
+        }
+        assert(value_bits == bit_patterns[index]);
+
+        sse_integer_input.integer = integer_value;
+        memcpy(&sse_integer_input.value, &bit_patterns[index],
+               sizeof(sse_integer_input.value));
+        sse_integer_output = sse_integer_round_trip(sse_integer_input);
+        assert(sse_integer_output.integer == integer_value);
+        memcpy(&output_bits, &sse_integer_output.value, sizeof(output_bits));
+        assert(output_bits == bit_patterns[index]);
+        {
+            double value = sse_integer_call_value(sse_integer_input);
+            memcpy(&value_bits, &value, sizeof(value_bits));
+        }
+        assert(value_bits == bit_patterns[index]);
+        assert(sse_integer_call_integer(sse_integer_input) == integer_value);
+    }
+    assert(verified_unmap(memory, mapping_size) == 0);
+    objfile_free(object);
+}
+
 int main(int argc, char** argv)
 {
     if (argc == 9 &&
@@ -5434,6 +5551,13 @@ int main(int argc, char** argv)
         verify_sysv_sse_aggregate_return_object(
             argv[2], argv[3], argv[4], argv[5], argv[6], argv[7], argv[8]);
         puts("Verified x86-64 SysV single-SSE aggregate return passed");
+        return 0;
+    }
+    if (argc == 9 &&
+        strcmp(argv[1], "--sysv-mixed-aggregate-return-object") == 0) {
+        verify_sysv_mixed_aggregate_return_object(
+            argv[2], argv[3], argv[4], argv[5], argv[6], argv[7], argv[8]);
+        puts("Verified x86-64 SysV mixed INTEGER/SSE aggregate return passed");
         return 0;
     }
     if (argc == 4 &&

@@ -870,9 +870,30 @@ static bool ir_verify_instruction_types(
         case RCC_IR_CAPTURE_RETURN_PAIR:
             if (!ir_require_shape(verifier, instruction, 1u, 0u) ||
                 !rcc_ir_type_equal(instruction->type, void_type) ||
-                (instruction->immediate != 8u &&
-                 (instruction->immediate < 9u ||
-                  instruction->immediate > 16u)) ||
+                !(((instruction->immediate == 8u) ||
+                   ((instruction->immediate &
+                     RCC_IR_RETURN_PAIR_KIND_MASK) ==
+                        RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER &&
+                    (instruction->immediate &
+                     ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+                       RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u &&
+                    (instruction->immediate &
+                     RCC_IR_RETURN_PAIR_SIZE_MASK) >= 9u &&
+                    (instruction->immediate &
+                     RCC_IR_RETURN_PAIR_SIZE_MASK) <= 16u) ||
+                   (((instruction->immediate &
+                      RCC_IR_RETURN_PAIR_KIND_MASK) ==
+                         RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
+                     (instruction->immediate &
+                      RCC_IR_RETURN_PAIR_KIND_MASK) ==
+                         RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE) &&
+                    (instruction->immediate &
+                     ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+                       RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u &&
+                    (instruction->immediate &
+                     RCC_IR_RETURN_PAIR_SIZE_MASK) >= 9u &&
+                    (instruction->immediate &
+                     RCC_IR_RETURN_PAIR_SIZE_MASK) <= 16u))) ||
                 !instruction->previous ||
                 instruction->previous->opcode != RCC_IR_CALL ||
                 instruction->previous->type.kind != RCC_IR_TYPE_VOID) {
@@ -905,8 +926,15 @@ static bool ir_verify_instruction_types(
             if (instruction->operand_count == 2u) {
                 RccIrType i64 = rcc_ir_type_integer(64u);
                 RccIrType i32 = rcc_ir_type_integer(32u);
-                bool aggregate_pair = instruction->immediate >= 9u &&
-                    instruction->immediate <= 16u;
+                uint64_t pair_kind = instruction->immediate &
+                    RCC_IR_RETURN_PAIR_KIND_MASK;
+                uint64_t pair_size = instruction->immediate &
+                    RCC_IR_RETURN_PAIR_SIZE_MASK;
+                bool aggregate_pair = pair_size >= 9u &&
+                    pair_size <= 16u &&
+                    (instruction->immediate &
+                     ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+                       RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u;
                 bool i686_scalar_pair = instruction->immediate == 8u;
                 if ((!i686_scalar_pair && !aggregate_pair) ||
                     !rcc_ir_type_equal(verifier->function->return_type,
@@ -915,9 +943,35 @@ static bool ir_verify_instruction_types(
                         verifier, "return-pair has invalid ABI metadata");
                 }
                 if (aggregate_pair &&
+                    pair_kind ==
+                        RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER &&
                     (!ir_operand_has_type(verifier, instruction, 0u, i64) ||
                      !ir_operand_has_type(verifier, instruction, 1u, i64))) {
                     return false;
+                }
+                if (aggregate_pair &&
+                    pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER &&
+                    (!ir_operand_has_type(
+                         verifier, instruction, 0u,
+                         rcc_ir_type_float(64u)) ||
+                     !ir_operand_has_type(verifier, instruction, 1u, i64))) {
+                    return false;
+                }
+                if (aggregate_pair &&
+                    pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE &&
+                    (!ir_operand_has_type(verifier, instruction, 0u, i64) ||
+                     !ir_operand_has_type(
+                         verifier, instruction, 1u,
+                         rcc_ir_type_float(64u)))) {
+                    return false;
+                }
+                if (aggregate_pair &&
+                    pair_kind !=
+                        RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER &&
+                    pair_kind != RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER &&
+                    pair_kind != RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE) {
+                    return ir_verify_error(
+                        verifier, "return-pair class metadata is invalid");
                 }
                 if (i686_scalar_pair &&
                     (!ir_operand_has_type(verifier, instruction, 0u, i32) ||

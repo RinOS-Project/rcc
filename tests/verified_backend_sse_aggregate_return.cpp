@@ -6,6 +6,16 @@ struct VerifiedSseAggregateFloatReturn {
     float value;
 };
 
+struct VerifiedMixedIntegerSseReturn {
+    unsigned long long integer;
+    double value;
+};
+
+struct VerifiedMixedSseIntegerReturn {
+    double value;
+    unsigned long long integer;
+};
+
 extern "C" VerifiedSseAggregateReturn verified_sse_aggregate_round_trip(
     VerifiedSseAggregateReturn value)
 {
@@ -45,4 +55,40 @@ verified_sse_aggregate_float_conditional(
     VerifiedSseAggregateFloatReturn second)
 {
     return select_first ? first : second;
+}
+
+extern "C" VerifiedMixedIntegerSseReturn
+verified_mixed_integer_sse_round_trip(VerifiedMixedIntegerSseReturn value)
+{
+    return value;
+}
+
+extern "C" unsigned long long verified_mixed_integer_sse_call_integer(
+    VerifiedMixedIntegerSseReturn value)
+{
+    return verified_mixed_integer_sse_round_trip(value).integer;
+}
+
+extern "C" double verified_mixed_integer_sse_call_value(
+    VerifiedMixedIntegerSseReturn value)
+{
+    return verified_mixed_integer_sse_round_trip(value).value;
+}
+
+extern "C" VerifiedMixedSseIntegerReturn
+verified_mixed_sse_integer_round_trip(VerifiedMixedSseIntegerReturn value)
+{
+    return value;
+}
+
+extern "C" double verified_mixed_sse_integer_call_value(
+    VerifiedMixedSseIntegerReturn value)
+{
+    return verified_mixed_sse_integer_round_trip(value).value;
+}
+
+extern "C" unsigned long long verified_mixed_sse_integer_call_integer(
+    VerifiedMixedSseIntegerReturn value)
+{
+    return verified_mixed_sse_integer_round_trip(value).integer;
 }

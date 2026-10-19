@@ -87,16 +87,61 @@ static bool x86_legal_return_type_supported(
 
 static bool x86_legal_pair_return_supported(
     const RccX86Instruction* instruction, const RccX86Abi* abi) {
-    uint16_t word_width = abi->target == RCC_X86_TARGET_I686 ? 32u : 64u;
-    uint64_t metadata_low = abi->target == RCC_X86_TARGET_I686 ? 8u : 9u;
-    uint64_t metadata_high = abi->target == RCC_X86_TARGET_I686 ? 8u : 16u;
-    return instruction && instruction->operand_count == 2u &&
-        instruction->immediate >= metadata_low &&
-        instruction->immediate <= metadata_high &&
-        instruction->operand_types[0].kind == RCC_MIR_TYPE_INTEGER &&
-        instruction->operand_types[0].bit_width == word_width &&
-        instruction->operand_types[1].kind == RCC_MIR_TYPE_INTEGER &&
-        instruction->operand_types[1].bit_width == word_width;
+    uint64_t pair_kind;
+    uint64_t pair_size;
+    if (!instruction || !abi || instruction->operand_count != 2u) {
+        return false;
+    }
+    if (abi->target == RCC_X86_TARGET_I686) {
+        return instruction->immediate == 8u &&
+            instruction->operand_types[0].kind == RCC_MIR_TYPE_INTEGER &&
+            instruction->operand_types[0].bit_width == 32u &&
+            instruction->operand_types[1].kind == RCC_MIR_TYPE_INTEGER &&
+            instruction->operand_types[1].bit_width == 32u;
+    }
+    pair_kind = instruction->immediate & RCC_IR_RETURN_PAIR_KIND_MASK;
+    pair_size = instruction->immediate & RCC_IR_RETURN_PAIR_SIZE_MASK;
+    if (abi->target != RCC_X86_TARGET_X86_64 || pair_size < 9u ||
+        pair_size > 16u ||
+        (instruction->immediate &
+         ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+           RCC_IR_RETURN_PAIR_KIND_MASK)) != 0u) {
+        return false;
+    }
+    if (pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER) {
+        return instruction->operand_types[0].kind == RCC_MIR_TYPE_INTEGER &&
+         instruction->operand_types[0].bit_width == 64u &&
+         instruction->operand_types[1].kind == RCC_MIR_TYPE_INTEGER &&
+         instruction->operand_types[1].bit_width == 64u;
+    }
+    if (pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER) {
+        return instruction->operand_types[0].kind == RCC_MIR_TYPE_FLOAT &&
+         instruction->operand_types[0].bit_width == 64u &&
+         instruction->operand_types[1].kind == RCC_MIR_TYPE_INTEGER &&
+         instruction->operand_types[1].bit_width == 64u;
+    }
+    if (pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE) {
+        return instruction->operand_types[0].kind == RCC_MIR_TYPE_INTEGER &&
+         instruction->operand_types[0].bit_width == 64u &&
+         instruction->operand_types[1].kind == RCC_MIR_TYPE_FLOAT &&
+         instruction->operand_types[1].bit_width == 64u;
+    }
+    return false;
+}
+
+static bool x86_legal_capture_return_metadata_supported(
+    uint64_t immediate, const RccX86Abi* abi) {
+    uint64_t kind = immediate & RCC_IR_RETURN_PAIR_KIND_MASK;
+    uint64_t size = immediate & RCC_IR_RETURN_PAIR_SIZE_MASK;
+    if (!abi) return false;
+    if (abi->target == RCC_X86_TARGET_I686) return immediate == 8u;
+    return abi->target == RCC_X86_TARGET_X86_64 &&
+        size >= 9u && size <= 16u &&
+        (immediate & ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+                       RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u &&
+        (kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER ||
+         kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
+         kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE);
 }
 
 static uint32_t x86_legal_hardware_callee_mask(const RccX86Abi* abi) {
@@ -1293,15 +1338,39 @@ static bool x86_legalize_return(
             error, error_size)) return false;
     if (pair_return) {
         RccX86Value destinations[2];
-        destinations[0] = x86_legal_fixed_gpr(
-            abi->return_low, source->operand_types[0], abi);
-        destinations[1] = x86_legal_fixed_gpr(
-            abi->return_high, source->operand_types[1], abi);
+        if (source->operand_types[0].kind == RCC_MIR_TYPE_FLOAT ||
+            source->operand_types[1].kind == RCC_MIR_TYPE_FLOAT) {
+            destinations[0] = source->operand_types[0].kind ==
+                    RCC_MIR_TYPE_FLOAT
+                ? x86_legal_fixed_fpr(0u, source->operand_types[0], abi)
+                : x86_legal_fixed_gpr(
+                    abi->return_low, source->operand_types[0], abi);
+            destinations[1] = source->operand_types[1].kind ==
+                    RCC_MIR_TYPE_FLOAT
+                ? x86_legal_fixed_fpr(0u, source->operand_types[1], abi)
+                : x86_legal_fixed_gpr(
+                    abi->return_low, source->operand_types[1], abi);
+        } else {
+            destinations[0] = x86_legal_fixed_gpr(
+                abi->return_low, source->operand_types[0], abi);
+            destinations[1] = x86_legal_fixed_gpr(
+                abi->return_high, source->operand_types[1], abi);
+        }
         if (!x86_legal_schedule_parallel_copies(
                 function, block, abi, operands, destinations,
                 source->operand_types, 2u, error, error_size)) {
             rcc_free(operands);
             return false;
+        }
+        for (size_t index = 0u; index < 2u; ++index) {
+            if (x86_legal_value_equal(operands[index], destinations[index]) &&
+                !x86_legal_append_copy(
+                    function, block, source->operand_types[index],
+                    operands[index], destinations[index],
+                    error, error_size)) {
+                rcc_free(operands);
+                return false;
+            }
         }
     } else if (source->operand_count == 1u) {
         RccMirType type = source->operand_types[0];
@@ -1438,13 +1507,26 @@ static bool x86_legal_selected_shape(
                   !instruction->has_callee) ||
                  (!instruction->symbol && instruction->has_callee));
         case RCC_X86_CAPTURE_RETURN_PAIR:
-            return !instruction->has_destination &&
+            {
+                uint64_t pair_kind = instruction->immediate &
+                    RCC_IR_RETURN_PAIR_KIND_MASK;
+                uint64_t pair_size = instruction->immediate &
+                    RCC_IR_RETURN_PAIR_SIZE_MASK;
+                bool valid_metadata = instruction->immediate == 8u ||
+                    (pair_size >= 9u && pair_size <= 16u &&
+                     (instruction->immediate &
+                      ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+                        RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u &&
+                     (pair_kind ==
+                          RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER ||
+                      pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
+                      pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE));
+                return !instruction->has_destination &&
                 instruction->operand_count == 1u &&
                 instruction->target_count == 0u &&
                 instruction->type.kind == RCC_MIR_TYPE_VOID &&
-                (instruction->immediate == 8u ||
-                 (instruction->immediate >= 9u &&
-                  instruction->immediate <= 16u));
+                valid_metadata;
+            }
         case RCC_X86_JUMP:
             return !instruction->has_destination &&
                 instruction->operand_count == 0u &&
@@ -1682,12 +1764,14 @@ static bool x86_legal_verify_return(
         bool pair_return = instruction->auxiliary == 2u;
         bool found_low = false;
         bool found_high = false;
+        bool found_sse = false;
         while (input && input->opcode == RCC_X86_LEGAL_COPY) {
-            if (function->return_type.kind == RCC_MIR_TYPE_FLOAT &&
+            if (input->type.kind == RCC_MIR_TYPE_FLOAT &&
                 input->has_destination &&
                 input->destination.kind == RCC_X86_VALUE_FPR &&
                 input->destination.fpr == 0u) {
                 found_low = true;
+                found_sse = true;
             } else if (input->has_destination &&
                 input->destination.kind == RCC_X86_VALUE_GPR) {
                 if (input->destination.gpr == abi->return_low) {
@@ -1699,12 +1783,36 @@ static bool x86_legal_verify_return(
             }
             input = input->previous;
         }
-        if (pair_return &&
-            ((function->target == RCC_X86_TARGET_I686 &&
-              instruction->immediate == 0u) ||
-             (function->target == RCC_X86_TARGET_X86_64 &&
-              instruction->immediate >= 9u &&
-              instruction->immediate <= 16u))) return true;
+        if (pair_return) {
+            uint64_t pair_kind = instruction->immediate &
+                RCC_IR_RETURN_PAIR_KIND_MASK;
+            uint64_t pair_size = instruction->immediate &
+                RCC_IR_RETURN_PAIR_SIZE_MASK;
+            bool valid_pair_metadata =
+                (function->target == RCC_X86_TARGET_I686 &&
+                 instruction->immediate == 0u) ||
+                (function->target == RCC_X86_TARGET_X86_64 &&
+                 pair_size >= 9u && pair_size <= 16u &&
+                 (instruction->immediate &
+                  ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+                    RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u &&
+                 (pair_kind ==
+                      RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER ||
+                  pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
+                  pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE));
+            bool valid_registers = found_low &&
+                (pair_kind == RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
+                 pair_kind == RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE
+                     ? found_sse : found_high);
+            if (!valid_pair_metadata) {
+                return x86_legal_error(
+                    error, error_size,
+                    "x86 pair return metadata is invalid");
+            }
+            if (valid_registers) return true;
+            return x86_legal_error(error, error_size,
+                                   "x86 pair return-register sequence is invalid");
+        }
         if (!pair_return && instruction->auxiliary != 1u) {
             return x86_legal_error(error, error_size,
                                    "x86 return metadata is invalid");
@@ -1914,18 +2022,27 @@ bool rcc_x86_verify_legal_function(
                  !((function->target == RCC_X86_TARGET_I686 &&
                     instruction->immediate == abi.pointer_size) ||
                    (function->target == RCC_X86_TARGET_X86_64 &&
-                    instruction->immediate >= 9u &&
-                    instruction->immediate <= 16u))) ||
+                    (instruction->immediate &
+                     RCC_IR_RETURN_PAIR_SIZE_MASK) >= 9u &&
+                    (instruction->immediate &
+                     RCC_IR_RETURN_PAIR_SIZE_MASK) <= 16u &&
+                    (instruction->immediate &
+                     ~(RCC_IR_RETURN_PAIR_SIZE_MASK |
+                       RCC_IR_RETURN_PAIR_KIND_MASK)) == 0u &&
+                    ((instruction->immediate &
+                      RCC_IR_RETURN_PAIR_KIND_MASK) ==
+                         RCC_IR_RETURN_PAIR_KIND_INTEGER_INTEGER ||
+                     (instruction->immediate &
+                      RCC_IR_RETURN_PAIR_KIND_MASK) ==
+                         RCC_IR_RETURN_PAIR_KIND_SSE_INTEGER ||
+                     (instruction->immediate &
+                      RCC_IR_RETURN_PAIR_KIND_MASK) ==
+                         RCC_IR_RETURN_PAIR_KIND_INTEGER_SSE)))) ||
                 (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
                  instruction->selected_opcode ==
                      RCC_X86_CAPTURE_RETURN_PAIR &&
-                 ((function->target == RCC_X86_TARGET_I686 &&
-                   instruction->immediate != 8u) ||
-                  (function->target == RCC_X86_TARGET_X86_64 &&
-                   (instruction->immediate < 9u ||
-                    instruction->immediate > 16u)) ||
-                  (function->target != RCC_X86_TARGET_I686 &&
-                   function->target != RCC_X86_TARGET_X86_64) ||
+                 (!x86_legal_capture_return_metadata_supported(
+                      instruction->immediate, &abi) ||
                   instruction->operand_types[0].kind !=
                       RCC_MIR_TYPE_POINTER ||
                   !instruction->previous ||
