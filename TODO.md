@@ -2106,6 +2106,12 @@
         DIEとして出力し、abstract-originにformal parameter DIEを含める。
         `test-debug-info`で両archのnested parent/child、PC range包含、宣言元
         parameterのname/type/locationを検証
+  - [x] legacy i686/AMD64のinlined-subroutine DIEに、callee本体直下のautomatic
+        const scalar localをabstract declarationとconcrete instanceに分けて出力。
+        signed/unsigned integer・enum・float/doubleの保存済み定数値をDWARFへ記録し、
+        定数initializerが最適化で消えた場合も再構成してpure-scalar inlineを維持する。
+        `test-debug-info`でconst type、abstract-origin、source file、signed値7を両archで検証し、
+        `test-optimize`も成功。nested lexical localやlocation-list値は未対応
   - [x] verified backendで最適化inlineのorigin／呼出し位置をIRからMIR・x86
         legalization・encoded PC rangeまで伝播し、relocation付きDWARF inline DIEを
         出力。C++ inline host/leafのabstract origin、call-site file/line/column、
@@ -2173,14 +2179,16 @@
         生成する回帰でfunction DIEとnested lexical-block DIE双方のindex／
         line-table entry対応をi686/AMD64で検証し、native Windows
         `test-debug-info`全体が成功。
-  - [ ] Extend the existing bounded inline DIE and frame-relative location-list
-        coverage: emit concrete values/locations for inlined locals and
-        parameters, track optimized variables across register and piece
-        locations, and describe declaration lifetimes across every optimized
-        CFG edge. Complete CFI/unwind coverage for prologues and epilogues not
+- [ ] Extend the existing bounded inline DIE and frame-relative location-list
+        coverage beyond the implemented direct-body const scalar values: emit
+        locations for inlined parameters and non-constant locals, nested lexical
+        locals, and track optimized variables across register and piece
+        locations; describe declaration lifetimes across every optimized CFG
+        edge. Complete CFI/unwind coverage for prologues and epilogues not
         represented by the current fixed-frame rules. The preceding checked
-        entries document the inline call-site/origin and lexical frame-location
-        cases already supported; these remaining cases are not yet implemented.
+        entries document the inline call-site/origin, bounded const-local value,
+        and lexical frame-location cases already supported; these remaining
+        cases are not yet implemented.
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および
