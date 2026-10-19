@@ -17605,28 +17605,28 @@ test-verified-cxx-explicit-throwing-destructor: $(RCXX_TARGET) $(CXX_HOST_EXCEPT
 		--cxx-explicit-callee-object \
 		$(TEST_OUT)/verified-backend/cxx-explicit-callee-x64.ro x64
 
-test-verified-cxx-throwing-temporary: $(RCXX_TARGET)
+test-verified-cxx-throwing-temporary: $(RCXX_TARGET) test-verified-cxx-reference-local
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O0 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log
+	$(GREP) -F -q 'Verified backend: 11 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.log,0)
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -O0 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log
+	$(GREP) -F -q 'Verified backend: 11 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.log,0)
 	$(RCXX_TARGET) --target i686-unknown-rinos -std=c++20 -O2 \
 		-fverified-backend -v -c \
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log
+	$(GREP) -F -q 'Verified backend: 11 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.log,0)
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.ro
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.ro
@@ -17635,10 +17635,22 @@ test-verified-cxx-throwing-temporary: $(RCXX_TARGET)
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.ro \
 		tests/verified_backend_cxx_throwing_temporary.cpp \
 		>$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log
-	$(GREP) -F -q 'Verified backend: 9 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log
+	$(GREP) -F -q 'Verified backend: 11 function(s) emitted' $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.log,0)
 	$(GREP) -F -q "rin_cpp_exception_register_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.ro
 	$(GREP) -F -q "rin_cpp_exception_unregister_current_cleanup" $(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.ro
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-throwing-temporary-object \
+		$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-throwing-temporary-object \
+		$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o0-x64.ro x64
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-throwing-temporary-object \
+		$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x86.ro x86
+	$(TEST_OUT)/verified-backend/cxx-reference-local-run \
+		--cxx-throwing-temporary-object \
+		$(TEST_OUT)/verified-backend/cxx-throwing-temporary-o2-x64.ro x64
 	$(RCXX_TARGET) --target x86_64-unknown-rinos -std=c++20 -S \
 		-o $(TEST_OUT)/verified-backend/cxx-throwing-temporary-legacy-x64.s \
 		tests/verified_backend_cxx_throwing_temporary.cpp

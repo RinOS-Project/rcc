@@ -156,7 +156,7 @@ typedef struct {
     const Stmt* current_statement;
     size_t active_debug_inline_call_plus_one;
     RccIrValue aggregate_return_address;
-    const Expr* aggregate_result_destination_call;
+    const Expr* aggregate_result_destination_expression;
     RccIrLowerValue aggregate_result_destination;
     RccIrValue active_exception_frame;
     RccIrValue wide_phi_zero;
@@ -7464,6 +7464,40 @@ static bool lower_noexcept_expression(const Expr* expression) {
     }
 }
 
+static bool lower_nontrivial_temporary_call_arguments_supported(
+    const Expr* expression) {
+    const ExprList* argument;
+    const Expr* function;
+    if (!expression || expression->kind != EXPR_CALL ||
+        expression->call_method || expression->call_is_new ||
+        expression->call_is_delete || !expression->call_func ||
+        expression->call_func->kind != EXPR_IDENT ||
+        !expression->call_func->ident_decl ||
+        expression->call_func->ident_decl->kind != DECL_FUNC ||
+        !lower_noexcept_expression(expression->call_func)) {
+        return false;
+    }
+    function = expression->call_func;
+    for (argument = expression->call_args; argument;
+         argument = argument->next) {
+        if (!lower_noexcept_expression(argument->expr) ||
+            (!argument->cxx_temporary_owner &&
+             argument->cxx_temporary_cleanups) ||
+            (argument->cxx_temporary_owner &&
+             !lower_temporary_cleanup_plan_supported(
+                 argument, !expression->cxx_call_is_noexcept))) {
+            return false;
+        }
+    }
+    return function->ident_decl->type &&
+        function->ident_decl->type->kind == TYPE_FUNC &&
+        expression->type && function->ident_decl->type->ret_type &&
+        type_is_compatible(
+            function->ident_decl->type->ret_type, expression->type) &&
+        type_is_compatible(
+            expression->type, function->ident_decl->type->ret_type);
+}
+
 static bool lower_nontrivial_temporary_conditional_arm_supported(
     const Expr* expression, const Type* result_type) {
     RccIrType return_type;
@@ -7488,11 +7522,13 @@ static bool lower_nontrivial_temporary_conditional_arm_supported(
             lower_nontrivial_temporary_conditional_arm_supported(
                    expression->cond_else, result_type);
     }
-    /* Only same-type noexcept ordinary function calls may construct a leaf.
-     * Inline member calls, constructors, conversions, and glvalue arms remain
-     * outside this storage-transfer path. */
-    if (expression->kind != EXPR_CALL || expression->call_method ||
-        !lower_noexcept_expression(expression)) {
+    /* Only same-type direct ordinary function calls with nonthrowing argument
+     * evaluation may construct a leaf. The call itself may throw before a
+     * complete temporary exists; its caller registers the destructor only
+     * after the whole conditional initializer succeeds. Inline member calls,
+     * constructors, conversions, and glvalue arms remain outside this path. */
+    if (expression->kind != EXPR_CALL ||
+        !lower_nontrivial_temporary_call_arguments_supported(expression)) {
         return false;
     }
     return_kind = lower_abi_return_layout(expression->type, &return_type);
@@ -7519,7 +7555,7 @@ static bool lower_nontrivial_temporary_conditional_supported(
     /* The enclosing reference argument or lifetime-extending local reference
      * owns the selected result and has already proved its complete cleanup
      * plan. Recursively accept nested same-type conditionals whose leaves are
-     * supported noexcept calls. */
+     * supported direct calls. */
     return lower_nontrivial_temporary_conditional_arm_supported(
                expression->cond_then, expression->type) &&
         lower_nontrivial_temporary_conditional_arm_supported(
@@ -7846,7 +7882,11 @@ static bool lower_scope_cleanup_declaration_supported(
         cleanup_owner = declaration->var_reference_temporary_owner;
     }
     if (!lower_storage_type_supported_internal(cleanup_owner->type, 0u) ||
-        !lower_cleanup_initializer_supported(declaration->var_init)) {
+        (!lower_cleanup_initializer_supported(declaration->var_init) &&
+         (!reference_temporary ||
+          !cleanup_owner->type->cxx_nontrivial ||
+          !lower_nontrivial_temporary_conditional_arm_supported(
+              declaration->var_init, cleanup_owner->type)))) {
         return false;
     }
     if (!lower_temporary_cleanup_plan_list_supported(
@@ -8051,6 +8091,30 @@ static bool lower_bind_temporary_owner(RccIrLowerContext* context,
     slot = lower_value(allocation->result,
                        rcc_ir_type_pointer(0u), true);
     return lower_store_address(context, slot, object_address);
+}
+
+static RccIrLowerValue lower_allocate_temporary_owner_storage(
+    RccIrLowerContext* context, const Decl* owner) {
+    RccIrInstruction* allocation;
+    if (!context || !owner || !owner->type || owner->type->size <= 0 ||
+        owner->type->align <= 0 || lower_find_local(context, owner)) {
+        if (context) context->unsupported = true;
+        return lower_invalid_value();
+    }
+    allocation = lower_append(context, RCC_IR_ALLOCA,
+                              rcc_ir_type_pointer(0u), NULL, 0u,
+                              NULL, 0u);
+    if (!allocation) return lower_invalid_value();
+    rcc_ir_set_immediate(allocation, (uint64_t)owner->type->size);
+    allocation->alignment = (uint32_t)owner->type->align;
+    allocation->source_declaration = owner;
+    if (!lower_add_local(context, owner, allocation->result,
+                         rcc_ir_type_pointer(0u))) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    return lower_value(allocation->result,
+                       rcc_ir_type_pointer(0u), true);
 }
 
 static bool lower_change_current_exception_cleanup(
@@ -8974,7 +9038,7 @@ static RccIrLowerValue lower_call(RccIrLowerContext* context,
             return lower_invalid_value();
         }
         use_aggregate_result_destination =
-            context->aggregate_result_destination_call == expression;
+            context->aggregate_result_destination_expression == expression;
         if (use_aggregate_result_destination) {
             if ((return_kind != LOWER_ABI_RETURN_SRET &&
                  return_kind != LOWER_ABI_RETURN_REGISTER_AGGREGATE &&
@@ -11786,9 +11850,9 @@ static RccIrLowerValue lower_conditional_expression(
         size_t allocation_size;
         size_t chunk_size = lower_abi_chunk_size();
         /* Ordinary aggregate conditionals still require trivial lifetime
-         * semantics. A narrowly validated same-type noexcept call conditional
-         * may use caller-owned storage when it is a reference temporary whose
-         * destructor plan belongs to the enclosing call or local reference. */
+         * semantics. A narrowly validated same-type direct-call conditional
+         * may use shared result storage when its destructor plan belongs to
+         * the enclosing call or lifetime-extending local reference. */
         supported_temporary_conditional =
             lower_nontrivial_temporary_conditional_supported(context,
                                                              expression);
@@ -11804,17 +11868,26 @@ static RccIrLowerValue lower_conditional_expression(
             context->unsupported = true;
             return lower_invalid_value();
         }
-        allocation = lower_append(
-            context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
-            NULL, 0u, NULL, 0u);
-        if (!allocation) return lower_invalid_value();
-        allocation_size = ((size_t)expression->type->size +
-                           chunk_size - 1u) / chunk_size * chunk_size;
-        rcc_ir_set_immediate(allocation, (uint64_t)allocation_size);
-        allocation->alignment = expression->type->align > 0
-            ? (uint32_t)expression->type->align : 0u;
-        aggregate_storage = lower_value(
-            allocation->result, rcc_ir_type_pointer(0u), true);
+        if (context->aggregate_result_destination_expression == expression) {
+            aggregate_storage = context->aggregate_result_destination;
+            if (!aggregate_storage.valid ||
+                aggregate_storage.type.kind != RCC_IR_TYPE_POINTER) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+        } else {
+            allocation = lower_append(
+                context, RCC_IR_ALLOCA, rcc_ir_type_pointer(0u),
+                NULL, 0u, NULL, 0u);
+            if (!allocation) return lower_invalid_value();
+            allocation_size = ((size_t)expression->type->size +
+                               chunk_size - 1u) / chunk_size * chunk_size;
+            rcc_ir_set_immediate(allocation, (uint64_t)allocation_size);
+            allocation->alignment = expression->type->align > 0
+                ? (uint32_t)expression->type->align : 0u;
+            aggregate_storage = lower_value(
+                allocation->result, rcc_ir_type_pointer(0u), true);
+        }
     } else if (!lower_type(expression->type, &result_type) ||
                result_type.kind == RCC_IR_TYPE_VOID) {
         context->unsupported = true;
@@ -11835,16 +11908,16 @@ static RccIrLowerValue lower_conditional_expression(
     context->terminated = false;
     {
         const Expr* previous_destination_call =
-            context->aggregate_result_destination_call;
+            context->aggregate_result_destination_expression;
         RccIrLowerValue previous_destination =
             context->aggregate_result_destination;
         if (supported_temporary_conditional) {
-            context->aggregate_result_destination_call =
+            context->aggregate_result_destination_expression =
                 expression->cond_then;
             context->aggregate_result_destination = aggregate_storage;
         }
         then_value = lower_expression(context, expression->cond_then);
-        context->aggregate_result_destination_call =
+        context->aggregate_result_destination_expression =
             previous_destination_call;
         context->aggregate_result_destination = previous_destination;
     }
@@ -11878,16 +11951,16 @@ static RccIrLowerValue lower_conditional_expression(
     context->terminated = false;
     {
         const Expr* previous_destination_call =
-            context->aggregate_result_destination_call;
+            context->aggregate_result_destination_expression;
         RccIrLowerValue previous_destination =
             context->aggregate_result_destination;
         if (supported_temporary_conditional) {
-            context->aggregate_result_destination_call =
+            context->aggregate_result_destination_expression =
                 expression->cond_else;
             context->aggregate_result_destination = aggregate_storage;
         }
         else_value = lower_expression(context, expression->cond_else);
-        context->aggregate_result_destination_call =
+        context->aggregate_result_destination_expression =
             previous_destination_call;
         context->aggregate_result_destination = previous_destination;
     }
@@ -18452,21 +18525,49 @@ static bool lower_declaration(RccIrLowerContext* context,
                     return false;
                 }
                 /* Materialize the complete prvalue object, keep its address
-                 * in the synthetic owner local used by the cleanup plan, and
-                 * then bind the source reference to that same object. */
+                 * in the synthetic owner local used by the cleanup plan.
+                 * The owner local is object storage, not a pointer slot, so
+                 * both normal cleanup and exception cleanup receive the
+                 * complete object's address. */
                 {
                     bool previous_conditional_permission =
                         context->allow_nontrivial_temporary_conditional;
+                    const Expr* previous_destination_expression =
+                        context->aggregate_result_destination_expression;
+                    RccIrLowerValue previous_destination =
+                        context->aggregate_result_destination;
+                    RccIrLowerValue owner_storage =
+                        lower_allocate_temporary_owner_storage(
+                            context, owner);
+                    if (!owner_storage.valid) return false;
                     context->allow_nontrivial_temporary_conditional = true;
+                    if (declaration->var_init->kind == EXPR_CALL ||
+                        declaration->var_init->kind == EXPR_COND) {
+                        context->aggregate_result_destination_expression =
+                            declaration->var_init;
+                        context->aggregate_result_destination = owner_storage;
+                    }
                     initializer = lower_expression(
                         context, declaration->var_init);
                     context->allow_nontrivial_temporary_conditional =
                         previous_conditional_permission;
+                    context->aggregate_result_destination_expression =
+                        previous_destination_expression;
+                    context->aggregate_result_destination =
+                        previous_destination;
+                    if (!initializer.valid ||
+                        initializer.type.kind != RCC_IR_TYPE_POINTER ||
+                        (initializer.value != owner_storage.value &&
+                         !lower_copy_abi_aggregate_storage(
+                             context, owner_storage.value,
+                             initializer.value, owner->type))) {
+                        context->unsupported = true;
+                        return false;
+                    }
+                    initializer = owner_storage;
                 }
                 if (!initializer.valid ||
-                    initializer.type.kind != RCC_IR_TYPE_POINTER ||
-                    !lower_bind_temporary_owner(
-                        context, owner, initializer)) {
+                    initializer.type.kind != RCC_IR_TYPE_POINTER) {
                     context->unsupported = true;
                     return false;
                 }

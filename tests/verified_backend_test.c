@@ -4588,6 +4588,106 @@ static void verify_cxx_explicit_throwing_callee_object(
     objfile_free(object);
 }
 
+static void verify_cxx_throwing_temporary_object(
+    const char* path, uint16_t arch, bool execute)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* text;
+    ObjSymbol* direct_throw_symbol;
+    ObjSymbol* conditional_throw_symbol;
+    ObjSymbol* normal_cleanup_symbol;
+    ObjSymbol* throwing_initializer_symbol;
+    ObjSymbol* temporary_cleanup_symbol;
+    assert(object != NULL && object->arch == arch);
+    text = objfile_get_section(object, ".text");
+    direct_throw_symbol = objfile_find_symbol(
+        object, "verified_cxx_throwing_argument_cleanup");
+    conditional_throw_symbol = objfile_find_symbol(
+        object, "verified_cxx_throwing_conditional_cleanup");
+    normal_cleanup_symbol = objfile_find_symbol(
+        object, "verified_cxx_local_reference_normal_cleanup");
+    throwing_initializer_symbol = objfile_find_symbol(
+        object, "verified_cxx_throwing_initializer_cleanup");
+    temporary_cleanup_symbol = objfile_find_symbol(
+        object, "verified_cxx_throwing_temporary_cleanup");
+    assert(text != NULL && direct_throw_symbol != NULL &&
+           direct_throw_symbol->binding == BIND_CODE &&
+           direct_throw_symbol->section == 0 &&
+           conditional_throw_symbol != NULL &&
+           conditional_throw_symbol->binding == BIND_CODE &&
+           conditional_throw_symbol->section == 0 &&
+           normal_cleanup_symbol != NULL &&
+           normal_cleanup_symbol->binding == BIND_CODE &&
+           normal_cleanup_symbol->section == 0 &&
+           throwing_initializer_symbol != NULL &&
+           throwing_initializer_symbol->binding == BIND_CODE &&
+           throwing_initializer_symbol->section == 0 &&
+           temporary_cleanup_symbol != NULL &&
+           temporary_cleanup_symbol->binding == BIND_CODE &&
+           temporary_cleanup_symbol->section == 0);
+    if (execute) {
+        size_t mapping_size;
+        void* memory;
+        void* address;
+        int (RINOS_ABI *no_arguments)(void);
+        int (RINOS_ABI *integer_argument)(int);
+        int (RINOS_ABI *cleanup_order_argument)(int*);
+        int (RINOS_ABI *conditional_arguments)(int, int, int*);
+        int result;
+        int cleanup_order;
+        assert(arch == ARCH_X64 && sizeof(void*) == 8u);
+        memory = map_text(object, text, &mapping_size);
+        address = symbol_address(memory, temporary_cleanup_symbol);
+        memcpy(&integer_argument, &address, sizeof(integer_argument));
+        result = integer_argument(1);
+        if (result != 472) {
+            fprintf(stderr,
+                    "verified argument-temporary cleanup returned %d, expected 472\n",
+                    result);
+        }
+        assert(result == 472);
+        result = integer_argument(0);
+        if (result != 22) {
+            fprintf(stderr,
+                    "verified normal argument-temporary cleanup returned %d, expected 22\n",
+                    result);
+        }
+        assert(result == 22);
+        address = symbol_address(memory, direct_throw_symbol);
+        memcpy(&cleanup_order_argument, &address,
+               sizeof(cleanup_order_argument));
+        cleanup_order = 0;
+        result = cleanup_order_argument(&cleanup_order);
+        if (result != 533 || cleanup_order != 3) {
+            fprintf(stderr,
+                    "verified direct throwing-reference cleanup returned %d/order %d, expected 533/order 3\n",
+                    result, cleanup_order);
+        }
+        assert(result == 533 && cleanup_order == 3);
+        address = symbol_address(memory, conditional_throw_symbol);
+        memcpy(&conditional_arguments, &address,
+               sizeof(conditional_arguments));
+        cleanup_order = 0;
+        assert(conditional_arguments(0, 1, &cleanup_order) == 533 &&
+               cleanup_order == 3);
+        cleanup_order = 0;
+        assert(conditional_arguments(1, 1, &cleanup_order) == 534 &&
+               cleanup_order == 4);
+        cleanup_order = 0;
+        assert(conditional_arguments(1, 0, &cleanup_order) == 535 &&
+               cleanup_order == 5);
+        address = symbol_address(memory, normal_cleanup_symbol);
+        memcpy(&no_arguments, &address, sizeof(no_arguments));
+        assert(no_arguments() == 55);
+        address = symbol_address(memory, throwing_initializer_symbol);
+        memcpy(&integer_argument, &address, sizeof(integer_argument));
+        assert(integer_argument(1) == 560);
+        assert(integer_argument(0) == 66);
+        assert(verified_unmap(memory, mapping_size) == 0);
+    }
+    objfile_free(object);
+}
+
 static void verify_member_methods_object(const char* path, uint16_t arch,
                                          bool execute)
 {
@@ -6027,6 +6127,22 @@ int main(int argc, char** argv)
         puts(arch == ARCH_X64 && sizeof(void*) == 8u
                  ? "Verified explicit throwing destructor runtime passed"
                  : "Verified explicit throwing destructor object passed");
+        return 0;
+    }
+    if (argc == 4 &&
+        strcmp(argv[1], "--cxx-throwing-temporary-object") == 0) {
+        uint16_t arch;
+        if (strcmp(argv[3], "x86") == 0) {
+            arch = ARCH_X86;
+        } else {
+            assert(strcmp(argv[3], "x64") == 0);
+            arch = ARCH_X64;
+        }
+        verify_cxx_throwing_temporary_object(
+            argv[2], arch, arch == ARCH_X64 && sizeof(void*) == 8u);
+        puts(arch == ARCH_X64 && sizeof(void*) == 8u
+                 ? "Verified typed-SSA throwing reference temporary runtime passed"
+                 : "Verified typed-SSA throwing reference temporary object passed");
         return 0;
     }
     if (argc == 4 && strcmp(argv[1], "--wide-scalar-object") == 0) {

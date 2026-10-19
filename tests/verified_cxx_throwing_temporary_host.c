@@ -8,11 +8,14 @@
 
 extern int verified_cxx_throwing_temporary_cleanup(int should_throw)
     RINOS_TEST_ABI;
-extern int verified_cxx_throwing_argument_cleanup(void) RINOS_TEST_ABI;
+extern int verified_cxx_throwing_argument_cleanup(int* cleanup_order)
+    RINOS_TEST_ABI;
 extern int verified_cxx_throwing_conditional_cleanup(
-    int select_outer, int select_inner)
+    int select_outer, int select_inner, int* cleanup_order)
     RINOS_TEST_ABI;
 extern int verified_cxx_local_reference_normal_cleanup(void) RINOS_TEST_ABI;
+extern int verified_cxx_throwing_initializer_cleanup(int should_throw)
+    RINOS_TEST_ABI;
 extern int rcc_test_main(void) RINOS_TEST_ABI;
 
 int main(void) {
@@ -28,32 +31,36 @@ int main(void) {
                 result);
         return 2;
     }
-    result = verified_cxx_throwing_argument_cleanup();
-    if (result != 533) {
+    int cleanup_order = 0;
+    result = verified_cxx_throwing_argument_cleanup(&cleanup_order);
+    if (result != 533 || cleanup_order != 3) {
         fprintf(stderr,
-                "throwing argument cleanup returned %d, expected 533\n",
-                result);
+                "throwing argument cleanup returned %d/order %d, expected 533/order 3\n",
+                result, cleanup_order);
         return 3;
     }
-    result = verified_cxx_throwing_conditional_cleanup(0, 1);
-    if (result != 533) {
+    result = verified_cxx_throwing_conditional_cleanup(
+        0, 1, &cleanup_order);
+    if (result != 533 || cleanup_order != 3) {
         fprintf(stderr,
-                "throwing conditional cleanup returned %d, expected 533\n",
-                result);
+                "throwing conditional cleanup returned %d/order %d, expected 533/order 3\n",
+                result, cleanup_order);
         return 4;
     }
-    result = verified_cxx_throwing_conditional_cleanup(1, 1);
-    if (result != 534) {
+    result = verified_cxx_throwing_conditional_cleanup(
+        1, 1, &cleanup_order);
+    if (result != 534 || cleanup_order != 4) {
         fprintf(stderr,
-                "throwing conditional cleanup returned %d, expected 534\n",
-                result);
+                "throwing conditional cleanup returned %d/order %d, expected 534/order 4\n",
+                result, cleanup_order);
         return 5;
     }
-    result = verified_cxx_throwing_conditional_cleanup(1, 0);
-    if (result != 535) {
+    result = verified_cxx_throwing_conditional_cleanup(
+        1, 0, &cleanup_order);
+    if (result != 535 || cleanup_order != 5) {
         fprintf(stderr,
-                "nested throwing conditional cleanup returned %d, expected 535\n",
-                result);
+                "nested throwing conditional cleanup returned %d/order %d, expected 535/order 5\n",
+                result, cleanup_order);
         return 6;
     }
     result = verified_cxx_local_reference_normal_cleanup();
@@ -62,6 +69,20 @@ int main(void) {
                 "normal local reference cleanup returned %d, expected 55\n",
                 result);
         return 7;
+    }
+    result = verified_cxx_throwing_initializer_cleanup(1);
+    if (result != 560) {
+        fprintf(stderr,
+                "throwing initializer cleanup returned %d, expected 560\n",
+                result);
+        return 8;
+    }
+    result = verified_cxx_throwing_initializer_cleanup(0);
+    if (result != 66) {
+        fprintf(stderr,
+                "successful initializer cleanup returned %d, expected 66\n",
+                result);
+        return 9;
     }
     return rcc_test_main();
 }
