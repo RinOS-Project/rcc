@@ -6605,6 +6605,15 @@ remains a separate open item.
       `test-verified-cxx-partial-array-init` gate emits i686/AMD64 objects with
       zero typed-SSA fallback and executes dynamic/fixed cases on x64, checking
       DMI call counts, destructor results, and one allocation free per array.
+- [x] Exercise a shared-virtual-base diamond with a user-defined `noexcept`
+      destructor on the shared root and the complete array element. Dynamic
+      `delete[]` now leaves subobject destruction to the element destructor
+      body when that body emits its own cleanup, avoiding duplicate virtual-root
+      destruction; potentially-throwing destructors retain caller-owned cleanup.
+      The regression checks reverse element order and one root destruction per
+      element, with fallback-free i686/AMD64 objects and x64 execution in
+      `test-verified-cxx-partial-array-init`; the destructor, delete, and
+      explicit-throwing-destructor gates also pass.
 - [ ] Explicit/non-trivial intermediate virtual-base destructor graphs,
       user-defined subobject constructors beyond the validated subset, and
       throwing DMI construction/unwind remain open.

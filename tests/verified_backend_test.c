@@ -47,6 +47,9 @@ static void* verified_runtime_import_address(const char* symbol_name);
 static unsigned long verified_runtime_free_count;
 static int verified_partial_array_ctor_attempts;
 static int verified_partial_array_destructor_order;
+static int verified_partial_array_capture_destructor_trace;
+static int verified_partial_array_destructor_trace[32];
+static size_t verified_partial_array_destructor_trace_count;
 
 int RINOS_ABI verified_partial_array_next_ctor(void)
 {
@@ -55,6 +58,13 @@ int RINOS_ABI verified_partial_array_next_ctor(void)
 
 void RINOS_ABI verified_partial_array_record_destructor(int value)
 {
+    if (verified_partial_array_capture_destructor_trace &&
+        verified_partial_array_destructor_trace_count <
+            sizeof(verified_partial_array_destructor_trace) /
+                sizeof(verified_partial_array_destructor_trace[0])) {
+        verified_partial_array_destructor_trace[
+            verified_partial_array_destructor_trace_count++] = value;
+    }
     verified_partial_array_destructor_order =
         verified_partial_array_destructor_order * 10 + value;
 }
@@ -3988,6 +3998,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
     ObjSymbol* implicit_virtual_dmi_fixed_symbol;
     ObjSymbol* nested_virtual_dmi_symbol;
     ObjSymbol* nested_virtual_dmi_fixed_symbol;
+    ObjSymbol* shared_nested_virtual_dmi_symbol;
+    ObjSymbol* shared_nested_virtual_dmi_fixed_symbol;
     ObjSymbol* implicit_array_dmi_symbol;
     ObjSymbol* implicit_array_dmi_fixed_symbol;
     ObjSymbol* implicit_ctor_member_dmi_symbol;
@@ -4046,6 +4058,12 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
     nested_virtual_dmi_fixed_symbol = objfile_find_symbol(
         object,
         "verified_cxx_partial_array_nested_virtual_dmi_fixed");
+    shared_nested_virtual_dmi_symbol = objfile_find_symbol(
+        object,
+        "verified_cxx_partial_array_shared_nested_virtual_dmi");
+    shared_nested_virtual_dmi_fixed_symbol = objfile_find_symbol(
+        object,
+        "verified_cxx_partial_array_shared_nested_virtual_dmi_fixed");
     implicit_array_dmi_symbol = objfile_find_symbol(
         object, "verified_cxx_partial_array_implicit_array_dmi");
     implicit_array_dmi_fixed_symbol = objfile_find_symbol(
@@ -4149,6 +4167,14 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
            nested_virtual_dmi_fixed_symbol->type == SYM_GLOBAL &&
            nested_virtual_dmi_fixed_symbol->binding == BIND_CODE &&
            nested_virtual_dmi_fixed_symbol->section == 0 &&
+           shared_nested_virtual_dmi_symbol != NULL &&
+           shared_nested_virtual_dmi_symbol->type == SYM_GLOBAL &&
+           shared_nested_virtual_dmi_symbol->binding == BIND_CODE &&
+           shared_nested_virtual_dmi_symbol->section == 0 &&
+           shared_nested_virtual_dmi_fixed_symbol != NULL &&
+           shared_nested_virtual_dmi_fixed_symbol->type == SYM_GLOBAL &&
+           shared_nested_virtual_dmi_fixed_symbol->binding == BIND_CODE &&
+           shared_nested_virtual_dmi_fixed_symbol->section == 0 &&
            implicit_array_dmi_symbol != NULL &&
            implicit_array_dmi_symbol->type == SYM_GLOBAL &&
            implicit_array_dmi_symbol->binding == BIND_CODE &&
@@ -4208,6 +4234,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         int (RINOS_ABI *implicit_virtual_dmi_fixed)(void);
         int (RINOS_ABI *nested_virtual_dmi)(int);
         int (RINOS_ABI *nested_virtual_dmi_fixed)(void);
+        int (RINOS_ABI *shared_nested_virtual_dmi)(int);
+        int (RINOS_ABI *shared_nested_virtual_dmi_fixed)(void);
         int (RINOS_ABI *implicit_array_dmi)(int);
         int (RINOS_ABI *implicit_array_dmi_fixed)(void);
         int (RINOS_ABI *implicit_ctor_member_dmi)(int);
@@ -4414,6 +4442,47 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         assert(verified_runtime_free_count == 1u);
         assert(verified_partial_array_destructor_order == 9);
         assert(verified_partial_array_ctor_attempts == 1);
+        address = symbol_address(memory, shared_nested_virtual_dmi_symbol);
+        memcpy(&shared_nested_virtual_dmi, &address,
+               sizeof(shared_nested_virtual_dmi));
+        verified_runtime_free_count = 0u;
+        verified_partial_array_destructor_order = 0;
+        verified_partial_array_ctor_attempts = 0;
+        verified_partial_array_capture_destructor_trace = 1;
+        verified_partial_array_destructor_trace_count = 0u;
+        assert(shared_nested_virtual_dmi(2) == 31);
+        verified_partial_array_capture_destructor_trace = 0;
+        assert(verified_runtime_free_count == 1u);
+        assert(verified_partial_array_ctor_attempts == 2);
+        if (verified_partial_array_destructor_order != 14341) {
+            fprintf(stderr,
+                    "shared virtual-base destructor order was %d, trace:",
+                    verified_partial_array_destructor_order);
+            for (size_t trace_index = 0u;
+                 trace_index < verified_partial_array_destructor_trace_count;
+                 ++trace_index) {
+                fprintf(stderr, " %d",
+                        verified_partial_array_destructor_trace[trace_index]);
+            }
+            fputc('\n', stderr);
+        }
+        assert(verified_partial_array_destructor_order == 14341);
+        assert(verified_partial_array_destructor_trace_count == 4u);
+        assert(verified_partial_array_destructor_trace[0] == 14);
+        assert(verified_partial_array_destructor_trace[1] == 2);
+        assert(verified_partial_array_destructor_trace[2] == 14);
+        assert(verified_partial_array_destructor_trace[3] == 1);
+        address = symbol_address(
+            memory, shared_nested_virtual_dmi_fixed_symbol);
+        memcpy(&shared_nested_virtual_dmi_fixed, &address,
+               sizeof(shared_nested_virtual_dmi_fixed));
+        verified_runtime_free_count = 0u;
+        verified_partial_array_destructor_order = 0;
+        verified_partial_array_ctor_attempts = 0;
+        assert(shared_nested_virtual_dmi_fixed() == 15);
+        assert(verified_runtime_free_count == 1u);
+        assert(verified_partial_array_ctor_attempts == 1);
+        assert(verified_partial_array_destructor_order == 141);
         address = symbol_address(memory, implicit_array_dmi_symbol);
         memcpy(&implicit_array_dmi, &address, sizeof(implicit_array_dmi));
         verified_partial_array_destructor_order = 0;

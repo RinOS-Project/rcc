@@ -182,6 +182,39 @@ public:
     }
 };
 
+class VerifiedSharedNestedVirtualDmiRoot {
+public:
+    int root_value_ = verified_partial_array_next_ctor();
+
+    ~VerifiedSharedNestedVirtualDmiRoot() noexcept {
+        verified_partial_array_record_destructor(root_value_);
+    }
+};
+
+class VerifiedSharedNestedVirtualDmiLeft
+    : public virtual VerifiedSharedNestedVirtualDmiRoot {
+public:
+    int left_value_ = 2;
+};
+
+class VerifiedSharedNestedVirtualDmiRight
+    : public virtual VerifiedSharedNestedVirtualDmiRoot {
+public:
+    int right_value_ = 4;
+};
+
+class VerifiedSharedNestedVirtualDmiArrayElement final
+    : public virtual VerifiedSharedNestedVirtualDmiLeft,
+      public virtual VerifiedSharedNestedVirtualDmiRight {
+public:
+    int leaf_value_ = 8;
+
+    ~VerifiedSharedNestedVirtualDmiArrayElement() noexcept {
+        verified_partial_array_record_destructor(
+            left_value_ + right_value_ + leaf_value_);
+    }
+};
+
 class VerifiedNestedArrayDmiMember final {
 public:
     int value_ = 5;
@@ -460,6 +493,29 @@ verified_cxx_partial_array_nested_virtual_dmi_fixed() {
         new VerifiedNestedVirtualDmiArrayElement[1];
     int total = values[0].root_value_ + values[0].middle_value_ +
         values[0].leaf_value_;
+    delete[] values;
+    return total;
+}
+
+extern "C" int
+verified_cxx_partial_array_shared_nested_virtual_dmi(int count) {
+    VerifiedSharedNestedVirtualDmiArrayElement* values =
+        new VerifiedSharedNestedVirtualDmiArrayElement[count];
+    int total = 0;
+    for (int index = 0; index < count; ++index) {
+        total += values[index].root_value_ + values[index].left_value_ +
+            values[index].right_value_ + values[index].leaf_value_;
+    }
+    delete[] values;
+    return total;
+}
+
+extern "C" int
+verified_cxx_partial_array_shared_nested_virtual_dmi_fixed() {
+    VerifiedSharedNestedVirtualDmiArrayElement* values =
+        new VerifiedSharedNestedVirtualDmiArrayElement[1];
+    int total = values[0].root_value_ + values[0].left_value_ +
+        values[0].right_value_ + values[0].leaf_value_;
     delete[] values;
     return total;
 }

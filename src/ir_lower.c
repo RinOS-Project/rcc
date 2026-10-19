@@ -14992,10 +14992,10 @@ static RccIrLowerValue lower_cxx_delete_array_expression(
             context, cls, element, true, 0u)) {
         return lower_invalid_value();
     }
-    if (!lower_cxx_emit_destructor_call(
-            context, destructor, element) ||
-        !lower_cxx_emit_destructor_subobjects_impl(
-            context, cls, element, 0u, true, true)) {
+    if (!lower_cxx_emit_destructor_call(context, destructor, element) ||
+        (!destructor->func_is_noexcept &&
+         !lower_cxx_emit_destructor_subobjects_impl(
+             context, cls, element, 0u, true, true))) {
         return lower_invalid_value();
     }
     if (!lower_store_address(
@@ -15111,8 +15111,7 @@ static bool lower_cxx_implicit_default_member_subobject_supported(
     if ((type->cxx_nontrivial &&
          (!cls || !cls->has_field_initializer)) ||
         (cls && (cls->constructors || cls->vtable_size != 0 ||
-                 cls->secondary_vtable_count != 0 ||
-                 cls->destructor_method))) {
+                 cls->secondary_vtable_count != 0))) {
         return false;
     }
     if (cls && cls->base_count > 0 &&
