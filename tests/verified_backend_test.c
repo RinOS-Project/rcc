@@ -3946,6 +3946,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
     ObjSymbol* partial_init_symbol;
     ObjSymbol* default_init_symbol;
     ObjSymbol* throwing_init_symbol;
+    ObjSymbol* throwing_ctor_symbol;
+    ObjSymbol* normal_ctor_symbol;
     assert(object != NULL && object->arch == arch);
     text = objfile_get_section(object, ".text");
     partial_init_symbol = objfile_find_symbol(
@@ -3954,6 +3956,10 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         object, "verified_cxx_default_array_init");
     throwing_init_symbol = objfile_find_symbol(
         object, "verified_cxx_partial_array_init_throw");
+    throwing_ctor_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_ctor_throw");
+    normal_ctor_symbol = objfile_find_symbol(
+        object, "verified_cxx_partial_array_ctor_normal");
     assert(text != NULL && partial_init_symbol != NULL &&
            partial_init_symbol->type == SYM_GLOBAL &&
            partial_init_symbol->binding == BIND_CODE &&
@@ -3963,7 +3969,13 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
            default_init_symbol->section == 0 && throwing_init_symbol != NULL &&
            throwing_init_symbol->type == SYM_GLOBAL &&
            throwing_init_symbol->binding == BIND_CODE &&
-           throwing_init_symbol->section == 0);
+           throwing_init_symbol->section == 0 && throwing_ctor_symbol != NULL &&
+           throwing_ctor_symbol->type == SYM_GLOBAL &&
+           throwing_ctor_symbol->binding == BIND_CODE &&
+           throwing_ctor_symbol->section == 0 && normal_ctor_symbol != NULL &&
+           normal_ctor_symbol->type == SYM_GLOBAL &&
+           normal_ctor_symbol->binding == BIND_CODE &&
+           normal_ctor_symbol->section == 0);
     if (execute) {
         size_t mapping_size;
         void* memory;
@@ -3971,6 +3983,8 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         int (RINOS_ABI *partial_init)(void);
         int (RINOS_ABI *default_init)(void);
         int (RINOS_ABI *throwing_init)(void);
+        int (RINOS_ABI *throwing_ctor)(void);
+        int (RINOS_ABI *normal_ctor)(void);
         assert(arch == ARCH_X64 && sizeof(void*) == 8u);
         memory = map_text(object, text, &mapping_size);
         address = symbol_address(memory, partial_init_symbol);
@@ -3987,6 +4001,33 @@ static void verify_cxx_partial_array_object(const char* path, uint16_t arch,
         memcpy(&throwing_init, &address, sizeof(throwing_init));
         verified_runtime_free_count = 0u;
         assert(throwing_init() == 21043);
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, normal_ctor_symbol);
+        memcpy(&normal_ctor, &address, sizeof(normal_ctor));
+        verified_runtime_free_count = 0u;
+        {
+            int result = normal_ctor();
+            if (result != 21) {
+                fprintf(stderr,
+                        "partial array normal constructor returned %d\n",
+                        result);
+            }
+            assert(result == 21);
+        }
+        assert(verified_runtime_free_count == 1u);
+        address = symbol_address(memory, throwing_ctor_symbol);
+        memcpy(&throwing_ctor, &address, sizeof(throwing_ctor));
+        verified_runtime_free_count = 0u;
+        {
+            int result = throwing_ctor();
+            if (result != 21043) {
+                fprintf(stderr,
+                        "partial array constructor unwind returned %d; free count %llu\n",
+                        result,
+                        (unsigned long long)verified_runtime_free_count);
+            }
+            assert(result == 21043);
+        }
         assert(verified_runtime_free_count == 1u);
         assert(verified_unmap(memory, mapping_size) == 0);
     }

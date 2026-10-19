@@ -14245,6 +14245,112 @@ static bool lower_cxx_emit_delete_subobject_destructor(
         context, type, object, depth);
 }
 
+static bool lower_cxx_initialize_constructor_members(
+    RccIrLowerContext* context, const Decl* declaration) {
+    const CxxClass* cls;
+    const CxxConstructorInfo* constructor;
+    RccIrLowerLocal* this_local;
+    RccIrLowerValue this_address;
+    RccIrLowerValue object;
+    if (!declaration || !declaration->func_is_cxx_constructor) return true;
+    cls = declaration->func_method_owner
+        ? declaration->func_method_owner->cxx_class : NULL;
+    constructor = NULL;
+    for (const CxxConstructorInfo* candidate =
+             cls ? cls->constructors : NULL;
+         candidate; candidate = candidate->next) {
+        if (candidate->method && candidate->method->decl == declaration) {
+            constructor = candidate;
+            break;
+        }
+    }
+    if (!context || !cls || !constructor ||
+        !constructor->initializers_are_supported ||
+        cls->base_count != 0 || cls->virtual_base_count != 0 ||
+        cls->has_field_initializer || !declaration->func_this_param ||
+        !(this_local = lower_find_local(
+              context, declaration->func_this_param))) {
+        if (context) context->unsupported = true;
+        return false;
+    }
+    /* This typed-SSA path models scalar member initializers directly.  Check
+     * the complete list before emitting IR so unsupported forms never leave
+     * a partially lowered constructor behind. */
+    for (const CxxConstructorInitializer* initializer =
+             constructor->initializers;
+         initializer; initializer = initializer->next) {
+        const TypeField* field;
+        const ExprList* argument = initializer->arguments;
+        const Expr* source;
+        int64_t ignored_constant;
+        bool constant_initializer;
+        if (initializer->is_base_initializer ||
+            initializer->is_delegating_constructor ||
+            initializer->is_virtual_base_initializer ||
+            initializer->is_default_member_initializer ||
+            initializer->is_pack_expansion || !initializer->field ||
+            !argument || argument->next || !(source = argument->expr) ||
+            initializer->value != source || initializer->constructor) {
+            context->unsupported = true;
+            return false;
+        }
+        field = lower_struct_declared_field(
+            cls->type, cls, initializer->field);
+        constant_initializer = expr_eval_integer_constant(
+            (Expr*)source, &ignored_constant);
+        if (!field || field->is_bitfield || !field->type ||
+            !type_is_scalar(field->type) ||
+            field->type->cxx_is_member_pointer ||
+            field->type->is_volatile || field->type->is_atomic ||
+            lower_i686_wide_scalar_type(field->type) ||
+            (!constant_initializer &&
+             (source->kind != EXPR_IDENT || !source->ident_decl ||
+              source->ident_decl->kind != DECL_PARAM ||
+              !lower_find_local(context, source->ident_decl)))) {
+            context->unsupported = true;
+            return false;
+        }
+        for (const CxxConstructorInitializer* previous =
+                 constructor->initializers;
+             previous != initializer; previous = previous->next) {
+            if (!previous->is_base_initializer && previous->field &&
+                strcmp(previous->field, initializer->field) == 0) {
+                context->unsupported = true;
+                return false;
+            }
+        }
+    }
+    this_address = lower_value(
+        this_local->address, rcc_ir_type_pointer(0u), true);
+    object = lower_load_address(
+        context, this_address, declaration->func_this_param->type);
+    if (!object.valid || object.type.kind != RCC_IR_TYPE_POINTER) {
+        context->unsupported = true;
+        return false;
+    }
+    for (const CxxConstructorInitializer* initializer =
+             constructor->initializers;
+         initializer; initializer = initializer->next) {
+        const TypeField* field;
+        const Expr* source;
+        RccIrLowerValue address;
+        RccIrLowerValue value;
+        source = initializer->arguments->expr;
+        field = lower_struct_declared_field(
+            cls->type, cls, initializer->field);
+        address = lower_byte_offset_address(
+            context, object, (uint64_t)field->offset);
+        value = lower_expression(context, source);
+        value = lower_cast(context, value, field->type);
+        if (!address.valid || !value.valid ||
+            !lower_store_address(context, address, value)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool lower_cxx_emit_current_destructor_subobjects(
     RccIrLowerContext* context) {
     const Decl* declaration = context ? context->declaration : NULL;
@@ -17440,6 +17546,7 @@ RccIrLowerStatus rcc_ir_lower_function(const Decl* declaration,
     context.continue_target = RCC_IR_BLOCK_NONE;
     if (!lower_parameters(&context, declaration) ||
         !lower_collect_labels(&context, declaration->func_body) ||
+        !lower_cxx_initialize_constructor_members(&context, declaration) ||
         !lower_statement(&context, declaration->func_body)) {
         lower_release_scope_cleanups(context.allocated_scope_cleanups);
         lower_release_locals(context.locals);

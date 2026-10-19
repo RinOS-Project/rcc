@@ -18,6 +18,24 @@ public:
     const VerifiedPartialArrayInput* input_;
 };
 
+class VerifiedThrowingPartialArrayElement final {
+public:
+    explicit VerifiedThrowingPartialArrayElement(
+        const VerifiedPartialArrayInput* input) : input_(input) {
+        if (input->value == 3) throw 43;
+    }
+
+    VerifiedThrowingPartialArrayElement() noexcept : input_(0) {}
+
+    ~VerifiedThrowingPartialArrayElement() {
+        if (input_) {
+            *input_->order = *input_->order * 10 + input_->value;
+        }
+    }
+
+    const VerifiedPartialArrayInput* input_;
+};
+
 static const VerifiedPartialArrayInput* verified_partial_array_argument(
     const VerifiedPartialArrayInput* input) {
     if (input->value == 3) throw 43;
@@ -64,6 +82,32 @@ extern "C" int verified_cxx_partial_array_init_throw() {
         return exception_value + order * 1000;
     }
     return -1;
+}
+
+extern "C" int verified_cxx_partial_array_ctor_throw() {
+    int order = 0;
+    VerifiedPartialArrayInput first{&order, 1};
+    VerifiedPartialArrayInput second{&order, 2};
+    VerifiedPartialArrayInput third{&order, 3};
+    try {
+        VerifiedThrowingPartialArrayElement* values =
+            new VerifiedThrowingPartialArrayElement[4]{
+                &first, &second, &third};
+        delete[] values;
+    } catch (int exception_value) {
+        return exception_value + order * 1000;
+    }
+    return -1;
+}
+
+extern "C" int verified_cxx_partial_array_ctor_normal() {
+    int order = 0;
+    VerifiedPartialArrayInput first{&order, 1};
+    VerifiedPartialArrayInput second{&order, 2};
+    VerifiedThrowingPartialArrayElement* values =
+        new VerifiedThrowingPartialArrayElement[2]{&first, &second};
+    delete[] values;
+    return order;
 }
 
 int main() {
