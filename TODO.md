@@ -2184,6 +2184,10 @@
         持たないsynthetic `__rcc_global_init`も含める。i686/AMD64のdebug／
         non-debug object relocation回帰とlinked debug RINのrinvalidate検証を
         `test-debug-info`／`test-format-validation`で確認。
+  - [x] Static address constantを直接のglobal/static object identifierから
+        nested non-bitfield memberとliteral array indexへ拡張し、元symbolと累積byte
+        addendを維持する。`&object.values[1]`をaddend 8としてlegacy／verified
+        optimized DWARFのi686/AMD64で検証し、native Windows `test-debug-info`が成功。
   - [x] 関数／lexical-block DIEの`DW_AT_decl_file`を32-bitで出力し、256件を
         超えるsource file tableでもindexを切り詰めない。260個の`#line` fileを
         生成する回帰でfunction DIEとnested lexical-block DIE双方のindex／

@@ -4140,13 +4140,97 @@ static bool debug_inline_literal_array_index(const Expr* expression,
     return true;
 }
 
+static bool debug_inline_static_address_path(
+    const Expr* expression, const Decl** source, int64_t* address_addend,
+    bool allow_one_past, unsigned int depth) {
+    if (!expression || !source || !address_addend || depth >= 32u) {
+        return false;
+    }
+    if (expression->kind == EXPR_IDENT && expression->ident_decl) {
+        const Decl* declaration = expression->ident_decl;
+        if ((declaration->kind == DECL_VAR &&
+             (declaration->var_is_global ||
+              declaration->var_is_static_local) &&
+             declaration->type && declaration->type->size > 0) ||
+            (declaration->kind == DECL_FUNC &&
+             declaration->func_is_defined)) {
+            *source = declaration;
+            *address_addend = 0;
+            return true;
+        }
+    }
+    if (expression->kind == EXPR_MEMBER && expression->member_base &&
+        expression->member_field) {
+        const Type* base_type = expression->member_base->type;
+        const TypeField* field = expression->member_field;
+        int64_t base_addend;
+        if (!base_type ||
+            (base_type->kind != TYPE_STRUCT &&
+             base_type->kind != TYPE_UNION) ||
+            field->is_bitfield || field->from_virtual_base ||
+            field->offset < 0 || !field->type || field->type->size <= 0 ||
+            base_type->size <= 0 ||
+            field->offset > base_type->size - field->type->size ||
+            expression->cxx_virtual_base_adjustment ||
+            expression->cxx_virtual_base_member_access ||
+            !debug_inline_static_address_path(
+                expression->member_base, source, &base_addend, false,
+                depth + 1u) ||
+            base_addend > INT64_MAX - field->offset) {
+            return false;
+        }
+        *address_addend = base_addend + field->offset;
+        return true;
+    }
+    if (expression->kind == EXPR_INDEX && expression->index_base &&
+        expression->index_expr) {
+        const Type* array_type = expression->index_base->type;
+        const Type* element_type;
+        int64_t element_index;
+        int64_t base_addend;
+        int64_t element_addend;
+        if (array_type && array_type->kind != TYPE_ARRAY &&
+            expression->index_base->kind == EXPR_MEMBER &&
+            expression->index_base->member_field &&
+            expression->index_base->member_field->type &&
+            expression->index_base->member_field->type->kind == TYPE_ARRAY &&
+            expression->index_base->member_field->type->base &&
+            array_type->kind == TYPE_PTR && array_type->base &&
+            array_type->base->size ==
+                expression->index_base->member_field->type->base->size) {
+            array_type = expression->index_base->member_field->type;
+        }
+        if (!array_type || array_type->kind != TYPE_ARRAY ||
+            array_type->array_len < 0 || !array_type->base ||
+            array_type->base->size <= 0 || !expression->type ||
+            expression->type->size <= 0 ||
+            !debug_inline_literal_array_index(expression->index_expr,
+                                               &element_index) ||
+            element_index < 0 ||
+            (allow_one_past
+                ? element_index > array_type->array_len
+                : element_index >= array_type->array_len) ||
+            !debug_inline_static_address_path(
+                expression->index_base, source, &base_addend, false,
+                depth + 1u)) {
+            return false;
+        }
+        element_type = array_type->base;
+        if (element_index > INT64_MAX / element_type->size) return false;
+        element_addend = element_index * element_type->size;
+        if (base_addend > INT64_MAX - element_addend) return false;
+        *address_addend = base_addend + element_addend;
+        return true;
+    }
+    return false;
+}
+
 static const ModuleSymbol* debug_inline_parameter_address_constant(
     const Module* mod, const char* filename, const Decl* callee,
     const ModuleDebugInlineParameterValue* value, const ExprList* argument,
     char** scoped_symbol, int64_t* address_addend) {
     const Expr* address;
     const Expr* argument_expression;
-    const Expr* operand;
     const Decl* source;
     const Type* parameter_type;
     const Type* argument_type;
@@ -4188,58 +4272,14 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
         address = address->cast_expr;
     }
     if (address->kind == EXPR_ADDR && address->unary_operand &&
-        address->unary_operand->kind == EXPR_IDENT &&
-        address->unary_operand->ident_decl) {
-        operand = address->unary_operand;
-        source = operand->ident_decl;
-    } else if (address->kind == EXPR_ADDR && address->unary_operand &&
-               address->unary_operand->kind == EXPR_INDEX &&
-               address->unary_operand->index_base &&
-               address->unary_operand->index_base->kind == EXPR_IDENT &&
-               address->unary_operand->index_base->ident_decl &&
-               address->unary_operand->index_expr) {
-        int64_t element_index;
-        int element_size;
-        const Expr* indexed = address->unary_operand;
-        operand = indexed->index_base;
-        source = operand->ident_decl;
-        if (source->kind != DECL_VAR || !source->type ||
-            source->type->kind != TYPE_ARRAY || source->type->array_len < 0 ||
-            !indexed->type || indexed->type->size <= 0 ||
-            !debug_inline_literal_array_index(indexed->index_expr,
-                                               &element_index) ||
-            element_index < 0 || element_index > source->type->array_len) {
+        debug_inline_static_address_path(
+            address->unary_operand, &source, address_addend, true, 0u)) {
+        if (!source->type || *address_addend > source->type->size) {
             return NULL;
         }
-        element_size = indexed->type->size;
-        if (element_index > INT64_MAX / element_size) return NULL;
-        *address_addend = element_index * element_size;
-    } else if (address->kind == EXPR_ADDR && address->unary_operand &&
-               address->unary_operand->kind == EXPR_MEMBER &&
-               address->unary_operand->member_base &&
-               address->unary_operand->member_base->kind == EXPR_IDENT &&
-               address->unary_operand->member_base->ident_decl &&
-               address->unary_operand->member_field) {
-        const Expr* member = address->unary_operand;
-        const TypeField* field = member->member_field;
-        operand = member->member_base;
-        source = operand->ident_decl;
-        if (source->kind != DECL_VAR || !source->type ||
-            (source->type->kind != TYPE_STRUCT &&
-             source->type->kind != TYPE_UNION) ||
-            field->is_bitfield || field->from_virtual_base ||
-            field->offset < 0 || !field->type || field->type->size <= 0 ||
-            source->type->size <= 0 ||
-            field->offset > source->type->size - field->type->size ||
-            member->cxx_virtual_base_adjustment ||
-            member->cxx_virtual_base_member_access) {
-            return NULL;
-        }
-        *address_addend = field->offset;
     } else if (address->kind == EXPR_IDENT && address->ident_decl &&
                address->ident_decl->kind == DECL_FUNC) {
-        operand = address;
-        source = operand->ident_decl;
+        source = address->ident_decl;
     } else {
         return NULL;
     }

@@ -40,6 +40,12 @@ struct debug_inline_addressed_member_container {
 };
 struct debug_inline_addressed_member_container
     debug_inline_addressed_member_source;
+struct debug_inline_addressed_nested_container {
+    int prefix;
+    int values[3];
+};
+struct debug_inline_addressed_nested_container
+    debug_inline_addressed_nested_source;
 const int debug_inline_readonly_addressed_pointer_source = 31;
 int** debug_inline_escaped_pointer;
 
@@ -181,6 +187,12 @@ int debug_inline_member_address_constant_entry(void)
 {
     return debug_global_pointer_parameter_inline(
         &debug_inline_addressed_member_source.target);
+}
+
+int debug_inline_nested_array_address_constant_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_nested_source.values[1]);
 }
 
 int debug_inline_function_address_constant_entry(void)
