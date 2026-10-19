@@ -6563,8 +6563,21 @@ remains a separate open item.
       that divergent branch targets and address-escaped alias writes remain
       indirect. `test-optimize` passes on native Windows with i686/AMD64 call
       shape checks and generated x64 execution. Implementation: `2be0e46`.
-- [ ] Reaching-value propagation for assignment copies, callback-array
-      elements, and cross-function target sets remains open.
+- [ ] Compound/conditional assignment-copy forms, callback-array elements,
+      and cross-function target sets remain open.
+
+## RCC continuation (2026-10-20, callback facts through pointer assignments)
+
+- [x] Accept direct, type-compatible function-pointer assignment from a local
+      pointer variable in the local-target safety proof. At each assignment,
+      transfer only the source's current proven CFG fact; unknown or divergent
+      source targets clear the destination fact.
+- [x] Verify multi-step direct assignments after source reassignment, while
+      preserving indirect calls for divergent branch facts and address-escaped
+      sources. `test-optimize` passes on native Windows with i686/AMD64 call
+      shape checks and generated x64 execution. Implementation: `974f842`.
+- [ ] Compound/conditional RHS forms, callback-array element dataflow, alias
+      writes, and cross-function target sets remain open.
 
 ## RCC continuation (2026-10-19, callback-array alias safety)
 
