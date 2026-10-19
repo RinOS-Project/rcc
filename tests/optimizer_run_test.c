@@ -562,6 +562,10 @@ static void verify_smaller(const char* unoptimized_path,
     assert(!function_contains_byte(
         optimized, "inlined_float_to_double_parameter_call", 0xe8u));
     assert(function_contains_byte(
+        unoptimized, "inlined_enum_parameter_call", 0xe8u));
+    assert(!function_contains_byte(
+        optimized, "inlined_enum_parameter_call", 0xe8u));
+    assert(function_contains_byte(
         unoptimized, "inlined_double_to_float_parameter_call", 0xe8u));
     assert(!function_contains_byte(
         optimized, "inlined_double_to_float_parameter_call", 0xe8u));
@@ -2213,6 +2217,7 @@ int main(int argc, char** argv)
         int (*inlined_repeated_complex_argument_call)(int);
         int (*inlined_conditional_cast_call)(int);
         int (*inlined_short_to_int_parameter_call)(short);
+        int (*inlined_enum_parameter_call)(int);
         int (*inlined_unsigned_to_signed_parameter_call)(unsigned int);
         long long (*inlined_unsigned64_to_signed64_parameter_call)(
             unsigned long long);
@@ -2834,6 +2839,13 @@ int main(int argc, char** argv)
             address = mapping + symbol->value;
             memcpy(&inlined_short_to_int_parameter_call, &address,
                    sizeof(inlined_short_to_int_parameter_call));
+        }
+        {
+            ObjSymbol* symbol = function_symbol(
+                object, "inlined_enum_parameter_call");
+            address = mapping + symbol->value;
+            memcpy(&inlined_enum_parameter_call, &address,
+                   sizeof(inlined_enum_parameter_call));
         }
         {
             ObjSymbol* symbol = function_symbol(
@@ -3518,6 +3530,8 @@ int main(int argc, char** argv)
         assert(inlined_conditional_cast_call(-8) == 8);
         assert(inlined_conditional_cast_call(8) == 12);
         assert(inlined_short_to_int_parameter_call((short)-123) == -123);
+        assert(inlined_enum_parameter_call(-2) == -2);
+        assert(inlined_enum_parameter_call(6) == 6);
         assert(inlined_unsigned_to_signed_parameter_call(UINT32_MAX) == -1);
         assert(inlined_unsigned64_to_signed64_parameter_call(UINT64_MAX) ==
                -1ll);

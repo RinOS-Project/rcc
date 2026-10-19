@@ -119,6 +119,11 @@ int debug_inline_null_pointer_entry(int* other)
     return debug_null_pointer_parameter_inline((int*)0, other);
 }
 
+int debug_inline_enum_constant_entry(void)
+{
+    return debug_enum_parameter_inline(DEBUG_ENUM_NEGATIVE);
+}
+
 int debug_tls_static_local_read(void)
 {
     static _Thread_local int debug_tls_static_local = 17;

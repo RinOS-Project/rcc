@@ -6990,9 +6990,9 @@ remains a separate open item.
       verified optimized DWARF; `1.1f`→`double` and `1.1`→`float` values match
       exact expected bits.
 - [ ] Long-double conversions, nonconstant floating expressions, non-null or
-      dynamic pointer values, enum conversion attribution, mutable parameter
-      locations, and general optimized inline-variable location tracking remain
-      open.
+      dynamic pointer values, additional C/C++ enum conversions and nonliteral
+      enum-value attribution, mutable parameter locations, and general
+      optimized inline-variable location tracking remain open.
 
 ## RCC continuation (2026-10-20, out-of-range signed inline values)
 
@@ -7003,9 +7003,10 @@ remains a separate open item.
       execute `UINT32_MAX`→`int` plus `UINT64_MAX`→`long long` at `-O0`/`-O1`
       for i686/AMD64. Native-Windows `test-optimize` and `test-debug-info` pass.
 - [ ] Other implementation-defined integer conversions, nonliteral folded
-      arguments, non-null/dynamic pointer values, enum attribution, mutable
-      parameter locations, and general optimized inline-variable location
-      tracking remain open.
+      arguments, non-null/dynamic pointer values, additional C/C++ enum
+      conversions and nonliteral enum-value attribution, mutable parameter
+      locations, and general optimized inline-variable location tracking
+      remain open.
 
 ## RCC continuation (2026-10-20, inline floating constant expressions)
 
@@ -7017,8 +7018,9 @@ remains a separate open item.
       and compare its exact 8-byte value in legacy/verified optimized i686/AMD64
       DWARF. Native-Windows `test-debug-info` passes.
 - [ ] Dynamic floating arguments, long-double support, non-null/dynamic pointer
-      values, enum attribution, mutable parameter locations, and optimized
-      inline-variable location tracking remain open.
+      values, additional C/C++ enum conversions and nonliteral enum-value
+      attribution, mutable parameter locations, and optimized inline-variable
+      location tracking remain open.
 
 ## RCC continuation (2026-10-20, inline null-pointer parameter values)
 
@@ -7031,6 +7033,21 @@ remains a separate open item.
       parameter DIE and zero address bytes in legacy/verified i686/AMD64 output.
 - [ ] Non-null symbolic pointer values, dynamic pointer locations, and full
       optimized register/piece tracking remain open.
+
+## RCC continuation (2026-10-20, bounded inline enum parameter conversions)
+
+- [x] Admit enum formal parameters to bounded scalar inlining and preserve
+      frontend-validated integer/enum argument conversions with a typed cast.
+      Keep the existing 1–8-byte, non-volatile, non-reference, non-atomic
+      parameter bounds; this does not classify enums as general arithmetic.
+- [x] Add runtime coverage for integer-to-enum parameter conversion at `-O0`
+      and `-O1`, verify the call is inlined only at `-O1`, and check negative
+      and positive enum values on i686/AMD64. Extend inline DWARF checks for a
+      C enum formal and `-2` constant in legacy and verified optimized objects.
+      Native-Windows `test-optimize` and `test-debug-info` pass.
+- [ ] Additional C++ enum conversion cases, nonliteral enum-value attribution,
+      nonconstant parameter locations, and optimized register/piece tracking
+      remain open.
 
 ## RCC continuation (2026-10-20, C++ nullptr inline conversion)
 

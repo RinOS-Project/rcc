@@ -679,6 +679,21 @@ int inlined_short_to_int_parameter_call(short value)
     return inline_integer_parameter(value);
 }
 
+enum OptimizerInlineEnum {
+    OPTIMIZER_INLINE_ENUM_NEGATIVE = -2,
+    OPTIMIZER_INLINE_ENUM_POSITIVE = 6
+};
+
+static int inline_enum_parameter(enum OptimizerInlineEnum value)
+{
+    return (int)value;
+}
+
+int inlined_enum_parameter_call(int value)
+{
+    return inline_enum_parameter(value);
+}
+
 static int inline_unsigned_to_signed_parameter(int value)
 {
     return value;

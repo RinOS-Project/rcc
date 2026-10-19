@@ -64,3 +64,8 @@ inline int debug_null_pointer_parameter_inline(int* value, int* other)
 {
     return value == other;
 }
+
+inline int debug_enum_parameter_inline(enum debug_enum value)
+{
+    return (int)value;
+}

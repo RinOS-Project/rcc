@@ -1545,7 +1545,10 @@ static bool inline_scalar_expression_shape(
 static bool inline_scalar_parameter_conversion(
     Type* parameter_type, Type* argument_type) {
     bool integer_conversion = parameter_type && argument_type &&
-        type_is_integer(parameter_type) && type_is_integer(argument_type);
+        (type_is_integer(parameter_type) ||
+         parameter_type->kind == TYPE_ENUM) &&
+        (type_is_integer(argument_type) ||
+         argument_type->kind == TYPE_ENUM);
     bool null_pointer_conversion = parameter_type && argument_type &&
         parameter_type->kind == TYPE_PTR &&
         !parameter_type->cxx_is_member_pointer &&
@@ -1563,6 +1566,13 @@ static bool inline_scalar_parameter_conversion(
         !argument_type->is_reference && !argument_type->is_atomic &&
         parameter_type->size > 0 && parameter_type->size <= 8 &&
         argument_type->size > 0 && argument_type->size <= 8;
+}
+
+static bool inline_scalar_parameter_type_supported(Type* type) {
+    return type_is_scalar(type) ||
+        (type && type->kind == TYPE_ENUM && !type->is_volatile &&
+         !type->is_reference && !type->is_atomic && type->size > 0 &&
+         type->size <= 8);
 }
 
 static Expr* clone_inline_scalar_expression(
@@ -2832,7 +2842,8 @@ static bool inline_side_effect_free_scalar_call(Expr** expression_out) {
             }
             if (!parameter || !parameter->decl || !argument ||
                 !argument->expr || parameter->decl->kind != DECL_PARAM ||
-                !type_is_scalar(parameter->decl->type) ||
+                !inline_scalar_parameter_type_supported(
+                    parameter->decl->type) ||
                 (!type_is_compatible(parameter->decl->type,
                                      argument->expr->type) &&
                  !inline_scalar_parameter_conversion(
