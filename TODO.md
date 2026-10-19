@@ -2166,9 +2166,14 @@
         生成する回帰でfunction DIEとnested lexical-block DIE双方のindex／
         line-table entry対応をi686/AMD64で検証し、native Windows
         `test-debug-info`全体が成功。
-  - [ ] `.debug_info`の全inline attribution／全scopeの宣言開始・終了に一致する
-        location lists、register・piece location追跡、非標準prologueを含む
-        完全なCFI/unwind
+  - [ ] Extend the existing bounded inline DIE and frame-relative location-list
+        coverage: emit concrete values/locations for inlined locals and
+        parameters, track optimized variables across register and piece
+        locations, and describe declaration lifetimes across every optimized
+        CFG edge. Complete CFI/unwind coverage for prologues and epilogues not
+        represented by the current fixed-frame rules. The preceding checked
+        entries document the inline call-site/origin and lexical frame-location
+        cases already supported; these remaining cases are not yet implemented.
 - [ ] inline asm constraintの完全検証
   - [x] bounded i686/AMD64固定レジスタ制約、出力lvalue・scalar型、clobber、
         numeric `%N` placeholderの固定レジスタ展開、`%%` escape、および
