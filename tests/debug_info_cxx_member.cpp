@@ -123,3 +123,31 @@ using DebugFunctionMemberPointer = int (DebugMemberObject::*)() const;
 
 DebugDataMemberPointer debug_data_member_pointer;
 DebugFunctionMemberPointer debug_function_member_pointer;
+
+struct DebugInlineAdjustedBase {
+    int value;
+};
+
+struct DebugInlineAdjustedPrefix {
+    int prefix;
+};
+
+struct DebugInlineAdjustedDerived : DebugInlineAdjustedPrefix,
+                                    DebugInlineAdjustedBase {
+    int suffix;
+};
+
+extern "C" {
+DebugInlineAdjustedDerived debug_inline_adjusted_pointer_source;
+
+inline int debug_inline_adjusted_base_parameter_inline(
+    DebugInlineAdjustedBase* value) {
+    return value != nullptr;
+}
+
+int debug_inline_adjusted_base_entry() {
+    return debug_inline_adjusted_base_parameter_inline(
+        static_cast<DebugInlineAdjustedBase*>(
+            &debug_inline_adjusted_pointer_source));
+}
+}

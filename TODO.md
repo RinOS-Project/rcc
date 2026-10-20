@@ -7191,9 +7191,15 @@ remains a separate open item.
       `&matrix[1][2] + 1` (addend 24); `&matrix[1][2] + 2` is rejected because
       it crosses the row boundary. Native-Windows `test-debug-info` passes for
       i686/AMD64 legacy and verified optimized DWARF.
-- [ ] Negative displacements not rooted at a statically indexed array element,
-      target-adjusting casts, dynamic pointer expressions, and optimized
-      register/piece location tracking remain open.
+- [x] Preserve a fixed non-virtual derived-to-base pointer adjustment when an
+      optimized inline pointer argument is rooted at a complete static object.
+      Accumulate only sema-provided fixed offsets and require the adjusted
+      referent to remain within the complete object. The C++ regression checks
+      the exact base relocation addend (`4`) on i686/AMD64 in legacy and
+      verified optimized DWARF; native-Windows `test-debug-info` passes.
+- [ ] Virtual-base/member-pointer adjustments, negative displacements not
+      rooted at a statically indexed element, dynamic pointer expressions, and
+      optimized register/piece location tracking remain open.
 
 ## RCC continuation (2026-10-20, typed-SSA reference temporary unwind)
 

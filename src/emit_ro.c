@@ -4575,6 +4575,7 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
     const Type* argument_type;
     const ModuleSymbol* symbol;
     uint8_t address_size;
+    int64_t pointer_adjustment = 0;
     if (scoped_symbol) *scoped_symbol = NULL;
     if (address_addend) *address_addend = 0;
     if (!mod || !filename || !value || !value->declaration || !argument ||
@@ -4584,6 +4585,8 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
     }
     argument_expression = argument->expr;
     address = argument_expression;
+    parameter_type = value->declaration->type;
+    argument_type = argument_expression->type;
     address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     while (address->kind == EXPR_CAST && address->cast_expr) {
         const Type* cast_type = address->cast_type;
@@ -4598,7 +4601,6 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
         if (!cast_type || cast_type->kind != TYPE_PTR ||
             cast_type->cxx_is_member_pointer ||
             cast_type->size != address_size || !source_type ||
-            address->cxx_pointer_adjustment_valid ||
             address->cxx_member_pointer_adjustment_valid ||
             address->cxx_virtual_base_adjustment ||
             (source_is_function != target_is_function) ||
@@ -4607,6 +4609,16 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
               source_type->cxx_is_member_pointer ||
               source_type->size != address_size))) {
             return NULL;
+        }
+        if (address->cxx_pointer_adjustment_valid) {
+            int64_t adjustment = address->cxx_pointer_adjustment;
+            if ((adjustment > 0 &&
+                 pointer_adjustment > INT64_MAX - adjustment) ||
+                (adjustment < 0 &&
+                 pointer_adjustment < INT64_MIN - adjustment)) {
+                return NULL;
+            }
+            pointer_adjustment += adjustment;
         }
         address = address->cast_expr;
     }
@@ -4628,8 +4640,42 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
     } else {
         return NULL;
     }
-    parameter_type = value->declaration->type;
-    argument_type = argument_expression->type;
+    if (pointer_adjustment != 0) {
+        const Type* complete_type;
+        const Type* adjusted_type;
+        int64_t adjusted_addend;
+        if (source->kind != DECL_VAR || !source->type ||
+            (source->type->kind != TYPE_STRUCT &&
+             source->type->kind != TYPE_UNION) ||
+            !argument_type || argument_type->kind != TYPE_PTR ||
+            !argument_type->base ||
+            (argument_type->base->kind != TYPE_STRUCT &&
+             argument_type->base->kind != TYPE_UNION)) {
+            return NULL;
+        }
+        complete_type = source->type;
+        adjusted_type = argument_type->base;
+        if (!parameter_type || parameter_type->kind != TYPE_PTR ||
+            !parameter_type->base ||
+            parameter_type->base->kind != TYPE_STRUCT ||
+            adjusted_type->kind != TYPE_STRUCT ||
+            !parameter_type->base->cxx_class ||
+            parameter_type->base->cxx_class != adjusted_type->cxx_class ||
+            complete_type->size <= 0 || adjusted_type->size <= 0 ||
+            *address_addend < 0 ||
+            (pointer_adjustment > 0 &&
+             *address_addend > INT64_MAX - pointer_adjustment) ||
+            (pointer_adjustment < 0 &&
+             *address_addend < INT64_MIN - pointer_adjustment)) {
+            return NULL;
+        }
+        adjusted_addend = *address_addend + pointer_adjustment;
+        if (adjusted_addend < 0 ||
+            adjusted_addend > complete_type->size - adjusted_type->size) {
+            return NULL;
+        }
+        *address_addend = adjusted_addend;
+    }
     if (value->declaration->kind != DECL_PARAM ||
         (source->kind != DECL_VAR && source->kind != DECL_FUNC) ||
         !parameter_type || parameter_type->kind != TYPE_PTR ||

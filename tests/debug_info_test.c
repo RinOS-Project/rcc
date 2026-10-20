@@ -4949,6 +4949,63 @@ static void verify_cxx_inline_nullptr_parameter(const char* path,
     objfile_free(object);
 }
 
+static void verify_cxx_inline_adjusted_base_parameter(
+    const char* path, uint16_t architecture)
+{
+    ObjectFile* object = objfile_read(path);
+    ObjSection* info;
+    ObjSection* strings;
+    ObjSection* line;
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t call_die = UINT64_MAX;
+
+    assert(object != NULL && object->arch == architecture);
+    info = objfile_get_section(object, ".debug_info");
+    strings = objfile_get_section(object, ".debug_str");
+    line = objfile_get_section(object, ".debug_line");
+    assert(info != NULL && strings != NULL && line != NULL);
+    for (uint64_t die = 11u;
+         die + 1u + 4u + address_size + 16u <= info->size; ++die) {
+        uint32_t origin;
+        uint32_t name;
+        uint32_t call_file;
+        uint64_t low_pc_offset;
+        bool has_entry_relocation = false;
+        if (info->data[die] != 41u) continue;
+        origin = read_u32(info->data, die + 1u);
+        if ((uint64_t)origin + 25u > info->size ||
+            info->data[origin] != 40u) continue;
+        name = read_u32(info->data, (uint64_t)origin + 1u);
+        if (name >= strings->size ||
+            strcmp((const char*)strings->data + name,
+                   "debug_inline_adjusted_base_parameter_inline") != 0) {
+            continue;
+        }
+        low_pc_offset = die + 1u + 4u;
+        call_file = read_u32(
+            info->data, low_pc_offset + address_size + 4u);
+        assert(call_file != 0u && line_table_file_matches(
+            line, call_file, "tests/debug_info_cxx_member.cpp"));
+        for (const ObjReloc* relocation = info->relocs;
+             relocation; relocation = relocation->next) {
+            if (relocation->offset != low_pc_offset) continue;
+            assert(relocation->symbol_name != NULL &&
+                   strcmp(relocation->symbol_name,
+                          "debug_inline_adjusted_base_entry") == 0);
+            has_entry_relocation = true;
+            break;
+        }
+        assert(has_entry_relocation);
+        call_die = die;
+        break;
+    }
+    assert(call_die != UINT64_MAX);
+    verify_inline_parameter_address_constant(
+        info, call_die, architecture,
+        "debug_inline_adjusted_pointer_source", 4);
+    objfile_free(object);
+}
+
 static unsigned count_line_copy_ops(const ObjSection* line)
 {
     uint64_t offset;
@@ -7538,6 +7595,10 @@ int main(int argc, char** argv)
     verify_cxx_inline_nullptr_parameter(argv[41], ARCH_X64);
     verify_cxx_inline_nullptr_parameter(argv[42], ARCH_X86);
     verify_cxx_inline_nullptr_parameter(argv[43], ARCH_X64);
+    verify_cxx_inline_adjusted_base_parameter(argv[40], ARCH_X86);
+    verify_cxx_inline_adjusted_base_parameter(argv[41], ARCH_X64);
+    verify_cxx_inline_adjusted_base_parameter(argv[42], ARCH_X86);
+    verify_cxx_inline_adjusted_base_parameter(argv[43], ARCH_X64);
     verify_class_template_parameter_dies(argv[26], ARCH_X86);
     verify_class_template_parameter_dies(argv[27], ARCH_X64);
     verify_class_template_template_parameter_die(argv[26], ARCH_X86);
