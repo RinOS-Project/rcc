@@ -15599,7 +15599,7 @@ static bool lower_cxx_initialize_constructor_members(
     }
     if (!context || !cls || !constructor ||
         !constructor->initializers_are_supported ||
-        cls->virtual_base_count != 0 || cls->vtable_size != 0 ||
+        cls->vtable_size != 0 ||
         (cls->base_count != 0 &&
          (!cls->bases || !cls->base_offsets ||
           !declaration->func_is_noexcept)) ||
@@ -15609,6 +15609,25 @@ static bool lower_cxx_initialize_constructor_members(
         if (context) context->unsupported = true;
         return false;
     }
+    /* Empty, trivial virtual bases need no emitted initialization. Validate
+     * their placement and reject any initializer that invokes a constructor
+     * or carries arguments; non-trivial virtual-base construction remains
+     * outside this lowering path. */
+    if (cls->virtual_base_count != 0 && !cls->virtual_bases) {
+        context->unsupported = true;
+        return false;
+    }
+    for (int index = 0; index < cls->virtual_base_count; ++index) {
+        const CxxVirtualBaseInfo* virtual_base = &cls->virtual_bases[index];
+        const CxxClass* base = virtual_base->base;
+        if (!base || !base->type || virtual_base->offset < 0 ||
+            base->type->size <= 0 || virtual_base->offset > cls->type->size ||
+            base->type->size > cls->type->size - virtual_base->offset ||
+            !lower_cxx_empty_trivial_subobject(base->type, 0u)) {
+            context->unsupported = true;
+            return false;
+        }
+    }
     /* Check the complete initializer list before emitting IR so unsupported
      * forms never leave a partially lowered constructor behind. */
     /* Validate every base and its selected initializer before generating any
@@ -15617,8 +15636,8 @@ static bool lower_cxx_initialize_constructor_members(
         const CxxClass* base = cls->bases[base_index].base;
         const CxxConstructorInitializer* base_initializer;
         bool duplicate_initializer = false;
-        if (!base || cls->bases[base_index].is_virtual ||
-            cls->base_offsets[base_index] < 0 ||
+        if (cls->bases[base_index].is_virtual) continue;
+        if (!base || cls->base_offsets[base_index] < 0 ||
             base->base_count != 0 || base->virtual_base_count != 0 ||
             base->vtable_size != 0 || !base->type) {
             context->unsupported = true;
@@ -15678,6 +15697,27 @@ static bool lower_cxx_initialize_constructor_members(
         bool constant_initializer;
         if (initializer->is_base_initializer) {
             bool found_base = false;
+            if (initializer->is_virtual_base_initializer) {
+                for (int virtual_base_index = 0;
+                     virtual_base_index < cls->virtual_base_count;
+                     ++virtual_base_index) {
+                    const CxxClass* virtual_base =
+                        cls->virtual_bases[virtual_base_index].base;
+                    if (lower_cxx_base_name_matches(
+                            virtual_base,
+                            virtual_base ? virtual_base->name : NULL,
+                            initializer)) {
+                        found_base = true;
+                        break;
+                    }
+                }
+                if (!found_base || initializer->constructor ||
+                    initializer->value || initializer->arguments) {
+                    context->unsupported = true;
+                    return false;
+                }
+                continue;
+            }
             for (int base_index = 0; base_index < cls->base_count;
                  ++base_index) {
                 bool duplicate_initializer = false;
@@ -19154,6 +19194,7 @@ static bool lower_declaration(RccIrLowerContext* context,
                         const CxxClass* source_class =
                             declaration->var_init->cxx_virtual_base_source_class;
                         if (!source_class ||
+                            !source_class->virtual_bases ||
                             declaration->var_init->cxx_virtual_base_pointer_offset < 0 ||
                             declaration->var_init->cxx_virtual_base_index < 0 ||
                             declaration->var_init->cxx_virtual_base_index >=
@@ -19165,13 +19206,34 @@ static bool lower_declaration(RccIrLowerContext* context,
                             const CxxVirtualBaseInfo* virtual_base =
                                 &source_class->virtual_bases[
                                     declaration->var_init->cxx_virtual_base_index];
+                            const Type* referred_type =
+                                declaration->type &&
+                                    declaration->type->is_reference
+                                ? declaration->type->base : NULL;
+                            int virtual_subobject_size =
+                                virtual_base->base &&
+                                    virtual_base->base->virtual_base_count > 0
+                                ? virtual_base->base->nonvirtual_size
+                                : virtual_base->base &&
+                                    virtual_base->base->type
+                                ? virtual_base->base->type->size : 0;
                             int nested_adjustment = declaration->var_init
                                 ->cxx_virtual_base_nested_adjustment;
-                            if (virtual_base->offset < 0 ||
+                            if (!referred_type || referred_type->size <= 0 ||
+                                virtual_subobject_size <= 0 ||
+                                virtual_base->offset < 0 ||
                                 nested_adjustment < 0 ||
+                                nested_adjustment > virtual_subobject_size ||
+                                referred_type->size >
+                                    virtual_subobject_size -
+                                        nested_adjustment ||
+                                owner->type->size <= 0 ||
                                 virtual_base->offset > owner->type->size ||
                                 nested_adjustment > owner->type->size -
-                                    virtual_base->offset) {
+                                    virtual_base->offset ||
+                                referred_type->size > owner->type->size -
+                                    virtual_base->offset -
+                                    nested_adjustment) {
                                 context->unsupported = true;
                                 return false;
                             }
