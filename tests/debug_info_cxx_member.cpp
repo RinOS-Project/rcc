@@ -268,6 +268,19 @@ int debug_inline_automatic_pointer_index_sub_entry(
     return result;
 }
 
+int debug_inline_automatic_array_index_entry(int index_seed) {
+    DebugInlineAutomaticAddressAggregate
+        debug_inline_automatic_array_index_source;
+    int debug_inline_automatic_array_index = index_seed;
+    debug_inline_automatic_aggregate_escape =
+        &debug_inline_automatic_array_index_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_array_index;
+    return debug_inline_automatic_subobject_parameter_inline(
+        &debug_inline_automatic_array_index_source.values[
+            debug_inline_automatic_array_index]);
+}
+
 constexpr int debug_inline_constexpr_seed = 20;
 
 constexpr int debug_inline_constexpr_add_four(int value) {

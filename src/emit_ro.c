@@ -4906,6 +4906,48 @@ typedef struct DebugInlineDynamicPointerIndex {
     bool is_dynamic;
 } DebugInlineDynamicPointerIndex;
 
+static bool debug_inline_frame_integer_index_source(
+    const Expr* expression, const Decl** declaration,
+    const Type** value_type) {
+    const Expr* index = expression;
+    const Type* integer_type;
+    const Decl* source;
+    if (!index || !declaration || !value_type || !index->type) {
+        return false;
+    }
+    integer_type = index->type;
+    if (!debug_inline_integer_constant_type(integer_type) ||
+        integer_type->size <= 0 || integer_type->size > 8 ||
+        integer_type->is_volatile || integer_type->is_reference ||
+        integer_type->is_atomic) {
+        return false;
+    }
+    while (index->kind == EXPR_CAST && index->cast_expr) {
+        const Type* cast_source = index->cast_expr->type;
+        if (!cast_source ||
+            !debug_inline_integer_constant_type(cast_source) ||
+            cast_source->size != integer_type->size ||
+            cast_source->is_unsigned != integer_type->is_unsigned) {
+            return false;
+        }
+        index = index->cast_expr;
+    }
+    if (index->kind != EXPR_IDENT || !index->ident_decl) return false;
+    source = index->ident_decl;
+    if ((source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+        !source->type ||
+        !debug_inline_integer_constant_type(source->type) ||
+        source->type->size != integer_type->size ||
+        source->type->is_unsigned != integer_type->is_unsigned ||
+        source->type->is_volatile || source->type->is_reference ||
+        source->type->is_atomic) {
+        return false;
+    }
+    *declaration = source;
+    *value_type = integer_type;
+    return true;
+}
+
 static bool debug_inline_pointer_dynamic_index_source(
     const Expr* expression, const Expr** pointer_expression,
     const Decl** index_declaration, const Type** index_type,
@@ -4939,33 +4981,11 @@ static bool debug_inline_pointer_dynamic_index_source(
     pointer_type = pointer->type;
     if (!pointer_type || pointer_type->cxx_is_member_pointer ||
         !pointer_type->base || pointer_type->base->kind == TYPE_FUNC ||
-        pointer_type->base->size <= 0 || !index || !index->type) {
+        pointer_type->base->size <= 0 || !index) {
         return false;
     }
-    value_type = index->type;
-    if (!debug_inline_integer_constant_type(value_type) ||
-        value_type->size <= 0 || value_type->size > 8) {
-        return false;
-    }
-    while (index->kind == EXPR_CAST && index->cast_expr) {
-        const Type* cast_source = index->cast_expr->type;
-        if (!cast_source ||
-            !debug_inline_integer_constant_type(cast_source) ||
-            cast_source->size != value_type->size ||
-            cast_source->is_unsigned != value_type->is_unsigned) {
-            return false;
-        }
-        index = index->cast_expr;
-    }
-    if (index->kind != EXPR_IDENT || !index->ident_decl) return false;
-    declaration = index->ident_decl;
-    if ((declaration->kind != DECL_VAR &&
-         declaration->kind != DECL_PARAM) || !declaration->type ||
-        !debug_inline_integer_constant_type(declaration->type) ||
-        declaration->type->size != value_type->size ||
-        declaration->type->is_unsigned != value_type->is_unsigned ||
-        declaration->type->is_volatile || declaration->type->is_reference ||
-        declaration->type->is_atomic) {
+    if (!debug_inline_frame_integer_index_source(
+            index, &declaration, &value_type)) {
         return false;
     }
     *pointer_expression = pointer;
@@ -4973,6 +4993,47 @@ static bool debug_inline_pointer_dynamic_index_source(
     *index_type = value_type;
     *element_size = pointer_type->base->size;
     *subtract = subtract_pointer;
+    return true;
+}
+
+static bool debug_inline_dynamic_array_element_address(
+    const Module* mod, const Expr* expression, uint8_t address_size,
+    const Decl** source, int64_t* address_addend,
+    DebugInlineDynamicPointerIndex* dynamic_index) {
+    const Type* array_type;
+    const Type* index_type;
+    const Decl* index_declaration;
+    const Expr* array_designator;
+    int64_t base_addend;
+    if (!mod || !expression || expression->kind != EXPR_INDEX ||
+        !expression->index_base || !expression->index_expr || !source ||
+        !address_addend || !dynamic_index) {
+        return false;
+    }
+    array_type = expression->index_base->type;
+    if (!array_type || array_type->kind != TYPE_ARRAY) {
+        array_designator = debug_inline_static_array_designator(
+            expression->index_base, &array_type);
+        if (!array_designator) return false;
+    }
+    if (!array_type || array_type->kind != TYPE_ARRAY ||
+        array_type->array_len < 0 || array_type->size <= 0 ||
+        !array_type->base || array_type->base->size <= 0 ||
+        !debug_inline_frame_integer_index_source(
+            expression->index_expr, &index_declaration, &index_type) ||
+        index_type->size > (int)address_size ||
+        !debug_inline_address_path(
+            expression->index_base, source, &base_addend, false, true, 0u) ||
+        !debug_inline_parameter_frame_offset(
+            mod, index_declaration, &dynamic_index->frame_offset)) {
+        return false;
+    }
+    dynamic_index->element_size = array_type->base->size;
+    dynamic_index->value_size = (uint8_t)index_type->size;
+    dynamic_index->is_unsigned = index_type->is_unsigned;
+    dynamic_index->subtract = false;
+    dynamic_index->is_dynamic = true;
+    *address_addend = base_addend;
     return true;
 }
 
@@ -5121,6 +5182,7 @@ static bool debug_inline_parameter_frame_address(
     int64_t byte_displacement = 0;
     int dynamic_element_size = 0;
     bool dynamic_subtract = false;
+    bool address_path_resolved = false;
     uint8_t address_size;
     if (!mod || !callee || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner || !frame_offset ||
@@ -5251,9 +5313,12 @@ static bool debug_inline_parameter_frame_address(
         }
         operand = address_expression->unary_operand;
         *dereference_source = false;
+        address_path_resolved = debug_inline_dynamic_array_element_address(
+            mod, operand, address_size, &source, address_addend,
+            dynamic_index);
     }
-    if (!operand || !debug_inline_address_path(
-            operand, &source, address_addend, true, true, 0u)) {
+    if (!operand || (!address_path_resolved && !debug_inline_address_path(
+            operand, &source, address_addend, true, true, 0u))) {
         return false;
     }
     parameter_type = value->declaration->type;

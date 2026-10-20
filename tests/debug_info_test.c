@@ -3516,14 +3516,14 @@ static void verify_inline_parameter_frame_pointer_index(
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, uint64_t call_die,
     uint16_t architecture, const char* pointer_name, const char* index_name,
-    uint8_t index_size, bool index_unsigned, uint64_t element_size,
-    bool subtract_index) {
+    int64_t address_addend, bool dereference_source, uint8_t index_size,
+    bool index_unsigned, uint64_t element_size, bool subtract_index) {
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint64_t concrete_parameter;
     uint64_t expression_offset;
     uint64_t expression_size;
     uint64_t expression_end;
-    uint64_t shift = address_size * 8u - index_size * 8u;
+    uint64_t shift;
     int64_t pointer_expression_offset;
     int64_t index_expression_offset;
     int64_t pointer_variable_offset;
@@ -3533,7 +3533,9 @@ static void verify_inline_parameter_frame_pointer_index(
     bool index_has_location;
     bool index_is_location_list;
     assert(info && info->data && call_die < info->size && pointer_name &&
-           index_name && index_size > 0u && index_size <= address_size);
+           index_name && address_addend >= 0 && index_size > 0u &&
+           index_size <= address_size);
+    shift = address_size * 8u - index_size * 8u;
     concrete_parameter = call_die + 1u + 4u + address_size + 4u + 12u;
     assert(info->data[concrete_parameter] == 67u);
     assert(read_u32(info->data, concrete_parameter + 1u) ==
@@ -3546,8 +3548,17 @@ static void verify_inline_parameter_frame_pointer_index(
            (architecture == ARCH_X64 ? 0x76u : 0x75u));
     pointer_expression_offset = read_sleb(
         info->data, expression_end, &expression_offset);
-    assert(expression_offset < expression_end &&
-           info->data[expression_offset++] == 0x06u); /* DW_OP_deref */
+    if (address_addend > 0) {
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x23u);
+        assert(read_uleb(info->data, expression_end, &expression_offset) ==
+               (uint64_t)address_addend);
+    }
+    if (dereference_source) {
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x06u); /* DW_OP_deref */
+    }
+    assert(expression_offset < expression_end);
     assert(info->data[expression_offset++] ==
            (architecture == ARCH_X64 ? 0x76u : 0x75u));
     index_expression_offset = read_sleb(
@@ -3589,7 +3600,8 @@ static void verify_inline_parameter_frame_pointer_index(
         info, strings, locations, index_name, architecture,
         &index_has_location, &index_is_location_list,
         &index_variable_offset));
-    assert(index_has_location && index_variable_offset == index_expression_offset);
+    assert(index_has_location &&
+           index_variable_offset == index_expression_offset);
 }
 
 static void verify_inline_parameter_is_not_attributed(
@@ -5323,8 +5335,8 @@ static void verify_cxx_inline_automatic_pointer_value(
 static void verify_cxx_inline_automatic_pointer_index(
     const char* path, uint16_t architecture, const char* entry_name,
     const char* pointer_name, const char* index_name,
-    uint8_t index_size, bool index_unsigned, uint64_t element_size,
-    bool subtract_index)
+    int64_t address_addend, bool dereference_source, uint8_t index_size,
+    bool index_unsigned, uint64_t element_size, bool subtract_index)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
@@ -5381,8 +5393,8 @@ static void verify_cxx_inline_automatic_pointer_index(
     assert(call_die != UINT64_MAX);
     verify_inline_parameter_frame_pointer_index(
         info, strings, locations, call_die, architecture,
-        pointer_name, index_name, index_size, index_unsigned,
-        element_size, subtract_index);
+        pointer_name, index_name, address_addend, dereference_source,
+        index_size, index_unsigned, element_size, subtract_index);
     objfile_free(object);
 }
 
@@ -8114,39 +8126,67 @@ int main(int argc, char** argv)
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86, "debug_inline_automatic_pointer_index_entry",
         "debug_inline_automatic_pointer_index_source",
-        "debug_inline_automatic_index_source", 4u, false, 4u, false);
+        "debug_inline_automatic_index_source", 0, true, 4u, false, 4u,
+        false);
     verify_cxx_inline_automatic_pointer_index(
         argv[41], ARCH_X64, "debug_inline_automatic_pointer_index_entry",
         "debug_inline_automatic_pointer_index_source",
-        "debug_inline_automatic_index_source", 4u, false, 4u, false);
+        "debug_inline_automatic_index_source", 0, true, 4u, false, 4u,
+        false);
     verify_cxx_inline_automatic_pointer_index(
         argv[42], ARCH_X86, "debug_inline_automatic_pointer_index_entry",
         "debug_inline_automatic_pointer_index_source",
-        "debug_inline_automatic_index_source", 4u, false, 4u, false);
+        "debug_inline_automatic_index_source", 0, true, 4u, false, 4u,
+        false);
     verify_cxx_inline_automatic_pointer_index(
         argv[43], ARCH_X64, "debug_inline_automatic_pointer_index_entry",
         "debug_inline_automatic_pointer_index_source",
-        "debug_inline_automatic_index_source", 4u, false, 4u, false);
+        "debug_inline_automatic_index_source", 0, true, 4u, false, 4u,
+        false);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_index_sub_entry",
         "debug_inline_automatic_pointer_index_sub_source",
-        "debug_inline_automatic_index_sub_source", 4u, true, 4u, true);
+        "debug_inline_automatic_index_sub_source", 0, true, 4u, true, 4u,
+        true);
     verify_cxx_inline_automatic_pointer_index(
         argv[41], ARCH_X64,
         "debug_inline_automatic_pointer_index_sub_entry",
         "debug_inline_automatic_pointer_index_sub_source",
-        "debug_inline_automatic_index_sub_source", 4u, true, 4u, true);
+        "debug_inline_automatic_index_sub_source", 0, true, 4u, true, 4u,
+        true);
     verify_cxx_inline_automatic_pointer_index(
         argv[42], ARCH_X86,
         "debug_inline_automatic_pointer_index_sub_entry",
         "debug_inline_automatic_pointer_index_sub_source",
-        "debug_inline_automatic_index_sub_source", 4u, true, 4u, true);
+        "debug_inline_automatic_index_sub_source", 0, true, 4u, true, 4u,
+        true);
     verify_cxx_inline_automatic_pointer_index(
         argv[43], ARCH_X64,
         "debug_inline_automatic_pointer_index_sub_entry",
         "debug_inline_automatic_pointer_index_sub_source",
-        "debug_inline_automatic_index_sub_source", 4u, true, 4u, true);
+        "debug_inline_automatic_index_sub_source", 0, true, 4u, true, 4u,
+        true);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[40], ARCH_X86, "debug_inline_automatic_array_index_entry",
+        "debug_inline_automatic_array_index_source",
+        "debug_inline_automatic_array_index", 8, false, 4u, false, 4u,
+        false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[41], ARCH_X64, "debug_inline_automatic_array_index_entry",
+        "debug_inline_automatic_array_index_source",
+        "debug_inline_automatic_array_index", 8, false, 4u, false, 4u,
+        false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[42], ARCH_X86, "debug_inline_automatic_array_index_entry",
+        "debug_inline_automatic_array_index_source",
+        "debug_inline_automatic_array_index", 8, false, 4u, false, 4u,
+        false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[43], ARCH_X64, "debug_inline_automatic_array_index_entry",
+        "debug_inline_automatic_array_index_source",
+        "debug_inline_automatic_array_index", 8, false, 4u, false, 4u,
+        false);
     verify_cxx_inline_constexpr_parameter(
         argv[40], ARCH_X86, "debug_inline_constexpr_identifier_parameter",
         "debug_inline_constexpr_identifier_entry", 41);

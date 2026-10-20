@@ -7208,10 +7208,10 @@ remains a separate open item.
       and verified optimized DWARF; native-Windows `test-debug-info` passes.
 - [ ] Register-only or optimized-away sources, virtual-base/member-pointer
       adjustments, nonconstant offsets, unbounded/mixed-type pointer
-      arithmetic chains, dynamic subobject indexes and compound pointer
-      expressions,
-      mutable-parameter tracking, and optimized register/piece tracking remain
-      open; this does not implement general variable-location tracking.
+      arithmetic chains, nested dynamic subobject paths, compound pointer
+      expressions, mutable-parameter tracking, and optimized register/piece
+      tracking remain open; this does not implement general variable-location
+      tracking.
 
 ## RCC continuation (2026-10-20, inline symbolic pointer constants)
 
@@ -7233,7 +7233,7 @@ remains a separate open item.
       only type-compatible function-to-pointer decay. The native-Windows
       `test-debug-info` target passes.
 - [ ] General pointer arithmetic outside the bounded automatic-frame cases,
-      nested member/array subobject paths, pointer casts requiring target
+      general nested member/array subobject paths, pointer casts requiring target
       adjustment, dynamic expressions beyond one frame-backed integral index,
       and general register/piece location tracking remain open.
 
@@ -7283,6 +7283,12 @@ remains a separate open item.
       subtraction; regressions check both frame locations and the exact
       expression on i686/AMD64 in legacy and verified optimized DWARF.
       Native-Windows `test-debug-info` passes.
+- [x] Preserve `&automatic_aggregate.array[index]` for a one-dimensional,
+      fixed-size automatic array or array member with a frame-backed signed
+      index. Add the fixed member displacement before the scaled runtime index;
+      regressions verify both frame slots, the member offset (`8`), and the
+      signed scaling expression on i686/AMD64 in legacy and verified optimized
+      DWARF. Native-Windows `test-debug-info` passes.
 - [x] Resolve static array address paths with supported integer constant
       expressions using target-width signed conversions and unsigned modular
       arithmetic. Verify `&array[1 + 1]` produces symbol/addend (`8`),
@@ -7291,8 +7297,9 @@ remains a separate open item.
       verified optimized DWARF; native-Windows `test-debug-info` passes.
 - [ ] Virtual-base/member-pointer adjustments, negative displacements not
       rooted at a statically indexed element, compound dynamic pointer
-      expressions and non-frame-backed indexes, and optimized register/piece
-      location tracking remain open.
+      expressions, nested/VLA/pointer-based dynamic subobject paths and
+      non-frame-backed indexes, and optimized register/piece location tracking
+      remain open.
 
 ## RCC continuation (2026-10-20, typed-SSA reference temporary unwind)
 
