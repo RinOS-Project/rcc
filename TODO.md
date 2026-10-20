@@ -7295,6 +7295,10 @@ remains a separate open item.
       `(pointer + signed_char_index) - unsigned_int_index`, both frame
       locations, and the exact DWARF expression in legacy and verified
       optimized i686/AMD64 output; native-Windows `test-debug-info` passes.
+- [x] Resolve an address-taken integral function parameter as a dynamic index
+      from its frame slot. Verify the parameter location and emitted pointer
+      expression after regenerating the legacy and verified optimized i686 /
+      AMD64 objects; the integrated DWARF verifier passes.
 - [x] Preserve `&automatic_aggregate.array[index]` for a one-dimensional,
       fixed-size automatic array or array member with a frame-backed signed
       index. Add the fixed member displacement before the scaled runtime index;

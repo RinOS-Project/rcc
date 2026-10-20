@@ -8249,6 +8249,30 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_compound_source",
         compound_pointer_indices, 2u, 0, true);
     verify_cxx_inline_automatic_pointer_index(
+        argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_parameter_index_entry",
+        "debug_inline_automatic_pointer_parameter_source",
+        "debug_inline_automatic_parameter_index_source", 0, true, 4u,
+        false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_parameter_index_entry",
+        "debug_inline_automatic_pointer_parameter_source",
+        "debug_inline_automatic_parameter_index_source", 0, true, 4u,
+        false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_parameter_index_entry",
+        "debug_inline_automatic_pointer_parameter_source",
+        "debug_inline_automatic_parameter_index_source", 0, true, 4u,
+        false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_parameter_index_entry",
+        "debug_inline_automatic_pointer_parameter_source",
+        "debug_inline_automatic_parameter_index_source", 0, true, 4u,
+        false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86, "debug_inline_automatic_array_index_entry",
         "debug_inline_automatic_array_index_source",
         "debug_inline_automatic_array_index", 8, false, 4u, false, 4u,
