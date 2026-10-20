@@ -7389,6 +7389,13 @@ remains a separate open item.
       zero extension. Verify frame locations and exact scaled pointer
       expressions in legacy and verified optimized i686/AMD64 DWARF; the
       native-Windows integrated debug-info test passes.
+- [x] Keep signed-to-unsigned conversion semantics when the narrowed signed
+      value is first widened to a wider signed type and then converted to
+      unsigned. Verify the exact zero/sign extension and frame provenance in
+      all four target/backend variants; the integrated test passes.
+- [x] Preserve unsigned narrowing followed by widening to a wider signed type
+      as a zero extension, verifying the original slot and scaled expression
+      in all four target/backend variants.
 - [ ] Multi-stage narrow-then-widen cast chains and conversion sequences beyond
       the supported extensions above;
       mixed-width subexpressions that cannot be safely flattened;
