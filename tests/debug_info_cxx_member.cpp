@@ -389,6 +389,16 @@ int debug_inline_automatic_pointer_narrow_unsigned_constant_index_entry(
             debug_inline_automatic_narrow_unsigned_constant_index + 1u));
 }
 
+int debug_inline_automatic_pointer_large_unsigned_constant_index_entry(
+    int* seed) {
+    int* debug_inline_automatic_pointer_large_unsigned_constant_source = seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_large_unsigned_constant_source;
+    return debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_large_unsigned_constant_source +
+        0x8000000000000000ULL);
+}
+
 int debug_inline_automatic_array_index_entry(int index_seed) {
     DebugInlineAutomaticAddressAggregate
         debug_inline_automatic_array_index_source;

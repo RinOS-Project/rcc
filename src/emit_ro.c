@@ -5158,6 +5158,39 @@ static bool debug_inline_append_dynamic_integer_index(
             address_size, dynamic_index, byte_displacement, depth + 1u);
     }
     if (expression_type->is_unsigned &&
+        expression_type->size == (int)address_size) {
+        uint64_t constant_bits;
+        if (debug_inline_integer_constant_bits(
+                expression, &constant_bits, 0u) &&
+            constant_bits > (uint64_t)INT64_MAX) {
+            DebugInlineDynamicPointerIndexTerm* term;
+            DebugInlineDynamicPointerIndexGroup* group;
+            if (dynamic_index->term_count >=
+                    DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT ||
+                dynamic_index->group_count >=
+                    DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT) {
+                return false;
+            }
+            term = &dynamic_index->terms[dynamic_index->term_count];
+            term->frame_offset = 0;
+            term->element_size = element_size;
+            term->value_size = (uint8_t)address_size;
+            term->is_unsigned = true;
+            term->subtract = false;
+            term->is_constant = true;
+            term->constant_value = constant_bits;
+            group = &dynamic_index->groups[dynamic_index->group_count++];
+            group->first_term = dynamic_index->term_count;
+            group->term_count = 1u;
+            group->value_size = (uint8_t)address_size;
+            group->element_size = element_size;
+            group->subtract = polarity < 0;
+            ++dynamic_index->term_count;
+            dynamic_index->is_dynamic = true;
+            return true;
+        }
+    }
+    if (expression_type->is_unsigned &&
         expression_type->size < (int)address_size &&
         (expression->kind == EXPR_ADD || expression->kind == EXPR_SUB)) {
         DebugInlineDynamicPointerIndexTerm collected_terms[

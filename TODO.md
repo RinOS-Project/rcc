@@ -7334,10 +7334,14 @@ remains a separate open item.
       zero-extending unsigned casts. The AMD64 regression wraps `index + 1u` in
       `static_cast<unsigned long>` and verifies the source-width mask and index
       expression in legacy and verified optimized DWARF.
+- [x] Encode address-width unsigned constant indexes above `INT64_MAX` with
+      `DW_OP_constu` instead of signed fixed displacement. The AMD64
+      `0x8000000000000000ULL` regression verifies target-width scaling and the
+      final pointer expression in legacy and verified optimized DWARF.
 - [ ] Unsigned computed indexes with narrowing/signed casts, mixed-width
-      subexpressions, or non-frame-backed operands; large unsigned constants
-      outside signed displacement range; multiplication and other unhandled
-      index operators; pointer chains with more than eight dynamic terms;
+      subexpressions, or non-frame-backed operands; constants wider than the
+      target address; multiplication and other unhandled index operators;
+      pointer chains with more than eight dynamic terms;
       virtual-base/member-
       pointer adjustments, negative displacements not rooted at a statically
       indexed element, nested/VLA/pointer-based dynamic subobject paths,
