@@ -7447,3 +7447,13 @@ remains a separate open item.
       for i686/AMD64. Native-Windows `make SHELL=cmd.exe test-debug-info` passes.
 - [ ] Dynamic integer expressions, general mutable-parameter locations, and
       optimized register/piece tracking remain open.
+
+## RCC continuation (2026-10-20, member-pointer qualification subsequence)
+
+- [x] Verify proper-subsequence ordering when converting `int Root::*` to
+      competing `int Middle::*` and `const int Middle::*` parameters. Both the
+      function-template and ordinary overload sets select the unqualified
+      member target, matching GCC C++20. `test-cxx-function-template-overloads`
+      passes i686/AMD64 generation and host execution plus GCC C++20 checks.
+- [ ] General standard-conversion subsequences, other member-pointer ranks,
+      reference bindings, and user-defined conversion ties remain open.

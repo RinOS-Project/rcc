@@ -2907,6 +2907,28 @@ int choose_member_pointer_member_type_cv_non_template(
 }
 
 template<typename T>
+int choose_member_pointer_owner_cv_subsequence(
+    T, int ConversionMemberPointerMiddle::*) {
+    return 233;
+}
+
+template<typename T>
+int choose_member_pointer_owner_cv_subsequence(
+    T, const int ConversionMemberPointerMiddle::*) {
+    return 234;
+}
+
+int choose_member_pointer_owner_cv_subsequence_non_template(
+    int ConversionMemberPointerMiddle::*) {
+    return 235;
+}
+
+int choose_member_pointer_owner_cv_subsequence_non_template(
+    const int ConversionMemberPointerMiddle::*) {
+    return 236;
+}
+
+template<typename T>
 int choose_member_function_pointer_noexcept(
     T, void (ConversionMemberPointerMiddle::*)() noexcept) {
     return 205;
@@ -4251,6 +4273,10 @@ int main(void) {
                        0, &ConversionMemberPointerRoot::value) == 201 &&
                    choose_member_pointer_member_type_cv_non_template(
                        &ConversionMemberPointerRoot::value) == 203 &&
+                   choose_member_pointer_owner_cv_subsequence(
+                       0, &ConversionMemberPointerRoot::value) == 233 &&
+                   choose_member_pointer_owner_cv_subsequence_non_template(
+                       &ConversionMemberPointerRoot::value) == 235 &&
                    choose_member_function_pointer_noexcept(
                        0, root_noexcept_member_function) == 205 &&
                    choose_member_function_pointer_noexcept(
