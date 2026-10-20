@@ -8057,6 +8057,12 @@ int main(int argc, char** argv)
         {"debug_inline_automatic_computed_int_index", 4u, false, 4u,
          false, 0u, 0u, false, 0u}
     };
+    const VerifyInlinePointerIndexTerm mixed_width_x64_indices[] = {
+        {"debug_inline_automatic_mixed_width_signed_index", 4u, false, 4u,
+         false, 0u, 0u, false, 0u},
+        {"debug_inline_automatic_mixed_width_unsigned_index", 8u, true, 4u,
+         false, 0u, 0u, false, 0u}
+    };
     const VerifyInlinePointerIndexTerm unsigned_computed_x86_indices[] = {
         {"debug_inline_automatic_unsigned_first_index", 4u, true, 4u,
          false, 0u, 0u, false, 0u},
@@ -8494,6 +8500,16 @@ int main(int argc, char** argv)
         "debug_inline_automatic_pointer_unsigned_narrow_source",
         "debug_inline_automatic_unsigned_narrow_index", 0, true, 2u, true,
         4u, false);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_mixed_width_index_entry",
+        "debug_inline_automatic_pointer_mixed_width_source",
+        mixed_width_x64_indices, 2u, 0, true);
+    verify_cxx_inline_automatic_pointer_indices(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_mixed_width_index_entry",
+        "debug_inline_automatic_pointer_mixed_width_source",
+        mixed_width_x64_indices, 2u, 0, true);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_index_sub_entry",

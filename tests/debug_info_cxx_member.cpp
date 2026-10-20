@@ -431,6 +431,26 @@ int debug_inline_automatic_pointer_unsigned_narrow_index_entry(
             debug_inline_automatic_unsigned_narrow_index));
 }
 
+int debug_inline_automatic_pointer_mixed_width_index_entry(
+    int* seed, int signed_index_seed,
+    unsigned long long unsigned_index_seed) {
+    int* debug_inline_automatic_pointer_mixed_width_source = seed;
+    int debug_inline_automatic_mixed_width_signed_index = signed_index_seed;
+    unsigned long long debug_inline_automatic_mixed_width_unsigned_index =
+        unsigned_index_seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_mixed_width_source;
+    debug_inline_automatic_index_slot_escape =
+        &debug_inline_automatic_mixed_width_signed_index;
+    debug_inline_automatic_second_index_slot_escape =
+        &debug_inline_automatic_mixed_width_unsigned_index;
+    return debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_mixed_width_source +
+        (static_cast<unsigned long long>(
+             debug_inline_automatic_mixed_width_signed_index) +
+         debug_inline_automatic_mixed_width_unsigned_index));
+}
+
 int debug_inline_automatic_pointer_large_unsigned_constant_index_entry(
     int* seed) {
     int* debug_inline_automatic_pointer_large_unsigned_constant_source = seed;

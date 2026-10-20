@@ -4950,12 +4950,13 @@ typedef struct DebugInlineDynamicPointerIndex {
 
 static bool debug_inline_frame_integer_index_source(
     const Expr* expression, const Decl** declaration,
-    const Type** value_type) {
+    const Type** value_type, uint8_t address_size) {
     const Expr* index = expression;
     const Type* converted_type;
     const Decl* source;
     uint8_t narrowest_width = 0u;
-    if (!index || !declaration || !value_type || !index->type) {
+    if (!index || !declaration || !value_type || !index->type ||
+        address_size == 0u || address_size > 8u) {
         return false;
     }
     converted_type = index->type;
@@ -4973,7 +4974,10 @@ static bool debug_inline_frame_integer_index_source(
             cast_source->size > 8 ||
             (cast_source->size < converted_type->size &&
              cast_source->is_unsigned != converted_type->is_unsigned &&
-             (!cast_source->is_unsigned || converted_type->is_unsigned)) ||
+             !((cast_source->is_unsigned &&
+                !converted_type->is_unsigned) ||
+               (!cast_source->is_unsigned && converted_type->is_unsigned &&
+                converted_type->size == (int)address_size))) ||
             cast_source->is_volatile || cast_source->is_reference ||
             cast_source->is_atomic) {
             return false;
@@ -5289,7 +5293,7 @@ static bool debug_inline_append_dynamic_integer_index(
         return true;
     }
     if (debug_inline_frame_integer_index_source(
-            expression, &declaration, &value_type)) {
+            expression, &declaration, &value_type, address_size)) {
         DebugInlineDynamicPointerIndexTerm* term;
         if (dynamic_index->term_count >=
             DEBUG_INLINE_DYNAMIC_POINTER_INDEX_LIMIT) {
@@ -5325,7 +5329,8 @@ static bool debug_inline_append_dynamic_integer_index(
                   &indexed_expression, &signed_multiplier);
         if (has_constant_multiplier &&
             debug_inline_frame_integer_index_source(
-                indexed_expression, &declaration, &value_type) &&
+                indexed_expression, &declaration, &value_type,
+                address_size) &&
             value_type->is_unsigned == expression_type->is_unsigned &&
             value_type->size == expression_type->size) {
             DebugInlineDynamicPointerIndexTerm* term;
@@ -5543,7 +5548,8 @@ static bool debug_inline_dynamic_array_element_address(
         array_type->array_len < 0 || array_type->size <= 0 ||
         !array_type->base || array_type->base->size <= 0 ||
         !debug_inline_frame_integer_index_source(
-            expression->index_expr, &index_declaration, &index_type) ||
+            expression->index_expr, &index_declaration, &index_type,
+            address_size) ||
         index_type->size > (int)address_size ||
         !debug_inline_address_path(
             expression->index_base, source, &base_addend, false, true, 0u) ||

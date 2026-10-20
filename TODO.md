@@ -7372,9 +7372,15 @@ remains a separate open item.
       final type. Verify signed and unsigned `int`-to-`short` indexes in legacy
       and verified optimized i686/AMD64 DWARF; native-Windows
       `make SHELL=cmd.exe test-debug-info` passes.
+- [x] Flatten a mixed-width AMD64 index with a signed `int` converted to an
+      unsigned address-width value and combined with an `unsigned long long`.
+      Preserve modulo conversion by sign-extending the signed source to the
+      address width before pointer scaling; verify both frame slots in legacy
+      and verified optimized DWARF.
 - [ ] Narrow-then-widen cast chains whose final width exceeds an intermediate
-      truncation; mixed-width subexpressions that cannot be safely flattened;
-      non-frame-backed operands; constants wider than the target address;
+      truncation; signed-to-unsigned widening below address width; mixed-width
+      subexpressions that cannot be safely flattened; non-frame-backed
+      operands; constants wider than the target address;
       multiplication beyond same-width unsigned or signed compile-time
       coefficients, and other unhandled index operators; pointer
       chains with more than thirty-two dynamic terms;
