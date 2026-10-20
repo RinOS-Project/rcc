@@ -17300,7 +17300,25 @@ test-verified-atomic-vla-rmw: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/atomic-vla-rmw-x64.ro
 	$(TEST_OUT)/verified-backend/atomic-vla-rmw-run --entry \
 		$(TEST_OUT)/verified-backend/atomic-vla-rmw-x64-o2.ro
-	@echo "Verified atomic VLA legacy RMW tests completed"
+	$(RCC_TARGET) --target x86_64-unknown-rinos -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64.ro \
+		tests/verified_backend_atomic_vla_rmw64.c \
+		>$(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64.log,0)
+	$(RCC_TARGET) --target x86_64-unknown-rinos -O2 -fverified-backend -v -c \
+		-o $(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64-o2.ro \
+		tests/verified_backend_atomic_vla_rmw64.c \
+		>$(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64-o2.log
+	$(GREP) -F -q 'Verified backend: 2 function(s) emitted' \
+		$(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64-o2.log
+	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64-o2.log,0)
+	$(TEST_OUT)/verified-backend/atomic-vla-rmw-run --entry \
+		$(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64.ro
+	$(TEST_OUT)/verified-backend/atomic-vla-rmw-run --entry \
+		$(TEST_OUT)/verified-backend/atomic-vla-rmw64-x64-o2.ro
+	@echo "Verified atomic VLA legacy fallback RMW tests completed"
 
 test-verified-builtins: $(RCC_TARGET) $(RCXX_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)

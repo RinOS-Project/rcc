@@ -68,6 +68,13 @@ static bool x86_atomic_store_operand_supported(
         (type.bit_width == 64u && target == RCC_X86_TARGET_X86_64);
 }
 
+static bool x86_atomic_fetch_add_supported(
+    RccMirType type, RccX86Target target) {
+    return type.kind == RCC_MIR_TYPE_INTEGER &&
+        (type.bit_width == 32u ||
+         (type.bit_width == 64u && target == RCC_X86_TARGET_X86_64));
+}
+
 static bool x86_function_return_supported(RccMirType type,
                                           RccX86Target target) {
     return (target == RCC_X86_TARGET_I686 &&
@@ -313,6 +320,7 @@ static RccX86Opcode x86_select_opcode(RccMirOpcode opcode) {
         case RCC_MIR_FRAME_ADDRESS: return RCC_X86_FRAME_ADDRESS;
         case RCC_MIR_LOAD: return RCC_X86_LOAD;
         case RCC_MIR_STORE: return RCC_X86_STORE;
+        case RCC_MIR_ATOMIC_FETCH_ADD: return RCC_X86_ATOMIC_FETCH_ADD;
         case RCC_MIR_GEP: return RCC_X86_GEP;
         case RCC_MIR_SYMBOL_ADDRESS: return RCC_X86_SYMBOL_ADDRESS;
         case RCC_MIR_CALL: return RCC_X86_CALL;
@@ -593,6 +601,10 @@ static bool x86_instruction_shape(const RccX86Instruction* instruction) {
             return !instruction->has_destination &&
                 instruction->operand_count == 2u &&
                 instruction->target_count == 0u;
+        case RCC_X86_ATOMIC_FETCH_ADD:
+            return instruction->has_destination &&
+                instruction->operand_count == 2u &&
+                instruction->target_count == 0u;
         case RCC_X86_STACK_RESTORE:
             return !instruction->has_destination &&
                 instruction->operand_count == 1u &&
@@ -728,6 +740,14 @@ bool rcc_x86_verify_function(
                  (instruction->operand_count != 2u ||
                   !x86_atomic_store_operand_supported(
                       instruction->operand_types[0], function->target))) ||
+                (instruction->opcode == RCC_X86_ATOMIC_FETCH_ADD &&
+                 (instruction->type.kind != RCC_MIR_TYPE_INTEGER ||
+                  !x86_atomic_fetch_add_supported(
+                      instruction->type, function->target) ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_POINTER ||
+                  !rcc_mir_type_equal(
+                      instruction->operand_types[1], instruction->type))) ||
                 (instruction->sysv_variadic_call &&
                  (instruction->opcode != RCC_X86_CALL ||
                   function->target != RCC_X86_TARGET_X86_64)) ||

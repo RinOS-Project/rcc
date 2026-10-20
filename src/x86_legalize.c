@@ -1499,6 +1499,7 @@ static bool x86_legal_selected_shape(
         case RCC_X86_FADD: case RCC_X86_FSUB:
         case RCC_X86_FMUL: case RCC_X86_FDIV:
         case RCC_X86_GEP:
+        case RCC_X86_ATOMIC_FETCH_ADD:
             return instruction->has_destination &&
                 instruction->operand_count == 2u &&
                 instruction->target_count == 0u;
@@ -2031,6 +2032,17 @@ bool rcc_x86_verify_legal_function(
                    instruction->operand_types[0].bit_width != 32u &&
                    (instruction->operand_types[0].bit_width != 64u ||
                     function->target != RCC_X86_TARGET_X86_64)))) ||
+                (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
+                 instruction->selected_opcode ==
+                     RCC_X86_ATOMIC_FETCH_ADD &&
+                 (instruction->type.kind != RCC_MIR_TYPE_INTEGER ||
+                  (instruction->type.bit_width != 32u &&
+                   (instruction->type.bit_width != 64u ||
+                    function->target != RCC_X86_TARGET_X86_64)) ||
+                  instruction->operand_types[0].kind !=
+                      RCC_MIR_TYPE_POINTER ||
+                  !rcc_mir_type_equal(
+                      instruction->operand_types[1], instruction->type))) ||
                 (instruction->opcode == RCC_X86_LEGAL_SELECTED &&
                  instruction->selected_opcode == RCC_X86_FLOAT_EXTEND &&
                  ((function->target != RCC_X86_TARGET_I686 &&

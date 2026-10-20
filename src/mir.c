@@ -424,6 +424,15 @@ static bool mir_verify_instruction_type(
                 rcc_mir_type_equal(instruction->type, void_type) &&
                 mir_operand_type(verifier, instruction, 1u,
                                  rcc_mir_type_pointer());
+        case RCC_MIR_ATOMIC_FETCH_ADD:
+            return mir_shape(verifier, instruction, 2u, 0u) &&
+                instruction->type.kind == RCC_MIR_TYPE_INTEGER &&
+                (instruction->type.bit_width == 32u ||
+                 instruction->type.bit_width == 64u) &&
+                mir_operand_type(verifier, instruction, 0u,
+                                 rcc_mir_type_pointer()) &&
+                mir_operand_type(verifier, instruction, 1u,
+                                 instruction->type);
         case RCC_MIR_GEP:
             if (!mir_shape(verifier, instruction, 2u, 0u) ||
                 instruction->type.kind != RCC_MIR_TYPE_POINTER ||

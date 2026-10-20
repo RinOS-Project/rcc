@@ -438,8 +438,12 @@ int verified_goto_vla_atomic_elements(int count)
     values[count - 1] = 19;
     int first = values[0];
     int last = values[count - 1];
-    int stored = (values[0] = first + 5);
-    return first * 10 + last + stored + values[0] + values[count - 1];
+    int old = values[0]++;
+    int prefix = --values[count - 1];
+    int stored = (values[0] += 5);
+    int subtracted = (values[count - 1] -= 3);
+    return first * 10 + last + old + prefix + stored + subtracted +
+        values[0] + values[count - 1];
 }
 
 int verified_goto_vla_continue(int count, int rounds)
@@ -561,6 +565,6 @@ int main(void)
     if (verified_goto_vla_compound_aggregate_copy(4) != 2306) return 55;
     if (verified_goto_vla_union_elements(4) != 37) return 51;
     if (verified_goto_vla_volatile_elements(4) != 42) return 52;
-    if (verified_goto_vla_atomic_elements(4) != 324) return 56;
+    if (verified_goto_vla_atomic_elements(4) != 378) return 56;
     return 0;
 }

@@ -7701,14 +7701,28 @@ remains a separate open item.
       AMD64 objects, and agrees with the GCC C17 oracle. `test-ir` verifies an
       actual memory-XCHG encoding for both x86 targets and executes the x64
       store. No push.
-- [x] Keep VLA atomic compound assignments and pre/post increment/decrement
-      out of typed SSA until IR has a real atomic RMW operation. The entire
-      function is routed to the existing atomic-capable legacy lowering, not
-      rejected or emitted as a non-atomic load/compute/store sequence.
-      `test-verified-atomic-vla-rmw` checks exactly one fallback for i686/AMD64
-      at `-O0`/`-O2` and executes both AMD64 objects successfully; the target is
-      included in `test-verified-backend` and production `test-ci`.
-- [ ] Implement typed-SSA atomic RMW, explicit-order `__atomic_*` builtins,
-      other scalar widths, pointer/floating/aggregate atomics, and general C++
-      atomic operations. Current IR/MIR metadata models only direct C lvalue
-      loads and seq_cst stores; it is not a general ordering/RMW representation.
+- [x] Add a typed-SSA atomic integer fetch-add operation returning the old
+      value, and encode it as `LOCK XADD`. Lower atomic integer `+=`, `-=`, and
+      prefix/postfix `++`/`--` for 32-bit objects on i686/AMD64 and 64-bit
+      objects on AMD64. The allocator reserves the XADD/address scratch
+      registers, and optimization preserves the memory side effect. `test-ir`
+      checks memory-XADD encodings for both targets and executes the AMD64
+      result; `test-verified-goto` compiles the VLA cases with zero fallback at
+      `-O0`/`-O2`, executes both AMD64 objects, and agrees with GCC C17.
+- [x] Preserve unsupported atomic RMW operations such as `*=` through the
+      existing atomic-capable legacy lowering. `test-verified-atomic-vla-rmw`
+      checks exactly one fallback for i686/AMD64 at `-O0`/`-O2` and executes
+      both AMD64 objects; it remains part of `test-verified-backend` and
+      production `test-ci`.
+- [ ] Extend typed-SSA atomic RMW to other scalar widths, pointer operations,
+      explicit-order `__atomic_*` builtins, floating/aggregate atomics, and
+      general C++ atomic operations. The current fetch-add representation is
+      intentionally limited to the tested integer widths and seq_cst language
+      operations.
+- [ ] Fix an optimized typed-SSA VLA-bound miscompile found while adding the
+      AMD64 64-bit atomic regression: with `int count = 3;` followed by
+      `_Atomic long long values[count];`, `-O0` executes correctly but `-O2`
+      loads the bound from an uninitialized stack slot and crashes. The atomic
+      RMW regression now uses a parameter bound so its gates test RMW rather
+      than masking or conflating this separate optimizer defect; add a focused
+      regression when the responsible lowering/pass is identified.

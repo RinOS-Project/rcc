@@ -6768,11 +6768,69 @@ static RccIrLowerValue lower_compound_assignment(
         return lower_invalid_value();
     }
     if (expression->binary_lhs->type->is_atomic) {
-        /* A load/compute/XCHG sequence is not an atomic read-modify-write.
-         * Keep the whole function on the legacy atomic lowering until IR has
-         * a real RMW operation, preserving correct behavior without erroring. */
-        context->unsupported = true;
-        return lower_invalid_value();
+        RccIrType atomic_type;
+        RccIrLowerValue delta;
+        RccIrLowerValue converted_delta;
+        RccIrLowerValue old_value;
+        RccIrLowerValue zero;
+        RccIrInstruction* fetch_add;
+        if ((expression->kind != EXPR_ADD_ASSIGN &&
+             expression->kind != EXPR_SUB_ASSIGN) ||
+            expression->binary_lhs->type->kind == TYPE_PTR ||
+            !lower_type(expression->binary_lhs->type, &atomic_type) ||
+            atomic_type.kind != RCC_IR_TYPE_INTEGER ||
+            (atomic_type.bit_width != 32u &&
+             (atomic_type.bit_width != 64u ||
+              g_opts.target_arch != ARCH_X64))) {
+            /* Keep unsupported atomic RMW forms on the complete legacy
+             * lowering; never approximate them with load/compute/store. */
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        address = lower_lvalue_address(context, expression->binary_lhs);
+        delta = lower_expression(context, expression->binary_rhs);
+        if (!address.valid || !delta.valid ||
+            delta.type.kind != RCC_IR_TYPE_INTEGER) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        delta = lower_cast(context, delta, expression->binary_lhs->type);
+        if (!delta.valid) return lower_invalid_value();
+        converted_delta = delta;
+        if (expression->kind == EXPR_SUB_ASSIGN) {
+            RccIrValue negate_operands[2];
+            RccIrInstruction* negated;
+            zero = lower_integer_constant(context, atomic_type, true, 0u);
+            if (!zero.valid) return lower_invalid_value();
+            negate_operands[0] = zero.value;
+            negate_operands[1] = delta.value;
+            negated = lower_append(
+                context, RCC_IR_SUB, atomic_type,
+                negate_operands, 2u, NULL, 0u);
+            if (!negated) return lower_invalid_value();
+            delta = lower_value(negated->result, atomic_type,
+                                expression->binary_lhs->type->is_unsigned);
+        }
+        operands[0] = address.value;
+        operands[1] = delta.value;
+        fetch_add = lower_append(
+            context, RCC_IR_ATOMIC_FETCH_ADD, atomic_type,
+            operands, 2u, NULL, 0u);
+        if (!fetch_add) return lower_invalid_value();
+        old_value = lower_value(
+            fetch_add->result, atomic_type,
+            expression->binary_lhs->type->is_unsigned);
+        operands[0] = old_value.value;
+        operands[1] = converted_delta.value;
+        operation = lower_append(
+            context,
+            expression->kind == EXPR_SUB_ASSIGN
+                ? RCC_IR_SUB : RCC_IR_ADD,
+            atomic_type, operands, 2u, NULL, 0u);
+        if (!operation) return lower_invalid_value();
+        return lower_value(
+            operation->result, atomic_type,
+            expression->binary_lhs->type->is_unsigned);
     }
     address = lower_lvalue_address(context, expression->binary_lhs);
     left = lower_load_address(context, address,
@@ -6882,9 +6940,58 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
         return lower_invalid_value();
     }
     if (expression->unary_operand->type->is_atomic) {
-        /* Preserve atomic prefix/postfix semantics in the existing backend. */
-        context->unsupported = true;
-        return lower_invalid_value();
+        RccIrType atomic_type;
+        RccIrValue delta_value;
+        RccIrValue rmw_operands[2];
+        RccIrInstruction* fetch_add;
+        if (expression->unary_operand->type->kind == TYPE_PTR ||
+            !lower_type(expression->unary_operand->type, &atomic_type) ||
+            atomic_type.kind != RCC_IR_TYPE_INTEGER ||
+            (atomic_type.bit_width != 32u &&
+             (atomic_type.bit_width != 64u ||
+              g_opts.target_arch != ARCH_X64))) {
+            context->unsupported = true;
+            return lower_invalid_value();
+        }
+        address = lower_lvalue_address(context, expression->unary_operand);
+        if (!address.valid) return lower_invalid_value();
+        one = lower_integer_constant(
+            context, atomic_type, true, 1u);
+        if (!one.valid) return lower_invalid_value();
+        delta_value = one.value;
+        if (!increment) {
+            RccIrLowerValue zero = lower_integer_constant(
+                context, atomic_type, true, 0u);
+            RccIrInstruction* negated;
+            RccIrValue negate_operands[2];
+            if (!zero.valid) return lower_invalid_value();
+            negate_operands[0] = zero.value;
+            negate_operands[1] = one.value;
+            negated = lower_append(
+                context, RCC_IR_SUB, atomic_type,
+                negate_operands, 2u, NULL, 0u);
+            if (!negated) return lower_invalid_value();
+            delta_value = negated->result;
+        }
+        rmw_operands[0] = address.value;
+        rmw_operands[1] = delta_value;
+        fetch_add = lower_append(
+            context, RCC_IR_ATOMIC_FETCH_ADD, atomic_type,
+            rmw_operands, 2u, NULL, 0u);
+        if (!fetch_add) return lower_invalid_value();
+        old_value = lower_value(
+            fetch_add->result, atomic_type,
+            expression->unary_operand->type->is_unsigned);
+        if (postfix) return old_value;
+        rmw_operands[0] = old_value.value;
+        rmw_operands[1] = one.value;
+        operation = lower_append(
+            context, increment ? RCC_IR_ADD : RCC_IR_SUB,
+            atomic_type, rmw_operands, 2u, NULL, 0u);
+        if (!operation) return lower_invalid_value();
+        return lower_value(
+            operation->result, atomic_type,
+            expression->unary_operand->type->is_unsigned);
     }
     address = lower_lvalue_address(context, expression->unary_operand);
     old_value = lower_load_address(context, address,
