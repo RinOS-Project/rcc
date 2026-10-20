@@ -469,11 +469,10 @@
         nontrivial direct non-virtual base constructor、複数member/parameterの
         initializer式とcall initializer、さらにbase/array/nested aggregateを含む
         trivial copyを実装・回帰検証。constructor body内のscalar local、if/else、
-        for loopも
-        検証済み。`test-verified-cxx-reference-local` はi686/AMD64の`-O0`/`-O2`で
-        各23関数・fallback 0、4 verified object実行、PE-i386生成とlegacy AMD64
-        実行を通過。
-  - [ ] より一般的なconstructor bodyのswitch等、virtualまたはthrowing base
+        for loop、switchのcase/default/breakを検証済み。
+        `test-verified-cxx-reference-local` はi686/AMD64の`-O0`/`-O2`で各25関数・
+        fallback 0、4 verified object実行、PE-i386生成とlegacy AMD64実行を通過。
+  - [ ] より一般的なconstructor bodyのnested/fallthrough switch、virtualまたはthrowing base
         construction、nontrivial/deleted target copy constructor、call引数以外の
         full-expression cleanupと未検証の例外経路が残る。標準conversion subsequenceと
         pointer-to-memberを含む全rank/partial orderingも未完了

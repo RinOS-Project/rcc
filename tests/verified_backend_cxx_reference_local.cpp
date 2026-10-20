@@ -90,6 +90,31 @@ int verified_loop_constructor_result() {
     return four.value * 100 + zero.value;
 }
 
+struct VerifiedSwitchConstructor {
+    int value;
+
+    explicit VerifiedSwitchConstructor(int selector) noexcept : value(0) {
+        switch (selector) {
+            case 1:
+                value = 17;
+                break;
+            case 2:
+                value = 29;
+                break;
+            default:
+                value = 5;
+                break;
+        }
+    }
+};
+
+int verified_switch_constructor_result() {
+    VerifiedSwitchConstructor one(1);
+    VerifiedSwitchConstructor two(2);
+    VerifiedSwitchConstructor other(9);
+    return one.value * 100 + two.value * 10 + other.value;
+}
+
 struct VerifiedBaseConstructor {
     int base_value;
 
@@ -221,14 +246,17 @@ int main() {
     if (verified_loop_constructor_result() != 1000) {
         return 5;
     }
-    if (verified_nontrivial_base_constructor_result() != 132132) {
+    if (verified_switch_constructor_result() != 1995) {
         return 6;
     }
-    if (verified_trivial_copy_result() != 571721281) {
+    if (verified_nontrivial_base_constructor_result() != 132132) {
         return 7;
     }
-    if (verified_expression_constructor_result() != 1317) {
+    if (verified_trivial_copy_result() != 571721281) {
         return 8;
+    }
+    if (verified_expression_constructor_result() != 1317) {
+        return 9;
     }
     return value != 43;
 }
