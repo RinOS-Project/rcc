@@ -5054,8 +5054,11 @@ static bool debug_inline_frame_integer_index_source(
             return false;
         }
         if (conversion_width != 0u) {
+            bool expression_can_represent_unsigned_conversion =
+                expression->type->is_unsigned ||
+                expression->type->size > (int)conversion_width;
             if (narrowest_type->is_unsigned ||
-                !expression->type->is_unsigned ||
+                !expression_can_represent_unsigned_conversion ||
                 expression->type->size < (int)conversion_width ||
                 conversion_width >= address_size) {
                 return false;

@@ -7399,9 +7399,13 @@ remains a separate open item.
       and a further unsigned cast. Verify the AMD64 32-bit modulo mask, i686
       address-width sign extension, original frame slot, and scaled pointer
       expression in all four target/backend variants.
-- [ ] Multi-stage signedness-changing conversions that require multiple
-      masks, or change signedness again after masking; other non-value-preserving
-      conversion sequences;
+- [x] Extend an AMD64 signed narrowing -> unsigned 32-bit modulo conversion ->
+      wider signed conversion chain. Verify the 32-bit mask before the
+      representable signed 64-bit extension, with the original frame slot and
+      scaled expression in legacy and verified DWARF.
+- [ ] Multi-stage signedness-changing conversions requiring multiple masks, or
+      signed results too narrow to represent the masked unsigned range; other
+      non-value-preserving conversion sequences;
       mixed-width subexpressions that cannot be safely flattened;
       non-frame-backed operands; constants wider than the target address;
       multiplication beyond same-width unsigned or signed compile-time
