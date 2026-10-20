@@ -7185,8 +7185,13 @@ remains a separate open item.
       out-of-bounds and before-begin results for both array forms are not
       attributed. Check i686 and AMD64 legacy and verified optimized DWARF
       through `test-debug-info` on native Windows.
-- [ ] Multidimensional/nested subarray paths such as `&matrix[i][j] ± N`,
-      negative displacements not rooted at a statically indexed array element,
+- [x] Recover the containing row-array type after nested subscript decay for
+      optimized symbolic pointer values. Exact relocation tests cover
+      `&matrix[1][1] + 1` (addend 20) and the row's one-past address
+      `&matrix[1][2] + 1` (addend 24); `&matrix[1][2] + 2` is rejected because
+      it crosses the row boundary. Native-Windows `test-debug-info` passes for
+      i686/AMD64 legacy and verified optimized DWARF.
+- [ ] Negative displacements not rooted at a statically indexed array element,
       target-adjusting casts, dynamic pointer expressions, and optimized
       register/piece location tracking remain open.
 

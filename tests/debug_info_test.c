@@ -3545,6 +3545,9 @@ static void verify_inline_debug_object(const char* path,
     uint64_t nested_array_before_begin_inline_call = UINT64_MAX;
     uint64_t member_address_constant_inline_call = UINT64_MAX;
     uint64_t nested_array_address_constant_inline_call = UINT64_MAX;
+    uint64_t matrix_subarray_interior_plus_inline_call = UINT64_MAX;
+    uint64_t matrix_subarray_one_past_inline_call = UINT64_MAX;
+    uint64_t matrix_subarray_cross_row_inline_call = UINT64_MAX;
     uint64_t function_address_constant_inline_call = UINT64_MAX;
     uint64_t function_designator_inline_call = UINT64_MAX;
     uint64_t static_pointer_inline_call = UINT64_MAX;
@@ -3889,6 +3892,15 @@ static void verify_inline_debug_object(const char* path,
                        "debug_inline_nested_array_address_constant_entry") == 0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
+                       "debug_inline_matrix_subarray_interior_plus_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_matrix_subarray_one_past_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_matrix_subarray_cross_row_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
                        "debug_inline_function_address_constant_entry") == 0;
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
@@ -4151,6 +4163,27 @@ static void verify_inline_debug_object(const char* path,
                 nested_array_address_constant_inline_call = die;
             } else if (root_call &&
                        strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_matrix_subarray_interior_plus_entry") == 0 &&
+                       matrix_subarray_interior_plus_inline_call == UINT64_MAX) {
+                matrix_subarray_interior_plus_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_matrix_subarray_one_past_entry") == 0 &&
+                       matrix_subarray_one_past_inline_call == UINT64_MAX) {
+                matrix_subarray_one_past_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_matrix_subarray_cross_row_entry") == 0 &&
+                       matrix_subarray_cross_row_inline_call == UINT64_MAX) {
+                matrix_subarray_cross_row_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
                               "debug_function_pointer_parameter_inline") == 0 &&
                        strcmp(relocation->symbol_name,
                               "debug_inline_function_address_constant_entry") == 0 &&
@@ -4220,6 +4253,9 @@ static void verify_inline_debug_object(const char* path,
     assert(nested_array_before_begin_inline_call != UINT64_MAX);
     assert(member_address_constant_inline_call != UINT64_MAX);
     assert(nested_array_address_constant_inline_call != UINT64_MAX);
+    assert(matrix_subarray_interior_plus_inline_call != UINT64_MAX);
+    assert(matrix_subarray_one_past_inline_call != UINT64_MAX);
+    assert(matrix_subarray_cross_row_inline_call != UINT64_MAX);
     assert(function_address_constant_inline_call != UINT64_MAX);
     assert(function_designator_inline_call != UINT64_MAX);
     assert(static_pointer_inline_call != UINT64_MAX);
@@ -4792,6 +4828,14 @@ static void verify_inline_debug_object(const char* path,
         info, array_before_begin_inline_call, architecture);
     verify_inline_parameter_is_not_attributed(
         info, nested_array_before_begin_inline_call, architecture);
+    verify_inline_parameter_address_constant(
+        info, matrix_subarray_interior_plus_inline_call, architecture,
+        "debug_inline_addressed_matrix_source", 20);
+    verify_inline_parameter_address_constant(
+        info, matrix_subarray_one_past_inline_call, architecture,
+        "debug_inline_addressed_matrix_source", 24);
+    verify_inline_parameter_is_not_attributed(
+        info, matrix_subarray_cross_row_inline_call, architecture);
     objfile_free(object);
 }
 

@@ -4172,6 +4172,29 @@ static const Expr* debug_inline_static_array_designator(
         if (array_type) *array_type = expression->type;
         return expression;
     }
+    if (expression->kind == EXPR_INDEX && expression->index_base &&
+        expression->index_base->type) {
+        const Type* base_type = expression->index_base->type;
+        const Type* subarray_type =
+            (base_type->kind == TYPE_ARRAY || base_type->kind == TYPE_PTR)
+                ? base_type->base : NULL;
+        if (subarray_type && subarray_type->kind == TYPE_ARRAY &&
+            subarray_type->size > 0) {
+            if (array_type) *array_type = subarray_type;
+            return expression;
+        }
+    }
+    if (expression->kind == EXPR_MEMBER && expression->member_field &&
+        expression->member_field->type &&
+        expression->member_field->type->kind == TYPE_ARRAY &&
+        expression->member_field->type->size > 0 &&
+        expression->member_field->type->base && expression->type &&
+        expression->type->kind == TYPE_PTR && expression->type->base &&
+        expression->type->base->size ==
+            expression->member_field->type->base->size) {
+        if (array_type) *array_type = expression->member_field->type;
+        return expression;
+    }
     if (expression->kind == EXPR_IDENT && expression->ident_decl &&
         expression->ident_decl->kind == DECL_VAR &&
         expression->ident_decl->type &&
@@ -4509,16 +4532,12 @@ static bool debug_inline_static_address_path(
         int64_t element_index;
         int64_t base_addend;
         int64_t element_addend;
-        if (array_type && array_type->kind != TYPE_ARRAY &&
-            expression->index_base->kind == EXPR_MEMBER &&
-            expression->index_base->member_field &&
-            expression->index_base->member_field->type &&
-            expression->index_base->member_field->type->kind == TYPE_ARRAY &&
-            expression->index_base->member_field->type->base &&
-            array_type->kind == TYPE_PTR && array_type->base &&
-            array_type->base->size ==
-                expression->index_base->member_field->type->base->size) {
-            array_type = expression->index_base->member_field->type;
+        if (array_type && array_type->kind != TYPE_ARRAY) {
+            const Type* recovered_array_type = NULL;
+            if (debug_inline_static_array_designator(
+                    expression->index_base, &recovered_array_type)) {
+                array_type = recovered_array_type;
+            }
         }
         if (!array_type || array_type->kind != TYPE_ARRAY ||
             array_type->array_len < 0 || !array_type->base ||

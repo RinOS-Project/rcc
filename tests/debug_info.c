@@ -34,6 +34,7 @@ enum debug_enum debug_enum_data = DEBUG_ENUM_POSITIVE;
 int* debug_inline_global_pointer_source;
 int debug_inline_addressed_pointer_source;
 int debug_inline_addressed_array_source[4];
+int debug_inline_addressed_matrix_source[2][3];
 struct debug_inline_addressed_member_container {
     int prefix;
     int target;
@@ -265,6 +266,24 @@ int debug_inline_nested_array_address_constant_entry(void)
 {
     return debug_global_pointer_parameter_inline(
         &debug_inline_addressed_nested_source.values[1]);
+}
+
+int debug_inline_matrix_subarray_interior_plus_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_matrix_source[1][1] + 1);
+}
+
+int debug_inline_matrix_subarray_one_past_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_matrix_source[1][2] + 1);
+}
+
+int debug_inline_matrix_subarray_cross_row_entry(void)
+{
+    return debug_global_pointer_parameter_inline(
+        &debug_inline_addressed_matrix_source[1][2] + 2);
 }
 
 int debug_inline_function_address_constant_entry(void)
