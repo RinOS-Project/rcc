@@ -7326,10 +7326,14 @@ remains a separate open item.
       `first - second` regression verifies subtraction, the wrap mask, scaling,
       and both source locations on i686/AMD64 in legacy and verified optimized
       DWARF.
-- [ ] Unsigned computed indexes containing constants, casts, mixed-width
-      subexpressions, or non-frame-backed operands; large unsigned constants
-      outside signed displacement range; multiplication and other unhandled
-      index operators; pointer chains with more than eight dynamic terms;
+- [x] Include same-width unsigned integer literal operands in narrow computed
+      `+`/`-` indexes. The AMD64 `index + 1u` regression checks the constant,
+      source location, wrap mask, scaling, and final pointer operation in legacy
+      and verified optimized DWARF.
+- [ ] Unsigned computed indexes with casts, mixed-width subexpressions, or
+      non-frame-backed operands; large unsigned constants outside signed
+      displacement range; multiplication and other unhandled index operators;
+      pointer chains with more than eight dynamic terms;
       virtual-base/member-
       pointer adjustments, negative displacements not rooted at a statically
       indexed element, nested/VLA/pointer-based dynamic subobject paths,
