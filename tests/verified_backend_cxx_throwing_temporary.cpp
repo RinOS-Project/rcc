@@ -30,6 +30,24 @@ struct VerifiedThrowingTemporaryConversionSource {
     }
 };
 
+struct VerifiedThrowingReferenceConversionSource {
+    VerifiedThrowingTemporary* value;
+    int cleanup_id;
+    int* receiver_cleanup_order;
+
+    operator VerifiedThrowingTemporary&() const {
+        if (cleanup_id == 21) throw 74;
+        return *value;
+    }
+
+    ~VerifiedThrowingReferenceConversionSource() noexcept {
+        if (receiver_cleanup_order) {
+            *receiver_cleanup_order =
+                *receiver_cleanup_order * 10 + cleanup_id;
+        }
+    }
+};
+
 struct VerifiedFirstConstructorMember {
     int* cleanup_order;
 
@@ -308,7 +326,28 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     if (comma_receiver_evaluations != 1) return -17;
     if (comma_receiver_cleanup_order != 16) return -18;
     if (cleanup_order != 16) return -19;
-    return 65714;
+    int reference_conversion_receiver_cleanup_order = 0;
+    int reference_conversion_target_cleanup_order = 0;
+    int reference_conversion_observation = 0;
+    VerifiedThrowingTemporary reference_conversion_target{
+        &reference_conversion_target_cleanup_order, 20, {20}};
+    try {
+        const VerifiedThrowingTemporary& value =
+            VerifiedThrowingReferenceConversionSource{
+                &reference_conversion_target, 21,
+                &reference_conversion_receiver_cleanup_order};
+        reference_conversion_observation = value.cleanup_id;
+    } catch (int value) {
+        reference_conversion_observation = value * 100 +
+            reference_conversion_receiver_cleanup_order * 10 +
+            reference_conversion_target.cleanup_id;
+    }
+    if (reference_conversion_observation != 7630) {
+        return reference_conversion_observation;
+    }
+    if (reference_conversion_receiver_cleanup_order != 21) return -22;
+    if (reference_conversion_target_cleanup_order != 0) return -23;
+    return 65715;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {

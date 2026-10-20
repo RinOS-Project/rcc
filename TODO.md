@@ -7333,6 +7333,12 @@ remains a separate open item.
       confirms conversion runs before receiver destruction at full-expression
       end. `test-cxx-function-template-references` passes GCC C++20 diagnostics,
       i686/AMD64 generation, and AMD64 host execution.
+- [x] Verify exception cleanup for a `T&` conversion function invoked on a
+      nontrivial temporary receiver during reference initialization. When the
+      conversion throws, destroy the receiver exactly once before the handler;
+      do not destroy the existing referent (`7630`). The focused verified
+      target emits twenty-four functions with zero fallback on i686/AMD64 at
+      `-O0`/`-O2`; generated AMD64 SSA and legacy host execution pass.
 - [ ] Other converted-reference shapes, static/TLS lifetime extension,
       additional conditional/subobject forms, and remaining full-expression
       cleanup paths remain open.
