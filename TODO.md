@@ -7176,10 +7176,15 @@ remains a separate open item.
       and verified i686/AMD64 objects, including a pointer local whose address
       escapes after the call.
       Native-Windows `test-debug-info` passes.
+- [x] Emit a frame-relative pointer value for a direct `&automatic_object`
+      argument to a supported inlined pointer parameter. Append
+      `DW_OP_stack_value` so the breg expression describes the pointer value,
+      and verify that its displacement matches the source variable's frame
+      location in legacy and verified i686/AMD64 objects.
 - [ ] Register-only or optimized-away sources, source/destination type
-      conversions, compound dynamic expressions, mutable-parameter tracking,
-      and optimized register/piece tracking remain open; this does not
-      implement general variable-location tracking.
+      conversions, subobject/member addresses, compound dynamic expressions,
+      mutable-parameter tracking, and optimized register/piece tracking remain
+      open; this does not implement general variable-location tracking.
 
 ## RCC continuation (2026-10-20, inline symbolic pointer constants)
 

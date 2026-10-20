@@ -4851,6 +4851,34 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
     return symbol;
 }
 
+static bool debug_inline_parameter_frame_offset(
+    const Module* mod, const Decl* source, int64_t* frame_offset) {
+    int64_t stable_frame_offset;
+    if (!mod || !source || !frame_offset ||
+        (source->kind != DECL_VAR && source->kind != DECL_PARAM) ||
+        source->var_is_global || source->var_is_static_local ||
+        source->var_is_vla) {
+        return false;
+    }
+    stable_frame_offset = source->var_offset;
+    if (mod->debug_verified_backend) {
+        bool found_frame_location = false;
+        for (size_t index = 0u;
+             index < mod->debug_variable_location_count; ++index) {
+            const DebugVariableLocation* location =
+                &mod->debug_variable_locations[index];
+            if (location->declaration != source) continue;
+            stable_frame_offset = location->frame_offset;
+            found_frame_location = true;
+            break;
+        }
+        if (!found_frame_location) return false;
+    }
+    if (stable_frame_offset == 0) return false;
+    *frame_offset = stable_frame_offset;
+    return true;
+}
+
 static const ModuleSymbol* debug_inline_parameter_source_symbol(
     const Module* mod, const char* filename,
     const Decl* callee,
@@ -4894,25 +4922,11 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
     } else if (source->kind == DECL_VAR && source->var_is_static_local) {
         symbol = debug_find_static_local_symbol(mod, source);
     } else {
-        int64_t stable_frame_offset = source->var_offset;
         symbol = NULL;
-        if (mod->debug_verified_backend) {
-            bool found_frame_location = false;
-            for (size_t index = 0u;
-                 index < mod->debug_variable_location_count; ++index) {
-                const DebugVariableLocation* location =
-                    &mod->debug_variable_locations[index];
-                if (location->declaration != source) continue;
-                stable_frame_offset = location->frame_offset;
-                found_frame_location = true;
-                break;
-            }
-            if (!found_frame_location) return NULL;
-        }
-        if (source->var_is_vla || !frame_based || !frame_offset ||
-            stable_frame_offset == 0) return NULL;
+        if (!frame_based || !frame_offset ||
+            !debug_inline_parameter_frame_offset(
+                mod, source, frame_offset)) return NULL;
         *frame_based = true;
-        *frame_offset = stable_frame_offset;
         return NULL;
     }
     if (!symbol) return NULL;
@@ -4921,6 +4935,52 @@ static const ModuleSymbol* debug_inline_parameter_source_symbol(
         if (!*scoped_symbol) return NULL;
     }
     return symbol;
+}
+
+static bool debug_inline_parameter_frame_address(
+    const Module* mod, const Decl* callee,
+    const ModuleDebugInlineParameterValue* value,
+    const ExprList* argument, int64_t* frame_offset) {
+    const Expr* expression;
+    const Expr* operand;
+    const Decl* source;
+    const Type* parameter_type;
+    const Type* argument_type;
+    uint8_t address_size;
+    if (!mod || !callee || !value || !value->declaration || !argument ||
+        !argument->expr || argument->cxx_temporary_owner || !frame_offset) {
+        return false;
+    }
+    expression = argument->expr;
+    operand = expression->kind == EXPR_ADDR
+        ? expression->unary_operand : NULL;
+    source = operand && operand->kind == EXPR_IDENT
+        ? operand->ident_decl : NULL;
+    parameter_type = value->declaration->type;
+    argument_type = expression->type;
+    address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    if (value->declaration->kind != DECL_PARAM ||
+        (source && source->kind != DECL_VAR &&
+         source->kind != DECL_PARAM) ||
+        !source || !source->type || !parameter_type || !argument_type ||
+        parameter_type->kind != TYPE_PTR ||
+        parameter_type->cxx_is_member_pointer ||
+        parameter_type->size != address_size || parameter_type->is_volatile ||
+        parameter_type->is_reference || parameter_type->is_atomic ||
+        argument_type->kind != TYPE_PTR ||
+        argument_type->cxx_is_member_pointer ||
+        argument_type->size != address_size || argument_type->is_volatile ||
+        argument_type->is_reference || argument_type->is_atomic ||
+        !parameter_type->base || parameter_type->base->kind == TYPE_FUNC ||
+        !debug_inline_parameter_storage_type_equal(
+            parameter_type, argument_type, 0u) ||
+        expression->cxx_pointer_adjustment_valid ||
+        expression->cxx_virtual_base_adjustment ||
+        expression->cxx_member_pointer_adjustment_valid ||
+        !debug_inline_parameter_body_is_read_only(callee)) {
+        return false;
+    }
+    return debug_inline_parameter_frame_offset(mod, source, frame_offset);
 }
 
 static void debug_emit_inline_parameter_instances(
@@ -4939,6 +4999,7 @@ static void debug_emit_inline_parameter_instances(
         char* scoped_source_symbol = NULL;
         bool source_frame_based = false;
         int64_t source_frame_offset = 0;
+        int64_t source_frame_address_offset = 0;
         int64_t address_addend = 0;
         if (value->has_signed_integer_constant && value->declaration &&
             (origin = debug_inline_parameter_origin_find(
@@ -4995,6 +5056,21 @@ static void debug_emit_inline_parameter_instances(
                 address_size == 8u ? RELOC_ABS64 : RELOC_ABS32U,
                 address_addend);
             rcc_free(scoped_source_symbol);
+        } else if (value->declaration &&
+                   (origin = debug_inline_parameter_origin_find(
+                       origins, call->callee, value->declaration)) != NULL &&
+                   debug_inline_parameter_frame_address(
+                       mod, call->callee, value, argument,
+                       &source_frame_address_offset)) {
+            uint8_t expression[32];
+            size_t expression_size = debug_build_expr_breg(
+                expression, architecture, source_frame_address_offset,
+                0u, false);
+            expression[expression_size++] = 0x9fu; /* DW_OP_stack_value */
+            section_add_byte(info, 67u);
+            debug_line_u32(info, origin->die_offset);
+            debug_line_uleb(info, expression_size);
+            section_add_bytes(info, expression, expression_size);
         } else if (value->declaration &&
                    (origin = debug_inline_parameter_origin_find(
                        origins, call->callee, value->declaration)) != NULL) {

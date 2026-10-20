@@ -3444,6 +3444,45 @@ static void verify_inline_parameter_address_constant(
     assert(found_address_relocation);
 }
 
+static void verify_inline_parameter_frame_address(
+    const ObjSection* info, const ObjSection* strings,
+    const ObjSection* locations, uint64_t call_die,
+    uint16_t architecture, const char* variable_name) {
+    uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
+    uint64_t concrete_parameter;
+    uint32_t origin_parameter;
+    uint64_t expression_offset;
+    uint64_t expression_size;
+    uint64_t expression_end;
+    int64_t expression_frame_offset;
+    int64_t variable_frame_offset;
+    bool variable_has_location;
+    bool variable_is_location_list;
+    assert(info && info->data && call_die < info->size && variable_name);
+    concrete_parameter = call_die + 1u + 4u + address_size + 4u + 12u;
+    origin_parameter = read_u32(info->data, call_die + 1u) + 27u;
+    expression_offset = concrete_parameter + 5u;
+    expression_size = read_uleb(
+        info->data, info->size, &expression_offset);
+    assert(info->data[concrete_parameter] == 67u);
+    assert(read_u32(info->data, concrete_parameter + 1u) == origin_parameter);
+    assert(expression_size >= 3u);
+    assert(info->data[expression_offset] ==
+           (architecture == ARCH_X64 ? 0x76u : 0x75u));
+    expression_end = expression_offset + expression_size;
+    ++expression_offset;
+    expression_frame_offset = read_sleb(
+        info->data, info->size, &expression_offset);
+    assert(expression_offset + 1u == expression_end);
+    assert(info->data[expression_offset] == 0x9fu); /* DW_OP_stack_value */
+    assert(find_variable_location(
+        info, strings, locations, variable_name, architecture,
+        &variable_has_location, &variable_is_location_list,
+        &variable_frame_offset));
+    assert(variable_has_location &&
+           variable_frame_offset == expression_frame_offset);
+}
+
 static void verify_inline_parameter_is_not_attributed(
     const ObjSection* info, uint64_t call_die, uint16_t architecture) {
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
@@ -3555,6 +3594,7 @@ static void verify_inline_debug_object(const char* path,
     uint64_t function_designator_inline_call = UINT64_MAX;
     uint64_t static_pointer_inline_call = UINT64_MAX;
     uint64_t automatic_pointer_inline_call = UINT64_MAX;
+    uint64_t automatic_address_inline_call = UINT64_MAX;
 
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
@@ -3923,6 +3963,9 @@ static void verify_inline_debug_object(const char* path,
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_automatic_pointer_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_automatic_address_entry") == 0;
             assert(root_call ||
                    (strcmp(relocation->symbol_name,
                            "debug_declared_inline") == 0 &&
@@ -4243,6 +4286,13 @@ static void verify_inline_debug_object(const char* path,
                               "debug_inline_automatic_pointer_entry") == 0 &&
                        automatic_pointer_inline_call == UINT64_MAX) {
                 automatic_pointer_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_automatic_address_entry") == 0 &&
+                       automatic_address_inline_call == UINT64_MAX) {
+                automatic_address_inline_call = die;
             }
             break;
         }
@@ -4296,6 +4346,7 @@ static void verify_inline_debug_object(const char* path,
     assert(function_designator_inline_call != UINT64_MAX);
     assert(static_pointer_inline_call != UINT64_MAX);
     assert(automatic_pointer_inline_call != UINT64_MAX);
+    assert(automatic_address_inline_call != UINT64_MAX);
     {
         uint64_t child = outer_die + 1u + 4u + address_size + 4u + 12u;
         while (child < inner_die) {
@@ -4831,6 +4882,9 @@ static void verify_inline_debug_object(const char* path,
             &source_frame_offset));
         assert(source_has_location && source_frame_offset == frame_offset);
     }
+    verify_inline_parameter_frame_address(
+        info, strings, locations, automatic_address_inline_call,
+        architecture, "debug_inline_automatic_address_source");
     verify_inline_parameter_address_constant(
         info, array_plus_constant_inline_call, architecture,
         "debug_inline_addressed_array_source", 12);

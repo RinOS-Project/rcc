@@ -49,6 +49,12 @@ struct debug_inline_addressed_nested_container
     debug_inline_addressed_nested_source;
 const int debug_inline_readonly_addressed_pointer_source = 31;
 int** debug_inline_escaped_pointer;
+int* debug_inline_escaped_object_address;
+
+static void debug_inline_object_address_sink(int* value)
+{
+    debug_inline_escaped_object_address = value;
+}
 
 static int debug_inline_addressed_function_target(void)
 {
@@ -331,6 +337,16 @@ int debug_inline_automatic_pointer_entry(int* incoming)
     int result = debug_global_pointer_parameter_inline(
         debug_inline_automatic_pointer_source);
     debug_inline_pointer_sink(&debug_inline_automatic_pointer_source);
+    return result;
+}
+
+int debug_inline_automatic_address_entry(void)
+{
+    int debug_inline_automatic_address_source = 43;
+    int result = debug_global_pointer_parameter_inline(
+        &debug_inline_automatic_address_source);
+    debug_inline_object_address_sink(
+        &debug_inline_automatic_address_source);
     return result;
 }
 
