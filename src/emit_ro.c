@@ -4037,6 +4037,19 @@ static bool debug_inline_parameter_storage_type_equal(
     }
 }
 
+static bool debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+    const Type* left, const Type* right, unsigned int depth) {
+    Type left_unqualified;
+    Type right_unqualified;
+    if (!left || !right) return false;
+    left_unqualified = *left;
+    right_unqualified = *right;
+    left_unqualified.is_const = right_unqualified.is_const;
+    left_unqualified.is_volatile = right_unqualified.is_volatile;
+    return debug_inline_parameter_storage_type_equal(
+        &left_unqualified, &right_unqualified, depth);
+}
+
 static bool debug_inline_parameter_expression_is_read_only(
     const Expr* expression, const Decl* callee) {
     if (!expression || !callee) return false;
@@ -4942,6 +4955,7 @@ static bool debug_inline_parameter_frame_address(
     const ModuleDebugInlineParameterValue* value,
     const ExprList* argument, int64_t* frame_offset) {
     const Expr* expression;
+    const Expr* address_expression;
     const Expr* operand;
     const Decl* source;
     const Type* parameter_type;
@@ -4952,13 +4966,31 @@ static bool debug_inline_parameter_frame_address(
         return false;
     }
     expression = argument->expr;
-    operand = expression->kind == EXPR_ADDR
-        ? expression->unary_operand : NULL;
+    address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
+    address_expression = expression;
+    while (address_expression && address_expression->kind == EXPR_CAST &&
+           address_expression->cast_expr) {
+        const Type* cast_target = address_expression->type;
+        const Type* cast_source = address_expression->cast_expr->type;
+        if (!cast_target || cast_target->kind != TYPE_PTR ||
+            cast_target->cxx_is_member_pointer ||
+            cast_target->size != address_size || !cast_source ||
+            cast_source->kind != TYPE_PTR ||
+            cast_source->cxx_is_member_pointer ||
+            cast_source->size != address_size ||
+            address_expression->cxx_pointer_adjustment_valid ||
+            address_expression->cxx_virtual_base_adjustment ||
+            address_expression->cxx_member_pointer_adjustment_valid) {
+            return false;
+        }
+        address_expression = address_expression->cast_expr;
+    }
+    operand = address_expression && address_expression->kind == EXPR_ADDR
+        ? address_expression->unary_operand : NULL;
     source = operand && operand->kind == EXPR_IDENT
         ? operand->ident_decl : NULL;
     parameter_type = value->declaration->type;
     argument_type = expression->type;
-    address_size = g_opts.target_arch == ARCH_X64 ? 8u : 4u;
     if (value->declaration->kind != DECL_PARAM ||
         (source && source->kind != DECL_VAR &&
          source->kind != DECL_PARAM) ||
@@ -4972,8 +5004,11 @@ static bool debug_inline_parameter_frame_address(
         argument_type->size != address_size || argument_type->is_volatile ||
         argument_type->is_reference || argument_type->is_atomic ||
         !parameter_type->base || parameter_type->base->kind == TYPE_FUNC ||
-        !debug_inline_parameter_storage_type_equal(
-            parameter_type, argument_type, 0u) ||
+        !argument_type->base || argument_type->base->kind == TYPE_FUNC ||
+        (parameter_type->base->kind != TYPE_VOID &&
+         argument_type->base->kind != TYPE_VOID &&
+         !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
+             parameter_type->base, argument_type->base, 0u)) ||
         expression->cxx_pointer_adjustment_valid ||
         expression->cxx_virtual_base_adjustment ||
         expression->cxx_member_pointer_adjustment_valid ||

@@ -350,6 +350,26 @@ int debug_inline_automatic_address_entry(void)
     return result;
 }
 
+int debug_inline_automatic_const_address_entry(void)
+{
+    int debug_inline_automatic_const_address_source = 47;
+    int result = debug_const_global_pointer_parameter_inline(
+        &debug_inline_automatic_const_address_source);
+    debug_inline_object_address_sink(
+        &debug_inline_automatic_const_address_source);
+    return result;
+}
+
+int debug_inline_automatic_void_address_entry(void)
+{
+    int debug_inline_automatic_void_address_source = 53;
+    int result = debug_void_pointer_parameter_inline(
+        (const void*)&debug_inline_automatic_void_address_source);
+    debug_inline_object_address_sink(
+        &debug_inline_automatic_void_address_source);
+    return result;
+}
+
 int debug_tls_static_local_read(void)
 {
     static _Thread_local int debug_tls_static_local = 17;

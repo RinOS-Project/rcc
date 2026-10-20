@@ -7181,8 +7181,13 @@ remains a separate open item.
       `DW_OP_stack_value` so the breg expression describes the pointer value,
       and verify that its displacement matches the source variable's frame
       location in legacy and verified i686/AMD64 objects.
-- [ ] Register-only or optimized-away sources, source/destination type
-      conversions, subobject/member addresses, compound dynamic expressions,
+- [x] Preserve the same frame-relative value through representation-preserving
+      object-pointer casts with no target adjustment, covering pointee cv
+      qualification and an explicit object-pointer-to-`const void*` cast.
+      Verify both forms against the source frame slot in legacy and verified
+      optimized i686/AMD64 DWARF.
+- [ ] Register-only or optimized-away sources, pointer conversions that adjust
+      the address, subobject/member addresses, compound dynamic expressions,
       mutable-parameter tracking, and optimized register/piece tracking remain
       open; this does not implement general variable-location tracking.
 

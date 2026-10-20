@@ -3595,6 +3595,8 @@ static void verify_inline_debug_object(const char* path,
     uint64_t static_pointer_inline_call = UINT64_MAX;
     uint64_t automatic_pointer_inline_call = UINT64_MAX;
     uint64_t automatic_address_inline_call = UINT64_MAX;
+    uint64_t automatic_const_address_inline_call = UINT64_MAX;
+    uint64_t automatic_void_address_inline_call = UINT64_MAX;
 
     assert(object != NULL && object->arch == architecture);
     info = objfile_get_section(object, ".debug_info");
@@ -3966,6 +3968,12 @@ static void verify_inline_debug_object(const char* path,
             root_call = root_call ||
                 strcmp(relocation->symbol_name,
                        "debug_inline_automatic_address_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_automatic_const_address_entry") == 0;
+            root_call = root_call ||
+                strcmp(relocation->symbol_name,
+                       "debug_inline_automatic_void_address_entry") == 0;
             assert(root_call ||
                    (strcmp(relocation->symbol_name,
                            "debug_declared_inline") == 0 &&
@@ -4293,6 +4301,20 @@ static void verify_inline_debug_object(const char* path,
                               "debug_inline_automatic_address_entry") == 0 &&
                        automatic_address_inline_call == UINT64_MAX) {
                 automatic_address_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_const_global_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_automatic_const_address_entry") == 0 &&
+                       automatic_const_address_inline_call == UINT64_MAX) {
+                automatic_const_address_inline_call = die;
+            } else if (root_call &&
+                       strcmp(inline_name,
+                              "debug_void_pointer_parameter_inline") == 0 &&
+                       strcmp(relocation->symbol_name,
+                              "debug_inline_automatic_void_address_entry") == 0 &&
+                       automatic_void_address_inline_call == UINT64_MAX) {
+                automatic_void_address_inline_call = die;
             }
             break;
         }
@@ -4347,6 +4369,8 @@ static void verify_inline_debug_object(const char* path,
     assert(static_pointer_inline_call != UINT64_MAX);
     assert(automatic_pointer_inline_call != UINT64_MAX);
     assert(automatic_address_inline_call != UINT64_MAX);
+    assert(automatic_const_address_inline_call != UINT64_MAX);
+    assert(automatic_void_address_inline_call != UINT64_MAX);
     {
         uint64_t child = outer_die + 1u + 4u + address_size + 4u + 12u;
         while (child < inner_die) {
@@ -4885,6 +4909,12 @@ static void verify_inline_debug_object(const char* path,
     verify_inline_parameter_frame_address(
         info, strings, locations, automatic_address_inline_call,
         architecture, "debug_inline_automatic_address_source");
+    verify_inline_parameter_frame_address(
+        info, strings, locations, automatic_const_address_inline_call,
+        architecture, "debug_inline_automatic_const_address_source");
+    verify_inline_parameter_frame_address(
+        info, strings, locations, automatic_void_address_inline_call,
+        architecture, "debug_inline_automatic_void_address_source");
     verify_inline_parameter_address_constant(
         info, array_plus_constant_inline_call, architecture,
         "debug_inline_addressed_array_source", 12);
