@@ -4956,9 +4956,13 @@ static bool debug_inline_frame_integer_index_source(
     uint8_t* unsigned_conversion_width) {
     const Expr* index = expression;
     const Type* converted_type;
+    const Type* narrowest_type = NULL;
+    const Type* outer_cast_source_type = NULL;
     const Decl* source;
     uint8_t narrowest_width = 0u;
     uint8_t conversion_width = 0u;
+    unsigned int outer_cast_count = 0u;
+    bool outer_cast_seen = false;
     if (!index || !declaration || !value_type || !index->type ||
         !unsigned_conversion_width || address_size == 0u ||
         address_size > 8u) {
@@ -4974,6 +4978,10 @@ static bool debug_inline_frame_integer_index_source(
     }
     while (index->kind == EXPR_CAST && index->cast_expr) {
         const Type* cast_source = index->cast_expr->type;
+        if (!outer_cast_seen) {
+            outer_cast_source_type = cast_source;
+            outer_cast_seen = true;
+        }
         /* A signed source widened to unsigned needs a destination-width mask
          * below address width; at address width, sign extension is already
          * the required modulo conversion. */
@@ -5004,6 +5012,9 @@ static bool debug_inline_frame_integer_index_source(
             (narrowest_width == 0u ||
              converted_type->size < (int)narrowest_width)) {
             narrowest_width = (uint8_t)converted_type->size;
+            narrowest_type = converted_type;
+        } else if (narrowest_width == 0u) {
+            ++outer_cast_count;
         }
         converted_type = cast_source;
         index = index->cast_expr;
@@ -5024,10 +5035,21 @@ static bool debug_inline_frame_integer_index_source(
         /* All supported targets are little-endian x86.  If the final result
          * is no wider than the narrowest cast, its bits are the low bytes of
          * the original slot regardless of intervening integer promotions.
-         * A later widening after truncation needs explicit conversion
-         * operations and is intentionally not attributed by this path. */
-        if (expression->type->size > (int)narrowest_width) return false;
-        *value_type = expression->type;
+         * One same-signedness widening after truncation can use that narrowed
+         * type as the source; more complex chains need explicit operations. */
+        if (expression->type->size <= (int)narrowest_width) {
+            *value_type = expression->type;
+            return true;
+        }
+        if (!narrowest_type || outer_cast_count != 1u ||
+            conversion_width != 0u || !outer_cast_source_type ||
+            outer_cast_source_type->size != narrowest_type->size ||
+            outer_cast_source_type->is_unsigned !=
+                narrowest_type->is_unsigned ||
+            expression->type->is_unsigned != narrowest_type->is_unsigned) {
+            return false;
+        }
+        *value_type = narrowest_type;
         return true;
     }
     if (conversion_width != 0u) {

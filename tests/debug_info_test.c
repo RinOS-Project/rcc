@@ -8498,6 +8498,30 @@ int main(int argc, char** argv)
         4u, false);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_signed_narrow_widen_index_entry",
+        "debug_inline_automatic_pointer_signed_narrow_widen_source",
+        "debug_inline_automatic_signed_narrow_widen_index", 0, true, 2u,
+        false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_signed_narrow_widen_index_entry",
+        "debug_inline_automatic_pointer_signed_narrow_widen_source",
+        "debug_inline_automatic_signed_narrow_widen_index", 0, true, 2u,
+        false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_signed_narrow_widen_index_entry",
+        "debug_inline_automatic_pointer_signed_narrow_widen_source",
+        "debug_inline_automatic_signed_narrow_widen_index", 0, true, 2u,
+        false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_signed_narrow_widen_index_entry",
+        "debug_inline_automatic_pointer_signed_narrow_widen_source",
+        "debug_inline_automatic_signed_narrow_widen_index", 0, true, 2u,
+        false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_unsigned_narrow_index_entry",
         "debug_inline_automatic_pointer_unsigned_narrow_source",
         "debug_inline_automatic_unsigned_narrow_index", 0, true, 2u, true,

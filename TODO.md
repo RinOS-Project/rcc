@@ -7383,8 +7383,13 @@ remains a separate open item.
       address-width sign extension on i686. Verify legacy and verified
       optimized DWARF on both targets; the native-Windows integrated DWARF
       verifier passes.
-- [ ] Narrow-then-widen cast chains whose final width exceeds an intermediate
-      truncation; mixed-width subexpressions that cannot be safely flattened;
+- [x] Preserve a frame-backed signed index through one narrowing cast followed
+      by one same-signedness widening cast, using the intermediate type for
+      correct sign extension. Verify the original frame slot and exact scaled
+      pointer expression in legacy and verified optimized i686/AMD64 DWARF;
+      the native-Windows integrated debug-info test passes.
+- [ ] Multi-stage or signedness-changing narrow-then-widen cast chains;
+      mixed-width subexpressions that cannot be safely flattened;
       non-frame-backed operands; constants wider than the target address;
       multiplication beyond same-width unsigned or signed compile-time
       coefficients, and other unhandled index operators; pointer
