@@ -3034,7 +3034,7 @@ static bool lower_store_lvalue(RccIrLowerContext* context,
 
 static bool lower_i686_wide_scalar_type(const Type* type) {
     return g_opts.target_arch == ARCH_X86 && type &&
-        type_is_integer((Type*)type) && type->size == 8;
+        !type->is_atomic && type_is_integer((Type*)type) && type->size == 8;
 }
 
 static bool lower_wide_scalar_constant(
@@ -6767,6 +6767,13 @@ static RccIrLowerValue lower_compound_assignment(
         context->unsupported = true;
         return lower_invalid_value();
     }
+    if (expression->binary_lhs->type->is_atomic) {
+        /* A load/compute/XCHG sequence is not an atomic read-modify-write.
+         * Keep the whole function on the legacy atomic lowering until IR has
+         * a real RMW operation, preserving correct behavior without erroring. */
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
     address = lower_lvalue_address(context, expression->binary_lhs);
     left = lower_load_address(context, address,
                               expression->binary_lhs->type);
@@ -6871,6 +6878,11 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
     bool postfix = expression->kind == EXPR_POSTINC ||
         expression->kind == EXPR_POSTDEC;
     if (!expression->unary_operand || !expression->unary_operand->type) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    if (expression->unary_operand->type->is_atomic) {
+        /* Preserve atomic prefix/postfix semantics in the existing backend. */
         context->unsupported = true;
         return lower_invalid_value();
     }

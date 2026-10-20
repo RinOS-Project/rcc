@@ -26,12 +26,13 @@ typedef long long RINOS_ABI (*WideRestartFunction)(
 
 int main(int argc, char** argv)
 {
+    int entry_only;
     ObjectFile* object;
     ObjSection* text;
     ObjSymbol* entry_symbol;
-    ObjSymbol* wide_loop_symbol;
-    ObjSymbol* nested_wide_loop_symbol;
-    ObjSymbol* nested_wide_restart_symbol;
+    ObjSymbol* wide_loop_symbol = NULL;
+    ObjSymbol* nested_wide_loop_symbol = NULL;
+    ObjSymbol* nested_wide_restart_symbol = NULL;
     size_t page_size;
     size_t mapping_size;
     void* memory;
@@ -47,24 +48,27 @@ int main(int argc, char** argv)
     long host_page_size;
 #endif
 
-    assert(argc == 2);
-    object = objfile_read(argv[1]);
+    entry_only = argc == 3 && strcmp(argv[1], "--entry") == 0;
+    assert(argc == 2 || entry_only);
+    object = objfile_read(entry_only ? argv[2] : argv[1]);
     assert(object != NULL && object->arch == ARCH_X64);
     text = objfile_get_section(object, ".text");
     entry_symbol = objfile_find_symbol(object, "main");
-    wide_loop_symbol = objfile_find_symbol(
-        object, "verified_goto_wide_inside_loop");
-    nested_wide_loop_symbol = objfile_find_symbol(
-        object, "verified_goto_wide_nested_loop");
-    nested_wide_restart_symbol = objfile_find_symbol(
-        object, "verified_goto_wide_nested_backward_restart");
     assert(text != NULL && text->data != NULL && text->size != 0u &&
-           entry_symbol != NULL && entry_symbol->section == 0 &&
-           wide_loop_symbol != NULL && wide_loop_symbol->section == 0 &&
-           nested_wide_loop_symbol != NULL &&
-           nested_wide_loop_symbol->section == 0 &&
-           nested_wide_restart_symbol != NULL &&
-           nested_wide_restart_symbol->section == 0);
+           entry_symbol != NULL && entry_symbol->section == 0);
+    if (!entry_only) {
+        wide_loop_symbol = objfile_find_symbol(
+            object, "verified_goto_wide_inside_loop");
+        nested_wide_loop_symbol = objfile_find_symbol(
+            object, "verified_goto_wide_nested_loop");
+        nested_wide_restart_symbol = objfile_find_symbol(
+            object, "verified_goto_wide_nested_backward_restart");
+        assert(wide_loop_symbol != NULL && wide_loop_symbol->section == 0 &&
+               nested_wide_loop_symbol != NULL &&
+               nested_wide_loop_symbol->section == 0 &&
+               nested_wide_restart_symbol != NULL &&
+               nested_wide_restart_symbol->section == 0);
+    }
 #ifdef _WIN32
     GetSystemInfo(&system_info);
     page_size = (size_t)system_info.dwPageSize;
@@ -113,6 +117,16 @@ int main(int argc, char** argv)
     entry_address = (uint8_t*)memory + entry_symbol->value;
     memcpy(&entry, &entry_address, sizeof(entry));
     assert(entry() == 0);
+    if (entry_only) {
+#ifdef _WIN32
+        assert(VirtualFree(memory, 0, MEM_RELEASE));
+#else
+        assert(munmap(memory, mapping_size) == 0);
+#endif
+        objfile_free(object);
+        puts("Verified atomic VLA legacy RMW execution passed");
+        return 0;
+    }
     entry_address = (uint8_t*)memory + wide_loop_symbol->value;
     memcpy(&wide_loop, &entry_address, sizeof(wide_loop));
     assert(wide_loop(0u, 0x0000000200000002LL) ==
