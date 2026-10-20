@@ -137,6 +137,12 @@ struct DebugInlineAdjustedDerived : DebugInlineAdjustedPrefix,
     int suffix;
 };
 
+struct DebugInlineAutomaticAddressAggregate {
+    int prefix;
+    int member;
+    int values[3];
+};
+
 enum class DebugInlineConstexprEnum : signed char {
     negative = -37,
 };
@@ -147,6 +153,8 @@ constexpr DebugInlineConstexprEnum debug_inline_constexpr_enum_value =
 extern "C" {
 DebugInlineAdjustedDerived debug_inline_adjusted_pointer_source;
 DebugInlineAdjustedDerived* debug_inline_adjusted_automatic_escape;
+DebugInlineAutomaticAddressAggregate*
+    debug_inline_automatic_aggregate_escape;
 
 inline int debug_inline_adjusted_base_parameter_inline(
     DebugInlineAdjustedBase* value) {
@@ -166,6 +174,30 @@ int debug_inline_adjusted_base_automatic_entry() {
             &debug_inline_adjusted_automatic_source));
     debug_inline_adjusted_automatic_escape =
         &debug_inline_adjusted_automatic_source;
+    return result;
+}
+
+inline int debug_inline_automatic_subobject_parameter_inline(int* value) {
+    return value != nullptr;
+}
+
+int debug_inline_automatic_member_address_entry() {
+    DebugInlineAutomaticAddressAggregate
+        debug_inline_automatic_member_source;
+    int result = debug_inline_automatic_subobject_parameter_inline(
+        &debug_inline_automatic_member_source.member);
+    debug_inline_automatic_aggregate_escape =
+        &debug_inline_automatic_member_source;
+    return result;
+}
+
+int debug_inline_automatic_array_element_address_entry() {
+    DebugInlineAutomaticAddressAggregate
+        debug_inline_automatic_array_source;
+    int result = debug_inline_automatic_subobject_parameter_inline(
+        &debug_inline_automatic_array_source.values[2]);
+    debug_inline_automatic_aggregate_escape =
+        &debug_inline_automatic_array_source;
     return result;
 }
 

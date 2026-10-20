@@ -4143,9 +4143,9 @@ static bool debug_inline_parameter_body_is_read_only(const Decl* callee) {
 static bool debug_inline_integer_constant_value(
     const Expr* expression, int64_t* value, unsigned int depth);
 
-static bool debug_inline_static_address_path(
+static bool debug_inline_address_path(
     const Expr* expression, const Decl** source, int64_t* address_addend,
-    bool allow_one_past, unsigned int depth);
+    bool allow_one_past, bool allow_frame_source, unsigned int depth);
 
 static const Expr* debug_inline_static_array_designator(
     const Expr* expression, const Type** array_type) {
@@ -4538,8 +4538,8 @@ static bool debug_inline_static_pointer_addition(
     if (array_designator) {
         if (!array_type || array_type->size <= 0 ||
             array_type->array_len < 0 ||
-            !debug_inline_static_address_path(
-                array_designator, source, &base_addend, false, 0u)) {
+            !debug_inline_address_path(
+                array_designator, source, &base_addend, false, false, 0u)) {
             return false;
         }
         object_start = base_addend;
@@ -4568,8 +4568,9 @@ static bool debug_inline_static_pointer_addition(
                     &array_index, 0u) ||
                 array_index < 0 ||
                 array_index >= addressed_array_type->array_len ||
-                !debug_inline_static_address_path(
-                    addressed_array, source, &object_start, false, 0u) ||
+                !debug_inline_address_path(
+                    addressed_array, source, &object_start, false, false,
+                    0u) ||
                 array_index > INT64_MAX /
                     addressed_array_type->base->size ||
                 object_start < 0 ||
@@ -4588,9 +4589,9 @@ static bool debug_inline_static_pointer_addition(
         } else {
             if (!pointed_object_type || pointed_object_type->size <= 0 ||
                 element_type->size > pointed_object_type->size ||
-                !debug_inline_static_address_path(
+                !debug_inline_address_path(
                     pointer_expression->unary_operand, source,
-                    &base_addend, false, 0u)) {
+                    &base_addend, false, false, 0u)) {
                 return false;
             }
             object_start = base_addend;
@@ -4616,17 +4617,20 @@ static bool debug_inline_static_pointer_addition(
     return true;
 }
 
-static bool debug_inline_static_address_path(
+static bool debug_inline_address_path(
     const Expr* expression, const Decl** source, int64_t* address_addend,
-    bool allow_one_past, unsigned int depth) {
+    bool allow_one_past, bool allow_frame_source, unsigned int depth) {
     if (!expression || !source || !address_addend || depth >= 32u) {
         return false;
     }
     if (expression->kind == EXPR_IDENT && expression->ident_decl) {
         const Decl* declaration = expression->ident_decl;
-        if ((declaration->kind == DECL_VAR &&
+        if ((declaration->kind == DECL_VAR && declaration->type &&
+             declaration->type->size > 0 &&
              (declaration->var_is_global ||
-              declaration->var_is_static_local) &&
+              declaration->var_is_static_local ||
+              (allow_frame_source && !declaration->var_is_vla))) ||
+            (allow_frame_source && declaration->kind == DECL_PARAM &&
              declaration->type && declaration->type->size > 0) ||
             (declaration->kind == DECL_FUNC &&
              declaration->func_is_defined)) {
@@ -4649,9 +4653,9 @@ static bool debug_inline_static_address_path(
             field->offset > base_type->size - field->type->size ||
             expression->cxx_virtual_base_adjustment ||
             expression->cxx_virtual_base_member_access ||
-            !debug_inline_static_address_path(
+            !debug_inline_address_path(
                 expression->member_base, source, &base_addend, false,
-                depth + 1u) ||
+                allow_frame_source, depth + 1u) ||
             base_addend > INT64_MAX - field->offset) {
             return false;
         }
@@ -4682,9 +4686,9 @@ static bool debug_inline_static_address_path(
             (allow_one_past
                 ? element_index > array_type->array_len
                 : element_index >= array_type->array_len) ||
-            !debug_inline_static_address_path(
+            !debug_inline_address_path(
                 expression->index_base, source, &base_addend, false,
-                depth + 1u)) {
+                allow_frame_source, depth + 1u)) {
             return false;
         }
         element_type = array_type->base;
@@ -4762,8 +4766,9 @@ static const ModuleSymbol* debug_inline_parameter_address_constant(
          * displacement stays inside its statically named object or reaches
          * its one-past address. */
     } else if (address->kind == EXPR_ADDR && address->unary_operand &&
-        debug_inline_static_address_path(
-            address->unary_operand, &source, address_addend, true, 0u)) {
+        debug_inline_address_path(
+            address->unary_operand, &source, address_addend, true, false,
+            0u)) {
         if (!source->type || *address_addend > source->type->size) {
             return NULL;
         }
@@ -4961,6 +4966,7 @@ static bool debug_inline_parameter_frame_address(
     const Decl* source;
     const Type* parameter_type;
     const Type* argument_type;
+    int64_t address_addend;
     uint8_t address_size;
     if (!mod || !callee || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner || !frame_offset ||
@@ -5009,10 +5015,12 @@ static bool debug_inline_parameter_frame_address(
         address_expression->type->size != address_size) {
         return false;
     }
-    operand = address_expression && address_expression->kind == EXPR_ADDR
+    operand = address_expression->kind == EXPR_ADDR
         ? address_expression->unary_operand : NULL;
-    source = operand && operand->kind == EXPR_IDENT
-        ? operand->ident_decl : NULL;
+    if (!operand || !debug_inline_address_path(
+            operand, &source, &address_addend, true, true, 0u)) {
+        return false;
+    }
     parameter_type = value->declaration->type;
     argument_type = expression->type;
     if (value->declaration->kind != DECL_PARAM ||
@@ -5034,6 +5042,24 @@ static bool debug_inline_parameter_frame_address(
          !debug_inline_parameter_storage_type_equal_ignoring_top_cv(
              parameter_type->base, argument_type->base, 0u)) ||
         !debug_inline_parameter_body_is_read_only(callee)) {
+        return false;
+    }
+    if (!source->type || source->type->size <= 0 || address_addend < 0 ||
+        address_addend > source->type->size ||
+        (*pointer_adjustment > 0 &&
+         address_addend > INT64_MAX - *pointer_adjustment) ||
+        (*pointer_adjustment < 0 &&
+         address_addend < INT64_MIN - *pointer_adjustment)) {
+        return false;
+    }
+    *pointer_adjustment += address_addend;
+    if (*pointer_adjustment < 0 ||
+        *pointer_adjustment > source->type->size ||
+        (argument_type->base->kind != TYPE_VOID &&
+         (argument_type->base->size <= 0 ||
+          (*pointer_adjustment < source->type->size &&
+           argument_type->base->size >
+               source->type->size - *pointer_adjustment)))) {
         return false;
     }
     return debug_inline_parameter_frame_offset(mod, source, frame_offset);

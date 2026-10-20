@@ -7191,8 +7191,13 @@ remains a separate open item.
       adjustment and encode it in the frame-relative value expression; the
       regression checks the nonzero base offset (`+4`) in legacy and verified
       optimized i686/AMD64 DWARF.
+- [x] Preserve addresses of direct non-bitfield members and fixed-index array
+      elements rooted at addressable automatic objects. Accumulate the
+      non-virtual member and element byte offsets; regressions verify `+4` for
+      a member and `+16` for an array element in legacy and verified optimized
+      i686/AMD64 DWARF. Native-Windows `test-debug-info` passes.
 - [ ] Register-only or optimized-away sources, virtual-base/member-pointer
-      adjustments, subobject/member addresses, compound dynamic expressions,
+      adjustments, dynamic subobject indexes and pointer expressions,
       mutable-parameter tracking, and optimized register/piece tracking remain
       open; this does not implement general variable-location tracking.
 
