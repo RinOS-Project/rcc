@@ -74,6 +74,22 @@ int verified_branch_constructor_result() {
     return high.value * 100 + low.value;
 }
 
+struct VerifiedLoopConstructor {
+    int value;
+
+    explicit VerifiedLoopConstructor(int count) noexcept : value(0) {
+        for (int index = 0; index < count; ++index) {
+            value += index + 1;
+        }
+    }
+};
+
+int verified_loop_constructor_result() {
+    VerifiedLoopConstructor four(4);
+    VerifiedLoopConstructor zero(0);
+    return four.value * 100 + zero.value;
+}
+
 struct VerifiedBaseConstructor {
     int base_value;
 
@@ -202,14 +218,17 @@ int main() {
     if (verified_branch_constructor_result() != 2208) {
         return 4;
     }
-    if (verified_nontrivial_base_constructor_result() != 132132) {
+    if (verified_loop_constructor_result() != 1000) {
         return 5;
     }
-    if (verified_trivial_copy_result() != 571721281) {
+    if (verified_nontrivial_base_constructor_result() != 132132) {
         return 6;
     }
-    if (verified_expression_constructor_result() != 1317) {
+    if (verified_trivial_copy_result() != 571721281) {
         return 7;
+    }
+    if (verified_expression_constructor_result() != 1317) {
+        return 8;
     }
     return value != 43;
 }
