@@ -130,6 +130,39 @@ struct VerifiedBaseConversionResultSource {
     }
 };
 
+extern "C" {
+int verified_converted_virtual_cleanup_order;
+}
+
+struct VerifiedConvertedVirtualBase {
+    int value = 35;
+
+    ~VerifiedConvertedVirtualBase() noexcept {
+        verified_converted_virtual_cleanup_order =
+            verified_converted_virtual_cleanup_order * 10 + 1;
+    }
+};
+
+struct VerifiedConvertedVirtualPrefix {
+    int value;
+};
+
+struct VerifiedConvertedVirtualDerived :
+    VerifiedConvertedVirtualPrefix, virtual VerifiedConvertedVirtualBase {
+    int value = 33;
+
+    ~VerifiedConvertedVirtualDerived() noexcept {
+        verified_converted_virtual_cleanup_order =
+            verified_converted_virtual_cleanup_order * 10 + 2;
+    }
+};
+
+struct VerifiedVirtualBaseResultSource {
+    operator VerifiedConvertedVirtualDerived() const noexcept {
+        return {};
+    }
+};
+
 struct VerifiedFirstConstructorMember {
     int* cleanup_order;
 
@@ -501,6 +534,23 @@ extern "C" int verified_cxx_converted_base_lifetime() {
     if (observed_value != 35) return observed_value;
     if (cleanup_order != 21) return cleanup_order * 100;
     return 65719;
+}
+
+extern "C" int verified_cxx_converted_virtual_base_lifetime() {
+    verified_converted_virtual_cleanup_order = 0;
+    {
+        const VerifiedConvertedVirtualBase& value =
+            VerifiedVirtualBaseResultSource{};
+        VerifiedConvertedVirtualBase& mutable_value =
+            const_cast<VerifiedConvertedVirtualBase&>(value);
+        mutable_value.value = 35;
+        if (value.value != 35) return -32;
+        if (verified_converted_virtual_cleanup_order != 0) return -31;
+    }
+    if (verified_converted_virtual_cleanup_order != 21) {
+        return verified_converted_virtual_cleanup_order * 100;
+    }
+    return 65720;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {

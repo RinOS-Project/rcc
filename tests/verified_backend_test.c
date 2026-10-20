@@ -195,48 +195,48 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
                       size_t* mapping_size)
 {
     size_t page = verified_page_size();
-    size_t text_size;
-    size_t rodata_offset;
-    size_t rodata_size = 0u;
+    const ObjSection* relocation_sources[4];
+    size_t relocation_bases[4] = {0u, 0u, 0u, 0u};
+    int relocation_indices[4] = {-1, -1, -1, -1};
     size_t content_size;
     size_t trampoline_capacity = 0u;
     size_t trampoline_offset;
     size_t size;
-    int rodata_index = 0;
-    ObjSection* rodata;
-    const ObjSection* relocation_sources[2];
-    size_t relocation_bases[2];
     void* memory;
     assert(text != NULL && text->size != 0u && page != 0u);
-    assert(text->size <= (uint64_t)SIZE_MAX);
-    text_size = (size_t)text->size;
-    rodata_offset = text_size;
-    rodata = objfile_get_section(object, ".rodata");
-    if (rodata && rodata->size != 0u) {
-        size_t alignment = rodata->align ? rodata->align : 1u;
-        size_t remainder;
-        assert(rodata->size <= (uint64_t)SIZE_MAX);
-        assert((alignment & (alignment - 1u)) == 0u);
-        remainder = text_size & (alignment - 1u);
-        assert(text_size <= SIZE_MAX - remainder);
-        rodata_offset = remainder ?
-            text_size + alignment - remainder : text_size;
-        rodata_size = (size_t)rodata->size;
-        assert(rodata_offset <= SIZE_MAX - rodata_size);
-        for (ObjSection* section = object->sections; section;
-             section = section->next) {
-            if (section == rodata) break;
-            ++rodata_index;
-        }
-        assert(rodata_index < object->section_count);
-    }
-    assert(rodata_offset <= SIZE_MAX - rodata_size);
-    content_size = rodata_offset + rodata_size;
     relocation_sources[0] = text;
-    relocation_sources[1] = rodata;
-    relocation_bases[0] = 0u;
-    relocation_bases[1] = rodata_offset;
-    for (size_t source_index = 0u; source_index < 2u; ++source_index) {
+    relocation_sources[1] = objfile_get_section(object, ".rodata");
+    relocation_sources[2] = objfile_get_section(object, ".data");
+    relocation_sources[3] = objfile_get_section(object, ".bss");
+    content_size = 0u;
+    for (size_t source_index = 0u; source_index < 4u; ++source_index) {
+        const ObjSection* source = relocation_sources[source_index];
+        if (!source) continue;
+        size_t alignment = source->align ? source->align : 1u;
+        size_t remainder;
+        size_t section_size;
+        int section_index = 0;
+        assert(source->memory_size >= source->size &&
+               source->memory_size <= (uint64_t)SIZE_MAX &&
+               source->size <= (uint64_t)SIZE_MAX &&
+               (alignment & (alignment - 1u)) == 0u);
+        remainder = content_size & (alignment - 1u);
+        assert(content_size <= SIZE_MAX - remainder);
+        relocation_bases[source_index] = remainder
+            ? content_size + alignment - remainder : content_size;
+        section_size = (size_t)source->memory_size;
+        assert(relocation_bases[source_index] <= SIZE_MAX - section_size);
+        content_size = relocation_bases[source_index] + section_size;
+        for (ObjSection* section = object->sections; section;
+             section = section->next, ++section_index) {
+            if (section == source) {
+                relocation_indices[source_index] = section_index;
+                break;
+            }
+        }
+        assert(relocation_indices[source_index] >= 0);
+    }
+    for (size_t source_index = 0u; source_index < 4u; ++source_index) {
         const ObjSection* source = relocation_sources[source_index];
         if (!source) continue;
         for (ObjReloc* relocation = source->relocs; relocation;
@@ -254,12 +254,16 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
     size = ((content_size + (size_t)page - 1u) / page) * page;
     memory = verified_map(size);
     assert(memory != NULL);
-    memcpy(memory, text->data, text_size);
-    if (rodata_size) memcpy((uint8_t*)memory + rodata_offset,
-                            rodata->data, rodata_size);
+    for (size_t source_index = 0u; source_index < 4u; ++source_index) {
+        const ObjSection* source = relocation_sources[source_index];
+        if (source && source->size != 0u) {
+            memcpy((uint8_t*)memory + relocation_bases[source_index],
+                   source->data, (size_t)source->size);
+        }
+    }
     {
         for (size_t source_index = 0u;
-             source_index < 2u; ++source_index) {
+             source_index < 4u; ++source_index) {
             const ObjSection* source = relocation_sources[source_index];
             if (!source) continue;
             for (ObjReloc* relocation = source->relocs; relocation;
@@ -271,20 +275,35 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
                 int64_t target;
                 int64_t delta;
                 int32_t encoded;
+                bool mapped_symbol = false;
                 assert(symbol != NULL &&
                        relocation->offset <= source->size);
-                if (symbol->section == 0) {
-                    target_address = (uintptr_t)memory +
-                        (uintptr_t)symbol->value;
-                } else if (symbol->section == rodata_index &&
-                           rodata_size != 0u &&
-                           symbol->value <= rodata_size) {
-                    target_address = (uintptr_t)memory + rodata_offset +
-                        (uintptr_t)symbol->value;
+                if (symbol->section >= 0) {
+                    for (size_t target_index = 0u; target_index < 4u;
+                         ++target_index) {
+                        const ObjSection* target_section =
+                            relocation_sources[target_index];
+                        if (target_section &&
+                            relocation_indices[target_index] ==
+                                symbol->section &&
+                            symbol->value <= target_section->memory_size) {
+                            target_address = (uintptr_t)memory +
+                                relocation_bases[target_index] +
+                                (uintptr_t)symbol->value;
+                            mapped_symbol = true;
+                            break;
+                        }
+                    }
+                    if (!mapped_symbol) {
+                        fprintf(stderr,
+                                "unmapped verified test symbol '%s' in section %d\n",
+                                symbol->name, symbol->section);
+                        abort();
+                    }
                 } else {
                     void* external_address =
                         verified_runtime_import_address(symbol->name);
-                    if (symbol->section >= 0 || !external_address) {
+                    if (!external_address) {
                         fprintf(stderr,
                                 "unresolved verified test symbol '%s' in section %d\n",
                                 symbol->name, symbol->section);
@@ -340,7 +359,7 @@ static void* map_text(ObjectFile* object, const ObjSection* text,
             }
         }
     }
-    assert(verified_protect(memory, size, 0, 1) == 0);
+    assert(verified_protect(memory, size, 1, 1) == 0);
     *mapping_size = size;
     return memory;
 }
@@ -4599,6 +4618,7 @@ static void verify_cxx_throwing_temporary_object(
     ObjSymbol* base_conversion_receiver_symbol;
     ObjSymbol* virtual_base_conversion_receiver_symbol;
     ObjSymbol* converted_base_lifetime_symbol;
+    ObjSymbol* converted_virtual_base_lifetime_symbol;
     ObjSymbol* throwing_initializer_symbol;
     ObjSymbol* throwing_constructor_symbol;
     ObjSymbol* temporary_cleanup_symbol;
@@ -4616,6 +4636,8 @@ static void verify_cxx_throwing_temporary_object(
         object, "verified_cxx_virtual_base_conversion_receiver_cleanup");
     converted_base_lifetime_symbol = objfile_find_symbol(
         object, "verified_cxx_converted_base_lifetime");
+    converted_virtual_base_lifetime_symbol = objfile_find_symbol(
+        object, "verified_cxx_converted_virtual_base_lifetime");
     throwing_initializer_symbol = objfile_find_symbol(
         object, "verified_cxx_throwing_initializer_cleanup");
     throwing_constructor_symbol = objfile_find_symbol(
@@ -4640,6 +4662,9 @@ static void verify_cxx_throwing_temporary_object(
            converted_base_lifetime_symbol != NULL &&
            converted_base_lifetime_symbol->binding == BIND_CODE &&
            converted_base_lifetime_symbol->section == 0 &&
+           converted_virtual_base_lifetime_symbol != NULL &&
+           converted_virtual_base_lifetime_symbol->binding == BIND_CODE &&
+           converted_virtual_base_lifetime_symbol->section == 0 &&
            throwing_initializer_symbol != NULL &&
            throwing_initializer_symbol->binding == BIND_CODE &&
            throwing_initializer_symbol->section == 0 &&
@@ -4740,6 +4765,16 @@ static void verify_cxx_throwing_temporary_object(
                     result);
         }
         assert(result == 65719);
+        address = symbol_address(
+            memory, converted_virtual_base_lifetime_symbol);
+        memcpy(&no_arguments, &address, sizeof(no_arguments));
+        result = no_arguments();
+        if (result != 65720) {
+            fprintf(stderr,
+                    "verified converted virtual-base temporary lifetime returned %d, expected 65720\n",
+                    result);
+        }
+        assert(result == 65720);
         address = symbol_address(memory, throwing_initializer_symbol);
         memcpy(&integer_argument, &address, sizeof(integer_argument));
         assert(integer_argument(1) == 560);

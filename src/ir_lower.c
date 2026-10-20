@@ -15937,6 +15937,11 @@ static bool lower_cxx_emit_current_destructor_subobjects(
         context->unsupported = true;
         return false;
     }
+    /* For a class with virtual bases, sema expands complete-object cleanup
+     * into the destructor call plus an explicit reverse-order subobject plan.
+     * Keep this user destructor body limited to its own statements so the
+     * complete-object plan does not destroy bases and members twice. */
+    if (cls->virtual_base_count != 0) return true;
     /* Complex trees retain the existing caller-owned cleanup plan.  Only
      * emit child destruction in the destructor body when the complete
      * non-virtual noexcept path is available; otherwise marking this body
@@ -17994,6 +17999,16 @@ static bool lower_struct_initializer(
         context->unsupported = true;
         return false;
     }
+    if (type->kind == TYPE_STRUCT && type->cxx_class &&
+        !type->cxx_class->has_user_constructor &&
+        !type->cxx_class->constructors &&
+        type->cxx_class->has_field_initializer &&
+        !initializer->compound_init &&
+        lower_cxx_implicit_default_member_initializers_supported(type)) {
+        return lower_cxx_initialize_implicit_default_member_initializers(
+                   context, base, type) &&
+            lower_cxx_initialize_object_vtables(context, base, type);
+    }
     if (type->cxx_class && initializer->compound_constructor) {
         const CxxConstructorInitializer* member_initializer;
         RccIrLowerValue* constructor_arguments = NULL;
@@ -19146,11 +19161,35 @@ static bool lower_declaration(RccIrLowerContext* context,
                             context->unsupported = true;
                             return false;
                         }
-                        initializer = lower_virtual_base_member_pointer_object(
-                            context, initializer,
-                            declaration->var_init->cxx_virtual_base_pointer_offset,
-                            declaration->var_init->cxx_virtual_base_index,
-                            declaration->var_init->cxx_virtual_base_nested_adjustment);
+                        if (owner->type->cxx_class == source_class) {
+                            const CxxVirtualBaseInfo* virtual_base =
+                                &source_class->virtual_bases[
+                                    declaration->var_init->cxx_virtual_base_index];
+                            int nested_adjustment = declaration->var_init
+                                ->cxx_virtual_base_nested_adjustment;
+                            if (virtual_base->offset < 0 ||
+                                nested_adjustment < 0 ||
+                                virtual_base->offset > owner->type->size ||
+                                nested_adjustment > owner->type->size -
+                                    virtual_base->offset) {
+                                context->unsupported = true;
+                                return false;
+                            }
+                            initializer = lower_byte_offset_address(
+                                context, initializer,
+                                (uint64_t)virtual_base->offset +
+                                    (uint64_t)nested_adjustment);
+                        } else {
+                            initializer =
+                                lower_virtual_base_member_pointer_object(
+                                    context, initializer,
+                                    declaration->var_init
+                                        ->cxx_virtual_base_pointer_offset,
+                                    declaration->var_init
+                                        ->cxx_virtual_base_index,
+                                    declaration->var_init
+                                        ->cxx_virtual_base_nested_adjustment);
+                        }
                     } else if (!temporary_source &&
                                declaration->var_init->cxx_pointer_adjustment_valid) {
                         initializer = lower_adjusted_pointer(
