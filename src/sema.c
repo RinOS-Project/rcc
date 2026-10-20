@@ -2294,6 +2294,33 @@ static bool is_pointer_arithmetic_type(Type* type) {
            base->size > 0;
 }
 
+/* A VLA's complete object size is known at run time even though its
+ * translation-time `size` field is not positive.  Pointer ++/-- can use the
+ * extent captured for the variably-modified type at its declaration. */
+static bool is_complete_vla_object_type(Type* type) {
+    if (!type) return false;
+    if (type->kind == TYPE_ARRAY) {
+        if (!type->array_bound && type->array_len < 0) return false;
+        return is_complete_vla_object_type(type->base);
+    }
+    return type->kind != TYPE_VOID && type->kind != TYPE_FUNC &&
+           type->size > 0;
+}
+
+static bool is_vla_array_type(Type* type) {
+    return type && type->kind == TYPE_ARRAY &&
+           (type->array_bound || is_vla_array_type(type->base));
+}
+
+static bool is_pointer_increment_type(Type* type) {
+    Type* base = get_pointer_base(type);
+    return base && base->kind != TYPE_VOID && base->kind != TYPE_FUNC &&
+           (base->size > 0 ||
+            (base->kind == TYPE_ARRAY &&
+             is_vla_array_type(base) &&
+             is_complete_vla_object_type(base)));
+}
+
 static Type* generic_selection_type(Type* type) {
     if (!type) return NULL;
     if (type->kind == TYPE_ARRAY) return type_ptr(type->base);
@@ -14793,7 +14820,7 @@ static Type* sema_expr(Expr* expr) {
                           "increment/decrement requires modifiable lvalue");
             }
             if (!type_is_arithmetic(t) &&
-                !(type_is_pointer(t) && is_pointer_arithmetic_type(t))) {
+                !(type_is_pointer(t) && is_pointer_increment_type(t))) {
                 rcc_error(expr->loc,
                           "increment/decrement requires arithmetic or object pointer type");
             }

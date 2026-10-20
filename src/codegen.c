@@ -4807,6 +4807,12 @@ static void gen_vla_extent_for_expr(Module* mod, Type* type,
     }
 }
 
+static bool pointer_stride_is_dynamic(const Type* type) {
+    return type && type->kind == TYPE_PTR && type->base &&
+           type->base->kind == TYPE_ARRAY &&
+           codegen_type_has_vla(type->base);
+}
+
 static void gen_vla_alloc(Module* mod, Decl* decl) {
     int slot_index = 0;
     gen_vla_extents(mod, decl->type, decl, &slot_index);
@@ -13235,6 +13241,7 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 expr->unary_operand->type->is_atomic) {
                 Type* type = expr->unary_operand->type;
                 uint32_t increment = codegen_increment_size(type);
+                bool dynamic_increment = pointer_stride_is_dynamic(type);
                 if (type->size == 8) {
                     rcc_error(expr->loc,
                               "i686 atomic 64-bit ++/-- requires a supported RMW lowering");
@@ -13246,9 +13253,22 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                               "atomic ++/-- requires an integer or pointer object");
                     break;
                 }
+                if (dynamic_increment) {
+                    gen_vla_extent_for_expr(
+                        mod, type->base, expr->unary_operand);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                }
                 gen_lvalue(mod, expr->unary_operand);
                 emit_mov_reg_reg(mod, ECX, EAX);
-                emit_mov_reg_imm(mod, EAX, increment);
+                if (dynamic_increment) {
+                    emit_add_reg_imm(mod, ESP, 12);
+                    emit_pop_reg(mod, EAX);
+                } else {
+                    emit_mov_reg_imm(mod, EAX, increment);
+                }
                 if (expr->kind == EXPR_PREDEC) emit_neg_reg(mod, EAX);
                 emit_mov_reg_reg(mod, EDX, EAX);
                 emit_atomic_xadd_width(mod, EAX, ECX, type);
@@ -13271,18 +13291,37 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 emit_store_floating_raw(mod, expr->type, ECX, 0);
                 break;
             }
-            gen_lvalue(mod, expr->unary_operand);
-            emit_push_reg(mod, EAX);
-            emit_load_typed32(mod, EAX, EAX, 0, expr->type);
-            if (expr->kind == EXPR_PREINC) {
-                emit_add_reg_imm(mod, EAX,
-                                 (int)codegen_increment_size(expr->type));
-            } else {
-                emit_sub_reg_imm(mod, EAX,
-                                 (int)codegen_increment_size(expr->type));
+            {
+                bool dynamic_increment = pointer_stride_is_dynamic(expr->type);
+                if (dynamic_increment) {
+                    gen_vla_extent_for_expr(
+                        mod, expr->type->base, expr->unary_operand);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                }
+                gen_lvalue(mod, expr->unary_operand);
+                emit_push_reg(mod, EAX);
+                emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                if (dynamic_increment) {
+                    emit_mov_reg_mem(mod, ECX, ESP, 16);
+                    if (expr->kind == EXPR_PREINC) {
+                        emit_add_reg_reg(mod, EAX, ECX);
+                    } else {
+                        emit_sub_reg_reg(mod, EAX, ECX);
+                    }
+                } else if (expr->kind == EXPR_PREINC) {
+                    emit_add_reg_imm(mod, EAX,
+                                     (int)codegen_increment_size(expr->type));
+                } else {
+                    emit_sub_reg_imm(mod, EAX,
+                                     (int)codegen_increment_size(expr->type));
+                }
+                emit_pop_reg(mod, ECX);
+                emit_store_typed32(mod, ECX, 0, EAX, expr->type);
+                if (dynamic_increment) emit_add_reg_imm(mod, ESP, 16);
             }
-            emit_pop_reg(mod, ECX);
-            emit_store_typed32(mod, ECX, 0, EAX, expr->type);
             break;
 
         case EXPR_POSTINC:
@@ -13310,6 +13349,7 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 expr->unary_operand->type->is_atomic) {
                 Type* type = expr->unary_operand->type;
                 uint32_t increment = codegen_increment_size(type);
+                bool dynamic_increment = pointer_stride_is_dynamic(type);
                 if (type->size == 8) {
                     rcc_error(expr->loc,
                               "i686 atomic 64-bit ++/-- requires a supported RMW lowering");
@@ -13321,9 +13361,22 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                               "atomic ++/-- requires an integer or pointer object");
                     break;
                 }
+                if (dynamic_increment) {
+                    gen_vla_extent_for_expr(
+                        mod, type->base, expr->unary_operand);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                }
                 gen_lvalue(mod, expr->unary_operand);
                 emit_mov_reg_reg(mod, ECX, EAX);
-                emit_mov_reg_imm(mod, EAX, increment);
+                if (dynamic_increment) {
+                    emit_add_reg_imm(mod, ESP, 12);
+                    emit_pop_reg(mod, EAX);
+                } else {
+                    emit_mov_reg_imm(mod, EAX, increment);
+                }
                 if (expr->kind == EXPR_POSTDEC) emit_neg_reg(mod, EAX);
                 emit_mov_reg_reg(mod, EDX, EAX);
                 emit_atomic_xadd_width(mod, EAX, ECX, type);
@@ -13357,19 +13410,38 @@ static void gen_expr_raw(Module* mod, Expr* expr) {
                 }
                 break;
             }
-            gen_lvalue(mod, expr->unary_operand);
-            emit_push_reg(mod, EAX);
-            emit_load_typed32(mod, EAX, EAX, 0, expr->type);
-            emit_mov_reg_reg(mod, EDX, EAX);
-            if (expr->kind == EXPR_POSTINC) {
-                emit_add_reg_imm(mod, EDX,
-                                 (int)codegen_increment_size(expr->type));
-            } else {
-                emit_sub_reg_imm(mod, EDX,
-                                 (int)codegen_increment_size(expr->type));
+            {
+                bool dynamic_increment = pointer_stride_is_dynamic(expr->type);
+                if (dynamic_increment) {
+                    gen_vla_extent_for_expr(
+                        mod, expr->type->base, expr->unary_operand);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                    emit_push_reg(mod, EAX);
+                }
+                gen_lvalue(mod, expr->unary_operand);
+                emit_push_reg(mod, EAX);
+                emit_load_typed32(mod, EAX, EAX, 0, expr->type);
+                emit_mov_reg_reg(mod, EDX, EAX);
+                if (dynamic_increment) {
+                    emit_mov_reg_mem(mod, ECX, ESP, 16);
+                    if (expr->kind == EXPR_POSTINC) {
+                        emit_add_reg_reg(mod, EDX, ECX);
+                    } else {
+                        emit_sub_reg_reg(mod, EDX, ECX);
+                    }
+                } else if (expr->kind == EXPR_POSTINC) {
+                    emit_add_reg_imm(mod, EDX,
+                                     (int)codegen_increment_size(expr->type));
+                } else {
+                    emit_sub_reg_imm(mod, EDX,
+                                     (int)codegen_increment_size(expr->type));
+                }
+                emit_pop_reg(mod, ECX);
+                emit_store_typed32(mod, ECX, 0, EDX, expr->type);
+                if (dynamic_increment) emit_add_reg_imm(mod, ESP, 16);
             }
-            emit_pop_reg(mod, ECX);
-            emit_store_typed32(mod, ECX, 0, EDX, expr->type);
             break;
 
         case EXPR_ADD:

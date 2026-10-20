@@ -7735,3 +7735,19 @@ remains a separate open item.
       with zero fallback; the legacy `sizeof` regression executes at `-O1` and
       `-O2`. `test-verified-vla-local-bound`, `test-verified-atomic-vla-rmw`,
       `test-optimize`, and `test-ir` pass on native Windows.
+
+## RCC continuation (2026-10-21, pointer-to-VLA increment strides)
+
+- [x] Permit prefix/postfix increment and decrement for pointers to complete
+      VLA element types. Legacy i686/AMD64 lowering uses the declaration's
+      saved runtime extent for both atomic and non-atomic pointers; the VLA
+      atomic regression covers postfix increment and prefix decrement results.
+- [x] `test-verified-atomic-vla-rmw` compiles i686/AMD64 at `-O0`/`-O2` and
+      executes the AMD64 objects at both optimization levels. The tested VLA
+      function changes the bound variable after pointer declaration to verify
+      the saved stride, and uses the complete legacy backend through the
+      verified backend's existing fallback; the gate checks fallback count and
+      execution rather than claiming typed-SSA coverage.
+- [ ] Typed-SSA lowering for dynamic VLA pointer strides remains open, as do
+      explicit memory orders, other RMW operators, floating/aggregate atomics,
+      general C++ atomic operations, and broader VLA pointer arithmetic.

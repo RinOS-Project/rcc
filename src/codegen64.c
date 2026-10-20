@@ -1338,6 +1338,12 @@ static void gen64_vla_extent_for_expr(Module* mod, Type* type,
     }
 }
 
+static bool gen64_pointer_stride_is_dynamic(const Type* type) {
+    return type && type->kind == TYPE_PTR && type->base &&
+           type->base->kind == TYPE_ARRAY &&
+           gen64_type_has_vla(type->base);
+}
+
 static void gen64_vla_alloc(Module* mod, Decl* decl) {
     int slot_index = 0;
     gen64_vla_extents(mod, decl->type, decl, &slot_index);
@@ -7686,15 +7692,28 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 expr->unary_operand->type->is_atomic) {
                 Type* type = expr->unary_operand->type;
                 uint32_t increment = gen64_increment_size(type);
+                bool dynamic_increment =
+                    gen64_pointer_stride_is_dynamic(type);
                 if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
                     type->kind != TYPE_PTR) {
                     rcc_error(expr->loc,
                               "atomic ++/-- requires an integer or pointer object");
                     break;
                 }
+                if (dynamic_increment) {
+                    gen64_vla_extent_for_expr(
+                        mod, type->base, expr->unary_operand);
+                    emit64_push_reg(mod, RAX);
+                    emit64_push_reg(mod, RAX);
+                }
                 gen64_lvalue(mod, expr->unary_operand);
                 emit64_mov_reg_reg(mod, RCX, RAX);
-                emit64_mov_reg_imm64(mod, RAX, increment);
+                if (dynamic_increment) {
+                    emit64_add_reg_imm(mod, RSP, 8);
+                    emit64_pop_reg(mod, RAX);
+                } else {
+                    emit64_mov_reg_imm64(mod, RAX, increment);
+                }
                 if (expr->kind == EXPR_PREDEC) emit64_neg_reg(mod, RAX);
                 emit64_mov_reg_reg(mod, RDX, RAX);
                 emit64_atomic_xadd_width(mod, RAX, RCX, type);
@@ -7712,18 +7731,36 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                                     expr->kind == EXPR_PREDEC, false);
                 break;
             }
-            gen64_lvalue(mod, expr->unary_operand);
-            emit64_push_reg(mod, RAX);
-            emit64_load_typed(mod, RAX, RAX, 0, expr->type);
-            if (expr->kind == EXPR_PREINC) {
-                emit64_add_reg_imm(
-                    mod, RAX, (int32_t)gen64_increment_size(expr->type));
-            } else {
-                emit64_sub_reg_imm(
-                    mod, RAX, (int32_t)gen64_increment_size(expr->type));
+            {
+                bool dynamic_increment =
+                    gen64_pointer_stride_is_dynamic(expr->type);
+                if (dynamic_increment) {
+                    gen64_vla_extent_for_expr(
+                        mod, expr->type->base, expr->unary_operand);
+                    emit64_push_reg(mod, RAX);
+                    emit64_push_reg(mod, RAX);
+                }
+                gen64_lvalue(mod, expr->unary_operand);
+                emit64_push_reg(mod, RAX);
+                emit64_load_typed(mod, RAX, RAX, 0, expr->type);
+                if (dynamic_increment) {
+                    emit64_mov_reg_mem(mod, RCX, RSP, 16);
+                    if (expr->kind == EXPR_PREINC) {
+                        emit64_add_reg_reg(mod, RAX, RCX);
+                    } else {
+                        emit64_sub_reg_reg(mod, RAX, RCX);
+                    }
+                } else if (expr->kind == EXPR_PREINC) {
+                    emit64_add_reg_imm(
+                        mod, RAX, (int32_t)gen64_increment_size(expr->type));
+                } else {
+                    emit64_sub_reg_imm(
+                        mod, RAX, (int32_t)gen64_increment_size(expr->type));
+                }
+                emit64_pop_reg(mod, RCX);
+                emit64_store_typed(mod, RCX, 0, RAX, expr->type);
+                if (dynamic_increment) emit64_add_reg_imm(mod, RSP, 16);
             }
-            emit64_pop_reg(mod, RCX);
-            emit64_store_typed(mod, RCX, 0, RAX, expr->type);
             break;
 
         case EXPR_POSTINC:
@@ -7751,15 +7788,28 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                 expr->unary_operand->type->is_atomic) {
                 Type* type = expr->unary_operand->type;
                 uint32_t increment = gen64_increment_size(type);
+                bool dynamic_increment =
+                    gen64_pointer_stride_is_dynamic(type);
                 if (!type_is_integer(type) && type->kind != TYPE_ENUM &&
                     type->kind != TYPE_PTR) {
                     rcc_error(expr->loc,
                               "atomic ++/-- requires an integer or pointer object");
                     break;
                 }
+                if (dynamic_increment) {
+                    gen64_vla_extent_for_expr(
+                        mod, type->base, expr->unary_operand);
+                    emit64_push_reg(mod, RAX);
+                    emit64_push_reg(mod, RAX);
+                }
                 gen64_lvalue(mod, expr->unary_operand);
                 emit64_mov_reg_reg(mod, RCX, RAX);
-                emit64_mov_reg_imm64(mod, RAX, increment);
+                if (dynamic_increment) {
+                    emit64_add_reg_imm(mod, RSP, 8);
+                    emit64_pop_reg(mod, RAX);
+                } else {
+                    emit64_mov_reg_imm64(mod, RAX, increment);
+                }
                 if (expr->kind == EXPR_POSTDEC) emit64_neg_reg(mod, RAX);
                 emit64_mov_reg_reg(mod, RDX, RAX);
                 emit64_atomic_xadd_width(mod, RAX, RCX, type);
@@ -7773,19 +7823,37 @@ static void gen64_expr_raw(Module* mod, Expr* expr) {
                                     expr->kind == EXPR_POSTDEC, true);
                 break;
             }
-            gen64_lvalue(mod, expr->unary_operand);
-            emit64_push_reg(mod, RAX);
-            emit64_load_typed(mod, RAX, RAX, 0, expr->type);
-            emit64_mov_reg_reg(mod, RDX, RAX);
-            if (expr->kind == EXPR_POSTINC) {
-                emit64_add_reg_imm(
-                    mod, RDX, (int32_t)gen64_increment_size(expr->type));
-            } else {
-                emit64_sub_reg_imm(
-                    mod, RDX, (int32_t)gen64_increment_size(expr->type));
+            {
+                bool dynamic_increment =
+                    gen64_pointer_stride_is_dynamic(expr->type);
+                if (dynamic_increment) {
+                    gen64_vla_extent_for_expr(
+                        mod, expr->type->base, expr->unary_operand);
+                    emit64_push_reg(mod, RAX);
+                    emit64_push_reg(mod, RAX);
+                }
+                gen64_lvalue(mod, expr->unary_operand);
+                emit64_push_reg(mod, RAX);
+                emit64_load_typed(mod, RAX, RAX, 0, expr->type);
+                emit64_mov_reg_reg(mod, RDX, RAX);
+                if (dynamic_increment) {
+                    emit64_mov_reg_mem(mod, RCX, RSP, 16);
+                    if (expr->kind == EXPR_POSTINC) {
+                        emit64_add_reg_reg(mod, RDX, RCX);
+                    } else {
+                        emit64_sub_reg_reg(mod, RDX, RCX);
+                    }
+                } else if (expr->kind == EXPR_POSTINC) {
+                    emit64_add_reg_imm(
+                        mod, RDX, (int32_t)gen64_increment_size(expr->type));
+                } else {
+                    emit64_sub_reg_imm(
+                        mod, RDX, (int32_t)gen64_increment_size(expr->type));
+                }
+                emit64_pop_reg(mod, RCX);
+                emit64_store_typed(mod, RCX, 0, RDX, expr->type);
+                if (dynamic_increment) emit64_add_reg_imm(mod, RSP, 16);
             }
-            emit64_pop_reg(mod, RCX);
-            emit64_store_typed(mod, RCX, 0, RDX, expr->type);
             break;
 
         case EXPR_ADD:
