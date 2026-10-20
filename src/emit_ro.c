@@ -4957,12 +4957,12 @@ static bool debug_inline_frame_integer_index_source(
     const Expr* index = expression;
     const Type* converted_type;
     const Type* narrowest_type = NULL;
-    const Type* outer_cast_source_type = NULL;
     const Decl* source;
     uint8_t narrowest_width = 0u;
     uint8_t conversion_width = 0u;
     unsigned int outer_cast_count = 0u;
-    bool outer_cast_seen = false;
+    unsigned int narrowing_cast_count = 0u;
+    bool outer_cast_chain_compatible = true;
     if (!index || !declaration || !value_type || !index->type ||
         !unsigned_conversion_width || address_size == 0u ||
         address_size > 8u) {
@@ -4978,10 +4978,6 @@ static bool debug_inline_frame_integer_index_source(
     }
     while (index->kind == EXPR_CAST && index->cast_expr) {
         const Type* cast_source = index->cast_expr->type;
-        if (!outer_cast_seen) {
-            outer_cast_source_type = cast_source;
-            outer_cast_seen = true;
-        }
         /* A signed source widened to unsigned needs a destination-width mask
          * below address width; at address width, sign extension is already
          * the required modulo conversion. */
@@ -5008,13 +5004,27 @@ static bool debug_inline_frame_integer_index_source(
             }
             conversion_width = (uint8_t)converted_type->size;
         }
-        if (cast_source->size > converted_type->size &&
-            (narrowest_width == 0u ||
-             converted_type->size < (int)narrowest_width)) {
-            narrowest_width = (uint8_t)converted_type->size;
-            narrowest_type = converted_type;
+        if (cast_source->size > converted_type->size) {
+            ++narrowing_cast_count;
+            if (narrowest_width == 0u ||
+                converted_type->size < (int)narrowest_width) {
+                narrowest_width = (uint8_t)converted_type->size;
+                narrowest_type = converted_type;
+            }
         } else if (narrowest_width == 0u) {
             ++outer_cast_count;
+            if (cast_source->size == converted_type->size) {
+                if (cast_source->is_unsigned !=
+                    converted_type->is_unsigned) {
+                    outer_cast_chain_compatible = false;
+                }
+            } else if (cast_source->is_unsigned !=
+                           converted_type->is_unsigned &&
+                       !cast_source->is_unsigned &&
+                       (!converted_type->is_unsigned ||
+                        converted_type->size > (int)address_size)) {
+                outer_cast_chain_compatible = false;
+            }
         }
         converted_type = cast_source;
         index = index->cast_expr;
@@ -5041,15 +5051,12 @@ static bool debug_inline_frame_integer_index_source(
             *value_type = expression->type;
             return true;
         }
-        if (!narrowest_type || outer_cast_count != 1u ||
-            !outer_cast_source_type ||
-            outer_cast_source_type->size != narrowest_type->size ||
-            outer_cast_source_type->is_unsigned !=
-                narrowest_type->is_unsigned) {
+        if (!narrowest_type || narrowing_cast_count != 1u ||
+            outer_cast_count == 0u || !outer_cast_chain_compatible) {
             return false;
         }
         if (conversion_width != 0u) {
-            if (narrowest_type->is_unsigned ||
+            if (outer_cast_count != 1u || narrowest_type->is_unsigned ||
                 !expression->type->is_unsigned ||
                 expression->type->size != (int)conversion_width ||
                 conversion_width >= address_size) {

@@ -8625,6 +8625,30 @@ int main(int argc, char** argv)
         2u, true, 4u, false);
     verify_cxx_inline_automatic_pointer_index(
         argv[40], ARCH_X86,
+        "debug_inline_automatic_pointer_multistage_signed_widen_index_entry",
+        "debug_inline_automatic_pointer_multistage_signed_widen_source",
+        "debug_inline_automatic_multistage_signed_widen_index", 0, true,
+        2u, false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[41], ARCH_X64,
+        "debug_inline_automatic_pointer_multistage_signed_widen_index_entry",
+        "debug_inline_automatic_pointer_multistage_signed_widen_source",
+        "debug_inline_automatic_multistage_signed_widen_index", 0, true,
+        2u, false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[42], ARCH_X86,
+        "debug_inline_automatic_pointer_multistage_signed_widen_index_entry",
+        "debug_inline_automatic_pointer_multistage_signed_widen_source",
+        "debug_inline_automatic_multistage_signed_widen_index", 0, true,
+        2u, false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[43], ARCH_X64,
+        "debug_inline_automatic_pointer_multistage_signed_widen_index_entry",
+        "debug_inline_automatic_pointer_multistage_signed_widen_source",
+        "debug_inline_automatic_multistage_signed_widen_index", 0, true,
+        2u, false, 4u, false);
+    verify_cxx_inline_automatic_pointer_index(
+        argv[40], ARCH_X86,
         "debug_inline_automatic_pointer_index_sub_entry",
         "debug_inline_automatic_pointer_index_sub_source",
         "debug_inline_automatic_index_sub_source", 0, true, 4u, true, 4u,
