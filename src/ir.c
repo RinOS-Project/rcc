@@ -857,17 +857,24 @@ static bool ir_verify_instruction_types(
             return true;
         case RCC_IR_ATOMIC_FETCH_ADD:
             if (!ir_require_shape(verifier, instruction, 2u, 0u) ||
-                instruction->type.kind != RCC_IR_TYPE_INTEGER ||
-                (instruction->type.bit_width != 8u &&
+                (instruction->type.kind == RCC_IR_TYPE_INTEGER &&
+                 instruction->type.bit_width != 8u &&
                  instruction->type.bit_width != 16u &&
                  instruction->type.bit_width != 32u &&
                  instruction->type.bit_width != 64u) ||
+                (instruction->type.kind != RCC_IR_TYPE_INTEGER &&
+                 instruction->type.kind != RCC_IR_TYPE_POINTER) ||
                 !ir_value_type(verifier, instruction->operands[0], &first) ||
                 !ir_value_type(verifier, instruction->operands[1], &second)) {
                 return false;
             }
             if (first.kind != RCC_IR_TYPE_POINTER ||
-                !rcc_ir_type_equal(second, instruction->type)) {
+                (instruction->type.kind == RCC_IR_TYPE_INTEGER &&
+                 !rcc_ir_type_equal(second, instruction->type)) ||
+                (instruction->type.kind == RCC_IR_TYPE_POINTER &&
+                 (second.kind != RCC_IR_TYPE_INTEGER ||
+                  (second.bit_width != 32u &&
+                   second.bit_width != 64u)))) {
                 return ir_verify_error(
                     verifier,
                     "atomic_fetch_add requires an integer delta and pointer address");

@@ -2093,6 +2093,71 @@ static RccIrLowerValue lower_pointer_offset(
     return lower_value(instruction->result, rcc_ir_type_pointer(0u), true);
 }
 
+static RccIrLowerValue lower_atomic_pointer_delta(
+    RccIrLowerContext* context, RccIrLowerValue index,
+    const Type* pointer_type, bool subtract_index) {
+    Type* pointer_integer_type = g_opts.target_arch == ARCH_X64
+        ? type_ulong : type_uint;
+    RccIrType pointer_integer;
+    RccIrLowerValue scale;
+    RccIrLowerValue scaled;
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    if (!pointer_type || pointer_type->kind != TYPE_PTR ||
+        !pointer_type->base || pointer_type->base->size <= 0 ||
+        (uint64_t)pointer_type->base->size > (uint64_t)INT32_MAX ||
+        !lower_type(pointer_integer_type, &pointer_integer) ||
+        pointer_integer.kind != RCC_IR_TYPE_INTEGER || !index.valid ||
+        index.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    index = lower_cast(context, index, pointer_integer_type);
+    scale = lower_integer_constant(
+        context, pointer_integer, true,
+        (uint64_t)pointer_type->base->size);
+    if (!index.valid || !scale.valid) return lower_invalid_value();
+    operands[0] = index.value;
+    operands[1] = scale.value;
+    instruction = lower_append(
+        context, RCC_IR_MUL, pointer_integer, operands, 2u, NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    scaled = lower_value(instruction->result, pointer_integer, true);
+    if (subtract_index) {
+        RccIrLowerValue zero = lower_integer_constant(
+            context, pointer_integer, true, 0u);
+        if (!zero.valid) return lower_invalid_value();
+        operands[0] = zero.value;
+        operands[1] = scaled.value;
+        instruction = lower_append(
+            context, RCC_IR_SUB, pointer_integer, operands, 2u, NULL, 0u);
+        if (!instruction) return lower_invalid_value();
+        scaled = lower_value(instruction->result, pointer_integer, true);
+    }
+    return scaled;
+}
+
+static RccIrLowerValue lower_atomic_pointer_result(
+    RccIrLowerContext* context, RccIrLowerValue pointer,
+    RccIrLowerValue byte_delta) {
+    RccIrValue operands[2];
+    RccIrInstruction* instruction;
+    if (!pointer.valid || pointer.type.kind != RCC_IR_TYPE_POINTER ||
+        !byte_delta.valid || byte_delta.type.kind != RCC_IR_TYPE_INTEGER) {
+        context->unsupported = true;
+        return lower_invalid_value();
+    }
+    operands[0] = pointer.value;
+    operands[1] = byte_delta.value;
+    instruction = lower_append(
+        context, RCC_IR_GEP, rcc_ir_type_pointer(0u),
+        operands, 2u, NULL, 0u);
+    if (!instruction) return lower_invalid_value();
+    rcc_ir_set_immediate(instruction, 1u);
+    return lower_value(
+        instruction->result, rcc_ir_type_pointer(0u), true);
+}
+
 static RccIrLowerValue lower_pointer_gep(
     RccIrLowerContext* context, const Expr* pointer_expression,
     const Expr* index_expression, bool subtract_index) {
@@ -6769,6 +6834,41 @@ static RccIrLowerValue lower_compound_assignment(
     }
     if (expression->binary_lhs->type->is_atomic) {
         RccIrType atomic_type;
+        if (expression->binary_lhs->type->kind == TYPE_PTR) {
+            RccIrLowerValue delta;
+            RccIrLowerValue old_pointer;
+            RccIrLowerValue byte_delta;
+            RccIrInstruction* fetch_add;
+            if ((expression->kind != EXPR_ADD_ASSIGN &&
+                 expression->kind != EXPR_SUB_ASSIGN) ||
+                !lower_type(expression->binary_lhs->type, &atomic_type) ||
+                atomic_type.kind != RCC_IR_TYPE_POINTER) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            address = lower_lvalue_address(
+                context, expression->binary_lhs);
+            delta = lower_expression(context, expression->binary_rhs);
+            if (!address.valid || !delta.valid ||
+                delta.type.kind != RCC_IR_TYPE_INTEGER) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            byte_delta = lower_atomic_pointer_delta(
+                context, delta, expression->binary_lhs->type,
+                expression->kind == EXPR_SUB_ASSIGN);
+            if (!byte_delta.valid) return lower_invalid_value();
+            operands[0] = address.value;
+            operands[1] = byte_delta.value;
+            fetch_add = lower_append(
+                context, RCC_IR_ATOMIC_FETCH_ADD, atomic_type,
+                operands, 2u, NULL, 0u);
+            if (!fetch_add) return lower_invalid_value();
+            old_pointer = lower_value(
+                fetch_add->result, atomic_type, true);
+            return lower_atomic_pointer_result(
+                context, old_pointer, byte_delta);
+        }
         RccIrLowerValue delta;
         RccIrLowerValue converted_delta;
         RccIrLowerValue old_value;
@@ -6943,6 +7043,44 @@ static RccIrLowerValue lower_increment(RccIrLowerContext* context,
     }
     if (expression->unary_operand->type->is_atomic) {
         RccIrType atomic_type;
+        if (expression->unary_operand->type->kind == TYPE_PTR) {
+            RccIrLowerValue one;
+            RccIrLowerValue byte_delta;
+            RccIrLowerValue old_pointer;
+            RccIrValue pointer_operands[2];
+            Type* pointer_integer_type =
+                g_opts.target_arch == ARCH_X64 ? type_ulong : type_uint;
+            RccIrType pointer_integer_ir_type;
+            RccIrInstruction* fetch_add;
+            if (!lower_type(
+                    expression->unary_operand->type, &atomic_type) ||
+                atomic_type.kind != RCC_IR_TYPE_POINTER ||
+                !lower_type(pointer_integer_type,
+                            &pointer_integer_ir_type)) {
+                context->unsupported = true;
+                return lower_invalid_value();
+            }
+            address = lower_lvalue_address(
+                context, expression->unary_operand);
+            if (!address.valid) return lower_invalid_value();
+            one = lower_integer_constant(
+                context, pointer_integer_ir_type, true, 1u);
+            if (!one.valid) return lower_invalid_value();
+            byte_delta = lower_atomic_pointer_delta(
+                context, one, expression->unary_operand->type, !increment);
+            if (!byte_delta.valid) return lower_invalid_value();
+            pointer_operands[0] = address.value;
+            pointer_operands[1] = byte_delta.value;
+            fetch_add = lower_append(
+                context, RCC_IR_ATOMIC_FETCH_ADD, atomic_type,
+                pointer_operands, 2u, NULL, 0u);
+            if (!fetch_add) return lower_invalid_value();
+            old_pointer = lower_value(
+                fetch_add->result, atomic_type, true);
+            if (postfix) return old_pointer;
+            return lower_atomic_pointer_result(
+                context, old_pointer, byte_delta);
+        }
         RccIrValue delta_value;
         RccIrValue rmw_operands[2];
         RccIrInstruction* fetch_add;

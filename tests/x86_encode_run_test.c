@@ -336,6 +336,56 @@ static void verify_atomic_fetch_add_16(void)
     rcc_ir_module_destroy(module);
 }
 
+static RccX86EncodedFunction encode_atomic_pointer_fetch_add(
+    RccX86Target target)
+{
+    RccIrType pointer = rcc_ir_type_pointer(0u);
+    RccIrType delta = rcc_ir_type_integer(
+        target == RCC_X86_TARGET_X86_64 ? 64u : 32u);
+    RccIrType parameters[] = {pointer, delta};
+    RccIrModule* module = rcc_ir_module_create();
+    RccIrFunction* ir = rcc_ir_function_add(
+        module, "encoded_atomic_pointer_fetch_add", pointer,
+        parameters, 2u);
+    RccIrBlock* entry = rcc_ir_block_add(ir, "entry");
+    RccIrValue rmw_operands[] = {ir->parameters[0], ir->parameters[1]};
+    RccIrInstruction* fetch_add = rcc_ir_append(
+        entry, RCC_IR_ATOMIC_FETCH_ADD, pointer,
+        rmw_operands, 2u, NULL, 0u);
+    RccX86EncodedFunction encoded;
+    assert(fetch_add != NULL);
+    assert(rcc_ir_append(entry, RCC_IR_RETURN, rcc_ir_type_void(),
+                         &fetch_add->result, 1u, NULL, 0u) != NULL);
+    encoded = encode_function_for_target(ir, target);
+    rcc_ir_module_destroy(module);
+    return encoded;
+}
+
+static void verify_atomic_pointer_fetch_add(void)
+{
+    RccX86EncodedFunction x86 = encode_atomic_pointer_fetch_add(
+        RCC_X86_TARGET_I686);
+    RccX86EncodedFunction x64 = encode_atomic_pointer_fetch_add(
+        RCC_X86_TARGET_X86_64);
+    size_t mapping_size;
+    void* memory;
+    uint32_t values[4] = {0u, 0u, 0u, 0u};
+    uint32_t* current = values;
+    uint32_t* (RCC_TEST_ABI *fetch_add)(uint32_t**, uint64_t);
+    assert(encoded_has_lock_xadd(&x86));
+    assert(encoded_has_lock_xadd(&x64));
+    rcc_x86_encoded_function_release(&x86);
+    memory = map_code(&x64, &mapping_size);
+    memcpy(&fetch_add, &memory, sizeof(fetch_add));
+    assert(fetch_add(&current, sizeof(uint32_t) * 2u) == values);
+    assert(current == values + 2u);
+    assert(fetch_add(&current, 0u - (uint64_t)sizeof(uint32_t)) ==
+           values + 2u);
+    assert(current == values + 1u);
+    assert(executable_unmap(memory, mapping_size) == 0);
+    rcc_x86_encoded_function_release(&x64);
+}
+
 static void* map_code(const RccX86EncodedFunction* encoded,
                       size_t* mapping_size)
 {
@@ -870,6 +920,7 @@ int main(int argc, char** argv)
     verify_atomic_fetch_add_64();
     verify_atomic_fetch_add_8();
     verify_atomic_fetch_add_16();
+    verify_atomic_pointer_fetch_add();
     verify_aligned_alloca_offset(RCC_X86_TARGET_I686, 8u);
     verify_aligned_alloca_offset(RCC_X86_TARGET_X86_64, 0u);
     puts("Native legal-IR x86 encoding execution tests passed");

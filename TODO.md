@@ -6747,8 +6747,8 @@ remains a separate open item.
       x64 execution, and a GCC C17 host oracle.
 - [ ] Remaining typed-SSA VLA gaps include aggregate initialization/copy forms
       beyond the covered fixed-local, VLA-element, nested-structure, and
-      designated-literal cases; atomic RMW and atomic types beyond direct
-      `_Atomic int` loads/stores; C++ class lifetime hooks; and broader
+      designated-literal cases; atomic operations/types beyond the scalar and
+      fixed-size-pointer fetch-add subset; C++ class lifetime hooks; and broader
       cleanup/unwind plus goto/loop-edge combinations.
 
 ## RCC continuation (2026-10-19, inherited conversion-function ranking)
@@ -6797,10 +6797,10 @@ remains a separate open item.
       verified-backend generation with zero fallbacks and x64 object execution.
       IR, lowering, classic VLA-runtime, and dual-architecture stage0-to-stage2
       bootstrap gates pass. RCC `main` commit: `6b25abe`. No push.
-- [ ] Additional VLA aggregate initialization/copy forms, typed-SSA atomic RMW
-      and atomic types beyond direct `_Atomic int` loads/stores, C++ class
-      lifetime lowering, and cleanup/unwind/control-flow interactions remain
-      open.
+- [ ] Additional VLA aggregate initialization/copy forms, typed-SSA atomic
+      operations/types beyond the scalar and fixed-size-pointer fetch-add
+      subset, C++ class lifetime lowering, and cleanup/unwind/control-flow
+      interactions remain open.
 
 ## RCC continuation (2026-10-20, typed-SSA multidimensional runtime-bound VLAs)
 
@@ -6814,8 +6814,9 @@ remains a separate open item.
 - [x] Pass the full native-Windows `test-ci` gate, including dual-architecture
       bootstrap reproducibility. RCC `main` commit: `685868d`. No push.
 - [ ] Aggregate initialization/copy forms beyond the fixed-local/element
-      assignments verified below, typed-SSA atomic RMW and additional atomic
-      VLA types, plus broader cleanup/unwind and control-flow interactions,
+      assignments verified below, typed-SSA atomic operations and additional
+      atomic VLA types beyond the scalar and fixed-size-pointer fetch-add
+      subset, plus broader cleanup/unwind and control-flow interactions,
       remain open.
 
 ## RCC continuation (2026-10-20, volatile scalar typed-SSA VLA elements)
@@ -6828,9 +6829,10 @@ remains a separate open item.
       28 functions with zero fallbacks and x64 execution passes. IR/lowering,
       classic VLA-runtime, and dual-architecture stage0-to-stage2 bootstrap
       gates pass. RCC `main` implementation commit: `8f67474`. No push.
-- [ ] Remaining VLA aggregate initialization/copy forms, typed-SSA atomic RMW
-      and atomic types beyond direct `_Atomic int` loads/stores, C++ class
-      lifetime, and cleanup/unwind/control-flow interactions remain open.
+- [ ] Remaining VLA aggregate initialization/copy forms, typed-SSA atomic
+      operations/types beyond the scalar and fixed-size-pointer fetch-add
+      subset, C++ class lifetime, and cleanup/unwind/control-flow interactions
+      remain open.
 
 ## RCC continuation (2026-10-20, typed-SSA VLA aggregate copies)
 
@@ -6839,9 +6841,10 @@ remains a separate open item.
       other element are unchanged. `test-verified-goto` checks zero-fallback
       i686/AMD64 objects at `-O0`/`-O2`, executes both x64 objects, and runs the
       C17 fixture with GCC as an independent host oracle.
-- [ ] Additional aggregate initialization/copy forms, typed-SSA atomic RMW and
-      atomic VLA types beyond direct `_Atomic int` loads/stores, C++ class
-      lifetime, and cleanup/unwind/control-flow interactions remain open.
+- [ ] Additional aggregate initialization/copy forms, typed-SSA atomic
+      operations/types beyond the scalar and fixed-size-pointer fetch-add
+      subset, C++ class lifetime, and cleanup/unwind/control-flow interactions
+      remain open.
 
 ## RCC continuation (2026-10-19, nested virtual-base class-array initialization)
 
@@ -7687,9 +7690,9 @@ remains a separate open item.
       at `-O0`/`-O2`; both AMD64 objects execute and the GCC C17 oracle passes
       via `make SHELL=cmd.exe test-verified-goto`.
 - [ ] Broader VLA aggregate initialization/copy semantics, typed-SSA atomic
-      RMW and atomic VLA types beyond direct `_Atomic int` loads/stores, C++
-      class lifetime, and cleanup/unwind/control-flow interactions remain
-      open.
+      operations/types beyond the scalar and fixed-size-pointer fetch-add
+      subset, C++ class lifetime, and cleanup/unwind/control-flow interactions
+      remain open.
 
 ## RCC continuation (2026-10-20, seq_cst atomic integer VLA access)
 
@@ -7704,22 +7707,25 @@ remains a separate open item.
 - [x] Add a typed-SSA atomic integer fetch-add operation returning the old
       value, and encode it as `LOCK XADD`. Lower atomic integer `+=`, `-=`, and
       prefix/postfix `++`/`--` for 8/16/32-bit objects on i686/AMD64 and 64-bit
-      objects on AMD64. The encoder uses the byte-specific opcode and the
-      16-bit operand-size prefix; the allocator reserves the XADD/address
+      objects on AMD64. Also lower atomic pointer `+=`, `-=`, and prefix/postfix
+      `++`/`--` when the pointee has a fixed, complete size; dynamic VLA strides
+      remain on the legacy path. The encoder uses the byte-specific opcode and
+      the 16-bit operand-size prefix; the allocator reserves the XADD/address
       scratch registers, and optimization preserves the memory side effect.
-      `test-ir` validates and executes 8/16/32/64-bit encodings, including
-      i686 selection; `test-verified-atomic-fetch-add` compiles and executes
-      narrow atomic compound assignments and increments at `-O0`/`-O2` with
-      zero fallback on both architectures (runtime execution on AMD64).
+      `test-ir` validates and executes 8/16/32/64-bit integer and pointer
+      encodings, including i686 selection. `test-verified-atomic-fetch-add`
+      compiles narrow integer and pointer operations at `-O0`/`-O2` with zero
+      fallback on both architectures, executes AMD64 outputs, and compares the
+      C17 fixture with GCC.
 - [x] Preserve unsupported atomic RMW operations such as `*=` through the
       existing atomic-capable legacy lowering. `test-verified-atomic-vla-rmw`
       checks exactly one fallback for i686/AMD64 at `-O0`/`-O2` and executes
       both AMD64 objects; it remains part of `test-verified-backend` and
       production `test-ci`.
-- [ ] Extend typed-SSA atomic RMW beyond integer fetch-add: pointer arithmetic,
-      explicit-order `__atomic_*` builtins and memory-order semantics,
-      additional integer RMW operators, floating/aggregate atomics, and
-      general C++ atomic operations remain open.
+- [ ] Extend typed-SSA atomic RMW beyond scalar and fixed-size-pointer
+      fetch-add: dynamic VLA pointee strides, explicit-order `__atomic_*`
+      builtins and memory-order semantics, additional integer RMW operators,
+      floating/aggregate atomics, and general C++ atomic operations remain open.
 - [x] Fix optimized VLA-bound dead-store elimination: runtime array
       declarator bounds and variably-modified types in `sizeof` are now reads
       (including nested pointer/array types), so an initializer such as

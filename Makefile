@@ -17352,6 +17352,10 @@ test-verified-atomic-fetch-add: $(RCC_TARGET)
 	$(GREP) -F -q 'Verified backend: 1 function(s) emitted' \
 		$(TEST_OUT)/verified-backend/atomic-fetch-add-x64-o2.log
 	$(call CHECK_COUNT,Verified backend fallback:,$(TEST_OUT)/verified-backend/atomic-fetch-add-x64-o2.log,0)
+	$(CC) -std=c17 -Wall -Wextra -Werror \
+		-o $(TEST_OUT)/verified-backend/atomic-fetch-add-gcc \
+		tests/verified_backend_atomic_fetch_add.c
+	$(TEST_OUT)/verified-backend/atomic-fetch-add-gcc
 	$(CC) $(CFLAGS) -I$(INCDIR) \
 		-o $(TEST_OUT)/verified-backend/atomic-fetch-add-run \
 		tests/verified_backend_goto_test.c $(SRCDIR)/emit_ro.c \
@@ -17360,7 +17364,7 @@ test-verified-atomic-fetch-add: $(RCC_TARGET)
 		$(TEST_OUT)/verified-backend/atomic-fetch-add-x64.ro
 	$(TEST_OUT)/verified-backend/atomic-fetch-add-run --entry \
 		$(TEST_OUT)/verified-backend/atomic-fetch-add-x64-o2.ro
-	@echo "Verified 8/16-bit atomic fetch-add tests completed"
+	@echo "Verified narrow integer and pointer atomic fetch-add tests completed"
 
 test-verified-vla-local-bound: $(RCC_TARGET)
 	$(call MKDIR_P,$(TEST_OUT)/verified-backend)

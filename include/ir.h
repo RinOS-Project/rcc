@@ -82,7 +82,8 @@ typedef enum {
     RCC_IR_FRAME_ADDRESS,
     RCC_IR_LOAD,
     RCC_IR_STORE,
-    /* Atomic integer fetch-add: returns the prior value and updates memory. */
+    /* Atomic integer/pointer fetch-add: returns the prior value and updates
+     * memory; pointer deltas are byte offsets. */
     RCC_IR_ATOMIC_FETCH_ADD,
     RCC_IR_GEP,
     RCC_IR_SYMBOL_ADDRESS,

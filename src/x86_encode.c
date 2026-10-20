@@ -2101,14 +2101,24 @@ static bool x86_emit_atomic_fetch_add(
     RccX86Value destination = instruction->destination;
     RccX86HardwareGpr address_register = address.kind == RCC_X86_VALUE_GPR
         ? address.gpr : RCC_X86_GPR_CX;
-    uint16_t size = instruction->type.bit_width / 8u;
-    if (instruction->type.kind != RCC_MIR_TYPE_INTEGER ||
-        (size != 1u && size != 2u && size != 4u &&
+    bool pointer_operation =
+        instruction->type.kind == RCC_MIR_TYPE_POINTER;
+    uint16_t size = pointer_operation
+        ? encoder->function->pointer_size
+        : instruction->type.bit_width / 8u;
+    if ((!pointer_operation &&
+         instruction->type.kind != RCC_MIR_TYPE_INTEGER) ||
+        (!pointer_operation &&
+         size != 1u && size != 2u && size != 4u &&
          (size != 8u ||
           encoder->function->target != RCC_X86_TARGET_X86_64)) ||
+        (pointer_operation &&
+         (instruction->operand_types[1].kind != RCC_MIR_TYPE_INTEGER ||
+          instruction->operand_types[1].bit_width != size * 8u)) ||
         instruction->operand_types[0].kind != RCC_MIR_TYPE_POINTER ||
-        !rcc_mir_type_equal(instruction->operand_types[1],
-                            instruction->type)) {
+        (!pointer_operation &&
+         !rcc_mir_type_equal(instruction->operand_types[1],
+                             instruction->type))) {
         return x86_encode_error(
             encoder, "x86 atomic fetch-add contract is invalid");
     }
