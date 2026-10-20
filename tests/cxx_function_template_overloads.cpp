@@ -2623,7 +2623,9 @@ static bool convert_function_member_pointer_to_bool(
 #pragma GCC diagnostic ignored "-Waddress"
 static int verify_array_to_bool_decay() {
     int value[1] = { 1 };
-    return choose_array_to_bool(value);
+    int pointer_result = choose_pointer_to_bool_non_template(value);
+    return pointer_result == 216 ? choose_array_to_bool(value)
+                                 : pointer_result;
 }
 
 static int verify_array_to_bool_reference_decay() {

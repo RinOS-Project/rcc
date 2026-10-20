@@ -2962,6 +2962,11 @@ remains a separate open item.
   pointer conversion to `void*`. Ordinary and function-template overloads
   select the `void*` candidate, and `static_cast<bool>(nullptr)` remains valid.
   The same focused gate passes for both targets and GCC C++20.
+- [x] Apply the same pointer-to-bool tie-break after array-to-pointer decay.
+  An array argument competing for `bool` and `void*` previously produced a
+  false ambiguity; the `void*` overload now wins, matching GCC C++20. The
+  focused native-Windows overload gate passes for i686/AMD64 generation and
+  AMD64 execution.
 - [ ] Extend equal-rank standard-conversion ordering to other conversions and
   reference bindings; proper subsequences and user-defined conversion ties
   remain open.

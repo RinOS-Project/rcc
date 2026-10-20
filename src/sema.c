@@ -9412,14 +9412,17 @@ int rcc_sema_cxx_pointer_to_bool_target_relation(Type* source,
     if (right_target && right_target->is_reference) {
         right_target = right_target->base;
     }
-    if (!source || source->kind != TYPE_PTR || !left_target ||
-        !right_target ||
+    if (!source ||
+        (source->kind != TYPE_PTR && source->kind != TYPE_ARRAY &&
+         source->kind != TYPE_FUNC) ||
+        !left_target || !right_target ||
         (left_target->kind == TYPE_BOOL) ==
             (right_target->kind == TYPE_BOOL)) {
         return 0;
     }
     /* [over.ics.rank] ranks a same-rank standard conversion that does not
-     * convert a pointer or pointer-to-member to bool above one that does. */
+     * convert a pointer or pointer-to-member to bool above one that does.
+     * Array/function arguments reach the same tie-break after decay. */
     return left_target->kind == TYPE_BOOL ? -1 : 1;
 }
 
