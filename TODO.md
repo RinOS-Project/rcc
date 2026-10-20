@@ -7321,6 +7321,12 @@ remains a separate open item.
       target emits twenty-two functions with zero fallback on i686/AMD64 at
       `-O0`/`-O2`; generated AMD64 SSA and legacy host checks pass (`65713`),
       as do verified exception-cleanup and function-template-reference tests.
+- [x] Verify recursively nested class-prvalue conditional arms when used as a
+      conversion-function receiver. The selected inner arm is destroyed once
+      at full-expression end; unselected arms are not evaluated, and the
+      converted result survives to scope exit. The focused target emits
+      twenty-two functions with zero fallback on i686/AMD64 at `-O0`/`-O2`;
+      generated AMD64 SSA and legacy host execution pass (`65714`).
 - [ ] Other converted-reference shapes, static/TLS lifetime extension,
       additional conditional/subobject forms, and remaining full-expression
       cleanup paths remain open.

@@ -273,6 +273,27 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     if (conditional_receiver_cleanup_order != 15) return -15;
     if (cleanup_order != 15) return -16;
     cleanup_order = 0;
+    conditional_receiver_cleanup_order = 0;
+    {
+        const VerifiedThrowingTemporary& value =
+            1 ? (0 ? VerifiedThrowingTemporaryConversionSource{
+                        &cleanup_order, 17,
+                        &conditional_receiver_cleanup_order}
+                  : VerifiedThrowingTemporaryConversionSource{
+                        &cleanup_order, 18,
+                        &conditional_receiver_cleanup_order})
+              : VerifiedThrowingTemporaryConversionSource{
+                    &cleanup_order, 19,
+                    &conditional_receiver_cleanup_order};
+        conditional_receiver_observation = value.cleanup_id * 100 +
+            conditional_receiver_cleanup_order * 10 + cleanup_order;
+    }
+    if (conditional_receiver_observation != 1980) {
+        return conditional_receiver_observation;
+    }
+    if (conditional_receiver_cleanup_order != 18) return -20;
+    if (cleanup_order != 18) return -21;
+    cleanup_order = 0;
     {
         const VerifiedThrowingTemporary& value =
             (++comma_receiver_evaluations,
@@ -287,7 +308,7 @@ extern "C" int verified_cxx_local_reference_normal_cleanup() {
     if (comma_receiver_evaluations != 1) return -17;
     if (comma_receiver_cleanup_order != 16) return -18;
     if (cleanup_order != 16) return -19;
-    return 65713;
+    return 65714;
 }
 
 extern "C" int verified_cxx_throwing_initializer_cleanup(int should_throw) {
