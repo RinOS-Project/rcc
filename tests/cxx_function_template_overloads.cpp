@@ -251,6 +251,10 @@ struct ConversionMemberPointerRoot {
     void throwing_function() {}
 };
 
+struct ConversionNestedMemberPointerOwner {
+    int* pointer;
+};
+
 struct ConversionMemberPointerMiddle : ConversionMemberPointerRoot {};
 struct ConversionMemberPointerLeaf : ConversionMemberPointerMiddle {};
 
@@ -2929,6 +2933,28 @@ int choose_member_pointer_owner_cv_subsequence_non_template(
 }
 
 template<typename T>
+int choose_nested_member_pointer_qualification(
+    T, int* ConversionNestedMemberPointerOwner::*) {
+    return 245;
+}
+
+template<typename T>
+int choose_nested_member_pointer_qualification(
+    T, const int* ConversionNestedMemberPointerOwner::*) {
+    return 246;
+}
+
+int choose_nested_member_pointer_qualification_non_template(
+    int* ConversionNestedMemberPointerOwner::*) {
+    return 247;
+}
+
+int choose_nested_member_pointer_qualification_non_template(
+    const int* ConversionNestedMemberPointerOwner::*) {
+    return 248;
+}
+
+template<typename T>
 int choose_member_function_pointer_noexcept(
     T, void (ConversionMemberPointerMiddle::*)() noexcept) {
     return 205;
@@ -4277,6 +4303,11 @@ int main(void) {
                        0, &ConversionMemberPointerRoot::value) == 233 &&
                    choose_member_pointer_owner_cv_subsequence_non_template(
                        &ConversionMemberPointerRoot::value) == 235 &&
+                   choose_nested_member_pointer_qualification(
+                       0, &ConversionNestedMemberPointerOwner::pointer) ==
+                       245 &&
+                   choose_nested_member_pointer_qualification_non_template(
+                       &ConversionNestedMemberPointerOwner::pointer) == 247 &&
                    choose_member_function_pointer_noexcept(
                        0, root_noexcept_member_function) == 205 &&
                    choose_member_function_pointer_noexcept(

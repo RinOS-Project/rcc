@@ -4467,8 +4467,12 @@ static Type* parse_declarator(Type* base_type, const char** name,
     if (parameters) *parameters = NULL;
     parser_last_declarator_parameter_pack = false;
 
-    /* Bounded data-member pointer declarator: `T C::*member`.  Retain the
-     * owning class in the type so sema can distinguish it from `T*`. */
+    leading_pointers = parse_pointer_levels();
+
+    /* A data-member pointer's member type can itself have pointer layers:
+     * `int* Owner::*member`. Parse the ordinary pointer layers before the
+     * owner as part of that member type, then parse any layers after `::*`
+     * as pointers/references to the completed member-pointer type. */
     if (parser_cxx_mode && check(TOK_IDENT)) {
         Token* cursor = parser.cur;
         Token* star = NULL;
@@ -4510,6 +4514,8 @@ static Type* parse_declarator(Type* base_type, const char** name,
             Type* owner = rcc_parser_lookup_type(owner_name);
             if (owner && (owner->kind == TYPE_STRUCT ||
                           owner->kind == TYPE_UNION)) {
+                type = apply_pointer_levels(type, leading_pointers);
+                leading_pointers = NULL;
                 while (parser.cur != star->next) advance();
                 type = type_ptr(type);
                 type_cxx_member_pointer(type, owner);
@@ -4520,11 +4526,10 @@ static Type* parse_declarator(Type* base_type, const char** name,
                         type->is_volatile = true;
                     } else type->is_restrict = true;
                 }
+                leading_pointers = parse_pointer_levels();
             }
         }
     }
-
-    leading_pointers = parse_pointer_levels();
 
     /* Function-pointer declarator: return_type (*name)(parameters). */
     if (check(TOK_LPAREN) && parser.cur->next &&
