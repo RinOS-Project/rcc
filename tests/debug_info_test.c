@@ -3448,7 +3448,7 @@ static void verify_inline_parameter_frame_address(
     const ObjSection* info, const ObjSection* strings,
     const ObjSection* locations, uint64_t call_die,
     uint16_t architecture, const char* variable_name,
-    int64_t expected_adjustment) {
+    int64_t expected_adjustment, bool dereference_source) {
     uint64_t address_size = architecture == ARCH_X64 ? 8u : 4u;
     uint64_t concrete_parameter;
     uint32_t origin_parameter;
@@ -3481,6 +3481,10 @@ static void verify_inline_parameter_frame_address(
     ++expression_offset;
     expression_frame_offset = read_sleb(
         info->data, info->size, &expression_offset);
+    if (dereference_source) {
+        assert(expression_offset < expression_end &&
+               info->data[expression_offset++] == 0x06u); /* DW_OP_deref */
+    }
     if (expected_adjustment > 0) {
         uint64_t encoded_adjustment;
         assert(expression_offset < expression_end &&
@@ -4933,13 +4937,15 @@ static void verify_inline_debug_object(const char* path,
     }
     verify_inline_parameter_frame_address(
         info, strings, locations, automatic_address_inline_call,
-        architecture, "debug_inline_automatic_address_source", 0);
+        architecture, "debug_inline_automatic_address_source", 0, false);
     verify_inline_parameter_frame_address(
         info, strings, locations, automatic_const_address_inline_call,
-        architecture, "debug_inline_automatic_const_address_source", 0);
+        architecture, "debug_inline_automatic_const_address_source", 0,
+        false);
     verify_inline_parameter_frame_address(
         info, strings, locations, automatic_void_address_inline_call,
-        architecture, "debug_inline_automatic_void_address_source", 0);
+        architecture, "debug_inline_automatic_void_address_source", 0,
+        false);
     verify_inline_parameter_address_constant(
         info, array_plus_constant_inline_call, architecture,
         "debug_inline_addressed_array_source", 12);
@@ -5166,13 +5172,14 @@ static void verify_cxx_inline_adjusted_base_parameter(
         "debug_inline_adjusted_pointer_source", 4);
     verify_inline_parameter_frame_address(
         info, strings, locations, automatic_call_die, architecture,
-        "debug_inline_adjusted_automatic_source", 4);
+        "debug_inline_adjusted_automatic_source", 4, false);
     objfile_free(object);
 }
 
-static void verify_cxx_inline_automatic_subobject_address(
+static void verify_cxx_inline_automatic_pointer_value(
     const char* path, uint16_t architecture, const char* entry_name,
-    const char* variable_name, int64_t expected_offset)
+    const char* variable_name, int64_t expected_offset,
+    bool dereference_source)
 {
     ObjectFile* object = objfile_read(path);
     ObjSection* info;
@@ -5229,7 +5236,7 @@ static void verify_cxx_inline_automatic_subobject_address(
     assert(call_die != UINT64_MAX);
     verify_inline_parameter_frame_address(
         info, strings, locations, call_die, architecture, variable_name,
-        expected_offset);
+        expected_offset, dereference_source);
     objfile_free(object);
 }
 
@@ -7894,34 +7901,58 @@ int main(int argc, char** argv)
     verify_cxx_inline_adjusted_base_parameter(argv[41], ARCH_X64);
     verify_cxx_inline_adjusted_base_parameter(argv[42], ARCH_X86);
     verify_cxx_inline_adjusted_base_parameter(argv[43], ARCH_X64);
-    verify_cxx_inline_automatic_subobject_address(
+    verify_cxx_inline_automatic_pointer_value(
         argv[40], ARCH_X86, "debug_inline_automatic_member_address_entry",
-        "debug_inline_automatic_member_source", 4);
-    verify_cxx_inline_automatic_subobject_address(
+        "debug_inline_automatic_member_source", 4, false);
+    verify_cxx_inline_automatic_pointer_value(
         argv[41], ARCH_X64, "debug_inline_automatic_member_address_entry",
-        "debug_inline_automatic_member_source", 4);
-    verify_cxx_inline_automatic_subobject_address(
+        "debug_inline_automatic_member_source", 4, false);
+    verify_cxx_inline_automatic_pointer_value(
         argv[42], ARCH_X86, "debug_inline_automatic_member_address_entry",
-        "debug_inline_automatic_member_source", 4);
-    verify_cxx_inline_automatic_subobject_address(
+        "debug_inline_automatic_member_source", 4, false);
+    verify_cxx_inline_automatic_pointer_value(
         argv[43], ARCH_X64, "debug_inline_automatic_member_address_entry",
-        "debug_inline_automatic_member_source", 4);
-    verify_cxx_inline_automatic_subobject_address(
+        "debug_inline_automatic_member_source", 4, false);
+    verify_cxx_inline_automatic_pointer_value(
         argv[40], ARCH_X86,
         "debug_inline_automatic_array_element_address_entry",
-        "debug_inline_automatic_array_source", 16);
-    verify_cxx_inline_automatic_subobject_address(
+        "debug_inline_automatic_array_source", 16, false);
+    verify_cxx_inline_automatic_pointer_value(
         argv[41], ARCH_X64,
         "debug_inline_automatic_array_element_address_entry",
-        "debug_inline_automatic_array_source", 16);
-    verify_cxx_inline_automatic_subobject_address(
+        "debug_inline_automatic_array_source", 16, false);
+    verify_cxx_inline_automatic_pointer_value(
         argv[42], ARCH_X86,
         "debug_inline_automatic_array_element_address_entry",
-        "debug_inline_automatic_array_source", 16);
-    verify_cxx_inline_automatic_subobject_address(
+        "debug_inline_automatic_array_source", 16, false);
+    verify_cxx_inline_automatic_pointer_value(
         argv[43], ARCH_X64,
         "debug_inline_automatic_array_element_address_entry",
-        "debug_inline_automatic_array_source", 16);
+        "debug_inline_automatic_array_source", 16, false);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[40], ARCH_X86, "debug_inline_automatic_pointer_add_entry",
+        "debug_inline_automatic_pointer_source", 8, true);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[41], ARCH_X64, "debug_inline_automatic_pointer_add_entry",
+        "debug_inline_automatic_pointer_source", 8, true);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[42], ARCH_X86, "debug_inline_automatic_pointer_add_entry",
+        "debug_inline_automatic_pointer_source", 8, true);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[43], ARCH_X64, "debug_inline_automatic_pointer_add_entry",
+        "debug_inline_automatic_pointer_source", 8, true);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[40], ARCH_X86, "debug_inline_automatic_pointer_sub_entry",
+        "debug_inline_automatic_pointer_sub_source", -4, true);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[41], ARCH_X64, "debug_inline_automatic_pointer_sub_entry",
+        "debug_inline_automatic_pointer_sub_source", -4, true);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[42], ARCH_X86, "debug_inline_automatic_pointer_sub_entry",
+        "debug_inline_automatic_pointer_sub_source", -4, true);
+    verify_cxx_inline_automatic_pointer_value(
+        argv[43], ARCH_X64, "debug_inline_automatic_pointer_sub_entry",
+        "debug_inline_automatic_pointer_sub_source", -4, true);
     verify_cxx_inline_constexpr_parameter(
         argv[40], ARCH_X86, "debug_inline_constexpr_identifier_parameter",
         "debug_inline_constexpr_identifier_entry", 41);

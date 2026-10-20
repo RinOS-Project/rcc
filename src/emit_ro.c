@@ -4897,6 +4897,57 @@ static bool debug_inline_parameter_frame_offset(
     return true;
 }
 
+static bool debug_inline_pointer_arithmetic_source(
+    const Expr* expression, const Expr** pointer_expression,
+    int64_t* byte_displacement) {
+    const Expr* pointer;
+    const Expr* offset;
+    const Type* pointer_type;
+    const Type* element_type;
+    int64_t element_count;
+    bool subtract;
+    if (!expression || !pointer_expression || !byte_displacement ||
+        (expression->kind != EXPR_ADD && expression->kind != EXPR_SUB)) {
+        return false;
+    }
+    pointer = expression->binary_lhs;
+    offset = expression->binary_rhs;
+    subtract = expression->kind == EXPR_SUB;
+    if (!pointer || !pointer->type ||
+        (pointer->type->kind != TYPE_PTR &&
+         pointer->type->kind != TYPE_ARRAY)) {
+        if (subtract || !expression->binary_rhs ||
+            !expression->binary_rhs->type ||
+            (expression->binary_rhs->type->kind != TYPE_PTR &&
+             expression->binary_rhs->type->kind != TYPE_ARRAY)) {
+            return false;
+        }
+        pointer = expression->binary_rhs;
+        offset = expression->binary_lhs;
+    }
+    pointer_type = pointer->type;
+    if (pointer_type->cxx_is_member_pointer || !pointer_type->base ||
+        pointer_type->base->kind == TYPE_FUNC ||
+        pointer_type->base->size <= 0 ||
+        !debug_inline_integer_constant_value(offset, &element_count, 0u)) {
+        return false;
+    }
+    if (subtract) {
+        if (element_count == INT64_MIN) return false;
+        element_count = -element_count;
+    }
+    element_type = pointer_type->base;
+    if ((element_count > 0 &&
+         element_count > INT64_MAX / element_type->size) ||
+        (element_count < 0 &&
+         element_count < INT64_MIN / element_type->size)) {
+        return false;
+    }
+    *pointer_expression = pointer;
+    *byte_displacement = element_count * element_type->size;
+    return true;
+}
+
 static const ModuleSymbol* debug_inline_parameter_source_symbol(
     const Module* mod, const char* filename,
     const Decl* callee,
@@ -4959,18 +5010,20 @@ static bool debug_inline_parameter_frame_address(
     const Module* mod, const Decl* callee,
     const ModuleDebugInlineParameterValue* value,
     const ExprList* argument, int64_t* frame_offset,
-    int64_t* pointer_adjustment) {
+    int64_t* address_addend, int64_t* pointer_adjustment,
+    bool* dereference_source) {
     const Expr* expression;
     const Expr* address_expression;
     const Expr* operand;
+    const Expr* pointer_expression = NULL;
     const Decl* source;
     const Type* parameter_type;
     const Type* argument_type;
-    int64_t address_addend;
+    int64_t byte_displacement = 0;
     uint8_t address_size;
     if (!mod || !callee || !value || !value->declaration || !argument ||
         !argument->expr || argument->cxx_temporary_owner || !frame_offset ||
-        !pointer_adjustment) {
+        !address_addend || !pointer_adjustment || !dereference_source) {
         return false;
     }
     expression = argument->expr;
@@ -5009,16 +5062,81 @@ static bool debug_inline_parameter_frame_address(
         }
         address_expression = address_expression->cast_expr;
     }
-    if (!address_expression || !address_expression->type ||
-        address_expression->type->kind != TYPE_PTR ||
-        address_expression->type->cxx_is_member_pointer ||
-        address_expression->type->size != address_size) {
-        return false;
+    if (address_expression &&
+        (address_expression->kind == EXPR_ADD ||
+         address_expression->kind == EXPR_SUB)) {
+        if (!debug_inline_pointer_arithmetic_source(
+                address_expression, &pointer_expression,
+                &byte_displacement)) {
+            return false;
+        }
+        while (pointer_expression) {
+            if (pointer_expression->cxx_virtual_base_adjustment ||
+                pointer_expression->cxx_member_pointer_adjustment_valid) {
+                return false;
+            }
+            if (pointer_expression->cxx_pointer_adjustment_valid) {
+                int64_t adjustment =
+                    pointer_expression->cxx_pointer_adjustment;
+                if ((adjustment > 0 &&
+                     *pointer_adjustment > INT64_MAX - adjustment) ||
+                    (adjustment < 0 &&
+                     *pointer_adjustment < INT64_MIN - adjustment)) {
+                    return false;
+                }
+                *pointer_adjustment += adjustment;
+            }
+            if (pointer_expression->kind != EXPR_CAST ||
+                !pointer_expression->cast_expr) {
+                break;
+            }
+            const Type* cast_target = pointer_expression->type;
+            const Type* cast_source = pointer_expression->cast_expr->type;
+            if (!cast_target || cast_target->kind != TYPE_PTR ||
+                cast_target->cxx_is_member_pointer ||
+                cast_target->size != address_size || !cast_source ||
+                (cast_source->kind != TYPE_PTR &&
+                 cast_source->kind != TYPE_ARRAY) ||
+                (cast_source->kind == TYPE_PTR &&
+                 (cast_source->cxx_is_member_pointer ||
+                  cast_source->size != address_size))) {
+                return false;
+            }
+            pointer_expression = pointer_expression->cast_expr;
+        }
+        if (!pointer_expression || !pointer_expression->type ||
+            pointer_expression->type->kind != TYPE_PTR ||
+            pointer_expression->type->cxx_is_member_pointer ||
+            pointer_expression->type->size != address_size ||
+            debug_inline_static_array_designator(
+                pointer_expression, NULL)) {
+            return false;
+        }
+        if (pointer_expression->kind == EXPR_ADDR) {
+            return false;
+        }
+        operand = pointer_expression;
+        *dereference_source = true;
+        if ((byte_displacement > 0 &&
+             *pointer_adjustment > INT64_MAX - byte_displacement) ||
+            (byte_displacement < 0 &&
+             *pointer_adjustment < INT64_MIN - byte_displacement)) {
+            return false;
+        }
+        *pointer_adjustment += byte_displacement;
+    } else {
+        if (!address_expression || !address_expression->type ||
+            address_expression->type->kind != TYPE_PTR ||
+            address_expression->type->cxx_is_member_pointer ||
+            address_expression->type->size != address_size ||
+            address_expression->kind != EXPR_ADDR) {
+            return false;
+        }
+        operand = address_expression->unary_operand;
+        *dereference_source = false;
     }
-    operand = address_expression->kind == EXPR_ADDR
-        ? address_expression->unary_operand : NULL;
     if (!operand || !debug_inline_address_path(
-            operand, &source, &address_addend, true, true, 0u)) {
+            operand, &source, address_addend, true, true, 0u)) {
         return false;
     }
     parameter_type = value->declaration->type;
@@ -5044,32 +5162,56 @@ static bool debug_inline_parameter_frame_address(
         !debug_inline_parameter_body_is_read_only(callee)) {
         return false;
     }
-    if (!source->type || source->type->size <= 0 || address_addend < 0 ||
-        address_addend > source->type->size ||
-        (*pointer_adjustment > 0 &&
-         address_addend > INT64_MAX - *pointer_adjustment) ||
-        (*pointer_adjustment < 0 &&
-         address_addend < INT64_MIN - *pointer_adjustment)) {
+    if (!source->type || source->type->size <= 0 || *address_addend < 0 ||
+        *address_addend > source->type->size) {
         return false;
     }
-    *pointer_adjustment += address_addend;
-    if (*pointer_adjustment < 0 ||
-        *pointer_adjustment > source->type->size ||
-        (argument_type->base->kind != TYPE_VOID &&
-         (argument_type->base->size <= 0 ||
-          (*pointer_adjustment < source->type->size &&
-           argument_type->base->size >
-               source->type->size - *pointer_adjustment)))) {
-        return false;
+    if (*dereference_source) {
+        if (source->type->size < (int)address_size ||
+            *address_addend >
+                source->type->size - (int)address_size) {
+            return false;
+        }
+    } else {
+        int64_t result_addend;
+        if ((*pointer_adjustment > 0 &&
+             *address_addend > INT64_MAX - *pointer_adjustment) ||
+            (*pointer_adjustment < 0 &&
+             *address_addend < INT64_MIN - *pointer_adjustment)) {
+            return false;
+        }
+        result_addend = *address_addend + *pointer_adjustment;
+        if (result_addend < 0 || result_addend > source->type->size ||
+            (argument_type->base->kind != TYPE_VOID &&
+             (argument_type->base->size <= 0 ||
+              (result_addend < source->type->size &&
+               argument_type->base->size >
+                   source->type->size - result_addend)))) {
+            return false;
+        }
     }
     return debug_inline_parameter_frame_offset(mod, source, frame_offset);
 }
 
 static size_t debug_build_inline_pointer_value_expression(
-    uint8_t expression[32], int architecture, int64_t frame_offset,
+    uint8_t expression[48], int architecture, int64_t frame_offset,
+    int64_t address_addend, bool dereference_source,
     int64_t pointer_adjustment) {
     size_t size = debug_build_expr_breg(
         expression, architecture, frame_offset, 0u, false);
+    if (address_addend > 0) {
+        uint64_t value = (uint64_t)address_addend;
+        expression[size++] = 0x23u; /* DW_OP_plus_uconst */
+        do {
+            uint8_t byte = (uint8_t)(value & 0x7fu);
+            value >>= 7u;
+            if (value != 0u) byte |= 0x80u;
+            expression[size++] = byte;
+        } while (value != 0u);
+    }
+    if (dereference_source) {
+        expression[size++] = 0x06u; /* DW_OP_deref */
+    }
     if (pointer_adjustment > 0) {
         uint64_t value = (uint64_t)pointer_adjustment;
         expression[size++] = 0x23u; /* DW_OP_plus_uconst */
@@ -5080,17 +5222,9 @@ static size_t debug_build_inline_pointer_value_expression(
             expression[size++] = byte;
         } while (value != 0u);
     } else if (pointer_adjustment < 0) {
-        int64_t value = pointer_adjustment;
-        bool more;
         expression[size++] = 0x11u; /* DW_OP_consts */
-        do {
-            uint8_t byte = (uint8_t)((uint64_t)value & 0x7fu);
-            value >>= 7;
-            more = !((value == 0 && (byte & 0x40u) == 0u) ||
-                     (value == -1 && (byte & 0x40u) != 0u));
-            if (more) byte |= 0x80u;
-            expression[size++] = byte;
-        } while (more);
+        debug_expr_append_sleb(
+            expression, &size, pointer_adjustment);
         expression[size++] = 0x22u; /* DW_OP_plus */
     }
     expression[size++] = 0x9fu; /* DW_OP_stack_value */
@@ -5114,7 +5248,9 @@ static void debug_emit_inline_parameter_instances(
         bool source_frame_based = false;
         int64_t source_frame_offset = 0;
         int64_t source_frame_address_offset = 0;
+        int64_t source_frame_address_addend = 0;
         int64_t source_pointer_adjustment = 0;
+        bool source_frame_dereference = false;
         int64_t address_addend = 0;
         if (value->has_signed_integer_constant && value->declaration &&
             (origin = debug_inline_parameter_origin_find(
@@ -5177,12 +5313,15 @@ static void debug_emit_inline_parameter_instances(
                    debug_inline_parameter_frame_address(
                        mod, call->callee, value, argument,
                        &source_frame_address_offset,
-                       &source_pointer_adjustment)) {
-            uint8_t expression[32];
+                       &source_frame_address_addend,
+                       &source_pointer_adjustment,
+                       &source_frame_dereference)) {
+            uint8_t expression[48];
             size_t expression_size =
                 debug_build_inline_pointer_value_expression(
                     expression, architecture, source_frame_address_offset,
-                    source_pointer_adjustment);
+                    source_frame_address_addend,
+                    source_frame_dereference, source_pointer_adjustment);
             section_add_byte(info, 67u);
             debug_line_u32(info, origin->die_offset);
             debug_line_uleb(info, expression_size);

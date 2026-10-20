@@ -7196,8 +7196,15 @@ remains a separate open item.
       non-virtual member and element byte offsets; regressions verify `+4` for
       a member and `+16` for an array element in legacy and verified optimized
       i686/AMD64 DWARF. Native-Windows `test-debug-info` passes.
+- [x] Preserve a dynamic pointer value held in an addressable automatic
+      pointer slot for a single constant `+N`/`-N` operation. Read the pointer
+      with `DW_OP_deref`, scale the integral offset by the pointee size, and
+      emit the computed value with `DW_OP_stack_value`; verify `pointer + 2`
+      (`+8` bytes) and `pointer - 1` (`-4` bytes) in legacy and verified
+      optimized i686/AMD64 DWARF. Native-Windows `test-debug-info` passes.
 - [ ] Register-only or optimized-away sources, virtual-base/member-pointer
-      adjustments, dynamic subobject indexes and pointer expressions,
+      adjustments, nested pointer arithmetic, nonconstant offsets, dynamic
+      subobject indexes and compound pointer expressions,
       mutable-parameter tracking, and optimized register/piece tracking remain
       open; this does not implement general variable-location tracking.
 

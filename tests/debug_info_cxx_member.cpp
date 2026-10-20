@@ -155,6 +155,8 @@ DebugInlineAdjustedDerived debug_inline_adjusted_pointer_source;
 DebugInlineAdjustedDerived* debug_inline_adjusted_automatic_escape;
 DebugInlineAutomaticAddressAggregate*
     debug_inline_automatic_aggregate_escape;
+int** debug_inline_automatic_pointer_slot_escape;
+int* debug_inline_automatic_pointer_value_escape;
 
 inline int debug_inline_adjusted_base_parameter_inline(
     DebugInlineAdjustedBase* value) {
@@ -198,6 +200,28 @@ int debug_inline_automatic_array_element_address_entry() {
         &debug_inline_automatic_array_source.values[2]);
     debug_inline_automatic_aggregate_escape =
         &debug_inline_automatic_array_source;
+    return result;
+}
+
+int debug_inline_automatic_pointer_add_entry(int* seed) {
+    int* debug_inline_automatic_pointer_source = seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_source;
+    int result = debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_source + 2);
+    debug_inline_automatic_pointer_value_escape =
+        debug_inline_automatic_pointer_source;
+    return result;
+}
+
+int debug_inline_automatic_pointer_sub_entry(int* seed) {
+    int* debug_inline_automatic_pointer_sub_source = seed;
+    debug_inline_automatic_pointer_slot_escape =
+        &debug_inline_automatic_pointer_sub_source;
+    int result = debug_inline_automatic_subobject_parameter_inline(
+        debug_inline_automatic_pointer_sub_source - 1);
+    debug_inline_automatic_pointer_value_escape =
+        debug_inline_automatic_pointer_sub_source;
     return result;
 }
 
