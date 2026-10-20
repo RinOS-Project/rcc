@@ -7481,3 +7481,17 @@ remains a separate open item.
       generated AMD64 execution, and GCC host execution.
 - [ ] General standard-conversion subsequences, reference bindings, other
       pointer-to-member ranks, and user-defined conversion ties remain open.
+
+## RCC continuation (2026-10-20, standard pointer conversion references)
+
+- [x] Apply standard pointer conversions before binding a temporary to a
+      reference, including `int*` to `const void* const&`, array decay, and
+      derived-to-base pointer adjustment. Preserve direct reference binding
+      when a user-defined conversion already returns a compatible lvalue.
+- [x] Rank the competing `const int* const&` and `const void* const&`
+      sequences so the better pointer conversion wins, matching GCC C++20.
+      `make SHELL=cmd.exe test-cxx-conversion-operator` passes GCC checks,
+      i686/AMD64 generation, AMD64 execution, and invalid mutable-reference
+      diagnostics on both targets.
+- [ ] Other standard-conversion subsequences, reference-binding categories,
+      pointer-to-member ranks, and user-defined conversion ties remain open.

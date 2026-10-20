@@ -796,6 +796,14 @@ int choose_pointer_reference_conversion(const void* const&) {
     return 199;
 }
 
+int choose_standard_pointer_reference_sequence(const int* const&) {
+    return 307;
+}
+
+int choose_standard_pointer_reference_sequence(const void* const&) {
+    return 311;
+}
+
 template<typename T>
 int choose_template_pointer_conversion(T, ConversionBasePointerTarget*) {
     return 79;
@@ -948,10 +956,13 @@ int main() {
     FunctionReferenceConversionTarget&& rvalue_function_from_lvalue =
         lvalue_function_reference_source;
     ConversionDerivedPointerTarget derived_pointer_target{67};
+    ConversionDerivedPointerTarget* raw_derived_pointer =
+        &derived_pointer_target;
     ConversionPointerSource pointer_source{&derived_pointer_target};
     int conversion_array_values[2] = {29, 31};
     int array_pointer_values[2] = {31, 37};
     const int const_array_pointer_values[2] = {41, 43};
+    int* raw_pointer_reference_value = conversion_array_values;
     ArrayReferenceConversionSource array_reference_source{
         &conversion_array_values};
     int pointer_bool_value = 1;
@@ -1076,6 +1087,11 @@ int main() {
         choose_cv_base_pointer_or_void(pointer_source) != 281 ||
         choose_array_pointer_or_void(array_pointer_values) != 293 ||
         choose_array_pointer_or_void(const_array_pointer_values) != 293 ||
+        choose_pointer_reference_conversion(raw_derived_pointer) != 197 ||
+        choose_standard_pointer_reference_sequence(
+            raw_pointer_reference_value) != 307 ||
+        consume_void_pointer_reference(raw_pointer_reference_value) != 157 ||
+        consume_void_pointer_reference(array_pointer_values) != 157 ||
         choose_pointer_to_bool_or_void(pointer_source) != 229 ||
         choose_pointer_void_qualification(pointer_source) != 271 ||
         static_cast<void*>(pointer_void_result_source) !=

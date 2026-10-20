@@ -3627,6 +3627,27 @@ reference_binding_source:
             *e = *converted;
             goto reference_binding_source;
         }
+        if (rcc_parser_is_cxx_mode() && !referred->is_reference &&
+            !cxx_reference_object_compatible(source_object, referred) &&
+            (target->is_rvalue_reference || referred->is_const) &&
+            (type_is_arithmetic(referred) ||
+             (referred->kind == TYPE_PTR &&
+              !referred->cxx_is_member_pointer))) {
+            int standard_rank = rcc_sema_cxx_conversion_rank(
+                e, e->type, referred);
+            if (standard_rank >= 0 && standard_rank < 3 &&
+                !(target->is_rvalue_reference && is_lvalue(e) &&
+                  standard_rank == 0)) {
+                Expr* source_expression =
+                    ast_arena_alloc(sizeof(*source_expression));
+                Expr* converted;
+                *source_expression = *e;
+                converted = expr_cast(referred, source_expression, e->loc);
+                sema_expr(converted);
+                *e = *converted;
+                goto reference_binding_validated;
+            }
+        }
         if (rcc_parser_is_cxx_mode() &&
             (source_object->kind == TYPE_STRUCT ||
              source_object->kind == TYPE_UNION) &&
@@ -9141,6 +9162,23 @@ static int cxx_conversion_rank_detail_at_context(
                 return 2;
             }
             if (type_is_compatible(source, target_base)) return 1;
+        }
+        /* A standard conversion may first create a temporary of the referred
+         * type, which can then bind to a const lvalue reference or an rvalue
+         * reference. This differs from direct reference binding; for example,
+         * `int*` to `const void* const&` materializes the converted pointer. */
+        if (!target_base->is_reference &&
+            !(target_base->kind == TYPE_PTR &&
+              target_base->cxx_is_member_pointer) &&
+            (target->is_rvalue_reference || target_base->is_const)) {
+            int standard_rank = cxx_conversion_rank_detail_at_context(
+                argument, target_base, NULL, access_context,
+                function_friend_access);
+            if (standard_rank >= 0 && standard_rank < 3 &&
+                !(target->is_rvalue_reference && is_lvalue(argument) &&
+                  standard_rank == 0)) {
+                return standard_rank;
+            }
         }
         if (rcc_parser_is_cxx_mode() &&
             (source->kind == TYPE_STRUCT || source->kind == TYPE_UNION)) {
